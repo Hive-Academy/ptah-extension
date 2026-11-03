@@ -4,19 +4,25 @@ import type {
   IProcessSpawner,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
+import type { PlanLimitWindow, QuotaOwnerRef } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  CODEX_INITIALIZE_TIMEOUT_MS,
+  normalizeCodexHomeKey,
+  type CodexAccountUsageClient,
+} from '@ptah-extension/codex-runtime';
 import {
   SDK_TOKENS,
   resolveCodexNativeBinaryPath,
   type SdkAdapterEvents,
 } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
-import { accountOwnerKey } from '../../quota/provider-owner.resolver';
+import { accountOwnerKey, quotaOwnerRefFromKey } from '../../quota/provider-owner.resolver';
+import { mapCodexAccountUsage } from '../../quota/readers/codex-plan-usage.reader';
 import { CodexHomeResolver } from './codex-home-resolver';
 import type {
   ICodexAccountUsageService,
   ICodexAuthService,
-  ICodexOwnerKeySource,
   CodexAccountUsageResult,
 } from './codex-provider.types';
 import {
@@ -33,6 +39,8 @@ const CACHE_TTL_MS = 30_000;
 const MISS_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_LINE_BYTES = 1024 * 1024;
+const LIVE_REFRESH_MIN_INTERVAL_MS = 1_000;
+const MAX_RELEASED_LIVE_CONTEXTS = 256;
 
 class AppServerError extends Error {
   constructor(readonly kind: 'cli' | 'unavailable' | 'method') {
@@ -59,6 +67,23 @@ interface RpcResponse {
 interface AppServerRead {
   result: CodexAccountUsageResult;
   ownerKey: string | null;
+}
+
+export interface CodexRateLimitsUpdate {
+  readonly contextId: string;
+  readonly home: string;
+  readonly observedAt: number;
+}
+
+export interface CodexLiveUsageUpdate {
+  readonly owner: QuotaOwnerRef;
+  readonly windows: readonly PlanLimitWindow[];
+  readonly result: CodexAccountUsageResult;
+}
+
+interface LiveContext {
+  readonly home: string;
+  ownerKey?: string;
 }
 
 function samePath(left: string, right: string): boolean {
@@ -108,9 +133,7 @@ function joinWithCallerAbort<T>(
 }
 
 @injectable()
-export class CodexAccountUsageService
-  implements ICodexAccountUsageService, ICodexOwnerKeySource
-{
+export class CodexAccountUsageService implements ICodexAccountUsageService {
   private cached: CodexAccountUsageResult | null = null;
   private ownerKey: string | null = null;
   /**
@@ -124,6 +147,11 @@ export class CodexAccountUsageService
     null;
   private readonly active = new Set<SpawnedProcessHandle>();
   private readonly closing = new Map<SpawnedProcessHandle, Promise<void>>();
+  private readonly liveContexts = new Map<string, LiveContext>();
+  private readonly releasedLiveContexts = new Set<string>();
+  private readonly liveReads = new Map<string, Promise<CodexLiveUsageUpdate | null>>();
+  private readonly lastLiveReads = new Map<string, number>();
+  private liveClosed = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -134,13 +162,54 @@ export class CodexAccountUsageService
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly spawner: IProcessSpawner,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS) events: SdkAdapterEvents,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_USAGE_CLIENT)
+    private coreClient: CodexAccountUsageClient | null = null,
   ) {
     events.onAuthFileChanged((event) => {
       if (event.providerId === 'openai-codex') this.clearCache();
     });
   }
 
-  clearCache(): void {
+  /** Electron attaches its host-owned reader; other hosts retain the fallback. */
+  attachCoreClient(client: CodexAccountUsageClient): void {
+    if (this.coreClient === client) return;
+    this.coreClient = client;
+    this.liveClosed = false;
+    this.releasedLiveContexts.clear();
+    this.cached = null;
+    this.ownerKey = null;
+    this.generation += 1;
+    this.readInFlight = null;
+    this.lastMiss = null;
+    this.lastLiveReads.clear();
+  }
+
+  detachCoreClient(client: CodexAccountUsageClient): void {
+    if (this.coreClient !== client) return;
+    this.liveClosed = true;
+    this.liveContexts.clear();
+    this.releasedLiveContexts.clear();
+    this.lastLiveReads.clear();
+    this.coreClient = null;
+  }
+
+  private homeKind(home?: string): 'default' | 'explicit' | 'invalid' {
+    if (home === undefined) return 'default';
+    try {
+      return normalizeCodexHomeKey(home, process.platform) ===
+        normalizeCodexHomeKey(this.codexHome.path, process.platform)
+        ? 'default'
+        : 'explicit';
+    } catch {
+      return 'invalid';
+    }
+  }
+
+  clearCache(home?: string): void {
+    const kind = this.homeKind(home);
+    if (kind === 'invalid') return;
+    if (this.coreClient) this.coreClient.clearCache(home ?? this.codexHome.path);
+    if (kind === 'explicit') return;
     this.cached = null;
     this.ownerKey = null;
     this.generation += 1;
@@ -149,16 +218,34 @@ export class CodexAccountUsageService
     this.lastMiss = null;
   }
 
-  currentOwnerKey(): string | null {
+  currentOwnerKey(home?: string): string | null {
+    const kind = this.homeKind(home);
+    if (kind === 'invalid') return null;
+    if (this.coreClient) {
+      const coreKey = this.coreClient.currentOwnerKey(home ?? this.codexHome.path);
+      return kind === 'default' ? coreKey ?? this.ownerKey : coreKey;
+    }
+    if (home !== undefined && kind === 'explicit') return null;
     return this.ownerKey;
   }
 
   async getAccountUsage(
     options: { home?: string; refresh?: boolean; signal?: AbortSignal } = {},
   ): Promise<CodexAccountUsageResult> {
-    // This legacy service reads only the default home. Until usage moves onto the
-    // per-home core client, an explicit home must not get default-account usage.
-    if (options.home !== undefined) {
+    // One shared client owns every home when composition supplies it.
+    const kind = this.homeKind(options.home);
+    if (kind === 'invalid') {
+      return { status: 'service-unavailable', providerId: 'openai-codex' };
+    }
+    if (this.coreClient) {
+      const result = await this.coreClient.read(options.home ?? this.codexHome.path, {
+        refresh: options.refresh,
+        signal: options.signal,
+      });
+      if (result.status !== 'service-unavailable' || kind === 'explicit') return result;
+      // A shared client can outlive the last session profile for the default home.
+    }
+    if (options.home !== undefined && kind === 'explicit') {
       return { status: 'service-unavailable', providerId: 'openai-codex' };
     }
     const eligibility = await this.auth.getAccountUsageEligibility();
@@ -202,7 +289,129 @@ export class CodexAccountUsageService
     }
   }
 
+  applyRateLimitsUpdated(
+    update: CodexRateLimitsUpdate,
+  ): Promise<CodexLiveUsageUpdate | null> {
+    const client = this.coreClient;
+    if (
+      !client ||
+      this.liveClosed ||
+      this.releasedLiveContexts.has(update.contextId) ||
+      !update.contextId ||
+      !Number.isFinite(update.observedAt)
+    )
+      return Promise.resolve(null);
+    let home: string;
+    try {
+      home = normalizeCodexHomeKey(update.home, process.platform);
+    } catch {
+      // degradation-audit: optional-capability — An invalid live home cannot update quota evidence; regular pull reads report their own status.
+      return Promise.resolve(null);
+    }
+    const context = this.liveContexts.get(update.contextId);
+    if (context && context.home !== home) return Promise.resolve(null);
+    this.liveContexts.set(update.contextId, context ?? { home });
+    const key = `${update.contextId}\0${home}`;
+    const existing = this.liveReads.get(key);
+    if (existing) return existing;
+    const pending = this.performLiveRead(client, update, home)
+      .finally(() => {
+        if (this.liveReads.get(key) === pending) this.liveReads.delete(key);
+      });
+    this.liveReads.set(key, pending);
+    return pending;
+  }
+
+  openRateLimitsContext(contextId: string): void {
+    this.releasedLiveContexts.delete(contextId);
+    const prefix = `${contextId}\0`;
+    for (const key of this.liveReads.keys()) {
+      if (key.startsWith(prefix)) this.liveReads.delete(key);
+    }
+  }
+
+  releaseRateLimitsContext(contextId: string): void {
+    this.liveContexts.delete(contextId);
+    this.releasedLiveContexts.delete(contextId);
+    this.releasedLiveContexts.add(contextId);
+    if (this.releasedLiveContexts.size <= MAX_RELEASED_LIVE_CONTEXTS) return;
+    const oldest = this.releasedLiveContexts.values().next().value;
+    if (oldest !== undefined) this.releasedLiveContexts.delete(oldest);
+  }
+
+  private async performLiveRead(
+    client: CodexAccountUsageClient,
+    update: CodexRateLimitsUpdate,
+    home: string,
+  ): Promise<CodexLiveUsageUpdate | null> {
+    const context = this.liveContexts.get(update.contextId);
+    const cached = await client.read(home);
+    if (
+      this.liveClosed ||
+      !context ||
+      this.liveContexts.get(update.contextId) !== context ||
+      context.home !== home ||
+      (cached.status !== 'available' && cached.status !== 'stale') ||
+      cached.fetchedAt === undefined
+    )
+      return null;
+    const ownerKey = client.currentOwnerKey(home);
+    if (!ownerKey || (context.ownerKey && context.ownerKey !== ownerKey))
+      return null;
+    context.ownerKey = ownerKey;
+    const lastReadAt = this.lastLiveReads.get(home);
+    if (
+      cached.fetchedAt >= update.observedAt ||
+      (lastReadAt !== undefined &&
+        update.observedAt >= lastReadAt &&
+        update.observedAt - lastReadAt < LIVE_REFRESH_MIN_INTERVAL_MS)
+    ) {
+      return this.mapLiveResult(client, update, context, home, ownerKey, cached);
+    }
+    const result = await client.read(home, { refresh: true });
+    if (
+      result.status !== 'available' ||
+      result.fetchedAt === undefined ||
+      result.fetchedAt < update.observedAt
+    )
+      return null;
+    return this.mapLiveResult(client, update, context, home, ownerKey, result);
+  }
+
+  private mapLiveResult(
+    client: CodexAccountUsageClient,
+    update: CodexRateLimitsUpdate,
+    context: LiveContext,
+    home: string,
+    ownerKey: string,
+    result: CodexAccountUsageResult,
+  ): CodexLiveUsageUpdate | null {
+    if (
+      this.liveClosed ||
+      this.liveContexts.get(update.contextId) !== context ||
+      result.fetchedAt === undefined ||
+      client.currentOwnerKey(home) !== ownerKey
+    )
+      return null;
+    const reading = mapCodexAccountUsage(result, result.fetchedAt);
+    this.lastLiveReads.set(
+      home,
+      Math.max(this.lastLiveReads.get(home) ?? 0, result.fetchedAt),
+    );
+    return {
+      owner: quotaOwnerRefFromKey(ownerKey),
+      windows: reading.windows,
+      result,
+    };
+  }
+
   async close(): Promise<void> {
+    this.liveClosed = true;
+    this.liveContexts.clear();
+    this.releasedLiveContexts.clear();
+    this.lastLiveReads.clear();
+    await Promise.all(this.liveReads.values());
+    this.liveReads.clear();
     await Promise.all([...this.active].map((child) => this.closeChild(child)));
   }
 
@@ -267,9 +476,14 @@ export class CodexAccountUsageService
     let stage = 'initialize';
     try {
       const initialized = codexInitializeResponseSchema.parse(
-        await rpc.request(1, 'initialize', {
-          clientInfo: { name: 'ptah', version: '1' },
-        }),
+        await rpc.request(
+          1,
+          'initialize',
+          {
+            clientInfo: { name: 'ptah', version: '1' },
+          },
+          CODEX_INITIALIZE_TIMEOUT_MS,
+        ),
       );
       stage = 'home';
       if (!samePath(initialized.codexHome, this.codexHome.path))
@@ -391,7 +605,12 @@ export class CodexAccountUsageService
     child: SpawnedProcessHandle,
     signal?: AbortSignal,
   ): {
-    request: (id: number, method: string, params?: unknown) => Promise<unknown>;
+    request: (
+      id: number,
+      method: string,
+      params?: unknown,
+      timeoutMs?: number,
+    ) => Promise<unknown>;
     notify: (method: string) => void;
   } {
     let buffer = '';
@@ -450,12 +669,12 @@ export class CodexAccountUsageService
     const write = (value: object) =>
       child.stdin?.write(`${JSON.stringify(value)}\n`);
     return {
-      request: (id, method, params) =>
+      request: (id, method, params, timeoutMs = REQUEST_TIMEOUT_MS) =>
         new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             pending.delete(id);
             reject(new AppServerError('unavailable'));
-          }, REQUEST_TIMEOUT_MS);
+          }, timeoutMs);
           timer.unref?.();
           pending.set(id, {
             method,

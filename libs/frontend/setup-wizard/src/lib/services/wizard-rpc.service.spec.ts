@@ -63,6 +63,27 @@ describe('WizardRpcService', () => {
     error,
   });
 
+  it('gets the current workspace analysis status', async () => {
+    const status = { state: 'fresh', reason: 'ok', analysisDir: '.ptah/analysis/run', checkedAt: '2026-11-01', analyzedAt: '2026-10-31' };
+    rpcCall.mockResolvedValue(okResult(status));
+    await expect(service.getAnalysisStatus()).resolves.toEqual(status);
+    expect(rpcCall).toHaveBeenCalledWith('wizard:analysis-status', {}, { timeout: 10_000 });
+    rpcCall.mockResolvedValue(errResult('unavailable'));
+    await expect(service.getAnalysisStatus()).rejects.toThrow();
+  });
+
+  it('lets onboarding distinguish saved-list RPC failure while legacy callers still receive an empty list', async () => {
+    rpcCall.mockResolvedValue(errResult('private host detail'));
+    await expect(service.listAnalyses()).resolves.toEqual([]);
+    await expect(service.listAnalyses({ throwOnError: true })).rejects.toThrow(
+      'Saved analyses could not be loaded.',
+    );
+    rpcCall.mockResolvedValue(okResult({ analyses: [] }));
+    await expect(service.listAnalyses({ throwOnError: true })).resolves.toEqual(
+      [],
+    );
+  });
+
   it('uses the bound guidance tab model and preserves tabless Settings calls', async () => {
     rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
     const binding = {
@@ -147,23 +168,21 @@ describe('WizardRpcService', () => {
     expect(tabs.getWorkspaceTabs).toHaveBeenCalledWith('/ws');
   });
 
-  describe('launchWizard', () => {
-    it('should call setup-wizard:launch RPC method', async () => {
-      rpcCall.mockResolvedValue(okResult());
-
-      await service.launchWizard();
-
-      expect(rpcCall).toHaveBeenCalledWith('setup-wizard:launch', {});
-    });
-
-    it('should throw when RPC fails', async () => {
-      rpcCall.mockResolvedValue(errResult('boom'));
-
-      await expect(service.launchWizard()).rejects.toThrow('boom');
-    });
-  });
-
   describe('previewGeneration', () => {
+    it('sends a tab binding only when provided', async () => {
+      rpcCall.mockResolvedValue(okResult({ agents: [] }));
+      const binding = {
+        tabId: 'agent-tab',
+        workspacePath: '/workspace',
+        workflow: 'setup-agent-generation',
+      } as const;
+      await service.previewGeneration(['a'], undefined, binding);
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:preview-generation',
+        { selectedAgentIds: ['a'], tabBinding: binding },
+        { timeout: 10_000 },
+      );
+    });
     it('calls wizard:preview-generation with selectedAgentIds and returns the preview', async () => {
       const preview = { agents: [] };
       rpcCall.mockResolvedValue(okResult(preview));

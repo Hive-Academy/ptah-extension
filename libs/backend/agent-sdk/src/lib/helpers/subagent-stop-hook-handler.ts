@@ -1,5 +1,5 @@
 import { injectable, inject } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
@@ -12,6 +12,15 @@ import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 import type { SessionTurnStateRegistry } from './session-turn-state.registry';
+
+/**
+ * The shape of the per-invocation id the SDK passes Subagent hooks as
+ * `toolUseID`. Tool_use ids never take it (`toolu_…` from Anthropic,
+ * `tooluse_…` from Bedrock, other schemes behind proxies), so only this shape
+ * is dropped and every other id is forwarded.
+ */
+const HOOK_INVOCATION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * SubagentStopHookHandler — wires the SDK `SubagentStop` hook into the
@@ -29,6 +38,8 @@ export class SubagentStopHookHandler {
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState?: SessionTurnStateRegistry,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry?: SubagentRegistryService,
   ) {}
 
   createHooks(
@@ -84,16 +95,39 @@ export class SubagentStopHookHandler {
                   return { continue: true };
                 }
 
-                // The SDK's `toolUseID` is the ONLY place the `agentId` ↔
-                // `toolCallId` pairing is still available at this point. The
-                // registry is not a second source: the `SubagentHookHandler`
-                // twin runs on the same hook and deletes the record when it
-                // marks the agent completed, so a lookup here would find
-                // nothing.
-                const toolCallId =
-                  typeof toolUseId === 'string' && toolUseId.length > 0
+                // For Subagent hooks the SDK's `toolUseID` is usually a
+                // per-invocation UUID, NOT the Task tool_use id the frontend
+                // keys agents by. Drop that UUID and recover the exact Task
+                // tool_use id from the session's registry. Multiple matches
+                // stay unresolved rather than settling an arbitrary agent.
+                // A real tool_use id passes through in any provider scheme.
+                const hookToolCallId =
+                  typeof toolUseId === 'string' &&
+                  toolUseId.length > 0 &&
+                  !HOOK_INVOCATION_ID.test(toolUseId)
                     ? toolUseId
                     : undefined;
+                const registryToolCallIds = hookToolCallId
+                  ? []
+                  : (this.subagentRegistry?.getToolCallIdsByAgentId(
+                      input.agent_id,
+                      resolvedSessionId,
+                    ) ?? []);
+                if (registryToolCallIds.length > 1) {
+                  this.logger.warn(
+                    '[SubagentStopHookHandler] SubagentStop agent id has ambiguous Task tool ids',
+                    {
+                      sessionId: resolvedSessionId,
+                      agentId: input.agent_id,
+                      matchCount: registryToolCallIds.length,
+                    },
+                  );
+                }
+                const toolCallId =
+                  hookToolCallId ??
+                  (registryToolCallIds.length === 1
+                    ? registryToolCallIds[0]
+                    : undefined);
 
                 sdkAdapterEvents.emitSubagentEnded({
                   sessionId: resolvedSessionId,

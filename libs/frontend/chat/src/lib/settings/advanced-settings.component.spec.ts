@@ -22,6 +22,7 @@ import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.s
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
+import { ClaudeBuiltinsConfigComponent } from './pro-features/claude-builtins-config.component';
 import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import { AdvancedSettingsGroupComponent } from './advanced/advanced-settings-group.component';
@@ -60,6 +61,14 @@ class AgentBehaviourStub {}
 class McpPortStub {}
 
 @Component({
+  selector: 'ptah-claude-builtins-config',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<p>Claude Code tools</p>',
+})
+class ClaudeBuiltinsStub {}
+
+@Component({
   selector: 'ptah-vscode-lm-config',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -77,6 +86,7 @@ class VsCodeLmStub {
 })
 class AdvancedGroupStub {
   readonly groupId = input.required<string>();
+  readonly contentSurface = input(true);
 }
 
 describe('AdvancedSettingsComponent', () => {
@@ -115,6 +125,7 @@ describe('AdvancedSettingsComponent', () => {
           AgentBehaviourSectionComponent,
           OutputStyleConfigComponent,
           McpPortConfigComponent,
+          ClaudeBuiltinsConfigComponent,
           VscodeLmConfigComponent,
           AdvancedSettingsGroupComponent,
         ],
@@ -125,6 +136,7 @@ describe('AdvancedSettingsComponent', () => {
           AgentBehaviourStub,
           OutputStyleStub,
           McpPortStub,
+          ClaudeBuiltinsStub,
           VsCodeLmStub,
           AdvancedGroupStub,
         ],
@@ -157,7 +169,7 @@ describe('AdvancedSettingsComponent', () => {
     fixture.detectChanges();
   }
 
-  it('mounts the section cards in order, with Agent behaviour replacing workflows-config and enhanced-prompts deleted (D14)', async () => {
+  it('mounts the section cards in order, with Agent behaviour replacing workflows-config, enhanced-prompts deleted (D14) and Claude Code tools directly below MCP (TASK_2026_853)', async () => {
     await render(false);
     expect(element.querySelector('ptah-workflows-config')).toBeNull();
     expect(element.querySelector('ptah-enhanced-prompts-config')).toBeNull();
@@ -166,6 +178,7 @@ describe('AdvancedSettingsComponent', () => {
       'ptah-agent-behaviour-section',
       'ptah-output-style-config',
       'ptah-mcp-port-config',
+      'ptah-claude-builtins-config',
       'ptah-vscode-lm-config',
       '[data-testid="fine-tuning-details"]',
     ];
@@ -176,6 +189,9 @@ describe('AdvancedSettingsComponent', () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
     }
+    expect(
+      element.querySelector('ptah-mcp-port-config')?.nextElementSibling?.tagName.toLowerCase(),
+    ).toBe('ptah-claude-builtins-config');
   });
 
   it('ends with a closed Fine-tuning disclosure whose deferred groups render the four upkeep groups (TASK_2026_658)', async () => {
@@ -183,6 +199,7 @@ describe('AdvancedSettingsComponent', () => {
     const details = element.querySelector<HTMLDetailsElement>(
       '[data-testid="fine-tuning-details"]',
     );
+    expect(details?.parentElement?.getAttribute('data-glass-surface')).toBe('content');
     expect(details?.open).toBe(false);
     expect(
       element.querySelector('[data-testid="fine-tuning-summary"]')?.textContent,

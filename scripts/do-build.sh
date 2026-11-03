@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build script for DigitalOcean App Platform
-set -e
+set -euo pipefail
 
 # Skip Nx cache — DO creates a fresh build environment each deploy,
 # so caching provides no benefit and causes EACCES permission errors.
@@ -18,5 +18,5 @@ export NX_SKIP_NX_CACHE=true
 # Without it prerender dies with "Cannot find module @rollup/rollup-linux-x64-gnu".
 npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
-# Build with production config
+# Build landing page with production config
 npx nx build ptah-landing-page --configuration=production --skip-nx-cache

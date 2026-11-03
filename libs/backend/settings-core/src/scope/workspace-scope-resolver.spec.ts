@@ -132,6 +132,35 @@ describe('WorkspaceScopeResolver', () => {
     });
   });
 
+  describe('isStored / isStoredForPath', () => {
+    it('ignores a value the store only returns as its registered default', async () => {
+      // The bare key is only the registered default; scoped keys are stored.
+      const memory = makeMemoryStore({ authMethod: 'claudeCli' });
+      const store = {
+        ...memory,
+        hasGlobal: (key: string) =>
+          key !== 'authMethod' && memory.data[key] !== undefined,
+      };
+      const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+      expect(resolver.read<string>('authMethod')).toBe('claudeCli');
+      expect(resolver.isStored('authMethod')).toBe(false);
+      expect(resolver.isStoredForPath('authMethod', PATH_B)).toBe(false);
+
+      await resolver.write('authMethod', 'apiKey', 'workspace');
+
+      expect(resolver.isStored('authMethod')).toBe(true);
+      expect(resolver.isStoredForPath('authMethod', PATH_A)).toBe(true);
+      expect(resolver.isStoredForPath('authMethod', PATH_B)).toBe(false);
+    });
+
+    it('treats any read value as stored for a store without hasGlobal', () => {
+      const store = makeMemoryStore({ authMethod: 'apiKey' });
+      const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+      expect(resolver.isStored('authMethod')).toBe(true);
+      expect(resolver.isStored('anthropicProviderId')).toBe(false);
+    });
+  });
+
   describe('no cross-folder bleed', () => {
     it('folder B does not see folder A override; distinct hashes', async () => {
       const store = makeMemoryStore({ authMethod: 'apiKey' });

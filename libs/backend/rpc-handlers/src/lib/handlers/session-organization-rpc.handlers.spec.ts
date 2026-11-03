@@ -96,6 +96,7 @@ function summary(
     prLinks: [],
     childCount: 0,
     updatedAt: 1_700_000_000_000,
+    todos: null,
     ...overrides,
   };
 }
@@ -747,6 +748,8 @@ describe('SessionOrganizationRpcHandlers', () => {
         role,
         source: 'user',
         createdAt,
+        autoRule: null,
+        autoEvidence: null,
       });
 
       it('groups links by task with name, live phase and PR links', async () => {
@@ -774,6 +777,12 @@ describe('SessionOrganizationRpcHandlers', () => {
           source: 'agent' as const,
           createdAt: 5,
         };
+        const todos = {
+          done: 2,
+          total: 5,
+          inProgress: 'Writing the reconcile',
+          updatedAt: 9,
+        };
         fakes.organization.queryWorkspace.mockReturnValue(
           new Map([
             [
@@ -781,6 +790,7 @@ describe('SessionOrganizationRpcHandlers', () => {
               {
                 sessionId: SESSION_A,
                 prLinks: [prLink],
+                todos,
               } as unknown as StoredOrganization,
             ],
           ]),
@@ -807,6 +817,7 @@ describe('SessionOrganizationRpcHandlers', () => {
                 source: 'user',
                 livePhase: 'generating',
                 prLinks: [prLink],
+                todos,
               },
               {
                 sessionId: SESSION_B,
@@ -815,6 +826,7 @@ describe('SessionOrganizationRpcHandlers', () => {
                 source: 'user',
                 livePhase: null,
                 prLinks: [],
+                todos: null,
               },
             ],
             // The orphan link (no metadata) is left out.
@@ -889,6 +901,7 @@ describe('SessionOrganizationRpcHandlers', () => {
         updatedAt: 1_700_000_000_000,
         tasks: [],
         prLinks: [],
+        todos: null,
         ...overrides,
       });
 
@@ -915,6 +928,7 @@ describe('SessionOrganizationRpcHandlers', () => {
             prLinks: [],
             childCount: 0,
             updatedAt: null,
+            todos: null,
           },
         });
         expect(fakes.organization.queryWorkspace).toHaveBeenCalledWith(
@@ -990,6 +1004,7 @@ describe('SessionOrganizationRpcHandlers', () => {
             ],
             childCount: 3,
             updatedAt: 42,
+            todos: null,
           },
         });
       });
@@ -1007,12 +1022,16 @@ describe('SessionOrganizationRpcHandlers', () => {
                     role: 'primary',
                     source: 'user',
                     createdAt: 1,
+                    autoRule: null,
+                    autoEvidence: null,
                   },
                   {
                     taskId: TASK_2,
                     role: 'related',
                     source: 'agent',
                     createdAt: 2,
+                    autoRule: null,
+                    autoEvidence: null,
                   },
                 ],
               }),

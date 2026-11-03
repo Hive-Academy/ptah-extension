@@ -546,13 +546,21 @@ export interface CapabilitySetRequest {
   enabled: boolean;
 }
 
+/** Plugin policy roots inherited by a session, nearest ancestor first. */
+export interface CapabilityResolveContext {
+  pluginConfigAncestorRoots?: readonly string[];
+}
+
 /**
  * The policy service every enforcement point and the RPC layer depend on
  * (`SDK_TOKENS.SDK_CAPABILITY_RESOLVER`).
  */
 export interface ICapabilityResolver {
   /** The effective set for the workspace containing `cwd`. Never throws. */
-  resolve(cwd: string): Promise<EffectiveCapabilitySet>;
+  resolve(
+    cwd: string,
+    context?: CapabilityResolveContext,
+  ): Promise<EffectiveCapabilitySet>;
   /** The same inputs as {@link resolve}, as display entries. */
   list(cwd: string): Promise<CapabilityInventory>;
   /** One ordinary toggle; rejects when the item cannot be written or is unknown. */

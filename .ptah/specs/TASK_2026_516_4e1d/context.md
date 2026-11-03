@@ -51,3 +51,9 @@ Out of scope:
 - Every count stated in the root `CLAUDE.md` matches the tree, or is replaced
   by a pointer to the file that owns it.
 - No dependency changed.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Cancelled: obsolete.
+
+7917b193a (2026-09-22) deleted the old root CLAUDE.md that held the stale stack block. The current CLAUDE.md has no stack versions or counts. Old version text remains in README.md and some docs pages, which is outside this task.

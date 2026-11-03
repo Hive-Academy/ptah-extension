@@ -174,7 +174,7 @@ export class AgentPackDownloadService {
 
   /** Default curated pack manifest URLs */
   private static readonly CURATED_PACKS: string[] = [
-    'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/agent-pack-manifest.json',
+    'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/agent-pack-manifest.json',
   ];
 
   /**

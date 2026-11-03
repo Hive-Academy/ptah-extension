@@ -94,3 +94,10 @@ never truncate the count.
 Do not change the wording of the action text on either surface. It is
 safety-critical and guarded — see TASK_2026_309, which is about strengthening
 that guard. A layout change here must leave the strings byte-identical.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Add e2e coverage that asserts the remaining Marketplace harness disclosure is visible and functional.
+- Evidence on main: 76c137ee3 deleted libs/frontend/dashboard/src/lib/components/harness-card/harness-card.component.ts, removing the uncapped Dashboard list. main:libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts:59 remains; the only e2e harness-health reference found is a comment at apps/ptah-electron-e2e/src/specs/marketplace/marketplace.spec.ts:64.

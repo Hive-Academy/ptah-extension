@@ -27,6 +27,24 @@ test.describe('webview state IPC', () => {
     getState: () => Promise<unknown>;
   }): Promise<string> => JSON.stringify((await rpcBridge.getState()) ?? {});
 
+  const skipFirstRun = async (
+    mainWindow: import('@playwright/test').Page,
+  ): Promise<void> => {
+    await mainWindow.evaluate(() =>
+      localStorage.setItem(
+        'ptah.onboarding.v1',
+        JSON.stringify({ shownAt: new Date().toISOString() }),
+      ),
+    );
+    await mainWindow.reload();
+    await mainWindow.waitForLoadState('domcontentloaded');
+    await expect
+      .poll(() =>
+        mainWindow.evaluate(() => localStorage.getItem('ptah.onboarding.v1')),
+      )
+      .toContain('"shownAt"');
+  };
+
   test('initial get-state returns an object (possibly empty)', async ({
     rpcBridge,
     mainWindow,
@@ -44,8 +62,9 @@ test.describe('webview state IPC', () => {
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
     // `set-state` replaces the whole state object. On a fresh app the renderer
-    // writes its first route state (`ptahRoute`) after DOMContentLoaded, and if
-    // that lands after our write it erases the marker. Wait for it first.
+    // writes its first persistable route state (`ptahRoute`) after onboarding
+    // has been shown. Wait for it before writing our marker.
+    await skipFirstRun(mainWindow);
     await expect.poll(() => stateJson(rpcBridge)).toContain('ptahRoute');
     const marker = `e2e-${Date.now()}`;
     await rpcBridge.setState({ 'chat.lastSession': marker });
@@ -88,6 +107,7 @@ test.describe('webview state IPC', () => {
     // lost before the reload even happens. Wait for the app's route record,
     // then write the marker on top of the current state so the app's keys
     // stay in the record.
+    await skipFirstRun(mainWindow);
     await expect
       .poll(() => stateJson(rpcBridge), { timeout: 30_000 })
       .toContain('"ptahRoute"');

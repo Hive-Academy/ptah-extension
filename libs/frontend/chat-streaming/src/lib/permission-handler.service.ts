@@ -429,7 +429,8 @@ export class PermissionHandlerService {
    * Extracted from chat.store.ts:1344-1364
    */
   handlePermissionResponse(response: PermissionResponse, tabId?: string): boolean {
-    if (!this._permissionRequests().some(request => request.id === response.id)) return false;
+    const pending = this._permissionRequests().find(request => request.id === response.id);
+    if (!pending) return false;
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,

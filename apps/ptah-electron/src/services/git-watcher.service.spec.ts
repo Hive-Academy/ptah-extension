@@ -1046,7 +1046,10 @@ describe('GitWatcherService', () => {
       // `getWorktrees` reports a failed listing as `[]`: no main worktree, so
       // it confirms nothing about the candidates.
       gitInfo.getWorktrees
-        .mockResolvedValueOnce([main(), agentWorktree('agent-1', { prunable: true })])
+        .mockResolvedValueOnce([
+          main(),
+          agentWorktree('agent-1', { prunable: true }),
+        ])
         .mockResolvedValueOnce([]);
 
       svc.start(root, broadcast);
@@ -1058,6 +1061,24 @@ describe('GitWatcherService', () => {
         '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',
         expect.objectContaining({ workspaceRoot: root }),
       );
+    });
+
+    it('never audits with agentWorktreeAudit: false (secondary watcher, TASK_2026_855)', async () => {
+      gitInfo.getWorktrees.mockResolvedValue([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+
+      svc.start(root, broadcast, { agentWorktreeAudit: false });
+      jest.advanceTimersByTime(50);
+      await settle();
+      jest.advanceTimersByTime(30_000);
+      await adminChange();
+
+      // The nested-root listing still runs; the audit never does.
+      expect(gitInfo.getWorktrees).toHaveBeenCalled();
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(removedPushes()).toHaveLength(0);
     });
 
     it('never prunes a prunable worktree outside .claude-worktrees', async () => {
@@ -1634,7 +1655,9 @@ describe('GitWatcherService', () => {
 
       // Exactly one re-arm, on the final target (tmpB).
       expect(startSpy).toHaveBeenCalledTimes(1);
-      expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast);
+      expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast, {
+        agentWorktreeAudit: true,
+      });
       expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
       expect(workspaceWatcher.__state.live()[0].root).toBe(tmpB);
     });
@@ -1651,6 +1674,52 @@ describe('GitWatcherService', () => {
       expect(startSpy).not.toHaveBeenCalled();
       expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
       expect(workspaceWatcher.__state.live()[0].root).toBe(tmpA);
+    });
+
+    it('keeps the start options across a switch re-arm', () => {
+      svc.start(tmpA, broadcast, { agentWorktreeAudit: false });
+      const startSpy = jest.spyOn(svc, 'start');
+
+      svc.switchWorkspace(tmpB);
+      jest.advanceTimersByTime(300);
+
+      expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast, {
+        agentWorktreeAudit: false,
+      });
+    });
+
+    it('watchedRoot() follows start, switch and stop, and the root listener hears each arm', () => {
+      const listener = jest.fn(() => svc.watchedRoot());
+      svc.setRootChangeListener(listener);
+      expect(svc.watchedRoot()).toBeNull();
+
+      svc.start(tmpA, broadcast);
+      expect(svc.watchedRoot()).toBe(tmpA);
+      expect(listener).toHaveLastReturnedWith(tmpA);
+
+      svc.switchWorkspace(tmpB);
+      jest.advanceTimersByTime(300);
+      expect(svc.watchedRoot()).toBe(tmpB);
+      expect(listener).toHaveLastReturnedWith(tmpB);
+      expect(listener).toHaveBeenCalledTimes(2);
+
+      svc.stop();
+      expect(svc.watchedRoot()).toBeNull();
+    });
+
+    it('a throwing root listener is logged and the arm completes', () => {
+      svc.setRootChangeListener(() => {
+        throw new Error('listener down');
+      });
+
+      svc.start(tmpA, broadcast);
+
+      expect(svc.watchedRoot()).toBe(tmpA);
+      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        '[GitWatcher] Root change listener failed',
+        expect.any(Error),
+      );
     });
 
     it('switchWorkspace() to the same path is a no-op', () => {

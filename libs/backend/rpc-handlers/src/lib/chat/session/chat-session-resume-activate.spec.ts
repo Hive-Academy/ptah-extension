@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * ChatSessionService — `resumeSession` with `activate: true` activation-failure
  * path (TS-04 fix).
@@ -70,7 +73,15 @@ import { ChatSessionService } from './chat-session.service';
 import { ChatHistoryReadService } from './chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const OPEN_FOLDER = '/c/projects/my-repo';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+for (const part of [
+  'my-repo/ancestor',
+  'my-repo/child',
+  'my-repo/.claude/worktrees/fix',
+])
+  mkdirSync(join(TEST_ROOT, part), { recursive: true });
+const OPEN_FOLDER = `${TEST_ROOT}/my-repo`;
 const SESSION_ID = '11111111-1111-4111-8111-111111111111' as SessionId;
 const TAB_ID = '22222222-2222-4222-8222-222222222222';
 
@@ -85,10 +96,14 @@ function makeService(params: {
   metadata?: Record<string, unknown> | null;
   fileExists?: jest.Mock;
   readSessionHistory?: jest.Mock;
-  restoreResumableBySession?: jest.Mock;
+  hydrateResumeState?: jest.Mock;
+  isResumeStateHydrated?: jest.Mock;
+  metadataGet?: jest.Mock;
   registerFromHistoryEvents?: jest.Mock;
   getResumableBySession?: jest.Mock;
+  getInterruptedBySession?: jest.Mock;
   saveResumeState?: jest.Mock;
+  upgradeLegacyPluginConfigAncestorRoots?: jest.Mock;
   sessionEndRegister?: jest.Mock;
   restoreAgents?: jest.Mock;
 }): ChatSessionService {
@@ -112,26 +127,35 @@ function makeService(params: {
       jest.fn().mockResolvedValue({ events: [], stats: null }),
   };
   const subagentRegistry = {
-    restoreResumableBySession:
-      params.restoreResumableBySession ?? jest.fn().mockReturnValue(0),
+    hydrateResumeState:
+      params.hydrateResumeState ?? jest.fn().mockReturnValue(0),
+    isResumeStateHydrated:
+      params.isResumeStateHydrated ?? jest.fn().mockReturnValue(false),
     registerFromHistoryEvents:
       params.registerFromHistoryEvents ?? jest.fn().mockReturnValue(0),
     getResumableBySession:
       params.getResumableBySession ?? jest.fn().mockReturnValue([]),
+    getInterruptedBySession:
+      params.getInterruptedBySession ?? jest.fn().mockReturnValue([]),
   } as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
     // Real records always carry `workspaceId`; the session's folder falls back
     // to it when the saved cwd is gone.
-    get: jest
-      .fn()
-      .mockResolvedValue(
-        params.metadata === null
-          ? null
-          : { workspaceId: OPEN_FOLDER, ...params.metadata },
-      ),
+    get:
+      params.metadataGet ??
+      jest
+        .fn()
+        .mockResolvedValue(
+          params.metadata === null
+            ? null
+            : { workspaceId: OPEN_FOLDER, ...params.metadata },
+        ),
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
     saveResumeState:
       params.saveResumeState ?? jest.fn().mockResolvedValue(undefined),
+    upgradeLegacyPluginConfigAncestorRoots:
+      params.upgradeLegacyPluginConfigAncestorRoots ??
+      jest.fn().mockResolvedValue({ status: 'valid', roots: [] }),
   };
   const platformInfo = {
     type: 'cli',
@@ -145,9 +169,6 @@ function makeService(params: {
     sessionMetadataStore as never,
     subagentRegistry,
     provider as unknown as IWorkspaceProvider,
-    {
-      exists: params.fileExists ?? jest.fn().mockResolvedValue(true),
-    } as never,
     platformInfo as never,
   );
   const sdkContext = {
@@ -228,6 +249,96 @@ function makeService(params: {
 }
 
 describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
+  it.each([
+    {
+      roots: [`${TEST_ROOT}/my-repo/ancestor`],
+      expected: [`${TEST_ROOT}/my-repo/ancestor`],
+    },
+    { roots: [], expected: [] },
+  ])(
+    'passes stored lineage $roots to activation',
+    async ({ roots, expected }) => {
+      const resumeSession = jest
+        .fn()
+        .mockResolvedValue((async function* () {})());
+      const svc = makeService({
+        metadata: { pluginConfigAncestorRoots: roots },
+        resumeSession,
+      });
+      const result = await svc.resumeSession({
+        sessionId: SESSION_ID,
+        tabId: TAB_ID,
+        activate: true,
+      });
+      expect(result.activated).toBe(true);
+      expect(resumeSession).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ pluginConfigAncestorRoots: expected }),
+      );
+    },
+  );
+
+  it('refuses malformed stored lineage before SDK activation', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      metadata: { pluginConfigAncestorRoots: [''] },
+      resumeSession,
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result.activated).toBe(false);
+    expect(result.activationError).toMatch(/malformed/);
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a removed stored ancestor before SDK activation', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      metadata: {
+        pluginConfigAncestorRoots: [join(OPEN_FOLDER, 'removed-ancestor')],
+      },
+      resumeSession,
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result.activated).toBe(false);
+    expect(result.activationErrorCode).toBe('SESSION_FOLDER_UNAVAILABLE');
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('recovers one provable legacy parent and upgrades only after activation', async () => {
+    const resumeSession = jest
+      .fn()
+      .mockResolvedValue((async function* () {})());
+    const upgrade = jest
+      .fn()
+      .mockResolvedValue({ status: 'valid', roots: [OPEN_FOLDER] });
+    const svc = makeService({
+      metadata: {
+        workspaceId: OPEN_FOLDER,
+        workingDirectory: `${OPEN_FOLDER}/child`,
+      },
+      resumeSession,
+      upgradeLegacyPluginConfigAncestorRoots: upgrade,
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result.activated).toBe(true);
+    expect(resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ pluginConfigAncestorRoots: [OPEN_FOLDER] }),
+    );
+    expect(upgrade).toHaveBeenCalledWith(SESSION_ID, [OPEN_FOLDER]);
+  });
   it('surfaces activationError + activationErrorCode when auto-resume fails (success:true preserved)', async () => {
     const sdkResumeError = Object.assign(
       new Error('Auth required: please log in to your provider.'),
@@ -393,7 +504,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       calls.push(`history:${cwd}`);
       return { events: [{ id: 'history' }], stats: null };
     });
-    const restoreResumableBySession = jest.fn(() => {
+    const hydrateResumeState = jest.fn(() => {
       calls.push('restore');
       return 1;
     });
@@ -423,7 +534,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       },
       fileExists: jest.fn().mockResolvedValue(true),
       readSessionHistory,
-      restoreResumableBySession,
+      hydrateResumeState,
       registerFromHistoryEvents,
       resumeSession,
       getResumableBySession: jest.fn().mockReturnValue([persisted]),
@@ -438,9 +549,10 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(restoreResumableBySession).toHaveBeenCalledWith(SESSION_ID, [
-      persisted,
-    ]);
+    expect(hydrateResumeState).toHaveBeenCalledWith(SESSION_ID, {
+      retiredToolCallIds: undefined,
+      resumableSdkSubagents: [persisted],
+    });
     expect(calls).toEqual([
       `history:${worktree}`,
       'restore',
@@ -471,7 +583,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     );
   });
 
-  it('auto-resume falls back to the project folder when the worktree is gone', async () => {
+  it('auto-resume refuses a missing worktree without calling SDK resume', async () => {
     const resumeSession = jest.fn(async () =>
       (async function* () {
         /* no events */
@@ -483,11 +595,10 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       resumeSession,
     });
 
-    await svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER);
-    expect(resumeSession).toHaveBeenCalledWith(
-      SESSION_ID,
-      expect.objectContaining({ projectPath: OPEN_FOLDER }),
-    );
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toMatchObject({ resumed: false });
+    expect(resumeSession).not.toHaveBeenCalled();
   });
 
   it('persists cwd and interrupted SDK records from the session-end lifecycle', async () => {
@@ -501,7 +612,10 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       parentSessionId: SESSION_ID,
       agentId: 'agent-1',
     };
-    const getResumableBySession = jest.fn().mockReturnValue([persisted]);
+    const dismissed = { ...persisted, toolCallId: 'tool-2', dismissed: true };
+    const getInterruptedBySession = jest
+      .fn()
+      .mockReturnValue([persisted, dismissed]);
     const saveResumeState = jest.fn().mockResolvedValue(undefined);
     let sessionEndCallback:
       | ((payload: { sessionId: string; workspaceRoot: string }) => unknown)
@@ -512,7 +626,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     });
 
     makeService({
-      getResumableBySession,
+      getInterruptedBySession,
       saveResumeState,
       sessionEndRegister,
     });
@@ -523,11 +637,170 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       workspaceRoot: worktree,
     });
 
-    expect(getResumableBySession).toHaveBeenCalledWith(SESSION_ID);
+    // Dismissed records stay durable: they are still owed one injection.
+    expect(getInterruptedBySession).toHaveBeenCalledWith(SESSION_ID);
     expect(saveResumeState).toHaveBeenCalledWith(SESSION_ID, {
       workingDirectory: worktree,
-      resumableSdkSubagents: [persisted],
+      resumableSdkSubagents: [persisted, dismissed],
     });
+  });
+
+  it('session end loads the durable state into a cold registry before replacing the list', async () => {
+    const stored = {
+      toolCallId: 'tool-stored',
+      agentType: 'backend',
+      status: 'interrupted',
+      startedAt: Date.now(),
+      parentSessionId: SESSION_ID,
+      agentId: 'agent-stored',
+    };
+    const calls: string[] = [];
+    const hydrateResumeState = jest.fn(() => {
+      calls.push('hydrate');
+      return 1;
+    });
+    const saveResumeState = jest.fn(async () => {
+      calls.push('save');
+    });
+    let sessionEndCallback:
+      | ((payload: { sessionId: string; workspaceRoot: string }) => unknown)
+      | undefined;
+    makeService({
+      metadata: { resumableSdkSubagents: [stored] },
+      hydrateResumeState,
+      saveResumeState,
+      sessionEndRegister: jest.fn((callback) => {
+        sessionEndCallback = callback;
+        return () => undefined;
+      }),
+    });
+
+    await sessionEndCallback?.({
+      sessionId: SESSION_ID,
+      workspaceRoot: OPEN_FOLDER,
+    });
+
+    expect(hydrateResumeState).toHaveBeenCalledWith(SESSION_ID, {
+      retiredToolCallIds: undefined,
+      resumableSdkSubagents: [stored],
+    });
+    expect(calls).toEqual(['hydrate', 'save']);
+  });
+
+  it('session end of a hydrated session queues the write synchronously', () => {
+    const saveResumeState = jest.fn().mockResolvedValue(undefined);
+    const metadataGet = jest.fn().mockResolvedValue(null);
+    let sessionEndCallback:
+      | ((payload: { sessionId: string; workspaceRoot: string }) => unknown)
+      | undefined;
+    makeService({
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      metadataGet,
+      saveResumeState,
+      sessionEndRegister: jest.fn((callback) => {
+        sessionEndCallback = callback;
+        return () => undefined;
+      }),
+    });
+
+    // No await: shutdown flushes the write queue right after notifyAll.
+    void sessionEndCallback?.({
+      sessionId: SESSION_ID,
+      workspaceRoot: OPEN_FOLDER,
+    });
+
+    expect(saveResumeState).toHaveBeenCalledTimes(1);
+    expect(metadataGet).not.toHaveBeenCalled();
+  });
+
+  it('session end leaves the durable list alone when it cannot be loaded', async () => {
+    const saveResumeState = jest.fn().mockResolvedValue(undefined);
+    let sessionEndCallback:
+      | ((payload: { sessionId: string; workspaceRoot: string }) => unknown)
+      | undefined;
+    makeService({
+      metadataGet: jest.fn().mockRejectedValue(new Error('storage offline')),
+      saveResumeState,
+      sessionEndRegister: jest.fn((callback) => {
+        sessionEndCallback = callback;
+        return () => undefined;
+      }),
+    });
+
+    await sessionEndCallback?.({
+      sessionId: SESSION_ID,
+      workspaceRoot: OPEN_FOLDER,
+    });
+
+    expect(saveResumeState).not.toHaveBeenCalled();
+  });
+
+  it('returns the resumable list as it stands after activation, not before', async () => {
+    const interrupted = {
+      toolCallId: 'tool-1',
+      agentType: 'backend',
+      status: 'interrupted',
+      startedAt: Date.now(),
+      parentSessionId: SESSION_ID,
+      agentId: 'agent-1',
+    };
+    let dismissedDuringResume = false;
+    const resumeSession = jest.fn(async () => {
+      // A chat:dismiss-resumable-subagents lands while activation runs.
+      dismissedDuringResume = true;
+      return (async function* () {
+        /* no events */
+      })();
+    });
+    const svc = makeService({
+      resumeSession,
+      getResumableBySession: jest.fn(() =>
+        dismissedDuringResume ? [] : [interrupted],
+      ),
+    });
+
+    const result = (await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+      activate: true,
+    })) as ChatResumeResult;
+
+    expect(result.success).toBe(true);
+    expect(resumeSession).toHaveBeenCalled();
+    expect(result.resumableSubagents).toEqual([]);
+  });
+
+  it('hydrates retired ids and the snapshot before replaying history', async () => {
+    const calls: string[] = [];
+    const hydrateResumeState = jest.fn(() => {
+      calls.push('hydrate');
+      return 0;
+    });
+    const registerFromHistoryEvents = jest.fn(() => {
+      calls.push('fallback');
+      return 0;
+    });
+    const svc = makeService({
+      metadata: {
+        workspaceId: OPEN_FOLDER,
+        retiredSubagentToolCallIds: ['tool-old'],
+      },
+      hydrateResumeState,
+      registerFromHistoryEvents,
+    });
+
+    await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    });
+
+    expect(hydrateResumeState).toHaveBeenCalledWith(SESSION_ID, {
+      retiredToolCallIds: ['tool-old'],
+      resumableSdkSubagents: undefined,
+    });
+    expect(calls).toEqual(['hydrate', 'fallback']);
   });
 
   it.each([
@@ -539,7 +812,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
         return true;
       }),
     ],
-  ])('falls back when persisted cwd is %s', async (_label, fileExists) => {
+  ])('refuses when persisted cwd is %s', async (_label, fileExists) => {
     const readSessionHistory = jest
       .fn()
       .mockResolvedValue({ events: [], stats: null });
@@ -557,21 +830,22 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       workspacePath: OPEN_FOLDER,
     });
 
-    expect(result.success).toBe(true);
-    expect(readSessionHistory).toHaveBeenCalledWith(SESSION_ID, OPEN_FOLDER, {
-      checkCompactionBoundary: true,
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: 'SESSION_FOLDER_UNAVAILABLE',
     });
+    expect(readSessionHistory).not.toHaveBeenCalled();
   });
 
   it('keeps legacy metadata behavior when continuity fields are absent', async () => {
     const readSessionHistory = jest
       .fn()
       .mockResolvedValue({ events: [], stats: null });
-    const restoreResumableBySession = jest.fn().mockReturnValue(0);
+    const hydrateResumeState = jest.fn().mockReturnValue(0);
     const svc = makeService({
       metadata: { workspaceId: OPEN_FOLDER },
       readSessionHistory,
-      restoreResumableBySession,
+      hydrateResumeState,
     });
 
     await svc.resumeSession({
@@ -583,6 +857,9 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(readSessionHistory).toHaveBeenCalledWith(SESSION_ID, OPEN_FOLDER, {
       checkCompactionBoundary: true,
     });
-    expect(restoreResumableBySession).toHaveBeenCalledWith(SESSION_ID, []);
+    expect(hydrateResumeState).toHaveBeenCalledWith(SESSION_ID, {
+      retiredToolCallIds: undefined,
+      resumableSdkSubagents: undefined,
+    });
   });
 });

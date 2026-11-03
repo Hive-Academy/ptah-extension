@@ -98,15 +98,15 @@ function emptyForm(timezone: string): CronJobFormState {
         />
         <p class="text-sm font-medium">Schedules need the desktop app</p>
         <p class="text-xs text-base-content-muted">
-          Cron jobs run headless Ptah sessions in the background, which is only
-          available in the Ptah desktop app.
+          Cron jobs run headless PtahCode sessions in the background, which is only
+          available in the PtahCode desktop app.
         </p>
         <a
           class="link link-primary text-xs"
-          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          href="https://github.com/Hive-Academy/PtahCode/releases"
           target="_blank"
           rel="noopener noreferrer"
-          >Download Ptah desktop</a
+          >Download PtahCode desktop</a
         >
       </div>
     } @else {
@@ -127,7 +127,7 @@ function emptyForm(timezone: string): CronJobFormState {
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Schedules</h1>
               <p class="mt-0.5 text-sm text-base-content-muted">
-                Cron jobs that run headless Ptah sessions on a schedule.
+                Cron jobs that run headless PtahCode sessions on a schedule.
               </p>
             </div>
           </div>
@@ -287,7 +287,7 @@ function emptyForm(timezone: string): CronJobFormState {
             />
             <p class="text-sm font-medium">No scheduled jobs yet</p>
             <p class="max-w-sm text-xs text-base-content-muted">
-              Cron jobs run a prompt on a recurring schedule as a headless Ptah
+              Cron jobs run a prompt on a recurring schedule as a headless PtahCode
               session — perfect for nightly builds, digests, or maintenance.
             </p>
             <button
@@ -455,7 +455,7 @@ function emptyForm(timezone: string): CronJobFormState {
         <p class="text-xs text-base-content-muted">
           Cron settings live in
           <span class="font-mono">~/.ptah/settings.json</span> under
-          <span class="font-mono">cron.*</span>. Edit that file and restart Ptah
+          <span class="font-mono">cron.*</span>. Edit that file and restart PtahCode
           desktop to change defaults.
         </p>
       </div>

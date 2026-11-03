@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_625_99ae
-status: backlog
+status: done
 type: BUGFIX
 title: Hide console windows for every Windows child-process spawn
 depends_on: []
 created: '2026-10-10T20:27:35.627Z'
-updated: '2026-10-10T20:27:35.627Z'
+updated: "2026-10-30T01:09:07.477Z"
 description: 'Console windows flash open and closed on Windows while Ptah works, because spawn sites outside OffThreadProcessSpawner omit windowsHide: true. Inventory and per-site fixes are in context.md.'
 executor: backend-developer
 estimate: M

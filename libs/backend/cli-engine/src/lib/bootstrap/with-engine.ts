@@ -122,6 +122,8 @@ interface WorkspaceProviderLite {
     key: string,
     value: unknown,
   ): Promise<void>;
+  /** The file-based settings; `has` excludes the registered defaults. */
+  readonly fileSettings?: { has(key: string): boolean };
 }
 
 /** Subset of resolved `GlobalOptions` `withEngine` cares about. */
@@ -569,6 +571,9 @@ export async function migrateLegacyAuthMethod(
     return;
   }
 
+  // The registered default is also 'claudeCli'. Rewriting it would store an
+  // explicit choice and hide an ANTHROPIC_API_KEY-only setup.
+  if (provider.fileSettings && !provider.fileSettings.has('authMethod')) return;
   const current = provider.getConfiguration<string>('ptah', 'authMethod');
   if (current !== 'claudeCli') return;
 

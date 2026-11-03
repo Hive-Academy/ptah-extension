@@ -384,6 +384,61 @@ describe('DisplayDockState', () => {
     });
   });
 
+  describe('artifact auto-open (plan B)', () => {
+    it('a closed dock opens on Displays with the artifact selected', () => {
+      store.selectTab(TAB_A, 'agents');
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_1');
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: true,
+        activeTab: 'displays',
+        newCount: 0,
+        selection: { kind: 'artifact', artifactId: 'artifact_1' },
+      });
+      expect(store.tab(TAB_B).open).toBe(false);
+    });
+
+    it('an open pinned dock does not move; an unpinned one follows', () => {
+      store.openSurface(TAB_A, 'id:mine');
+      store.setPinned(TAB_A, true);
+      const before = store.tab(TAB_A);
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_1');
+      expect(store.tab(TAB_A)).toBe(before);
+
+      store.setPinned(TAB_A, false);
+      store.selectTab(TAB_A, 'agents');
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_1');
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: true,
+        activeTab: 'displays',
+        selection: { kind: 'artifact', artifactId: 'artifact_1' },
+      });
+    });
+
+    it('a user close during the live turn holds it back and counts it', () => {
+      store.open(TAB_A);
+      store.setLiveTurn(TAB_A, 'u1');
+      store.close(TAB_A);
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_1');
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_2');
+      expect(store.tab(TAB_A)).toMatchObject({ open: false, newCount: 2, selection: null });
+
+      store.setLiveTurn(TAB_A, null);
+      store.setLiveTurn(TAB_A, 'u2');
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_3');
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: true,
+        newCount: 0,
+        selection: { kind: 'artifact', artifactId: 'artifact_3' },
+      });
+    });
+
+    it('several publishes: the latest wins', () => {
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_1');
+      store.requestArtifactAutoOpen(TAB_A, 'artifact_2');
+      expect(store.tab(TAB_A).selection).toEqual({ kind: 'artifact', artifactId: 'artifact_2' });
+    });
+  });
+
   describe('agents tab auto-open', () => {
     it('opens on Agents, stays closed after a user close until released', () => {
       store.requestAgentsOpen(TAB_A);

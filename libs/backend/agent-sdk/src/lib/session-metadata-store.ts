@@ -30,9 +30,14 @@
  *     cost one `IStateStorage.update`, not ten.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { injectable, inject } from 'tsyringe';
 import EventEmitter from 'eventemitter3';
 import { z } from 'zod';
+import { normalizeCodexWorkspaceKey } from '@ptah-extension/codex-runtime';
+import { SessionRuntimeIdentitySchema } from '@ptah-extension/shared/schemas';
+import type { SessionId, SessionRuntimeIdentity } from '@ptah-extension/shared';
+
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -53,6 +58,7 @@ import {
   type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
+import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import type {
   CliOutputSegment,
@@ -63,29 +69,173 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
-  blankToUndefined, isProviderAccountOpaqueId, isProviderAccountOwnerKey,
+  blankToUndefined,
+  isProviderAccountOpaqueId,
+  isProviderAccountOwnerKey,
   type ProviderAccountBinding,
 } from '@ptah-extension/shared';
 
+type CodexExecution = Extract<
+  SessionRuntimeIdentity,
+  { runtime: 'codex-app-server' }
+>;
+
 // Registry migration 58 uses zero-based epochs/revisions. Strict objects reject
 // accidental directory/identity fields instead of silently stripping them.
-const accountRevision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const accountBindingSchema = z.object({
-  version: z.literal(1), provider: z.literal('claude'),
-  profileId: z.string().refine(isProviderAccountOpaqueId),
-  runId: z.string().refine(isProviderAccountOpaqueId),
-  routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  routeRevision: accountRevision, authEpoch: accountRevision,
-  identity: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('unknown') }).strict(),
-    z.object({ kind: z.literal('known'), ownerKey: z.string().refine(isProviderAccountOwnerKey) }).strict(),
-  ]),
-}).strict();
+const accountRevision = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+const accountBindingSchema = z
+  .object({
+    version: z.literal(1),
+    provider: z.literal('claude'),
+    profileId: z.string().refine(isProviderAccountOpaqueId),
+    runId: z.string().refine(isProviderAccountOpaqueId),
+    routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    routeRevision: accountRevision,
+    authEpoch: accountRevision,
+    identity: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unknown') }).strict(),
+      z
+        .object({
+          kind: z.literal('known'),
+          ownerKey: z.string().refine(isProviderAccountOwnerKey),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+/**
+ * Native thread mapping stored beside `codexExecution` in the same session
+ * record (the session key is the thread id). History stays in the App Server
+ * thread; this only maps a Ptah context to its thread for `thread/resume`.
+ * `workspaceId` keeps the caller's path; `codexExecution.workspaceId` keeps
+ * its normalized key, and writes require the two to agree.
+ */
+const codexThreadRecordSchema = z
+  .object({
+    version: z.literal(1),
+    contextId: z.string().min(1),
+    processGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    workspaceId: z.string().min(1),
+    profileFingerprint: z.string().min(1),
+    state: z.enum(['active', 'inactive']),
+    consumer: z.literal('lane').optional(),
+  })
+  .strict();
+
+export type CodexThreadRecord = z.infer<typeof codexThreadRecordSchema>;
+
+/** Returns the current thread record or the same reference to skip the write. */
+export type CodexThreadRecordUpdater = (
+  current: CodexThreadRecord | undefined,
+  execution: CodexExecution | undefined,
+) => CodexThreadRecord | undefined;
+
+/** Malformed or absent stored mappings read as absent; they never throw. */
+export function parseCodexThreadRecord(
+  value: unknown,
+): CodexThreadRecord | undefined {
+  const parsed = codexThreadRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Throws for a relative or malformed path, which refuses the write. */
+function sameCodexWorkspace(workspacePath: string, key: string): boolean {
+  return normalizeCodexWorkspaceKey(workspacePath, process.platform) === key;
+}
+
+/** Keep a user rename; use a supplied title only for an unnamed native row. */
+function codexSessionName(
+  current: string | undefined,
+  sessionId: string,
+  title: string | undefined,
+): string {
+  if (current?.trim() && current !== sessionId) return current;
+  return title?.trim() || current?.trim() || sessionId;
+}
+
+const codexMessageCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional();
+
+function codexMessageCount(value: unknown): number {
+  const parsed = codexMessageCountSchema.safeParse(value);
+  return parsed.success ? parsed.data ?? 0 : 0;
+}
+
+function checkpointRegresses(next: CodexUsageCheckpoint, current: CodexUsageCheckpoint): boolean {
+  const classes = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens',
+    'cacheCreationTokens', 'reasoningOutputTokens', 'totalTokens'] as const;
+  if (next.rootThreadId !== current.rootThreadId || next.revision < current.revision ||
+    (current.childInclusion === 'disjoint' && next.childInclusion !== 'disjoint')) return true;
+  if (current.pricing && (!next.pricing ||
+    next.pricing.throughRevision < current.pricing.throughRevision ||
+    next.pricing.knownCost < current.pricing.knownCost ||
+    (next.revision === current.revision && current.pricing.complete &&
+      !next.pricing.complete))) return true;
+  if (next.revision === current.revision &&
+    (next.threads.length !== current.threads.length ||
+      classes.some((key) => next.total[key] !== current.total[key] ||
+        next.childTotal[key] !== current.childTotal[key]))) return true;
+  if (classes.some((key) => next.total[key] < current.total[key] ||
+    next.childTotal[key] < current.childTotal[key])) return true;
+  const byId = new Map(next.threads.map((thread) => [thread.threadId, thread]));
+  return current.threads.some((thread) => {
+    const updated = byId.get(thread.threadId);
+    return !updated || updated.epoch < thread.epoch ||
+      classes.some((key) => updated.accrued[key] < thread.accrued[key]);
+  });
+}
+
+function validCheckpoint(sessionId: string, raw: unknown): CodexUsageCheckpoint | undefined {
+  const parsed = codexUsageCheckpointSchema.safeParse(raw);
+  return parsed.success &&
+    CodexSessionUsageOwner.restore(
+      sessionId, parsed.data.rootThreadId, parsed.data,
+    ).isRestoredCheckpoint()
+    ? parsed.data : undefined;
+}
+
+function nativeCheckpointCost(checkpoint: CodexUsageCheckpoint): number | null {
+  const price = checkpoint.pricing;
+  const basis = price?.basis ?? (checkpoint.billingMode === 'subscription'
+    ? 'covered-by-subscription' : checkpoint.billingMode === 'api-key'
+      ? 'estimated' : 'unknown');
+  return checkpoint.revision > 0 && checkpoint.threads.length > 0 &&
+    checkpoint.coverage === 'complete' && price?.complete &&
+    basis !== 'unknown' &&
+    price.throughRevision === checkpoint.revision ? price.knownCost : null;
+}
 
 export class SessionAccountBindingError extends Error {
-  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'linkage-incomplete' | 'identity-unproved' | 'unavailable-storage') {
+  constructor(
+    readonly code:
+      | 'invalid-bound'
+      | 'binding-conflict'
+      | 'linkage-incomplete'
+      | 'identity-unproved'
+      | 'unavailable-storage',
+  ) {
     super(`Session account linkage refused: ${code}`);
     this.name = 'SessionAccountBindingError';
+  }
+}
+
+export class CodexSessionMetadataError extends Error {
+  constructor(
+    readonly code:
+      | 'legacy-conversion'
+      | 'invalid-identity'
+      | 'usage-regression'
+      | 'binding-change'
+      | 'unavailable-storage'
+      | 'direct-runtime-write'
+      | 'account-linkage',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CodexSessionMetadataError';
   }
 }
 
@@ -97,7 +247,10 @@ export type SessionAccountBindingLookup =
 function parseSessionAccountBinding(value: unknown): ProviderAccountBinding {
   const parsed = accountBindingSchema.safeParse(value);
   if (!parsed.success) throw new SessionAccountBindingError('invalid-bound');
-  return Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) });
+  return Object.freeze({
+    ...parsed.data,
+    identity: Object.freeze(parsed.data.identity),
+  });
 }
 
 function validateAccountLinkage(value: unknown): SessionMetadata {
@@ -105,8 +258,12 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
     throw new SessionAccountBindingError('invalid-bound');
   }
   const metadata = value as SessionMetadata;
-  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
-  return { ...metadata, accountBinding: parseSessionAccountBinding(metadata.accountBinding) };
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding'))
+    return metadata;
+  return {
+    ...metadata,
+    accountBinding: parseSessionAccountBinding(metadata.accountBinding),
+  };
 }
 
 /**
@@ -116,21 +273,49 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
  */
 function listAccountLinkage(value: unknown): SessionMetadata {
   const metadata = value as SessionMetadata;
-  if (typeof value !== 'object' || value === null || Array.isArray(value) ||
-      !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')
+  )
+    return metadata;
   const parsed = accountBindingSchema.safeParse(metadata.accountBinding);
   if (!parsed.success) return metadata;
-  return { ...metadata, accountBinding: Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) }) };
+  return {
+    ...metadata,
+    accountBinding: Object.freeze({
+      ...parsed.data,
+      identity: Object.freeze(parsed.data.identity),
+    }),
+  };
 }
 
-function sameAccountBinding(left: ProviderAccountBinding, right: ProviderAccountBinding): boolean {
-  return JSON.stringify(parseSessionAccountBinding(left)) === JSON.stringify(parseSessionAccountBinding(right));
+function sameAccountBinding(
+  left: ProviderAccountBinding,
+  right: ProviderAccountBinding,
+): boolean {
+  return (
+    JSON.stringify(parseSessionAccountBinding(left)) ===
+    JSON.stringify(parseSessionAccountBinding(right))
+  );
 }
 
 /**
  * Session metadata - UI state only, NOT message storage
  */
 export interface SessionMetadata {
+  /** Versioned native usage checkpoint; absent on legacy and Claude sessions. */
+  readonly codexUsageCheckpoint?: CodexUsageCheckpoint;
+  /** Native thread binding; rollout history remains owned by Codex. */
+  readonly codexExecution?: CodexExecution;
+
+  /** Context-to-thread mapping for native resume; written with `codexExecution`. */
+  readonly codexThread?: CodexThreadRecord;
+
+  /** Two visible messages per completed native turn: user prompt and assistant reply. */
+  readonly codexMessageCount?: number;
+
   /**
    * Real SDK session UUID (from system 'init' message)
    * This is the filename in ~/.claude/projects/
@@ -153,6 +338,9 @@ export interface SessionMetadata {
    */
   readonly workspaceId: string;
 
+  /** Durable governing plugin-config root identities, nearest ancestor first. */
+  readonly pluginConfigAncestorRoots?: readonly string[];
+
   /**
    * Session creation timestamp
    */
@@ -166,7 +354,7 @@ export interface SessionMetadata {
   /**
    * Accumulated cost from result messages (USD)
    */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
 
   /**
    * Accumulated tokens from result messages
@@ -191,9 +379,44 @@ export interface SessionMetadata {
    */
   readonly resumableSdkSubagents?: readonly SubagentRecord[];
 
+  /**
+   * Task tool_use ids of interrupted SDK subagents already described to the
+   * model once (or found to have no transcript). They are retired for good:
+   * never part of {@link resumableSdkSubagents} again, and chat:resume marks
+   * them injected before replaying history so the history registrar cannot
+   * re-register them after a restart.
+   */
+  readonly retiredSubagentToolCallIds?: readonly string[];
+
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
   readonly isChildSession?: boolean;
+}
+
+export type SessionPluginConfigAncestorRootsRead =
+  | { readonly status: 'missing' | 'legacy' | 'malformed' }
+  | { readonly status: 'valid'; readonly roots: readonly string[] };
+
+export function isSessionPluginConfigAncestorRoots(
+  value: unknown,
+): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((root) => typeof root === 'string' && root.length > 0)
+  );
+}
+
+/** Keep absence distinct from an explicitly independent session and corrupt data. */
+export function readSessionPluginConfigAncestorRoots(
+  metadata: SessionMetadata | null,
+): SessionPluginConfigAncestorRootsRead {
+  if (!metadata) return { status: 'missing' };
+  const roots: unknown = metadata.pluginConfigAncestorRoots;
+  if (roots === undefined) return { status: 'legacy' };
+  if (!isSessionPluginConfigAncestorRoots(roots)) {
+    return { status: 'malformed' };
+  }
+  return { status: 'valid', roots };
 }
 
 /**
@@ -242,8 +465,10 @@ function isWorkspaceRouted(
   );
 }
 
-const normalizeWorkspaceId = (workspaceId: string): string =>
-  workspaceId.replace(/\\/g, '/');
+const normalizeWorkspaceId = (workspaceId: string): string => {
+  const normalized = workspaceId.replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+};
 const SESSION_DETAIL_KEY_PREFIX = 'ptah.session:';
 
 /** Key prefix for per-agent bulk output. One key per agent, written once. */
@@ -275,6 +500,7 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
     { sourcePath: ['accountBinding'] },
     { sourcePath: ['name'] },
     { sourcePath: ['workspaceId'] },
+    { sourcePath: ['pluginConfigAncestorRoots'] },
     { sourcePath: ['createdAt'] },
     { sourcePath: ['lastActiveAt'] },
     { sourcePath: ['totalCost'] },
@@ -384,6 +610,27 @@ function preservedIndexEntry(metadata: SessionMetadata): SessionMetadata {
 }
 
 /** A session as a global-store row. */
+/**
+ * Whether a record belongs in a session's durable resume snapshot: an
+ * interrupted foreground SDK subagent of this canonical session, with the ids
+ * resume needs, that has not been retired.
+ */
+function isDurableResumable(
+  record: SubagentRecord,
+  sessionId: string,
+  retired: ReadonlySet<string>,
+): boolean {
+  return (
+    record.status === 'interrupted' &&
+    record.parentSessionId === sessionId &&
+    !record.isBackground &&
+    !record.isCliAgent &&
+    blankToUndefined(record.toolCallId) !== undefined &&
+    blankToUndefined(record.agentId) !== undefined &&
+    !retired.has(record.toolCallId)
+  );
+}
+
 export function toSessionRecordInput(
   detail: SessionMetadata,
 ): SessionRecordInput {
@@ -527,6 +774,26 @@ export async function flushSessionMetadataStores(): Promise<void> {
  */
 @injectable()
 export class SessionMetadataStore {
+  private readonly codexStartLineage = new AsyncLocalStorage<readonly string[]>();
+
+  /** Carry validated start lineage to the native metadata write in this async launch. */
+  withCodexStartLineage<T>(
+    roots: readonly string[],
+    launch: () => Promise<T>,
+  ): Promise<T> {
+    if (!isSessionPluginConfigAncestorRoots(roots)) {
+      throw new SdkError('Cannot start native session with malformed lineage');
+    }
+    return this.codexStartLineage.run([...roots], launch);
+  }
+
+  /** Read a metadata row's lineage without treating legacy or malformed data as empty. */
+  static readPluginConfigAncestorRoots(
+    metadata: SessionMetadata | null,
+  ): SessionPluginConfigAncestorRootsRead {
+    return readSessionPluginConfigAncestorRoots(metadata);
+  }
+
   /**
    * WorkspaceAwareStateStorage which delegates to per-workspace storage based
    * on the active workspace. In VS Code, it resolves to the single workspace
@@ -729,20 +996,35 @@ export class SessionMetadataStore {
    * This writes metadata only; callers must commit/attach the registry binding
    * first and must not admit a query until both checkpoints have succeeded.
    */
-  async saveAccountBound(metadata: SessionMetadata, binding: ProviderAccountBinding): Promise<void> {
+  async saveAccountBound(
+    metadata: SessionMetadata,
+    binding: ProviderAccountBinding,
+  ): Promise<void> {
     const accountBinding = parseSessionAccountBinding(binding);
-    if (Object.prototype.hasOwnProperty.call(metadata, 'accountBinding') &&
-        !sameAccountBinding(parseSessionAccountBinding(metadata.accountBinding), accountBinding)) {
+    if (
+      Object.prototype.hasOwnProperty.call(metadata, 'accountBinding') &&
+      !sameAccountBinding(
+        parseSessionAccountBinding(metadata.accountBinding),
+        accountBinding,
+      )
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     await this.save({ ...metadata, accountBinding });
   }
 
   /** Use before import's existing-record shortcut, so a collision cannot be skipped. */
-  async getAccountBound(sessionId: string, binding: ProviderAccountBinding): Promise<SessionMetadata | null> {
+  async getAccountBound(
+    sessionId: string,
+    binding: ProviderAccountBinding,
+  ): Promise<SessionMetadata | null> {
     const expected = parseSessionAccountBinding(binding);
     const existing = await this.get(sessionId);
-    if (existing && (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, expected))) {
+    if (
+      existing &&
+      (!existing.accountBinding ||
+        !sameAccountBinding(existing.accountBinding, expected))
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     return existing;
@@ -757,21 +1039,281 @@ export class SessionMetadataStore {
     lookup: (sdkSessionId: string) => Promise<SessionAccountBindingLookup>,
   ): Promise<ProviderAccountBinding | null> {
     const authoritative = await lookup(sessionId);
-    if (authoritative.status === 'unavailable-storage' || authoritative.status === 'invalid-bound') {
+    if (
+      authoritative.status === 'unavailable-storage' ||
+      authoritative.status === 'invalid-bound'
+    ) {
       throw new SessionAccountBindingError(authoritative.status);
     }
     const metadata = await this.get(sessionId);
     if (authoritative.status !== 'bound') {
-      if (metadata?.accountBinding) throw new SessionAccountBindingError('invalid-bound');
+      if (metadata?.accountBinding)
+        throw new SessionAccountBindingError('invalid-bound');
       return null;
     }
     const binding = parseSessionAccountBinding(authoritative.binding);
-    if (!metadata?.accountBinding) throw new SessionAccountBindingError('linkage-incomplete');
+    if (!metadata?.accountBinding)
+      throw new SessionAccountBindingError('linkage-incomplete');
     if (!sameAccountBinding(metadata.accountBinding, binding)) {
       throw new SessionAccountBindingError('binding-conflict');
     }
-    if (binding.identity.kind === 'unknown') throw new SessionAccountBindingError('identity-unproved');
+    if (binding.identity.kind === 'unknown')
+      throw new SessionAccountBindingError('identity-unproved');
     return binding;
+  }
+
+  /**
+   * The only writer of native runtime identity. The session key is the thread id.
+   * A non-empty `title` (the caller's chat title, the way `create` receives the
+   * Claude name) fills a missing name and replaces a name that is still the
+   * session id; a stored name that differs from the session id always wins.
+   */
+  async updateCodexExecution(
+    sessionId: SessionId,
+    updater: (current: CodexExecution | undefined) => CodexExecution,
+    thread?: CodexThreadRecordUpdater,
+    title?: string,
+  ): Promise<void> {
+    const startLineage = this.codexStartLineage.getStore();
+    let kind: SessionMetadataChangeKind = 'created';
+    let workspaceId = '';
+    let skipped = false;
+    await this.enqueueWrite(async () => {
+      // Read authoritative detail without invoking Claude account gates. Lean
+      // listings omit child references and must not replace an existing detail.
+      let existing = this.strays.get(sessionId);
+      if (!existing && this.records) {
+        await this.gate?.whenReady();
+        const record = await this.records.get(sessionId);
+        existing = record ? validateAccountLinkage(record.detail) : undefined;
+      } else if (!existing && isAsyncStateStorage(this.storage)) {
+        existing = await this.storage.getAsync<SessionMetadata>(
+          sessionDetailKey(sessionId),
+          undefined,
+          DETAIL_READ_OPTIONS,
+        );
+      }
+      if (!existing && !this.records) {
+        existing = (await this.getAll()).find(
+          (row) => row.sessionId === sessionId,
+        );
+      }
+      // The thread updater runs inside the queued write, so its compare and
+      // the write are atomic; returning the current record skips the write.
+      const currentThread = parseCodexThreadRecord(existing?.codexThread);
+      const nextThread = thread?.(
+        currentThread,
+        existing?.codexExecution
+          ? structuredClone(existing.codexExecution)
+          : undefined,
+      );
+      if (thread && nextThread === currentThread) {
+        skipped = true;
+        return;
+      }
+      if (existing && !existing.codexExecution) {
+        throw new CodexSessionMetadataError(
+          'legacy-conversion',
+          'Cannot convert a legacy session to Codex',
+        );
+      }
+      if (existing?.accountBinding) {
+        throw new CodexSessionMetadataError(
+          'account-linkage',
+          'Codex sessions cannot carry account linkage',
+        );
+      }
+      kind = existing ? 'updated' : 'created';
+      const proposed = updater(
+        existing?.codexExecution
+          ? structuredClone(existing.codexExecution)
+          : undefined,
+      );
+      const parsed = SessionRuntimeIdentitySchema.safeParse({
+        ...proposed,
+        workspaceId: normalizeCodexWorkspaceKey(
+          proposed.workspaceId,
+          process.platform,
+        ),
+      });
+      if (
+        !parsed.success ||
+        parsed.data.runtime !== 'codex-app-server' ||
+        parsed.data.sessionId !== sessionId
+      ) {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Invalid Codex session identity',
+        );
+      }
+      const execution = parsed.data;
+      if (
+        existing?.codexExecution &&
+        (existing.codexExecution.providerId !== execution.providerId ||
+          existing.codexExecution.workspaceId !== execution.workspaceId ||
+          existing.codexExecution.codex.normalizedHome !==
+            execution.codex.normalizedHome)
+      ) {
+        throw new CodexSessionMetadataError(
+          'binding-change',
+          'Cannot change a Codex session binding',
+        );
+      }
+      if (this.isForeignWorkspace(execution.workspaceId)) {
+        throw new CodexSessionMetadataError(
+          'unavailable-storage',
+          'Codex session storage is unavailable for this workspace',
+        );
+      }
+      const threadRecord = nextThread
+        ? codexThreadRecordSchema.safeParse(nextThread)
+        : undefined;
+      if (
+        threadRecord &&
+        (!threadRecord.success ||
+          !sameCodexWorkspace(
+            threadRecord.data.workspaceId,
+            execution.workspaceId,
+          ))
+      ) {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Invalid Codex thread mapping',
+        );
+      }
+      // Keep an existing caller path only when it belongs to this workspace.
+      // Repair old normalized keys and damaged or foreign stored paths.
+      const storedWorkspaceId = existing?.workspaceId;
+      let storedCallerPath: string | undefined;
+      if (storedWorkspaceId && storedWorkspaceId !== execution.workspaceId) {
+        try {
+          if (
+            normalizeCodexWorkspaceKey(storedWorkspaceId, process.platform) ===
+            execution.workspaceId
+          ) {
+            storedCallerPath = storedWorkspaceId;
+          }
+        } catch {
+          // degradation-audit: optional-capability - a stored path that cannot
+          // be normalized is treated as foreign; the proposed workspace path is
+          // used instead, which is the repair this branch exists for.
+          storedCallerPath = undefined;
+        }
+      }
+      workspaceId = storedCallerPath ?? proposed.workspaceId;
+      const now = Date.now();
+      const checkpoint = validCheckpoint(sessionId, existing?.codexUsageCheckpoint);
+      if (existing?.codexUsageCheckpoint !== undefined && !checkpoint) {
+        // Preserve legacy totals and report corrupt usage data.
+        this.logger.warn('[SessionMetadataStore] Invalid native usage checkpoint', { sessionId });
+      }
+      const detail: SessionMetadata = {
+        ...existing,
+        ...(existing?.pluginConfigAncestorRoots === undefined && startLineage !== undefined
+          ? { pluginConfigAncestorRoots: startLineage }
+          : {}),
+        sessionId,
+        name: codexSessionName(existing?.name, sessionId, title),
+        workspaceId,
+        providerId: execution.providerId,
+        codexExecution: execution,
+        ...(existing?.codexUsageCheckpoint
+          ? { codexUsageCheckpoint: existing.codexUsageCheckpoint }
+          : {}),
+        ...(threadRecord?.success ? { codexThread: threadRecord.data } : {}),
+        ...(threadRecord?.success && threadRecord.data.consumer === 'lane'
+          ? { isChildSession: true } : {}),
+        createdAt: existing?.createdAt ?? now,
+        lastActiveAt: now,
+        totalCost: checkpoint ? nativeCheckpointCost(checkpoint) :
+          existing?.codexExecution ? null : existing?.totalCost ?? null,
+        totalTokens: checkpoint
+          ? {
+              input: checkpoint.total.uncachedInputTokens +
+                checkpoint.total.cacheReadTokens +
+                checkpoint.total.cacheCreationTokens,
+              output: checkpoint.total.outputTokens,
+            }
+          : existing?.totalTokens ?? { input: 0, output: 0 },
+      };
+      await this.persistMetadata(detail);
+      // Identity is a launch checkpoint, durable even when other writes are queued.
+      await this.flush();
+    });
+    if (!skipped) this.emitChange(kind, sessionId, workspaceId);
+  }
+
+  /** Atomically persist native identity, normalized usage, and sidebar totals. */
+  async updateCodexUsageCheckpoint(
+    sessionId: SessionId,
+    checkpoint: CodexUsageCheckpoint,
+  ): Promise<void> {
+    const validated = codexUsageCheckpointSchema.parse(checkpoint);
+    if (validated.sessionId !== sessionId) {
+      throw new CodexSessionMetadataError('invalid-identity', 'Usage checkpoint session mismatch');
+    }
+    if (!CodexSessionUsageOwner.restore(
+      sessionId, validated.rootThreadId, validated,
+    ).isRestoredCheckpoint()) {
+      throw new CodexSessionMetadataError('invalid-identity', 'Invalid usage checkpoint aggregate');
+    }
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const current = await this.get(sessionId);
+      if (current?.codexExecution?.runtime !== 'codex-app-server') {
+        throw new CodexSessionMetadataError('invalid-identity', 'Cannot store native usage for a non-native session');
+      }
+      const stored = validCheckpoint(sessionId, current.codexUsageCheckpoint);
+      if (current.codexUsageCheckpoint !== undefined && !stored) {
+        // A valid replacement can repair corrupt stored usage.
+        this.logger.warn('[SessionMetadataStore] Replacing invalid native usage checkpoint', { sessionId });
+      }
+      if (stored && checkpointRegresses(validated, stored)) {
+        this.logger.warn('[SessionMetadataStore] Rejected regressing native usage checkpoint', { sessionId });
+        throw new CodexSessionMetadataError(
+          'usage-regression', 'Native usage checkpoint regression',
+        );
+      }
+      workspaceId = current.workspaceId;
+      await this.persistMetadata({
+        ...current,
+        codexUsageCheckpoint: validated,
+        totalCost: nativeCheckpointCost(validated),
+        totalTokens: {
+          input: validated.total.uncachedInputTokens + validated.total.cacheReadTokens + validated.total.cacheCreationTokens,
+          output: validated.total.outputTokens,
+        },
+      });
+      await this.flush();
+    });
+    if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
+  }
+
+  /** Serialize native turn counts with all other metadata writes. Legacy rows start at zero. */
+  async incrementCodexMessageCount(sessionId: SessionId): Promise<void> {
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const current = await this.get(sessionId);
+      if (current?.codexExecution?.runtime !== 'codex-app-server') {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Cannot count messages for a non-native Codex session',
+        );
+      }
+      const previous = codexMessageCount(current.codexMessageCount);
+      if (previous > Number.MAX_SAFE_INTEGER - 2) {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Native Codex message count overflow',
+        );
+      }
+      workspaceId = current.workspaceId;
+      await this.persistMetadata({
+        ...current,
+        codexMessageCount: previous + 2,
+      });
+    });
+    if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
   }
 
   /**
@@ -782,16 +1324,77 @@ export class SessionMetadataStore {
   private async _saveInternal(
     metadata: SessionMetadata,
     providerOverride?: string,
+    allowLineageUpgrade = false,
   ): Promise<void> {
     metadata = validateAccountLinkage(metadata);
     const existing = await this.get(metadata.sessionId);
-    if (metadata.accountBinding && existing &&
-        (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, metadata.accountBinding))) {
+    if (
+      (metadata.codexExecution !== undefined &&
+        JSON.stringify(metadata.codexExecution) !==
+          JSON.stringify(existing?.codexExecution)) ||
+      (metadata.codexThread !== undefined &&
+        JSON.stringify(metadata.codexThread) !==
+          JSON.stringify(existing?.codexThread)) ||
+      (metadata.codexMessageCount !== undefined &&
+        metadata.codexMessageCount !== existing?.codexMessageCount)
+    ) {
+      throw new CodexSessionMetadataError(
+        'direct-runtime-write',
+        'Use updateCodexExecution to write runtime metadata',
+      );
+    }
+    if (
+      existing?.codexExecution &&
+      providerOverride &&
+      providerOverride !== existing.providerId
+    ) {
+      throw new CodexSessionMetadataError(
+        'binding-change',
+        'Cannot change a Codex session binding',
+      );
+    }
+    if (existing?.codexExecution && metadata.accountBinding) {
+      throw new CodexSessionMetadataError(
+        'account-linkage',
+        'Codex sessions cannot carry account linkage',
+      );
+    }
+    if (
+      metadata.accountBinding &&
+      existing &&
+      (!existing.accountBinding ||
+        !sameAccountBinding(existing.accountBinding, metadata.accountBinding))
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
+    }
+    const checkpoint = validCheckpoint(metadata.sessionId, existing?.codexUsageCheckpoint);
+    if (existing?.codexUsageCheckpoint !== undefined && !checkpoint) {
+      // Keep existing sidebar totals when usage is corrupt.
+      this.logger.warn('[SessionMetadataStore] Invalid native usage checkpoint', { sessionId: metadata.sessionId });
     }
     const merged: SessionMetadata = {
       ...metadata,
-      ...(existing?.accountBinding ? { accountBinding: existing.accountBinding } : {}),
+      ...(existing?.codexExecution
+        ? {
+            codexExecution: existing.codexExecution,
+            workspaceId: existing.workspaceId,
+          }
+        : {}),
+      ...(existing?.codexThread ? { codexThread: existing.codexThread } : {}),
+      ...(existing?.codexUsageCheckpoint
+        ? { codexUsageCheckpoint: existing.codexUsageCheckpoint }
+        : {}),
+      ...(checkpoint ? { totalTokens: {
+        input: checkpoint.total.uncachedInputTokens + checkpoint.total.cacheReadTokens +
+          checkpoint.total.cacheCreationTokens,
+        output: checkpoint.total.outputTokens,
+      }, totalCost: nativeCheckpointCost(checkpoint) } : {}),
+      ...(existing?.codexExecution && existing.codexMessageCount !== undefined
+        ? { codexMessageCount: existing.codexMessageCount }
+        : {}),
+      ...(existing?.accountBinding
+        ? { accountBinding: existing.accountBinding }
+        : {}),
       ...(existing?.isChildSession && !metadata.isChildSession
         ? { isChildSession: true }
         : {}),
@@ -802,29 +1405,41 @@ export class SessionMetadataStore {
         ? { workingDirectory: existing.workingDirectory }
         : {}),
       ...(existing?.providerId ? { providerId: existing.providerId } : {}),
+      ...(existing && !allowLineageUpgrade
+        ? { pluginConfigAncestorRoots: existing.pluginConfigAncestorRoots }
+        : {}),
       ...(providerOverride ? { providerId: providerOverride } : {}),
       ...(existing?.resumableSdkSubagents &&
       metadata.resumableSdkSubagents === undefined
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
         : {}),
+      ...(existing?.retiredSubagentToolCallIds &&
+      metadata.retiredSubagentToolCallIds === undefined
+        ? { retiredSubagentToolCallIds: existing.retiredSubagentToolCallIds }
+        : {}),
     };
-    if (this.isForeignWorkspace(merged.workspaceId)) {
-      if (merged.accountBinding) throw new SessionAccountBindingError('unavailable-storage');
-      if (!this.strays.has(merged.sessionId)) {
+    await this.persistMetadata(merged);
+  }
+
+  private async persistMetadata(metadata: SessionMetadata): Promise<void> {
+    if (this.isForeignWorkspace(metadata.workspaceId)) {
+      if (metadata.accountBinding)
+        throw new SessionAccountBindingError('unavailable-storage');
+      if (!this.strays.has(metadata.sessionId)) {
         this.logger.info(
           '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
-          { sessionId: merged.sessionId, workspaceId: merged.workspaceId },
+          { sessionId: metadata.sessionId, workspaceId: metadata.workspaceId },
         );
       }
-      this.strays.set(merged.sessionId, merged);
+      this.strays.set(metadata.sessionId, metadata);
       return;
     }
-    this.strays.delete(merged.sessionId);
-    const strippedBulkRefCount = countReferencesWithBulk(merged);
+    this.strays.delete(metadata.sessionId);
+    const strippedBulkRefCount = countReferencesWithBulk(metadata);
     const detail =
       strippedBulkRefCount > 0
-        ? omitJsonPaths(merged, DETAIL_PROJECTION.omit)
-        : merged;
+        ? omitJsonPaths(metadata, DETAIL_PROJECTION.omit)
+        : metadata;
     if (strippedBulkRefCount > 0) {
       this.logger.info(
         '[SessionMetadataStore] Stripped bulk output from CLI session references',
@@ -854,7 +1469,7 @@ export class SessionMetadataStore {
     }
     // A named checkpoint must flush even when another write is queued. The
     // ordinary coalesced queue may otherwise resolve this caller before I/O.
-    if (merged.accountBinding) await this.flush();
+    if (metadata.accountBinding) await this.flush();
     this.logger.debug(
       `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
@@ -936,10 +1551,12 @@ export class SessionMetadataStore {
       await this.gate?.whenReady();
       const record = await this.records.get(sessionId);
       return record
-        ? validateAccountLinkage(omitJsonPaths(
-            validateAccountLinkage(record.detail),
-            DETAIL_PROJECTION.omit,
-          ))
+        ? validateAccountLinkage(
+            omitJsonPaths(
+              validateAccountLinkage(record.detail),
+              DETAIL_PROJECTION.omit,
+            ),
+          )
         : null;
     }
     if (isAsyncStateStorage(this.storage)) {
@@ -952,7 +1569,9 @@ export class SessionMetadataStore {
     }
     const all = await this.getAll();
     const summary = all.find((m) => m.sessionId === sessionId);
-    return summary ? validateAccountLinkage(omitJsonPaths(summary, DETAIL_PROJECTION.omit)) : null;
+    return summary
+      ? validateAccountLinkage(omitJsonPaths(summary, DETAIL_PROJECTION.omit))
+      : null;
   }
 
   /**
@@ -978,16 +1597,9 @@ export class SessionMetadataStore {
         return;
       }
 
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
       const resumableSdkSubagents = state.resumableSdkSubagents
-        .filter(
-          (record) =>
-            record.status === 'interrupted' &&
-            record.parentSessionId === sessionId &&
-            !record.isBackground &&
-            !record.isCliAgent &&
-            blankToUndefined(record.toolCallId) !== undefined &&
-            blankToUndefined(record.agentId) !== undefined,
-        )
+        .filter((record) => isDurableResumable(record, sessionId, retired))
         .map((record) => ({ ...record }));
 
       await this._saveInternal({
@@ -996,6 +1608,79 @@ export class SessionMetadataStore {
           ? { workingDirectory: state.workingDirectory }
           : {}),
         resumableSdkSubagents,
+      });
+    });
+  }
+
+  /**
+   * Record dismissed interrupted subagents in the durable resume snapshot.
+   *
+   * Upserts by toolCallId with `dismissed: true` instead of replacing the
+   * list, so a snapshot the registry never restored in this process is not
+   * wiped. A record that was only ever known from history lands in the
+   * snapshot here, which is what keeps it dismissed after a restart: the
+   * snapshot is restored before history is replayed, and replay skips ids the
+   * registry already holds.
+   */
+  async dismissResumableSubagents(
+    sessionId: string,
+    records: readonly SubagentRecord[],
+  ): Promise<void> {
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot save dismissed subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
+      const byId = new Map(
+        (metadata.resumableSdkSubagents ?? []).map((record) => [
+          record.toolCallId,
+          record,
+        ]),
+      );
+      for (const record of records) {
+        if (!isDurableResumable(record, sessionId, retired)) continue;
+        byId.set(record.toolCallId, { ...record, dismissed: true });
+      }
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: Array.from(byId.values()),
+      });
+    });
+  }
+
+  /**
+   * Retire interrupted subagents for good: drop them from the durable resume
+   * snapshot and remember their ids, so neither the snapshot nor history
+   * replay brings them back after a restart. Does not replace the rest of the
+   * snapshot.
+   */
+  async retireResumableSubagents(
+    sessionId: string,
+    toolCallIds: readonly string[],
+  ): Promise<void> {
+    if (toolCallIds.length === 0) return;
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot retire subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set([
+        ...(metadata.retiredSubagentToolCallIds ?? []),
+        ...toolCallIds.filter((id) => blankToUndefined(id) !== undefined),
+      ]);
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: (metadata.resumableSdkSubagents ?? []).filter(
+          (record) => !retired.has(record.toolCallId),
+        ),
+        retiredSubagentToolCallIds: Array.from(retired),
       });
     });
   }
@@ -1014,14 +1699,16 @@ export class SessionMetadataStore {
       const rows = await this.records.listForWorkspace(workspaceId, {
         includeChildren,
       });
-      return rows.map((r) => listAccountLinkage(r.summary));
+      return rows.map((r) => listAccountLinkage(r.summary))
+        .filter((row) => row.codexThread?.consumer !== 'lane');
     }
     const all = await this.getAll();
-    const normalizedQuery = workspaceId.replace(/\\/g, '/');
+    const normalizedQuery = normalizeWorkspaceId(workspaceId);
     return all
       .filter(
         (m) =>
-          m.workspaceId.replace(/\\/g, '/') === normalizedQuery &&
+          normalizeWorkspaceId(m.workspaceId) === normalizedQuery &&
+          m.codexThread?.consumer !== 'lane' &&
           (includeChildren || !m.isChildSession),
       )
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
@@ -1041,7 +1728,8 @@ export class SessionMetadataStore {
       const rows = await this.records.listAll({ includeChildren: true });
       return rows.map((r) => listAccountLinkage(r.summary));
     }
-    if (this.pendingAll) return this.withStrays([...this.pendingAll]).map(listAccountLinkage);
+    if (this.pendingAll)
+      return this.withStrays([...this.pendingAll]).map(listAccountLinkage);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a
@@ -1508,6 +2196,7 @@ export class SessionMetadataStore {
     kind: SessionMetadataChangeKind = 'created',
     workingDirectory?: string,
     providerId?: string,
+    pluginConfigAncestorRoots?: readonly string[],
   ): Promise<SessionMetadata> {
     // Same invariant SessionRegistry.bindRealSessionId enforces on the same
     // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
@@ -1519,7 +2208,6 @@ export class SessionMetadataStore {
         'Cannot create session metadata with an empty sessionId — the SDK session UUID from the system init message is the only valid key.',
       );
     }
-
     const existing = await this.get(sessionId);
     if (existing) {
       this.logger.info(
@@ -1538,6 +2226,15 @@ export class SessionMetadataStore {
       return updated;
     }
 
+    if (
+      pluginConfigAncestorRoots !== undefined &&
+      !isSessionPluginConfigAncestorRoots(pluginConfigAncestorRoots)
+    ) {
+      throw new SdkError(
+        'Cannot create session metadata with malformed plugin configuration lineage',
+      );
+    }
+
     const now = Date.now();
     const metadata: SessionMetadata = {
       sessionId,
@@ -1548,6 +2245,9 @@ export class SessionMetadataStore {
       lastActiveAt: now,
       totalCost: 0,
       totalTokens: { input: 0, output: 0 },
+      ...(pluginConfigAncestorRoots !== undefined
+        ? { pluginConfigAncestorRoots }
+        : {}),
       ...(blankToUndefined(providerId)
         ? { providerId: blankToUndefined(providerId) }
         : {}),
@@ -1560,6 +2260,29 @@ export class SessionMetadataStore {
     this.emitChange(kind, sessionId, workspaceId);
 
     return metadata;
+  }
+
+  /** Upgrade only a legacy record; existing lineage, including corrupt data, is immutable. */
+  async upgradeLegacyPluginConfigAncestorRoots(
+    sessionId: string,
+    roots: readonly string[],
+  ): Promise<SessionPluginConfigAncestorRootsRead> {
+    if (!isSessionPluginConfigAncestorRoots(roots)) {
+      throw new SdkError('Cannot upgrade session lineage with malformed roots');
+    }
+    let result: SessionPluginConfigAncestorRootsRead = { status: 'missing' };
+    await this.enqueueWrite(async () => {
+      const existing = await this.get(sessionId);
+      result = readSessionPluginConfigAncestorRoots(existing);
+      if (result.status !== 'legacy' || !existing) return;
+      await this._saveInternal(
+        { ...existing, pluginConfigAncestorRoots: roots },
+        undefined,
+        true,
+      );
+      result = { status: 'valid', roots };
+    });
+    return result;
   }
 
   /** Serialize a provider change with all other metadata mutations. */

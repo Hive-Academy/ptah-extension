@@ -128,7 +128,12 @@ describe('eager-closure bundle gate', () => {
     'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-summaries.ts',
     'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-recap-loader.ts',
     'libs/frontend/chat/src/lib/services/display-dock/display-dock.state.ts',
-    'libs/frontend/chat/src/lib/components/organisms/display-sheet/display-sheet.state.ts',
+    'libs/frontend/chat/src/lib/services/display-window/display-window-sync.service.ts',
+    'libs/frontend/chat/src/lib/services/display-window/display-window-wire.ts',
+    'libs/frontend/chat/src/lib/components/templates/display-sidebar-wiring.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-artifacts.ts',
+    'libs/frontend/chat/src/lib/services/artifacts/published-artifact.ts',
+    'libs/shared/src/lib/types/rpc/rpc-display-window.types.ts',
     'libs/frontend/chat/src/lib/components/organisms/display-sheet/display-sheet.component.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-host-sources.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts',
@@ -148,6 +153,17 @@ describe('eager-closure bundle gate', () => {
   it('does not allow a display-panel input as eager growth', () => {
     const input =
       'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-surfaces.ts';
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        stats({ 'main.js': { inputs: { [input]: {} } } }),
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).toThrow(`unlisted eager input growth: ${input}`);
+  });
+
+  it('does not allow the detached Display window component as eager growth', () => {
+    const input =
+      'libs/frontend/chat/src/lib/components/templates/display-window/display-window.component.ts';
     expect(() =>
       eagerClosureGate.assertNoUnlistedEagerGrowth(
         stats({ 'main.js': { inputs: { [input]: {} } } }),

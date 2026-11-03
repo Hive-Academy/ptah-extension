@@ -13,3 +13,11 @@ Depends on PR 724 being merged first.
 - Remaining here: item 1 (failed-start `chat:error` has no ack). Review Moderates to consider:
   parked-tab test coverage; `/clear` RPC reply could overtake the clear broadcast
   (pr724-review-r2.md).
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane grok, verified by Claude).
+
+- Delivered by #724 (d9933c000): tab-close / clear / workspace-removal drop of a held /session-handoff.
+- Open: `reportStartFailure` in `main:libs/backend/rpc-handlers/src/lib/chat/session/child-chat-session-host.adapter.ts:124,182,245` broadcasts CHAT_ERROR only, with no acknowledgement for the caller.
+- Optional r2 moderates in the context above (parked-tab coverage, /clear reply race) were not re-checked.

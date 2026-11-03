@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_553
-status: backlog
+status: done
 type: BUGFIX
 title: 'Settings: report a failed write to ~/.ptah/settings.json to the caller'
 depends_on: []
 created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-24T08:26:07.000Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "PtahFileSettingsManager.persist logs a failed disk write and returns normally, so every settings save reports success, the value applies for the session only, and the change is lost at restart."
 executor: backend-developer
 estimate: M

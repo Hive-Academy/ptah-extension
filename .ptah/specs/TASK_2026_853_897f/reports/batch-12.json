@@ -1,0 +1,29 @@
+{
+  "batch": 12,
+  "phase": "B",
+  "status": "done",
+  "executor": "frontend-developer subagent (claude); diff checked by coordinator against batches.md Batch 12 after the subagent ended with the earlier session",
+  "filesChanged": [
+    "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts",
+    "libs/shared/src/lib/types/rpc/rpc-agents.types.ts",
+    "libs/frontend/chat/src/lib/settings/pro-features/claude-builtins-config.component.ts",
+    "libs/frontend/chat/src/lib/settings/pro-features/claude-builtins-config.component.spec.ts"
+  ],
+  "acceptance": {
+    "sameEffectiveAccountIds": "agent:getClaudeBuiltins and the skill-id checks read synced skills from the main-session config dir (SDK_AUTH_ENV, then host env, then ~/.claude) - decision #45",
+    "qualifiedOptIns": "agent:setClaudeBuiltin and agent:setConfig accept terminal ids and qualified anthropic-skills:<name> ids found now; stored ids of another account are kept on every write - decisions #46, #50",
+    "group3States": "normal, empty, loading skeleton, save, Undo; synced rows included in the savings sum; plain name shown via ClaudeBuiltinSkillDto.name - decision #47",
+    "unverifiedPolicy": "inherits the Phase A card-level fail-closed state"
+  },
+  "reviewFixes": "reports/phase-b-fix1.json (code-logic-review-phase-b.md defects 1 and 2, closes decision #42)",
+  "review": "code-logic-review-phase-b.md: REVISE 5/10, then round 1 APPROVED 8/10 (codex)",
+  "visual": "reports/phase-b-electron-after.md: UI PASS, dark + light, normal and empty group 3",
+  "tokens": "evidence/phase-b-tokens: main and subagent -3,153 per session (paired runs), target >= 3,000 PASS",
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers,@ptah-extension/chat,@ptah-extension/shared,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "logs": ["/tmp/tpd-b-fix1-verify.log", "/tmp/tpd-b-verify2.log"],
+    "result": "80 tasks: 79 succeeded, 1 failed",
+    "failed": ["ptah-extension-webview:lint - pre-existing circular dependency with @ptah-extension/command-center, fails on main too"]
+  }
+}

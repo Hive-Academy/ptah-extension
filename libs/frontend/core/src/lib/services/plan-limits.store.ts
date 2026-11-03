@@ -44,6 +44,7 @@ import {
 
 import { ClaudeRpcService } from './claude-rpc.service';
 import type { MessageHandler } from './message-router.types';
+import { carryPlanLimitsSnapshot } from './plan-limits-snapshot-carry';
 
 /** Period of the shared `now()` clock. */
 export const PLAN_LIMITS_CLOCK_TICK_MS = 30_000;
@@ -254,7 +255,7 @@ export class PlanLimitsStore implements MessageHandler {
     this._loadError.set(false);
     const current = this._snapshot();
     if (current && next.generatedAt < current.generatedAt) return;
-    this._snapshot.set(next);
+    this._snapshot.set(current ? carryPlanLimitsSnapshot(current, next) : next);
     this._now.set(Date.now());
   }
 

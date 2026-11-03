@@ -11,13 +11,22 @@ import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { DisplaySheetComponent } from './display-sheet.component';
-import { DisplaySheetState } from './display-sheet.state';
-import { ArtifactStore } from '../../../services/artifact.store';
+import { ArtifactStore, panelArtifactsFrom } from '../../../services/artifact.store';
 
 const artifact = { id: 'artifact_123456789', title: 'Preview', revision: 1, sessionId: 'tab-1', viewerUrl: 'ptah-artifact://artifact_123456789/index.html', createdAt: '2026-10-20T00:00:00.000Z' };
 const records = signal<Readonly<Record<string, readonly typeof artifact[]>>>({});
 const lastError = signal<string | null>(null);
 const openLink = jest.fn().mockResolvedValue({ success: true, data: { opened: true } });
+const artifactStoreStub = {
+  records,
+  lastError,
+  panelArtifacts: (tabId: string | null, selectedArtifactId: string | null) =>
+    panelArtifactsFrom(records() as never, tabId, selectedArtifactId),
+};
+const tabButton = (fixture: ComponentFixture<DisplaySheetComponent>): HTMLButtonElement | null =>
+  (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="display-sheet-tab"] button');
+const title = (fixture: ComponentFixture<DisplaySheetComponent>): string =>
+  (fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-title"]')?.textContent?.trim() ?? '';
 
 @Component({ selector: 'ptah-display-panel', standalone: true, template: '<span role="alert">{{ actionError() }}</span>' })
 class StubPanel {
@@ -65,8 +74,8 @@ describe('DisplaySheetComponent', () => {
     openLink.mockClear();
     TestBed.configureTestingModule({
       imports: [DisplaySheetComponent],
-      providers: [DisplayDockState, DisplaySheetState,
-        { provide: ArtifactStore, useValue: { records, lastError } },
+      providers: [DisplayDockState,
+        { provide: ArtifactStore, useValue: artifactStoreStub },
         { provide: ClaudeRpcService, useValue: { call: openLink } },
         { provide: ChangeSetActionsService, useValue: { openFile: jest.fn(), review: jest.fn() } }],
     });
@@ -86,7 +95,7 @@ describe('DisplaySheetComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.sheet-shell')?.getAttribute('data-glass-surface')).toBe('chrome');
     expect(display.artifacts()).toEqual([artifact]);
     expect(display.selectedKey()).toBe(`artifact:${artifact.id}`);
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    expect(title(fixture)).toBe('Display · 1');
     display.openExternal.emit('https://example.com');
     expect(openLink).toHaveBeenCalledWith('artifacts:openLink', { url: 'https://example.com' });
     display.selectedKeyChange.emit('artifact:other');
@@ -149,7 +158,7 @@ describe('DisplaySheetComponent', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.style.display).toBe('none');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getClientRects()).toHaveLength(0);
+    expect(tabButton(fixture)?.getClientRects()).toHaveLength(0);
     fixture.destroy();
   });
 
@@ -160,7 +169,8 @@ describe('DisplaySheetComponent', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.style.display).not.toBe('none');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 1 panel');
+    expect(tabButton(fixture)?.getAttribute('aria-expanded')).toBe('false');
     fixture.destroy();
   });
 
@@ -171,8 +181,8 @@ describe('DisplaySheetComponent', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.style.display).not.toBe('none');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.textContent).toContain('Display · 1');
+    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 1 panel');
+    expect(tabButton(fixture)?.textContent).toContain('Display · 1');
     fixture.destroy();
   });
 
@@ -183,10 +193,9 @@ describe('DisplaySheetComponent', () => {
     dock.setLiveTurn('tab-1', 'turn-1');
     dock.setSurfaces('tab-1', { surfaces: [surface], statuses: new Map() });
     fixture.detectChanges();
-    const bar = () => (fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]');
     expect(dock.tab('tab-1').newCount).toBe(0);
-    expect(bar()?.getAttribute('aria-label')).toBe('Display, 1 items');
-    expect(bar()?.querySelector('.badge')).toBeNull();
+    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 1 panel');
+    expect(tabButton(fixture)?.querySelector('[data-testid="sidebar-tab-new"]')).toBeNull();
 
     dock.open('tab-1');
     dock.close('tab-1');
@@ -194,43 +203,90 @@ describe('DisplaySheetComponent', () => {
     dock.requestAutoOpen('tab-1', 'turn-1', 'id:b');
     fixture.detectChanges();
     expect(dock.tab('tab-1').newCount).toBe(2);
-    expect(bar()?.getAttribute('aria-label')).toBe('Display, 1 items, 2 new');
+    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 1 panel, 2 new');
     fixture.destroy();
   });
 
-  it('shows the bar when explicitly opened without content', () => {
+  it('shows the open sidebar when explicitly opened without content', () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
     TestBed.inject(DisplayDockState).open('tab-1');
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.style.display).not.toBe('none');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(tabButton(fixture)).toBeNull();
+    const collapse = host.querySelector('[data-testid="display-sheet-close"]');
+    expect(collapse?.getAttribute('aria-expanded')).toBe('true');
+    expect(collapse?.getAttribute('aria-controls')).toBe(host.querySelector('[data-testid="display-sheet-region"]')?.id);
     fixture.destroy();
   });
 
-  it('shows the peek bar, expands, changes height, pins and collapses with Escape', async () => {
+  it('opens from the sidebar tab, pins, and collapses with Escape back onto the tab', async () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
     TestBed.inject(DisplayDockState).setSurfaces('tab-1', { surfaces: [surface], statuses: new Map() });
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    const bar = () => host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-bar"]')!;
-    expect(bar().getAttribute('aria-expanded')).toBe('false');
-    bar().click();
+    expect(host.querySelector('[data-testid="display-sheet-region"]')).toBeNull();
+    tabButton(fixture)!.click();
     fixture.detectChanges();
-    expect(bar().getAttribute('aria-expanded')).toBe('true');
     expect(host.querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
-    host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-height"]')!.click();
-    fixture.detectChanges();
-    expect(host.querySelector('.sheet-body.full')).not.toBeNull();
+    expect(host.classList.contains('sheet-open')).toBe(true);
+    expect(host.querySelector('[data-testid="display-sheet-height"]')).toBeNull();
     host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-pin"]')!.click();
     fixture.detectChanges();
     expect(host.querySelector('[data-testid="display-sheet-pin"]')?.getAttribute('aria-pressed')).toBe('true');
-    bar().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    host.querySelector('[data-testid="display-sheet-region"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     fixture.detectChanges();
-    expect(bar().getAttribute('aria-expanded')).toBe('false');
-    expect(document.activeElement).toBe(bar());
+    await fixture.whenStable();
+    TestBed.tick();
+    expect(host.querySelector('[data-testid="display-sheet-region"]')).toBeNull();
+    expect(tabButton(fixture)?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(tabButton(fixture));
+    fixture.destroy();
+  });
+
+  it('offers Detach only when detachable, emits the request and shows a detach error', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).open('tab-1');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="display-sheet-detach"]')).toBeNull();
+    const requested = jest.fn();
+    fixture.componentInstance.detachRequested.subscribe(requested);
+    fixture.componentRef.setInput('detachable', true);
+    fixture.componentRef.setInput('detachError', 'Could not open the Display window.');
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-detach"]')!.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not open the Display window.');
+    fixture.destroy();
+  });
+
+  it('marks the region as an overlay drawer for a narrow host', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    fixture.componentRef.setInput('overlay', true);
+    TestBed.inject(DisplayDockState).open('tab-1');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.classList.contains('sheet-overlay')).toBe(true);
+    expect(host.querySelector('[role="region"].overlay')).not.toBeNull();
+    expect(host.querySelector('.sheet-shell')?.getAttribute('data-glass-surface')).toBe('overlay');
+    fixture.destroy();
+  });
+
+  it('lists a selected artifact from another session bucket', async () => {
+    const other = { ...artifact, id: 'artifact_other0001', sessionId: 'tab-9' };
+    records.set({ 'tab-9': [other] });
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).openArtifact('tab-1', other.id);
+    fixture.detectChanges();
+    const display = await mountedPanel(fixture);
+    expect(display.artifacts()).toEqual([other]);
     fixture.destroy();
   });
 
@@ -241,7 +297,7 @@ describe('DisplaySheetComponent', () => {
     dock.setLiveTurn('tab-1', 'turn-1');
     dock.requestAutoOpen('tab-1', 'turn-1', 'id:a');
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
     dock.close('tab-1');
     dock.requestAutoOpen('tab-1', 'turn-1', 'id:b');
     fixture.detectChanges();
@@ -358,10 +414,10 @@ describe('DisplaySheetComponent', () => {
     fixture.detectChanges();
     fixture.componentRef.setInput('tabId', 'tab-2');
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 0 items');
+    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 0 panel');
     fixture.componentRef.setInput('tabId', 'tab-1');
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    expect(title(fixture)).toBe('Display · 1');
     await mountedPanel(fixture);
     expect(panel(fixture).selectedKey()).toBe('id:a');
     expect(panel(fixture).pinned()).toBe(true);
@@ -384,7 +440,7 @@ describe('DisplaySheetComponent', () => {
     fixture.destroy();
   });
 
-  it('has an accessible bar and open region', async () => {
+  it('has an accessible header and open region', async () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
     TestBed.inject(DisplayDockState).open('tab-1');

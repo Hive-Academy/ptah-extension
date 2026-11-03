@@ -105,6 +105,7 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
             (openFile)="openFile($event)"
             (review)="review()"
             (openExternal)="openExternal($event)"
+            (retryArtifacts)="reloadArtifacts()"
           />
         } @placeholder {
           <p class="p-2 text-xs text-base-content-muted">Loading display…</p>
@@ -159,9 +160,21 @@ export class CommandRailDisplayComponent {
     const id = this.tabId();
     return dock && id ? dock.fullscreenArtifact(id) : null;
   });
+  /**
+   * The tab's artifacts plus the selected one from any bucket: the publishing
+   * session can be routed to another tab id than the Live tab (a resumed or
+   * continued session), and the panel must still show what is selected.
+   */
   protected readonly artifacts = computed<readonly ArtifactRecord[]>(() => {
     const id = this.tabId();
-    return id ? (this.artifactStore.records()[id] ?? NO_ARTIFACTS) : NO_ARTIFACTS;
+    const key = this.selectedKey();
+    const selectedArtifactId =
+      key !== null && key.startsWith(ARTIFACT_KEY_PREFIX)
+        ? key.slice(ARTIFACT_KEY_PREFIX.length)
+        : null;
+    return id
+      ? this.artifactStore.panelArtifacts(id, selectedArtifactId)
+      : NO_ARTIFACTS;
   });
   protected readonly hasContent = computed(
     () =>
@@ -203,6 +216,12 @@ export class CommandRailDisplayComponent {
 
   protected retry(): void {
     this.attempt.update((value) => value + 1);
+  }
+
+  /** The panel's Retry on a missing artifact: list the tab's artifacts again. */
+  protected reloadArtifacts(): void {
+    const id = this.tabId();
+    if (id) void this.artifactStore.reload(id);
   }
 
   protected select(key: string): void {

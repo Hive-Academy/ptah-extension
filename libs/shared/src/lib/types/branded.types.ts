@@ -36,10 +36,11 @@ export type JobId = string & { readonly __brand: 'JobId' };
  * Also ULID-backed.
  */
 export type RunId = string & { readonly __brand: 'RunId' };
-// Version 4 only: the Claude Agent SDK (@anthropic-ai/claude-agent-sdk 0.3.278,
-// sdk.mjs) mints session ids with Node's crypto.randomUUID(), which is v4.
+// UUID v4: Claude Agent SDK session ids and Ptah-minted ids (crypto.randomUUID / uuid v4).
+// UUID v7: Codex App Server thread ids; see
+// libs/backend/codex-runtime/src/lib/protocol/codex-app-server-protocol.schema.json (Thread.id).
 export const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 /**
  * ULID validation regex — Crockford base32, 26 characters.
  * Excludes I, L, O, U to avoid ambiguity (per the spec).

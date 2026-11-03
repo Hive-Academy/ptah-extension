@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "Ptah Core Agents",
   "version": "1.0.0",
-  "description": "Core development agent pack for the Ptah coding orchestra",
+  "description": "Core development agent pack for PtahCode",
   "contentHash": "",
-  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/.claude/agents",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/.claude/agents",
   "agents": [
     {
       "file": "backend-developer.md",

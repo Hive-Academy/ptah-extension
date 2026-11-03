@@ -27,7 +27,7 @@ import {
 } from '../../config/build-identity';
 
 const GITHUB_RELEASES_URL =
-  'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
+  'https://api.github.com/repos/Hive-Academy/PtahCode/releases';
 
 const ELECTRON_TAG_PREFIX = 'electron-v';
 

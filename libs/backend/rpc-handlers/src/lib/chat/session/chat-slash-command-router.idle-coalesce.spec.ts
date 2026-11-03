@@ -21,7 +21,7 @@ import { ChatSlashCommandRouterService } from './chat-slash-command-router.servi
 type CoordinatorPort = ManualCompactAdmission & {
   register(
     sessionId: string,
-    sessionClass: { codexProxy: boolean; e2Passed: boolean },
+    sessionClass: { e2Passed: boolean },
   ): unknown;
   claimIdle(sessionId: string, claimId: string): string;
   onPreCompact(sessionId: string, trigger: 'auto' | 'manual'): boolean;
@@ -111,7 +111,7 @@ describe('manual /compact router admission', () => {
     coordinator = child.resolve<CoordinatorPort>(
       SDK_TOKENS.SDK_COMPACTION_COORDINATOR,
     );
-    coordinator.register(sessionId, { codexProxy: false, e2Passed: true });
+    coordinator.register(sessionId, { e2Passed: true });
   });
 
   afterEach(() => coordinator.dispose());
@@ -231,8 +231,8 @@ describe('manual /compact router admission', () => {
       .mockReturnValueOnce(second.promise);
     const one = h.route();
     const two = h.route();
-    await Promise.resolve();
-    await Promise.resolve();
+    // Both sends wait on their deferred streams; flush every microtask.
+    await new Promise((resolve) => setImmediate(resolve));
     expect(h.executeSlashCommand).toHaveBeenCalledTimes(2);
     expect(coordinator.claimIdle(sessionId, 'idle-1')).toBe('manual-reserved');
     first.resolve(emptyStream());

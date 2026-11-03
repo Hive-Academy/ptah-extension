@@ -14,6 +14,8 @@ export interface PostToolUsePayload {
   readonly sessionId: string;
   readonly workspaceRoot: string;
   readonly timestamp: number;
+  /** Set only when the hook fired inside a subagent (`agent_id`). */
+  readonly agentId?: string;
 }
 
 export type PostToolUseCallback = CallbackRegistryCallback<PostToolUsePayload>;

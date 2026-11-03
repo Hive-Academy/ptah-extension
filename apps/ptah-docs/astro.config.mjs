@@ -2,7 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-const GITHUB_REPO = 'https://github.com/Hive-Academy/ptah-extension';
+const GITHUB_REPO = 'https://github.com/Hive-Academy/PtahCode';
 const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
 
 export default defineConfig({
@@ -14,12 +14,17 @@ export default defineConfig({
     // panel. That library is being retired (TASK_2026_385); the git surface
     // it used to host lives in the Git dock now.
     '/workspace/file-tree': '/git/git-status/',
+    '/vscode-extension': '/getting-started/installation/',
+    '/cli': '/agents/cli-agents/',
+    '/cli/commands': '/agents/cli-agents/',
+    '/reference/cli-flags': '/getting-started/installation/',
+    '/mcp-and-skills/driving-ptah-via-mcp': '/mcp-and-skills/',
   },
   integrations: [
     starlight({
-      title: 'Ptah Documentation',
+      title: 'PtahCode Documentation',
       description:
-        'The AI dev team that ships production SaaS — user guide for the Ptah Electron desktop app',
+        'The AI dev team that ships production SaaS — user guide for the PtahCode desktop app',
       favicon: '/favicon.svg',
       customCss: ['./src/styles/brand.css'],
       social: [
@@ -185,15 +190,6 @@ export default defineConfig({
             { label: 'Shipped Skills', slug: 'mcp-and-skills/popular-skills' },
             { label: 'Creating Skills', slug: 'mcp-and-skills/creating-skills' },
             { label: 'Third-party MCP', slug: 'mcp-and-skills/third-party-mcp' },
-            { label: 'Driving Ptah via MCP', slug: 'mcp-and-skills/driving-ptah-via-mcp' },
-          ],
-        },
-        {
-          label: 'Other Surfaces',
-          items: [
-            { label: 'VS Code Extension', slug: 'vscode-extension' },
-            { label: 'Ptah CLI', slug: 'cli' },
-            { label: 'CLI Command Reference', slug: 'cli/commands' },
           ],
         },
         {
@@ -230,7 +226,6 @@ export default defineConfig({
             { label: 'Overview', slug: 'reference' },
             { label: 'Keyboard Shortcuts', slug: 'reference/keyboard-shortcuts' },
             { label: 'File Locations', slug: 'reference/file-locations' },
-            { label: 'CLI Flags', slug: 'reference/cli-flags' },
             { label: 'Tier Comparison', slug: 'reference/tier-comparison' },
             { label: 'Glossary', slug: 'reference/glossary' },
             { label: 'Changelog', slug: 'reference/changelog' },

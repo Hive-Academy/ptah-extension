@@ -6,6 +6,8 @@ import {
   output,
   OnInit,
   ChangeDetectionStrategy,
+  effect,
+  untracked,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -16,6 +18,7 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   CatalogCardComponent,
   CatalogCardSkeletonComponent,
@@ -30,6 +33,7 @@ import {
   type HarnessSkillSyncMode,
   type PluginConfigState,
   type PluginInfo,
+  type PluginSessionNotice,
   type PluginSkillEntry,
 } from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
@@ -74,6 +78,9 @@ function pluginCardMeta(plugin: PluginInfo): readonly string[] {
 
 /** Text first, tone second: the badge reads "Enabled" without its colour. */
 const ENABLED_BADGE: CatalogCardBadge = { label: 'Enabled', tone: 'success' };
+
+export const PLUGIN_SAVE_APPLIES_NOTICE =
+  'Saved. New sessions use these settings. A session that is already running keeps its current skills until it starts a new query: when it is resumed or runs a slash command.';
 
 /** Ordered category definitions for display grouping.
  * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS
@@ -218,6 +225,53 @@ function skillSelectionKey(
         </div>
       </div>
 
+      @if (sessionNotice(); as notice) {
+        <section
+          class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4 text-xs text-base-content-muted"
+          role="status"
+          data-testid="plugin-session-notice"
+        >
+          @if (!notice.inheritsProjectSettings) {
+            <p class="break-words">
+              This session runs in {{ notice.sessionRoot }}. It does not use
+              this project's plugin settings.
+            </p>
+          } @else if (notice.overrides.length === 0) {
+            <p class="break-words">
+              This session runs in {{ notice.sessionRoot }} and uses this
+              project's plugin settings.
+            </p>
+          } @else {
+            <p class="break-words">
+              This session runs in {{ notice.sessionRoot }}. Its folder sets
+              these itself, so changes here do not reach this session:
+            </p>
+            <ul class="list-disc pl-5 mt-1">
+              @for (
+                override of notice.overrides.slice(0, 10);
+                track override.kind + ':' + override.id
+              ) {
+                <li>
+                  {{
+                    override.kind === 'plugin'
+                      ? sessionPluginName(override.id)
+                      : override.id
+                  }}: {{ override.value }}
+                </li>
+              }
+              @if (notice.overrides.length > 10) {
+                <li>and {{ notice.overrides.length - 10 }} more</li>
+              }
+            </ul>
+          }
+          @if (notice.incomplete) {
+            <p class="mt-1">
+              Some of this session's folder settings could not be read.
+            </p>
+          }
+        </section>
+      }
+
       <!--
         Which of the user's skills THIS project gets (TASK_2026_316).
 
@@ -247,8 +301,9 @@ function skillSelectionKey(
               <span
                 class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
               >
-                Which of your skills Ptah copies into this project's AI tools.
-                Every project keeps its own answer.
+                Which of your skills for all workspaces Ptah copies into this
+                project's AI tools. Skills installed for this workspace always
+                reach it. Every project keeps its own answer.
               </span>
             </div>
             <div
@@ -283,17 +338,28 @@ function skillSelectionKey(
             </div>
           </div>
 
-          @if (skillMode() === 'all') {
-            @if (skillModeDerived()) {
-              <span
-                class="block text-xs text-base-content-muted mt-2"
-                data-testid="skill-mode-derived"
-              >
+          @if (skillModeDerived()) {
+            <span
+              class="block text-xs text-base-content-muted mt-2"
+              data-testid="skill-mode-derived"
+            >
+              @if (skillMode() === 'all') {
                 This project was already receiving skills before it could be
-                asked, so Ptah kept them all flowing. Narrow it whenever you
-                like.
-              </span>
-            }
+                asked, so Ptah kept that answer. Change it whenever you like.
+              } @else {
+                Ptah kept the skills this project already had. Skills you
+                install for all workspaces reach it only when you pick them.
+              }
+            </span>
+          }
+          @if (skillMode() === 'all') {
+            <span
+              class="block text-xs text-base-content-muted mt-2"
+              data-testid="skill-mode-all-help"
+            >
+              Every skill installed for all workspaces, plus the ones installed
+              for this workspace.
+            </span>
           } @else {
             <div
               class="mt-2 max-h-40 overflow-y-auto pr-1"
@@ -536,6 +602,15 @@ function skillSelectionKey(
           @if (saveError()) {
             <span class="text-error text-xs">{{ saveError() }}</span>
           }
+          @if (savedNotice()) {
+            <span
+              class="text-xs text-base-content-muted"
+              role="status"
+              data-testid="plugin-save-applies-notice"
+            >
+              {{ pluginSaveAppliesNotice }}
+            </span>
+          }
           <button
             class="btn btn-primary btn-sm"
             data-testid="plugin-catalog-save"
@@ -569,6 +644,7 @@ function skillSelectionKey(
 })
 export class PluginCatalogPanelComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly tabs = inject(TabManagerService);
   /**
    * The shared plugin list + config. See `loadPlugins`; the panel keeps its own
    * per-workspace skill selection and its own skill listing, which nothing else
@@ -585,6 +661,7 @@ export class PluginCatalogPanelComponent implements OnInit {
   protected readonly ChevronRightIcon = ChevronRight;
 
   protected readonly enabledBadge = ENABLED_BADGE;
+  protected readonly pluginSaveAppliesNotice = PLUGIN_SAVE_APPLIES_NOTICE;
 
   /** Loading tiles shown while the catalogue is read. */
   protected readonly skeletonSlots = [0, 1, 2, 3] as const;
@@ -612,6 +689,14 @@ export class PluginCatalogPanelComponent implements OnInit {
 
   /** Error message from saving configuration */
   readonly saveError = signal<string | null>(null);
+
+  /** Session-specific choices that shadow this project's settings. */
+  readonly sessionNotice = signal<PluginSessionNotice | null>(null);
+
+  /** Whether the last save succeeded and its application notice should show. */
+  readonly savedNotice = signal(false);
+
+  private sessionNoticeRequestId = 0;
 
   /** Map of pluginId -> PluginSkillEntry[] for per-skill toggling */
   readonly pluginSkills = signal<Map<string, PluginSkillEntry[]>>(new Map());
@@ -723,6 +808,33 @@ export class PluginCatalogPanelComponent implements OnInit {
     return groups;
   });
 
+  constructor() {
+    effect(() => {
+      const sessionId = this.tabs.activeTabSessionId();
+      const requestId = ++this.sessionNoticeRequestId;
+
+      untracked(() => {
+        this.sessionNotice.set(null);
+        if (sessionId === null) {
+          return;
+        }
+
+        void this.rpcService
+          .call('plugins:get-config', { sessionId }, { timeout: 10000 })
+          .then((result) => {
+            if (requestId === this.sessionNoticeRequestId) {
+              this.sessionNotice.set(result.data?.sessionNotice ?? null);
+            }
+          })
+          .catch(() => {
+            if (requestId === this.sessionNoticeRequestId) {
+              this.sessionNotice.set(null);
+            }
+          });
+      });
+    });
+  }
+
   /**
    * A panel loads because it is on screen, not because a parent opened it.
    *
@@ -732,6 +844,16 @@ export class PluginCatalogPanelComponent implements OnInit {
    */
   ngOnInit(): void {
     void this.loadPlugins();
+  }
+
+  /**
+   * Resolve a plugin override to its catalog name, retaining unknown ids.
+   */
+  protected sessionPluginName(pluginId: string): string {
+    return (
+      this.availablePlugins().find((plugin) => plugin.id === pluginId)?.name ??
+      pluginId
+    );
   }
 
   /**
@@ -863,6 +985,7 @@ export class PluginCatalogPanelComponent implements OnInit {
    * the whole "enabled" signal for harness plugins.
    */
   async saveConfiguration(): Promise<void> {
+    this.savedNotice.set(false);
     this.isSaving.set(true);
     this.saveError.set(null);
 
@@ -887,7 +1010,13 @@ export class PluginCatalogPanelComponent implements OnInit {
         { timeout: 10000 },
       );
 
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data?.success === false) {
+        console.error(
+          '[PluginCatalogPanel] Failed to save config:',
+          result.data.error,
+        );
+        this.saveError.set('Failed to save configuration.');
+      } else if (result.isSuccess()) {
         // The shared catalog now holds the PREVIOUS config. Re-read it before
         // anything renders from it — this panel's own header reads the same
         // signals, and leaving it stale would show the old count until the
@@ -904,6 +1033,7 @@ export class PluginCatalogPanelComponent implements OnInit {
           );
           return;
         }
+        this.savedNotice.set(true);
         this.saved.emit(enabledPluginIds);
       } else {
         console.error(
@@ -1078,6 +1208,7 @@ export class PluginCatalogPanelComponent implements OnInit {
    * Called from `ngOnInit`, and by the error retry button.
    */
   async loadPlugins(): Promise<void> {
+    this.savedNotice.set(false);
     this.isLoading.set(true);
     this.error.set(null);
     this.saveError.set(null);

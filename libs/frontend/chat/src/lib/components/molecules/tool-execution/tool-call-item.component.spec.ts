@@ -7,42 +7,38 @@ import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { createExecutionNode } from '@ptah-extension/shared';
 import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
 import { ToolCallItemComponent } from './tool-call-item.component';
-import { ArtifactStore } from '../../../services/artifact.store';
-import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
 
-const artifact = { id: 'artifact_123456789', title: 'Preview', revision: 1, sessionId: 'session-1', viewerUrl: 'ptah-artifact://artifact_123456789/index.html', createdAt: '2026-10-20T00:00:00.000Z' };
-const records = signal<Readonly<Record<string, readonly typeof artifact[]>>>({});
-const artifactStore = { recordById: (id: string) => Object.values(records()).flat().find((record) => record.id === id) ?? null };
+const ARTIFACT_ID = 'artifact_123456789';
 
 beforeEach(() => {
-  records.set({});
   TestBed.configureTestingModule({ providers: [
-    { provide: ArtifactStore, useValue: artifactStore },
     { provide: TabManagerService, useValue: { activeTabId: signal('tab-1') } },
-    DisplayDockState, DisplaySheetState,
   ] });
 });
 
 describe('ToolCallItemComponent', () => {
-  it.each(['ptah_artifact_publish', 'mcp__ptah__ptah_artifact_publish'])('shows a stored artifact card for %s and opens its dock item', async (toolName) => {
-    records.set({ 'session-1': [artifact] });
-    const fixture = await renderNode({ id: 'publish', type: 'tool', status: 'complete', toolName, toolOutput: JSON.stringify({ id: artifact.id }) });
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="artifact-card-title"]')?.textContent).toContain('Preview');
-    host.querySelector<HTMLButtonElement>('[data-testid="artifact-card-open"]')!.click();
-    expect(TestBed.inject(DisplayDockState).tab('tab-1').selection).toEqual({ kind: 'artifact', artifactId: artifact.id });
-    host.querySelector<HTMLButtonElement>('[data-testid="artifact-card-fullscreen"]')!.click();
-    expect(TestBed.inject(DisplaySheetState).mode('tab-1')).toBe('full');
+  it.each(['ptah_artifact_publish', 'mcp__ptah__ptah_artifact_publish'])(
+    'shows a read-only artifact line for %s with no Open or Full screen action',
+    async (toolName) => {
+      const fixture = await renderNode({ id: 'publish', type: 'tool', status: 'complete', toolName, toolOutput: JSON.stringify({ id: ARTIFACT_ID, title: 'Preview' }) });
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="tool-artifact-line"]')?.textContent?.trim()).toBe('Artifact · Preview');
+      expect(host.querySelector('ptah-artifact-card')).toBeNull();
+      expect(host.querySelector('[data-testid="artifact-card-open"]')).toBeNull();
+      expect(host.querySelector('[data-testid="artifact-card-fullscreen"]')).toBeNull();
+      fixture.destroy();
+    },
+  );
+
+  it('reads the title from an MCP text content part', async () => {
+    const fixture = await renderNode({ id: 'publish', type: 'tool', status: 'complete', toolName: 'ptah_artifact_publish', toolOutput: [{ type: 'text', text: JSON.stringify({ id: ARTIFACT_ID }) }] });
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="tool-artifact-line"]')?.textContent?.trim()).toBe('Artifact · Artifact');
     fixture.destroy();
   });
 
-  it('shows a not-loaded card until the matching record exists', async () => {
-    const fixture = await renderNode({ id: 'publish', type: 'tool', status: 'complete', toolName: 'ptah_artifact_publish', toolOutput: [{ type: 'text', text: JSON.stringify({ id: artifact.id }) }] });
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="artifact-card"]')?.textContent).toContain('Not loaded yet');
-    records.set({ 'session-1': [artifact] });
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="artifact-card"]')).not.toBeNull();
+  it('shows no artifact line for a failed publish', async () => {
+    const fixture = await renderNode({ id: 'publish', type: 'tool', status: 'error', isError: true, toolName: 'ptah_artifact_publish', toolOutput: JSON.stringify({ id: ARTIFACT_ID }) });
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="tool-artifact-line"]')).toBeNull();
     fixture.destroy();
   });
   async function renderNode(

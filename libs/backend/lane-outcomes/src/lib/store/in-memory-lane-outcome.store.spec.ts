@@ -3,6 +3,59 @@ import { InMemoryLaneOutcomeStore } from './in-memory-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 
 describe('InMemoryLaneOutcomeStore', () => {
+  it('classifies only a kindless unclassified row', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent({
+      ...outcomeRow('pending'),
+      taskKind: null,
+      taskKindSource: 'unclassified',
+    });
+    expect(await store.setClassifiedTaskKind('missing', 'review')).toBe(false);
+    expect(await store.setClassifiedTaskKind('pending', 'implement')).toBe(true);
+    expect(await store.get('pending')).toMatchObject({
+      taskKind: 'implement',
+      taskKindSource: 'classified',
+    });
+    expect(await store.setClassifiedTaskKind('pending', 'review')).toBe(false);
+    await store.insertIfAbsent({
+      ...outcomeRow('explicit'),
+      taskKind: 'review',
+      taskKindSource: 'explicit',
+    });
+    expect(await store.setClassifiedTaskKind('explicit', 'implement')).toBe(false);
+    expect((await store.get('explicit'))?.taskKind).toBe('review');
+    await store.insertIfAbsent({
+      ...outcomeRow('protected'),
+      taskKind: null,
+      taskKindSource: 'mapped',
+    });
+    expect(await store.setClassifiedTaskKind('protected', 'implement')).toBe(false);
+    expect((await store.get('protected'))?.taskKindSource).toBe('mapped');
+  });
+
+  it('fills only absent join fields and reports a genuine change', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const join = {
+      subagentSessionId: 'new-session',
+      parentSessionId: 'parent',
+      workspaceRoot: '/new',
+    };
+    expect(await store.fillMissingSubagentJoin('missing', join)).toBe(false);
+    await store.insertIfAbsent({
+      ...outcomeRow('joined'),
+      subagentSessionId: 'original',
+      parentSessionId: null,
+      workspaceRoot: null,
+    });
+    expect(await store.fillMissingSubagentJoin('joined', join)).toBe(true);
+    expect(await store.get('joined')).toMatchObject({
+      subagentSessionId: 'original',
+      parentSessionId: 'parent',
+      workspaceRoot: '/new',
+    });
+    expect(await store.fillMissingSubagentJoin('joined', join)).toBe(false);
+  });
+
   it.each([
     ['failed', 'crash', 'failed'],
     ['no-deliverable', 'crash', 'no-deliverable'],

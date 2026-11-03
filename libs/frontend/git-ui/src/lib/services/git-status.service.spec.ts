@@ -690,6 +690,18 @@ describe('GitStatusService keeps last good data when status is unavailable (TASK
       expectKeptAndStale('timeout');
     });
 
+    it('marks a root the backend refused as "root-unavailable", not a generic error (S2)', async () => {
+      await loadGood();
+      mockRpcCall.mockResolvedValue({
+        success: false,
+        error: 'This worktree is no longer available.',
+      });
+
+      await service.refresh();
+
+      expectKeptAndStale('root-unavailable');
+    });
+
     it('keeps the last list and marks it stale with "error" on a transport failure', async () => {
       await loadGood();
       mockRpcCall.mockResolvedValue({ success: false, error: 'disconnected' });
@@ -977,5 +989,90 @@ describe('GitStatusService as a MessageHandler (C1)', () => {
     expect(() =>
       service.handleMessage({ type: MESSAGE_TYPES.GIT_STATUS_UPDATE }),
     ).not.toThrow();
+  });
+});
+
+describe('GitStatusService per-root isolation (TASK_2026_855)', () => {
+  let service: GitStatusService;
+
+  const push = (root: string, branch: string): void =>
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        ...gitInfo({
+          branch: { branch, upstream: null, ahead: 0, behind: 0 },
+        }),
+        workspaceRoot: root,
+      },
+    });
+
+  beforeEach(async () => {
+    mockRpcCall.mockReset();
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    TestBed.configureTestingModule({
+      providers: [
+        GitStatusService,
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+    service = TestBed.inject(GitStatusService);
+    service.switchWorkspace('/ws/a');
+    await Promise.resolve();
+    await Promise.resolve();
+    service.startListening();
+    mockRpcCall.mockClear();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it("lands a push for root B only in B's cache while A is active", async () => {
+    push('/ws/b', 'feature/b');
+
+    expect(service.branchName()).toBe('main');
+
+    service.switchWorkspace('/ws/b');
+    await Promise.resolve();
+    // B was cached fresh by its push: no fetch, and B's own data shows.
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(service.branchName()).toBe('feature/b');
+  });
+
+  it('treats backslash/forward-slash and case spellings of one root as one key', async () => {
+    service.switchWorkspace('C:\\Repo\\wt');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    push('c:/repo/wt/', 'session/wt');
+    expect(service.branchName()).toBe('session/wt');
+
+    // Switching to another spelling of the active root is a no-op.
+    mockRpcCall.mockClear();
+    service.switchWorkspace('c:/REPO/wt');
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(service.activeWorkspacePath()).toBe('C:\\Repo\\wt');
+  });
+
+  it('evicts the least recently updated root beyond the cap and never the active one', async () => {
+    const cap = GitStatusService.MAX_CACHED_ROOTS;
+    // The active /ws/a is the oldest entry; cap + 1 background roots follow.
+    for (let i = 0; i <= cap; i++) push(`/root/${i}`, `b${i}`);
+
+    service.switchWorkspace(`/root/${cap}`);
+    await Promise.resolve();
+    expect(mockRpcCall).not.toHaveBeenCalled();
+
+    service.switchWorkspace('/ws/a');
+    await Promise.resolve();
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(service.branchName()).toBe('main');
+
+    service.switchWorkspace('/root/0');
+    await Promise.resolve();
+    expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
+      workspaceRoot: '/root/0',
+    });
   });
 });

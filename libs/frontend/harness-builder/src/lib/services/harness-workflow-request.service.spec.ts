@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ChatStore } from '@ptah-extension/chat';
+import { Router } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AppStateManager,
@@ -9,7 +9,7 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { HarnessBuilderRecordsService } from './harness-builder-records.service';
-import { HarnessRpcService } from './harness-rpc.service';
+import { HarnessSessionController } from './harness-session.controller';
 import { HarnessWorkflowRequestService } from './harness-workflow-request.service';
 
 describe('HarnessWorkflowRequestService', () => {
@@ -18,94 +18,71 @@ describe('HarnessWorkflowRequestService', () => {
     audience: 'b2b' as const,
     stack: 'recommend' as const,
   };
-  const tabsSignal = signal<
-    Array<{ id: string; workflow: 'harness-configure' | 'harness-new-project' }>
-  >([]);
-  const activeId = signal<string | null>(null);
-  const visible = signal<ReadonlySet<string>>(new Set(['new-tab']));
   let service: HarnessWorkflowRequestService;
-  let router: {
-    navigateToSurface: jest.Mock;
-    currentSurface: ReturnType<typeof signal<string>>;
-  };
-  let tabs: {
-    createTab: jest.Mock;
-    setWorkflow: jest.Mock;
-    setFirstMessagePreamble: jest.Mock;
-    closeTab: jest.Mock;
-    setMessages: jest.Mock;
-    findTabByIdAcrossWorkspaces: jest.Mock;
-  };
-  let rpc: { startNewProject: jest.Mock; workflowPrompt: jest.Mock };
-  let records: {
-    readDraft: jest.Mock;
-    writeStackProfile: jest.Mock;
-    clearTab: jest.Mock;
-  };
-  let chat: { sendOrQueueMessage: jest.Mock };
-  let appState: { requestComposerPrefill: jest.Mock };
+  let navigateToSurface: jest.Mock;
+  let start: jest.Mock;
+  let retrySend: jest.Mock;
+  let leave: jest.Mock;
+  const record = signal<{ tabId: string } | null>(null);
+  const phase = signal<'idle' | 'failed'>('idle');
+  const tabs = signal<
+    Array<{ id: string; workflow: 'harness-new-project' | 'harness-configure' }>
+  >([]);
+  const angularRouter = { url: '/onboarding' };
+  let findTabByIdAcrossWorkspaces: jest.Mock;
 
   beforeEach(() => {
-    tabsSignal.set([]);
-    activeId.set(null);
-    visible.set(new Set(['new-tab']));
-    router = {
-      navigateToSurface: jest.fn().mockResolvedValue('navigated'),
-      currentSurface: signal('harness-builder'),
+    record.set(null);
+    phase.set('idle');
+    tabs.set([]);
+    angularRouter.url = '/onboarding';
+    findTabByIdAcrossWorkspaces = jest.fn().mockReturnValue(null);
+    navigateToSurface = jest.fn().mockResolvedValue('navigated');
+    start = jest.fn().mockImplementation(async () => {
+      record.set({ tabId: 'new-tab' });
+      return { kind: 'started', tabId: 'new-tab' };
+    });
+    retrySend = jest.fn().mockResolvedValue(true);
+    leave = jest.fn().mockResolvedValue('left');
+    const modeSession = {
+      start,
+      retrySend,
+      record,
+      phase,
+      restore: jest.fn().mockResolvedValue('ready'),
     };
-    tabs = {
-      createTab: jest.fn().mockReturnValue('new-tab'),
-      setWorkflow: jest.fn(),
-      setFirstMessagePreamble: jest.fn(),
-      closeTab: jest.fn().mockResolvedValue(undefined),
-      setMessages: jest.fn(),
-      findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
-    };
-    rpc = {
-      startNewProject: jest.fn().mockImplementation(async (value) => ({
-        success: true,
-        seedPrompt: 'hidden seed',
-        intake: value,
-        plugins: {
-          enabledBundled: [],
-          missingExternal: [],
-          availableSkillIds: [],
-        },
-      })),
-      workflowPrompt: jest
-        .fn()
-        .mockResolvedValue({ prompt: 'context preamble' }),
-    };
-    records = {
-      readDraft: jest.fn().mockReturnValue(null),
-      writeStackProfile: jest.fn().mockReturnValue(true),
-      clearTab: jest.fn(),
-    };
-    chat = {
-      sendOrQueueMessage: jest.fn().mockResolvedValue({ success: true }),
-    };
-    appState = { requestComposerPrefill: jest.fn() };
     TestBed.configureTestingModule({
       providers: [
         HarnessWorkflowRequestService,
         {
+          provide: HarnessSessionController,
+          useValue: { session: jest.fn().mockReturnValue(modeSession), leave },
+        },
+        {
           provide: TabManagerService,
           useValue: {
-            ...tabs,
-            tabs: tabsSignal,
-            activeTabId: activeId,
-            visibleTabIds: visible,
+            tabs,
+            activeTabId: signal<string | null>(null),
             activeWorkspacePath: 'C:/work',
+            findTabByIdAcrossWorkspaces,
           },
         },
-        { provide: ChatStore, useValue: chat },
-        { provide: AppStateManager, useValue: appState },
-        { provide: HarnessRpcService, useValue: rpc },
-        { provide: HarnessBuilderRecordsService, useValue: records },
-        { provide: SurfaceRouterService, useValue: router },
+        {
+          provide: HarnessBuilderRecordsService,
+          useValue: { readDraft: jest.fn().mockReturnValue(null) },
+        },
+        {
+          provide: SurfaceRouterService,
+          useValue: { navigateToSurface, currentSurface: signal('onboarding') },
+        },
+        { provide: Router, useValue: angularRouter },
         {
           provide: VSCodeService,
           useValue: { config: () => ({ workspaceRoot: 'C:/work' }) },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { requestComposerPrefill: jest.fn() },
         },
         { provide: LoggingService, useValue: { error: jest.fn() } },
       ],
@@ -113,269 +90,142 @@ describe('HarnessWorkflowRequestService', () => {
     service = TestBed.inject(HarnessWorkflowRequestService);
   });
 
-  it('resumes the same-mode running tab without another seed or send', async () => {
-    tabsSignal.set([{ id: 'running', workflow: 'harness-new-project' }]);
-    activeId.set('running');
+  it('delegates first start before navigating to the onboarding workspace', async () => {
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('landed');
+    expect(start).toHaveBeenCalledWith({
+      mode: 'new-project',
+      workspaceRoot: 'c:/work',
+      intake,
+    });
+    expect(navigateToSurface).toHaveBeenCalledWith(
+      'onboarding',
+      ['new-project', 'workspace'],
+      { queryParams: { tab: 'new-tab' } },
+    );
+  });
+
+  it('resumes the same-mode tab without starting or sending again', async () => {
+    tabs.set([{ id: 'existing', workflow: 'harness-new-project' }]);
     expect(await service.requestAndNavigate({ mode: 'new-project' })).toBe(
       'landed',
     );
-    expect(router.navigateToSurface).toHaveBeenCalledWith('harness-builder', [
-      'new-project',
-      'running',
-    ]);
-    expect(rpc.startNewProject).not.toHaveBeenCalled();
-    expect(chat.sendOrQueueMessage).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(navigateToSurface).toHaveBeenCalledWith(
+      'onboarding',
+      ['new-project', 'workspace'],
+      { queryParams: { tab: 'existing' } },
+    );
   });
 
-  it('resumes a saved draft when its tagged tab still exists', async () => {
-    records.readDraft.mockReturnValue({ tabId: 'draft' });
-    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-      tab: { id: 'draft', workflow: 'harness-configure' },
+  it('offers the old builder retry UI after a failed first send', async () => {
+    start.mockImplementationOnce(async () => {
+      record.set({ tabId: 'new-tab' });
+      phase.set('failed');
+      return {
+        kind: 'failed',
+        error: 'The first message could not be sent. Retry send.',
+      };
     });
-    expect(
-      await service.requestAndNavigate({ mode: 'configure-harness' }),
-    ).toBe('landed');
-    expect(router.navigateToSurface).toHaveBeenCalledWith('harness-builder', [
-      'configure-harness',
-      'draft',
-    ]);
-    expect(tabs.createTab).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['harness-configure', 'new-project', 'configure-harness'],
-    ['harness-new-project', 'configure-harness', 'new-project'],
-  ] as const)(
-    'hands %s off to the running builder and ignores a second click',
-    async (workflow, target, source) => {
-      tabsSignal.set([{ id: 'old', workflow }]);
-      const request =
-        target === 'new-project' ? { mode: target, intake } : { mode: target };
-      expect(await service.requestAndNavigate(request)).toBe('landed');
-      expect(service.pendingIntent()?.targetMode).toBe(target);
-      expect(router.navigateToSurface).toHaveBeenCalledWith('harness-builder', [
-        source,
-        'old',
-      ]);
-      tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-        tab: { id: 'old', workflow },
-        workspacePath: 'C:/work',
-      });
-      expect(await service.requestAndNavigate(request)).toBe('cancelled');
-      expect(rpc.startNewProject).not.toHaveBeenCalled();
-      expect(tabs.createTab).not.toHaveBeenCalled();
-    },
-  );
-
-  it('Cancel preserves the old run and never starts a New Project', async () => {
-    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    service.cancelPendingIntent();
-    expect(service.pendingIntent()).toBeNull();
-    expect(rpc.startNewProject).not.toHaveBeenCalled();
-  });
-
-  it('replaces a pending intent after its source tab closes', async () => {
-    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    expect(service.pendingIntent()?.sourceTabId).toBe('old');
-    tabsSignal.set([]);
-    expect(
-      await service.requestAndNavigate({ mode: 'configure-harness' }),
-    ).toBe('landed');
-    expect(service.pendingIntent()).toBeNull();
-  });
-
-  it('replaces a pending intent after leaving the builder surface', async () => {
-    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-      tab: { id: 'old', workflow: 'harness-configure' },
-      workspacePath: 'C:/work',
-    });
-    router.currentSurface.set('setup-hub');
-    expect(
-      await service.requestAndNavigate({ mode: 'new-project', intake }),
-    ).toBe('landed');
-    expect(service.pendingIntent()?.sourceTabId).toBe('old');
-    expect(router.navigateToSurface).toHaveBeenCalledTimes(2);
-  });
-
-  it('prefills a resumed New Project tab with a fresh intake', async () => {
-    tabsSignal.set([{ id: 'running', workflow: 'harness-new-project' }]);
-    expect(
-      await service.requestAndNavigate({ mode: 'new-project', intake }),
-    ).toBe('resumed');
-    expect(appState.requestComposerPrefill).toHaveBeenCalledWith(
-      expect.stringContaining('Clinic scheduler'),
-      'running',
-    );
-    expect(service.resumedIntake()).toEqual({
-      tabId: 'running',
-      text: expect.stringContaining('Clinic scheduler'),
-    });
-    expect(service.hubError()).toBeNull();
-    expect(rpc.startNewProject).not.toHaveBeenCalled();
-  });
-
-  it('keeps resumed intake available when the chat composer may already have typed text', async () => {
-    tabsSignal.set([{ id: 'running', workflow: 'harness-new-project' }]);
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    expect(service.resumedIntake()?.text).toContain('Clinic scheduler');
-    expect(service.resumedIntake()?.tabId).toBe('running');
-  });
-
-  it('copies validated intake before clearing intent and starts after the leave choice', async () => {
-    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    const stored = service.pendingIntent()?.validatedIntake;
-    expect(stored).toEqual(intake);
-    tabsSignal.set([]);
-    expect(await service.completePendingIntent()).toBe('landed');
-    expect(service.pendingIntent()).toBeNull();
-    expect(rpc.startNewProject).toHaveBeenCalledWith(intake);
-    expect(tabs.setWorkflow).toHaveBeenCalledWith(
-      'new-tab',
-      'harness-new-project',
-    );
-    expect(tabs.setFirstMessagePreamble).toHaveBeenCalledWith(
-      'new-tab',
-      'hidden seed',
-    );
-    expect(records.writeStackProfile.mock.invocationCallOrder[0]).toBeLessThan(
-      chat.sendOrQueueMessage.mock.invocationCallOrder[0],
-    );
-    expect(chat.sendOrQueueMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Clinic scheduler'),
-      { tabId: 'new-tab' },
-    );
-  });
-
-  it('uses context-only preamble for Configure', async () => {
-    expect(
-      await service.requestAndNavigate({ mode: 'configure-harness' }),
-    ).toBe('landed');
-    expect(rpc.workflowPrompt).toHaveBeenCalledWith({
-      mode: 'configure-harness',
-      contextOnly: true,
-    });
-    expect(tabs.setWorkflow).toHaveBeenCalledWith(
-      'new-tab',
-      'harness-configure',
-    );
-    expect(chat.sendOrQueueMessage).not.toHaveBeenCalled();
-  });
-
-  it('keeps the first turn when stack-profile storage fails', async () => {
-    records.writeStackProfile.mockReturnValue(false);
-    expect(
-      await service.requestAndNavigate({ mode: 'new-project', intake }),
-    ).toBe('landed');
-    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(1);
-  });
-
-  it('retries the same New Project intake after a failed first send without reseeding', async () => {
-    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
     expect(
       await service.requestAndNavigate({ mode: 'new-project', intake }),
     ).toBe('failed');
-    expect(service.entryErrors()['new-tab']).toContain('could not be sent');
-    const firstContent = chat.sendOrQueueMessage.mock.calls[0][0];
-    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-      tab: { id: 'new-tab', workflow: 'harness-new-project' },
-      workspacePath: 'C:/work',
-    });
-
-    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
-    expect(await service.retryFirstSend('new-tab')).toBe(false);
-    expect(tabs.setFirstMessagePreamble).toHaveBeenLastCalledWith(
-      'new-tab',
-      'hidden seed',
+    expect(navigateToSurface).toHaveBeenCalledWith(
+      'onboarding',
+      ['new-project', 'workspace'],
+      { queryParams: { tab: 'new-tab' } },
     );
-    expect(service.entryErrors()['new-tab']).toContain('could not be sent');
-
+    expect(service.entryErrors()['new-tab']).toContain('Retry send');
     expect(await service.retryFirstSend('new-tab')).toBe(true);
-    expect(service.entryErrors()['new-tab']).toBeUndefined();
-    expect(
-      chat.sendOrQueueMessage.mock.calls.map(([content]) => content),
-    ).toEqual([firstContent, firstContent, firstContent]);
-    expect(
-      chat.sendOrQueueMessage.mock.calls.every(
-        ([, options]) => options.tabId === 'new-tab',
-      ),
-    ).toBe(true);
-    expect(rpc.startNewProject).toHaveBeenCalledTimes(1);
-    expect(tabs.createTab).toHaveBeenCalledTimes(1);
-    expect(await service.retryFirstSend('new-tab')).toBe(false);
-    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(3);
+    expect(retrySend).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a second retry while the first retry is sending', async () => {
-    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-      tab: { id: 'new-tab', workflow: 'harness-new-project' },
-      workspacePath: 'C:/work',
+  it('reports a pre-tab start failure on the hub without navigating to a stale tab', async () => {
+    start.mockResolvedValueOnce({
+      kind: 'failed',
+      error: 'Could not start New Project. Try again.',
     });
-    let resolveSend!: (outcome: { success: boolean }) => void;
-    chat.sendOrQueueMessage.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveSend = resolve;
-        }),
-    );
-    const retry = service.retryFirstSend('new-tab');
-    expect(await service.retryFirstSend('new-tab')).toBe(false);
-    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(2);
-    resolveSend({ success: true });
-    expect(await retry).toBe(true);
-    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(2);
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('failed');
+    expect(navigateToSurface).not.toHaveBeenCalled();
+    expect(service.hubError()).toContain('Could not start New Project');
   });
 
-  it('replaces the failed first bubble before retrying the same intake', async () => {
-    const tab = {
-      id: 'new-tab',
-      workflow: 'harness-new-project',
-      messages: [] as Array<{ id: string; role: 'user'; rawContent: string }>,
-    };
-    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
-      tab,
-      workspacePath: 'C:/work',
-    });
-    tabs.setMessages.mockImplementation((_tabId, messages) => {
-      tab.messages = [...messages];
-    });
-    chat.sendOrQueueMessage.mockImplementationOnce(async (content: string) => {
-      tab.messages.push({
-        id: 'failed-first',
-        role: 'user',
-        rawContent: content,
-      });
-      return { success: false };
-    });
-    await service.requestAndNavigate({ mode: 'new-project', intake });
-    expect(tab.messages.map((message) => message.id)).toEqual(['failed-first']);
+  it('keeps a cross-mode pending intent until the previous flow is left', async () => {
+    tabs.set([{ id: 'old', workflow: 'harness-configure' }]);
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('landed');
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+    expect(start).not.toHaveBeenCalled();
+    expect(navigateToSurface).toHaveBeenCalledWith(
+      'onboarding',
+      ['team-builder', 'workspace'],
+      { queryParams: { tab: 'old' } },
+    );
+  });
 
-    chat.sendOrQueueMessage.mockImplementationOnce(async (content: string) => {
-      tab.messages.push({
-        id: 'retried-first',
-        role: 'user',
-        rawContent: content,
-      });
-      return { success: true };
+  it('replaces a stale pending intent from onboarding Home with a new open-workflow request', async () => {
+    tabs.set([{ id: 'old', workflow: 'harness-configure' }]);
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+
+    findTabByIdAcrossWorkspaces.mockReturnValue({
+      workspacePath: 'C:/work',
+      tab: { id: 'old', workflow: 'harness-configure' },
     });
-    expect(await service.retryFirstSend('new-tab')).toBe(true);
-    expect(tab.messages.map((message) => message.id)).toEqual([
-      'retried-first',
+    tabs.set([
+      { id: 'old', workflow: 'harness-configure' },
+      { id: 'new-request', workflow: 'harness-new-project' },
     ]);
-    expect(tabs.setMessages).toHaveBeenCalledWith('new-tab', []);
-    expect(rpc.startNewProject).toHaveBeenCalledTimes(1);
+    angularRouter.url = '/onboarding';
+
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('resumed');
+    expect(service.pendingIntent()).toBeNull();
+    expect(navigateToSurface).toHaveBeenLastCalledWith(
+      'onboarding',
+      ['new-project', 'workspace'],
+      { queryParams: { tab: 'new-request' } },
+    );
   });
 
-  it('keeps an abort warning until dismissed', () => {
-    service.reportAbortFailure(new Error('abort failed'));
-    expect(service.hubWarning()).toContain('could not be stopped');
-    service.dismissHubWarning();
-    expect(service.hubWarning()).toBeNull();
+  it('cancels a new request while a live pending source tab is on its onboarding flow', async () => {
+    tabs.set([{ id: 'old', workflow: 'harness-configure' }]);
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+
+    findTabByIdAcrossWorkspaces.mockReturnValue({
+      workspacePath: 'C:/work',
+      tab: { id: 'old', workflow: 'harness-configure' },
+    });
+    angularRouter.url = '/onboarding/team-builder/workspace?tab=old';
+
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('cancelled');
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+    expect(navigateToSurface).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('discards a newly started session when navigation fails', async () => {
+    navigateToSurface.mockResolvedValueOnce('failed');
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('failed');
+    expect(leave).toHaveBeenCalledWith('new-project', 'discard');
+  });
+
+  it('reports an uncertain stop when failed navigation cannot discard the session', async () => {
+    navigateToSurface.mockResolvedValueOnce('failed');
+    leave.mockResolvedValueOnce('uncertain');
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('failed');
+    expect(service.hubError()).toContain('builder started');
   });
 });

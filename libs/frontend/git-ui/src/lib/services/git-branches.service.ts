@@ -12,6 +12,7 @@ import {
   GIT_HOOK_TIMEOUT_MS,
   MESSAGE_TYPES,
   gitRpcTimeoutFor,
+  isSameWorkingRoot,
 } from '@ptah-extension/shared';
 import type {
   BranchRef,
@@ -210,9 +211,12 @@ export class GitBranchesService implements MessageHandler {
     if (message.type !== MESSAGE_TYPES.GIT_STATUS_UPDATE) return;
 
     const payload = message.payload as GitStatusUpdatePayload | undefined;
+    // Normalized compare (TASK_2026_855): the dock can be scoped to a session
+    // worktree, and the watcher's spelling of that root may differ from ours
+    // in case or separators. A push for any other root is still dropped.
     if (
       payload?.workspaceRoot &&
-      payload.workspaceRoot !== this.workspaceKey()
+      !isSameWorkingRoot(payload.workspaceRoot, this.workspaceKey())
     ) {
       return;
     }

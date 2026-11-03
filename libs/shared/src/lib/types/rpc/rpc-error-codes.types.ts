@@ -14,13 +14,35 @@ export type RpcUserErrorCode =
   | 'SESSION_NOT_FOUND'
   /** The session exists but none of its saved folders is open, safe and present. */
   | 'SESSION_FOLDER_UNAVAILABLE'
+  /**
+   * A `git:*` call named a root that is no longer a registered workspace
+   * folder or a live worktree of one (removed, pruned, or git failed to
+   * confirm it). Never falls back to the active folder.
+   */
+  | 'GIT_ROOT_UNAVAILABLE'
   | 'INVALID_PARAMS'
   | 'TASK_NOT_FOUND'
   | 'SESSION_ENDED'
+  /** Codex already has an operation in progress. */
+  | 'CODEX_BUSY'
+  /** A named chat option is unsupported by Codex. */
+  | 'CODEX_UNSUPPORTED_OPTION'
+  /** The Codex runtime or session is unavailable. */
+  | 'CODEX_UNAVAILABLE'
+  /** The Codex runtime could not complete the requested operation. */
+  | 'CODEX_RUNTIME_FAILED'
   | 'SEND_TIMEOUT'
   | 'SESSION_ATTACHED_TO_GATEWAY'
   | 'OUTPUT_CURSOR_STALE'
   | 'HISTORY_CURSOR_STALE'
+  | 'HISTORY_UNAVAILABLE'
+  | 'HISTORY_BUSY'
+  | 'HISTORY_TIMEOUT'
+  | 'HISTORY_CANCELLED'
+  | 'HISTORY_NOT_FOUND'
+  /** A saved native history page failed protocol validation. */
+  | 'HISTORY_MALFORMED'
+  | 'HISTORY_FAILED'
   /** The connection is the main agent's current driver and cannot be removed. */
   | 'CONNECTION_IN_USE'
   /**

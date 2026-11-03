@@ -1,9 +1,10 @@
 import {
   LANE_GUARD_DEFAULTS,
+  LANE_GUARD_FIELDS,
+  LANE_GUARD_KEYS,
   laneGuardFieldError,
   laneGuardFromConfig,
   laneGuardKeyInError,
-  laneGuardPairError,
   laneGuardWrite,
   parseLaneGuardInteger,
   type LaneGuardKey,
@@ -15,57 +16,43 @@ function drafts(
   overrides: Partial<Record<LaneGuardKey, string>> = {},
 ): Record<LaneGuardKey, string> {
   return {
-    laneToolCallSteerAt: '40',
-    laneToolCallStopAt: '60',
     laneRepeatCallStopAt: '20',
     ...overrides,
   };
 }
 
 describe('lane guard settings logic', () => {
+  it('has only the repeat-call field, defaulting to 20', () => {
+    expect(LANE_GUARD_KEYS).toEqual(['laneRepeatCallStopAt']);
+    expect(LANE_GUARD_FIELDS.map((field) => field.key)).toEqual([
+      'laneRepeatCallStopAt',
+    ]);
+    expect(LANE_GUARD_DEFAULTS).toEqual({ laneRepeatCallStopAt: 20 });
+  });
+
   it('accepts a whole number at or above the field minimum', () => {
-    expect(parseLaneGuardInteger('1', 1)).toEqual({ ok: true, value: 1 });
+    expect(parseLaneGuardInteger('2', 2)).toEqual({ ok: true, value: 2 });
     expect(parseLaneGuardInteger(' 2_0 ', 2)).toEqual({ ok: true, value: 20 });
-    expect(parseLaneGuardInteger('', 1)).toEqual({
+    expect(parseLaneGuardInteger('', 2)).toEqual({
       ok: false,
       error: 'Enter a value.',
     });
-    expect(parseLaneGuardInteger('1.5', 1).ok).toBe(false);
-    expect(parseLaneGuardInteger('0', 1).ok).toBe(false);
-    expect(parseLaneGuardInteger('-3', 1).ok).toBe(false);
+    expect(parseLaneGuardInteger('1.5', 2).ok).toBe(false);
+    expect(parseLaneGuardInteger('1', 2).ok).toBe(false);
+    expect(parseLaneGuardInteger('-3', 2).ok).toBe(false);
   });
 
-  it('rejects a stop that is not greater than steer', () => {
-    expect(laneGuardPairError(40, 60)).toBeNull();
-    expect(laneGuardPairError(40, 40)).toBe(
-      'Stop at must be greater than Steer at.',
-    );
-    expect(laneGuardPairError(70, 60)).toBe(
-      'Stop at must be greater than Steer at.',
-    );
+  it('reports a field error below the repeat minimum', () => {
     expect(
       laneGuardFieldError(
-        'laneToolCallStopAt',
-        drafts({ laneToolCallStopAt: '40' }),
+        'laneRepeatCallStopAt',
+        drafts({ laneRepeatCallStopAt: '1' }),
       ),
-    ).toBe('Stop at must be greater than Steer at.');
+    ).toBe('Enter a whole number from 2.');
+    expect(laneGuardFieldError('laneRepeatCallStopAt', drafts())).toBeNull();
   });
 
-  it('does not write an invalid pair and writes a valid changed pair together', () => {
-    expect(
-      laneGuardWrite(
-        'laneToolCallSteerAt',
-        drafts({ laneToolCallSteerAt: '70' }),
-        saved,
-      ),
-    ).toBeNull();
-    expect(
-      laneGuardWrite(
-        'laneToolCallStopAt',
-        drafts({ laneToolCallSteerAt: '10', laneToolCallStopAt: '15' }),
-        saved,
-      ),
-    ).toEqual({ laneToolCallSteerAt: 10, laneToolCallStopAt: 15 });
+  it('writes a valid changed value and nothing for an invalid or unchanged one', () => {
     expect(
       laneGuardWrite(
         'laneRepeatCallStopAt',
@@ -74,18 +61,25 @@ describe('lane guard settings logic', () => {
       ),
     ).toEqual({ laneRepeatCallStopAt: 4 });
     expect(laneGuardWrite('laneRepeatCallStopAt', drafts(), saved)).toBeNull();
+    expect(
+      laneGuardWrite(
+        'laneRepeatCallStopAt',
+        drafts({ laneRepeatCallStopAt: '1' }),
+        saved,
+      ),
+    ).toBeNull();
   });
 
   it('reads a host value and falls back to the default when it is out of range', () => {
-    expect(laneGuardFromConfig('laneToolCallSteerAt', 12)).toBe(12);
-    expect(laneGuardFromConfig('laneToolCallSteerAt', 0)).toBe(40);
-    expect(laneGuardFromConfig('laneToolCallStopAt', undefined)).toBe(60);
+    expect(laneGuardFromConfig('laneRepeatCallStopAt', 12)).toBe(12);
+    expect(laneGuardFromConfig('laneRepeatCallStopAt', 1)).toBe(20);
     expect(laneGuardFromConfig('laneRepeatCallStopAt', 1.5)).toBe(20);
+    expect(laneGuardFromConfig('laneRepeatCallStopAt', undefined)).toBe(20);
   });
 
   it('names the field inside a host rejection', () => {
-    expect(laneGuardKeyInError('Unsupported laneToolCallStopAt value')).toBe(
-      'laneToolCallStopAt',
+    expect(laneGuardKeyInError('Unsupported laneRepeatCallStopAt value')).toBe(
+      'laneRepeatCallStopAt',
     );
     expect(laneGuardKeyInError('host offline')).toBeNull();
   });

@@ -3,6 +3,10 @@ import 'reflect-metadata';
 import type { Logger } from '../logging';
 import { SubagentRegistryService } from './subagent-registry.service';
 import type { SubagentRegistration } from './subagent-registry.service';
+import type {
+  AgentStartEvent,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -596,20 +600,92 @@ describe('SubagentRegistryService — extended methods', () => {
     });
   });
 
-  describe('injection attempts', () => {
-    it('counts attempts per toolCallId', () => {
-      expect(service.getInjectionAttempts('tc-att')).toBe(0);
-      expect(service.recordInjectionAttempt('tc-att')).toBe(1);
-      expect(service.recordInjectionAttempt('tc-att')).toBe(2);
-      expect(service.getInjectionAttempts('tc-att')).toBe(2);
+  describe('dismiss and retire', () => {
+    function interrupted(toolCallId: string, parentSessionId = 'parent-1') {
+      service.register(
+        makeReg({ toolCallId, agentId: `a-${toolCallId}`, parentSessionId }),
+      );
+      service.update(toolCallId, { status: 'interrupted' });
+    }
+
+    function agentStart(toolCallId: string): FlatStreamEventUnion {
+      return {
+        eventType: 'agent_start',
+        toolCallId,
+        agentType: 'test-agent',
+        agentId: `a-${toolCallId}`,
+        sessionId: 'parent-1',
+        timestamp: Date.now(),
+      } as AgentStartEvent;
+    }
+
+    it('hides dismissed records from resumable reads but keeps them for injection', () => {
+      interrupted('tc-d');
+      interrupted('tc-k');
+
+      const dismissed = service.dismissResumable('parent-1', ['tc-d']);
+
+      expect(dismissed.map((r) => r.dismissed)).toEqual([true]);
+      expect(
+        service.getResumableBySession('parent-1').map((r) => r.toolCallId),
+      ).toEqual(['tc-k']);
+      expect(service.getResumable().map((r) => r.toolCallId)).toEqual(['tc-k']);
+      expect(
+        service.getInterruptedBySession('parent-1').map((r) => r.toolCallId),
+      ).toEqual(['tc-d', 'tc-k']);
     });
 
-    it('resets attempts when the record is removed', () => {
-      service.register(makeReg({ toolCallId: 'tc-att2' }));
-      service.recordInjectionAttempt('tc-att2');
-      service.remove('tc-att2');
+    it('ignores dismiss ids from another session or not interrupted', () => {
+      interrupted('tc-other', 'parent-2');
+      service.register(makeReg({ toolCallId: 'tc-running' }));
 
-      expect(service.getInjectionAttempts('tc-att2')).toBe(0);
+      expect(
+        service.dismissResumable('parent-1', ['tc-other', 'tc-running', 'x']),
+      ).toEqual([]);
+      expect(service.getResumableBySession('parent-2')).toHaveLength(1);
+      expect(service.dismissResumable('', ['tc-other'])).toEqual([]);
+    });
+
+    it('retire removes the record and blocks history and snapshot re-registration', () => {
+      interrupted('tc-r');
+      const snapshot = service.getInterruptedBySession('parent-1');
+
+      service.retire(['tc-r']);
+
+      expect(service.get('tc-r')).toBeNull();
+      expect(service.wasInjected('tc-r')).toBe(true);
+      expect(service.restoreResumableBySession('parent-1', snapshot)).toBe(0);
+      expect(
+        service.registerFromHistoryEvents([agentStart('tc-r')], 'parent-1'),
+      ).toBe(0);
+    });
+
+    it('after a restart, durable retired ids and dismissed flags hold', () => {
+      // Durable state as the session metadata would carry it.
+      interrupted('tc-d');
+      const [dismissedRecord] = service.dismissResumable('parent-1', ['tc-d']);
+      const retiredIds = ['tc-r'];
+
+      // Fresh process: empty registry, same chat:resume order.
+      const restarted = new SubagentRegistryService(logger);
+      expect(restarted.isResumeStateHydrated('parent-1')).toBe(false);
+      expect(
+        restarted.hydrateResumeState('parent-1', {
+          retiredToolCallIds: retiredIds,
+          resumableSdkSubagents: [dismissedRecord],
+        }),
+      ).toBe(1);
+      expect(restarted.isResumeStateHydrated('parent-1')).toBe(true);
+      const fromHistory = restarted.registerFromHistoryEvents(
+        [agentStart('tc-r'), agentStart('tc-d')],
+        'parent-1',
+      );
+
+      expect(fromHistory).toBe(0);
+      expect(restarted.getResumableBySession('parent-1')).toEqual([]);
+      expect(
+        restarted.getInterruptedBySession('parent-1').map((r) => r.toolCallId),
+      ).toEqual(['tc-d']);
     });
   });
 });

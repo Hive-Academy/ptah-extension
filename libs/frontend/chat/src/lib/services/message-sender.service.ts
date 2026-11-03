@@ -67,6 +67,10 @@ import type { QueuedCommand } from './chat-store/conversation.service';
 export interface SendOutcome {
   success: boolean;
   error?: string;
+  /** Stop ended the operation; callers must not show delivery failure UI. */
+  cancelled?: boolean;
+  /** The backend already broadcast CHAT_ERROR; preserve its terminal state. */
+  errorAlreadyShown?: boolean;
   /**
    * Set when a slash command was queued behind earlier queued text and waits
    * as its own turn (TASK_2026_655): resolves `true` when it becomes the
@@ -78,6 +82,27 @@ export interface SendOutcome {
    * identity, for `ChatStore.withdrawQueuedCommand` / `isQueuedCommand`.
    */
   queuedCommand?: QueuedCommand;
+}
+
+/**
+ * Text start and continue already show for a chat RPC failure code.
+ * Resume activation uses the same mapping so a coded failure does not
+ * disagree with the bubble those sends append.
+ */
+export function mapChatSendFailureText(
+  code: string | undefined,
+  error: string | undefined,
+  fallback: string,
+): string {
+  switch (code) {
+    case 'CODEX_BUSY':
+      return 'Codex is busy, try again when the current operation finishes';
+    case 'CODEX_UNAVAILABLE':
+    case 'CODEX_RUNTIME_FAILED':
+      return 'Codex chat could not start.';
+    default:
+      return error ?? fallback;
+  }
 }
 
 /**
@@ -137,6 +162,26 @@ export class MessageSenderService {
    */
   private generateId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  private isCodexFailure(code: string | undefined): boolean {
+    return (
+      code === 'CODEX_BUSY' ||
+      code === 'CODEX_UNSUPPORTED_OPTION' ||
+      code === 'CODEX_UNAVAILABLE' ||
+      code === 'CODEX_RUNTIME_FAILED'
+    );
+  }
+
+  private sendFailureMessage(
+    result: RpcResult<{ errorCode?: string; error?: string }>,
+    fallback: string,
+  ): string {
+    return mapChatSendFailureText(
+      result.errorCode ?? result.data?.errorCode,
+      result.data?.error ?? result.error,
+      fallback,
+    );
   }
 
   /**
@@ -489,6 +534,19 @@ export class MessageSenderService {
         { signal: abortSignal },
       );
 
+      if (result.data?.cancelled === true) {
+        if (consumedPreamble) {
+          this.tabManager.setFirstMessagePreamble(activeTabId, consumedPreamble);
+        }
+        this.tabManager.markLoaded(activeTabId);
+        this.tabManager.markTabIdle(activeTabId);
+        this.tabManager.setLastTerminalReason(
+          activeTabId,
+          activeTab?.lastTerminalReason ?? null,
+        );
+        this.sessionManager.setStatus('loaded');
+        return { success: false, cancelled: true };
+      }
       const authFailed = this.handleAuthRequired(result);
       if (!result.success || authFailed || result.data?.success === false) {
         if (consumedPreamble) {
@@ -511,12 +569,19 @@ export class MessageSenderService {
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
+        if (
+          result.errorCode === 'SESSION_ENDED' ||
+          result.data?.errorCode === 'SESSION_ENDED' ||
+          this.isCodexFailure(result.errorCode ?? result.data?.errorCode)
+        ) {
+          this.tabManager.setLastTerminalReason(activeTabId, 'api_error');
+        }
         // Structural failure: transport succeeded but the backend rejected the
         // turn. Signal it so the Start-flow bridge does not treat it as a
         // started session (F-D2). Callers ignoring the return are unaffected.
         return {
           success: false,
-          error: result.data?.error ?? result.error ?? 'Failed to start chat',
+          error: this.sendFailureMessage(result, 'Failed to start chat'),
         };
       }
       return { success: true };
@@ -762,6 +827,24 @@ export class MessageSenderService {
         { signal: abortSignal },
       );
 
+      if (result.data?.cancelled === true) {
+        this.rollBackUnsentPrompt(activeTabId, userMessage.id, dropBubbleOnFailure);
+        this.tabManager.markLoaded(activeTabId);
+        this.tabManager.markTabIdle(activeTabId);
+        this.sessionManager.setStatus('loaded');
+        return { success: false, cancelled: true };
+      }
+      if (
+        result.data?.settled === true &&
+        (result.errorCode ?? result.data.errorCode) === 'CODEX_RUNTIME_FAILED'
+      ) {
+        this.streamingHandler.removeUserPromptBoundary(activeTabId, userMessage.id);
+        // CHAT_ERROR already owns the terminal state and error message.
+        return {
+          success: false,
+          errorAlreadyShown: true,
+        };
+      }
       const authFailed = this.handleAuthRequired(result);
       if (!result.success || authFailed || result.data?.success === false) {
         console.error(
@@ -778,8 +861,7 @@ export class MessageSenderService {
         this.sessionManager.setStatus('loaded');
         return {
           success: false,
-          error:
-            result.data?.error ?? result.error ?? 'Failed to continue chat',
+          error: this.sendFailureMessage(result, 'Failed to continue chat'),
         };
       }
       if (result.data?.settled === true) {

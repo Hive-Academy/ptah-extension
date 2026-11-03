@@ -179,6 +179,7 @@ const AGENT_GENERATION_TOKENS = {
   MULTI_PHASE_ANALYSIS_SERVICE: Symbol.for('MultiPhaseAnalysisService'),
   ANALYSIS_STORAGE_SERVICE: Symbol.for('AnalysisStorageService'),
   ANALYSIS_FRESHNESS_SERVICE: Symbol.for('AnalysisFreshnessService'),
+  ANALYSIS_CLAUDE_MD_LINKER: Symbol.for('AnalysisClaudeMdLinker'),
   AGENT_RECOMMENDATION_SERVICE: Symbol.for('AgentRecommendationService'),
   AGENTIC_ANALYSIS_SERVICE: Symbol.for('AgenticAnalysisService'),
   WIZARD_WEBVIEW_LIFECYCLE: Symbol.for('WizardWebviewLifecycleService'),
@@ -1091,6 +1092,22 @@ describe('SetupRpcHandlers', () => {
   });
 
   describe('wizard:load-analysis', () => {
+    it('links a completed loaded analysis without changing the load result', async () => {
+      const h = makeHarness();
+      const loaded = {
+        isMultiPhase: true,
+        manifest: { lifecycle: 'completed', phases: { 'project-profile': { file: '01-project-profile.md' } } },
+        phaseContents: {},
+        analysisDir: '/fake/workspace/.ptah/analysis/demo',
+      };
+      const loadMultiPhase = jest.fn().mockResolvedValue(loaded);
+      const link = jest.fn().mockResolvedValue({ written: true });
+      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, { loadMultiPhase });
+      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER, { link });
+      h.handlers.register();
+      expect(await call(h, 'wizard:load-analysis', { filename: 'demo' })).toEqual(loaded);
+      expect(link).toHaveBeenCalledWith(WORKSPACE);
+    });
     it('throws when no workspace is open', async () => {
       const h = makeHarness({ workspaceFolders: [] });
       h.handlers.register();
@@ -1577,7 +1594,7 @@ acme-platform/
       expect(content).toMatch(/^Tech stack: TypeScript/m);
       expect(content).toContain('Architecture patterns: ');
       expect(content).toContain(
-        'Source: .ptah/analysis/acme-platform/project-profile.md',
+        'Source: .ptah/analysis/acme-platform/01-project-profile.md',
       );
     });
 

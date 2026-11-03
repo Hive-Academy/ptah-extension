@@ -354,6 +354,13 @@ function buildMirrorSources(
       config.enabledPluginIds,
       libraryScopeRoot,
     ),
+    // USER-GLOBAL roots only. Never add `discoverWorkspaceHarnessPluginPaths`
+    // or `discoverWorkspaceSkillsShPluginPaths` here: the mirror clones into
+    // `~/.ptah/user/skills`, the base of every workspace's desired state, so a
+    // `{ws}/.ptah/plugins` root mirrored here would leak into every other
+    // project (TASK_2026_853 D-3). Those roots reach the harness through the
+    // loader's overlay (`resolveCurrentPluginPaths`) instead. Retired skills.sh
+    // roots are already dropped by `discoverSkillsShPluginPaths` (D-2).
     harnessPluginRoots: [
       ...pluginLoader.discoverHarnessPluginPaths(),
       ...pluginLoader

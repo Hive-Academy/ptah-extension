@@ -116,6 +116,8 @@ describe("OpenRouter chat path — the chat's 'default' to the id on the wire", 
     const scope = {
       read: <T>(key: string): T | undefined =>
         (configValues as Record<string, unknown>)[key] as T | undefined,
+      isStored: (key: string): boolean =>
+        (configValues as Record<string, unknown>)[key] !== undefined,
     } as unknown as WorkspaceScopeResolver;
 
     // The auth env as the OpenRouter proxy strategy leaves it: pointed at the

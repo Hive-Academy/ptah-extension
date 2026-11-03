@@ -204,6 +204,9 @@ export function buildClaudeSdkLaneOptions(
       type: 'preset' as const,
       preset: 'claude_code' as const,
     },
+    // Claude built-ins off unless opted in (TASK_2026_853). An SDK option, so
+    // it holds on ambient, named and proxied routes and on either policy path.
+    disallowedTools: [...assembly.builtinPolicy.disallowedTools],
     mcpServers: assembly.mcpServers,
     settings: buildFlagSettingsArg(
       { outputStyleName: assembly.outputStyleName },

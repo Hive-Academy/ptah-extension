@@ -52,19 +52,6 @@ runs:
       shell: bash
       run: npm rebuild better-sqlite3 node-pty
 
-    # Cache Prisma generated client
-    - name: Cache Prisma client
-      id: cache-prisma
-      uses: actions/cache@v4
-      with:
-        path: node_modules/.prisma
-        key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma', 'package-lock.json') }}
-
-    - name: Generate Prisma client
-      if: steps.cache-prisma.outputs.cache-hit != 'true'
-      shell: bash
-      run: node_modules/.bin/nx run ptah-license-server:prisma:generate
-
     # Nx task cache. `affected` only picks the task LIST; the cache decides
     # which of those tasks actually execute. Without this, every run starts
     # cold, so a PR that touches `libs/shared` re-runs ~80 projects from

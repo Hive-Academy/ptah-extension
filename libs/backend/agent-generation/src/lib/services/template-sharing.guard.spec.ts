@@ -1006,9 +1006,7 @@ describe('partial resolution', () => {
     for (const file of FILES) {
       const parsed = matter(read(file));
       const raw = parsed.data['variables'];
-      expect(raw && typeof raw === 'object' && !Array.isArray(raw)).toBe(
-        true,
-      );
+      expect(raw && typeof raw === 'object' && !Array.isArray(raw)).toBe(true);
       const trigger = (raw as Record<string, unknown>)['CLARIFY_TRIGGER'];
       expect(typeof trigger).toBe('string');
       expect((trigger as string).trim().length).toBeGreaterThan(0);
@@ -1133,9 +1131,7 @@ describe('role grants', () => {
     const body = section ?? '';
     expect(body.trim().length).toBeGreaterThan(0);
     expect(
-      body
-        .split('\n')
-        .filter((line) => line.startsWith('- ')),
+      body.split('\n').filter((line) => line.startsWith('- ')),
     ).toHaveLength(7);
     expect(body).not.toMatch(/\bptah_[a-z_]+\b/);
     expect(body).not.toContain('{{');
@@ -1154,49 +1150,76 @@ describe('role grants', () => {
 });
 
 // ---------------------------------------------------------------------------
-// (j) ENGINEERING_HYGIENE ships INLINE until installed resolvers know the id
+// (j) the engineering-hygiene block lives INLINE in four roles, nowhere else
 // ---------------------------------------------------------------------------
 
 /**
- * Released apps (electron v0.1.69 / v0.1.70) download templates from main and
- * resolve them with the SHARED_BLOCK_IDS they were compiled with. Those
- * resolvers reject any STATIC id they do not list, so a
- * `<!-- STATIC:ENGINEERING_HYGIENE -->` marker on main would stop template
- * loading for every user still on those versions. The four roles that need
- * the block therefore carry its text inline, byte-identical to the partial,
- * and the marker stays out of the corpus until a release that knows the id
- * (or falls back to the partial file) is widely installed. Swap the inline
- * text for the marker pair then, and move ENGINEERING_HYGIENE into
- * ROLE_PARTIALS in the same change.
+ * The hygiene rules have no shared partial. Released apps (electron v0.1.69 /
+ * v0.1.70) download templates from main and reject any STATIC id their
+ * compiled SHARED_BLOCK_IDS does not list, so a `STATIC:ENGINEERING_HYGIENE`
+ * marker would stop template loading for those users. The four roles that
+ * need the rules carry them inline instead. backend-developer is the source
+ * of truth: the block runs from its first "- Engineering hygiene:" line
+ * through the end of its "- Runtime cost:" line, and the other three roles
+ * must carry that text byte-for-byte.
  */
 describe('engineering hygiene inlining', () => {
-  const HYGIENE_BODY = fs
-    .readFileSync(
-      path.join(PARTIALS_DIR, partialFileName('ENGINEERING_HYGIENE')),
-      'utf8',
-    )
-    .trim();
+  const HYGIENE_START = '- Engineering hygiene:';
+  const HYGIENE_LAST_LINE = '- Runtime cost:';
 
+  /** The hygiene block of `body`, or `null` when either boundary is absent. */
+  function hygieneBlock(body: string): string | null {
+    const start = body.indexOf(HYGIENE_START);
+    if (start === -1) return null;
+    const last = body.indexOf(HYGIENE_LAST_LINE, start);
+    if (last === -1) return null;
+    const lineEnd = body.indexOf('\n', last);
+    return body.slice(start, lineEnd === -1 ? body.length : lineEnd).trimEnd();
+  }
+
+  const REFERENCE_ROLE = 'backend-developer';
   const INLINE_HYGIENE_ROLES = [
-    'backend-developer',
     'frontend-developer',
     'software-architect',
     'code-style-reviewer',
   ];
+  const REFERENCE_BLOCK = hygieneBlock(read(`${REFERENCE_ROLE}.template.md`));
 
-  it('no template fences ENGINEERING_HYGIENE in a STATIC marker yet', () => {
-    const offenders = FILES.filter((file) =>
-      read(file).includes('STATIC:ENGINEERING_HYGIENE'),
+  it(`${REFERENCE_ROLE} carries a hygiene block that ends at Runtime cost`, () => {
+    expect(REFERENCE_BLOCK).not.toBeNull();
+    // Seven rules, one per line: hygiene, simplicity, structure, boundaries,
+    // external calls, tests, runtime cost.
+    expect(REFERENCE_BLOCK?.split('\n')).toHaveLength(7);
+  });
+
+  it.each(INLINE_HYGIENE_ROLES)(
+    `%s carries the ${REFERENCE_ROLE} hygiene block verbatim`,
+    (role) => {
+      expect(hygieneBlock(read(`${role}.template.md`))).toBe(REFERENCE_BLOCK);
+    },
+  );
+
+  it('no template references the deleted ENGINEERING_HYGIENE partial', () => {
+    // Both the substring and the parsed marker ids: a loose marker such as
+    // `<!-- STATIC: ENGINEERING_HYGIENE -->` still reaches the resolver.
+    const offenders = FILES.filter(
+      (file) =>
+        read(file).includes('STATIC:ENGINEERING_HYGIENE') ||
+        markersOf(read(file)).some(
+          (marker) => marker.id.trim() === 'ENGINEERING_HYGIENE',
+        ),
     );
     expect(offenders).toEqual([]);
   });
 
-  it.each(INLINE_HYGIENE_ROLES)(
-    '%s carries the engineering-hygiene body verbatim',
-    (role) => {
-      expect(read(`${role}.template.md`)).toContain(HYGIENE_BODY);
-    },
-  );
+  it('the partial id and file are gone', () => {
+    expect(SHARED_BLOCK_IDS as readonly string[]).not.toContain(
+      'ENGINEERING_HYGIENE',
+    );
+    expect(fs.readdirSync(PARTIALS_DIR)).not.toContain(
+      partialFileName('ENGINEERING_HYGIENE'),
+    );
+  });
 });
 
 describe('task-spec audience', () => {

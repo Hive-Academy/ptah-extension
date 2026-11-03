@@ -1,0 +1,125 @@
+/*
+ * Narrow-width behaviour (canvas tiles). The webview Tailwind config has no
+ * container-queries plugin, so this is a native CSS container query: the
+ * composer root is the query container, and below 400px the secondary text
+ * labels on the child pill triggers (effort, autopilot, peer, each marked
+ * `ptah-composer-label`) collapse to icon-only so the rows never wrap. The
+ * model name is not hidden; it truncates. `::ng-deep` is required because
+ * those labels live in child component views. Below 640px (design-spec
+ * §2.1) the workspace hint shows its icon only and the effort selector its
+ * icon-only trigger; both stay rendered.
+ */
+.ptah-composer {
+  container-type: inline-size;
+  container-name: ptah-composer;
+}
+
+.chat-composer-column {
+  max-width: var(--chat-content-max-width, 758px);
+}
+
+@container ptah-composer (max-width: 639px) {
+  .ptah-composer-workspace-label,
+  :host ::ng-deep ptah-effort-selector .ptah-composer-label {
+    display: none;
+  }
+}
+
+@container ptah-composer (max-width: 400px) {
+  :host ::ng-deep .ptah-composer-label {
+    display: none;
+  }
+  /* Icon-only controls can still exceed a ~200px pane: the start group keeps its
+     content width and the model/send group wraps to its own right-aligned row
+     instead of overlapping it. */
+  .ptah-composer-toolbar {
+    flex-wrap: wrap;
+  }
+  .ptah-composer-toolbar-start {
+    flex-basis: auto;
+  }
+  .ptah-composer-toolbar-end {
+    margin-left: auto;
+  }
+}
+
+/*
+ * Two-state streaming composer fold (rules: ComposerCompactStore).
+ *
+ * Both folds sit in one bottom-aligned grid cell. Each animates its single
+ * row between 0fr and 1fr (no script measures a height), and its clip box
+ * keeps content bottom-anchored so the card rises from the bar's edge.
+ *
+ * Opacity is animated only on `.ptah-fold-fade` leaf content that holds no
+ * data-glass-surface (top strip, attachment row, textarea). An opacity < 1
+ * ancestor breaks a glass surface's backdrop blur, so the toolbar (attach
+ * menu overlay) and the status line (glass plate, child popovers) only move
+ * with the region's translate.
+ */
+.ptah-composer-stage {
+  display: grid;
+  grid-template-areas: 'stack';
+}
+
+.ptah-composer-fold {
+  grid-area: stack;
+  align-self: end;
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  transition: grid-template-rows calc(var(--ptah-motion-in) + 20ms)
+    var(--ptah-ease-soft);
+}
+
+.ptah-composer-fold--bar,
+.ptah-composer-stage[data-compact] .ptah-composer-fold--full {
+  grid-template-rows: 0fr;
+}
+
+.ptah-composer-stage[data-compact] .ptah-composer-fold--bar {
+  grid-template-rows: 1fr;
+}
+
+.ptah-composer-fold-clip {
+  min-height: 0;
+  min-width: 0;
+  overflow: clip;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+/* At rest the open composer must not clip: the slash / @ suggestions open
+   above the textarea. ComposerCompactStore.unclipped flips this just after
+   the height animation ends (at once under reduced motion). */
+.ptah-composer-fold-clip.is-unclipped {
+  overflow: visible;
+}
+
+.ptah-composer-fold--full > .ptah-composer-fold-clip {
+  transition: translate var(--ptah-motion-in) var(--ptah-ease-soft);
+}
+
+.ptah-composer-stage[data-compact]
+  .ptah-composer-fold--full
+  > .ptah-composer-fold-clip {
+  translate: 0 8px;
+  transition-duration: var(--ptah-motion-out);
+}
+
+.ptah-fold-fade {
+  transition: opacity var(--ptah-motion-in) var(--ptah-ease-soft);
+}
+
+.ptah-composer-stage[data-compact] .ptah-fold-fade {
+  opacity: 0;
+  transition-duration: var(--ptah-motion-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptah-composer-fold,
+  .ptah-composer-fold--full > .ptah-composer-fold-clip,
+  .ptah-fold-fade {
+    transition: none;
+  }
+}

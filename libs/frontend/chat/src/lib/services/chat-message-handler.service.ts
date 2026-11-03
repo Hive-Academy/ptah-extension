@@ -42,8 +42,8 @@ import {
 import { ChatStore } from './chat.store';
 import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
-import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
+import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
@@ -51,6 +51,7 @@ import {
 } from './agent-session-adoption.service';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
@@ -74,15 +75,16 @@ export class ChatMessageHandler implements MessageHandler {
   // Eager construction installs the layout declaration effect before streams arrive.
   private readonly streamViewport = inject(StreamViewportController);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly backgroundTaskStore = inject(BackgroundTaskStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly mcpStatus = inject(SessionMcpStatusRegistry);
   private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
-  private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
   private readonly organizer = inject(SessionOrganizerService);
+  private readonly organizationCache = inject(SessionOrganizationCache);
   /**
    * Authoritative StreamRouter.
    *
@@ -148,6 +150,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+    MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
     MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
@@ -202,6 +205,9 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED:
         this.handlePermissionAutoResolved(message.payload);
         break;
+      case MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED:
+        this.handlePermissionPromptCancelled(message.payload);
+        break;
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
         break;
@@ -211,13 +217,17 @@ export class ChatMessageHandler implements MessageHandler {
       // Organization pushes carry ids only; they share the debounced
       // session-list refresh (TASK_2026_580), and the organization editor
       // re-reads a session it shows from outside the loaded list
-      // (TASK_2026_679).
-      case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED:
+      // (TASK_2026_679), and so does the organization cache behind the
+      // session cards (TASK_2026_854).
+      case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED: {
         this.handleSessionMetadataChanged();
-        this.organizer.onOrganizationChanged(
-          ChatMessageHandler.organizationChangedIds(message.payload),
+        const changedIds = ChatMessageHandler.organizationChangedIds(
+          message.payload,
         );
+        this.organizer.onOrganizationChanged(changedIds);
+        this.organizationCache.onOrganizationChanged(changedIds);
         break;
+      }
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
         this.handleSessionCompactionComplete(message.payload);
         break;
@@ -727,9 +737,11 @@ export class ChatMessageHandler implements MessageHandler {
   private handleSessionEnded(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const { tabId, sessionId } = payload as { tabId?: unknown; sessionId?: unknown };
-    if (typeof tabId === 'string' && typeof sessionId === 'string') {
+    if (typeof sessionId !== 'string') return;
+    if (typeof tabId === 'string') {
       this.chatStore.retireEndedSessionPrompts(tabId, sessionId);
     }
+    this.backgroundTaskStore.clearSession(sessionId);
   }
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {
@@ -842,12 +854,6 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
-      if (tabId) {
-        void this.boardTaskLinkCapture.onSessionIdResolved(
-          tabId,
-          realSessionId,
-        );
-      }
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
       );
@@ -899,6 +905,30 @@ export class ChatMessageHandler implements MessageHandler {
       );
     }
   }
+  private handlePermissionPromptCancelled(payload: unknown): void {
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('sessionId' in payload) ||
+      typeof payload.sessionId !== 'string' ||
+      !('requestId' in payload) ||
+      typeof payload.requestId !== 'string'
+    ) {
+      return;
+    }
+    const prompt = this.chatStore.permissionRequests().find(
+      (request) =>
+        request.id === payload.requestId &&
+        request.sessionId === payload.sessionId,
+    );
+    if (prompt) {
+      this.chatStore.handlePermissionAutoResolved({
+        id: prompt.id,
+        toolName: prompt.toolName,
+      });
+    }
+  }
+
   private handlePermissionSessionCleanup(payload: unknown): void {
     const { sessionId } = (payload as { sessionId?: string }) ?? {};
     if (sessionId) {

@@ -89,6 +89,9 @@ function makeSessionService() {
   };
   const subagentRegistry = {
     restoreResumableBySession: jest.fn().mockReturnValue(0),
+    hydrateResumeState: jest.fn().mockReturnValue(0),
+    isResumeStateHydrated: jest.fn().mockReturnValue(true),
+    getInterruptedBySession: jest.fn().mockReturnValue([]),
     registerFromHistoryEvents: jest.fn().mockReturnValue(0),
     getResumableBySession: jest.fn().mockReturnValue([]),
   } as unknown as SubagentRegistryService;
@@ -139,16 +142,25 @@ describe('ChatSessionService history paging', () => {
   it('returns empty owner metadata for an opted-in unloaded read', async () => {
     const harness = makeSessionService();
     harness.historyRead.readForResume.mockResolvedValue({
-      events: [], stats: null, resolvedWorkspacePath: WORKSPACE,
+      events: [],
+      stats: null,
+      resolvedWorkspacePath: WORKSPACE,
     });
     const optedIn = await harness.service.resumeSession({
-      sessionId: SESSION_ID, tabId: TAB_ID, historyBlockOwners: true,
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      historyBlockOwners: true,
     });
     expect(optedIn).toMatchObject({
-      success: true, events: [], historyBlockOwners: {},
+      success: true,
+      events: [],
+      historyBlockOwners: {},
       historySyntheticToolResults: [],
     });
-    const legacy = await harness.service.resumeSession({ sessionId: SESSION_ID, tabId: TAB_ID });
+    const legacy = await harness.service.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+    });
     expect(legacy).not.toHaveProperty('historyBlockOwners');
     expect(legacy).not.toHaveProperty('historySyntheticToolResults');
   });
@@ -186,10 +198,9 @@ describe('ChatSessionService history paging', () => {
       historyBlockOwners: { '2': 'Y' },
       historySyntheticToolResults: [3],
     });
-    expect(harness.historyRead.readForResume).toHaveBeenCalledWith(
-      SESSION_ID,
-      { includeBlockOwners: true },
-    );
+    expect(harness.historyRead.readForResume).toHaveBeenCalledWith(SESSION_ID, {
+      includeBlockOwners: true,
+    });
 
     const legacy = await harness.service.resumeSession({
       sessionId: SESSION_ID,

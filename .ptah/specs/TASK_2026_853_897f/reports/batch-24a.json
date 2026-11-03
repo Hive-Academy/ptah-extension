@@ -1,0 +1,35 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "24a",
+  "title": "Fix: ClaudeTarget retired skill/command removals use the D-2 proof (decision #59)",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/harness-sync/src/lib/targets/retirement-proof.ts (new)",
+    "libs/backend/harness-sync/src/lib/targets/claude-target.ts",
+    "libs/backend/harness-sync/src/lib/targets/workspace-target.ts",
+    "libs/backend/harness-sync/src/lib/targets/mcp/mcp-facet-planner.ts",
+    "libs/backend/harness-sync/src/lib/targets/workspace-target.retirement.spec.ts (imports)",
+    "libs/backend/harness-sync/src/lib/targets/mcp/mcp-facet-planner.retirement.spec.ts (imports)",
+    "libs/backend/harness-sync/src/lib/targets/claude-target.retirement.spec.ts (new)"
+  ],
+  "moved": "Git probe (GIT_PROBE_TIMEOUT_MS, GIT_NO_MATCH_MESSAGE, GitRunOutcome, GitRunner, execGit, classifyGitLsFiles, createGitTrackingProbe), containedTargetPath, lstatWithoutLinks, retiredSourceItemId, removeRetiredCopy (now an exported function taking {workspaceRoot, removal, itemId, baseEntries, probeGitTracking, result}), GitTrackingState/GitTrackingProbe types and the three result recorders moved to retirement-proof.ts. The circular-import workaround is gone; no shims; index.ts unchanged.",
+  "tests": [
+    "tags a skill or command removal under a retired root with its item id and leaves other removals untagged",
+    "real git: removes an unchanged, owned, untracked copy and reports removedRetired",
+    "real git: removes an unchanged untracked retired COMMAND copy",
+    "real git: keeps a git-tracked copy intact and reports it kept git-tracked",
+    "real git: keeps an edited copy as `edited`, untouched and never snapshotted",
+    "real git: keeps the copy `unverifiable` outside any repository",
+    "a non-retired removal keeps its plain path: a git-tracked owned copy is still removed, with no retirement outcome",
+    "reconciler: carries the Claude target retirement outcomes into health and disowns the kept copy"
+  ],
+  "verification": {
+    "own": "npm run verify H set (/tmp/tpd-b24a-verify.log, exit 130): harness-sync lint + typecheck pass, test 712/714 (only the 2 known env failures). Host failures there came from Batch 25 work in progress (decision #60).",
+    "cohort": "Batch 25 V-RPC run with both change sets (/tmp/tpd-b25-verify.log): 68 tasks, 67 succeeded, only ptah-extension-webview:lint failed (known). Hosts electron, vscode, cli, tui, cli-engine typecheck + test pass.",
+    "audit": "degradation-audit:lint flagged one new catch in mcp-facet-planner.ts; coordinator added a `reported` marker. Audit exit 0, harness-sync 6 (baseline 6) (/tmp/tpd-degr.log)."
+  },
+  "risks": [
+    "An owned symlink under a retired root gets a plain unlink, then the proof records removedRetired (pre-existing duplicate-removal pattern).",
+    "A partly git-tracked skill directory is kept (git ls-files exit 0)."
+  ]
+}

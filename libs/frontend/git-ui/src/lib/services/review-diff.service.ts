@@ -17,6 +17,7 @@ import type {
   GitStatusUnavailableReason,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
+import { GitDockMutationGate } from './git-dock-mutation-gate';
 import { GitStatusService } from './git-status.service';
 import type {
   DiffTabState,
@@ -210,6 +211,7 @@ function isActiveMutable(
 export class ReviewDiffService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly gate = inject(GitDockMutationGate);
 
   private readonly _entries = signal<ReadonlyMap<string, ReviewDiffEntry>>(
     new Map(),
@@ -674,6 +676,10 @@ export class ReviewDiffService implements MessageHandler {
    * with the content it certifies, from a read.
    */
   async applyHunks(request: HunkApplyRequest): Promise<GitApplyHunksResult> {
+    const blocked = this.gate.blockedReason();
+    if (blocked !== null) {
+      return { success: false, code: 'INVALID_OPERATION', message: blocked };
+    }
     const entry = this._entries().get(request.key);
     const diff = entry?.diff;
     if (!entry || !diff) {

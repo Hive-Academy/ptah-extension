@@ -17,11 +17,13 @@ import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { CommitComposerComponent } from '../commit/commit-composer.component';
 import { ConflictBannerComponent } from '../conflict/conflict-banner.component';
 import { GitDockHeaderComponent } from '../git-dock/git-dock-header.component';
+import { GitDockScopeHeaderComponent } from '../git-dock/git-dock-scope-header.component';
 import { HistoryTimelineComponent } from '../history/history-timeline.component';
 import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { FileContentChangesService } from '../services/file-content-changes.service';
 import { GitBranchesService } from '../services/git-branches.service';
+import { GitDockScopeStore } from '../services/git-dock-scope.store';
 import { GitStatusService } from '../services/git-status.service';
 import {
   ReviewNavigationService,
@@ -124,6 +126,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
     CommitComposerComponent,
     ConflictBannerComponent,
     GitDockHeaderComponent,
+    GitDockScopeHeaderComponent,
     HistoryTimelineComponent,
     NativeTabGroupComponent,
     ReviewCanvasComponent,
@@ -161,6 +164,16 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
   ],
   template: `
     <div class="flex h-full min-h-0 flex-col" data-testid="review-shell">
+      <!-- What the dock is scoped to (TASK_2026_855): only where the dock
+           follows chat sessions (Electron); elsewhere it is the workspace. -->
+      @if (scopeStore.followsSessions()) {
+        <ptah-git-dock-scope-header
+          [scope]="scopeStore.scope()"
+          [branch]="gitStatus.branchName() || null"
+          [compact]="compact()"
+          (pinToggled)="onPinToggled($event)"
+        />
+      }
       <ptah-git-dock-header [compact]="compact()" />
 
       <!-- Cross-cutting notices sit above the tabs (design-spec §3.2). -->
@@ -203,7 +216,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
             }
             @default {
               <span data-testid="review-shell-not-a-repo"
-                >The active workspace is not a Git repository.</span
+                >This scope is not a Git repository.</span
               >
             }
           }
@@ -391,6 +404,7 @@ export class ReviewShellComponent {
   private readonly navigation = inject(ReviewNavigationService);
   private readonly worktreeStatus = inject(ReviewWorktreeStatusService);
   private readonly layout = inject(ElectronLayoutService);
+  protected readonly scopeStore = inject(GitDockScopeStore);
   protected readonly dismissedStripKey = signal<string | null>(null);
   protected readonly noticeKey = computed(() => {
     const path = this.gitStatus.activeWorkspacePath();
@@ -556,6 +570,12 @@ export class ReviewShellComponent {
       this.resizeObserver?.disconnect();
       this.resizeObserver = null;
     });
+  }
+
+  /** The scope header's toggle: pin the current scope, or follow again. */
+  protected onPinToggled(pin: boolean): void {
+    if (pin) this.scopeStore.pin();
+    else this.scopeStore.unpin();
   }
 
   /** The scope bar's Back: the active workspace's working tree. */

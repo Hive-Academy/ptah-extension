@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: documentation
 title: Correct the stack versions in the root CLAUDE.md
 description: >-
@@ -7,6 +7,7 @@ description: >-
   40. The tree carries Angular 22.1.7, Nx 23.2.1, TypeScript 6.0.3 and
   Electron 44.4.3. Every agent that reads that file is told the wrong stack.
   Correct the versions and audit the other counted facts in the same file.
+updated: "2026-10-30T01:33:14.863Z"
 ---
 
 # TASK_2026_516 — Stack version drift in the root CLAUDE.md

@@ -16,7 +16,7 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from './vscode.service';
-import { DAISYUI_THEMES, ThemeService, type ThemeName, type SceneName } from './theme.service';
+import { DAISYUI_THEMES, DEFAULT_MOTION_STYLE, MOTION_STYLES, ThemeService, type ThemeName, type SceneName, type MotionStyleName } from './theme.service';
 
 interface MockVSCodeService {
   getState: jest.Mock<unknown, [string]>;
@@ -83,6 +83,7 @@ describe('ThemeService', () => {
     document.documentElement.removeAttribute('data-glass-mode');
     document.documentElement.removeAttribute('data-accent');
     document.documentElement.removeAttribute('data-scene');
+    document.documentElement.removeAttribute('data-motion-style');
     document.getElementById('ptah-theme-extra')?.remove();
     document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
@@ -90,17 +91,20 @@ describe('ThemeService', () => {
     localStorage.removeItem('ptah-theme-v2');
     localStorage.removeItem('ptah-accent');
     localStorage.removeItem('ptah-scene');
+    localStorage.removeItem('ptah-motion-style');
     jest.restoreAllMocks();
   });
 
   describe('backdrop scenes', () => {
     it.each([
-      [undefined, undefined, 'aurora'],
-      ['retired', 'invalid', 'aurora'],
+      [undefined, undefined, 'pyramid'],
+      ['retired', 'invalid', 'pyramid'],
       ['ember', 'tide', 'ember'],
       ['aurora', 'horizon', 'aurora'],
       [undefined, 'tide', 'tide'],
       ['retired', 'horizon', 'horizon'],
+      ['pyramid', 'temple', 'pyramid'],
+      [undefined, 'temple', 'temple'],
     ])('reads state %s and mirror %s without writing either scene store', (state, hint, expected) => {
       const mock = createMockVscode();
       mock.getState.mockImplementation((key) => key === 'ptah-scene' ? state : undefined);
@@ -109,6 +113,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       TestBed.inject(ApplicationRef).tick();
       expect(service.scene()).toBe(expected);
+      expect(document.documentElement.getAttribute('data-scene')).toBe(expected);
       expect(mock.setState).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(localStorage.getItem('ptah-scene')).toBe(hint ?? null);
@@ -121,6 +126,11 @@ describe('ThemeService', () => {
       service.setScene('ember');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'ember');
       expect(localStorage.getItem('ptah-scene')).toBe('ember');
+      service.setScene('pyramid');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'pyramid');
+      service.setScene('temple');
+      expect(localStorage.getItem('ptah-scene')).toBe('temple');
+      service.setScene('ember');
       for (const { name } of DAISYUI_THEMES) {
         service.setTheme(name);
         app.tick();
@@ -132,7 +142,7 @@ describe('ThemeService', () => {
       service.setTheme('ptah-glass');
       service.setScene('aurora');
       app.tick();
-      expect(document.documentElement.hasAttribute('data-scene')).toBe(false);
+      expect(document.documentElement.getAttribute('data-scene')).toBe('aurora');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'aurora');
       expect(localStorage.getItem('ptah-scene')).toBe('aurora');
     });
@@ -142,7 +152,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
       service.setScene('retired' as SceneName);
-      expect(service.scene()).toBe('aurora');
+      expect(service.scene()).toBe('pyramid');
       expect(mock.setState).not.toHaveBeenCalled();
       expect(mirrorWrite).not.toHaveBeenCalled();
     });
@@ -160,6 +170,53 @@ describe('ThemeService', () => {
     });
   });
 
+  describe('motion style', () => {
+    it.each([
+      [undefined, undefined, 'rise'],
+      ['slide-left', 'scale', 'slide-left'],
+      ['rise', 'scale', 'rise'],
+      [undefined, 'directional', 'directional'],
+      ['retired', 'slide-right', 'slide-right'],
+      ['retired', 'none', 'rise'],
+    ])('reads state %s then hint %s without writing at boot', (state, hint, expected) => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-motion-style' ? state : undefined);
+      if (hint) localStorage.setItem('ptah-motion-style', hint);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      const service = configure(mock);
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.motionStyle()).toBe(expected);
+      expect(document.documentElement.getAttribute('data-motion-style')).toBe(expected === DEFAULT_MOTION_STYLE ? null : expected);
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-motion-style', expect.anything());
+    });
+
+    it('accepts each preset, persists it, and removes the default attribute', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const app = TestBed.inject(ApplicationRef);
+      for (const style of MOTION_STYLES) {
+        service.setMotionStyle(style);
+        app.tick();
+        expect(service.motionStyle()).toBe(style);
+        expect(mock.setState).toHaveBeenCalledWith('ptah-motion-style', style);
+        expect(localStorage.getItem('ptah-motion-style')).toBe(style);
+        expect(document.documentElement.getAttribute('data-motion-style')).toBe(style === DEFAULT_MOTION_STYLE ? null : style);
+      }
+    });
+
+    it('ignores unknown choices and persists state when the mirror is blocked', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      service.setMotionStyle('none' as MotionStyleName);
+      expect(service.motionStyle()).toBe(DEFAULT_MOTION_STYLE);
+      expect(mock.setState).not.toHaveBeenCalled();
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+      expect(() => service.setMotionStyle('fade')).not.toThrow();
+      expect(mock.setState).toHaveBeenCalledWith('ptah-motion-style', 'fade');
+    });
+  });
+
   describe('initial theme resolution', () => {
     it('uses the persisted theme when VSCodeService.getState returns a valid name', () => {
       const mock = createMockVscode({ persisted: 'dracula' });
@@ -167,6 +224,14 @@ describe('ThemeService', () => {
 
       expect(service.currentTheme()).toBe('dracula');
       expect(mock.getState).toHaveBeenCalledWith('theme-v2');
+    });
+
+    it.each(['state', 'hint'] as const)('migrates a retired dark %s choice to dracula', (source) => {
+      const mock = createMockVscode({ persisted: source === 'state' ? 'dark' : undefined });
+      if (source === 'hint') localStorage.setItem('ptah-theme-v2', 'dark');
+      const service = configure(mock);
+      expect(service.currentTheme()).toBe('dracula');
+      expect(localStorage.getItem('ptah-theme-v2')).toBe('dracula');
     });
 
     it('ignores invalid persisted values and falls back to VS Code theme kind', () => {
@@ -276,6 +341,13 @@ describe('ThemeService', () => {
       const service = configure(createMockVscode({ legacy: 'anubis' }));
 
       expect(service.currentTheme()).toBe('ptah-glass');
+    });
+
+    it.each(['state', 'hint'] as const)('maps a retired legacy dark %s choice to dracula', (source) => {
+      const mock = createMockVscode({ legacy: source === 'state' ? 'dark' : undefined });
+      if (source === 'hint') localStorage.setItem('ptah-theme', 'dark');
+      const service = configure(mock);
+      expect(service.currentTheme()).toBe('dracula');
     });
 
     it('maps a legacy light theme to ptah-glass-light, regardless of theme kind', () => {
@@ -494,7 +566,7 @@ describe('ThemeService', () => {
       const sample: ThemeName[] = [
         'anubis',
         'anubis-light',
-        'dark',
+        'dracula',
         'light',
         'cupcake',
         'sunset',

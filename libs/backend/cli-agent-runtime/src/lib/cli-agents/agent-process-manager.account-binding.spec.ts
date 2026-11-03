@@ -48,9 +48,9 @@ import {
 /** The roster before the native Claude lane joined, in auto-detect order. */
 const PREVIOUS_SEVEN = ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const;
 
-// The seven binary adapters are replaced by doubles so detection never runs a
-// real `which`/version probe. The Claude adapter under test is the real class.
-function mockRosterAdapter(name: string) {
+// The peer adapters and native Codex factory use doubles so detection never
+// runs a real `which`/version probe. The Claude adapter under test is real.
+function mockRosterAdapter(name: CliType) {
   return {
     name, displayName: name, roleChannel: 'task-prompt',
     detect: jest.fn().mockResolvedValue({ cli: name, installed: true, messagingMode: 'queue' }),
@@ -58,7 +58,6 @@ function mockRosterAdapter(name: string) {
     parseOutput: (raw: string) => raw,
   };
 }
-jest.mock('./cli-adapters/codex-cli.adapter', () => ({ CodexCliAdapter: jest.fn(() => mockRosterAdapter('codex')) }));
 jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({ CopilotSdkAdapter: jest.fn(() => mockRosterAdapter('copilot')) }));
 jest.mock('./cli-adapters/copilot-permission-bridge', () => ({ CopilotPermissionBridge: jest.fn(() => ({})) }));
 jest.mock('./cli-adapters/cursor-cli.adapter', () => ({ CursorCliAdapter: jest.fn(() => mockRosterAdapter('cursor')) }));
@@ -238,7 +237,7 @@ describe('Claude lane authoritative account gate', () => {
   it('retains the original immutable route through a fresh handoff and label/default changes', async () => {
     const registry = port();
     const result = await gate().gate.evaluate({ cli: 'claude', cliSessionId: 's', accountBindings: registry,
-      accountReference: reference, lastRequestContext: { tokens: 100000, source: 'estimate' } });
+      accountReference: reference, lastRequestContext: { tokens: 200000, source: 'estimate' } });
     expect(result.decision).toBe('fresh');
     expect(result.accountReference).toEqual(reference);
     expect(Object.isFrozen(result.accountReference?.accountBinding.identity)).toBe(true);
@@ -447,6 +446,11 @@ function detection(claude: ClaudeCliAdapter | null) {
     stub<IProcessSpawner>({}),
     stub<IAuthSecretsService>({ getProviderKey: jest.fn().mockResolvedValue(undefined) }),
     claude,
+    { create: () => stub<CliAdapter>({
+      ...mockRosterAdapter('codex'),
+      name: 'codex',
+      roleChannel: 'developer-instructions',
+    }) },
   );
   return { service, sentry };
 }

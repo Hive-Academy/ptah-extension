@@ -7,7 +7,8 @@
  * 3. Every `contextLength` is 0 (unknown); windows come only from the live catalog.
  * 4. `CODEX_DEFAULT_TIERS` names current, listed IDs.
  * 5. `seedStaticModelPricing('openai-codex')` writes nothing, so no
- *    `maxTokens: 0` entry is ever published for a Codex ID.
+ *    `maxTokens: 0` entry is ever published for a Codex ID; exact published
+ *    rates come from the bundled rate card (`utils/codex-rate-card.ts`).
  *
  * @see TASK_2026_408
  */
@@ -87,16 +88,23 @@ describe('Codex pricing seed', () => {
     expect(isSubscriptionCoveredProvider('openai-codex')).toBe(true);
   });
 
-  it('seeds nothing, so no Codex ID is published with maxTokens 0', () => {
-    const beforeKeys = Object.keys(getPricingMap());
+  it('seeds nothing; the bundled rate card supplies exact rates instead', () => {
+    const before = getPricingMap();
 
     seedStaticModelPricing('openai-codex');
 
     const afterMap = getPricingMap();
-    expect(Object.keys(afterMap)).toEqual(beforeKeys);
+    // Seeding a subscription provider writes nothing at all.
+    expect(afterMap).toEqual(before);
     for (const id of STATIC_IDS) {
-      expect(afterMap[id]).toBeUndefined();
-      expect(afterMap[id.toLowerCase()]).toBeUndefined();
+      const entry = afterMap[id];
+      if (!entry) continue;
+      // The bundled exact-rate card (`utils/codex-rate-card.ts`) may publish
+      // these IDs with exact published rates and provenance — never the $0
+      // static placeholder, and never a maxTokens window.
+      expect(entry.inputCostPerToken).toBeGreaterThan(0);
+      expect(entry.outputCostPerToken).toBeGreaterThan(0);
+      expect(entry.maxTokens).toBeUndefined();
     }
   });
 });

@@ -5,8 +5,7 @@ type: FEATURE
 title: >-
   Show the Ptah title for peer sessions from any workspace registered in this
   host process
-depends_on:
-  - TASK_2026_449
+depends_on: []
 created: '2026-09-16T04:00:00.000Z'
 updated: '2026-09-16T04:00:00.000Z'
 description: >-
@@ -20,9 +19,6 @@ estimate: M
 labels:
   - peer-sessions
   - agent-messaging
-relates_to:
-  - TASK_2026_449
-  - TASK_2026_452
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

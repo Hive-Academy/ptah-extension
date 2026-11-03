@@ -874,7 +874,7 @@ class HomeAuthState implements ICodexAuthService {
    * Whether the stored OAuth token should be treated as expired.
    *
    * Delegates to the ONE shared rule (`isCodexAccessTokenStale`) so this
-   * service and `CodexCliAdapter.ensureTokensFresh` cannot disagree about the
+   * service and `CodexAppServerLaneAdapter.ensureTokensFresh` cannot disagree about the
    * same `auth.json`. The token's own JWT `exp` is authoritative; the
    * `last_refresh` age heuristic is the fallback for opaque tokens only — it
    * used to be the whole rule, which reported a ChatGPT-subscription token

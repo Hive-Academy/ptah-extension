@@ -1,12 +1,11 @@
 ---
 id: TASK_2026_684_a11d
-status: backlog
+status: done
 type: FEATURE
 title: "Ollama Cloud decision model (clef), bring-your-own endpoint, decision filter and live evals"
-depends_on:
-  - TASK_2026_646_136a
+depends_on: []
 created: "2026-10-16T19:30:56.179Z"
-updated: "2026-10-16T19:30:56.179Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Use clef via the ollama-cloud key, add a generic /v1/systemone endpoint kind, filter Ollama models by the decision capability, add gated live evals."
 estimate: L
 labels:

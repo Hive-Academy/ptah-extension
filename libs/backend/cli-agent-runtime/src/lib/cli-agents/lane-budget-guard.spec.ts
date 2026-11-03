@@ -1,16 +1,11 @@
 import type { CliOutputSegment } from '@ptah-extension/shared';
 import {
   LaneBudgetGuard,
-  laneBudgetSteerMessage,
   type LaneBudgetAction,
   type LaneBudgetThresholds,
 } from './lane-budget-guard';
 
-const DEFAULTS: LaneBudgetThresholds = {
-  steerAt: 40,
-  stopAt: 60,
-  repeatAt: 20,
-};
+const DEFAULTS: LaneBudgetThresholds = { repeatAt: 20 };
 
 function call(
   toolName: string,
@@ -37,24 +32,19 @@ function run(
   return actions;
 }
 
+const repeatStop = (repeats: number): LaneBudgetAction => ({
+  kind: 'stop',
+  stopReason: 'repeat-call',
+  repeats,
+});
+
 describe('LaneBudgetGuard', () => {
-  it('steers once at 40 calls and stops at 60 with tool-call-budget', () => {
+  it('never steers or stops on the call count alone, but keeps counting', () => {
     const guard = new LaneBudgetGuard(DEFAULTS);
-    const segments = Array.from({ length: 80 }, (_, i) => distinct(i));
+    const segments = Array.from({ length: 500 }, (_, i) => distinct(i));
 
-    expect(run(guard, segments)).toEqual([
-      {
-        at: 40,
-        action: { kind: 'steer', message: laneBudgetSteerMessage(40) },
-      },
-      { at: 60, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
-    ]);
-  });
-
-  it('uses the exact steer text', () => {
-    expect(laneBudgetSteerMessage(40)).toBe(
-      'You have made 40 tool calls. Stop exploring, finish the deliverable now, and report.',
-    );
+    expect(run(guard, segments)).toEqual([]);
+    expect(guard.toolCallCount).toBe(500);
   });
 
   it('stops with repeat-call when one identical call reaches 20', () => {
@@ -63,38 +53,22 @@ describe('LaneBudgetGuard', () => {
       call('read', { toolInput: { path: 'same.ts' } }),
     );
 
-    expect(run(guard, segments)).toEqual([
-      { at: 20, action: { kind: 'stop', stopReason: 'repeat-call' } },
-    ]);
+    expect(run(guard, segments)).toEqual([{ at: 20, action: repeatStop(20) }]);
+    expect(guard.toolCallCount).toBe(20);
   });
 
-  it('honours custom thresholds', () => {
-    const guard = new LaneBudgetGuard({ steerAt: 3, stopAt: 5, repeatAt: 4 });
-    const segments = Array.from({ length: 10 }, (_, i) => distinct(i));
-
-    expect(run(guard, segments)).toEqual([
-      { at: 3, action: { kind: 'steer', message: laneBudgetSteerMessage(3) } },
-      { at: 5, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
-    ]);
-
-    const repeating = new LaneBudgetGuard({
-      steerAt: 3,
-      stopAt: 50,
-      repeatAt: 4,
-    });
+  it('honours a custom repeat threshold', () => {
+    const guard = new LaneBudgetGuard({ repeatAt: 4 });
     expect(
       run(
-        repeating,
+        guard,
         Array.from({ length: 10 }, () => call('bash', { toolArgs: 'ls' })),
       ),
-    ).toEqual([
-      { at: 3, action: { kind: 'steer', message: laneBudgetSteerMessage(3) } },
-      { at: 4, action: { kind: 'stop', stopReason: 'repeat-call' } },
-    ]);
+    ).toEqual([{ at: 4, action: repeatStop(4) }]);
   });
 
   it('ignores segments that are not tool calls', () => {
-    const guard = new LaneBudgetGuard({ steerAt: 1, stopAt: 2, repeatAt: 2 });
+    const guard = new LaneBudgetGuard({ repeatAt: 2 });
     const others: CliOutputSegment[] = [
       { type: 'text', content: 'hi' },
       { type: 'tool-result', content: 'ok', toolName: 'read' },
@@ -105,52 +79,40 @@ describe('LaneBudgetGuard', () => {
   });
 
   it('treats toolInput with reordered keys as the same call', () => {
-    const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 99, repeatAt: 2 });
+    const guard = new LaneBudgetGuard({ repeatAt: 2 });
     expect(
       guard.observe(call('grep', { toolInput: { pattern: 'x', path: 'a' } })),
     ).toEqual({ kind: 'none' });
     expect(
       guard.observe(call('grep', { toolInput: { path: 'a', pattern: 'x' } })),
-    ).toEqual({ kind: 'stop', stopReason: 'repeat-call' });
+    ).toEqual(repeatStop(2));
   });
 
   it('keys on toolArgs without toolInput, and on the name alone without either', () => {
-    const byArgs = new LaneBudgetGuard({
-      steerAt: 99,
-      stopAt: 99,
-      repeatAt: 2,
-    });
+    const byArgs = new LaneBudgetGuard({ repeatAt: 2 });
     expect(byArgs.observe(call('bash', { toolArgs: 'ls' }))).toEqual({
       kind: 'none',
     });
     expect(byArgs.observe(call('bash', { toolArgs: 'pwd' }))).toEqual({
       kind: 'none',
     });
-    expect(byArgs.observe(call('bash', { toolArgs: 'ls' }))).toEqual({
-      kind: 'stop',
-      stopReason: 'repeat-call',
-    });
+    expect(byArgs.observe(call('bash', { toolArgs: 'ls' }))).toEqual(
+      repeatStop(2),
+    );
 
-    const byName = new LaneBudgetGuard({
-      steerAt: 99,
-      stopAt: 99,
-      repeatAt: 2,
-    });
+    const byName = new LaneBudgetGuard({ repeatAt: 2 });
     expect(byName.observe(call('todo'))).toEqual({ kind: 'none' });
-    expect(byName.observe(call('todo'))).toEqual({
-      kind: 'stop',
-      stopReason: 'repeat-call',
-    });
+    expect(byName.observe(call('todo'))).toEqual(repeatStop(2));
   });
 
   it('returns none for every segment after a stop', () => {
-    const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 2, repeatAt: 99 });
-    run(guard, [distinct(1), distinct(2)]);
-    expect(run(guard, [distinct(3), distinct(4)])).toEqual([]);
+    const guard = new LaneBudgetGuard({ repeatAt: 2 });
+    run(guard, [distinct(1), distinct(1)]);
+    expect(run(guard, [distinct(3), distinct(3)])).toEqual([]);
   });
 
-  it('leaves file-edit calls out of the repeat check but counts them in the budget', () => {
-    const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 30, repeatAt: 3 });
+  it('leaves file-edit calls out of the repeat check but counts them', () => {
+    const guard = new LaneBudgetGuard({ repeatAt: 3 });
     // Codex file changes carry only the path, so normal edits share a key.
     const edits = Array.from({ length: 30 }, (_, i) =>
       call(i % 2 === 0 ? 'Edit' : 'write', {
@@ -158,32 +120,30 @@ describe('LaneBudgetGuard', () => {
       }),
     );
 
-    expect(run(guard, edits)).toEqual([
-      { at: 30, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
-    ]);
+    expect(run(guard, edits)).toEqual([]);
+    expect(guard.toolCallCount).toBe(30);
   });
 
   describe('reset (a new caller task)', () => {
-    it('clears counts, repeats and the one-time steer', () => {
-      const guard = new LaneBudgetGuard({ steerAt: 2, stopAt: 4, repeatAt: 3 });
-      expect(run(guard, [distinct(1), distinct(1), distinct(2)])).toEqual([
-        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
-      ]);
+    it('clears counts and repeats', () => {
+      const guard = new LaneBudgetGuard({ repeatAt: 3 });
+      expect(run(guard, [distinct(1), distinct(1), distinct(2)])).toEqual([]);
 
       guard.reset();
       expect(guard.toolCallCount).toBe(0);
 
-      // Same repeated key and the steer again, both counted from zero.
-      expect(run(guard, [distinct(1), distinct(1), distinct(3)])).toEqual([
-        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
+      // The earlier two repeats of key 1 are forgotten.
+      expect(run(guard, [distinct(1), distinct(1), distinct(3)])).toEqual([]);
+      expect(run(guard, [distinct(1)])).toEqual([
+        { at: 1, action: repeatStop(3) },
       ]);
     });
 
     it('does not revive a guard that already asked for a stop', () => {
-      const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 2, repeatAt: 99 });
-      run(guard, [distinct(1), distinct(2)]);
+      const guard = new LaneBudgetGuard({ repeatAt: 2 });
+      run(guard, [distinct(1), distinct(1)]);
       guard.reset();
-      expect(run(guard, [distinct(3), distinct(4)])).toEqual([]);
+      expect(run(guard, [distinct(3), distinct(3)])).toEqual([]);
     });
   });
 
@@ -196,10 +156,19 @@ describe('LaneBudgetGuard', () => {
         ...(id !== undefined ? { toolCallId: id } : {}),
       }) as CliOutputSegment;
 
-    it('OpenCode-style command segments trip stopAt', () => {
+    it('OpenCode-style command segments are counted', () => {
       const guard = new LaneBudgetGuard(DEFAULTS);
       const segments = Array.from({ length: 80 }, (_, i) => command(`c${i}`));
-      expect(run(guard, segments).map((a) => a.at)).toEqual([40, 60]);
+      expect(run(guard, segments)).toEqual([]);
+      expect(guard.toolCallCount).toBe(80);
+    });
+
+    it('OpenCode-style command segments with one command line trip the repeat stop', () => {
+      const guard = new LaneBudgetGuard({ repeatAt: 3 });
+      const segments = Array.from({ length: 5 }, (_, i) =>
+        command(`c${i}`, 'ls'),
+      );
+      expect(run(guard, segments)).toEqual([{ at: 3, action: repeatStop(3) }]);
     });
 
     it('a tool-call plus a command with the same id counts once', () => {
@@ -233,24 +202,16 @@ describe('LaneBudgetGuard', () => {
         call('glob', { toolInput: { pattern: '**/*.ts', path: 'libs' } }),
       );
 
-      expect(run(guard, segments)).toEqual([
-        { at: 20, action: { kind: 'stop', stopReason: 'repeat-call' } },
-      ]);
+      expect(run(guard, segments)).toEqual([{ at: 20, action: repeatStop(20) }]);
     });
 
-    it('glob calls with varied args stop at the call budget', () => {
+    it('glob calls with varied args are never stopped', () => {
       const guard = new LaneBudgetGuard(DEFAULTS);
       const segments = Array.from({ length: 200 }, (_, i) =>
         call('glob', { toolInput: { pattern: `**/*.${i}.ts` } }),
       );
 
-      expect(run(guard, segments)).toEqual([
-        {
-          at: 40,
-          action: { kind: 'steer', message: laneBudgetSteerMessage(40) },
-        },
-        { at: 60, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
-      ]);
+      expect(run(guard, segments)).toEqual([]);
     });
   });
 });

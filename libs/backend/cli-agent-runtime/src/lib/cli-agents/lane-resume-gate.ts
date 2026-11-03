@@ -34,8 +34,16 @@ import {
   type CodexRolloutUsage,
 } from './cli-adapters/codex/codex-rollout-usage.reader';
 
-/** A lane whose last request was larger than this starts fresh. */
-export const RESUME_GATE_MAX_CONTEXT_TOKENS = 60_000;
+/**
+ * A lane whose last request was larger than this starts fresh.
+ *
+ * Set high on purpose. Within the idle window the cache is warm, so a resume
+ * pays its first request at cache-read price (~0.1x) plus the new tokens,
+ * while a fresh lane pays its baseline uncached and then re-reads what the old
+ * lane already held. At a 115k thread that is roughly 11.5k against 140k+
+ * input-equivalent. The limit only keeps near-window threads from resuming.
+ */
+export const RESUME_GATE_MAX_CONTEXT_TOKENS = 150_000;
 
 /** A lane idle for longer than this starts fresh (the prompt cache is cold). */
 export const RESUME_GATE_MAX_IDLE_MS = 600_000;

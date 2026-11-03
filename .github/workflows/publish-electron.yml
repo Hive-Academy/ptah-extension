@@ -521,7 +521,7 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
-          # Renaming this branch requires the same edit in the bump guards of ci.yml, electron-e2e.yml and vscode-e2e.yml.
+          # Renaming this branch requires the same edit in the bump guards of ci.yml and electron-e2e.yml.
           BRANCH="chore/bump-electron-v${VERSION}"
 
           git config user.name "github-actions[bot]"
@@ -568,7 +568,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
-          name: Ptah Desktop v${{ needs.prepare.outputs.version }}
+          name: PtahCode v${{ needs.prepare.outputs.version }}
           draft: false
           # Old Windows installs show this body in their update dialog; it is
           # their only route to the Store build. Generated notes follow it.

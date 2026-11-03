@@ -70,3 +70,9 @@ A written analysis in this folder naming:
    loop, or GC — not at a slow click handler.
 
 Read-only. Make no source edits under this task.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Cancelled: delivered.
+
+This was an investigation-only task. Its deliverable, renderer-analysis.md, is in this folder. Its main finding was fixed under TASK_2026_482_d4a8 (3017fdbc4). TASK_2026_628_5ab5 (PR #715) is related follow-up work.

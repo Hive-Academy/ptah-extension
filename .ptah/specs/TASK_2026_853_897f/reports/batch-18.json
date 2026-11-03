@@ -1,0 +1,51 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 18,
+  "title": "D-1 intent v2 and installer API",
+  "status": "COMPLETE",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/mcp-intent-store.ts",
+      "change": "MODIFIED: v2 schema with global + workspaces[canonical root] (resolveHarnessWorkspaceRoot); v1 servers map to retired on read, first write persists v2; missing/corrupt/unknown-version reads as empty, never global; atomicWriteWithRetry writes; record/listFor/forget/makeGlobal/scopeOf/listRetired; a workspace record without a root throws McpIntentScopeError. list() removed."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/mcp-intent-store.spec.ts",
+      "change": "CREATED: 18 tests for roundtrip, workspace isolation, global merge, v1 retirement, corrupt/unknown-version empty reads, canonical key, makeGlobal, forget scopes."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts",
+      "change": "MODIFIED: install() keeps its positional signature with a trailing optional scope defaulting to workspace; new makeGlobal(serverKey, workspaceRoot, homeTargets); uninstall() takes options.scope, and with no scope drops every record this workspace sees."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.spec.ts",
+      "change": "MODIFIED: record() calls use the v2 input object; new scoped intent suite (workspace isolation, global opt-in, makeGlobal, scoped uninstall)."
+    }
+  ],
+  "crossOwnerEdits": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts",
+      "owner": "Batch 19",
+      "change": "readMcpIntents(workspaceRoot) calls listFor(workspaceRoot ?? '') instead of the removed list()",
+      "approvedBy": "decision #54"
+    }
+  ],
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview (one combined run for Batches 18, 20 and 21; log /tmp/tpd-b18-21-verify.log)",
+    "perTarget": {
+      "result": "74 tasks: 72 succeeded, 2 failed",
+      "failed": {
+        "@ptah-extension/harness-sync:test": "2 environmental failures in agent-workspace-scope.spec.ts only (634/636 pass; spec and source unchanged vs main; /tmp/tpd-hs-test.log)",
+        "ptah-extension-webview:lint": "pre-existing on main"
+      }
+    },
+    "note": "The earlier harness-sync failures in /tmp/tpd-b20-verify.log and /tmp/tpd-b21-verify.log came from runs concurrent with unfinished Batch 18 edits; they do not reproduce."
+  },
+  "environmentalFailures": [
+    {
+      "spec": "libs/backend/harness-sync/src/lib/state/agent-workspace-scope.spec.ts",
+      "classification": "environmental, pre-existing",
+      "cause": "Fixed path /home/amun/projects/alpha resolves to /home/amun/projects because /home/amun/projects/.ptah exists (user data, untouched)."
+    }
+  ],
+  "recovery": "The implementing subagent ended with the previous session before it wrote this report. The coordinator inspected the diff against batches.md Task 18.1 and wrote this report after the combined verify."
+}

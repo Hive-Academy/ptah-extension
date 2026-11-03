@@ -503,6 +503,67 @@ describe('PlanLimitLedgerService — clearing (F22, F23, F62-F66)', () => {
     );
   });
 
+  it('a stream window event keeps the /usage used value and reset of the same window', () => {
+    const { ledger } = harness();
+    ledger.recordWindowEvidence(
+      OWNER_A,
+      readWindow('five_hour', T0, 42, {
+        durationMins: 300,
+        resetsAt: T0 + 2 * HOUR,
+        resetSource: 'provider-api',
+      }),
+    );
+    // A `rate_limit_event` for five_hour: window and reset only, no used value.
+    ledger.recordWindowEvidence(OWNER_A, {
+      key: 'five_hour',
+      kind: 'five_hour',
+      label: '5-hour',
+      resetsAt: T0 + 2 * HOUR + 30_000,
+      resetSource: 'stream-event',
+      observedAt: T0 + MINUTE,
+    });
+
+    const held = windowOf(ledger, OWNER_A, 'five_hour');
+    expect(held?.used).toEqual({ kind: 'percent', percent: 42 });
+    expect(held?.usedSource).toBe('provider-api');
+    expect(held?.usedObservedAt).toBe(T0);
+    expect(held?.resetsAt).toBe(T0 + 2 * HOUR);
+    expect(held?.resetSource).toBe('provider-api');
+    expect(held?.observedAt).toBe(T0 + MINUTE);
+    expect(
+      classifyWindow(held!, {
+        now: T0 + 2 * MINUTE,
+        nearLimitPercent: NEAR_LIMIT_PERCENT,
+        freshnessMs: FRESHNESS_MS,
+        status: 'available',
+      }),
+    ).toBe('ok');
+  });
+
+  it('a stream window event after the held reset does not carry the old used value', () => {
+    const { ledger, clock } = harness();
+    ledger.recordWindowEvidence(
+      OWNER_A,
+      readWindow('five_hour', T0, 42, {
+        resetsAt: T0 + HOUR,
+        resetSource: 'provider-api',
+      }),
+    );
+    clock.now = T0 + HOUR + MINUTE;
+    ledger.recordWindowEvidence(OWNER_A, {
+      key: 'five_hour',
+      kind: 'five_hour',
+      label: '5-hour',
+      resetsAt: T0 + 6 * HOUR,
+      resetSource: 'stream-event',
+      observedAt: T0 + HOUR + MINUTE,
+    });
+
+    const held = windowOf(ledger, OWNER_A, 'five_hour');
+    expect(held?.used).toBeUndefined();
+    expect(held?.resetsAt).toBe(T0 + 6 * HOUR);
+  });
+
   it('F23: once the longest window elapses the exhaustion reads as unknown usage', () => {
     const { ledger, clock } = harness();
     ledger.recordWindowEvidence(OWNER_A, exhaustedWindow('weekly', T0));

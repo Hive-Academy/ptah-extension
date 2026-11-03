@@ -9,7 +9,7 @@ export const AUTH_METHOD_DEF = defineSetting({
   scope: 'global',
   sensitivity: 'plain',
   schema: AUTH_METHOD_SCHEMA,
-  default: 'apiKey' as const,
+  default: 'claudeCli' as const,
   sinceVersion: 1,
   appScopable: true,
 });

@@ -307,8 +307,6 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
-      'agentOrchestration.laneToolCallSteerAt': 40,
-      'agentOrchestration.laneToolCallStopAt': 60,
       'agentOrchestration.laneRepeatCallStopAt': 20,
     } as const;
 
@@ -424,6 +422,35 @@ describe('isFileBasedSettingKey', () => {
     it('lists only file-based keys as whole-object keys', () => {
       for (const objectKey of FILE_BASED_OBJECT_SETTINGS_KEYS) {
         expect(FILE_BASED_SETTINGS_KEYS.has(objectKey)).toBe(true);
+      }
+    });
+  });
+
+  describe('host routing setting', () => {
+    const key = 'agentOrchestration.hostRouting';
+
+    it('is file-based and defaults to enabled', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(true);
+    });
+
+    it('persists a disabled value across store restart', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-host-routing-'));
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(store.get(key)).toBe(true);
+        await store.set(key, false);
+        const reopened = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(reopened.get(key)).toBe(false);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
       }
     });
   });
@@ -883,6 +910,7 @@ describe('isFileBasedSettingKey', () => {
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,
       'harness.manageGitignore': true,
+      'display.autoOpenArtifacts': true,
       'notifications.hostEnabled': true,
       'notifications.failureHostEnabled': false,
     };

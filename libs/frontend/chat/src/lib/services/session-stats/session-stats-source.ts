@@ -1,4 +1,10 @@
-import { LOCALE_ID, computed, inject, type Signal } from '@angular/core';
+import {
+  LOCALE_ID,
+  computed,
+  inject,
+  linkedSignal,
+  type Signal,
+} from '@angular/core';
 import {
   buildStatsLimitViewModel,
   sessionContextCue,
@@ -16,6 +22,7 @@ import { PlanLimitsStore } from '@ptah-extension/core';
 import type {
   CliType,
   LocalTimeOptions,
+  PlanLimitsSnapshot,
   SessionBudgetState,
 } from '@ptah-extension/shared';
 import { parseSessionStatsCache } from '@ptah-extension/shared';
@@ -168,6 +175,37 @@ export function injectSessionStatsSource(
   );
 
   /**
+   * The plan-limit owner this view shows. Plan limits are account-wide, and
+   * the host resolves a session's owner only after that session's first turn
+   * in this run. Switching to a session it has not resolved yet keeps the
+   * owner this view last showed (named in the tile caption) while that owner
+   * is still listed, instead of blanking the section to "Account not
+   * resolved". A session the host resolves always shows its own owner.
+   */
+  const sessionOwnerKey = linkedSignal<
+    { resolved: string | null; snapshot: PlanLimitsSnapshot | null },
+    string | null
+  >({
+    source: () => {
+      const sessionId = host.sessionId();
+      return {
+        resolved: sessionId
+          ? (planLimits.sessionOwner(sessionId)?.ownerKey ?? null)
+          : null,
+        snapshot: planLimits.snapshot(),
+      };
+    },
+    computation: ({ resolved, snapshot: limitsSnapshot }, previous) => {
+      if (resolved !== null) return resolved;
+      const last = previous?.value ?? null;
+      return last !== null &&
+        limitsSnapshot?.owners.some((entry) => entry.owner.key === last)
+        ? last
+        : null;
+    },
+  });
+
+  /**
    * Plan-limit tiles and lane tiles; `null` without a session or before the
    * first snapshot.
    */
@@ -178,7 +216,7 @@ export function injectSessionStatsSource(
     const sessionOwner = planLimits.sessionOwner(sessionId);
     return buildStatsLimitViewModel({
       sessionId,
-      sessionOwnerKey: sessionOwner?.ownerKey ?? null,
+      sessionOwnerKey: sessionOwnerKey(),
       // Backend-resolved scope only; the UI never parses the model id.
       sessionModelScope: sessionOwner?.modelScope ?? null,
       owners: limitsSnapshot.owners,

@@ -64,6 +64,7 @@ export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
 export { UpdateRpcHandlers } from './update-rpc.handlers';
+export { GitWatchRpcHandlers } from './git-watch-rpc.handlers';
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,

@@ -38,7 +38,6 @@ export type IdleSignal =
       readonly type: 'session-bound';
       readonly sessionId: string;
       readonly runToken: string;
-      readonly codexProxy: boolean;
       readonly nativeAnthropic?: boolean;
     }
   | { readonly type: 'request-started'; readonly sessionId: string }
@@ -127,7 +126,6 @@ export type IdleNoArmReason =
   | 'activity-since-turn'
   | 'fire-time-passed'
   | 'disabled'
-  | 'codex-proxy'
   | 'in-flight';
 
 export type IdleSkipReason =
@@ -185,7 +183,6 @@ export type IdleAttempt =
 export interface IdleSessionState {
   readonly sessionId: string;
   readonly runToken: string;
-  readonly codexProxy: boolean;
   readonly lastTurn: {
     readonly turnId: string;
     readonly endedAt: number;
@@ -235,7 +232,7 @@ export interface IdleStep {
 
 /** Calls are fire-and-forget and must not throw into event producers. */
 export interface IdleCompactionSignals {
-  sessionBound(sessionId: string, runToken: string, codexProxy: boolean): void;
+  sessionBound(sessionId: string, runToken: string, nativeAnthropic?: boolean): void;
   requestStarted(sessionId: string): void;
   turnEnded(
     sessionId: string,

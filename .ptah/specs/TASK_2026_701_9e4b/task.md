@@ -1,12 +1,11 @@
 ---
 id: TASK_2026_701_9e4b
-status: in_progress
+status: done
 type: FEATURE
 title: Align setup-wizard agent generation with the skills Library and enhancements
-depends_on:
-  - TASK_2026_662_3eea
+depends_on: []
 created: "2026-10-18T23:13:17.665Z"
-updated: "2026-10-18T23:13:17.665Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Make wizard-generated agents and the skills Library/enhancement flow work together: no silent overwrites, same roots, Library refresh and provenance, shared prompt rubric."
 estimate: L
 labels:

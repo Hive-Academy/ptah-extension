@@ -84,11 +84,27 @@ function discardAllDescription(
   );
 }
 
-/** Title, description and confirm label for the discard dialog. */
+/**
+ * Title, description and confirm label for the discard dialog.
+ *
+ * `worktreeLabel` names the worktree the discard runs in when that root is
+ * not an open workspace folder — the dock scoped to a session's worktree
+ * (TASK_2026_855) — so the user confirms the tree as well as the files.
+ */
 export function discardConfirmCopy(
   pending: PendingDiscard | null,
+  worktreeLabel: string | null = null,
 ): DiscardConfirmCopy {
   if (!pending) return NO_COPY;
+  const copy = baseDiscardConfirmCopy(pending);
+  if (worktreeLabel === null || worktreeLabel === '') return copy;
+  return {
+    ...copy,
+    description: `${copy.description} Runs in worktree «${worktreeLabel}».`,
+  };
+}
+
+function baseDiscardConfirmCopy(pending: PendingDiscard): DiscardConfirmCopy {
   if (pending.kind === 'all') {
     return {
       title: 'Discard all changes?',

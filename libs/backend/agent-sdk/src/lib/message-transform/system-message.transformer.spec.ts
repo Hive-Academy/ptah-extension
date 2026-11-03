@@ -3,6 +3,7 @@ import { SystemMessageTransformer } from './system-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
+import type { SDKBackgroundTasksChangedMessage } from '../types/sdk-types/claude-sdk.types';
 
 function makeState(): jest.Mocked<TransformerState> {
   // Backs the announcement-mark mocks with a real Map (id → origin), so
@@ -12,8 +13,12 @@ function makeState(): jest.Mocked<TransformerState> {
   // across compaction so the terminal event is never lost.
   const backgroundAnnounced = new Map<
     string,
-    'task_started' | 'task_updated'
+    'task_started' | 'task_updated' | 'task_tool'
   >();
+  const terminalTaskParents = new Map<string, string | undefined>();
+  const taskParents = new Map<string, string>();
+  const lifecycleKey = (taskId: string, sessionId?: string): string =>
+    JSON.stringify([sessionId ?? null, taskId]);
   return {
     getMessageId: jest.fn().mockReturnValue(undefined),
     getCurrentModel: jest.fn().mockReturnValue(undefined),
@@ -23,13 +28,26 @@ function makeState(): jest.Mocked<TransformerState> {
     clearMessageSynthesized: jest.fn(),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
     getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
-    getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
+    getTaskParentToolUseId: jest.fn((taskId: string, sessionId?: string) =>
+      taskParents.get(lifecycleKey(taskId, sessionId)),
+    ),
+    isTaskTerminalEmitted: jest.fn(
+      (taskId: string, sessionId?: string, parentToolUseId?: string) => {
+        const key = lifecycleKey(taskId, sessionId);
+        return (
+          terminalTaskParents.has(key) &&
+          (parentToolUseId === undefined ||
+            terminalTaskParents.get(key) === parentToolUseId)
+        );
+      },
+    ),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
     isBackgroundAnnounced: jest.fn((id: string) => backgroundAnnounced.has(id)),
     getBackgroundAnnounceOrigin: jest.fn((id: string) =>
       backgroundAnnounced.get(id),
     ),
     isNonAgentTask: jest.fn().mockReturnValue(false),
+    getBackgroundTaskCommand: jest.fn().mockReturnValue(undefined),
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
@@ -44,11 +62,27 @@ function makeState(): jest.Mocked<TransformerState> {
     clearToolCallIdsForContext: jest.fn(),
     addBackgroundTaskToolUseId: jest.fn(),
     removeBackgroundTaskToolUseId: jest.fn(),
-    setTaskParent: jest.fn(),
-    clearTaskParent: jest.fn(),
+    setTaskParent: jest.fn(
+      (taskId: string, parentToolUseId: string, sessionId?: string) => {
+        const key = lifecycleKey(taskId, sessionId);
+        taskParents.set(key, parentToolUseId);
+        terminalTaskParents.delete(key);
+      },
+    ),
+    clearTaskParent: jest.fn((taskId: string, sessionId?: string) => {
+      taskParents.delete(lifecycleKey(taskId, sessionId));
+    }),
+    markTaskTerminalEmitted: jest.fn(
+      (taskId: string, sessionId?: string, parentToolUseId?: string) => {
+        terminalTaskParents.set(
+          lifecycleKey(taskId, sessionId),
+          parentToolUseId,
+        );
+      },
+    ),
     markTaskStartedEmitted: jest.fn(),
     markBackgroundAnnounced: jest.fn(
-      (id: string, origin: 'task_started' | 'task_updated') => {
+      (id: string, origin: 'task_started' | 'task_updated' | 'task_tool') => {
         backgroundAnnounced.set(id, origin);
       },
     ),
@@ -56,6 +90,9 @@ function makeState(): jest.Mocked<TransformerState> {
       backgroundAnnounced.delete(id);
     }),
     markNonAgentTask: jest.fn(),
+    recordBackgroundBashCommand: jest.fn(),
+    retainBackgroundTaskCommands: jest.fn(),
+    cacheBackgroundTasksSnapshot: jest.fn(),
     addActiveSkillToolUseId: jest.fn(),
     clearActiveSkillToolUseIds: jest.fn(),
     clearStreamingState: jest.fn(),
@@ -109,6 +146,68 @@ describe('SystemMessageTransformer', () => {
   beforeEach(() => {
     transformer = new SystemMessageTransformer();
     state = makeState();
+  });
+
+  it('emits one replacement snapshot and excludes ambient SDK tasks', () => {
+    const message: SDKBackgroundTasksChangedMessage = {
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      uuid: '00000000-0000-0000-0000-000000000001',
+      session_id: 'session-1',
+      tasks: [
+        {
+          task_id: 'bash-1',
+          task_type: 'local_bash',
+          description: 'Compile',
+          ambient: false,
+        },
+        {
+          task_id: 'watch-1',
+          task_type: 'watcher',
+          description: 'Watch',
+          ambient: true,
+        },
+      ],
+    };
+    state.getBackgroundTaskCommand.mockImplementation((owner, taskId) =>
+      owner === 'session-1' && taskId === 'bash-1'
+        ? 'npm test -- --watch'
+        : undefined,
+    );
+    const [event] = transformer.transformBackgroundTasksChanged(message, state);
+    expect(event.eventType).toBe('background_tasks_snapshot');
+    expect(event.sessionId).toBe('session-1');
+    expect(state.cacheBackgroundTasksSnapshot).toHaveBeenCalledWith(event);
+    expect(event.tasks).toEqual([
+      {
+        taskId: 'bash-1',
+        taskType: 'local_bash',
+        description: 'Compile',
+        command: 'npm test -- --watch',
+        status: 'running',
+      },
+    ]);
+    expect(state.retainBackgroundTaskCommands).toHaveBeenCalledWith(
+      'session-1',
+      ['bash-1'],
+    );
+    expect(
+      transformer.transformBackgroundTasksChanged(
+        { ...message, tasks: [] },
+        state,
+      )[0].tasks,
+    ).toEqual([]);
+    expect(state.retainBackgroundTaskCommands).toHaveBeenLastCalledWith(
+      'session-1',
+      [],
+    );
+    // A malformed push with no owner cannot be routed to a session.
+    expect(
+      transformer.transformBackgroundTasksChanged(
+        { ...message, session_id: '' },
+        state,
+      ),
+    ).toEqual([]);
   });
 
   describe('compact_boundary', () => {
@@ -350,7 +449,11 @@ describe('SystemMessageTransformer', () => {
         session_id: 'sess',
       } as never;
       transformer.transformTaskStarted(msg, state, helpers, 'sess' as never);
-      expect(state.setTaskParent).toHaveBeenCalledWith('task-1', 'tool-1');
+      expect(state.setTaskParent).toHaveBeenCalledWith(
+        'task-1',
+        'tool-1',
+        'sess',
+      );
       expect(helpers.subagentRegistry.setTaskId).toHaveBeenCalledWith(
         'tool-1',
         'task-1',
@@ -383,6 +486,48 @@ describe('SystemMessageTransformer', () => {
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
     });
 
+    it('names agent_start by subagent_type, not the local_agent task category', () => {
+      // task_started can beat the Task tool_use; its agent_start then is the
+      // only one, and the sidebar showed "local_agent" as the agent name.
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-race',
+        tool_use_id: 'toolu_race',
+        skip_transcript: false,
+        task_type: 'local_agent',
+        subagent_type: 'code-reviewer',
+        description: 'Review the diff',
+      } as never;
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(events[0]).toMatchObject({
+        eventType: 'agent_start',
+        toolCallId: 'toolu_race',
+        agentType: 'code-reviewer',
+      });
+    });
+
+    it('falls back to the task category when no subagent_type is known', () => {
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-plain',
+        tool_use_id: 'toolu_plain',
+        skip_transcript: false,
+        task_type: 'local_agent',
+      } as never;
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(events[0]).toMatchObject({ agentType: 'local_agent' });
+    });
+
     it('rejects a local_bash task_started: no agent_start, no bookkeeping, task marked', () => {
       const helpers = makeHelpers();
       const msg = {
@@ -402,7 +547,11 @@ describe('SystemMessageTransformer', () => {
       );
 
       expect(events).toEqual([]);
-      expect(state.markNonAgentTask).toHaveBeenCalledWith('task-bash');
+      expect(state.markNonAgentTask).toHaveBeenCalledWith(
+        'task-bash',
+        'toolu_bash',
+        'sess',
+      );
       expect(state.setTaskParent).not.toHaveBeenCalled();
       expect(helpers.subagentRegistry.setTaskId).not.toHaveBeenCalled();
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
@@ -1177,7 +1326,7 @@ describe('SystemMessageTransformer', () => {
       });
     });
 
-    it('cleans up taskId mapping and emits agent_completed', () => {
+    it('cleans up taskId mapping and emits agent_completed for a missing notification tool_use_id', () => {
       state.getTaskParentToolUseId.mockReturnValue('tool-n');
       const helpers = makeHelpers();
       const msg = {
@@ -1188,22 +1337,108 @@ describe('SystemMessageTransformer', () => {
         usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
       } as never;
       const events = transformer.transformTaskNotification(msg, state, helpers);
-      expect(state.clearTaskParent).toHaveBeenCalledWith('task-n');
+      expect(state.clearTaskParent).toHaveBeenCalledWith('task-n', undefined);
       expect(events).toHaveLength(1);
-      expect(events[0].eventType).toBe('agent_completed');
+      expect(events[0]).toMatchObject({
+        eventType: 'agent_completed',
+        parentToolUseId: 'tool-n',
+      });
     });
 
-    it('still cleans up taskId mapping when skip_transcript=true and emits nothing', () => {
+    it('emits agent_completed without transcript text when skip_transcript=true', () => {
       state.getTaskParentToolUseId.mockReturnValue('tool-skip');
       const helpers = makeHelpers();
       const msg = {
         task_id: 'task-skip',
-        status: 'success',
+        status: 'completed',
+        summary: 'hidden transcript',
+        output_file: '/tmp/hidden.jsonl',
         skip_transcript: true,
       } as never;
       const events = transformer.transformTaskNotification(msg, state, helpers);
-      expect(state.clearTaskParent).toHaveBeenCalledWith('task-skip');
+      expect(state.clearTaskParent).toHaveBeenCalledWith('task-skip', undefined);
+      expect(events).toHaveLength(1);
+      expect(events[0].eventType).toBe('agent_completed');
+      expect(events[0]).toMatchObject({ summary: '', outputFile: '' });
+      expect(JSON.stringify(events[0])).not.toContain('hidden transcript');
+    });
+
+    it('retains correlation from a skip_transcript start and emits one terminal for a skip_transcript notification', () => {
+      const helpers = makeHelpers();
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-skip-start',
+          tool_use_id: 'toolu_skip_start',
+          task_type: 'local_agent',
+          skip_transcript: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-skip-start',
+          status: 'completed',
+          summary: 'hidden transcript',
+          skip_transcript: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((event) => event.eventType)).toEqual([
+        'agent_completed',
+      ]);
+      expect(events[0]).toMatchObject({
+        parentToolUseId: 'toolu_skip_start',
+        status: 'completed',
+      });
+    });
+
+    it('settles no row and warns when notification correlation has no tool-use key', () => {
+      const helpers = makeHelpers();
+      const events = transformer.transformTaskNotification(
+        { task_id: 'task-unresolved', status: 'completed' } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
       expect(events).toEqual([]);
+      expect(helpers.logger.warn).toHaveBeenCalledWith(
+        '[SdkMessageTransformer] task_notification: unresolved agent lifecycle, skipping terminal events',
+        { taskId: 'task-unresolved', status: 'completed', sessionId: 'sess' },
+      );
+    });
+
+    it('emits agent_completed once for a duplicate notification with an explicit tool_use_id', () => {
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-duplicate',
+        tool_use_id: 'toolu_duplicate',
+        status: 'completed',
+      } as never;
+
+      const first = transformer.transformTaskNotification(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      const second = transformer.transformTaskNotification(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(first.map((event) => event.eventType)).toEqual([
+        'agent_completed',
+      ]);
+      expect(second).toEqual([]);
     });
 
     it('settles a local_bash task as a tool_result, and still clears the mapping', () => {
@@ -1231,7 +1466,46 @@ describe('SystemMessageTransformer', () => {
           },
         },
       ]);
-      expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash');
+      expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash', undefined);
+    });
+
+    it('emits both terminal events without transcript text for a skip_transcript SendMessage notification', () => {
+      const helpers = makeHelpers();
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-skip-background',
+          tool_use_id: 'toolu_skip_background',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          is_backgrounded: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      state.getTaskParentToolUseId.mockReturnValue('toolu_skip_background');
+
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-skip-background',
+          status: 'completed',
+          summary: 'hidden transcript',
+          output_file: '/tmp/hidden.jsonl',
+          skip_transcript: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((event) => event.eventType)).toEqual([
+        'agent_completed',
+        'background_agent_completed',
+      ]);
+      expect(events[0]).toMatchObject({ summary: '', outputFile: '' });
+      expect(JSON.stringify(events[0])).not.toContain('hidden transcript');
+      expect(events[1]).toMatchObject({ result: undefined });
+      expect(JSON.stringify(events[1])).not.toContain('hidden transcript');
     });
 
     it('emits background_agent_completed once for a task the transformer announced as background', () => {

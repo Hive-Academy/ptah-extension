@@ -28,6 +28,7 @@ import type {
   SDKMessage,
 } from '@ptah-extension/agent-sdk';
 import { PtahCliStreamLoop } from './ptah-cli-stream-loop.service';
+import { PTAH_API_RATE_LIMIT_SEGMENT } from '../../cli-agents/limits/lane-rate-limit-classifier';
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
@@ -897,5 +898,107 @@ describe('PtahCliStreamLoop plan-limit signals and usage', () => {
     expect(exitCode).toBe(0);
     expect(onTurnComplete).toHaveBeenCalledWith(0);
     expect(logger.debug).toHaveBeenCalledTimes(2);
+  });
+});
+
+// TASK_2026_857 B10c (Req 1): an `is_error` 429 success result still ends the
+// turn with exit 0, so the loop leaves one fixed error segment for the exit
+// path to read. The provider's text is never copied into it.
+describe('PtahCliStreamLoop API rate-limit marker', () => {
+  function makeMarkerLoop(): {
+    loop: PtahCliStreamLoop;
+    emitSegment: jest.Mock;
+    onTurnComplete: jest.Mock;
+  } {
+    const emitSegment = jest.fn();
+    const onTurnComplete = jest.fn();
+    const loop = new PtahCliStreamLoop({
+      logger: createLogger(),
+      messageTransformer: createTransformerStub(),
+      emitOutput: jest.fn(),
+      emitSegment,
+      emitStreamEvent: jest.fn(),
+      agentName: 'test-agent',
+      onTurnComplete,
+    });
+    return { loop, emitSegment, onTurnComplete };
+  }
+
+  function errorSegments(emitSegment: jest.Mock): unknown[] {
+    return emitSegment.mock.calls
+      .map(([segment]) => segment as { type: string; content: string })
+      .filter((segment) => segment.type === 'error');
+  }
+
+  function result(fields: Record<string, unknown>): SDKMessage {
+    return { ...(successResult as object), ...fields } as SDKMessage;
+  }
+
+  it('emits one marker segment for an is_error result with status 429', async () => {
+    const { loop, emitSegment, onTurnComplete } = makeMarkerLoop();
+
+    const exitCode = await loop.run(
+      singleMessage(
+        result({
+          is_error: true,
+          api_error_status: 429,
+          result: 'provider says: slow down, account abc-123',
+        }),
+      ),
+    );
+
+    expect(errorSegments(emitSegment)).toEqual([
+      { type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT },
+    ]);
+    expect(exitCode).toBe(0);
+    expect(onTurnComplete).toHaveBeenCalledWith(0);
+    expect(JSON.stringify(emitSegment.mock.calls)).not.toContain('abc-123');
+  });
+
+  it('emits the marker for an is_error result with a 429 wording', async () => {
+    const { loop, emitSegment, onTurnComplete } = makeMarkerLoop();
+
+    await loop.run(
+      singleMessage(
+        result({
+          is_error: true,
+          result: 'API Error: Request rejected (429) for key sk-secret',
+        }),
+      ),
+    );
+
+    expect(errorSegments(emitSegment)).toEqual([
+      { type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT },
+    ]);
+    expect(onTurnComplete).toHaveBeenCalledWith(0);
+    expect(JSON.stringify(emitSegment.mock.calls)).not.toContain('sk-secret');
+  });
+
+  it('emits no marker for an is_error result with status 500', async () => {
+    const { loop, emitSegment } = makeMarkerLoop();
+
+    await loop.run(
+      singleMessage(
+        result({
+          is_error: true,
+          api_error_status: 500,
+          result: 'API Error: internal server error',
+        }),
+      ),
+    );
+
+    expect(errorSegments(emitSegment)).toEqual([]);
+  });
+
+  it('emits no marker for a clean success, even one discussing 429s', async () => {
+    const { loop, emitSegment } = makeMarkerLoop();
+
+    await loop.run(
+      singleMessage(
+        result({ is_error: false, result: 'Fixed the API Error: 429 path' }),
+      ),
+    );
+
+    expect(errorSegments(emitSegment)).toEqual([]);
   });
 });

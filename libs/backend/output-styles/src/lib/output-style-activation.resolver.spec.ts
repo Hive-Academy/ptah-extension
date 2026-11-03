@@ -187,8 +187,9 @@ describe('settingSources predicate — single-definition guard', () => {
     // A unit test of `includesUserSettingSource` cannot see whether the builder
     // still USES it. If this fails, the builder re-inlined the decision and
     // this lib's prediction can silently disagree with it again.
-    expect(builderSource).toContain(
-      'settingSources: includesUserSettingSource(',
+    // The ambient branch of the builder's `const settingSources` must call it.
+    expect(builderSource).toMatch(
+      /const settingSources\b[^;]*\bincludesUserSettingSource\(/,
     );
   });
 

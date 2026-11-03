@@ -110,6 +110,7 @@ function optionsInput(): ClaudeSdkLaneOptionsInput {
         deniedSkillNames: [],
       },
       capabilityIsolation: { strictMcpConfig: true, skills: [] },
+      builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
     },
     authEnv: {},
     abortController: new AbortController(),

@@ -27,6 +27,7 @@ import { getActiveProviderId } from './sdk-query-options-builder';
 import { SdkQueryRunner } from './sdk-query-runner.service';
 import type { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import { SdkError } from '../errors';
+import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
@@ -251,6 +252,61 @@ describe('SdkQueryRunner', () => {
       expect(params.prompt).toBe('hi');
       expect(params.options.permissionMode).toBe('bypassPermissions');
       expect(params.options.persistSession).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_853 (C AC7): the internal one-shot query keeps the claude_code
+   * preset and still appends the full PTAH_CORE_SYSTEM_PROMPT after the core
+   * prompt was trimmed, whatever tool access the caller requests.
+   */
+  describe('runOneShot — core prompt is still appended', () => {
+    async function capturedSystemPrompt(
+      extra: {
+        toolAccess?: 'claude-code' | 'none';
+        systemPromptAppend?: string;
+      } = {},
+    ): Promise<{ type?: string; preset?: string; append?: string }> {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: false,
+        ...extra,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options.systemPrompt as {
+        type?: string;
+        preset?: string;
+        append?: string;
+      };
+    }
+
+    it('appends PTAH_CORE_SYSTEM_PROMPT to the claude_code preset', async () => {
+      const systemPrompt = await capturedSystemPrompt();
+      expect(systemPrompt.type).toBe('preset');
+      expect(systemPrompt.preset).toBe('claude_code');
+      expect(systemPrompt.append).toContain(PTAH_CORE_SYSTEM_PROMPT);
+    });
+
+    it("still appends it when toolAccess is 'none'", async () => {
+      const systemPrompt = await capturedSystemPrompt({ toolAccess: 'none' });
+      expect(systemPrompt.append).toContain(PTAH_CORE_SYSTEM_PROMPT);
+    });
+
+    it('places a caller append after the core prompt', async () => {
+      const systemPrompt = await capturedSystemPrompt({
+        systemPromptAppend: 'CALLER-APPEND-MARKER',
+      });
+      const append = systemPrompt.append ?? '';
+      expect(append.indexOf(PTAH_CORE_SYSTEM_PROMPT)).toBeGreaterThanOrEqual(0);
+      expect(append.indexOf('CALLER-APPEND-MARKER')).toBeGreaterThan(
+        append.indexOf(PTAH_CORE_SYSTEM_PROMPT),
+      );
     });
   });
 
@@ -636,6 +692,22 @@ describe('SdkQueryRunner', () => {
   });
 
   describe('invokeWithLoadedQuery', () => {
+    it('refuses stale Codex auth on the interactive launch path', () => {
+      const h = makeRunner();
+      const queryFn: QueryFunction = () => {
+        throw new Error('query should not run');
+      };
+      expect(() =>
+        h.runner.invokeWithLoadedQuery(
+          queryFn,
+          emptyPrompt(),
+          {
+            env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
+          } as SdkQueryOptions,
+        ),
+      ).toThrow('Codex chat requires a host with the native Codex runtime.');
+    });
+
     it('invokes the loaded queryFn with the prompt + options and returns its query', () => {
       const h = makeRunner();
       const freshQuery = createFakeQuery('fresh');
@@ -823,14 +895,14 @@ describe('SdkQueryRunner', () => {
       // The clearing is scoped to the override path. A normal run still
       // inherits process.env exactly as it did before.
       const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
-      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'ambient-claude-token';
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
 
         const options = await capturedOptions(h);
         const env = options.env as Record<string, string | undefined>;
 
-        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('codex-proxy-managed');
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('ambient-claude-token');
       } finally {
         if (previous === undefined) {
           delete process.env['ANTHROPIC_AUTH_TOKEN'];
@@ -1259,7 +1331,7 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
     );
   });
 
-  it('names the provider of the auth env written onto the SDK options', async () => {
+  it('classifies stale Codex auth but refuses it at the query launch gate', async () => {
     const authEnv = {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:4141',
       ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -1276,36 +1348,22 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
       });
     }, authEnv);
 
-    await h.runner.runOneShot({
+    expect(providerOf(authEnv)).toBe('openai-codex');
+    await expect(h.runner.runOneShot({
       mode: 'oneShot',
       cwd: '/work',
       model: 'haiku',
       prompt: 'curate',
       mcpServerRunning: false,
       dispatch: ride('memory-curator', 'memory-curator'),
+    })).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
     });
-    await h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'judge',
-      mcpServerRunning: false,
-      dispatch: ride('skill-lane', 'judge'),
-    });
-
-    expect(seen).toEqual([
-      {
-        provider: 'openai-codex',
-        model: 'claude-haiku-4-5',
-        envProvider: 'openai-codex',
-      },
-      {
-        provider: 'openai-codex',
-        model: 'claude-haiku-4-5',
-        envProvider: 'openai-codex',
-      },
-    ]);
-    expect(seen.every((row) => row.provider === row.envProvider)).toBe(true);
+    await Promise.resolve();
+    expect(h.queryFn).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
   });
 
   it('reports the provider used after async setup, not the earlier one', async () => {
@@ -1331,13 +1389,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
 
     expect(providerOf({ ...authEnv })).toBe(ANTHROPIC_DIRECT_PROVIDER_ID);
 
-    await h.runner.runOneShot({
+    await expect(h.runner.runOneShot({
       mode: 'oneShot',
       cwd: '/work',
       model: 'haiku',
       prompt: 'curate',
       mcpServerRunning: false,
       dispatch: ride('memory-curator', 'memory-curator'),
+    })).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
     });
     await h.runner.runOneShot({
       mode: 'oneShot',
@@ -1348,17 +1409,14 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
       dispatch: ride('skill-lane', 'judge'),
     });
 
-    expect(seen).toEqual([
-      'memory-curator:openai-codex',
-      'skill-lane:openrouter',
-    ]);
+    expect(seen).toEqual(['skill-lane:openrouter']);
     const tokens = h.queryFn.mock.calls.map(
       (args) =>
         (args[0] as { options: SdkQueryOptions }).options.env?.[
           'ANTHROPIC_AUTH_TOKEN'
         ],
     );
-    expect(tokens).toEqual(later);
+    expect(tokens).toEqual([OPENROUTER_PROXY_TOKEN_PLACEHOLDER]);
   });
 
   it('reports the override provider and the concrete model', async () => {

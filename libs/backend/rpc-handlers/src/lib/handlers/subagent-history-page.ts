@@ -26,6 +26,7 @@ const eventTypes: Record<FlatStreamEventUnion['eventType'], true> = {
   background_agent_started: true,
   background_agent_completed: true,
   background_agent_stopped: true,
+  background_tasks_snapshot: true,
   agent_progress: true,
   agent_status: true,
   agent_completed: true,

@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_696_9529
-status: backlog
+status: done
 type: RESEARCH
 title: Voice page polish proposals (canvas and stats)
 depends_on: []
 created: "2026-10-18T17:02:53.590Z"
-updated: "2026-10-18T17:02:53.590Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Two independent proposals (grok, Glm) to polish the Voice page and canvas by reusing main-chat components and stats."
 estimate: S
 labels:

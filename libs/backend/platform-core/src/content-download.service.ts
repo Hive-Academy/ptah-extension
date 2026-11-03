@@ -92,7 +92,7 @@ export class ContentDownloadService {
 
   /** GitHub manifest URL (main branch) */
   private static readonly MANIFEST_URL =
-    'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/content-manifest.json';
+    'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json';
 
   constructor() {
     this.ptahDir = path.join(homedir(), '.ptah');
@@ -468,7 +468,7 @@ export class ContentDownloadService {
    *
    * @param files - Relative file paths (e.g., "ptah-core/.claude-plugin/plugin.json")
    * @param baseUrl - GitHub raw base URL
-   * @param basePath - Source path in the repo (e.g., "apps/ptah-extension-vscode/assets/plugins")
+   * @param basePath - Source path in the repo (e.g., "plugins")
    * @param localDir - Local destination directory (e.g., ~/.ptah/plugins/)
    * @param onFileComplete - Callback with count of completed files
    */

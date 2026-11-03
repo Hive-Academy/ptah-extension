@@ -147,7 +147,7 @@ describe('AccountDetailViewComponent (flat panel)', () => {
     it('shows "Waiting for Claude window" with a spinner while sign-in is pending', () => {
       setAccount(account('pending'));
       expect(q('account-detail-state')?.textContent?.trim()).toBe('Waiting for Claude window');
-      expect(q('account-detail-state')?.querySelector('.animate-spin')).not.toBeNull();
+      expect(q('account-detail-state')?.querySelector('.loading-spinner')).not.toBeNull();
     });
 
     it('marks failed and disconnected with the attention bar', () => {

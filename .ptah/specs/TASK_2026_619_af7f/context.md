@@ -184,3 +184,17 @@ Install `scip-typescript`, `scip-python` and `scip-go` as global user tools; the
 ## Triage 2026-10-12
 
 Re-scoped to phase 2 only (fix the tools that miss their prompt claims). Phase 1, the benchmark, is covered by TASK_2026_620 (done) and TASK_2026_624. Bench-guided fixes wait for the 624 scored run; an independently reproduced correctness defect can start at once. Parent: TASK_2026_636_0add.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Phase 2: fix code search, relevance ranking, references, dependents and memory against the bench until each meets its prompt claim, then pick the eager tool set from the scorecard.
+- Evidence on main: Phase 1 (benchmark + index freshness) merged in PR #672 'TASK_2026_619: mcp-bench tool benchmark + index freshness (PR 1)'; main has tools/mcp-bench and .github/workflows/mcp-bench.yml. handoff.md plans later PRs (Batches 18-37) for the Phase 2 tool fixes; no merged PR names them.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane antigravity, verified by Claude).
+
+- Delivered: `tools/mcp-bench` benchmark and index freshness (#672, ffeea1657); honest MCP tool contract (#604); memory/skills bench (#686).
+- Remaining: fix each ptah code-search, relevance, references, dependents and memory tool that misses its prompt claim against the committed scorecard, then choose the eager tool set in vscode-lm-tools.

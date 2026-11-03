@@ -1,20 +1,19 @@
 /**
- * Guards on the two prompt strings this file ships.
+ * Guards on the core prompt string and its shared substitution section.
  *
- * Both are paid for on every request of every session that assembles them, and
- * a prompt has no compiler: the only thing that stops it growing back is a
- * measurement that fails. See `.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md`.
+ * The core is paid for on every request that assembles it, and a prompt has no
+ * compiler: the only thing that stops it growing back is a measurement that
+ * fails. See `.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md`.
  */
 import {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
-  PTAH_MCP_MANDATE_PROMPT,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './ptah-core-prompt';
 
 describe('PTAH_CORE_SYSTEM_PROMPT', () => {
-  it('stays within the ~4,100-token budget its header declares', () => {
-    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(4100);
+  it('stays within the measured token budget plus five percent', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(3380);
   });
 
   it('carries the MCP substitution section exactly once', () => {
@@ -41,23 +40,38 @@ describe('PTAH_CORE_SYSTEM_PROMPT', () => {
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Never call it in a loop');
   });
 
+  it('keeps CLI delegation and routing guidance', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      '| CLI lane | A fresh agent can complete a written brief:',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      'When 2+ independent subtasks exist, prefer running at least one as a CLI lane in parallel.',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      'When a `Routing:` system reminder is present, follow its taskType, depth and executor suggestions unless the user says otherwise.',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain('ptah_route_decide');
+  });
+
   it('states the token-economy rules', () => {
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('### Token economy');
-    expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Verify only changed projects:');
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      "workspace's CLAUDE.md or project instructions",
+    );
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Never a wait/status loop');
   });
-});
 
-describe('PTAH_MCP_MANDATE_PROMPT', () => {
-  it('reuses the one substitution section rather than a second copy', () => {
-    expect(PTAH_MCP_MANDATE_PROMPT).toContain(PTAH_MCP_SUBSTITUTION_SECTION);
-    expect(
-      PTAH_MCP_MANDATE_PROMPT.split('| Instead of... | CALL THIS TOOL | Why |'),
-    ).toHaveLength(2);
-  });
-
-  it('teaches the same non-polling delegation pattern', () => {
-    expect(PTAH_MCP_MANDATE_PROMPT).toContain('<agent-lane-completed>');
-    expect(PTAH_MCP_MANDATE_PROMPT).toContain('Never call it in a loop');
+  it('defers verification and commit authorization without command contradictions', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      "workspace's CLAUDE.md or project instructions",
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      "workspace's own instructions (CLAUDE.md, project rules)",
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain('nx test');
+    expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain('nx affected');
+    expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain(
+      'Only commit when explicitly asked',
+    );
   });
 });

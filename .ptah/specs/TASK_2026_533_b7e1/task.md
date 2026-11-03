@@ -10,9 +10,6 @@ labels:
   - pricing
   - chat-streaming
 relatesTo:
-  - TASK_2026_474_5c9f
-  - TASK_2026_475_e4b7
-  - TASK_2026_418_a91c
   - TASK_2026_513_a7c2
 ---
 

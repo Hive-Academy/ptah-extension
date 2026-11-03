@@ -1,8 +1,0 @@
-/*
- * Admin list page — no custom styles needed.
- * All presentation handled by TailwindCSS + DaisyUI utility classes.
- */
-
-:host {
-  display: block;
-}

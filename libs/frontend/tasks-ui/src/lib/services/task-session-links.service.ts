@@ -7,6 +7,7 @@ import {
 import {
   MESSAGE_TYPES,
   type SessionPrLinkSummary,
+  type SessionTodoProgress,
   type SessionTurnPhase,
   type TaskLinkedSession,
 } from '@ptah-extension/shared';
@@ -265,7 +266,7 @@ function toLinkMap(data: unknown): TaskSessionLinkMap {
   const map = new Map<string, readonly TaskLinkedSession[]>();
   for (const [taskId, raw] of Object.entries(links)) {
     if (!Array.isArray(raw)) continue;
-    const sessions = raw.filter(isLinkedSession).map(withValidPrLinks);
+    const sessions = raw.filter(isLinkedSession).map(withValidParts);
     if (sessions.length > 0) map.set(taskId, sessions);
   }
   return map;
@@ -281,10 +282,12 @@ function isLinkedSession(value: unknown): value is TaskLinkedSession {
   );
 }
 
-function withValidPrLinks(session: TaskLinkedSession): TaskLinkedSession {
+/** Keep a session row whose optional parts are malformed, minus those parts. */
+function withValidParts(session: TaskLinkedSession): TaskLinkedSession {
   const prLinks: unknown = session.prLinks;
   return {
     ...session,
+    todos: validTodos(session.todos),
     prLinks: Array.isArray(prLinks)
       ? prLinks.filter(
           (link: unknown): link is SessionPrLinkSummary =>
@@ -292,4 +295,21 @@ function withValidPrLinks(session: TaskLinkedSession): TaskLinkedSession {
         )
       : [],
   };
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * The todo snapshot when it is well formed, else null (no progress shown).
+ * An older host that does not send the field also reads as null.
+ */
+function validTodos(value: unknown): SessionTodoProgress | null {
+  if (!isRecord(value)) return null;
+  const { done, total, inProgress, updatedAt } = value;
+  if (!isCount(done) || !isCount(total) || done > total) return null;
+  if (inProgress !== null && typeof inProgress !== 'string') return null;
+  if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
+  return { done, total, inProgress, updatedAt };
 }

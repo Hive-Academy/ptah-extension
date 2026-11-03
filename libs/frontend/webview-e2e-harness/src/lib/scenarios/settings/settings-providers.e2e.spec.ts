@@ -398,7 +398,7 @@ for (const host of HOSTS) {
         page.locator('[data-testid="connection-detail-drawer"]'),
       ).toHaveCount(0);
       await expect(
-        card(page, 'Kimi Code').locator('[role="button"]').first(),
+        card(page, 'Kimi Code').locator('[data-testid="provider-card-details-trigger"]'),
       ).toBeFocused();
     });
   });
@@ -466,7 +466,7 @@ for (const host of HOSTS) {
           .filter((call) => call.method === 'auth:checkConnection'),
       ).toHaveLength(1);
       // Focus stays on the card (its action left the face while it read "Checking…").
-      await expect(kimiCode.locator('[role="button"]').first()).toBeFocused();
+      await expect(kimiCode.locator('[data-testid="provider-card-details-trigger"]')).toBeFocused();
     });
   });
 }

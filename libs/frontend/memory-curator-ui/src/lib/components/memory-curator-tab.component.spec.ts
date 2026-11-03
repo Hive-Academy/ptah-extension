@@ -299,7 +299,7 @@ describe('MemoryCuratorTabComponent', () => {
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Ptah desktop');
+    expect(text).toContain('PtahCode desktop');
 
     // Verify no RPC traffic was issued in the non-Electron branch.
     expect(stateMockNonElectron.refresh).not.toHaveBeenCalled();

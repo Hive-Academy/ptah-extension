@@ -606,6 +606,54 @@ describe('harness tools', () => {
     expect(createSkill).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards the scope to installMcpServer', async () => {
+    const installMcpServer = jest.fn(async () => ({
+      serverName: 'io.github.owner/server',
+      serverKey: 'server',
+      scope: 'user',
+      targets: ['codex'],
+      installedPaths: [],
+      results: [],
+      warnings: [],
+    }));
+    const deps = harnessDeps({ installMcpServer });
+    const config = { type: 'stdio', command: 'npx' };
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_install_mcp_server',
+        {
+          serverName: 'io.github.owner/server',
+          config,
+          targets: ['codex'],
+          scope: 'user',
+        },
+        deps,
+      ),
+    );
+    expect(isError).toBeFalsy();
+    expect(installMcpServer).toHaveBeenCalledWith(
+      'io.github.owner/server',
+      config,
+      undefined,
+      ['codex'],
+      'user',
+    );
+
+    await callTool(
+      'ptah_harness_install_mcp_server',
+      { serverName: 'io.github.owner/server', config },
+      deps,
+    );
+    expect(installMcpServer).toHaveBeenLastCalledWith(
+      'io.github.owner/server',
+      config,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it('flags a degraded registry search as a tool error', async () => {
     const deps = harnessDeps({
       searchMcpRegistry: jest.fn(async () => ({
@@ -1275,7 +1323,7 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
     );
   }
 
-  it('marks the always-eager core tools with _meta alwaysLoad === true', async () => {
+  it('marks the always-eager tools with _meta alwaysLoad === true', async () => {
     const tools = await listTools();
     for (const name of [
       'ptah_search_files',
@@ -1283,8 +1331,25 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
       'ptah_context_enrich_file',
       'ptah_get_diagnostics',
       'ptah_workspace_analyze',
+      'ptah_agent_list',
+      'ptah_agent_spawn',
     ]) {
       expect(isEager(tools.find((t) => t.name === name))).toBe(true);
+    }
+  });
+
+  it('keeps other agent and routing tools deferred', async () => {
+    const tools = await listTools();
+    for (const name of [
+      'ptah_agent_read',
+      'ptah_agent_status',
+      'ptah_agent_stop',
+      'ptah_agent_message',
+      'ptah_agent_wait',
+      'ptah_route_decide',
+      'ptah_outcome_report',
+    ]) {
+      expect(isEager(tools.find((tool) => tool.name === name))).toBe(false);
     }
   });
 

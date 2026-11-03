@@ -21,6 +21,7 @@ import {
   ChatSetStreamViewportParamsSchema,
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
+  ChatHistoryPageParamsSchema,
 } from './chat-rpc.schema';
 
 // UUID v4 fixtures — these PASS the shared `UUID_REGEX` (see
@@ -30,6 +31,24 @@ const VALID_SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 const LEGACY_TAB_ID = 'tab_1778939573732_w43e75q'; // the original Sentry crash payload
 
 describe('chat-rpc.schema', () => {
+  it('accepts a native Codex UUID v7 session id for history paging', () => {
+    const sessionId = '0190b6a8-3c4e-7a1b-8c2d-1e2f3a4b5c6d';
+    expect(
+      ChatHistoryPageParamsSchema.parse({ sessionId, cursor: 'page' })
+        .sessionId,
+    ).toBe(sessionId);
+  });
+  it.each([
+    ChatContinueParamsSchema,
+    ChatResumeParamsSchema,
+    ChatAbortParamsSchema,
+    ChatPendingQuestionsParamsSchema,
+  ])('accepts a native Codex UUID v7 session id', (schema) => {
+    const sessionId = '0190b6a8-3c4e-7a1b-8c2d-1e2f3a4b5c6d';
+    expect(schema.parse({ sessionId, tabId: VALID_TAB_UUID }).sessionId).toBe(
+      sessionId,
+    );
+  });
   it.each([
     ['continue', ChatContinueParamsSchema],
     ['resume', ChatResumeParamsSchema],

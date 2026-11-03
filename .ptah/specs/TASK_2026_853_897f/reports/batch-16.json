@@ -1,0 +1,43 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 16,
+  "status": "IMPLEMENTED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-generation/src/lib/services/subagent-tool-allowlist.spec.ts",
+      "change": "MODIFIED (test-only): added describe 'least-privilege effective set (Phase C, decision #20)'; existing exact-row table untouched"
+    }
+  ],
+  "roles": ["code-logic-reviewer", "code-style-reviewer", "modernization-detector", "project-manager", "software-architect", "team-leader"],
+  "pinnedNames": [
+    "mcp__firecrawl", "mcp__ptah__ptah_web_search",
+    "mcp__ptah__ptah_browser_navigate", "mcp__ptah__ptah_browser_screenshot", "mcp__ptah__ptah_browser_evaluate",
+    "mcp__ptah__ptah_browser_click", "mcp__ptah__ptah_browser_type", "mcp__ptah__ptah_browser_content",
+    "mcp__ptah__ptah_browser_network", "mcp__ptah__ptah_browser_close", "mcp__ptah__ptah_browser_status",
+    "mcp__ptah__ptah_browser_record_start", "mcp__ptah__ptah_browser_record_stop"
+  ],
+  "tests": [
+    "pins exactly 13 literal names",
+    "6x: denies exactly the 13 pinned names in order (length 13, toEqual literal)",
+    "6x: renders the literal unchanged disallowedTools frontmatter line",
+    "other 9 roles keep <=1 denied name; backend-developer literal 'disallowedTools: mcp__firecrawl'; visual-reviewer undefined"
+  ],
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b16-verify.log",
+    "summary": "68 tasks: 48 succeeded, 20 cached, 7 failed, 13 skipped; exit 130",
+    "perTarget": {
+      "@ptah-extension/agent-generation (lint/test/typecheck)": "not among failures (pass)",
+      "ptah-extension-vscode, ptah-cli, ptah-tui": "not among failures (pass)",
+      "ptah-electron:test": "FAIL: 21 suites failed to run - 'Could not locate module marked mapped as .../session-prefix-diet-c/node_modules/marked/lib/marked.umd.js'; 1118 tests passed",
+      "@ptah-extension/cli-engine:test": "FAIL: 18 suites, same missing marked module; 50 tests passed",
+      "ptah-extension-webview:test": "FAIL: 7 suites, same missing marked module; 539 tests passed",
+      "ptah-extension-webview:lint": "FAIL: pre-existing on main, not fixed",
+      "cron-scheduler:build, session-organization:build, gateway-chat-bridge:build": "FAIL: TS2305 libs/backend/agent-sdk/src/lib/prompt-harness/index.ts:12 'PTAH_MCP_MANDATE_PROMPT' not exported from ./ptah-core-prompt (agent-sdk files edited concurrently by another batch; not mine)"
+    }
+  },
+  "decisions": [
+    "Literals are hard-coded in the spec (not derived from production constants) so a shortening attempt fails loudly",
+    "No production file edited; failures are environmental (worktree -c lacks node_modules/marked) or belong to concurrent agent-sdk edits"
+  ]
+}

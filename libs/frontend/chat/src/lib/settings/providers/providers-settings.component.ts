@@ -64,7 +64,6 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 import { commitToast } from '../feedback/settings-commit-toast';
 // Rendered only inside `@defer`, so it stays out of the eager settings bundle.
 import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 
 /**
  * Deep-link sections this page owns. Background roles and CLI agents are on the same tab, in
@@ -76,6 +75,14 @@ export type ProvidersSettingsFocusTarget =
   | 'main-effort'
   | 'connections'
   | 'more-providers';
+
+/** A deep link that opens a connection drawer on a tab. Only the Claude Accounts drawer is requestable. */
+export interface ProvidersSettingsDrawerRequest {
+  /** A `ConnectionKind` value, resolved like `openAccountSignIn` does. */
+  readonly connection: 'claude-cli';
+  /** A `ConnectionDrawerTabId` member. */
+  readonly tab: 'accounts';
+}
 
 const CONTROL =
   'btn btn-outline btn-sm border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -98,7 +105,6 @@ const CONTROL =
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
     KimiCodeLoginProgressComponent,
-    SurfaceSectionComponent,
   ],
   template: `
     <div
@@ -111,10 +117,10 @@ const CONTROL =
       <!-- Order: the Main agent section, then Connections (header, catalog caption, list). Settings renders the CLI
            matrix and the background roles after this page, so the page repeats neither.
            No page title, no Refresh: the tab names the page, and every region retries its own read. -->
-      <div class="py-3 space-y-4">
+      <div class="space-y-8 py-3">
         <!-- One card: the Main agent block, a hairline, then Connections (the divider pattern of the CLI matrix card
              between the system lanes and the Ptah CLI instances). -->
-        <ptah-surface-section tone="subtle" padding="md" glassSurface="chrome" data-testid="providers-main-connections-card">
+        <div class="space-y-8" data-testid="providers-main-connections-card" data-glass-surface="content">
           <!-- Main-agent region. Loading shows as the section's skeleton (aria-busy here keeps captures waiting). -->
           <div [attr.aria-busy]="mainReadsLoading()" data-testid="main-agent-region">
             <!-- The Main agent section holds the D16 badges and opens the Main Agent popover (provider, model, effort).
@@ -213,8 +219,7 @@ const CONTROL =
               </ptah-main-agent-section>
             } @placeholder {
               <div
-                class="min-h-[150px] rounded-xl border border-base-300 bg-base-200/40 p-3"
-                data-glass-surface="tile"
+                class="min-h-[150px] border-b border-base-content/10 p-3"
                 aria-busy="true"
                 data-testid="main-agent-placeholder"
               ></div>
@@ -224,7 +229,7 @@ const CONTROL =
           <!-- Connections: under the Main agent, on the same card. -->
           <section
             aria-labelledby="providers-connections-heading"
-            class="space-y-3 border-t border-base-content/15 pt-4"
+            class="space-y-3 border-t border-base-content/10 pt-6"
             data-testid="providers-connections-card"
             [attr.aria-busy]="state.connections().status === 'loading'"
           >
@@ -338,9 +343,10 @@ const CONTROL =
               </p>
             }
             <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
-                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px. -->
+                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px; below 22 rem
+                 the one column shrinks to the container (onboarding's 400 px content area). -->
             <div
-              class="grid grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-2"
+              class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-2"
               data-testid="connections-grid"
             >
               @for (connection of shownConnections(); track connection.id) {
@@ -382,7 +388,7 @@ const CONTROL =
               }
             </div>
           </section>
-        </ptah-surface-section>
+        </div>
         <!-- Catalog modal: deferred (eager route at its bundle budget); the native <dialog> traps focus and returns it. -->
         @defer (on immediate) {
           <ptah-provider-catalog-modal
@@ -541,12 +547,19 @@ const CONTROL =
       }
     }
   `,
+  styles: `
+    :host-context([data-glass='on']) [data-testid='providers-main-connections-card'] {
+      padding: 1.25rem;
+    }
+  `,
 })
 export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderId = input<string>('');
   /** Emitted once the wizard was opened for {@link requestedProviderId}. */
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
+  /** Opens the requested connection drawer once the connection list is ready (Electron only: Accounts is D34). */
+  readonly requestedDrawer = input<ProvidersSettingsDrawerRequest | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   /** Accounts is Electron only (D34): elsewhere the drawer tab is absent and the account reads never run. */
   protected readonly accountsAvailable = inject(VSCodeService).isElectron;
@@ -952,7 +965,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     ),
   );
   protected readonly readError =
-    'flex flex-wrap items-center gap-2 rounded-md border border-base-content-muted bg-base-100 px-3 py-2 text-sm';
+    'flex flex-wrap items-center gap-2 rounded-md border border-base-content/10 px-3 py-2 text-sm';
   protected readonly retryControl =
     'btn btn-outline btn-sm border-base-content-muted text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
   /** The Connections header filter: matches the connection name or id, case-insensitive. */
@@ -1014,6 +1027,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       untracked(() => {
         this.deepLinkAwaitingAcceptance = provider;
         this.openWizard(provider);
+      });
+    });
+    // Drawer deep link (onboarding named-account link): open the Claude drawer on the requested tab once the
+    // connections are ready. Same per-request guard as above: closing the drawer while the request stays bound does
+    // not reopen it; clearing the input and setting it again does. Not Electron: the Accounts tab does not exist.
+    let drawerOpenedFor = '';
+    effect(() => {
+      if (!this.accountsAvailable) return;
+      const request = this.requestedDrawer();
+      if (!request) {
+        drawerOpenedFor = '';
+        return;
+      }
+      const key = `${request.connection}:${request.tab}`;
+      if (key === drawerOpenedFor || this.state.connections().status !== 'ready')
+        return;
+      drawerOpenedFor = key;
+      untracked(() => {
+        const claude = (this.state.connections().data ?? []).find((connection) => this.isClaudeCli(connection));
+        if (claude) this.openDrawer(claude.id, request.tab);
       });
     });
     afterRenderEffect(() => {
@@ -1122,7 +1155,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
    * `lastCheck`, then the route re-read; local servers and key-optional routes the host cannot check, such as Ollama,
    * LM Studio and Ollama Cloud, get the route re-read alone). While the route itself failed to load, the card reads
    * "Check unavailable" and Retry keeps the full re-read, which is what can repair it. D3: nothing starts while a check
-   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to the card itself.
+   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to its details trigger.
    */
   protected checkFromCard(id: string): void {
     if (this.state.route().status !== 'ready') {
@@ -1136,7 +1169,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       () =>
         this.element.nativeElement
           .querySelector<HTMLElement>(
-            `ptah-provider-connection-card[data-connection-id="${id}"] [role="button"]`,
+            `ptah-provider-connection-card[data-connection-id="${id}"] [data-testid="provider-card-details-trigger"]`,
           )
           ?.focus(),
       { injector: this.injector },

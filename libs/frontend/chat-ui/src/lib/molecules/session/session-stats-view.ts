@@ -1,9 +1,10 @@
-import type { SessionBudgetState, SessionStatsEntry } from '@ptah-extension/shared';
+import { trustedContextWindow, type SessionBudgetState, type SessionStatsEntry } from '@ptah-extension/shared';
 import type { LiveModelStats } from './session-stats-summary.component';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import type { SessionLimitSummary } from './plan-limits/session-limit-summary';
 import { budgetTooltip, costTooltip, tokensTooltip } from './session-budget-format';
 import { formatCost, formatDuration, formatTokens } from './session-stats-format';
+import { costBasisLabel } from '../../atoms/cost-badge.component';
 
 export interface SessionStatsInputs {
   readonly sessionId: string | null;
@@ -40,16 +41,11 @@ function withEstimateLine(text: string | null): string {
 }
 
 export function sessionContextCue(live: LiveModelStats | null): SessionContextCue {
-  const capacity = live?.contextCapacity;
+  const trustedWindow = live ? trustedContextWindow(live.contextCapacity, live.model) : null;
   const known = !!live && live.contextKnown !== false &&
     Number.isFinite(live.contextUsed) && live.contextUsed >= 0 &&
-    Number.isFinite(live.contextPercent) && !!capacity &&
-    capacity.model === live.model &&
-    (capacity.source === 'sdk-native' ||
-      (capacity.source === 'provider-catalog' &&
-        typeof capacity.providerId === 'string' && capacity.providerId.length > 0)) &&
-    typeof capacity.tokens === 'number' && Number.isFinite(capacity.tokens) &&
-    capacity.tokens > 0 && live.contextWindow === capacity.tokens;
+    Number.isFinite(live.contextPercent) && trustedWindow !== null &&
+    live.contextWindow === trustedWindow;
   return {
     hasLive: !!live,
     known,
@@ -96,11 +92,21 @@ export function tokenDetailsText(s: SessionStatsEntry | null, b: SessionBudgetSt
 }
 
 export function costDetailsText(s: SessionStatsEntry | null, b: SessionBudgetState | null): string | null {
+  const basis = costBasisLabel(s?.totalCost, s?.costBasis);
+  const basisDetails = basis === 'estimated'
+    ? 'Estimated cost, not a charge.'
+    : basis === 'covered by subscription'
+      ? 'Published-rate value covered by the subscription, not a charge.'
+      : null;
   const budgetLine = budgetTooltip(b, {
     tokensLabel: typeof s?.tokenCount === 'number' ? formatTokens(s.tokenCount) : '—',
     totalCost: s?.totalCost ?? null,
   });
-  const parts = [s?.totalCost == null ? STATS_EMPTY.cost : null, costTooltip(b, budgetLine), knownSubtotalOf(s) ? KNOWN_SUBTOTAL_DETAILS : null]
+  const parts = [
+    s?.totalCost == null ? STATS_EMPTY.cost : basisDetails,
+    costTooltip(b, budgetLine),
+    knownSubtotalOf(s) ? KNOWN_SUBTOTAL_DETAILS : null,
+  ]
     .filter((part): part is string => part !== null);
   const text = parts.length ? parts.join('\n\n') : null;
   return s?.provisional ? withEstimateLine(text) : text;
@@ -140,6 +146,7 @@ export function compactSessionMetrics(stats: SessionStatsInputs): readonly Compa
   const tokens = snapshot?.tokenCount;
   const subtotal = knownSubtotalOf(snapshot);
   const cost = snapshot?.totalCost ?? subtotal?.value ?? null;
+  const basis = costBasisLabel(snapshot?.totalCost, snapshot?.costBasis);
   const estimate = snapshot?.provisional ? '~' : '';
   const estimatedLabel = snapshot?.provisional ? 'estimated ' : '';
   const partialTokens = snapshot?.coverage === 'partial';
@@ -159,8 +166,12 @@ export function compactSessionMetrics(stats: SessionStatsInputs): readonly Compa
     },
     {
       id: 'cost', label: 'Cost',
-      value: cost === null ? STATS_EMPTY.value : `${estimate}${subtotal ? '≥' : ''}${formatCost(cost)}`,
-      ariaLabel: cost === null ? STATS_EMPTY.cost : `Cost ${estimatedLabel}${subtotal ? 'known subtotal ' : ''}${formatCost(cost).slice(1)} US dollars`,
+      value: cost === null
+        ? STATS_EMPTY.value
+        : `${estimate}${subtotal ? '≥' : ''}${formatCost(cost)}${basis ? ` ${basis}` : ''}`,
+      ariaLabel: cost === null
+        ? STATS_EMPTY.cost
+        : `Cost ${basis === 'estimated' ? '' : estimatedLabel}${subtotal ? 'known subtotal ' : ''}${formatCost(cost).slice(1)} US dollars${basis ? `, ${basis}` : ''}`,
       unavailable: cost === null,
     },
   ];

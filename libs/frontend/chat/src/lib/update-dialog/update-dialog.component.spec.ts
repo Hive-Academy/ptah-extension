@@ -99,7 +99,7 @@ function availableState(
     releaseNotesMarkdown: null,
     downloadUrl: 'https://dl.example/0.1.49.exe',
     releaseUrl:
-      'https://github.com/Hive-Academy/ptah-extension/releases/tag/electron-v0.1.49',
+      'https://github.com/Hive-Academy/PtahCode/releases/tag/electron-v0.1.49',
     ...overrides,
   };
 }
@@ -199,7 +199,7 @@ describe('UpdateDialogComponent', () => {
 
   it('falls back to the release page URL when no installer asset matched', () => {
     const releaseUrl =
-      'https://github.com/Hive-Academy/ptah-extension/releases/tag/electron-v0.1.49';
+      'https://github.com/Hive-Academy/PtahCode/releases/tag/electron-v0.1.49';
     const { fixture } = setup({
       stateSig: signal(availableState({ downloadUrl: null, releaseUrl })),
     });

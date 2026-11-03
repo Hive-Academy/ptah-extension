@@ -22,7 +22,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const PLUGINS_BASE_PATH = 'apps/ptah-extension-vscode/assets/plugins';
+const PLUGINS_BASE_PATH = 'plugins';
 const TEMPLATES_BASE_PATH = 'libs/backend/agent-generation/templates/agents';
 const MANIFEST_PATH = path.join(REPO_ROOT, 'content-manifest.json');
 
@@ -155,7 +155,7 @@ function buildManifest() {
     contentHash: `sha256:${hash.digest('hex')}`,
     generatedAt: new Date().toISOString(),
     baseUrl:
-      'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main',
+      'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main',
     plugins: {
       basePath: PLUGINS_BASE_PATH,
       files: pluginFiles,

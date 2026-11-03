@@ -41,9 +41,13 @@ import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
-import { AuthRequiredError } from './errors';
+import { AuthRequiredError, SdkError } from './errors';
 import { getActiveProviderId } from './helpers';
-import { SessionMetadataStore } from './session-metadata-store';
+import {
+  SessionMetadataStore,
+  isSessionPluginConfigAncestorRoots,
+  readSessionPluginConfigAncestorRoots,
+} from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
 import type {
   OwnerLease,
@@ -57,7 +61,8 @@ import {
   type ForkSessionResult,
   type RewindFilesResult,
 } from './types/sdk-types/claude-sdk.types';
-import type { IAuthEnvProvider } from './auth-env.port';
+import type { AuthOperationContext, IAuthEnvProvider } from './auth-env.port';
+
 import {
   SessionLifecycleManager,
   StreamTransformer,
@@ -641,7 +646,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
   }
 
-  async initialize(): Promise<boolean> {
+  async initialize(context?: AuthOperationContext): Promise<boolean> {
     if (this.initInFlight !== null) {
       this.logger.debug(
         '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
@@ -649,7 +654,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       return this.initInFlight;
     }
 
-    const pass = (this.initInFlight = this.doInitialize());
+    const pass = (this.initInFlight = this.doInitialize(context));
     try {
       return await pass;
     } finally {
@@ -670,7 +675,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * drains any in-flight pass before disposing, so it can never be answered by
    * the guard.
    */
-  private async doInitialize(): Promise<boolean> {
+  private async doInitialize(context?: AuthOperationContext): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -678,7 +683,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // credential-aware default (a missing `authMethod` uses the connected
       // Claude CLI login when no API key exists). `resolveActiveAuth()` then
       // reports that same resolved method.
-      const authResult = await this.authManager.configureAuthentication();
+      const authResult =
+        context === undefined
+          ? await this.authManager.configureAuthentication()
+          : await this.authManager.configureAuthentication(undefined, context);
       const active = this.authManager.resolveActiveAuth();
       this.lastConfiguredAuth = {
         authMethod: active.authMethod,
@@ -976,6 +984,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
+    if (
+      config.pluginConfigAncestorRoots !== undefined &&
+      !isSessionPluginConfigAncestorRoots(config.pluginConfigAncestorRoots)
+    ) {
+      throw new SdkError(
+        'Cannot start session with malformed plugin configuration lineage',
+      );
+    }
 
     const {
       tabId,
@@ -1081,6 +1097,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       statsLease.generation,
       config?.tabId,
       providerProfile?.providerId ?? capacityRoute?.providerId ?? undefined,
+      config.pluginConfigAncestorRoots,
     );
 
     if (config.prompt) {
@@ -1104,11 +1121,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
       turnIdentity: {
-        takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(trackingId, result),
-        wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(trackingId),
-        takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(trackingId),
-        takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(trackingId),
-        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(trackingId, wake),
+        takeAtResult: (result) =>
+          this.sessionLifecycle.takeResultClientMessageId(trackingId, result),
+        wasLastResultInterruptedLate: () =>
+          this.sessionLifecycle.wasLastResultInterruptedLate(trackingId),
+        takeInterruptRetirement: () =>
+          this.sessionLifecycle.takeInterruptRetirement(trackingId),
+        takeDisplacedRetirement: () =>
+          this.sessionLifecycle.takeDisplacedRetirement(trackingId),
+        subscribeRetirement: (wake) =>
+          this.sessionLifecycle.subscribeRetirement(trackingId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1246,7 +1268,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private async assertLiveAccountSelection(
     sessionId: SessionId,
-    live: { readonly provider: string; readonly routeFingerprint: string } | undefined,
+    live:
+      | { readonly provider: string; readonly routeFingerprint: string }
+      | undefined,
     selection: ProviderAccountSelection | undefined,
   ): Promise<void> {
     if (!live) {
@@ -1256,11 +1280,39 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (selection === undefined || selection.kind === 'omitted') return;
     if (selection.kind === 'ambient') throw namedAccountRefusal('conflict');
     const stored = (await this.metadataStore.get(sessionId))?.accountBinding;
-    if (!stored || stored.provider !== live.provider ||
-        stored.routeFingerprint !== live.routeFingerprint) {
+    if (
+      !stored ||
+      stored.provider !== live.provider ||
+      stored.routeFingerprint !== live.routeFingerprint
+    ) {
       throw namedAccountRefusal('invalid-bound');
     }
-    if (stored.profileId !== selection.profileId) throw namedAccountRefusal('conflict');
+    if (stored.profileId !== selection.profileId)
+      throw namedAccountRefusal('conflict');
+  }
+
+  private async resolveStoredPluginConfigAncestorRoots(
+    sessionId: SessionId,
+    callerRoots: readonly string[] | undefined,
+  ): Promise<readonly string[] | undefined> {
+    const stored = readSessionPluginConfigAncestorRoots(
+      await this.metadataStore.get(sessionId),
+    );
+    if (stored.status === 'malformed') {
+      throw new SdkError(
+        'Cannot resume session with malformed stored plugin configuration lineage',
+      );
+    }
+    if (stored.status === 'valid') return stored.roots;
+    if (
+      callerRoots !== undefined &&
+      !isSessionPluginConfigAncestorRoots(callerRoots)
+    ) {
+      throw new SdkError(
+        'Cannot resume session with malformed plugin configuration lineage',
+      );
+    }
+    return callerRoots;
   }
 
   async resumeSession(
@@ -1313,11 +1365,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         turnIdentity: {
-          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
-          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
-          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
-          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
-          subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+          takeAtResult: (result) =>
+            this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+          wasLastResultInterruptedLate: () =>
+            this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+          takeInterruptRetirement: () =>
+            this.sessionLifecycle.takeInterruptRetirement(sessionId),
+          takeDisplacedRetirement: () =>
+            this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+          subscribeRetirement: (wake) =>
+            this.sessionLifecycle.subscribeRetirement(sessionId, wake),
         },
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1360,8 +1417,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
       );
     }
     const resolvedSessionName = config?.sessionName ?? resumedName;
+    const pluginConfigAncestorRoots =
+      await this.resolveStoredPluginConfigAncestorRoots(
+        sessionId,
+        config?.pluginConfigAncestorRoots,
+      );
     const sessionConfigWithProfileModel = {
       ...config,
+      pluginConfigAncestorRoots,
       ...(providerProfile ? { model: providerProfile.model } : {}),
       ...(providerProfile?.reasoningEffort
         ? { effort: providerProfile.reasoningEffort }
@@ -1486,11 +1549,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       turnIdentity: {
-          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
-          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
-          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
-          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
-        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+        takeAtResult: (result) =>
+          this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+        wasLastResultInterruptedLate: () =>
+          this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+        takeInterruptRetirement: () =>
+          this.sessionLifecycle.takeInterruptRetirement(sessionId),
+        takeDisplacedRetirement: () =>
+          this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+        subscribeRetirement: (wake) =>
+          this.sessionLifecycle.subscribeRetirement(sessionId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1554,6 +1622,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     statsGeneration: number,
     tabId?: string,
     providerId?: string,
+    pluginConfigAncestorRoots?: readonly string[],
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
       _tabIdFromCallback: string | undefined,
@@ -1594,23 +1663,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.statsOwner.rebind(tabId, realSessionId, statsGeneration);
       }
 
-      if (workingDirectory === workspaceId) {
-        await this.metadataStore.create(
-          realSessionId,
-          workspaceId,
-          sessionName,
-          'created',
-          undefined,
-          blankToUndefined(providerId),
-        );
+      const metadataArgs = [
+        realSessionId,
+        workspaceId,
+        sessionName,
+        'created',
+        workingDirectory === workspaceId ? undefined : workingDirectory,
+        blankToUndefined(providerId),
+      ] as const;
+      if (pluginConfigAncestorRoots === undefined) {
+        await this.metadataStore.create(...metadataArgs);
       } else {
         await this.metadataStore.create(
-          realSessionId,
-          workspaceId,
-          sessionName,
-          'created',
-          workingDirectory,
-          blankToUndefined(providerId),
+          ...metadataArgs,
+          pluginConfigAncestorRoots,
         );
       }
 
@@ -1631,6 +1697,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         tabId,
         realSessionId,
         ...(previousSessionId === undefined ? {} : { previousSessionId }),
+        isNewSession: true,
         timestamp: Date.now(),
       });
     };
@@ -1776,22 +1843,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // Same per-session provider pinning as start/resume: the relaunch runs on
     // the profile's isolated auth env, model and cli.js when one is supplied.
     const { providerProfile, accountSelection } = config;
+    const pluginConfigAncestorRoots =
+      await this.resolveStoredPluginConfigAncestorRoots(
+        sessionId,
+        config.sessionConfig?.pluginConfigAncestorRoots,
+      );
+    const baseSessionConfig = config.sessionConfig;
     const profiledConfig =
-      providerProfile && config.sessionConfig
+      providerProfile && baseSessionConfig
         ? {
-            ...config.sessionConfig,
+            ...baseSessionConfig,
+            ...(pluginConfigAncestorRoots !== undefined
+              ? { pluginConfigAncestorRoots }
+              : {}),
             model: providerProfile.model,
             ...(providerProfile.reasoningEffort
               ? { effort: providerProfile.reasoningEffort }
               : {}),
           }
-        : config.sessionConfig;
+        : pluginConfigAncestorRoots !== undefined
+          ? { ...baseSessionConfig, pluginConfigAncestorRoots }
+          : baseSessionConfig;
     // The router resolved the selection from the session's binding. A named
     // relaunch resumes through the certified named lifecycle with that stored
     // binding; ambient relaunches keep their config object unchanged.
-    const sessionConfig: (AISessionConfig & {
-      accountSelection?: ProviderAccountSelection;
-    }) | undefined =
+    const sessionConfig:
+      | (AISessionConfig & {
+          accountSelection?: ProviderAccountSelection;
+        })
+      | undefined =
       accountSelection?.kind === 'named'
         ? { ...profiledConfig, accountSelection }
         : profiledConfig;
@@ -1884,11 +1964,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       turnIdentity: {
-          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
-          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
-          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
-          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
-        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+        takeAtResult: (result) =>
+          this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+        wasLastResultInterruptedLate: () =>
+          this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+        takeInterruptRetirement: () =>
+          this.sessionLifecycle.takeInterruptRetirement(sessionId),
+        takeDisplacedRetirement: () =>
+          this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+        subscribeRetirement: (wake) =>
+          this.sessionLifecycle.subscribeRetirement(sessionId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,

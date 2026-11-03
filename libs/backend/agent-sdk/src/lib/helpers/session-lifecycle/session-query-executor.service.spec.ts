@@ -306,7 +306,7 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
     const { executor, registry } = makeHarness('ask');
     const authEnvOverride = {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
-      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+      ANTHROPIC_AUTH_TOKEN: 'kimi-code-proxy-managed',
     };
     const result = await executor.executeQuery(
       makeConfig('capacity-profile', { authEnvOverride }),
@@ -314,7 +314,7 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
     authEnvOverride.ANTHROPIC_AUTH_TOKEN = 'openrouter-proxy-token';
     expect(result.capacityRoute).toEqual({
       kind: 'proxy',
-      providerId: 'openai-codex',
+      providerId: 'kimi-code',
     });
     expect(registry.find('capacity-profile')?.capacityRoute).toBe(
       result.capacityRoute,
@@ -328,14 +328,14 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
     // capacity route from the provider the SDK query actually talks to.
     const globalAuthEnv: AuthEnv = {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
-      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+      ANTHROPIC_AUTH_TOKEN: 'kimi-code-proxy-managed',
     };
     const { executor, buildSpy } = makeHarness('ask', globalAuthEnv);
     buildSpy.mockImplementationOnce(
       async (input: { authEnvOverride?: AuthEnv }) => {
         expect(input.authEnvOverride).toEqual({
           ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
-          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+          ANTHROPIC_AUTH_TOKEN: 'kimi-code-proxy-managed',
         });
         return {
           options: { model: 'test-model', cwd: '/tmp/test' },
@@ -357,7 +357,7 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
     expect(Object.isFrozen(buildInput.authEnvOverride)).toBe(true);
     expect(result.capacityRoute).toEqual({
       kind: 'proxy',
-      providerId: 'openai-codex',
+      providerId: 'kimi-code',
     });
   });
 
@@ -389,7 +389,7 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
       expect(
         resolveCapacityRoute({
           ANTHROPIC_BASE_URL: url,
-          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+          ANTHROPIC_AUTH_TOKEN: 'kimi-code-proxy-managed',
         }),
       ).toEqual({ kind: 'proxy', providerId: null });
     }
@@ -772,7 +772,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     const native = makeHarness('ask', {} as AuthEnv, { idle });
     const nativeRun = await native.executor.executeQuery(makeConfig('native-route'));
     feed(nativeRun, { type: 'system', subtype: 'init', session_id: 'native-sdk' } as SDKMessage);
-    expect(bound).toHaveBeenCalledWith('native-sdk', nativeRun.sessionToken, false, true);
+    expect(bound).toHaveBeenCalledWith('native-sdk', nativeRun.sessionToken, true);
     nativeRun.beforeLiveStatsDispose?.();
     nativeRun.onStreamEnd();
     nativeRun.abortController.abort();
@@ -782,11 +782,11 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     const proxyRun = await proxy.executor.executeQuery(makeConfig('proxy-route', {
       authEnvOverride: {
         ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
-        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        ANTHROPIC_AUTH_TOKEN: 'kimi-code-proxy-managed',
       },
     }));
     feed(proxyRun, { type: 'system', subtype: 'init', session_id: 'proxy-sdk' } as SDKMessage);
-    expect(bound).toHaveBeenCalledWith('proxy-sdk', proxyRun.sessionToken, true, false);
+    expect(bound).toHaveBeenCalledWith('proxy-sdk', proxyRun.sessionToken, false);
     proxyRun.abortController.abort();
   });
   const noTimers: CompactionTimers = {
@@ -842,7 +842,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     jest
       .spyOn(coordinator, 'register')
       .mockImplementation((id) =>
-        register(id, { codexProxy: false, e2Passed: true }),
+        register(id, { e2Passed: true }),
       );
     return coordinator;
   }
@@ -864,34 +864,11 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
 
     expect(registerSpy).toHaveBeenCalledTimes(1);
     expect(registerSpy).toHaveBeenCalledWith(REAL, {
-      codexProxy: false,
       e2Passed: null,
     });
     // No E2 has passed yet, so the session only observes.
     expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
     expect(coordinator.getState('tab_1')).toBeUndefined();
-    run.abortController.abort();
-  });
-
-  it('classes the Codex proxy route as codexProxy', async () => {
-    const coordinator = new CompactionCoordinator(noTimers);
-    const registerSpy = jest.spyOn(coordinator, 'register');
-    const { executor } = makeHarness(
-      'ask',
-      {
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
-        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
-      } as AuthEnv,
-      { coordinator },
-    );
-
-    const run = await executor.executeQuery(makeConfig('codex-tab'));
-    feed(run, init());
-
-    expect(registerSpy).toHaveBeenCalledWith(REAL, {
-      codexProxy: true,
-      e2Passed: null,
-    });
     run.abortController.abort();
   });
 
@@ -1206,6 +1183,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       const messageTransformer = {
         transform: jest.fn().mockReturnValue([]),
         createIsolated: jest.fn(),
+        clearBackgroundTaskSession: jest.fn(),
       };
       messageTransformer.createIsolated.mockReturnValue(messageTransformer);
       const pricingProvider: IPricingProvider = {
@@ -1305,7 +1283,6 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       await flush();
 
       expect(registerSpy).toHaveBeenCalledWith(REAL, {
-        codexProxy: false,
         e2Passed: null,
       });
       expect(statusSpy).toHaveBeenCalledWith(REAL);

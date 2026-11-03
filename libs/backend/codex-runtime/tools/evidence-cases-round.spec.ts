@@ -175,7 +175,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
           response = {
             config: {
               ...OUTPUT_BOUNDS,
-              sandbox_mode: 'read-only',
+              sandbox_mode: policy('ask').sandbox,
               approval_policy: policy('ask').approvalPolicy,
               sandbox_workspace_write: { network_access: false },
             },

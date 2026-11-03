@@ -1,9 +1,9 @@
 ---
 title: Installation
-description: Download and install the Ptah Electron desktop app on Windows, macOS, or Linux.
+description: Download and install the PtahCode desktop app on Windows, macOS, or Linux.
 ---
 
-Ptah is distributed as a native desktop app for Windows, macOS, and Linux. This page covers system requirements, where to download installers, and per-platform installation steps.
+PtahCode is distributed as a native desktop app for Windows, macOS, and Linux. This page covers system requirements, where to download installers, and per-platform installation steps.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/install.mp4" type="video/mp4" />
@@ -22,7 +22,7 @@ Additional requirements for all platforms:
 - **Memory**: 4 GB RAM minimum, 8 GB recommended
 - **Disk**: 500 MB for the app, plus space for workspace caches and downloaded plugins
 - **Network**: Internet connection for provider APIs and plugin downloads. Ptah needs no license check to run.
-- **Node.js** (optional): Required only if you plan to run local MCP servers or the built-in ptah-cli
+- **Node.js** (optional): Required if you plan to run local MCP servers
 
 :::note[Apple Silicon]
 Ptah ships a universal macOS build that runs natively on both Intel and Apple Silicon. No Rosetta required.
@@ -32,7 +32,7 @@ Ptah ships a universal macOS build that runs natively on both Intel and Apple Si
 
 All releases are published to GitHub:
 
-**[github.com/Hive-Academy/ptah-extension/releases](https://github.com/Hive-Academy/ptah-extension/releases)**
+**[github.com/Hive-Academy/PtahCode/releases](https://github.com/Hive-Academy/PtahCode/releases)**
 
 Download the installer that matches your platform from the latest release assets.
 
@@ -99,9 +99,9 @@ Deny any of these and the corresponding feature will be disabled until you grant
 
 ## Verify the install
 
-Open Ptah and check:
+Open PtahCode and check:
 
-1. The title bar shows **Ptah — Coding Orchestra**.
+1. On Windows and Linux, the window title bar shows **PtahCode**.
 2. **Help → About** displays a version number that matches the release you downloaded.
 3. The status bar at the bottom shows **Ready** with no error badges.
 

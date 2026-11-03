@@ -24,6 +24,16 @@ disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_bro
 
 write, build, test and git stay native
 
+## Skill use
+
+- An assignment is a skill the task, this role's own instructions, or an already loaded skill names as work to do. This role loads each assigned skill that the host currently lists and that this role is allowed to use, before that work. Assignment of a primary skill does not stop this role from loading other relevant supporting skills that this role is allowed to use, through the same host mechanism. A catalogue name is not an assignment and is not loaded instructions. Seeing or repeating a name is not loading the skill.
+- When the task assigns none, this role selects from the host's catalogue only skills whose descriptions match the task and the repository's own evidence, and that this role is allowed to use. That selection is only the unassigned entry. This role does not load a skill because the catalogue lists it, because this product's repository uses that stack, or because the role recognises the name.
+- This role loads a skill through the host's skill-loading tool when that tool is listed for this role. This role does not recite an unloaded skill from memory and does not reconstruct its steps.
+- Access policy still applies after a match. A denied load is not another path and is not permission to perform the denied action, and it is not reconstructed steps. An action this role's instructions forbid is treated the same way. This role reports the skill name and the denial. This role continues only work that does not depend on that skill and that this role is still allowed to do.
+- When an optional skill is absent, or its load fails for a reason other than denial, this role says so. An optional miss continues independent permitted work that the repository's instruction files already allow. This role does not invent that skill's steps.
+- When the task, or a skill already loaded, makes a missing skill mandatory for a piece of work, a required miss stops the dependent work. This role reports the skill name and the limitation through the channel this role already uses for a blocked step. This role does not improvise the missing skill's rules. Independent permitted work may continue.
+- The skill body remains the home of its rules. This role does not copy those rules into the role file.
+
 ## Task specs (`.ptah/specs/`)
 
 - Folder `TASK_YYYY_NNN_xxxx` (name = canonical id). Never create, allocate or rename a task folder.
@@ -32,6 +42,7 @@ write, build, test and git stay native
 - State is not yours: the carrier `status:` and task states in `batches.md` belong to the team-leader alone
   (status also to the orchestrator and project-manager). Report what you finished, with evidence.
 - Write only the deliverable your output contract names. Read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-spec.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`.
+- Subagent handoffs: a Ptah line naming a `.ptah/subagent-handoffs/*.handoff.md` record, or a `subagent-handoff-*.md` stub in your task folder (it names the record), marks work a stopped subagent left unfinished. If the record's frontmatter has `status: pending` and it concerns your deliverable: read it, continue from it instead of redoing it, then set `status: consumed` (or `status: dismissed` only if you will not continue it, or its subagent finished normally and returned its result; if its subagent is still running, leave the record pending). A record marked as from another or an ended session: continue it only if that session is not running. Never edit the stub; that status line is the one write allowed besides your deliverable.
 
 - Decisions: never contact the user. At a decision point, settle it from evidence first — the task folder, the code and its conventions, project docs, `ptah_memory_search`, and `ptah_web_search` for external facts. One defensible answer → decide, and list it under `## Decisions` in your deliverable (decision, options, evidence, reversible). What code answers is work.
 - Still open, or user-reserved (scope intent, removing a capability, irreversible or outward-facing actions, security/privacy/licensing, money, breaking public changes) → send it to your spawner with options, evidence and a recommendation (`ptah_agent_report` from a CLI lane, `SendMessage` from a Ptah session), continue the work that does not depend on it, and apply the answer when it arrives. No channel, or nothing left to do without the answer → stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated.
@@ -130,16 +141,15 @@ coverage suggestions). When you cannot decide between two levels, take the highe
 
 ## Logic review focus for this repository
 
-- **Registrations before runtime.** Every new `@inject(token)` needs a matching `register*` call in a composition root such as `apps/ptah-extension-vscode/src/di/phase-0-platform.ts` through `phase-4-app.ts`. `tools/di-lint/check-injects.ts` enforces this on push from `.husky/pre-push`. Confirm the token is also bound for the Electron and CLI hosts.
-- **Ports work on every host.** A new or changed `I*` port in `libs/backend/platform-core/src/interfaces/` must have a real binding in `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`. It must also pass `libs/backend/platform-core/src/testing/contracts/index.ts`. A stub on one host that silently does nothing is a finding.
+- **Registrations before runtime.** Every new `@inject(token)` needs a matching `register*` call in the Electron composition root under `apps/ptah-electron/src/di/`. `tools/di-lint/check-injects.ts` enforces this on push from `.husky/pre-push`. Check benchmark bindings separately when its engine uses the token.
+- **Ports serve their consumers.** A new or changed `I*` port in `libs/backend/platform-core/src/interfaces/` needs a real Electron binding in `libs/backend/platform-electron/src/registration.ts` and the shared contract suite in `libs/backend/platform-core/src/testing/contracts/index.ts`. Check `platform-cli` for benchmark consumers.
 - **Shims hide failures.** On Electron, `vscode` calls resolve to stubs in `apps/ptah-electron/src/shims/`. A new `vscode-core` import in a host-agnostic lib is a correctness risk there, not just a style problem.
 - **Validate RPC input.** Messages between webview and host are typed in `libs/shared/src/lib/types/rpc/` and `libs/shared/src/lib/types/rpc.types.ts`. Handlers must parse their params, for example with the schemas in `rpc-harness.schemas.ts`. They must never trust the declared type alone.
 - **Return coded RPC errors.** User-facing RPC failures must use a code from `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`, raised through `RpcUserError` in `libs/backend/vscode-core/src/messaging/rpc-types.ts`. Add new codes to that shared union so the frontend and backend cannot drift.
 - **Errors must not leak or disappear.** Follow `libs/backend/platform-core/src/file-settings-errors.ts`: typed errors carry a code and fixed text, never a file path, secret or setting value. An empty `catch`, or a fallback that hides a persistence failure, is a finding.
 - **Concurrent settings writes.** Writes through `libs/backend/platform-core/src/file-settings-manager.ts` can race between processes and can fail partway (full disk, locks). Check that callers handle a rejected write and do not cache a value that was never saved.
 - **Sanitize rendered output.** Model and user markdown must render through `libs/frontend/markdown/src/lib/markdown-block.component.ts` and `marked-extensions.ts`, where DOMPurify and the URI allowlist apply. Any `innerHTML` path that skips them is a finding.
-- **License server boundaries.** NestJS endpoints validate DTOs the way `libs/api/licensing/src/lib/license/dto/` does. Admin routes are guarded as in `libs/api/licensing/src/lib/license/guards/admin-api-key.guard.ts`. Webhooks in `libs/api/billing/src/lib/paddle/paddle-webhook.service.ts` must verify the signature before acting, and must tolerate replayed events.
-- **Expensive files.** Schema changes under `apps/ptah-license-server/prisma/migrations` cannot be undone in production. A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
+- **Expensive files.** A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
 
 ## Output contract
 

@@ -126,9 +126,15 @@ export type GitInfoParams = GitWorkspaceScopedParams;
  * - `timeout` — git did not answer within the backend's timeout.
  * - `error` — git failed for another reason (details stay in the backend log).
  * - `locked` — another git process held the repository's `index.lock`.
+ * - `root-unavailable` — the named root is no longer a workspace folder or a
+ *   live worktree of one (`GIT_ROOT_UNAVAILABLE`); set by the webview only.
  */
 export type GitStatusUnavailableReason =
-  'output-too-large' | 'timeout' | 'error' | 'locked';
+  | 'output-too-large'
+  | 'timeout'
+  | 'error'
+  | 'locked'
+  | 'root-unavailable';
 
 /** Response from git:info RPC method */
 export interface GitInfoResult {
@@ -1066,3 +1072,30 @@ export type GitLogResult =
       status: 'unavailable';
       reason: GitLogUnavailableReason;
     };
+
+/**
+ * `git:watchRoots` — declarative watcher lease (TASK_2026_855).
+ *
+ * The renderer states the full set of extra roots it wants live
+ * `git:status-update` pushes for; each call REPLACES the lease's set. The
+ * backend validates every root (open folder or a live registered worktree of
+ * one), caps the global number of extra watchers, and expires a lease that is
+ * not renewed within its TTL. Hosts without the `gitRootWatch` capability do
+ * not register the method.
+ */
+export interface GitWatchRootsParams {
+  /** Renderer lease id, stable per renderer instance; 1..128 chars. */
+  leaseId: string;
+  /** Desired roots, highest priority first; at most 8 entries. */
+  roots: string[];
+}
+
+/** Result of `git:watchRoots`. */
+export interface GitWatchRootsResult {
+  /** Canonical roots now watched for this lease (validated, within the cap). */
+  watched: string[];
+  /** Requested roots refused: not an open folder or a registered worktree. */
+  rejected: string[];
+  /** Roots dropped by the global watcher cap. */
+  evicted: string[];
+}

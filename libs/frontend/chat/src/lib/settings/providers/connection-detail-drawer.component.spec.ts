@@ -94,6 +94,41 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-drawer-avatar')?.className).toContain('text-base-content');
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
     expect(byTestId('connection-overview')).not.toBeNull();
+    expect(byTestId('connection-overview')?.closest('.ptah-motion-panel')).not.toBeNull();
+  });
+
+  it('keeps tab bodies inside the stage with direction from tab order', () => {
+    render({ connection: SOVEREIGNEG });
+    const stage = query('.ptah-motion-stage');
+    expect(stage).not.toBeNull();
+    selectTab('Credentials');
+    expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
+    expect(query('ptah-connection-credentials-tab')?.closest('.ptah-motion-panel')).not.toBeNull();
+    expect(stage?.classList.contains('px-2')).toBe(false);
+    expect(stage?.querySelector(':scope > .ptah-motion-panel')?.classList.contains('px-2')).toBe(true);
+    expect(stage?.querySelector(':scope > .ptah-motion-panel')?.classList.contains('pt-4')).toBe(true);
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+    selectTab('Overview & Used By');
+    expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+  });
+
+  it('projects every connection tab panel directly into the motion stage', () => {
+    for (const [current, accountsAvailable] of [
+      [CLAUDE_CLI, true],
+      [SOVEREIGNEG, false],
+    ] as const) {
+      render({ connection: current, accountsAvailable });
+      for (const label of tabLabels()) {
+        if (!label) throw new Error('missing tab label');
+        selectTab(label);
+        const panel = query('[data-testid="native-tabpanel"] > .ptah-motion-panel');
+        expect(panel).not.toBeNull();
+        expect(panel?.parentElement?.classList.contains('ptah-motion-stage')).toBe(true);
+        expect(panel?.classList.contains('px-2')).toBe(true);
+        expect(panel?.classList.contains('pt-4')).toBe(true);
+      }
+    }
   });
 
   it.each([

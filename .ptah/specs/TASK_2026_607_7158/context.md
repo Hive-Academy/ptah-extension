@@ -26,3 +26,10 @@ Measured in TASK_2026_555 Gate V 38 (finding B38-6, follow-up 11 in `TASK_2026_5
 ## Out of scope
 
 The rest of the shell layout.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Active workspace name still uses text-primary for text; re-measure in anubis/anubis-light and the new default ptah-glass pair (#805) and move colour to the icon/dot. Re-confirm the rail label with axe.
+- Evidence on main: Rail label: main:libs/frontend/chat-ui/src/lib/atoms/sidebar-tab.component.ts now uses text-base-content (open) / text-base-content-muted (closed), touched by 82b79b348 (2026-10-19 visual review fixes) and c89ca28b9; base-content-muted contrast is pinned by apps/ptah-extension-webview/src/app/base-content-muted.spec.ts. Active workspace name: main:libs/frontend/chat/src/lib/components/organisms/workspace-sidebar.component.ts:66 still applies `text-primary` to the active row text.

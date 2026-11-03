@@ -10,6 +10,7 @@ import {
   FILE_LINK_OPENER,
   LoggingService,
   VSCodeService,
+  WallClockService,
 } from '@ptah-extension/core';
 import {
   createMockRpcService,
@@ -55,6 +56,7 @@ function outputOf(fixture: { nativeElement: HTMLElement }): HTMLElement {
 
 describe('raw stdout fallback', () => {
   beforeEach(() => {
+    const now = signal(5_000);
     TestBed.configureTestingModule({
       imports: [AgentCardComponent],
       providers: [
@@ -78,7 +80,11 @@ describe('raw stdout fallback', () => {
         },
         {
           provide: AgentMonitorStore,
-          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+          useValue: { agentsById: signal(new Map()) },
+        },
+        {
+          provide: WallClockService,
+          useValue: { now: () => now, acquire: () => () => undefined },
         },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
@@ -117,7 +123,8 @@ describe('raw stdout fallback', () => {
     });
     fixture.detectChanges();
     await fixture.whenStable();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // A running node publishes streamed text on the next animation frame.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();

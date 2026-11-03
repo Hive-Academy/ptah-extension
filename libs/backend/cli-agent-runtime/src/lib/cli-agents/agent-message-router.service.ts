@@ -316,14 +316,15 @@ export class AgentMessageRouter {
   }
 
   /** Forget anything still queued for a record that can no longer receive it. */
-  discardPending(agentId: string, tracked: MessageRoutableAgent): void {
-    if (tracked.pendingMessages.length === 0) return;
+  discardPending(agentId: string, tracked: MessageRoutableAgent): number {
+    if (tracked.pendingMessages.length === 0) return 0;
     const dropped = tracked.pendingMessages.length;
     tracked.pendingMessages.length = 0;
     this.logger.warn(
       '[AgentMessageRouter] Discarded queued messages for a torn-down agent',
       { agentId, cli: tracked.info.cli, dropped },
     );
+    return dropped;
   }
 
   /**

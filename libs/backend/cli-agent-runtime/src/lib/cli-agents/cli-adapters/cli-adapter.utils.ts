@@ -440,8 +440,8 @@ Cost: each tool call may resend context. Batch independent reads, keep output ta
 /**
  * What a SPAWNED agent is told about talking back to the session that spawned
  * it (TASK_2026_477). This is the CHILD half of the guidance; the parent half
- * is the agent-tool table in `vscode-lm-tools`'
- * `ptah-system-prompt.constant.ts`, and `.claude/skills/agent-lanes/SKILL.md`
+ * is the CLI lane guidance in `agent-sdk`'s `ptah-core-prompt.ts`, and
+ * `.claude/skills/agent-lanes/SKILL.md`
  * is the operator-facing copy. All three must say the same things; this
  * constant is the one a spawned lane actually reads.
  *

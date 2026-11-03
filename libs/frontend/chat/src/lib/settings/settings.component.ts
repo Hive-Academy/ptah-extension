@@ -18,7 +18,7 @@ import {
   AudioLines,
   RotateCw,
 } from 'lucide-angular';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { MotionStageDirective, PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 // Two declarations on purpose: each component import must hold only the `@defer`-only class, or
 // Angular keeps the whole tab (Providers with its named-accounts UI and agents routing, Context Management) in the eager chunk.
 import { ProvidersSettingsComponent } from './providers/providers-settings.component';
@@ -111,6 +111,7 @@ const isAgentsRoutingSection = (
     SearchVoiceSettingsComponent,
     SettingsToastComponent,
     LucideAngularModule,
+    MotionStageDirective,
   ],
   // Page-scoped: the toast timer dies with the page; one models loader for every tab.
   providers: [
@@ -132,23 +133,12 @@ const isAgentsRoutingSection = (
     :host-context([data-glass='on']) .settings-page {
       background-color: transparent;
     }
-    :host-context([data-glass='on']) .settings-header {
-      padding: 0.5rem 0.75rem 0.625rem;
-    }
-    :host-context([data-glass='on']) .settings-plate {
-      padding: 0.25rem 0.625rem;
-    }
-    :host-context([data-glass='on']) .settings-tab.tab-active,
-    :host-context([data-glass='on']) .settings-tab:not(.tab-active):hover {
-      background: var(--glass-hover);
-    }
     .settings-tabs {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.375rem;
+      gap: 0;
     }
     .settings-tab:not(.tab-active):hover {
-      background: var(--surface-3);
       color: oklch(var(--bc));
     }
     /* One row from 36rem: the Electron page beside its sidebar (~42rem) keeps one row of four tabs. */
@@ -216,12 +206,13 @@ export class SettingsComponent implements OnInit {
   readonly activeSettingsTab = signal<
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
+  readonly settingsTabIndex = computed(() =>
+    this.settingsTabs.findIndex((tab) => tab.id === (this.activeSettingsTab() === 'providers' ? 'claude-auth' : this.activeSettingsTab())),
+  );
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
   /** Focus target for the CLI matrix / background roles part of the Providers tab. */
-  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(
-    null,
-  );
+  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -233,6 +224,14 @@ export class SettingsComponent implements OnInit {
   readonly isElectron = this.vscodeService.isElectron;
   /** Header "App: …" label. */
   readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
+
+  runOnboardingAgain(): void {
+    this.appState.setCurrentView('onboarding');
+  }
+
+  checkClaudeCode(): void {
+    if (this.isElectron) this.appState.openOnboardingReady();
+  }
   /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
   readonly workspacePath = computed(
     () => this.providersState.scopes().data?.activePath ?? null,

@@ -2,11 +2,14 @@ import { basename } from 'path';
 import { LANE_DEFAULT_MODEL, laneFamilyOf } from '@ptah-extension/shared';
 import type {
   AgentProcessInfo,
+  CliOutputSegment,
   LaneCompletionSignal,
 } from '@ptah-extension/shared';
 import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { classifyLaneFailureClass } from './limits/lane-failure-class';
+
+let recorderUnavailableWarned = false;
 
 /** Synchronous enqueue. Store I/O belongs to the recorder's later drain. */
 export function enqueueLaneCompletionOutcome(
@@ -19,17 +22,28 @@ export function enqueueLaneCompletionOutcome(
   runId: string,
   signal: LaneCompletionSignal,
   authMatched: boolean,
+  rateLimited: boolean,
+  resolvedParentSessionId: string | null,
+  usage?: CliOutputSegment['usage'],
 ): void {
   const startedAt = Date.parse(info.startedAt);
   const endedAt = Date.parse(signal.completedAt);
   try {
     const recorder = recorderForCompletion();
-    if (!recorder) return;
+    if (!recorder) {
+      if (!recorderUnavailableWarned) {
+        recorderUnavailableWarned = true;
+        logger.warn('[LaneCompletionNotifier] Outcome recorder unavailable', { runId });
+      }
+      logger.debug('[LaneCompletionNotifier] Outcome not recorded', { runId });
+      return;
+    }
     recorder.recordLaneCompletion({
       runId,
       executorKind: info.cli === 'ptah-cli' ? 'ptah-cli' : 'cli',
       laneId: info.ptahCliId ?? info.cli,
       agentId: info.agentId,
+      parentSessionId: resolvedParentSessionId,
       family: laneFamilyOf({
         cli: info.cli,
         ptahCliId: info.ptahCliId,
@@ -46,13 +60,14 @@ export function enqueueLaneCompletionOutcome(
         status: info.status,
         failureKind: info.failureKind,
         authMatched,
+        rateLimited,
       }),
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       endedAt: Number.isFinite(endedAt) ? endedAt : Date.now(),
       durationMs: signal.durationMs,
-      inputTokens: null,
-      outputTokens: null,
-      costUsd: null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+      costUsd: usage?.costUsd ?? null,
       routingSource: info.routingSource ?? 'not-routed',
       reviseRounds: 0,
       finalReview: null,
@@ -60,7 +75,7 @@ export function enqueueLaneCompletionOutcome(
       status: info.status,
       failureKind: info.failureKind ?? null,
       exitCode: info.exitCode ?? null,
-    });
+    }, { brief: info.task });
   } catch (error: unknown) {
     logger.warn('[LaneCompletionNotifier] Outcome enqueue failed', {
       runId,

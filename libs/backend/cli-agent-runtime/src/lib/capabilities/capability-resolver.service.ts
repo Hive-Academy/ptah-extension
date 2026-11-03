@@ -52,6 +52,7 @@ import {
   type CapabilityInventory,
   type CapabilityKind,
   type CapabilityPolicyReason,
+  type CapabilityResolveContext,
   type CapabilityScope,
   type CapabilitySetRequest,
   type EffectiveCapabilitySet,
@@ -166,7 +167,10 @@ export class CapabilityResolverService implements ICapabilityResolver {
 
   // ---- ICapabilityResolver -------------------------------------------------
 
-  async resolve(cwd: string): Promise<EffectiveCapabilitySet> {
+  async resolve(
+    cwd: string,
+    context?: CapabilityResolveContext,
+  ): Promise<EffectiveCapabilitySet> {
     let ctx: WorkspaceContext;
     try {
       ctx = this.contextFor(cwd);
@@ -174,7 +178,9 @@ export class CapabilityResolverService implements ICapabilityResolver {
       return unverifiedSet(cwd, [{ path: cwd, error: describeError(error) }]);
     }
     try {
-      return toEffectiveSet(await this.readSnapshot(ctx));
+      return toEffectiveSet(
+        await this.readSnapshot(ctx, context?.pluginConfigAncestorRoots),
+      );
     } catch (error: unknown) {
       // Every expected failure is already a reason; this is the "never
       // throws" backstop, and it still fails closed.
@@ -401,7 +407,10 @@ export class CapabilityResolverService implements ICapabilityResolver {
 
   // ---- The snapshot --------------------------------------------------------
 
-  private async readSnapshot(ctx: WorkspaceContext): Promise<PolicySnapshot> {
+  private async readSnapshot(
+    ctx: WorkspaceContext,
+    pluginConfigAncestorRoots?: readonly string[],
+  ): Promise<PolicySnapshot> {
     await this.recordRoot(ctx);
     const importReasons = await this.ensureImported(ctx);
     const [inventory, globalRead, workspaceRead, importedRead, pluginRead] =
@@ -410,7 +419,7 @@ export class CapabilityResolverService implements ICapabilityResolver {
         this.deps.store.readGlobalLayer(),
         this.deps.store.readWorkspaceItems(ctx.wsKey),
         this.deps.store.readImported(ctx.wsKey),
-        this.readPluginPolicy(ctx),
+        this.readPluginPolicy(ctx, pluginConfigAncestorRoots),
       ]);
 
     const reasons: CapabilityPolicyReason[] = [
@@ -461,23 +470,38 @@ export class CapabilityResolverService implements ICapabilityResolver {
   }
 
   /** The loader's policy: files under the policy root, config from `stateRoot`. */
-  private effectivePluginConfig(ctx: WorkspaceContext) {
-    return ctx.stateRoot === ctx.physicalRoot
-      ? this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot)
-      : this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot, {
-          stateRoot: ctx.stateRoot,
-        });
+  private effectivePluginConfig(
+    ctx: WorkspaceContext,
+    pluginConfigAncestorRoots?: readonly string[],
+  ) {
+    if (pluginConfigAncestorRoots === undefined) {
+      return ctx.stateRoot === ctx.physicalRoot
+        ? this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot)
+        : this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot, {
+            stateRoot: ctx.stateRoot,
+          });
+    }
+    return this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot, {
+      ...(ctx.stateRoot === ctx.physicalRoot
+        ? {}
+        : { stateRoot: ctx.stateRoot }),
+      ancestorRoots: pluginConfigAncestorRoots,
+    });
   }
 
   /** The skill/plugin policy, or why it is unknown. Never throws. */
   private async readPluginPolicy(
     ctx: WorkspaceContext,
+    pluginConfigAncestorRoots?: readonly string[],
   ): Promise<PluginPolicyRead> {
     const root = ctx.physicalRoot;
     try {
       return {
         status: 'ok',
-        policy: await this.effectivePluginConfig(ctx),
+        policy: await this.effectivePluginConfig(
+          ctx,
+          pluginConfigAncestorRoots,
+        ),
       };
     } catch (error: unknown) {
       if (isCapabilityPolicyUnknownError(error)) {

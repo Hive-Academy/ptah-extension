@@ -38,6 +38,7 @@ describe('ProviderModelsService OpenCode catalog', () => {
         {},
         new ActiveProviderResolver({
           read: () => undefined,
+          isStored: () => false,
         } as unknown as WorkspaceScopeResolver),
       );
       const dynamic = jest.fn(async () => [unknown]);
@@ -94,6 +95,7 @@ describe('ProviderModelsService OpenCode catalog', () => {
         {},
         new ActiveProviderResolver({
           read: () => undefined,
+          isStored: () => false,
         } as unknown as WorkspaceScopeResolver),
       );
       const result = await service.fetchModels(id, null);

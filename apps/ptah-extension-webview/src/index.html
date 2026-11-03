@@ -2,7 +2,7 @@
 <html lang="en" data-theme="ptah-glass" data-theme-mode="dark" data-glass="on" data-glass-mode="dark">
   <head>
     <meta charset="utf-8" />
-    <title>Ptah - Coding Orchestra</title>
+    <title>PtahCode</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
@@ -62,12 +62,12 @@
       (function () {
         var EAGER = 'anubis anubis-light ptah-glass ptah-glass-light';
         var DEFERRED =
-          'light dark cupcake bumblebee emerald corporate synthwave retro cyberpunk valentine halloween garden forest aqua lofi pastel fantasy wireframe black luxury dracula cmyk autumn business acid lemonade night coffee winter dim nord sunset';
+          'light cupcake bumblebee emerald corporate synthwave retro cyberpunk valentine halloween garden forest aqua lofi pastel fantasy wireframe black luxury dracula cmyk autumn business acid lemonade night coffee winter dim nord sunset';
         var DARK =
-          'anubis ptah-glass dark synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
-        var GLASS = 'ptah-glass ptah-glass-light dark nord cupcake dracula';
+          'anubis ptah-glass synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
+        var GLASS = 'ptah-glass ptah-glass-light nord cupcake dracula';
         var ACCENT = 'gold rose moonstone';
-        var SCENE = 'aurora ember tide horizon';
+        var SCENE = 'pyramid aurora ember tide horizon temple';
 
         function has(list, name) {
           return (' ' + list + ' ').indexOf(' ' + name + ' ') !== -1;
@@ -116,10 +116,11 @@
         } catch (e) {}
         var theme = read(state, 'theme-v2', 'ptah-theme-v2');
         if (theme != null) {
+          if (theme === 'dark') theme = 'dracula';
           if (!known(theme)) theme = null;
         } else {
           var legacy = read(state, 'theme', 'ptah-theme');
-          theme = known(legacy)
+          theme = legacy === 'dark' ? 'dracula' : known(legacy)
             ? has(DARK, legacy)
               ? 'ptah-glass'
               : 'ptah-glass-light'
@@ -138,9 +139,18 @@
         if (SCENE.split(' ').indexOf(scene) === -1) {
           try { scene = localStorage.getItem('ptah-scene'); } catch (e) {}
         }
-        if ((scene === 'ember' || scene === 'tide' || scene === 'horizon') &&
-            (!theme || theme === 'ptah-glass' || theme === 'ptah-glass-light')) {
+        if (!has(SCENE, scene)) scene = 'pyramid';
+        if (!theme || theme === 'ptah-glass' || theme === 'ptah-glass-light') {
           document.documentElement.setAttribute('data-scene', scene);
+        }
+
+        var motionStyle = state && state['ptah-motion-style'];
+        var motionStyles = 'fade rise slide-left slide-right scale directional';
+        if (!has(motionStyles, motionStyle)) {
+          try { motionStyle = localStorage.getItem('ptah-motion-style'); } catch (e) {}
+        }
+        if (has(motionStyles, motionStyle) && motionStyle !== 'rise') {
+          document.documentElement.setAttribute('data-motion-style', motionStyle);
         }
 
         // Nothing persisted, or an unrecognised value: leave the

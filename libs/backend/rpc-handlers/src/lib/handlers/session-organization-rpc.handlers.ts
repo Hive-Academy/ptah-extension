@@ -259,9 +259,13 @@ export class SessionOrganizationRpcHandlers {
         const stored = organization.queryWorkspace(parsed.workspacePath);
         return {
           available: true,
-          links: this.groupByTask(links, names, (sessionId) =>
-            (stored.get(sessionId)?.prLinks ?? []).map((pr) => ({ ...pr })),
-          ),
+          links: this.groupByTask(links, names, (sessionId) => {
+            const entry = stored.get(sessionId);
+            return {
+              prLinks: (entry?.prLinks ?? []).map((pr) => ({ ...pr })),
+              todos: entry?.todos ? { ...entry.todos } : null,
+            };
+          }),
         };
       } catch (error: unknown) {
         throw this.sanitize(error, method);
@@ -322,7 +326,9 @@ export class SessionOrganizationRpcHandlers {
   private groupByTask(
     links: readonly StoredSessionTaskLink[],
     names: ReadonlyMap<string, string>,
-    prLinksOf: (sessionId: string) => TaskLinkedSession['prLinks'],
+    detailsOf: (
+      sessionId: string,
+    ) => Pick<TaskLinkedSession, 'prLinks' | 'todos'>,
   ): Record<string, TaskLinkedSession[]> {
     const ordered = [...links].sort(
       (a, b) =>
@@ -340,7 +346,7 @@ export class SessionOrganizationRpcHandlers {
         role: link.role,
         source: link.source,
         livePhase: this.turnState.get(link.sessionId)?.phase ?? null,
-        prLinks: prLinksOf(link.sessionId),
+        ...detailsOf(link.sessionId),
       });
     }
     return grouped;

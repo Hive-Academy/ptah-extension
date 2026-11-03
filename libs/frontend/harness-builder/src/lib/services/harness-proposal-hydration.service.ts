@@ -28,6 +28,15 @@ interface ScopedRevision {
   readonly revision: HarnessProposalRevision;
 }
 
+export interface HarnessFoldedRevision {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly ordinal: number;
+  readonly updatedAt: string;
+  readonly isConfigComplete: boolean;
+  readonly config: Partial<HarnessConfig>;
+}
+
 function mergeById<T>(
   base: readonly T[],
   update: readonly T[],
@@ -138,13 +147,15 @@ export class HarnessProposalHydrationService {
     'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
   >('idle');
   private readonly _isConfigComplete = signal(false);
+  private readonly _foldedRevisions = signal<readonly HarnessFoldedRevision[]>([]);
   readonly config = this._config.asReadonly();
   readonly status = this._status.asReadonly();
   readonly isConfigComplete = this._isConfigComplete.asReadonly();
+  readonly revisions = this._foldedRevisions.asReadonly();
 
   private bound: BoundProposalTab | null = null;
   private generation = 0;
-  private revisions = new Map<string, ScopedRevision>();
+  private revisionEntries = new Map<string, ScopedRevision>();
   private readonly knownProposalSessions = new Set<string>();
   private missingKnownProposal = false;
   private buffered: HarnessConfigProposedPayload[] = [];
@@ -170,10 +181,11 @@ export class HarnessProposalHydrationService {
           }
         : null;
     this.snapshot = this.belongsToBoundTab(snapshot) ? snapshot : null;
-    this.revisions.clear();
+    this.revisionEntries.clear();
     this.missingKnownProposal = false;
     this.buffered = [];
     this._config.set({});
+    this._foldedRevisions.set([]);
     this._isConfigComplete.set(false);
     if (!this.bound) {
       this._status.set('idle');
@@ -271,7 +283,7 @@ export class HarnessProposalHydrationService {
     this.generation++;
     this.bound = null;
     this.snapshot = null;
-    this.revisions.clear();
+    this.revisionEntries.clear();
     this.missingKnownProposal = false;
     this.buffered = [];
     this.loading = false;
@@ -324,8 +336,8 @@ export class HarnessProposalHydrationService {
       );
     }
     const key = `${sessionId}\u0000${revision.id}`;
-    if (!this.revisions.has(key))
-      this.revisions.set(key, { sessionId, revision });
+    if (!this.revisionEntries.has(key))
+      this.revisionEntries.set(key, { sessionId, revision });
   }
 
   private acceptPush(push: HarnessConfigProposedPayload): void {
@@ -376,6 +388,8 @@ export class HarnessProposalHydrationService {
   private recompute(): void {
     if (!this.bound || this.loading || this._status() === 'error') return;
     let config: Partial<HarnessConfig> = {};
+    let folded: Partial<HarnessConfig> = {};
+    const foldedRevisions: HarnessFoldedRevision[] = [];
     let complete = false;
     const pending = new Set<HarnessChoiceField>(
       HARNESS_CHOICE_FIELDS.filter(
@@ -391,7 +405,16 @@ export class HarnessProposalHydrationService {
         config = mergeBuilderUpdates(config, choice);
       }
     };
-    for (const { revision } of orderedRevisions(this.revisions.values())) {
+    for (const { sessionId, revision } of orderedRevisions(this.revisionEntries.values())) {
+      folded = mergeBuilderUpdates(folded, revision.configUpdates);
+      foldedRevisions.push({
+        id: revision.id,
+        sessionId,
+        ordinal: foldedRevisions.length + 1,
+        updatedAt: revision.updatedAt,
+        isConfigComplete: revision.isConfigComplete,
+        config: { ...folded },
+      });
       if (revision.turnStartedAt) {
         for (const field of [...pending]) {
           const chosenAt = this.snapshot?.fields[field]?.chosenAt;
@@ -412,9 +435,10 @@ export class HarnessProposalHydrationService {
     }
     for (const field of [...pending]) applyChoice(field);
     this._config.set(config);
+    this._foldedRevisions.set(foldedRevisions);
     this._isConfigComplete.set(complete);
     this._status.set(
-      this.revisions.size || this.snapshot || !this.missingKnownProposal
+      this.revisionEntries.size || this.snapshot || !this.missingKnownProposal
         ? 'ready'
         : 'unavailable',
     );

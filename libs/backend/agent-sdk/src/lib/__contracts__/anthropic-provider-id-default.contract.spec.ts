@@ -91,12 +91,13 @@ describe('anthropicProviderId unset-install default (TASK_2026_250 follow-up B)'
   /**
    * `authMethod` is what decides whether `anthropicProviderId` is consulted at
    * all: `resolveAuthProviderKey` returns the auth method verbatim unless it is
-   * `'thirdParty'`. With the shipped `'apiKey'` default, a never-configured
-   * install resolves the key `provider.apiKey.selectedModel` and the provider
-   * id above is inert. Pinning this is what makes "the mismatch is latent, not
+   * `'thirdParty'`. With the shipped `'claudeCli'` default, a never-configured
+   * install resolves the key `provider.claudeCli.selectedModel` and the provider
+   * id above is inert (`'apiKey'` and `'claudeCli'` both map to `anthropic`). Pinning this is what makes "the mismatch is latent, not
    * live" a checked statement rather than a claim in a report.
    */
-  it('ships authMethod=apiKey, which keeps the provider id off the unset path', () => {
-    expect(FILE_BASED_SETTINGS_DEFAULTS['authMethod']).toBe('apiKey');
+  it('ships a non-thirdParty authMethod (claudeCli), which keeps the provider id off the unset path', () => {
+    expect(FILE_BASED_SETTINGS_DEFAULTS['authMethod']).toBe('claudeCli');
+    expect(FILE_BASED_SETTINGS_DEFAULTS['authMethod']).not.toBe('thirdParty');
   });
 });

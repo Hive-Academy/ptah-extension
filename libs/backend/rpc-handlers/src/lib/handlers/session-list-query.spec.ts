@@ -44,6 +44,7 @@ function org(
     updatedAt: 1,
     tasks: [],
     prLinks: [],
+    todos: null,
     ...overrides,
   };
 }
@@ -146,6 +147,8 @@ describe('applySessionListQuery', () => {
               role: 'primary',
               source: 'user',
               createdAt: 1,
+              autoRule: null,
+              autoEvidence: null,
             },
           ],
         }),
@@ -237,6 +240,8 @@ describe('applySessionListQuery', () => {
         role,
         source: 'user' as const,
         createdAt: 1,
+        autoRule: null,
+        autoEvidence: null,
       });
       const rows = [row('none', 4), row('t2', 3), row('t1', 2), row('t1b', 1)];
       const map = mapOf(

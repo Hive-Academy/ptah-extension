@@ -18,6 +18,7 @@ import type {
   SessionListSort,
   SessionOrganizationSummary,
   SessionPrLinkSummary,
+  SessionTodoProgress,
   SessionPrState,
   SessionPriority,
   SessionTaskLinkRole,
@@ -180,10 +181,11 @@ export interface SessionLinkTaskParams {
   taskId: string;
   role: SessionTaskLinkRole;
   /**
-   * Defaults to `user`. The webview may not claim `agent`: agent links come
-   * only from the MCP tool.
+   * Defaults to `user`. The webview may claim only the explicit sources:
+   * `agent` links come only from the MCP tool, and `orchestrate`, `worktree`
+   * and `inherited` only from the host auto-link rules.
    */
-  source?: Exclude<SessionTaskLinkSource, 'agent'>;
+  source?: Extract<SessionTaskLinkSource, 'user' | 'board-start'>;
 }
 
 /** Response from session:linkTask */
@@ -231,6 +233,8 @@ export interface TaskLinkedSession {
   /** Live turn phase; null when the session is not loaded in this host. */
   livePhase: SessionTurnPhase | null;
   prLinks: SessionPrLinkSummary[];
+  /** The session's latest todo progress; null when none was recorded. */
+  todos: SessionTodoProgress | null;
 }
 
 /** Parameters for session:listForTasks */
@@ -367,6 +371,10 @@ export interface SessionStatsEntry {
    * provider-reported `0` is a known zero.
    */
   readonly totalCost: number | null;
+  /** Absent on legacy snapshots; a covered value or estimate is never an invoice. */
+  readonly costBasis?: SessionCostBasis;
+  /** Catalog evidence for each model contributing to an exact-rate value. */
+  readonly priceProvenance?: ReadonlyArray<PriceProvenance>;
   /**
    * Sum of the contributions whose price IS known. Equal to `totalCost` when
    * pricing is full; a labeled subtotal when pricing is partial; `null` when
@@ -384,6 +392,13 @@ export interface SessionStatsEntry {
   readonly tokenCount?: number;
   /** Number of assistant messages */
   readonly messageCount: number;
+  /**
+   * User turns in the counted scope: a run of consecutive user prompts with no
+   * main assistant record between them is one turn. Tool results, meta and
+   * compact-summary records are not prompts. Absent when the producer cannot
+   * count every turn (older hosts; a live run without per-model attribution).
+   */
+  readonly turnCount?: number;
   /**
    * Unique subagent identities that belong to this session (all statuses,
    * descendants included, the root excluded). Repeated hooks, tool-use aliases
@@ -467,6 +482,28 @@ export type SessionStatsCoverage = 'complete' | 'partial';
 
 /** Share of counted tokens whose model has a known rate. */
 export type SessionStatsPricingCoverage = 'full' | 'partial' | 'none';
+
+/**
+ * Meaning of a displayed cost. Absent preserves existing Claude behavior.
+ * New valuations use 'unknown' whenever totalCost is null.
+ */
+export type SessionCostBasis =
+  | 'reported'
+  | 'estimated'
+  | 'covered-by-subscription'
+  | 'unknown';
+
+/**
+ * Non-secret evidence for the model rate used in a cost calculation.
+ * A null catalog field means the rate supplier did not provide it. Hydrated
+ * OpenRouter entries currently have no source, version, or effective date.
+ */
+export interface PriceProvenance {
+  readonly modelIdUsed: string;
+  readonly catalogSource?: string | null;
+  readonly catalogVersion?: string | null;
+  readonly effectiveDate?: string | null;
+}
 
 /**
  * Accounting scope for `session:stats-batch`.

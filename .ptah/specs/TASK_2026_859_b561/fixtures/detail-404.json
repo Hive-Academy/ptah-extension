@@ -1,0 +1,9 @@
+{
+  "http_status": 404,
+  "url": "/v0.1/servers/does.not%2Fexist/versions/latest",
+  "body": {
+    "title": "Not Found",
+    "status": 404,
+    "detail": "Server not found"
+  }
+}

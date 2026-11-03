@@ -1,0 +1,13 @@
+# Batch 8r-6 spec fixes
+
+All changes are confined to the two reported spec files. No production defect was identified: these failures follow from the new contract that `sendMessageToSession` resolves after `turn/start` admission while publication continues.
+
+| Failure | Cause | Spec fix |
+| --- | --- | --- |
+| agent-sdk lint `require-yield` | The late publisher failure test used an async generator that only waited and threw. | Yield a real partial `textDelta` before the scripted stream failure. This preserves the late failure scenario and satisfies the generator rule (`libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.spec.ts:363-373`). |
+| agent-sdk failed interrupt test and worker warning | The follow-up send now resolves while its turn is active. The final `interruptSession` therefore attempts another mocked interrupt and rejects; the test left that rejection unhandled and did not wait for background publication. | Hold the follow-up event stream behind a deferred gate, explicitly expect `interruptSession` to reject with `runtime-failed`, assert that it closes the session, then release the gate and await publisher completion in `finally` (`libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.spec.ts:1145-1203`). The original assertion that the failed first interrupt blocks overlapping follow-ups remains. |
+| rpc-handlers stop during approval, then `/compact` | The follow-up send returns at admission, so `/compact` reaches a still-busy turn. | The harness `followUp` awaits the broadcaster promise before the test executes `/compact` (`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-native-contract.spec.ts:442-446,502-505,1078-1081`). |
+| rpc-handlers live follow-up lifecycle | The test reads webview messages before the background broadcaster has delivered the terminal turn state. | The same harness wait completes delivery before the original lifecycle, shape, terminal-state, and live-thread assertions (`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-native-contract.spec.ts:502-505,1117-1154`). |
+| rpc-handlers resumed-thread follow-up lifecycle | The resumed thread's follow-up has the same admission-before-delivery timing. | The harness wait completes publication before the existing lifecycle and thread assertions (`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-native-contract.spec.ts:502-505,1170-1175`). |
+
+The new gates are released and the tracked broadcaster/publisher promises are awaited before those tests end. The helper uses the broadcaster's completion promise, with no polling timer. No tests, lint, typecheck, build, Nx, npm, diagnostics, or verification target was run, per lane rules; the coordinator must verify the changes.

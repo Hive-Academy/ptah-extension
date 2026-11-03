@@ -6,7 +6,7 @@
 #
 # ARCHITECTURE:
 #   - Static Site: ptah-landing-page (Angular) -> ptah.live (App Platform, free)
-#   - API Server: ptah-license-server (NestJS) -> api.ptah.live (DO Droplet)
+#   - API Server: lives in the Hive-Academy/ptah-builders repository -> api.ptah.live (DO Droplet)
 #   - Database: Self-hosted PostgreSQL 16 (DO Droplet)
 #
 # The API and database run on a $6/month Droplet via docker-compose.prod.yml.
@@ -48,7 +48,7 @@ alerts:
 static_sites:
   - name: landing
     github:
-      repo: Hive-Academy/ptah-extension
+      repo: Hive-Academy/PtahCode
       branch: release/landing
       deploy_on_push: false
     source_dir: /

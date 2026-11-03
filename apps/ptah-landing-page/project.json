@@ -52,17 +52,6 @@
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
-        },
-        "checkout": {
-          "optimization": false,
-          "extractLicenses": false,
-          "sourceMap": true,
-          "fileReplacements": [
-            {
-              "replace": "apps/ptah-landing-page/src/environments/environment.ts",
-              "with": "apps/ptah-landing-page/src/environments/environment.checkout.ts"
-            }
-          ]
         }
       }
     },
@@ -74,8 +63,7 @@
         "signal": true
       },
       "options": {
-        "port": 4200,
-        "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
+        "port": 4200
       },
       "configurations": {
         "production": {
@@ -83,9 +71,6 @@
         },
         "development": {
           "buildTarget": "ptah-landing-page:build:development"
-        },
-        "checkout": {
-          "buildTarget": "ptah-landing-page:build:checkout"
         }
       }
     },

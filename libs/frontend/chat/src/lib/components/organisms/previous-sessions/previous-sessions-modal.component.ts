@@ -125,9 +125,6 @@ const PREVIOUS_SESSIONS_MODAL_STYLES = `
   .psm-panel {
     animation: psm-in 180ms ${EASE_SOFT} backwards;
   }
-  .psm-spinner {
-    animation: psm-spin 900ms linear infinite;
-  }
   /* Below 640 px the panel is a full-screen sheet: no visible scrim. */
   @media (max-width: 639.98px) {
     .psm-scrim {
@@ -140,8 +137,7 @@ const PREVIOUS_SESSIONS_MODAL_STYLES = `
   }
   @media (prefers-reduced-motion: reduce) {
     .psm-scrim,
-    .psm-panel,
-    .psm-spinner {
+    .psm-panel {
       animation: none;
     }
   }
@@ -160,11 +156,6 @@ const PREVIOUS_SESSIONS_MODAL_STYLES = `
     from {
       opacity: 0;
       transform: translateY(16px);
-    }
-  }
-  @keyframes psm-spin {
-    to {
-      transform: rotate(360deg);
     }
   }
 `;

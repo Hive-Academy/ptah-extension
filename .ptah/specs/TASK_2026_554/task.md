@@ -1,11 +1,12 @@
 ---
 id: TASK_2026_554
-status: backlog
+status: cancelled
 type: REFACTORING
 title: 'Providers settings: split the two files over the size limit'
 depends_on: [TASK_2026_551, TASK_2026_552]
+duplicates: [TASK_2026_604_e720]
 created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-24T08:26:07.000Z"
+updated: "2026-10-30T01:33:14.863Z"
 description: "providers-settings-state.service.ts (1200 lines) and provider-connection-card.component.ts (852 lines) are over the max-lines warning after PRs #575 and #581."
 executor: frontend-developer
 estimate: M

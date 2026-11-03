@@ -1,0 +1,97 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 14,
+  "status": "complete-with-known-flake",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts",
+      "change": "MODIFIED (JSDoc only, assembleSystemPrompt): removed the outdated 'some sections overlap with the preset, intentional reinforcement' explanation and the stale 'MCP mandates / git-PR safety' wording. The JSDoc now says the core carries only what the preset lacks (environment context, the single MCP substitution table, agent hierarchy and CLI delegation, AskUserQuestion and permission-denial guidance, orchestration, a git/PR rule that defers to workspace instructions, webview formatting). It also says the only deliberate repeat is the MCP handshake summary, which is derived from the same PTAH_MCP_SUBSTITUTION_SECTION constant. No runtime change."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.spec.ts",
+      "change": "MODIFIED: imports PTAH_CORE_SYSTEM_PROMPT from '../prompt-harness' and adds the describe block 'runOneShot — core prompt is still appended' with 3 tests"
+    }
+  ],
+  "jsdocChange": {
+    "location": "sdk-query-options-builder.ts, assembleSystemPrompt JSDoc (lines ~320-328)",
+    "removed": "Some behavioral sections overlap with the preset — this is intentional as it reinforces the instructions without contradicting them.",
+    "basis": "ptah-core-prompt.ts after Batch 13: header lines 14-16 (substitution section appears once, summarized by the MCP handshake), core body lines 94-211 (sections listed above), Git & PR line 204 (defers to CLAUDE.md / project rules)"
+  },
+  "newSpec": {
+    "describe": "SdkQueryRunner › runOneShot — core prompt is still appended",
+    "tests": [
+      "appends PTAH_CORE_SYSTEM_PROMPT to the claude_code preset",
+      "still appends it when toolAccess is 'none'",
+      "places a caller append after the core prompt"
+    ],
+    "result": "pass (agent-sdk targeted run: 2 suites / 62 tests passed; also within the full agent-sdk run: 4435 tests passed)"
+  },
+  "handshakeConsumerPins": [
+    {
+      "spec": "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-mandate-manifest.spec.ts",
+      "result": "pass"
+    },
+    {
+      "spec": "libs/backend/vscode-lm-tools/src/lib/code-execution/vendor-roster-drift.spec.ts",
+      "result": "pass"
+    },
+    {
+      "evidence": "Full verify: @ptah-extension/vscode-lm-tools:test succeeded. Targeted run (npm run verify -- -t test -p @ptah-extension/agent-sdk,@ptah-extension/vscode-lm-tools -- --skip-nx-cache --testPathPatterns='mcp-mandate-manifest|vendor-roster-drift|session-query-executor.input-channel-failure|sdk-query-runner.service'): vscode-lm-tools 2 suites / 127 tests passed; log /tmp/tpd-b14-targeted.log"
+    }
+  ],
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/vscode-lm-tools,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b14-verify.log",
+    "summary": "71 tasks: 69 succeeded (2 from cache), 2 failed",
+    "perTarget": {
+      "@ptah-extension/agent-sdk:lint": "pass",
+      "@ptah-extension/agent-sdk:typecheck": "pass",
+      "@ptah-extension/agent-sdk:test": "fail (load flake): 191/192 suites and 4435/4441 tests passed, 6 skipped. The suite session-query-executor.input-channel-failure.spec.ts failed to run with InternalQueryQueueTimeoutError (60000ms concurrency-slot wait, thrown from an internal-query-concurrency-gate timer) during an 80-minute run under load. Re-run in isolation: passed.",
+      "@ptah-extension/vscode-lm-tools:lint/test/typecheck": "pass",
+      "ptah-electron:lint/test/typecheck": "pass",
+      "ptah-extension-vscode:lint/test/typecheck": "pass",
+      "ptah-cli:lint/test/typecheck": "pass",
+      "ptah-tui:lint/test/typecheck": "pass",
+      "@ptah-extension/cli-engine:lint/test/typecheck": "pass",
+      "ptah-extension-webview:lint": "fail (pre-existing on main, not touched)",
+      "ptah-extension-webview:test/typecheck": "pass"
+    },
+    "targetedRerun": {
+      "log": "/tmp/tpd-b14-targeted.log",
+      "result": "exit 0; agent-sdk 2 suites / 62 tests passed; vscode-lm-tools 2 suites / 127 tests passed"
+    }
+  },
+  "decisions": [
+    {
+      "decision": "Describe the remaining overlap as the MCP handshake summary only, not as preset reinforcement",
+      "options": [
+        "state that no overlap remains",
+        "name the handshake summary as the one deliberate repeat"
+      ],
+      "evidence": "ptah-core-prompt.ts:14-16,19-22 (handshake derives its summary from PTAH_MCP_SUBSTITUTION_SECTION)",
+      "reversible": true
+    },
+    {
+      "decision": "Pin the core append for the default, toolAccess 'none', and caller-append ordering cases",
+      "options": [
+        "default case only",
+        "also cover 'none' and the append order"
+      ],
+      "evidence": "sdk-query-runner.service.ts:696-732 (buildOneShotSystemPrompt always appends the core; 'none' only changes tools/MCP)",
+      "reversible": true
+    },
+    {
+      "decision": "Kept prettier's existing formatting drift in both files (lines not authored in this batch) instead of reformatting them",
+      "options": [
+        "reformat the whole file",
+        "limit the diff to the batch's edits"
+      ],
+      "evidence": "the builder is JSDoc-only by contract; prettier --check already warns on committed lines in both files",
+      "reversible": true
+    }
+  ],
+  "outOfScope": [
+    "Committed code in sdk-query-options-builder.ts and sdk-query-runner.service.spec.ts does not match prettier, for example the deniedSyncedSkillCount line and the invokeNamedQuery specs. Left untouched.",
+    "The InternalQueryQueueTimeoutError flake is not limited to user-prompt-submit-hook-handler.spec.ts. Under load it also hit session-query-executor.input-channel-failure.spec.ts, likely because a concurrency-gate timer leaked from another suite."
+  ]
+}

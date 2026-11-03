@@ -14,6 +14,8 @@ export * from './lib/components';
 export * from './lib/settings';
 export * from './lib/services';
 export * from './lib/directives';
+export { ComposerAttachmentsService, type ComposerImage } from './lib/services/composer-attachments.service';
+export { AttachmentTrayComponent } from './lib/components/molecules/attachment-tray/attachment-tray.component';
 
 export { UpdateDialogService } from './lib/update-dialog/update-dialog.service';
 export { UpdateDialogComponent } from './lib/update-dialog/update-dialog.component';
@@ -27,6 +29,9 @@ export {
   SessionGitStatsStore,
   sessionWorkingRoot,
 } from './lib/services/session-git-stats/session-git-stats.store';
+export { ChatGitSessionScopeSource } from './lib/services/session-git-scope/chat-git-session-scope.source';
+export { SessionGitDockOpener } from './lib/services/session-git-scope/session-git-dock-opener.service';
+export { SessionWorktreeLookup } from './lib/services/session-git-scope/session-worktree-lookup.service';
 export { ChatAgentFeedbackSender } from './lib/services/agent-feedback/chat-agent-feedback-sender.service';
 export { AgentPermissionResponder } from './lib/services/agent-permission-responder';
 export {
@@ -53,6 +58,14 @@ export type {
   DisplayDockSummary,
   DisplayDockTabState,
 } from './lib/services/display-dock/display-dock.state';
+// Detached Display window (TASK_2026_853_3401): the main renderer's sync, and
+// the child window's root view and state handler (its own app config).
+export {
+  DisplayWindowSync,
+  type DisplayWindowSource,
+} from './lib/services/display-window/display-window-sync.service';
+export { DisplayWindowComponent } from './lib/components/templates/display-window/display-window.component';
+export { DisplayWindowStateHandler } from './lib/components/templates/display-window/display-window-state.handler';
 export { RAIL_MIN_CONTENT_WIDTH } from './lib/components/templates/chat-view.component';
 export { RailTranscriptRetentionCoordinator } from './lib/services/rail-transcript-retention-coordinator.service';
 export {

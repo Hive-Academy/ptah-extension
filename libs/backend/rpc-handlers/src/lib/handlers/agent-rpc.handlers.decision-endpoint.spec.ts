@@ -25,6 +25,11 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: {
     SDK_SESSION_METADATA_STORE: Symbol.for('SessionMetadataStore'),
   },
+  // The real Claude built-in catalog (TASK_2026_853) that agent:getConfig
+  // reads. Its imports are type-only, so the agent-sdk barrel stays unloaded.
+  ...jest.requireActual(
+    '../../../../agent-sdk/src/lib/helpers/claude-builtin-catalog',
+  ),
 }));
 
 jest.mock('@ptah-extension/auth-providers', () => ({

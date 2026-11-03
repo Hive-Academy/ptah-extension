@@ -13,6 +13,8 @@ import type {
   ProviderAccountBindingPresence,
   ProviderAccountSelectionField,
 } from '../provider-account.types';
+import type { CapabilityPolicyStatus } from '../capability-toggle.types';
+import type { CapabilityScope } from '../mcp-directory.types';
 
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {
@@ -57,18 +59,18 @@ export interface InstalledSkill {
   /** Absolute path to the skill directory INSIDE the source root. */
   path: string;
   /**
-   * Always `'global'`, and typed as the literal rather than the old
-   * `'project' | 'global'` union.
+   * Which source root the skill lives in (TASK_2026_853 Phase D).
    *
-   * A source root lives in `~/.ptah/plugins`, which is user-global; there is no
-   * project-scoped source root in the reconciler's model. The field is kept on
-   * the wire because it describes where the skill LIVES, which is a real fact,
-   * unlike the install parameter it replaced — but a union whose second member
-   * can never be produced is a lie that every consumer has to branch on. The
-   * literal is what makes a leftover `scope === 'project'` filter a compile
-   * error instead of a section that silently never renders.
+   * - `workspace`: `{ws}/.ptah/plugins/ptah-skillssh-<id>`, loaded only for that
+   *   workspace. This is where `skillsSh:install` puts a skill by default.
+   * - `global`: `~/.ptah/plugins/ptah-skillssh-<id>`, loaded in every workspace.
+   *   Only an explicit "All workspaces" install or `skillsSh:makeGlobal`
+   *   produces one.
+   *
+   * The pre-TASK_2026_288 `'project'` member stays gone: it named
+   * `{ws}/.claude/skills`, a CLI copy the reconciler owns, not a source root.
    */
-  scope: 'global';
+  scope: CapabilityScope;
   /**
    * Always empty. Which CLIs currently hold a copy is a question about
    * PROPAGATION, and `harness:health` / `ptah harness doctor` is the one
@@ -76,6 +78,45 @@ export interface InstalledSkill {
    * be a second copy of a rule `harness-sync` owns.
    */
   agents: string[];
+}
+
+/**
+ * Params for `skillsSh:install`.
+ *
+ * `scope` is optional on the wire; the handler's schema defaults it to
+ * `'workspace'`. A workspace install with no workspace open is refused and
+ * writes nothing. `'global'` must be an explicit choice.
+ */
+export interface SkillsShInstallParams {
+  /** `owner/repo` on skills.sh. */
+  source: string;
+  /** One skill inside `source`; absent installs the whole repository. */
+  skillId?: string;
+  /** Which source root receives the install. Server default: `'workspace'`. */
+  scope?: CapabilityScope;
+}
+
+/**
+ * Params for `skillsSh:makeGlobal`: convert a workspace install to a global one.
+ *
+ * The conversion moves the WHOLE workspace source root that holds `name`
+ * (every skill in it), not just the one skill. There is no reverse action.
+ */
+export interface SkillsShMakeGlobalParams {
+  /** Installed skill slug, as reported by `skillsSh:listInstalled`. */
+  name: string;
+}
+
+/** Result of `skillsSh:makeGlobal`. */
+export interface SkillsShMakeGlobalResult {
+  success: boolean;
+  /** User-facing failure text. Never carries host paths or raw errors. */
+  error?: string;
+  /**
+   * Every skill slug the converted root holds. Present on success so the UI
+   * can say which skills now load in every workspace.
+   */
+  convertedSkills?: string[];
 }
 
 /** Result of workspace skill detection */
@@ -179,6 +220,19 @@ export interface DecisionModelStatusDto {
 }
 
 /**
+ * File-based setting (section `ptah`) holding the per-request timeout of
+ * every System One decision-model call, in milliseconds, for both
+ * localities. Unset or not a positive number means the built-in
+ * per-locality timeout. A set value is rounded and clamped to
+ * {@link DECISION_MODEL_TIMEOUT_MIN_MS}..{@link DECISION_MODEL_TIMEOUT_MAX_MS}.
+ * Written through `settings:set` by the decision-model settings row.
+ */
+export const DECISION_MODEL_TIMEOUT_SETTING_KEY =
+  'agentOrchestration.decisionModelTimeoutMs';
+export const DECISION_MODEL_TIMEOUT_MIN_MS = 1_000;
+export const DECISION_MODEL_TIMEOUT_MAX_MS = 60_000;
+
+/**
  * `agent:setConfig` error when the decision-model selection write failed and
  * the previous TypeSafe Jev key could not be put back. Fixed text shared by
  * the host and the settings row, which shows it instead of "unchanged".
@@ -279,10 +333,6 @@ export interface AgentOrchestrationConfig {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
@@ -303,12 +353,83 @@ export interface AgentOrchestrationConfig {
   browserAllowLocalhost: boolean;
   /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
   workflowsDisabled: boolean;
+  /** Claude built-in tools the user turned on (default `[]`: every catalog tool off). */
+  enabledClaudeBuiltinTools: string[];
+  /** Claude built-in and synced skills the user turned on (default `[]`: every one hidden). */
+  enabledClaudeBuiltinSkills: string[];
   /**
    * Decision-model row. No API key is a field of this object;
    * `decisionModelJevApiKey` and `decisionModelCustomApiKey` are write-only
    * on `agent:setConfig`.
    */
   decisionModel: DecisionModelStatusDto;
+}
+
+// ---------------------------------------------------------------------------
+// agent:getClaudeBuiltins (TASK_2026_853)
+// ---------------------------------------------------------------------------
+
+/** A Claude built-in tool Ptah turns off unless the user opts in. */
+export interface ClaudeBuiltinToolDto {
+  id: string;
+  description: string;
+  /** Measured first-turn prefix cost; the UI rounds it. */
+  approxTokens: number;
+  /** Skills that stay hidden while this tool is off. */
+  skillsNeedingIt: string[];
+}
+
+/** A Claude skill (terminal-only or account-synced) hidden unless the user opts in. */
+export interface ClaudeBuiltinSkillDto {
+  /** Terminal skill name, or the qualified `anthropic-skills:<name>` of a synced skill. */
+  id: string;
+  /** Synced skills only: the plain skill name shown in the card (`docx`). */
+  name?: string;
+  description: string;
+  approxTokens: number;
+  /** The tool this skill needs; both must be on for the skill to load. */
+  needsTool?: string;
+}
+
+/** Parameters for `agent:getClaudeBuiltins`. */
+export type AgentGetClaudeBuiltinsParams = Record<string, never>;
+
+/** Result of `agent:getClaudeBuiltins`: the catalog plus the stored opt-ins. */
+export interface AgentGetClaudeBuiltinsResult {
+  tools: ClaudeBuiltinToolDto[];
+  terminalSkills: ClaudeBuiltinSkillDto[];
+  /** claude.ai account-synced skills found in the main session's Claude config dir. */
+  syncedSkills: ClaudeBuiltinSkillDto[];
+  enabledTools: string[];
+  enabledSkills: string[];
+  /**
+   * The active workspace's capability policy. Under `unverified` every skill
+   * is hidden anyway (`skills: []`), so a skill opt-in has no effect.
+   */
+  policyStatus: CapabilityPolicyStatus;
+}
+
+// ---------------------------------------------------------------------------
+// agent:setClaudeBuiltin (TASK_2026_853, review fix R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for `agent:setClaudeBuiltin`: turn ONE catalog tool or skill on
+ * or off. The host changes only that id in the stored list, so a concurrent
+ * change to another id from another window survives.
+ */
+export interface AgentSetClaudeBuiltinParams {
+  kind: 'tool' | 'skill';
+  id: string;
+  enabled: boolean;
+}
+
+/** Result of `agent:setClaudeBuiltin`: both stored lists after the change. */
+export interface AgentSetClaudeBuiltinResult {
+  success: boolean;
+  enabledTools: string[];
+  enabledSkills: string[];
+  error?: string;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -459,10 +580,6 @@ export interface AgentSetConfigParams {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Rejected, never clamped, when invalid. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Rejected, never clamped, when invalid. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Rejected, never clamped, when invalid. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search on/off. */
@@ -489,6 +606,13 @@ export interface AgentSetConfigParams {
   browserAllowLocalhost?: boolean;
   /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
   workflowsDisabled?: boolean;
+  /**
+   * Claude built-in tools to turn on. Replaces the stored list; unknown ids are
+   * dropped, the rest deduped and sorted. A non-string-array is refused.
+   */
+  enabledClaudeBuiltinTools?: string[];
+  /** Claude built-in and synced skills to turn on; same rules as the tools list. */
+  enabledClaudeBuiltinSkills?: string[];
   /**
    * Decision-model selection. Delegated to the lane-routing config service,
    * which stores it globally at section `ptah`, key

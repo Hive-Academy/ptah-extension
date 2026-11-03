@@ -11,12 +11,14 @@ import {
 } from '@angular/core/testing';
 import {
   ProvidersSettingsStateService,
+  VSCodeService,
   type ProvidersSettingsCommit,
 } from '@ptah-extension/core';
 import { OrchestrationSettingsComponent } from './orchestration-settings.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
+import { HostRoutingSettingComponent } from './host-routing-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
 @Component({
@@ -42,6 +44,14 @@ class SessionBudgetStub {}
   template: '<section data-testid="lane-guards-settings">Guards</section>',
 })
 class LaneGuardsStub {}
+
+@Component({
+  selector: 'ptah-host-routing-setting',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="host-routing-setting">Routing</section>',
+})
+class HostRoutingStub {}
 
 @Component({
   selector: 'ptah-advanced-settings-group',
@@ -74,11 +84,14 @@ describe('OrchestrationSettingsComponent', () => {
   let element: HTMLElement;
   let state: StateStub;
 
-  beforeEach(async () => {
+  async function setup(isElectron: boolean): Promise<void> {
     state = new StateStub();
     await TestBed.configureTestingModule({
       imports: [OrchestrationSettingsComponent],
-      providers: [{ provide: ProvidersSettingsStateService, useValue: state }],
+      providers: [
+        { provide: ProvidersSettingsStateService, useValue: state },
+        { provide: VSCodeService, useValue: { isElectron } },
+      ],
     })
       .overrideComponent(OrchestrationSettingsComponent, {
         remove: {
@@ -86,6 +99,7 @@ describe('OrchestrationSettingsComponent', () => {
             SubagentCacheTtlSettingComponent,
             SessionBudgetSettingsComponent,
             LaneGuardsSettingsComponent,
+            HostRoutingSettingComponent,
             AdvancedSettingsGroupComponent,
           ],
         },
@@ -94,6 +108,7 @@ describe('OrchestrationSettingsComponent', () => {
             SubagentCacheTtlStub,
             SessionBudgetStub,
             LaneGuardsStub,
+            HostRoutingStub,
             AdvancedGroupStub,
           ],
         },
@@ -101,6 +116,10 @@ describe('OrchestrationSettingsComponent', () => {
       .compileComponents();
     fixture = TestBed.createComponent(OrchestrationSettingsComponent);
     element = fixture.nativeElement as HTMLElement;
+  }
+
+  beforeEach(async () => {
+    await setup(true);
   });
   afterEach(() => {
     fixture.destroy();
@@ -214,6 +233,40 @@ describe('OrchestrationSettingsComponent', () => {
         element.querySelector(before)?.compareDocumentPosition(first),
       ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     }
+  });
+
+  it('mounts Routing suggestions in Electron, directly after Lane guards and before the advanced groups', async () => {
+    await render();
+    const routing = element.querySelector('[data-testid="host-routing-setting"]');
+    expect(routing).not.toBeNull();
+    const guards = element.querySelector('[data-testid="lane-guards-settings"]');
+    expect(guards?.compareDocumentPosition(routing as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // Not deferred: the defer block count is unchanged.
+    expect(await fixture.getDeferBlocks()).toHaveLength(3);
+    const blocks = await fixture.getDeferBlocks();
+    await blocks[2].render(DeferBlockState.Complete);
+    const firstGroup = element.querySelector(
+      '[data-testid="group-context-budgets"]',
+    );
+    expect(routing?.compareDocumentPosition(firstGroup as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('does not mount Routing suggestions outside Electron (VS Code has no routing coordinator)', async () => {
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    await setup(false);
+    await render();
+    expect(element.querySelector('ptah-host-routing-setting')).toBeNull();
+    expect(
+      element.querySelector('[data-testid="host-routing-setting"]'),
+    ).toBeNull();
+    expect(
+      element.querySelector('[data-testid="lane-guards-settings"]'),
+    ).not.toBeNull();
   });
 
   it('shows no inline commit panel: the TTL save reports through the page toast', async () => {

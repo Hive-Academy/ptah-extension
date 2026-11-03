@@ -64,3 +64,16 @@ The supplied second copy is shorter than the first; do not assume two identical 
 ## Status
 
 Backlog. Task filing only; no investigation worker launched and no product code changed.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_406`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: UNSURE (lane codex; Claude agrees). No status change.
+
+- The chat streaming path was rebuilt since this report (lane execution stream #751, lane report ordering #830/#844, SDK subagent report rows #847). Current event deduplication: `main:libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts:37,96`.
+- The source TASK_2026_406 folder is retired, and no current reproduction exists.
+
+Next step: reproduce on current main with message ids or a persisted event trace. If it no longer reproduces, cancel as obsolete.

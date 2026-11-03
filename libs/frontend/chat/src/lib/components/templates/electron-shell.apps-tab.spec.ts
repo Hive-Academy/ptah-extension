@@ -133,14 +133,14 @@ describe('ElectronShellComponent Apps tab', () => {
 
   afterEach(() => fixture.destroy());
 
-  it('orders the tab row Chat, Voice, Apps, Tasks, Analytics, Setup hub when folders exist', () => {
+  it('orders the tab row Chat, Voice, Apps, Tasks, Analytics, Setup when folders exist', () => {
     const order = [
       'Chat',
       'Voice',
       'Apps',
       'Tasks',
       'Analytics',
-      'Setup hub',
+      'Setup',
     ];
     expect(tabs().map((tab) => tab.title)).toEqual(order);
     expect(tabs().map((tab) => tab.textContent?.trim())).toEqual(order);

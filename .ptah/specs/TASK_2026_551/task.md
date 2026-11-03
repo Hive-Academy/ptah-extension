@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_551
-status: backlog
+status: done
 type: BUGFIX
 title: 'Cursor key: keep it out of SDK error text and report the stored key truthfully'
 depends_on: []
 created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-24T08:26:07.000Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Follow-up from TASK_2026_538. The Cursor SDK error path can surface text that carries the API key, and the settings read-back reports 'configured' from CURSOR_API_KEY even after the stored key is cleared."
 executor: backend-developer
 estimate: S

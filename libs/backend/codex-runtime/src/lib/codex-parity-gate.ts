@@ -38,7 +38,7 @@ export const CODEX_PARITY_EVIDENCE: readonly CodexParityObservation[] =
           observation: 2,
           status: 'proved',
           evidence:
-            'spike-run-6e.json: ask-before-effect under granular + read-only',
+            'spike-run-6e.json: historical granular + read-only evidence; D14 untrusted + workspace-write requires live re-test',
         },
         {
           id: 'command-deny',

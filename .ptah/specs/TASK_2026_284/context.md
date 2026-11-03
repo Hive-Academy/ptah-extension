@@ -59,3 +59,10 @@ This is the reason the task starts with research rather than code.
 ## Triage 2026-10-12
 
 Re-scoped to the pi half. The opencode target shipped with a recorded rationale (libs/backend/harness-sync/src/lib/targets/rival-targets.ts:34-45, :190-199). Do not add a pi skills facet before TASK_2026_279 (provenance marker) lands.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Research and implement the harness surfaces pi can support; verify any remaining OpenCode capability gaps.
+- Evidence on main: main:libs/backend/harness-sync/src/lib/di/register.ts:109 registers createOpencodeTarget; main:libs/shared/src/lib/types/cli-skill-sync.types.ts:27-29 includes opencode in CliTarget but not pi.

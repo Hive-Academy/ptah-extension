@@ -46,10 +46,17 @@ module.exports = {
         display: ['Cinzel', 'Playfair Display', 'serif'],
       },
       animation: {
+        // Loaders pulse instead of rotate: `animate-spin` call sites (icons,
+        // ring loaders) breathe with the same keyframes as `.loading-spinner`.
+        spin: 'ptah-pulse 1.4s ease-in-out infinite',
         glow: 'glow 2s ease-in-out infinite',
         'glow-urgent': 'glow-urgent 1s ease-in-out infinite',
       },
       keyframes: {
+        'ptah-pulse': {
+          '0%, 100%': { transform: 'scale(0.8)', opacity: '0.45' },
+          '50%': { transform: 'scale(1)', opacity: '1' },
+        },
         glow: {
           '0%, 100%': {
             boxShadow:

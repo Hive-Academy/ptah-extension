@@ -113,7 +113,7 @@ import {
 } from './pack-install.service';
 
 const SOURCE =
-  'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/agent-pack-manifest.json';
+  'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/agent-pack-manifest.json';
 const BASE_URL = 'https://packs.example.test/frontend';
 const PACK_FILES: Record<string, string> = {
   'alpha.md': '# Alpha\n',

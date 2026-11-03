@@ -1,0 +1,498 @@
+{
+  "observedMessageStarts": 6,
+  "events": [
+    {
+      "case": "baseline",
+      "options": {
+        "settingSources": [],
+        "disallowedTools": [],
+        "skillOverrides": {},
+        "isolatedConfig": true,
+        "readOnlyRoot": true,
+        "model": "existing route default"
+      }
+    },
+    {
+      "case": "baseline",
+      "type": "init",
+      "tools": [
+        "Task",
+        "AskUserQuestion",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "DesignSync",
+        "Edit",
+        "EnterPlanMode",
+        "EnterWorktree",
+        "ExitPlanMode",
+        "ExitWorktree",
+        "ListAgents",
+        "Monitor",
+        "NotebookEdit",
+        "Read",
+        "ReportFindings",
+        "ScheduleWakeup",
+        "SendMessage",
+        "Skill",
+        "TaskStop",
+        "ToolSearch",
+        "WebFetch",
+        "WebSearch",
+        "Workflow",
+        "Write"
+      ],
+      "agents": [
+        "claude",
+        "Explore",
+        "general-purpose",
+        "Plan",
+        "statusline-setup"
+      ],
+      "skills": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "update-config",
+        "verify",
+        "debug",
+        "code-review",
+        "simplify",
+        "batch",
+        "fewer-permission-prompts",
+        "doctor",
+        "loop",
+        "claude-api",
+        "workflow-authoring",
+        "run",
+        "run-skill-generator",
+        "plugin-authoring"
+      ],
+      "slash_commands": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "update-config",
+        "verify",
+        "debug",
+        "code-review",
+        "simplify",
+        "batch",
+        "fewer-permission-prompts",
+        "doctor",
+        "loop",
+        "claude-api",
+        "workflow-authoring",
+        "run",
+        "run-skill-generator",
+        "plugin-authoring",
+        "agents",
+        "auto-mode-setup",
+        "autocompact",
+        "clear",
+        "color",
+        "compact",
+        "config",
+        "output-style",
+        "context",
+        "effort",
+        "fast",
+        "focus",
+        "heapdump",
+        "init",
+        "mcp",
+        "model",
+        "__remote-workflow",
+        "workflow-launch-exec",
+        "reload-plugins",
+        "reload-skills",
+        "rename",
+        "security-review",
+        "usage",
+        "insights",
+        "recap",
+        "goal",
+        "design-consent",
+        "design-revoke",
+        "list-agents",
+        "team-onboarding"
+      ],
+      "model": "gpt-6.1-sol[1m]"
+    },
+    {
+      "case": "baseline",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "baseline",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "text",
+          "text": "A0_BASELINE_OK"
+        }
+      ]
+    },
+    {
+      "case": "baseline",
+      "type": "result",
+      "subtype": "success",
+      "num_turns": 1,
+      "total_cost_usd": 0.05421000000000001,
+      "is_error": false
+    },
+    {
+      "case": "denied",
+      "options": {
+        "settingSources": [],
+        "disallowedTools": [
+          "Workflow",
+          "ReportFindings",
+          "PushNotification",
+          "DesignSync",
+          "EnterWorktree",
+          "ExitWorktree"
+        ],
+        "skillOverrides": {
+          "keybindings-help": "off",
+          "update-config": "off",
+          "fewer-permission-prompts": "off",
+          "plugin-authoring": "off",
+          "init": "off",
+          "workflow-authoring": "off",
+          "code-review": "off",
+          "anthropic-skills:a0-nonexistent-897f": "off"
+        },
+        "isolatedConfig": true,
+        "readOnlyRoot": true,
+        "model": "existing route default"
+      }
+    },
+    {
+      "case": "denied",
+      "type": "init",
+      "tools": [
+        "Task",
+        "AskUserQuestion",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "Edit",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "ListAgents",
+        "Monitor",
+        "NotebookEdit",
+        "Read",
+        "ScheduleWakeup",
+        "SendMessage",
+        "Skill",
+        "TaskStop",
+        "ToolSearch",
+        "WebFetch",
+        "WebSearch",
+        "Write"
+      ],
+      "agents": [
+        "a0-generated",
+        "claude",
+        "Explore",
+        "general-purpose",
+        "Plan",
+        "statusline-setup"
+      ],
+      "skills": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "verify",
+        "debug",
+        "simplify",
+        "batch",
+        "doctor",
+        "loop",
+        "claude-api",
+        "run",
+        "run-skill-generator"
+      ],
+      "slash_commands": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "verify",
+        "debug",
+        "simplify",
+        "batch",
+        "doctor",
+        "loop",
+        "claude-api",
+        "run",
+        "run-skill-generator",
+        "agents",
+        "auto-mode-setup",
+        "autocompact",
+        "clear",
+        "color",
+        "compact",
+        "config",
+        "output-style",
+        "context",
+        "effort",
+        "fast",
+        "focus",
+        "heapdump",
+        "mcp",
+        "model",
+        "__remote-workflow",
+        "workflow-launch-exec",
+        "reload-plugins",
+        "reload-skills",
+        "rename",
+        "security-review",
+        "usage",
+        "insights",
+        "recap",
+        "goal",
+        "design-consent",
+        "design-revoke",
+        "list-agents",
+        "team-onboarding"
+      ],
+      "model": "gpt-6.1-sol[1m]"
+    },
+    {
+      "case": "denied",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "subagent_type": "a0-generated"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": "call_0998c38225de44d299399a4ec85084a9",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "A0_GENERATED_OK"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "subagent_type": "general-purpose"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": "call_6c8c7b287f4e488b91fdaf49a4aaa6c1",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "A0_CHILD_OK"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "denied",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "text",
+          "text": "[non-marker assistant text omitted]"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "text",
+          "text": "[non-marker assistant text omitted]"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "text",
+          "text": "[non-marker assistant text omitted]"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "result",
+      "subtype": "success",
+      "num_turns": 4,
+      "total_cost_usd": 0.26932,
+      "is_error": false
+    },
+    {
+      "case": "denied",
+      "type": "init",
+      "tools": [
+        "Task",
+        "AskUserQuestion",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "Edit",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "ListAgents",
+        "Monitor",
+        "NotebookEdit",
+        "Read",
+        "ScheduleWakeup",
+        "SendMessage",
+        "Skill",
+        "TaskStop",
+        "ToolSearch",
+        "WebFetch",
+        "WebSearch",
+        "Write"
+      ],
+      "agents": [
+        "a0-generated",
+        "claude",
+        "Explore",
+        "general-purpose",
+        "Plan",
+        "statusline-setup"
+      ],
+      "skills": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "verify",
+        "debug",
+        "simplify",
+        "batch",
+        "doctor",
+        "loop",
+        "claude-api",
+        "run",
+        "run-skill-generator"
+      ],
+      "slash_commands": [
+        "deep-research",
+        "design",
+        "design-sync",
+        "dataviz",
+        "verify",
+        "debug",
+        "simplify",
+        "batch",
+        "doctor",
+        "loop",
+        "claude-api",
+        "run",
+        "run-skill-generator",
+        "agents",
+        "auto-mode-setup",
+        "autocompact",
+        "clear",
+        "color",
+        "compact",
+        "config",
+        "output-style",
+        "context",
+        "effort",
+        "fast",
+        "focus",
+        "heapdump",
+        "mcp",
+        "model",
+        "__remote-workflow",
+        "workflow-launch-exec",
+        "reload-plugins",
+        "reload-skills",
+        "rename",
+        "security-review",
+        "usage",
+        "insights",
+        "recap",
+        "goal",
+        "design-consent",
+        "design-revoke",
+        "list-agents",
+        "team-onboarding"
+      ],
+      "model": "gpt-6.1-sol[1m]"
+    },
+    {
+      "case": "denied",
+      "type": "message_start",
+      "parent_tool_use_id": null
+    },
+    {
+      "case": "denied",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": [
+        {
+          "type": "text",
+          "text": "A0_PARENT_OK"
+        }
+      ]
+    },
+    {
+      "case": "denied",
+      "type": "result",
+      "subtype": "success",
+      "num_turns": 1,
+      "total_cost_usd": 0.31407,
+      "is_error": false
+    }
+  ]
+}

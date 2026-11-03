@@ -8,8 +8,6 @@ created: "2026-09-26T16:04:56.809Z"
 updated: '2026-10-12T19:41:51.738Z'
 description: "Path C CLI workspace proxy merges caller tools[] and skill__/mcp__ placeholders it never forwards, fires false proxy.tool_invoked, flattens /commands, and drops tool_result."
 executor: backend-developer
-relates_to:
-  - TASK_2026_408
 parent: TASK_2026_640_11a5
 labels:
   - P2

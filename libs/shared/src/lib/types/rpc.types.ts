@@ -12,7 +12,10 @@ export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-analytics.types';
-import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
+import type {
+  UsageSummary,
+  UsageSummaryParams,
+} from './rpc/rpc-analytics.types';
 import type { WorkspaceListRecentResult } from './rpc/rpc-workspace.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
@@ -48,6 +51,8 @@ export * from './rpc/rpc-plugin-marketplace.types';
 export * from './rpc/rpc-peer-session.types';
 
 export * from './rpc/rpc-surface.types';
+
+export * from './rpc/rpc-display-window.types';
 
 export * from './rpc/rpc-capability.types';
 
@@ -136,6 +141,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatDismissResumableSubagentsParams,
+  ChatDismissResumableSubagentsResult,
   ChatAgentSessionsParams,
   ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
@@ -190,6 +197,7 @@ import type {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetParams,
   ConfigAutopilotGetResult,
+  ConfigModelsListParams,
   ConfigModelsListResult,
   ConfigPricingGetResult,
 } from './rpc/rpc-config.types';
@@ -329,11 +337,18 @@ import type {
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
+  AgentGetClaudeBuiltinsParams,
+  AgentGetClaudeBuiltinsResult,
+  AgentSetClaudeBuiltinParams,
+  AgentSetClaudeBuiltinResult,
   AgentListCliModelsResult,
   AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
   InstalledSkill,
+  SkillsShInstallParams,
+  SkillsShMakeGlobalParams,
+  SkillsShMakeGlobalResult,
   SkillDetectionResult,
   PtahCliListParams,
   PtahCliListResult,
@@ -350,6 +365,9 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  CapabilityScope,
+  McpInstallResult,
+  McpInstallTarget,
   McpDirectorySearchParams,
   McpDirectorySearchResult,
   McpDirectoryGetDetailsParams,
@@ -459,6 +477,8 @@ import type {
   GitRemotesResult,
   GitLastCommitParams,
   GitLastCommitResult,
+  GitWatchRootsParams,
+  GitWatchRootsResult,
 } from './rpc/rpc-git.types';
 import type {
   GitTurnChangeSetsParams,
@@ -666,6 +686,7 @@ import type {
   QualityExportResult,
   PluginInfo,
   PluginConfigStateWithHome,
+  PluginsGetConfigParams,
   PluginSkillEntry,
   PluginsResolveConfigHomeParams,
   PluginsResolveConfigHomeResult,
@@ -776,6 +797,172 @@ import type {
   SurfaceReadResult,
   SurfaceSelectParams,
 } from './rpc/rpc-surface.types';
+import type {
+  DisplayWindowActionParams,
+  DisplayWindowActionResult,
+  DisplayWindowCloseParams,
+  DisplayWindowCloseResult,
+  DisplayWindowGetStateParams,
+  DisplayWindowGetStateResult,
+  DisplayWindowOpenParams,
+  DisplayWindowOpenResult,
+  DisplayWindowPublishStateParams,
+  DisplayWindowPublishStateResult,
+  DisplayWindowStatusParams,
+  DisplayWindowStatusResult,
+} from './rpc/rpc-display-window.types';
+
+// ---------------------------------------------------------------------------
+// Install scope (TASK_2026_853 Phase D)
+//
+// Skills and MCP servers install into the open workspace by default; "All
+// workspaces" (`'global'`) is an explicit choice, and an existing workspace
+// install can be converted with a `makeGlobal` call. The scope vocabulary is
+// `CapabilityScope` from `mcp-directory.types.ts`, the same type that already
+// labels where an installed MCP row was declared.
+// ---------------------------------------------------------------------------
+
+/**
+ * The MCP targets whose config file lives in the user's home folder.
+ *
+ * A workspace-scope install never writes them (the server refuses one that
+ * names them), and `mcpDirectory:makeGlobal` adds them only when the user ticks
+ * them. Mirrors `USER_SCOPE_TARGETS` in `capability-toggle.types.ts`.
+ */
+export type McpHomeInstallTarget = Extract<
+  McpInstallTarget,
+  'codex' | 'copilot' | 'antigravity'
+>;
+
+/**
+ * Params for `mcpDirectory:install`: the directory install plus its scope.
+ *
+ * `scope` is optional on the wire; the handler's schema defaults it to
+ * `'workspace'`. A workspace-scope request that names a
+ * {@link McpHomeInstallTarget}, or that is made with no workspace open, is
+ * refused before anything is written.
+ */
+export interface McpDirectoryScopedInstallParams
+  extends McpDirectoryInstallParams {
+  scope?: CapabilityScope;
+}
+
+/**
+ * Result of `mcpDirectory:install`. `scope` echoes the scope the server
+ * resolved, so the UI does not have to assume the default.
+ */
+export interface McpDirectoryScopedInstallResult
+  extends McpDirectoryInstallResult {
+  scope?: CapabilityScope;
+}
+
+/** Params for `mcpDirectory:makeGlobal`: convert a workspace install to global. */
+export interface McpDirectoryMakeGlobalParams {
+  /** Server key of the workspace install, as listed by `mcpDirectory:listInstalled`. */
+  serverKey: string;
+  /**
+   * Home-folder targets to add during the conversion. Opt-in: the dialog
+   * leaves them unchecked, and `[]` adds none. Workspace targets carry over.
+   */
+  homeTargets: McpHomeInstallTarget[];
+}
+
+/** Result of `mcpDirectory:makeGlobal`. */
+export interface McpDirectoryMakeGlobalResult {
+  success: boolean;
+  /** One entry per target written for the global install. */
+  results: McpInstallResult[];
+  /** User-facing failure text. Never carries host paths or raw errors. */
+  error?: string;
+}
+
+/**
+ * The four counts of the one-time install-scope migration notice. Each item
+ * counts once however many workspaces it reached (design-spec §3).
+ */
+export interface InstallMigrationNoticeCounts {
+  /** Shared items that no longer load in every workspace. */
+  retired: number;
+  /** Copies Ptah created itself and deleted. */
+  deleted: number;
+  /** Workspace files kept because they were edited or git-tracked. */
+  kept: number;
+  /** Shared sources left on disk because Ptah could not prove it created them. */
+  onDisk: number;
+}
+
+/** What kind of shared source the migration left on disk. */
+export type InstallMigrationOnDiskKind = 'skills-sh-root' | 'mcp-home-entry';
+
+/** One shared source the migration retired but left on disk. */
+export interface InstallMigrationOnDiskEntry {
+  kind: InstallMigrationOnDiskKind;
+  /** skills.sh root id or MCP server key. */
+  name: string;
+  /** Absolute path of the root, or of the home config file holding the entry. */
+  path: string;
+}
+
+/**
+ * The migration notice. Shown until dismissed whenever any count is above 0,
+ * including a run that only retired items (decision #16).
+ */
+export interface InstallMigrationNotice {
+  counts: InstallMigrationNoticeCounts;
+  /** Absolute paths of the kept workspace files (`counts.kept` of them). */
+  keptPaths: string[];
+  /** The shared sources left on disk (`counts.onDisk` of them). */
+  onDisk: InstallMigrationOnDiskEntry[];
+}
+
+export type HarnessGetInstallMigrationNoticeParams = Record<string, never>;
+
+/**
+ * Result of `harness:get-install-migration-notice`. `notice` is `null` until
+ * the migration has completed, after it was dismissed, and when every count is 0.
+ */
+export interface HarnessGetInstallMigrationNoticeResult {
+  notice: InstallMigrationNotice | null;
+}
+
+export type HarnessDismissInstallMigrationNoticeParams = Record<string, never>;
+
+/** Result of `harness:dismiss-install-migration-notice` (records `noticeSeenAt`). */
+export interface HarnessDismissInstallMigrationNoticeResult {
+  success: boolean;
+}
+
+/**
+ * The install-scope RPC methods that Phase D adds.
+ *
+ * Declared apart from {@link RpcMethodRegistry} on purpose, following the
+ * `ProviderAccountRpcMethodRegistry` pattern: a registry entry is also a
+ * `RPC_METHOD_NAMES` entry, and `assertManifestInvariants` (rpc-handlers)
+ * requires every name to have a handler owner. Each method joined
+ * `RpcMethodRegistry` (`extends` plus the `RPC_METHOD_ENTRIES` keys) in the
+ * same change as its handler's `METHODS` entry: `mcpDirectory:makeGlobal`
+ * (`McpDirectoryRpcHandlers`), `skillsSh:makeGlobal` (`SkillsShRpcHandlers`)
+ * and the two `harness:*-install-migration-notice` methods
+ * (`InstallScopeNoticeRpcHandlers`). All four are joined.
+ */
+export interface InstallScopeRpcMethodRegistry {
+  'skillsSh:makeGlobal': {
+    params: SkillsShMakeGlobalParams;
+    result: SkillsShMakeGlobalResult;
+  };
+  'mcpDirectory:makeGlobal': {
+    params: McpDirectoryMakeGlobalParams;
+    result: McpDirectoryMakeGlobalResult;
+  };
+  'harness:get-install-migration-notice': {
+    params: HarnessGetInstallMigrationNoticeParams;
+    result: HarnessGetInstallMigrationNoticeResult;
+  };
+  'harness:dismiss-install-migration-notice': {
+    params: HarnessDismissInstallMigrationNoticeParams;
+    result: HarnessDismissInstallMigrationNoticeResult;
+  };
+}
 
 /**
  * RPC Method Registry
@@ -795,8 +982,19 @@ import type {
  *
  * Provider account methods (`provider:*Account*`, TASK_2026_712) are declared
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
+ * Install-scope methods from {@link InstallScopeRpcMethodRegistry} join the
+ * same way, each once its handler serves it.
  */
-export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
+export interface RpcMethodRegistry
+  extends
+    ProviderAccountRpcMethodRegistry,
+    Pick<
+      InstallScopeRpcMethodRegistry,
+      | 'mcpDirectory:makeGlobal'
+      | 'skillsSh:makeGlobal'
+      | 'harness:get-install-migration-notice'
+      | 'harness:dismiss-install-migration-notice'
+    > {
   'artifacts:list': {
     params: ArtifactListRequest;
     result: ArtifactListResponse;
@@ -804,6 +1002,32 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'artifacts:openLink': {
     params: { url: string };
     result: { opened: boolean };
+  };
+  // Detached Display window (TASK_2026_853_3401). Electron only; other hosts
+  // answer `open` with `{ ok: false, reason: 'desktop-only' }`.
+  'displayWindow:open': {
+    params: DisplayWindowOpenParams;
+    result: DisplayWindowOpenResult;
+  };
+  'displayWindow:close': {
+    params: DisplayWindowCloseParams;
+    result: DisplayWindowCloseResult;
+  };
+  'displayWindow:status': {
+    params: DisplayWindowStatusParams;
+    result: DisplayWindowStatusResult;
+  };
+  'displayWindow:publishState': {
+    params: DisplayWindowPublishStateParams;
+    result: DisplayWindowPublishStateResult;
+  };
+  'displayWindow:getState': {
+    params: DisplayWindowGetStateParams;
+    result: DisplayWindowGetStateResult;
+  };
+  'displayWindow:action': {
+    params: DisplayWindowActionParams;
+    result: DisplayWindowActionResult;
   };
   'analytics:spendSummary': {
     params: UsageSummaryParams;
@@ -977,7 +1201,7 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: ConfigAutopilotGetResult;
   };
   'config:models-list': {
-    params: Record<string, never>;
+    params: ConfigModelsListParams;
     result: ConfigModelsListResult;
   };
   'config:effort-get': {
@@ -1241,6 +1465,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
   };
+  'chat:dismiss-resumable-subagents': {
+    params: ChatDismissResumableSubagentsParams;
+    result: ChatDismissResumableSubagentsResult;
+  };
   'subagent:send-message': {
     params: SubagentSendMessageParams;
     result: SubagentCommandResult;
@@ -1310,8 +1538,8 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: { plugins: PluginInfo[] };
   };
   'plugins:get-config': {
-    params: Record<string, never>;
-    /** `configHome` is Electron-only and absent when no notice applies. */
+    params: PluginsGetConfigParams;
+    /** `configHome` and `sessionNotice` are Electron-only and absent when no notice applies. */
     result: PluginConfigStateWithHome;
   };
   'plugins:save-config': {
@@ -1391,6 +1619,16 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'agent:setConfig': {
     params: AgentSetConfigParams;
     result: { success: boolean; error?: string };
+  };
+  /** Claude built-in tool and skill catalog with the stored opt-ins (TASK_2026_853). */
+  'agent:getClaudeBuiltins': {
+    params: AgentGetClaudeBuiltinsParams;
+    result: AgentGetClaudeBuiltinsResult;
+  };
+  /** Turn one Claude built-in tool or skill on or off (TASK_2026_853 R2). */
+  'agent:setClaudeBuiltin': {
+    params: AgentSetClaudeBuiltinParams;
+    result: AgentSetClaudeBuiltinResult;
   };
   'agent:detectClis': {
     params: void;
@@ -1537,32 +1775,25 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: { skills: InstalledSkill[] };
   };
   /**
-   * Install a skills.sh skill into its Ptah-owned source root, then propagate.
+   * Install a skills.sh skill into a Ptah-owned source root, then propagate.
    *
-   * Neither `scope` nor `agents` survives from the pre-TASK_2026_288 shape, and
-   * both were removed for the same reason: each named a choice the
-   * implementation could not make.
+   * `scope` picks the source root (TASK_2026_853 Phase D): `'workspace'` (the
+   * server default) is `{ws}/.ptah/plugins/ptah-skillssh-<id>` and loads only
+   * in that workspace; `'global'` is `~/.ptah/plugins/ptah-skillssh-<id>` and
+   * loads everywhere. It is not the pre-TASK_2026_288 `'project' | 'global'`
+   * parameter, which chose a CLI skills folder the reconciler now owns.
    *
-   * - `agents?: SkillAgentTarget[]` was declared, validated and then dropped on
-   *   the floor — every install hardcoded `--agent claude-code`. It is gone
-   *   rather than wired because target selection now has ONE owner: the
-   *   reconciler fans a skill out to every CLI `IHarnessCliDetector` finds.
-   *   Honouring a per-install list would be a second, divergent copy of that
-   *   decision, and a skill installed "for Codex only" would be silently
-   *   overwritten by the next pass anyway.
-   * - `scope: 'project' | 'global'` chose between `{ws}/.claude/skills` and
-   *   `~/.claude/skills`. The reconciler reconciles neither, so both values
-   *   became the same user-global source root. Per-workspace control moved to
-   *   `disabledPluginIds` / `disabledSkillIds`, which is reversible.
+   * `agents?: SkillAgentTarget[]` stays gone: target selection has ONE owner,
+   * the reconciler, which fans a skill out to every CLI `IHarnessCliDetector`
+   * finds. A per-install list would be a second, divergent copy of that rule.
    */
   'skillsSh:install': {
-    params: {
-      source: string;
-      skillId?: string;
-    };
+    params: SkillsShInstallParams;
     result: {
       success: boolean;
       error?: string;
+      /** The scope the server resolved and installed into. */
+      scope?: CapabilityScope;
       /** Local items the install left as the user's. */
       kept?: KeptItem[];
       libraryPass?: LibraryPassStatus;
@@ -1589,8 +1820,8 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: McpDirectoryGetDetailsResult;
   };
   'mcpDirectory:install': {
-    params: McpDirectoryInstallParams;
-    result: McpDirectoryInstallResult;
+    params: McpDirectoryScopedInstallParams;
+    result: McpDirectoryScopedInstallResult;
   };
   'mcpDirectory:uninstall': {
     params: McpDirectoryUninstallParams;
@@ -1693,7 +1924,7 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     };
   };
   'workspace:addFolder': {
-    params: Record<string, never>;
+    params: { mode?: 'open' | 'create' };
     result: { path: string | null; name: string | null; error?: string };
   };
   'workspace:removeFolder': {
@@ -1756,6 +1987,14 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: { key: string };
     result: { success: boolean; value?: unknown; error?: string };
   };
+  'settings:getMotion': {
+    params: Record<string, never>;
+    result: { success: boolean; preference?: 'always' | 'system' | 'reduce'; error?: string };
+  };
+  'settings:setMotion': {
+    params: { preference: 'always' | 'system' | 'reduce' };
+    result: { success: boolean; error?: string };
+  };
   'settings:set': {
     params: { key: string; value: unknown };
     result: { success: boolean; error?: string };
@@ -1806,6 +2045,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:watchRoots': {
+    params: GitWatchRootsParams;
+    result: GitWatchRootsResult;
+  };
   'git:reviewChanges': {
     params: GitReviewChangesParams;
     result: GitReviewChangesResult;
@@ -3142,6 +3385,12 @@ export type RpcMethodName = keyof RpcMethodRegistry;
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'artifacts:list': true,
   'artifacts:openLink': true,
+  'displayWindow:open': true,
+  'displayWindow:close': true,
+  'displayWindow:status': true,
+  'displayWindow:publishState': true,
+  'displayWindow:getState': true,
+  'displayWindow:action': true,
   'analytics:spendSummary': true,
   'attention:getSnapshot': true,
   'chat:start': true,
@@ -3269,6 +3518,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:setAccountDefault': true,
   'provider:getAmbientClaudeStatus': true,
   'chat:subagent-query': true,
+  'chat:dismiss-resumable-subagents': true,
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,
@@ -3299,6 +3549,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'plugins:resolve-config-home': true,
   'agent:getConfig': true,
   'agent:setConfig': true,
+  'agent:getClaudeBuiltins': true,
+  'agent:setClaudeBuiltin': true,
   'agent:detectClis': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
@@ -3323,6 +3575,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:listInstalled': true,
   'skillsSh:install': true,
   'skillsSh:uninstall': true,
+  'skillsSh:makeGlobal': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
   'mcpDirectory:search': true,
@@ -3330,6 +3583,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:install': true,
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
+  'mcpDirectory:makeGlobal': true,
   'mcpDirectory:getPopular': true,
   'mcpDirectory:setSmitheryApiKey': true,
   'mcpDirectory:getSmitheryKeyStatus': true,
@@ -3365,6 +3619,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
   'settings:get': true,
+  'settings:getMotion': true,
+  'settings:setMotion': true,
   'settings:set': true,
   'settings:export': true,
   'settings:import': true,
@@ -3375,6 +3631,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:watchRoots': true,
   'git:reviewChanges': true,
   'git:reviewFile': true,
   'git:worktrees': true,
@@ -3430,6 +3687,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:repairBlocked': true,
   'harness:get-skill-selection': true,
   'harness:set-skill-selection': true,
+  'harness:get-install-migration-notice': true,
+  'harness:dismiss-install-migration-notice': true,
 
   'memory:list': true,
   'memory:search': true,

@@ -11,6 +11,7 @@ import {
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
+  BackgroundTasksSnapshotEvent,
   ToolResultEvent,
   SessionId,
   isAgentTaskType,
@@ -22,6 +23,7 @@ import type {
   SDKTaskProgressMessage,
   SDKTaskUpdatedMessage,
   SDKTaskNotificationMessage,
+  SDKBackgroundTasksChangedMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
@@ -33,6 +35,39 @@ import type {
 import type { TransformerHelpers } from './transformer-helpers';
 
 export class SystemMessageTransformer {
+  transformBackgroundTasksChanged(
+    msg: SDKBackgroundTasksChangedMessage,
+    state: TransformerState,
+    sessionId?: TransformerSessionId,
+  ): BackgroundTasksSnapshotEvent[] {
+    const owner = sessionId || msg.session_id;
+    if (!owner) return [];
+    const tasks = msg.tasks.filter((task) => task.ambient !== true);
+    state.retainBackgroundTaskCommands(
+      owner,
+      tasks.map((task) => task.task_id),
+    );
+    const snapshot: BackgroundTasksSnapshotEvent = {
+      id: generateEventId(),
+      eventType: 'background_tasks_snapshot',
+      messageId: `background-tasks-${owner}`,
+      timestamp: Date.now(),
+      sessionId: owner,
+      tasks: tasks.map((task) => {
+        const command = state.getBackgroundTaskCommand(owner, task.task_id);
+        return {
+          taskId: task.task_id,
+          taskType: task.task_type,
+          description: task.description,
+          ...(command !== undefined ? { command } : {}),
+          status: 'running' as const,
+        };
+      }),
+    };
+    state.cacheBackgroundTasksSnapshot(snapshot);
+    return [snapshot];
+  }
+
   transformCompactBoundary(
     sdkMessage: SDKMessage & {
       compact_metadata: {
@@ -189,7 +224,11 @@ export class SystemMessageTransformer {
     // rest of its lifecycle is rejected too — none of the bookkeeping below
     // (task parent link, subagent registry) applies to a shell command.
     if (!isAgentTaskType(msg.task_type)) {
-      state.markNonAgentTask(msg.task_id);
+      state.markNonAgentTask(
+        msg.task_id,
+        toolUseId,
+        sessionId || msg.session_id,
+      );
       helpers.logger.debug(
         '[SdkMessageTransformer] task_started with non-agent task_type — skipping AgentStartEvent',
         { taskId: msg.task_id, taskType: msg.task_type, toolUseId },
@@ -198,7 +237,11 @@ export class SystemMessageTransformer {
     }
 
     if (toolUseId) {
-      state.setTaskParent(msg.task_id, toolUseId);
+      state.setTaskParent(
+        msg.task_id,
+        toolUseId,
+        sessionId || msg.session_id,
+      );
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
 
       // A `local_workflow` task_started is the root of a workflow run: its
@@ -289,7 +332,11 @@ export class SystemMessageTransformer {
       messageId,
       parentToolUseId: toolUseId,
       toolCallId: toolUseId,
-      agentType: msg.task_type ?? 'Task',
+      // `task_type` is the SDK task category (`local_agent`), not the agent's
+      // name. When task_started beats the Task tool_use, this event is the
+      // only agent_start, so the spawned `subagent_type` must win here.
+      agentType:
+        msg.subagent_type || record?.agentType || msg.task_type || 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
       // Usually still undefined here — the SubagentStart hook that mints the
@@ -327,8 +374,13 @@ export class SystemMessageTransformer {
       return [];
     }
 
+    const taskSessionId = sessionId || msg.session_id;
+    if (msg.tool_use_id) {
+      state.setTaskParent(msg.task_id, msg.tool_use_id, taskSessionId);
+    }
     const parentToolUseId =
-      msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
+      msg.tool_use_id ??
+      state.getTaskParentToolUseId(msg.task_id, taskSessionId);
 
     if (!parentToolUseId) {
       helpers.logger.debug(
@@ -379,7 +431,10 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const parentToolUseId = state.getTaskParentToolUseId(msg.task_id);
+    const parentToolUseId = state.getTaskParentToolUseId(
+      msg.task_id,
+      sessionId || msg.session_id,
+    );
 
     if (!parentToolUseId) {
       helpers.logger.debug(
@@ -581,8 +636,7 @@ export class SystemMessageTransformer {
     // `task_started` entry may already have been re-keyed onto its real
     // agentId; `''` still finds it through the store's toolCallId fallback,
     // where a real agentId that misses would insert a duplicate entry.
-    const agentId =
-      origin === 'task_started' ? (record?.agentId ?? '') : '';
+    const agentId = origin === 'task_started' ? (record?.agentId ?? '') : '';
     const agentType = record?.agentType ?? 'unknown';
     const id = generateEventId();
     const timestamp = Date.now();
@@ -621,7 +675,7 @@ export class SystemMessageTransformer {
       // Absent for 'completed' (the default); 'failed' renders the entry
       // as failed in the tray instead of completed.
       ...(msg.status === 'failed' && { status: 'failed' as const }),
-      result: msg.summary,
+      result: msg.skip_transcript ? undefined : msg.summary,
       duration: msg.usage?.duration_ms,
     };
   }
@@ -657,23 +711,48 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    const taskSessionId = sessionId || msg.session_id;
     const parentToolUseId =
-      msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
+      msg.tool_use_id ??
+      state.getTaskParentToolUseId(msg.task_id, taskSessionId);
 
     // Read before clearing — `clearTaskParent` also drops the non-agent mark.
     const isNonAgentTask = state.isNonAgentTask(msg.task_id);
+    const isDuplicateAgentTerminal =
+      !isNonAgentTask &&
+      state.isTaskTerminalEmitted(
+        msg.task_id,
+        taskSessionId,
+        msg.tool_use_id,
+      );
 
-    state.clearTaskParent(msg.task_id);
+    state.clearTaskParent(msg.task_id, taskSessionId);
 
-    if (msg.skip_transcript) {
+    if (isDuplicateAgentTerminal) {
+      return [];
+    }
+
+    // Transcript suppression never suppressed local_bash terminal handling.
+    if (isNonAgentTask && msg.skip_transcript) {
       return [];
     }
 
     if (!parentToolUseId) {
-      helpers.logger.debug(
-        '[SdkMessageTransformer] task_notification: no parentToolUseId, skipping',
-        { taskId: msg.task_id, status: msg.status },
-      );
+      if (isNonAgentTask) {
+        helpers.logger.debug(
+          '[SdkMessageTransformer] task_notification: no parentToolUseId, skipping',
+          { taskId: msg.task_id, status: msg.status },
+        );
+      } else {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] task_notification: unresolved agent lifecycle, skipping terminal events',
+          {
+            taskId: msg.task_id,
+            status: msg.status,
+            sessionId: taskSessionId,
+          },
+        );
+      }
       return [];
     }
 
@@ -693,6 +772,12 @@ export class SystemMessageTransformer {
       return [event];
     }
 
+    state.markTaskTerminalEmitted(
+      msg.task_id,
+      taskSessionId,
+      parentToolUseId,
+    );
+
     // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
     // `SdkMessageTransformer.transform` resolves it off this same object before
     // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
@@ -710,12 +795,13 @@ export class SystemMessageTransformer {
       messageId: state.getMessageId('') ?? `task_${msg.task_id}`,
       parentToolUseId,
       taskId: msg.task_id,
-      status: msg.status,
-      summary:
-        msg.status === 'stopped'
+      status: msg.status ?? 'completed',
+      summary: msg.skip_transcript
+        ? ''
+        : msg.status === 'stopped'
           ? (helpers.stopNotices.noticeFor(msg.task_id) ?? msg.summary)
           : msg.summary,
-      outputFile: msg.output_file,
+      outputFile: msg.skip_transcript ? '' : msg.output_file,
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,

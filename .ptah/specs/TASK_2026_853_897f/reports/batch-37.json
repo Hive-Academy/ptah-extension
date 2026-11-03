@@ -1,0 +1,6 @@
+{ "batch": 37, "status": "COMPLETE",
+  "files": ["libs/frontend/chat-ui/src/lib/molecules/setup-plugins/installed-mcp-groups.ts","libs/frontend/chat-ui/src/lib/molecules/setup-plugins/installed-mcp-groups.spec.ts","libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts","libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.spec.ts"],
+  "verification": { "scoped": "/tmp/tpd-b37-scoped.log: chat-ui 22/22, marketplace 34/34", "cohort": "/tmp/tpd-b37-39-verify.log: 5 projects; chat-ui 101 suites/1799, chat 311/5490 (2 skipped), marketplace 70/1581, webview 25/675, electron 79/1413 (8 skipped); all typechecks ok; only known ptah-extension-webview:lint failed. Audit /tmp/tpd-b37-39-audit.log exit 0" },
+  "decisions": [76],
+  "deviations": ["Badges and Make global in a separate 'Where they are installed' section (provider-list-view not owned)", "Own MAKE_GLOBAL_HOME_TARGETS copy", "page 488->937 lines (max-lines warning)"],
+  "deferred": ["Electron keyboard/focus check -> visual review"] }

@@ -36,6 +36,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { SessionId } from '@ptah-extension/shared';
+import { CHAT_TOKENS } from '../chat/tokens';
+import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { DependencyContainer } from 'tsyringe';
 import {
   Logger,
@@ -74,6 +77,8 @@ import type {
   HarnessHealth,
   PluginInfo,
   PluginConfigStateWithHome,
+  PluginsGetConfigParams,
+  PluginSessionNotice,
   PluginSkillEntry,
   ExternalConsentReason,
   ExternalInstallResponse,
@@ -85,6 +90,7 @@ import type {
   PluginsResolveConfigHomeResult,
   ExternalMarketplace,
   ExternalMarketplaceBrowseResult,
+  CapabilityScope,
   ExternalPluginMcpServer,
   ExternalSkillCollision,
   ExternalUninstallResult,
@@ -93,6 +99,7 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
   ExternalInstallParamsSchema,
+  GetConfigParamsSchema,
   ExternalUninstallParamsSchema,
   MarketplaceBrowseParamsSchema,
   MarketplaceSourceParamsSchema,
@@ -231,6 +238,11 @@ export class PluginRpcHandlers {
     /** Read-only here: which family issued an approval id. */
     @inject(LocalItemApprovals)
     private readonly approvals: LocalItemApprovals,
+    @inject(CHAT_TOKENS.SESSION, { isOptional: true })
+    private readonly sessionRoots: Pick<
+      ChatSessionService,
+      'readSessionPolicyRoots'
+    > | null = null,
   ) {
     this.externalMcp = resolveExternalPluginMcpService(container, this.logger);
   }
@@ -304,14 +316,15 @@ export class PluginRpcHandlers {
    */
   private registerGetConfig(): void {
     this.rpcHandler.registerMethod<
-      Record<string, never>,
+      PluginsGetConfigParams,
       PluginConfigStateWithHome
-    >('plugins:get-config', async () => {
+    >('plugins:get-config', async (params) => {
+      let config: PluginConfigStateWithHome;
       try {
         this.logger.debug('RPC: plugins:get-config called');
 
         const harnessRoot = this.harnessRoot();
-        const config = this.pluginLoader.getWorkspacePluginConfig(
+        const body = this.pluginLoader.getWorkspacePluginConfig(
           this.configRoot(harnessRoot),
         );
         const configHome =
@@ -320,12 +333,12 @@ export class PluginRpcHandlers {
             : this.pluginLoader.getConfigHomeStatus(harnessRoot);
 
         this.logger.debug('RPC: plugins:get-config success', {
-          enabledCount: config.enabledPluginIds.length,
-          lastUpdated: config.lastUpdated,
+          enabledCount: body.enabledPluginIds.length,
+          lastUpdated: body.lastUpdated,
           configHome: configHome?.state,
         });
 
-        return configHome === null ? config : { ...config, configHome };
+        config = configHome === null ? body : { ...body, configHome };
       } catch (error) {
         this.logger.error(
           'RPC: plugins:get-config failed',
@@ -337,7 +350,55 @@ export class PluginRpcHandlers {
         );
         throw error;
       }
+      const sessionNotice = await this.sessionNoticeFor(params);
+      return sessionNotice ? { ...config, sessionNotice } : config;
     });
+  }
+
+  private async sessionNoticeFor(
+    params: PluginsGetConfigParams,
+  ): Promise<PluginSessionNotice | undefined> {
+    if (params?.sessionId === undefined) return undefined;
+    const parsed = GetConfigParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      this.logger.warn('RPC: plugins:get-config invalid session hint', {
+        issuePaths: parsed.error.issues.map((issue) => issue.path.join('.')),
+      });
+      return undefined;
+    }
+    if (!this.sessionRoots) return undefined;
+    const projectRoot = this.harnessRoot();
+    if (projectRoot === undefined) return undefined;
+    try {
+      const { folder, ancestorRoots } =
+        await this.sessionRoots.readSessionPolicyRoots(
+          SessionId.from(parsed.data.sessionId!),
+        );
+      return (
+        this.pluginLoader.getSessionPluginNotice(
+          folder,
+          ancestorRoots,
+          projectRoot,
+        ) ?? undefined
+      );
+    } catch (error) {
+      // degradation-audit: reported — logged below; the notice is optional,
+      // so plugins:get-config still returns the project configuration.
+      if (error instanceof RpcUserError) {
+        this.logger.debug(
+          'RPC: plugins:get-config session notice unavailable',
+          {
+            code: error.errorCode,
+          },
+        );
+      } else {
+        this.logger.warn(
+          'RPC: plugins:get-config session notice failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      return undefined;
+    }
   }
 
   /**
@@ -666,6 +727,7 @@ export class PluginRpcHandlers {
         plugin: string;
         consentToken?: string;
         localItemDecisions?: Record<string, FileDecision>;
+        mcpScope?: CapabilityScope;
       },
       ExternalInstallResponse
     >('plugins:install-external', async (params) => {
@@ -711,7 +773,12 @@ export class PluginRpcHandlers {
         // trigger fired.
         const { planLocalItems, ...result } = confirmed;
         const harnessRoot = this.harnessRoot();
-        const mcp = await this.installDeclaredMcpServers(result.pluginId);
+        // `mcpScope` is read here, on the consented call, and nowhere else:
+        // the plan call above returns before it and writes nothing.
+        const mcp = await this.installDeclaredMcpServers(
+          result.pluginId,
+          parsed.mcpScope,
+        );
         const activation = await this.activateExternalPlugin(
           result.pluginId,
           harnessRoot,
@@ -774,10 +841,13 @@ export class PluginRpcHandlers {
    *
    * Non-fatal throughout. A plugin whose files landed is installed; an MCP
    * server that could not be recorded is a warning on the result, not a failed
-   * install the user has to retry.
+   * install the user has to retry. That includes a workspace-scope choice made
+   * with no folder open: the plugin files are a user-wide cache and still
+   * install, only the servers are skipped (with a warning).
    */
   private async installDeclaredMcpServers(
     pluginId: string,
+    scope: CapabilityScope,
   ): Promise<ExternalMcpOutcome> {
     try {
       const record = this.externalState.findInstalled(pluginId);
@@ -787,6 +857,7 @@ export class PluginRpcHandlers {
         pluginId,
         servers,
         this.workspaceProvider.getWorkspaceRoot() ?? undefined,
+        scope,
       );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -842,7 +913,8 @@ export class PluginRpcHandlers {
    *
    * Runs only after the tree and the record are actually gone (`removed`), and
    * before `deactivateExternalPlugin` reconciles — so the same pass that reaps
-   * the plugin's skills also reaps its MCP entries.
+   * the plugin's skills also reaps its MCP entries. Each server is forgotten in
+   * the scope it was recorded in (see {@link ExternalPluginMcpService.uninstall}).
    */
   private async uninstallDeclaredMcpServers(
     pluginId: string,

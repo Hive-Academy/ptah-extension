@@ -72,3 +72,9 @@ Item 2 becomes visible only once `TASK_2026_491_e0da` lands. Item 1 is true toda
 `.ptah/specs/TASK_2026_491_e0da/security-review-antigravity.md`, defect 4, severity NON-BLOCKING
 for task 491 — which is correct for that task, and is not the severity of the underlying
 storage-sharing problem recorded here.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+Only the partition landed (electron-browser-capabilities.ts:514, PR #803). Open: deny-by-default permission check and request handlers on the ptah-browser-tool session, tests for storage isolation and both permission paths, and the stale note in permission-policy.ts:108-116.

@@ -150,6 +150,8 @@ export interface ChatStartParams {
 /** Response from chat:start RPC method */
 export interface ChatStartResult {
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
@@ -208,8 +210,10 @@ export interface ChatContinueResult {
   /** Present only when the prompt was put into the session queue. */
   readonly enqueued?: true;
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
-  /** The command completed without starting a stream. */
+  /** The request finished before this RPC replied; do not re-arm the renderer. */
   settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
@@ -234,6 +238,26 @@ export interface ChatAbortResult {
    * frontend can surface the resume banner without reloading the session.
    */
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
+}
+
+/**
+ * Parameters for chat:dismiss-resumable-subagents RPC method.
+ *
+ * Dismissing hides the interrupted subagents from every webview read
+ * (chat:resume, chat:abort, history reads, chat:subagent-query) for good. The
+ * model still hears about them once, on the next chat:continue of the session.
+ */
+export interface ChatDismissResumableSubagentsParams {
+  /** Session that owns the interrupted subagents */
+  sessionId: SessionId;
+  /** Task tool_use ids (`SubagentRecord.toolCallId`) to dismiss */
+  toolCallIds: string[];
+}
+
+/** Response from chat:dismiss-resumable-subagents RPC method */
+export interface ChatDismissResumableSubagentsResult {
+  success: boolean;
+  error?: string;
 }
 
 /** Parameters for chat:running-agents RPC method */
@@ -324,6 +348,8 @@ export interface ChatResumeParams {
 /** Response from chat:resume RPC method */
 export interface ChatResumeResult {
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
   /**
    * Full streaming events for session history replay — the ONE transcript

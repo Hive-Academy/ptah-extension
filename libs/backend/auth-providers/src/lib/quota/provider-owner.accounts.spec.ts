@@ -3,10 +3,7 @@ import type { SessionQuotaProbe } from '@ptah-extension/agent-sdk';
 import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import type { IAuthSecretsService, Logger } from '@ptah-extension/vscode-core';
 import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
-import type {
-  ICodexAccountUsageService,
-  ICodexOwnerKeySource,
-} from '../providers/codex/codex-provider.types';
+import type { ICodexAccountUsageService } from '../providers/codex/codex-provider.types';
 import {
   ProviderOwnerResolver,
   claudeAccountOwnerKey,
@@ -35,7 +32,7 @@ function harness() {
       SessionQuotaProbe,
       'readAccountForRoute'
     > as SessionQuotaProbe,
-    {} as ICodexAccountUsageService & ICodexOwnerKeySource,
+    {} as ICodexAccountUsageService,
     {} as CodexHomeResolver,
   );
   return { resolver, readAccountForRoute };

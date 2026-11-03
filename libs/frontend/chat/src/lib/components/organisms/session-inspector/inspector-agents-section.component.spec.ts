@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { ModelStateService } from '@ptah-extension/core';
+import { ModelStateService, WallClockService } from '@ptah-extension/core';
 import {
   SessionInspectorStore,
   type InspectorRequest,
@@ -55,7 +55,10 @@ const CARD: OrchestratorCardModel = {
 };
 
 describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
+  const fixedNow = signal(10_000);
+
   beforeEach(() => {
+    fixedNow.set(10_000);
     TestBed.configureTestingModule({
       imports: [InspectorAgentsSectionComponent],
       providers: [
@@ -86,6 +89,10 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
               { id: 'claude-opus-5-5', name: 'Opus 5.5' },
             ]),
           },
+        },
+        {
+          provide: WallClockService,
+          useValue: { now: () => fixedNow, acquire: () => () => undefined },
         },
       ],
     });
@@ -196,6 +203,83 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     expect(tokens.textContent?.trim()).toBe('—');
     expect(tokens.getAttribute('title')).toBe('not reported');
     expect(tokens.classList.contains('text-base-content-muted')).toBe(true);
+  });
+
+  it('keeps unknown Orchestrator token data as a dash', () => {
+    const fixture = mount([]);
+    fixture.componentRef.setInput('orchestrator', null);
+    fixture.componentRef.setInput('sessionTokens', null);
+    fixture.detectChanges();
+    const tokens = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-agent-key="orchestrator"] [data-testid="agent-row-tokens"]',
+    );
+    expect(tokens?.textContent?.trim()).toBe('—');
+    expect(tokens?.getAttribute('title')).toBe('not reported');
+  });
+
+  it('acquires the shared clock only while an agent runs and advances elapsed time', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(10_000);
+    try {
+      TestBed.overrideProvider(WallClockService, {
+        useFactory: () => new WallClockService(),
+        deps: [],
+      });
+      const clock = TestBed.inject(WallClockService);
+      const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+      const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+      const realAcquire = clock.acquire.bind(clock);
+      let clockInterval: ReturnType<typeof setInterval> | undefined;
+      let release: jest.Mock | undefined;
+      const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+        const previous = setIntervalSpy.mock.results.length;
+        release = jest.fn(realAcquire(cadence));
+        const created = setIntervalSpy.mock.results.slice(previous);
+        expect(created).toHaveLength(1);
+        clockInterval = created[0].value;
+        return release;
+      });
+
+      const fixture = mount([]);
+      TestBed.tick();
+      expect(acquire).not.toHaveBeenCalled();
+
+      const running = agent({ status: 'running', startedAt: 1_000, endedAt: null });
+      fixture.componentRef.setInput('agents', {
+        status: 'ready',
+        data: { rows: [{ agent: running, requests: [] }], active: 1, finished: 0 },
+      });
+      fixture.detectChanges();
+      TestBed.tick();
+      expect(acquire).toHaveBeenCalledWith('second');
+      const row = () => (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-agent-key="cli:lane-1"]',
+      );
+      expect(row()?.getAttribute('aria-label')).toContain('running 9s');
+
+      jest.advanceTimersByTime(1_000);
+      TestBed.tick();
+      fixture.detectChanges();
+      expect(row()?.getAttribute('aria-label')).toContain('running 10s');
+
+      fixture.componentRef.setInput('agents', {
+        status: 'ready',
+        data: {
+          rows: [{ agent: { ...running, status: 'done', endedAt: 11_000 }, requests: [] }],
+          active: 0,
+          finished: 1,
+        },
+      });
+      fixture.detectChanges();
+      TestBed.tick();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(clearIntervalSpy).toHaveBeenCalledWith(clockInterval);
+      fixture.destroy();
+    } finally {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
   });
 
   it('marks partial usage from retained segments as a lower bound', () => {

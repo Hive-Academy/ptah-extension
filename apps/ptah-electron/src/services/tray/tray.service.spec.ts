@@ -3,7 +3,7 @@
  *
  * The load-bearing group is "R10 — the quit item". Suppressing
  * Every path that produces a menu is asserted to carry a usable
- * "Quit Ptah" item, and the guard that refuses to go live without one is
+ * "Quit PtahCode" item, and the guard that refuses to go live without one is
  * asserted directly.
  */
 
@@ -263,10 +263,10 @@ const noopTemplateOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// R10 — the "Quit Ptah" item is unconditional and usable
+// R10 — the "Quit PtahCode" item is unconditional and usable
 // ---------------------------------------------------------------------------
 
-describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () => {
+describe('R10 — the tray menu always carries a usable "Quit PtahCode" item', () => {
   it.each([false, true])(
     'emits the quit item when memoryPaused=%s',
     (memoryPaused) => {
@@ -326,7 +326,7 @@ describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () =>
         assertQuitItemPresent([
           { label: PAUSE_MEMORY_ITEM_LABEL, click: jest.fn() },
         ]),
-      ).toThrow(/no usable "Quit Ptah" item/);
+      ).toThrow(/no usable "Quit PtahCode" item/);
     });
 
     it('throws when the quit item is disabled', () => {
@@ -334,13 +334,13 @@ describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () =>
         assertQuitItemPresent([
           { label: QUIT_ITEM_LABEL, enabled: false, click: jest.fn() },
         ]),
-      ).toThrow(/no usable "Quit Ptah" item/);
+      ).toThrow(/no usable "Quit PtahCode" item/);
     });
 
     it('throws when the quit item has no click handler', () => {
       expect(() =>
         assertQuitItemPresent([{ label: QUIT_ITEM_LABEL, enabled: true }]),
-      ).toThrow(/no usable "Quit Ptah" item/);
+      ).toThrow(/no usable "Quit PtahCode" item/);
     });
 
     it('accepts the template the service actually builds', () => {
@@ -610,8 +610,8 @@ describe('the tray writes keys that are actually routed to the file store', () =
 
 describe('tray tooltip', () => {
   it.each([
-    [false, 'Ptah'],
-    [true, 'Ptah — memory paused'],
+    [false, 'PtahCode'],
+    [true, 'PtahCode — memory paused'],
   ])(
     'memoryPaused=%s → "%s"',
     (memoryPaused, expected) => {
@@ -624,7 +624,7 @@ describe('tray tooltip', () => {
       makeHarness({ memoryEnabled: false }).options,
     );
 
-    expect(lastTray().tooltip).toBe('Ptah — memory paused');
+    expect(lastTray().tooltip).toBe('PtahCode — memory paused');
   });
 
   it('follows a toggle from the tray itself', async () => {
@@ -637,6 +637,6 @@ describe('tray tooltip', () => {
     });
     await flushMicrotasks();
 
-    expect(lastTray().tooltip).toBe('Ptah — memory paused');
+    expect(lastTray().tooltip).toBe('PtahCode — memory paused');
   });
 });

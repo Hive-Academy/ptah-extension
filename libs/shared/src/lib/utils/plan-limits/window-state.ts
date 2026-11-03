@@ -218,15 +218,17 @@ export function classifyWindow(
   // A fresh authoritative response reports the usage for its current window.
   // Some APIs (notably Claude's /usage response) expose only the *next*
   // reset, so requiring a historical reset timestamp incorrectly makes every
-  // fresh provider reading "not confirmed".
-  if (
-    window.lastResetAt === undefined &&
-    !(
-      window.resetSource === 'provider-api' &&
+  // fresh provider reading "not confirmed". A fresh provider reading of 0%
+  // with no reset is a window that has not started (Claude's /usage reports
+  // `five_hour: {utilization: 0, resets_at: null}` after an idle spell).
+  const providerCurrent =
+    (window.resetSource === 'provider-api' &&
       window.resetsAt !== undefined &&
-      window.resetsAt > ctx.now
-    )
-  ) {
+      window.resetsAt > ctx.now) ||
+    (window.usedSource === 'provider-api' &&
+      window.resetsAt === undefined &&
+      percent === 0);
+  if (window.lastResetAt === undefined && !providerCurrent) {
     return 'not-confirmed';
   }
   return percent >= ctx.nearLimitPercent ? 'near-limit' : 'ok';

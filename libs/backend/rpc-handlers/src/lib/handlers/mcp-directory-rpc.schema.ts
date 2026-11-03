@@ -50,6 +50,93 @@ export const InstallSmitherySchema = z.object({
 
 export type InstallSmitheryInput = z.infer<typeof InstallSmitherySchema>;
 
+/** Every MCP install target, as `McpInstallTarget` spells it. */
+const McpInstallTargetSchema = z.enum([
+  'vscode',
+  'claude',
+  'cursor',
+  'copilot',
+  'codex',
+  'antigravity',
+  'opencode',
+]);
+
+/** The home-folder targets (`McpHomeInstallTarget`); only a global install may name them. */
+const McpHomeInstallTargetSchema = z.enum(['codex', 'copilot', 'antigravity']);
+
+const McpEnvSchema = z.record(z.string(), z.string()).optional();
+const McpHeadersSchema = z.record(z.string(), z.string()).optional();
+
+/** `McpServerConfig`: one of the three transports. */
+const McpServerConfigSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('stdio'),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: McpEnvSchema,
+  }),
+  z.object({
+    type: z.literal('http'),
+    url: z.string().min(1),
+    headers: McpHeadersSchema,
+    env: McpEnvSchema,
+  }),
+  z.object({
+    type: z.literal('sse'),
+    url: z.string().min(1),
+    headers: McpHeadersSchema,
+    env: McpEnvSchema,
+  }),
+]);
+
+/**
+ * Validated shape for the `mcpDirectory:install` RPC method.
+ *
+ * `scope` DEFAULTS TO `'workspace'`: an install applies to the open workspace
+ * only unless the caller explicitly asks for every workspace. Which targets a
+ * workspace install may name is checked by the handler, before any write.
+ */
+export const InstallMcpSchema = z.object({
+  serverName: z.string().min(1),
+  serverKey: z.string().min(1),
+  config: McpServerConfigSchema,
+  targets: z.array(McpInstallTargetSchema).min(1),
+  scope: z.enum(['workspace', 'global']).optional().default('workspace'),
+});
+
+export type InstallMcpInput = z.infer<typeof InstallMcpSchema>;
+
+/**
+ * Validated shape for the `mcpDirectory:makeGlobal` RPC method. `homeTargets`
+ * is the opt-in list of home-folder files to add; `[]` adds none.
+ */
+export const MakeMcpGlobalSchema = z.object({
+  serverKey: z.string().min(1),
+  homeTargets: z.array(McpHomeInstallTargetSchema),
+});
+
+export type MakeMcpGlobalInput = z.infer<typeof MakeMcpGlobalSchema>;
+
+/** Fixed refusal for an install request whose fields do not validate. */
+export const MCP_INSTALL_INVALID_ERROR =
+  'This install request is not valid. Nothing was installed.';
+
+/** Fixed refusal for a workspace install with no folder open (D-4, AC4). */
+export const MCP_NO_WORKSPACE_ERROR =
+  'No workspace is open. Nothing was installed. Choose All workspaces to install for every workspace.';
+
+/**
+ * Fixed refusal for a workspace install that names a home-folder target
+ * (D-4, AC6). Copy from the design spec's workspace-scope MCP helper.
+ */
+export const MCP_HOME_TARGET_NEEDS_GLOBAL_ERROR =
+  'This workspace writes only project files. Tools that keep settings in your home folder need All workspaces.';
+
+/** Fixed copy for every `mcpDirectory:makeGlobal` failure (design spec). */
+export function mcpMakeGlobalFailureCopy(serverKey: string): string {
+  return `Could not change where ${serverKey} is installed.`;
+}
+
 /**
  * Validated shape for the `mcpDirectory:uninstall` RPC method.
  *
@@ -60,19 +147,7 @@ export type InstallSmitheryInput = z.infer<typeof InstallSmitherySchema>;
  */
 export const UninstallMcpSchema = z.object({
   serverKey: z.string().min(1),
-  targets: z
-    .array(
-      z.enum([
-        'vscode',
-        'claude',
-        'cursor',
-        'copilot',
-        'codex',
-        'antigravity',
-        'opencode',
-      ]),
-    )
-    .optional(),
+  targets: z.array(McpInstallTargetSchema).optional(),
   force: z.boolean().optional().default(false),
 });
 

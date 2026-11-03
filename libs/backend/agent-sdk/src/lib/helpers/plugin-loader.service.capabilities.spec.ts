@@ -161,10 +161,192 @@ const PRE_TASK_CONFIG: PluginConfigState = {
 };
 
 describe('PluginLoaderService — capability layers', () => {
+  describe('explicit ancestor policy', () => {
+    function scopedStores(roots: string[]) {
+      const stores = new Map(
+        roots.map((root) => [path.resolve(root), createStateStorage()]),
+      );
+      const active = stores.get(path.resolve(roots[0]));
+      if (!active) throw new Error('fixture');
+      const storage = {
+        get: active.get,
+        update: active.update,
+        keys: active.keys,
+        getStorageForWorkspace: (root: string) =>
+          stores.get(path.resolve(root)),
+        getAllWorkspacePaths: () => [...stores.keys()],
+      } as IStateStorage;
+      return { storage, stores };
+    }
+
+    it('layers R -> A -> B nearest first, keeps agents local, and saves only B', async () => {
+      const root = tempDir('ptah-policy-root-');
+      const a = tempDir('ptah-policy-a-');
+      const b = tempDir('ptah-policy-b-');
+      const { storage, stores } = scopedStores([b, a, root]);
+      stores.get(b)?.raw.set(CONFIG_KEY, {
+        enabledPluginIds: ['child-on'],
+        disabledPluginIds: ['same-layer'],
+        enabledSkillIds: ['child-skill', 'same-skill'],
+        disabledSkillIds: ['same-skill'],
+        disabledAgentIds: ['local-agent'],
+      });
+      stores.get(a)?.raw.set(CONFIG_KEY, {
+        enabledPluginIds: ['near-on', 'same-layer'],
+        disabledPluginIds: ['child-on', 'root-on'],
+        enabledSkillIds: ['near-skill'],
+        disabledSkillIds: ['child-skill', 'root-skill'],
+        disabledAgentIds: ['parent-agent'],
+      });
+      stores.get(root)?.raw.set(CONFIG_KEY, {
+        enabledPluginIds: ['root-on', 'distant-on'],
+        disabledSkillIds: ['distant-skill'],
+        enabledSkillIds: ['root-skill'],
+      });
+      const { service } = makeLoader({
+        storage,
+        workspaceRoot: b,
+        globalLayer: createGlobalLayer(
+          okSnapshot([
+            item('plugin', 'global-off', 'off'),
+            item('plugin', 'distant-on', 'off'),
+          ]),
+        ),
+      });
+
+      const effective = await service.getEffectivePluginConfig(b, {
+        ancestorRoots: [a, root, a, b],
+      });
+      expect(effective.config.enabledPluginIds).toEqual([
+        'child-on',
+        'near-on',
+        'distant-on',
+      ]);
+      expect(effective.config.disabledPluginIds).toEqual([
+        'same-layer',
+        'root-on',
+        'global-off',
+      ]);
+      expect(effective.config.enabledSkillIds).toEqual([
+        'child-skill',
+        'same-skill',
+        'near-skill',
+      ]);
+      expect(effective.config.disabledSkillIds).toEqual([
+        'same-skill',
+        'root-skill',
+        'distant-skill',
+      ]);
+      expect(effective.config.disabledAgentIds).toEqual(['local-agent']);
+      expect(service.getWorkspacePluginConfig(b).enabledPluginIds).toEqual([
+        'child-on',
+      ]);
+
+      await service.saveWorkspacePluginConfig(
+        {
+          enabledPluginIds: ['changed'],
+          disabledSkillIds: [],
+        },
+        b,
+      );
+      expect(stores.get(a)?.raw.get(CONFIG_KEY)).toMatchObject({
+        enabledPluginIds: ['near-on', 'same-layer'],
+      });
+      expect(stores.get(root)?.raw.get(CONFIG_KEY)).toMatchObject({
+        enabledPluginIds: ['root-on', 'distant-on'],
+      });
+    });
+
+    it('reads shadowed layers strictly and distinguishes absent config from missing roots', async () => {
+      const a = tempDir('ptah-policy-a-');
+      const b = tempDir('ptah-policy-b-');
+      const missing = path.join(a, 'missing');
+      const { storage, stores } = scopedStores([b, a]);
+      stores
+        .get(b)
+        ?.raw.set(CONFIG_KEY, {
+          enabledPluginIds: ['x'],
+          disabledSkillIds: [],
+        });
+      const { service } = makeLoader({ storage, workspaceRoot: b });
+      await expect(
+        service.getEffectivePluginConfig(b, { ancestorRoots: [a] }),
+      ).resolves.toMatchObject({
+        config: { enabledPluginIds: ['x'] },
+      });
+      stores
+        .get(a)
+        ?.raw.set(CONFIG_KEY, {
+          enabledPluginIds: [],
+          disabledSkillIds: 'bad',
+        });
+      await expect(
+        service.getEffectivePluginConfig(b, { ancestorRoots: [a] }),
+      ).rejects.toBeInstanceOf(CapabilityPolicyUnknownError);
+      stores
+        .get(a)
+        ?.raw.set(CONFIG_KEY, { enabledPluginIds: [], disabledSkillIds: [] });
+      await expect(
+        service.getEffectivePluginConfig(b, { ancestorRoots: [missing] }),
+      ).rejects.toBeInstanceOf(CapabilityPolicyUnknownError);
+      const parent = stores.get(a);
+      if (!parent) throw new Error('fixture');
+      parent.get = () => {
+        throw Object.assign(new Error('unreadable'), { code: 'EACCES' });
+      };
+      await expect(
+        service.getEffectivePluginConfig(b, { ancestorRoots: [a] }),
+      ).rejects.toBeInstanceOf(CapabilityPolicyUnknownError);
+    });
+
+    it('refuses an existing ancestor whose workspace storage is unavailable', async () => {
+      const ancestor = tempDir('ptah-policy-ancestor-');
+      const child = tempDir('ptah-policy-child-');
+      const { storage } = scopedStores([child]);
+      const { service } = makeLoader({ storage, workspaceRoot: child });
+
+      await expect(
+        service.getEffectivePluginConfig(child, { ancestorRoots: [ancestor] }),
+      ).rejects.toMatchObject({
+        reasons: expect.arrayContaining([
+          expect.objectContaining({
+            path: `${ancestor} (${CONFIG_KEY})`,
+            error: 'missing workspace storage',
+          }),
+        ]),
+      });
+    });
+
+    it('deduplicates canonical and same-root aliases for policy and fingerprint', async () => {
+      const b = tempDir('ptah-policy-b-');
+      const a = tempDir('ptah-policy-a-');
+      const alias = path.join(b, 'alias');
+      fs.symlinkSync(a, alias, 'dir');
+      const { storage, stores } = scopedStores([b, a]);
+      stores
+        .get(a)
+        ?.raw.set(CONFIG_KEY, {
+          enabledPluginIds: ['from-a'],
+          disabledSkillIds: [],
+        });
+      const { service } = makeLoader({ storage, workspaceRoot: b });
+      const plain = await service.getEffectivePluginConfig(b, {
+        ancestorRoots: [a],
+      });
+      const repeated = await service.getEffectivePluginConfig(b, {
+        ancestorRoots: [alias, a, b],
+      });
+      expect(repeated.config).toEqual(plain.config);
+      expect(repeated.fingerprint).toBe(plain.fingerprint);
+    });
+  });
   describe('pre-task configs (AC-3.2)', () => {
     it('reads a pre-task config back unchanged, with or without a global layer', async () => {
       const stored = structuredClone(PRE_TASK_CONFIG);
-      for (const globalLayer of [undefined, createGlobalLayer(okSnapshot([]))]) {
+      for (const globalLayer of [
+        undefined,
+        createGlobalLayer(okSnapshot([])),
+      ]) {
         const storage = createStateStorage(stored);
         const { service } = makeLoader({
           storage,
@@ -321,7 +503,9 @@ describe('PluginLoaderService — capability layers', () => {
         storage: createStateStorage(PRE_TASK_CONFIG),
         globalLayer: createGlobalLayer({
           status: 'error',
-          reasons: [{ path: '/home/u/.ptah/capabilities/global', error: 'EACCES' }],
+          reasons: [
+            { path: '/home/u/.ptah/capabilities/global', error: 'EACCES' },
+          ],
         }),
       });
 

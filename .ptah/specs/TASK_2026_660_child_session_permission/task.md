@@ -1,12 +1,16 @@
-# TASK_2026_660 — child sessions ignore the parent's autopilot level
-
+---
+id: TASK_2026_660_child_session_permission
 status: done
 type: BUGFIX
-branch: fix/child-session-permission (worktree .claude-worktrees/fix-child-session-permission)
+title: "Child sessions start at the parent's autopilot level"
+depends_on: []
+created: "2026-10-14T21:55:46.000Z"
+updated: "2026-10-30T01:09:07.477Z"
+description: "A child session started with ptah_session_start must use the parent session's autopilot or permission level instead of auto-edit."
+---
 
-User report (2026-10-14): "I have it in full autopilot and when a session opens a child one it
-asked me for permissions and completely ignored the permission I chose already."
-Requirement: a child session started with ptah_session_start must use the parent session's
-autopilot / permission level. Known lead: parent permission level is passed in but dropped;
-every child starts in auto-edit (chat-session.service.ts ~128-140, ~667).
-Related: the handoff session (TASK_2026_655 B2) must also inherit the caller's level.
+<!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->
+
+A child session started with ptah_session_start must use the parent session's autopilot or permission level instead of auto-edit.
+
+Full context, plan and discussion live in [./context.md](./context.md).

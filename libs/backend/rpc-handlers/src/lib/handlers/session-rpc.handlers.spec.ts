@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * SessionRpcHandlers — unit specs.
  *
@@ -66,6 +69,10 @@ jest.mock('fs/promises', () => ({
   rmdir: jest.fn(),
 }));
 
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'workspace'), { recursive: true });
+mkdirSync(join(TEST_ROOT, 'other-project'), { recursive: true });
 const mockAccess = fs.access as jest.MockedFunction<typeof fs.access>;
 const mockReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
 const mockStat = fs.stat as jest.MockedFunction<typeof fs.stat>;
@@ -106,6 +113,7 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import type {
   JsonlReaderService,
+  SessionMetadata,
   SessionMetadataStore,
   SessionStatsReaderService,
   SessionStatsReadEntry,
@@ -118,10 +126,9 @@ import {
 import type {
   CliSessionReference,
   ProviderAccountBinding,
-  SessionId,
   SessionTurnState,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, SessionId } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -207,13 +214,17 @@ function createMockSdkAdapter(): MockSdkAdapter {
 }
 
 type MockChatSession = {
-  gateSessionAccount: jest.MockedFunction<ChatSessionService['gateSessionAccount']>;
+  gateSessionAccount: jest.MockedFunction<
+    ChatSessionService['gateSessionAccount']
+  >;
   ensureSessionActiveForRewind: jest.Mock;
 };
 
 function createMockChatSession(): MockChatSession {
   return {
-    gateSessionAccount: jest.fn<Promise<void>, [SessionId]>().mockResolvedValue(undefined),
+    gateSessionAccount: jest
+      .fn<Promise<void>, [SessionId]>()
+      .mockResolvedValue(undefined),
     ensureSessionActiveForRewind: jest
       .fn()
       .mockResolvedValue({ alreadyActive: true }),
@@ -281,7 +292,7 @@ function makeMetadata(
     // which rejects anything that does not match the shared `UUID_REGEX`.
     sessionId: '11111111-2222-4333-8444-555555555555',
     name: 'My Session',
-    workspaceId: '/fake/workspace',
+    workspaceId: `${TEST_ROOT}/workspace`,
     createdAt: 1_700_000_000_000,
     lastActiveAt: 1_700_000_500_000,
     totalCost: 0,
@@ -294,7 +305,7 @@ function makeMetadata(
 // Harness
 // ---------------------------------------------------------------------------
 
-const WORKSPACE = '/fake/workspace';
+const WORKSPACE = `${TEST_ROOT}/workspace`;
 /** Valid UUID-shaped session id passing the handler's `/^[0-9a-f-]{36}$/i` guard. */
 const VALID_SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 /**
@@ -965,6 +976,40 @@ describe('SessionRpcHandlers', () => {
         const countOf = (result: ListResult, id: string) =>
           result.sessions.find((s) => s.id === id)?.messageCount;
 
+        it('uses stored native count while Claude still uses the transcript counter', async () => {
+          const nativeId = uuidForRow(86);
+          const claudeId = uuidForRow(87);
+          const h = makeHarness({ transcriptLines: [userPrompt('hi'), assistant('hello')] });
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            {
+              ...makeMetadata({ sessionId: nativeId }),
+              codexMessageCount: 6,
+              codexExecution: {
+                version: 1,
+                sessionId: SessionId.from(nativeId),
+                runtime: 'codex-app-server',
+                providerId: 'openai-codex',
+                workspaceId: WORKSPACE,
+                codex: { normalizedHome: '/home/codex' },
+              },
+            },
+            makeMetadata({ sessionId: claudeId }),
+          ]);
+          stubProjectsDir([nativeId, claudeId]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.handlers.register();
+          const cold = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          expect(countOf(cold, nativeId)).toBe(6);
+          await settleWarm();
+          const warm = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          expect(countOf(warm, nativeId)).toBe(6);
+          expect(countOf(warm, claudeId)).toBe(2);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledWith(
+            expect.stringContaining(`${claudeId}.jsonl`), expect.any(Function), expect.any(Object),
+          );
+        });
+
         it('returns a cold page at once with 0 and never waits for the reader', async () => {
           const h = makeHarness();
           const id = uuidForRow(83);
@@ -1085,7 +1130,9 @@ describe('SessionRpcHandlers', () => {
           mockStat.mockResolvedValue(fileStats as never);
           h.handlers.register();
 
-          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
           expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
           await settleWarm();
 
@@ -1125,7 +1172,9 @@ describe('SessionRpcHandlers', () => {
           mockStat.mockResolvedValue(fileStats as never);
           h.handlers.register();
 
-          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
           await settleWarm();
 
           expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
@@ -1145,7 +1194,9 @@ describe('SessionRpcHandlers', () => {
           );
           h.handlers.register();
 
-          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
           await settleWarm();
           const response = await callRaw(h, 'session:list', {
             workspacePath: WORKSPACE,
@@ -1266,6 +1317,7 @@ describe('SessionRpcHandlers', () => {
           updatedAt: 1,
           tasks: [],
           prLinks: [],
+          todos: null,
           ...overrides,
         };
       }
@@ -1294,12 +1346,16 @@ describe('SessionRpcHandlers', () => {
                   role: 'primary',
                   source: 'user',
                   createdAt: 1,
+                  autoRule: null,
+                  autoEvidence: null,
                 },
                 {
                   taskId: 'TASK_2026_GONE',
                   role: 'related',
                   source: 'agent',
                   createdAt: 2,
+                  autoRule: null,
+                  autoEvidence: null,
                 },
               ],
             }),
@@ -2041,6 +2097,75 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:validate', () => {
+    function nativeMetadata(): SessionMetadata {
+      return {
+        ...makeMetadata({ sessionId: VALID_SESSION_ID, workspaceId: WORKSPACE }),
+        codexExecution: {
+          version: 1,
+          sessionId: VALID_SESSION_ID as SessionId,
+          runtime: 'codex-app-server',
+          providerId: 'openai-codex',
+          workspaceId: WORKSPACE,
+          codex: { normalizedHome: '/home/codex' },
+        },
+        codexThread: {
+          version: 1,
+          contextId: 'native-context',
+          processGeneration: 1,
+          workspaceId: WORKSPACE,
+          profileFingerprint: 'native-profile',
+          state: 'inactive',
+        },
+      };
+    }
+
+    it('accepts a native Codex session without looking for a Claude JSONL', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(nativeMetadata());
+      h.handlers.register();
+      const result = await call<{ exists: boolean; filePath?: string }>(
+        h, 'session:validate',
+        { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
+      );
+      expect(result).toEqual({ exists: true });
+      expect(mockAccess).not.toHaveBeenCalled();
+      expect(mockReaddir).not.toHaveBeenCalled();
+    });
+
+    it.each(['missing', 'invalid'] as const)('falls through without a valid native thread (%s)', async (thread) => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      const metadata = nativeMetadata();
+      h.metadataStore.get.mockResolvedValue({
+        ...metadata,
+        codexThread: thread === 'missing' ? undefined : {
+          version: 1,
+          contextId: '',
+          processGeneration: 0,
+          workspaceId: WORKSPACE,
+          profileFingerprint: 'native-profile',
+          state: 'inactive',
+        },
+      });
+      h.handlers.register();
+      const result = await call<{ exists: boolean }>(h, 'session:validate', {
+        sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE,
+      });
+      expect(result).toEqual({ exists: false });
+      expect(mockAccess).toHaveBeenCalled();
+    });
+
+    it('keeps the Claude JSONL lookup when native execution is absent', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue({ ...nativeMetadata(), codexExecution: undefined });
+      h.handlers.register();
+      const result = await call<{ exists: boolean; filePath?: string }>(
+        h, 'session:validate',
+        { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
+      );
+      expect(result).toEqual({ exists: false });
+      expect(mockAccess).toHaveBeenCalled();
+    });
+
     it('rejects unauthorized workspace paths with exists=false (no throw)', async () => {
       const h = makeHarness({ workspaceFolders: [WORKSPACE] });
       h.handlers.register();
@@ -2258,7 +2383,7 @@ describe('SessionRpcHandlers', () => {
     });
 
     describe("agent records go under the session's own folder (PTAH-37)", () => {
-      const OTHER_PROJECT = '/fake/other-project';
+      const OTHER_PROJECT = `${TEST_ROOT}/other-project`;
       const refs = [{ cli: 'codex', agentId: 'agent-1' }] as never[];
 
       function restoreHarness(): {
@@ -2299,7 +2424,13 @@ describe('SessionRpcHandlers', () => {
 
       it('keeps the cards but skips the registry when the folder is gone', async () => {
         const { h, restoreAgents } = restoreHarness();
-        h.fileSystem.exists.mockResolvedValue(false);
+        h.metadataStore.get.mockResolvedValue(
+          makeMetadata({
+            sessionId: VALID_SESSION_ID,
+            workspaceId: OTHER_PROJECT,
+            workingDirectory: join(OTHER_PROJECT, 'removed-child'),
+          }) as never,
+        );
 
         const result = await call<{ cliSessions: CliSessionReference[] }>(
           h,
@@ -2785,7 +2916,10 @@ describe('SessionRpcHandlers', () => {
         const source = makeMetadata({ sessionId: VALID_SESSION_ID });
         const original = { ...source };
         h.metadataStore.get.mockResolvedValue(source as never);
-        const refusal = { code, summary: 'The session account could not be verified.' };
+        const refusal = {
+          code,
+          summary: 'The session account could not be verified.',
+        };
         h.chatSession.gateSessionAccount.mockRejectedValue(refusal);
         h.handlers.register();
 
@@ -2793,10 +2927,18 @@ describe('SessionRpcHandlers', () => {
           sessionId: VALID_SESSION_ID,
         });
 
-        expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
-        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(result).toEqual({
+          success: false,
+          error: refusal.summary,
+          accountRefusal: refusal,
+        });
+        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(
+          VALID_SESSION_ID,
+        );
         expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
-        expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
+        expect(
+          h.chatSession.ensureSessionActiveForRewind,
+        ).not.toHaveBeenCalled();
         expect(h.metadataStore.delete).not.toHaveBeenCalled();
         expect(h.metadataStore.rename).not.toHaveBeenCalled();
         expect(source).toEqual(original);
@@ -2807,18 +2949,27 @@ describe('SessionRpcHandlers', () => {
 
     it('uses the safe account summary without exposing the rejected error', async () => {
       const h = makeHarness();
-      h.metadataStore.get.mockResolvedValue(makeMetadata({ sessionId: VALID_SESSION_ID }) as never);
-      h.chatSession.gateSessionAccount.mockRejectedValue(Object.assign(
-        new Error('Credential failure at /private/accounts/source'),
-        { code: 'release-held' },
-      ));
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({ sessionId: VALID_SESSION_ID }) as never,
+      );
+      h.chatSession.gateSessionAccount.mockRejectedValue(
+        Object.assign(
+          new Error('Credential failure at /private/accounts/source'),
+          { code: 'release-held' },
+        ),
+      );
       h.handlers.register();
 
-      const result = await call(h, 'session:forkSession', { sessionId: VALID_SESSION_ID });
+      const result = await call(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+      });
 
-      const summary = 'The session account could not be verified. The conversation was preserved.';
+      const summary =
+        'The session account could not be verified. The conversation was preserved.';
       expect(result).toEqual({
-        success: false, error: summary, accountRefusal: { code: 'release-held', summary },
+        success: false,
+        error: summary,
+        accountRefusal: { code: 'release-held', summary },
       });
       expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
       expect(h.logger.error).not.toHaveBeenCalled();
@@ -2857,10 +3008,12 @@ describe('SessionRpcHandlers', () => {
       );
       expect(result.newSessionId).toBe('forked-uuid');
       expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
-      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
-      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
-        h.sdkAdapter.forkSession.mock.invocationCallOrder[0],
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
       );
+      expect(
+        h.chatSession.gateSessionAccount.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.sdkAdapter.forkSession.mock.invocationCallOrder[0]);
       expect(h.metadataStore.get).toHaveBeenCalledTimes(1);
       expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
     });
@@ -3083,7 +3236,10 @@ describe('SessionRpcHandlers', () => {
         const original = { ...source };
         h.metadataStore.get.mockResolvedValue(source as never);
         h.sdkAdapter.isSessionActive.mockReturnValue(active);
-        const refusal = { code: 'release-held', summary: 'Named account admission is release held.' };
+        const refusal = {
+          code: 'release-held',
+          summary: 'Named account admission is release held.',
+        };
         h.chatSession.gateSessionAccount.mockRejectedValue(refusal);
         h.handlers.register();
 
@@ -3092,10 +3248,18 @@ describe('SessionRpcHandlers', () => {
           userMessageId: VALID_USER_MESSAGE_ID,
         });
 
-        expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
-        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(result).toEqual({
+          success: false,
+          error: refusal.summary,
+          accountRefusal: refusal,
+        });
+        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(
+          VALID_SESSION_ID,
+        );
         expect(h.sdkAdapter.isSessionActive).not.toHaveBeenCalled();
-        expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
+        expect(
+          h.chatSession.ensureSessionActiveForRewind,
+        ).not.toHaveBeenCalled();
         expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
         expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
         expect(h.metadataStore.delete).not.toHaveBeenCalled();
@@ -3107,11 +3271,18 @@ describe('SessionRpcHandlers', () => {
 
     it('preserves a typed refusal returned by the inactive resume gate', async () => {
       const h = makeHarness();
-      h.metadataStore.get.mockResolvedValue(makeMetadata({ sessionId: VALID_SESSION_ID }) as never);
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({ sessionId: VALID_SESSION_ID }) as never,
+      );
       h.sdkAdapter.isSessionActive.mockReturnValue(false);
-      const refusal = { code: 'identity-unproved', summary: 'The session account could not be verified.' };
+      const refusal = {
+        code: 'identity-unproved',
+        summary: 'The session account could not be verified.',
+      };
       h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
-        resumed: false, error: refusal.summary, accountRefusal: refusal,
+        resumed: false,
+        error: refusal.summary,
+        accountRefusal: refusal,
       });
       h.handlers.register();
 
@@ -3120,7 +3291,11 @@ describe('SessionRpcHandlers', () => {
         userMessageId: VALID_USER_MESSAGE_ID,
       });
 
-      expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
+      expect(result).toEqual({
+        success: false,
+        error: refusal.summary,
+        accountRefusal: refusal,
+      });
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
       expect(h.logger.error).not.toHaveBeenCalled();
       expect(h.sentry.captureException).not.toHaveBeenCalled();
@@ -3164,10 +3339,12 @@ describe('SessionRpcHandlers', () => {
       expect(result.insertions).toBe(10);
       expect(result.deletions).toBe(4);
       expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
-      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
-      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
-        h.sdkAdapter.isSessionActive.mock.invocationCallOrder[0],
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
       );
+      expect(
+        h.chatSession.gateSessionAccount.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.sdkAdapter.isSessionActive.mock.invocationCallOrder[0]);
       expect(h.metadataStore.get).toHaveBeenCalledTimes(1);
       expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
     });
@@ -3303,8 +3480,12 @@ describe('SessionRpcHandlers', () => {
       expect(h.sdkAdapter.rewindFiles).toHaveBeenCalled();
       expect(result.canRewind).toBe(true);
       expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
-      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
-      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+      );
+      expect(
+        h.chatSession.gateSessionAccount.mock.invocationCallOrder[0],
+      ).toBeLessThan(
         h.chatSession.ensureSessionActiveForRewind.mock.invocationCallOrder[0],
       );
       expect(h.metadataStore.get).toHaveBeenCalledTimes(2);

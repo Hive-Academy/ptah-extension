@@ -80,7 +80,7 @@ describe('migration 0056_skill_nullable_grades', () => {
     expect(MIGRATIONS.filter((migration) => migration.version === 56)).toEqual([
       { version: 56, name: '0056_skill_nullable_grades', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(62);
+    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(64);
     expect(sql).not.toContain('${');
   });
 

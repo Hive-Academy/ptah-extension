@@ -613,9 +613,36 @@ export interface PluginConfigHomeStatus {
   candidates: PluginConfigHomeCandidate[];
 }
 
-/** Result of `plugins:get-config`. `configHome` is absent where no notice applies. */
+/** Params for `plugins:get-config`. */
+export interface PluginsGetConfigParams {
+  /** The selected session (SDK id). Read-only hint; never changes which configuration is returned. */
+  sessionId?: string;
+}
+
+/** A plugin or skill choice recorded nearer to the session than the project. */
+export interface PluginSessionOverride {
+  kind: 'plugin' | 'skill';
+  id: string;
+  value: 'on' | 'off';
+  /** Harness root that records this id. */
+  root: string;
+}
+
+/** Read-only notice of the session's plugin and skill choices. */
+export interface PluginSessionNotice {
+  /** The session's own harness root. */
+  sessionRoot: string;
+  inheritsProjectSettings: boolean;
+  /** Choices recorded nearer than the project, sorted by kind then id. */
+  overrides: PluginSessionOverride[];
+  /** A nearer layer could not be read. */
+  incomplete: boolean;
+}
+
+/** Result of `plugins:get-config`. Optional notices are absent where they do not apply. */
 export type PluginConfigStateWithHome = PluginConfigState & {
   configHome?: PluginConfigHomeStatus;
+  sessionNotice?: PluginSessionNotice;
 };
 
 /** Params for `plugins:resolve-config-home`. */

@@ -43,6 +43,10 @@ export class FileSettingsStore implements ISettingsStore {
     return this.fileSettings.get<T>(key);
   }
 
+  hasGlobal(key: string): boolean {
+    return this.fileSettings.has(key);
+  }
+
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     await this.fileSettings.set(key, value);
   }

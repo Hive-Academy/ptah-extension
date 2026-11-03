@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { computed, effect, signal } from '@angular/core';
+import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -55,6 +56,10 @@ const record = (
   parentSessionId: sessionId,
   status,
 });
+const settledRecord = (
+  key: string,
+  status: SubagentRecord['status'] = 'completed',
+): SubagentRecord => ({ ...record(key, status), settledFromHistory: true });
 const page = (
   events: FlatStreamEventUnion[],
   nextCursor: string | null = null,
@@ -74,7 +79,7 @@ const page = (
 describe('SubagentExecutionStore', () => {
   let store: SubagentExecutionStore;
   const rpc = { call: jest.fn() };
-  const logger = { error: jest.fn(), warn: jest.fn() };
+  const logger = { error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
   const builder = {
     buildTree: jest.fn().mockReturnValue([]),
     clearCache: jest.fn(),
@@ -87,6 +92,7 @@ describe('SubagentExecutionStore', () => {
     builder.clearCache.mockClear();
     logger.error.mockClear();
     logger.warn.mockClear();
+    logger.debug.mockClear();
     subagents.set(new Map());
     TestBed.configureTestingModule({
       providers: [
@@ -115,13 +121,92 @@ describe('SubagentExecutionStore', () => {
     store = TestBed.inject(SubagentExecutionStore);
   });
 
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.useRealTimers();
+  });
 
-  it('finalizes when the monitor publishes a terminal record', () => {
+  it('recovers a completed native child transcript for its inline card', () => {
+    const node = { id: 'child-message', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockReturnValueOnce([node]);
+    const events: FlatStreamEventUnion[] = [
+      start('child-message', 'agent-a', 'history'),
+      delta('child-message', 'Synthetic answer', 'child-answer', 'history'),
+      {
+        id: 'child-done', eventType: 'message_complete',
+        messageId: 'child-message', timestamp: 3,
+        sessionId, parentToolUseId: 'agent-a', source: 'history',
+      },
+    ];
+
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events))
+      .toBe(true);
+    expect(store.treeFor('agent-a')).toEqual([node]);
+    expect(store.entries().get('agent-a')?.agentId).toBe('child-1');
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events))
+      .toBe(false);
+  });
+
+  it('merges missing completed events into a partial routed child once', () => {
+    const prefix = start('child-message', 'agent-a', 'history');
+    const answer = delta('child-message', 'Synthetic answer', 'child-answer', 'history');
+    const completion: FlatStreamEventUnion = {
+      id: 'child-done', eventType: 'message_complete',
+      messageId: 'child-message', timestamp: 3, sessionId,
+      parentToolUseId: 'agent-a', source: 'history',
+    };
+    store.claim(prefix);
+    store.claim(answer);
+    subagents.set(new Map([['agent-a', record('agent-a', 'completed')]]));
+    const builtIds: string[][] = [];
+    const node = { id: 'child-message', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockImplementationOnce((state: StreamingState) => {
+      builtIds.push([...state.events.keys()]);
+      return [node];
+    });
+    const events = [prefix, answer, completion];
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(true);
+    expect(builtIds).toEqual([[prefix.id, answer.id, completion.id]]);
+    expect(store.treeFor('agent-a')).toEqual([node]);
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(false);
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a finalized partial child with its complete native snapshot', () => {
+    const prefix = start('child-message', 'agent-a', 'history');
+    store.claim(prefix);
+    builder.buildTree.mockReturnValueOnce([{ id: 'partial', content: '', children: [] }]);
+    store.syncRecord(settledRecord('agent-a'));
+    const full = { id: 'complete', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockReturnValueOnce([full]);
+    const events: FlatStreamEventUnion[] = [
+      prefix,
+      delta('child-message', 'Synthetic answer', 'child-answer', 'history'),
+    ];
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(true);
+    expect(store.treeFor('agent-a')).toEqual([full]);
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(false);
+    expect(builder.buildTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not replace a running child with recovered history', () => {
+    store.claim(start('live-message'));
+    const before = store.entryFor('agent-a');
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', [
+      start('history-message', 'agent-a', 'history'),
+    ])).toBe(false);
+    expect(store.entryFor('agent-a')).toBe(before);
+    expect(builder.buildTree).not.toHaveBeenCalled();
+  });
+
+  it('finalizes after the drain window when the monitor publishes a terminal record', () => {
+    jest.useFakeTimers();
     const completed = record('agent-a', 'completed');
     store.claim(start('m'));
     subagents.set(new Map([['agent-a', completed]]));
     TestBed.flushEffects();
+    expect(store.entries().get('agent-a')?.live).toBe(true);
+    jest.advanceTimersByTime(1500);
     expect(store.entries().get('agent-a')?.live).toBe(false);
   });
 
@@ -225,22 +310,67 @@ describe('SubagentExecutionStore', () => {
     ]).toContain('one two');
   });
 
-  it('refinalizes a late event after a terminal record', () => {
+  it('keeps late child events in the live card until the drain window ends', () => {
+    jest.useFakeTimers();
+    builder.buildTree.mockReturnValue([{ id: 'combined-node' }]);
     store.syncRecord(record('agent-a'));
     store.claim(start('m'));
+    store.claim(delta('m', 'before ', 'before'));
+    const entry = store.entries().get('agent-a')!;
+
     store.syncRecord(record('agent-a', 'completed'));
-    expect(store.entries().get('agent-a')?.state).toBeNull();
+    jest.advanceTimersByTime(1000);
     expect(store.claim(delta('m', 'late', 'late'))).toBe(true);
-    expect(store.entries().get('agent-a')?.state).toBeNull();
-    expect(store.entries().get('agent-a')?.live).toBe(false);
+
+    expect(store.entries().get('agent-a')).toBe(entry);
+    expect(entry.live).toBe(true);
+    expect([...entry.state!.textAccumulators.values()]).toContain('before late');
+    jest.advanceTimersByTime(1499);
+    expect(entry.live).toBe(true);
+    jest.advanceTimersByTime(1);
+
+    expect(entry.live).toBe(false);
+    expect(entry.state).toBeNull();
+    expect(entry.finalized).toEqual([{ id: 'combined-node' }]);
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+    const finalizedState = builder.buildTree.mock.calls[0][0];
+    expect([...finalizedState.textAccumulators.values()]).toContain(
+      'before late',
+    );
+  });
+
+  it('finalizes a history-settled record immediately without a timer', () => {
+    jest.useFakeTimers();
+    store.claim(start('m'));
+    store.syncRecord(settledRecord('agent-a'));
+
+    expect(store.entries().get('agent-a')).toMatchObject({
+      live: false,
+      state: null,
+    });
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('clears a pending drain timer when the session resets', () => {
+    jest.useFakeTimers();
+    store.claim(start('m'));
+    store.syncRecord(record('agent-a', 'completed'));
+    expect(store.entries().get('agent-a')?.live).toBe(true);
+
+    store.clearSession(sessionId);
+    expect(store.entries().has('agent-a')).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+    jest.advanceTimersByTime(5000);
+    expect(store.entries().has('agent-a')).toBe(false);
   });
 
   it('evicts the least recently read finalized entry and respects pins', () => {
     store.retain('agent-0');
-    store.syncRecord(record('agent-0', 'completed'));
+    store.syncRecord(settledRecord('agent-0'));
     for (let n = 1; n <= 21; n++) {
       const key = `agent-${n}`;
-      store.syncRecord(record(key, 'completed'));
+      store.syncRecord(settledRecord(key));
       if (n === 1) store.treeFor(key);
     }
     expect(store.entries().has('agent-0')).toBe(true);
@@ -435,9 +565,9 @@ describe('SubagentExecutionStore', () => {
   });
 
   it('reopens an evicted terminal entry with a session for history', async () => {
-    store.syncRecord(record('agent-a', 'completed'));
+    store.syncRecord(settledRecord('agent-a'));
     for (let index = 0; index < 21; index++)
-      store.syncRecord(record(`other-${index}`, 'completed'));
+      store.syncRecord(settledRecord(`other-${index}`));
     expect(store.entries().has('agent-a')).toBe(false);
     store.retain('agent-a', sessionId);
     rpc.call.mockResolvedValueOnce(page([]));
@@ -537,7 +667,7 @@ describe('SubagentExecutionStore', () => {
   });
 
   it('takes snapshot output into finalized when there is no live state', async () => {
-    store.syncRecord(record('agent-a', 'completed'));
+    store.syncRecord(settledRecord('agent-a'));
     rpc.call.mockResolvedValue(page([start('real', 'agent-a', 'history')]));
     await store.ensureHistory('agent-a');
     expect(store.entries().get('agent-a')?.state).toBeNull();
@@ -658,5 +788,297 @@ describe('SubagentExecutionStore', () => {
       expect.stringContaining('missing'),
     );
     expect(rpc.call).not.toHaveBeenCalled();
+  });
+
+  describe('refreshLiveHistory (live background agent)', () => {
+    const notFound = () => ({
+      isSuccess: () => true,
+      data: { ...page([]).data, status: 'not-found' },
+    });
+    const progress: FlatStreamEventUnion = {
+      id: 'progress',
+      eventType: 'agent_progress',
+      timestamp: 3,
+      sessionId,
+      messageId: 'parent',
+      parentToolUseId: 'agent-a',
+      taskId: 'task',
+      description: 'Working',
+      totalTokens: 118300,
+      toolUses: 3,
+      durationMs: 1000,
+    };
+
+    it('backfills the tree from a sidechain that appears and grows', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      store.retain('agent-a', sessionId);
+      // Only progress summaries reach the stream: nothing for the tree.
+      expect(store.claim(progress)).toBe(false);
+      expect(store.entries().get('agent-a')?.state).toBeNull();
+
+      // The transcript is not on disk yet: no sticky not-found.
+      rpc.call.mockResolvedValueOnce(notFound());
+      await store.refreshLiveHistory('agent-a');
+      expect(store.entries().get('agent-a')?.history).toBe('idle');
+
+      rpc.call.mockResolvedValueOnce(
+        page([
+          start('h1', 'agent-a', 'history'),
+          delta('h1', 'first', 'h1-text', 'history'),
+        ]),
+      );
+      await store.refreshLiveHistory('agent-a');
+      rpc.call.mockResolvedValueOnce(
+        page([
+          start('h1', 'agent-a', 'history'),
+          delta('h1', 'first', 'h1-text', 'history'),
+          start('h2', 'agent-a', 'history'),
+          delta('h2', 'second', 'h2-text', 'history'),
+        ]),
+      );
+      await store.refreshLiveHistory('agent-a');
+
+      const entry = store.entries().get('agent-a')!;
+      expect(rpc.call).toHaveBeenCalledTimes(3);
+      expect(rpc.call).toHaveBeenLastCalledWith(
+        'subagent:history-page',
+        expect.objectContaining({ sessionId, toolCallId: 'agent-a' }),
+      );
+      expect(entry.live).toBe(true);
+      // Silent: the final authoritative load still runs at completion.
+      expect(entry.history).toBe('idle');
+      expect(entry.state!.messageEventIds).toEqual(['h1', 'h2']);
+      expect([...entry.state!.textAccumulators.values()]).toEqual([
+        'first',
+        'second',
+      ]);
+    });
+
+    it('backs off a transcript that stays missing, without warning', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      let now = 1_000_000;
+      const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      try {
+        rpc.call.mockResolvedValue(notFound());
+        // The first reads keep the lane interval: the file appears shortly.
+        for (let read = 0; read < 3; read++) {
+          await store.refreshLiveHistory('agent-a');
+          now += 5_000;
+        }
+        expect(rpc.call).toHaveBeenCalledTimes(3);
+        await store.refreshLiveHistory('agent-a');
+        expect(rpc.call).toHaveBeenCalledTimes(4);
+        // Now backing off: the next lane tick does not re-read.
+        now += 1_000;
+        await store.refreshLiveHistory('agent-a');
+        expect(rpc.call).toHaveBeenCalledTimes(4);
+        now += 60_000;
+        await store.refreshLiveHistory('agent-a');
+        expect(rpc.call).toHaveBeenCalledTimes(5);
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(store.entries().get('agent-a')?.history).toBe('idle');
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it('keeps the state and logs at debug level when a refresh fails', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      rpc.call.mockResolvedValueOnce({
+        isSuccess: () => false,
+        error: 'boom',
+      });
+      await store.refreshLiveHistory('agent-a');
+      expect(store.entries().get('agent-a')?.history).toBe('idle');
+      expect(logger.debug).toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('replaces the earlier tree of a resumed agent instead of repeating it', async () => {
+      jest.useFakeTimers();
+      store.syncRecord(record('agent-a'));
+      store.retain('agent-a', sessionId);
+      store.claim(start('m1'));
+      store.claim(delta('m1', 'first run', 'd1'));
+      builder.buildTree.mockReturnValueOnce([{ id: 'first-run-node' }]);
+      store.syncRecord(record('agent-a', 'completed'));
+      jest.advanceTimersByTime(1500);
+      expect(store.entries().get('agent-a')?.finalized).toHaveLength(1);
+      // A follow-up message resumes the agent; its transcript holds both runs.
+      store.syncRecord(record('agent-a', 'background'));
+      rpc.call.mockResolvedValueOnce(
+        page([
+          start('m1', 'agent-a', 'history'),
+          delta('m1', 'first run', 'h1', 'history'),
+          start('m2', 'agent-a', 'history'),
+          delta('m2', 'second run', 'h2', 'history'),
+        ]),
+      );
+      await store.refreshLiveHistory('agent-a');
+      const entry = store.entries().get('agent-a')!;
+      expect(entry.finalized).toEqual([]);
+      expect(entry.state!.messageEventIds).toEqual(['m1', 'm2']);
+    });
+
+    it('restarts from the first page when a growing transcript expires the cursor', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      rpc.call
+        .mockResolvedValueOnce(
+          page([start('old', 'agent-a', 'history')], 'cursor-1'),
+        )
+        .mockResolvedValueOnce({
+          isSuccess: () => false,
+          error: 'Agent history cursor expired; restart from the first page',
+          errorCode: 'HISTORY_CURSOR_STALE',
+        })
+        .mockResolvedValueOnce(
+          page([
+            start('old', 'agent-a', 'history'),
+            start('new', 'agent-a', 'history'),
+          ]),
+        );
+      await store.refreshLiveHistory('agent-a');
+      expect(rpc.call.mock.calls.map(([, params]) => params.cursor)).toEqual([
+        undefined,
+        'cursor-1',
+        undefined,
+      ]);
+      expect(store.entries().get('agent-a')!.state!.messageEventIds).toEqual([
+        'old',
+        'new',
+      ]);
+      expect(logger.debug).not.toHaveBeenCalled();
+    });
+
+    it('backs off after failed refreshes and warns once when they persist', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      let now = 1_000_000;
+      const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      try {
+        rpc.call.mockResolvedValue({ isSuccess: () => false, error: 'boom' });
+        await store.refreshLiveHistory('agent-a');
+        // Backing off: the next lane tick does not re-read.
+        now += 1000;
+        await store.refreshLiveHistory('agent-a');
+        expect(rpc.call).toHaveBeenCalledTimes(1);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          now += 60_000;
+          await store.refreshLiveHistory('agent-a');
+        }
+        expect(rpc.call).toHaveBeenCalledTimes(4);
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        expect(logger.warn).toHaveBeenCalledWith(
+          'SubagentExecutionStore',
+          expect.stringContaining('keeps failing'),
+          expect.any(Error),
+        );
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it('does not merge an unchanged transcript again', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      const events = [
+        start('h1', 'agent-a', 'history'),
+        delta('h1', 'same', 'h1-text', 'history'),
+      ];
+      rpc.call.mockResolvedValue(page(events));
+      await store.refreshLiveHistory('agent-a');
+      const published = store.entries();
+      await store.refreshLiveHistory('agent-a');
+      expect(rpc.call).toHaveBeenCalledTimes(2);
+      expect(store.entries()).toBe(published);
+    });
+
+    it('shows a text-only child message once when stream and replay ids differ', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      store.claim(start('stream-id'));
+      store.claim(delta('stream-id', 'hello', 'd1'));
+      rpc.call.mockResolvedValueOnce(
+        page([
+          start('replay-id', 'agent-a', 'history'),
+          delta('replay-id', 'hello', 'h1', 'history'),
+        ]),
+      );
+      await store.refreshLiveHistory('agent-a');
+      expect(store.entries().get('agent-a')!.state!.messageEventIds).toEqual([
+        'replay-id',
+      ]);
+    });
+
+    it('aborts a refresh in flight when the record moves the agent to another session', async () => {
+      store.retain('agent-a', 'stale-session');
+      let resolve!: (value: ReturnType<typeof page>) => void;
+      rpc.call.mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof page>>((r) => {
+            resolve = r;
+          }),
+      );
+      const stale = store.refreshLiveHistory('agent-a');
+      store.syncRecord(record('agent-a', 'background'));
+      resolve(page([start('stale', 'agent-a', 'history')]));
+      await stale;
+      expect(store.entries().get('agent-a')?.state).toBeNull();
+      rpc.call.mockResolvedValueOnce(page([start('m', 'agent-a', 'history')]));
+      await store.refreshLiveHistory('agent-a');
+      expect(rpc.call).toHaveBeenLastCalledWith(
+        'subagent:history-page',
+        expect.objectContaining({ sessionId }),
+      );
+      expect(store.entries().get('agent-a')!.state!.messageEventIds).toEqual([
+        'm',
+      ]);
+    });
+
+    it('coalesces overlapping refreshes and aborts one when the lane closes', async () => {
+      store.syncRecord(record('agent-a', 'background'));
+      store.retain('agent-a', sessionId);
+      let resolve!: (value: ReturnType<typeof page>) => void;
+      rpc.call.mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof page>>((r) => {
+            resolve = r;
+          }),
+      );
+      const first = store.refreshLiveHistory('agent-a');
+      const second = store.refreshLiveHistory('agent-a');
+      expect(rpc.call).toHaveBeenCalledTimes(1);
+      store.release('agent-a');
+      resolve(page([start('late', 'agent-a', 'history')]));
+      await Promise.all([first, second]);
+      expect(store.entries().get('agent-a')?.state).toBeNull();
+    });
+
+    it('does not refresh a finalized agent, and the final load supersedes a pending refresh', async () => {
+      jest.useFakeTimers();
+      store.syncRecord(record('agent-a', 'background'));
+      store.retain('agent-a', sessionId);
+      let resolve!: (value: ReturnType<typeof page>) => void;
+      rpc.call.mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof page>>((r) => {
+            resolve = r;
+          }),
+      );
+      const refresh = store.refreshLiveHistory('agent-a');
+      store.syncRecord(record('agent-a', 'completed'));
+      rpc.call.mockResolvedValueOnce(
+        page([start('final', 'agent-a', 'history')]),
+      );
+      await store.ensureHistory('agent-a');
+      expect(store.entries().get('agent-a')?.history).toBe('loaded');
+      jest.advanceTimersByTime(1500);
+      resolve(page([start('stale', 'agent-a', 'history')]));
+      await refresh;
+      await store.refreshLiveHistory('agent-a');
+      expect(rpc.call).toHaveBeenCalledTimes(2);
+      expect(builder.buildTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ messageEventIds: ['final'] }),
+        'subagent-agent-a',
+        { rootParentToolUseId: 'agent-a' },
+      );
+    });
   });
 });

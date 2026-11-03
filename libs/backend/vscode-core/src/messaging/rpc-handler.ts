@@ -44,6 +44,7 @@ import {
 export const ALLOWED_METHOD_PREFIXES = [
   'artifacts:',
   'attention:',
+  'displayWindow:',
   'session:',
   'chat:',
   'file:',

@@ -37,6 +37,46 @@ function storage() {
 }
 
 describe('KeyValueLaneOutcomeStore', () => {
+  it('persists guarded classification and null-only joins across reload', async () => {
+    const memory = storage();
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
+    await store.insertIfAbsent({
+      ...outcomeRow('pending'),
+      taskKind: null,
+      taskKindSource: 'unclassified',
+      subagentSessionId: 'original',
+      parentSessionId: null,
+      workspaceRoot: null,
+    });
+    expect(await store.setClassifiedTaskKind('missing', 'review')).toBe(false);
+    expect(await store.setClassifiedTaskKind('pending', 'implement')).toBe(true);
+    expect(await store.setClassifiedTaskKind('pending', 'review')).toBe(false);
+    const join = {
+      subagentSessionId: 'replacement',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    };
+    expect(await store.fillMissingSubagentJoin('missing', join)).toBe(false);
+    expect(await store.fillMissingSubagentJoin('pending', join)).toBe(true);
+    expect(await store.fillMissingSubagentJoin('pending', join)).toBe(false);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state, testLogger());
+    expect(await reopened.get('pending')).toMatchObject({
+      taskKind: 'implement',
+      taskKindSource: 'classified',
+      subagentSessionId: 'original',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    });
+    await reopened.insertIfAbsent({
+      ...outcomeRow('explicit'),
+      taskKind: 'review',
+      taskKindSource: 'explicit',
+    });
+    expect(await reopened.setClassifiedTaskKind('explicit', 'implement')).toBe(false);
+    expect((await new KeyValueLaneOutcomeStore(memory.state, testLogger()).get('explicit'))?.taskKind)
+      .toBe('review');
+  });
+
   it('keeps valid snapshot rows and warns once for malformed rows', async () => {
     const memory = storage();
     await memory.state.update(LANE_OUTCOME_RECORDS_KEY, {

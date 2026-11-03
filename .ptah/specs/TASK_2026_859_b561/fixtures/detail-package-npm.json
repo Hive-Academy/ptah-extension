@@ -1,0 +1,29 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "agency.kesey/pretrip",
+    "description": "Screen regulated-health marketing copy against source-cited rulesets, all 50 states.",
+    "title": "Pre-Trip compliance scanner",
+    "version": "1.0.1",
+    "websiteUrl": "https://scan.kesey.agency/developers/",
+    "packages": [
+      {
+        "registryType": "npm",
+        "identifier": "pretrip-mcp",
+        "version": "1.0.1",
+        "transport": {
+          "type": "stdio"
+        }
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-07-26T18:03:21.463557Z",
+      "publishedAt": "2026-07-26T18:03:21.463557Z",
+      "updatedAt": "2026-07-26T18:03:21.463557Z",
+      "isLatest": true
+    }
+  }
+}

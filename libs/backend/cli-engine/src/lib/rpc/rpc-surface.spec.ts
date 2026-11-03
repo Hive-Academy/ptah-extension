@@ -47,6 +47,9 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'file:save-dialog',
   'file:saveContent',
   'file:viewContent',
+  // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
+  // is Electron-only, see expected-absent.ts.
+  'git:watchRoots',
   // Claude account management (TASK_2026_712 D30) — `providerAccounts`
   // capability is Electron-only, see expected-absent.ts.
   'provider:addAccount',
@@ -78,6 +81,22 @@ describe('CLI RPC surface', () => {
   it('serves artifact methods with the optional store absent', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
+    );
+  });
+
+  it('serves the displayWindow namespace, answered by the desktop-only host (TASK_2026_853)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'displayWindow:open',
+        'displayWindow:close',
+        'displayWindow:status',
+        'displayWindow:publishState',
+        'displayWindow:getState',
+        'displayWindow:action',
+      ]),
+    );
+    expect(surface.excluded.some((m) => m.startsWith('displayWindow:'))).toBe(
+      false,
     );
   });
 

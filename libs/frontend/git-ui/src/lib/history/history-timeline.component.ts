@@ -9,6 +9,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { injectWallClock } from '@ptah-extension/core';
 import {
   CircleAlert,
   GitMerge,
@@ -62,8 +63,8 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
   const parent = isMerge ? 'its first parent' : 'its parent';
   return {
     commit,
-    relative: valid ? stashAge(time, now) : '',
-    absolute: valid ? new Date(time).toLocaleString() : commit.authorDate,
+    relative: valid ? stashAge(time, now) : '—',
+    absolute: valid ? new Date(time).toLocaleString() : '—',
     isMerge,
     title: `Open ${commit.shortSha} read-only, compared with ${parent}`,
   };
@@ -81,8 +82,8 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
  *   to compare with, so its row offers "Initial commit — open in editor".
  *
  * The log is read when the tab shows, and again when it shows after HEAD,
- * the branch or a push moved (or a read failed). No timer: nothing here runs
- * while the tab is hidden.
+ * the branch or a push moved (or a read failed). Relative times advance while
+ * the tab is shown.
  */
 @Component({
   selector: 'ptah-history-timeline',
@@ -344,6 +345,7 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
 export class HistoryTimelineComponent {
   /** Whether the History tab is the one showing; reads happen only then. */
   readonly shown = input(false);
+  private readonly now = injectWallClock('coarse', () => this.shown());
 
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly launchers = inject(EditorLauncherService);
@@ -426,7 +428,7 @@ export class HistoryTimelineComponent {
   );
 
   protected readonly rows = computed<CommitRow[]>(() => {
-    const now = Date.now();
+    const now = this.now();
     return (this.ok()?.commits ?? []).map((commit) => toRow(commit, now));
   });
 

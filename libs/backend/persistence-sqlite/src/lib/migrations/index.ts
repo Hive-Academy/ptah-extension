@@ -88,6 +88,8 @@ import { sql as sql0059ProviderAccountSessionLinks } from './0059_provider_accou
 import { sql as sql0060ProviderAccountLeaseEpoch } from './0060_provider_account_lease_epoch';
 import { sql as sql0061ProviderAccountLeaseHost } from './0061_provider_account_lease_host';
 import { sql as sql0062ProviderAccountOperationHost } from './0062_provider_account_operation_host';
+import { sql as sql0063SessionAutoLinks } from './0063_session_auto_links';
+import { sql as sql0064LaneOutcomeTaskKindSource } from './0064_lane_outcome_task_kind_source';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -443,5 +445,15 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 62,
     name: '0062_provider_account_operation_host',
     sql: sql0062ProviderAccountOperationHost,
+  },
+  {
+    version: 63,
+    name: '0063_session_auto_links',
+    sql: sql0063SessionAutoLinks,
+  },
+  {
+    version: 64,
+    name: '0064_lane_outcome_task_kind_source',
+    sql: sql0064LaneOutcomeTaskKindSource,
   },
 ];

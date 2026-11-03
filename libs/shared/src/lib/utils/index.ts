@@ -63,6 +63,13 @@ export {
 } from './codex-token-freshness';
 export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
 export {
+  isSameWorkingRoot,
+  resolveSessionWorkingRoot,
+  type SessionWorkingRoot,
+  type SessionWorkingRootInput,
+  type SessionWorkingRootSource,
+} from './session-working-root';
+export {
   laneFamilyOf,
   SUBAGENT_FAMILY,
   type LaneFamilyInput,
@@ -86,9 +93,16 @@ export {
 } from './agents-region.utils';
 export {
   addCliUsage,
+  cliUsageTokenTotal,
   hasReportedCliCacheTokens,
   type CliUsageTotals,
 } from './cli-usage.utils';
+export { isValidTokenCount, messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
+export {
+  contextFillTokens,
+  trustedContextWindow,
+  contextFillPercent,
+} from './context-fill.utils';
 export {
   activeEstimatedExhaustion,
   activeWindowExhaustion,

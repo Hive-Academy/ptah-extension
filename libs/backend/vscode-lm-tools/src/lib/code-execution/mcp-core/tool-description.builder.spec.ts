@@ -16,6 +16,8 @@ import {
   buildGetDependentsTool,
   buildGetDiagnosticsTool,
   buildGetSymbolIndexTool,
+  buildHarnessCreateSkillTool,
+  buildHarnessInstallMcpTool,
   buildLspDefinitionsTool,
   buildLspReferencesTool,
   buildTaskCheckTool,
@@ -829,5 +831,42 @@ describe('Batch 31 — compact language lists keep every pin', () => {
       expect(reindex.length).toBeLessThanOrEqual(536);
     });
     jest.dontMock('@ptah-extension/workspace-intelligence');
+  });
+});
+
+describe('harness install tools — workspace scope is the default', () => {
+  function schemaProperty(
+    tool: MCPToolDefinition,
+    name: string,
+  ): { enum?: string[]; description?: string } {
+    const properties = (
+      tool.inputSchema as {
+        properties: Record<string, { enum?: string[]; description?: string }>;
+      }
+    ).properties;
+    return properties[name];
+  }
+
+  it('createSkill names workspace as the default and user as the explicit global choice', () => {
+    const tool = buildHarnessCreateSkillTool();
+    expect(tool.name).toBe('ptah_harness_create_skill');
+    expect(tool.description).toContain('scope:"workspace" (the DEFAULT)');
+    expect(tool.description).not.toContain('scope:"user" (the DEFAULT)');
+    const scope = schemaProperty(tool, 'scope');
+    expect(scope.enum).toEqual(['user', 'workspace']);
+    expect(scope.description).toMatch(/^"workspace" \(default\)/);
+  });
+
+  it('installMcpServer exposes the user|workspace scope and the home-target rule', () => {
+    const tool = buildHarnessInstallMcpTool();
+    expect(tool.name).toBe('ptah_harness_install_mcp_server');
+    expect(tool.description).toContain('scope:"workspace" (the DEFAULT)');
+    expect(tool.description).toMatch(/codex, copilot, antigravity/);
+    const scope = schemaProperty(tool, 'scope');
+    expect(scope.enum).toEqual(['user', 'workspace']);
+    expect(scope.description).toMatch(/^"workspace" \(default\)/);
+    expect(
+      (tool.inputSchema as { required: string[] }).required,
+    ).toEqual(['serverName', 'config']);
   });
 });

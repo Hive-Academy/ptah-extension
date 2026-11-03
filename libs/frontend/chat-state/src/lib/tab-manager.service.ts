@@ -242,6 +242,7 @@ export class TabManagerService {
   private readonly commandCenterRecords = inject(CommandCenterRecordsService);
   private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
+  readonly backgroundTabsRevision = this.workspacePartition.backgroundRevision$;
   private readonly workflowIndex = inject(WorkflowSessionIndexService);
   /**
    * Multi-tab fan-out support.

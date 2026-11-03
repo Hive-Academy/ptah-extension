@@ -171,13 +171,13 @@ describe('AgentCardComponent flat execution header', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
     fixture.componentRef.setInput(
       'agent',
-      lane({ status: 'stopped', stopReason: 'tool-call-budget' }),
+      lane({ status: 'stopped', stopReason: 'repeat-call' }),
     );
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
     const label = metaText(fixture.nativeElement);
     expect(label).toContain('Stopped');
-    expect(label).toContain('Stopped: tool-call limit reached');
+    expect(label).toContain('Stopped: repeated the same tool call');
   });
 
   it.each([{ totalTokens: 0 }, { inputTokens: 0, outputTokens: 0 }])(
@@ -231,7 +231,7 @@ describe('AgentCardComponent flat execution header', () => {
       'agent',
       lane({
         usageTotals: null,
-        stopReason: 'tool-call-budget',
+        stopReason: 'repeat-call',
         segments: [
           {
             type: 'info',
@@ -249,7 +249,7 @@ describe('AgentCardComponent flat execution header', () => {
       fixture.nativeElement.querySelector('[data-testid="lane-stats-tokens"]')
         ?.textContent,
     ).toContain('≥ 1.3k');
-    expect(meta).toContain('Stopped: tool-call limit reached');
+    expect(meta).toContain('Stopped: repeated the same tool call');
     expect(
       fixture.nativeElement.querySelector('[data-test="execution-header-meta"]')
         ?.className,

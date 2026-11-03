@@ -38,17 +38,17 @@ import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
           aria-hidden="true"
         />
         <p class="text-sm font-medium">
-          The Skills Library is only available in the Ptah desktop app.
+          The Skills Library is only available in the PtahCode desktop app.
         </p>
         <p class="text-xs text-base-content-muted">
-          Download Ptah desktop to manage your Skills, Agents and Commands Library.
+          Download PtahCode desktop to manage your Skills, Agents and Commands Library.
         </p>
         <a
           class="link link-primary text-xs"
-          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          href="https://github.com/Hive-Academy/PtahCode/releases"
           target="_blank"
           rel="noopener noreferrer"
-          >Download Ptah desktop</a
+          >Download PtahCode desktop</a
         >
       </div>
     } @else {

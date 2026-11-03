@@ -176,12 +176,33 @@ interface GitDirs {
   readonly commonDir: string;
 }
 
+/** How one {@link GitWatcherService.start} arms its watchers. */
+export interface GitWatcherStartOptions {
+  /**
+   * Run the agent-worktree audit (prune vanished `.claude-worktrees/*`
+   * entries and push `git:worktreeChanged`). Only the primary workspace
+   * watcher audits; secondary per-root watchers (TASK_2026_855) pass false.
+   */
+  readonly agentWorktreeAudit: boolean;
+}
+
+const DEFAULT_START_OPTIONS: GitWatcherStartOptions = {
+  agentWorktreeAudit: true,
+};
+
 export class GitWatcherService {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private workspacePath: string | null = null;
   private broadcastFn: ((type: string, payload: unknown) => void) | null = null;
   private isDisposed = false;
+  private startOptions: GitWatcherStartOptions = DEFAULT_START_OPTIONS;
+
+  /**
+   * Told after every arm on a new root, so a secondary watcher pool can stop
+   * duplicating the primary root and arm the root it no longer covers.
+   */
+  private rootChangeListener: (() => void) | null = null;
 
   /**
    * Pending workspace-switch debounce. Rapid successive `switchWorkspace`
@@ -391,17 +412,22 @@ export class GitWatcherService {
    *
    * @param workspacePath - Absolute path to the workspace root
    * @param broadcast - Function to push messages to the renderer
+   * @param options - Whether this watcher runs the agent-worktree audit;
+   *   kept for the re-arms {@link switchWorkspace} does.
    */
   start(
     workspacePath: string,
     broadcast: (type: string, payload: unknown) => void,
+    options: GitWatcherStartOptions = DEFAULT_START_OPTIONS,
   ): void {
     this.stop();
 
     this.workspacePath = workspacePath;
     this.broadcastFn = broadcast;
+    this.startOptions = options;
     this.isDisposed = false;
     this.armGeneration++;
+    this.notifyRootChange();
 
     this.logger.info('[GitWatcher] Starting file system watchers', {
       workspacePath,
@@ -418,9 +444,11 @@ export class GitWatcherService {
       return;
     }
 
-    // The arm-time listing carries the first agent-worktree audit.
-    this.lastWorktreeAuditAt = Date.now();
-    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, true);
+    // The arm-time listing carries the first agent-worktree audit. Without
+    // the audit the stamp stays null, which keeps every later claim false.
+    const audit = this.startOptions.agentWorktreeAudit;
+    if (audit) this.lastWorktreeAuditAt = Date.now();
+    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, audit);
 
     this.subscribeGitDir(this.resolveGitDirs(gitDir));
 
@@ -545,9 +573,38 @@ export class GitWatcherService {
       const target = this.pendingSwitchPath;
       this.pendingSwitchPath = null;
       if (target && target !== this.workspacePath && this.broadcastFn) {
-        this.start(target, this.broadcastFn);
+        this.start(target, this.broadcastFn, this.startOptions);
       }
     }, GitWatcherService.SWITCH_DEBOUNCE_MS);
+  }
+
+  /** The root this watcher is armed on, or null when it is stopped. */
+  watchedRoot(): string | null {
+    return this.isDisposed ? null : this.workspacePath;
+  }
+
+  /**
+   * Register the one listener told after every arm (see
+   * {@link rootChangeListener}); null removes it. Listener failures are
+   * logged and never stop the arm.
+   */
+  setRootChangeListener(listener: (() => void) | null): void {
+    this.rootChangeListener = listener;
+  }
+
+  private notifyRootChange(): void {
+    const listener = this.rootChangeListener;
+    if (!listener) return;
+    try {
+      listener();
+    } catch (err) {
+      // degradation-audit: reported - a failing listener only delays the
+      // secondary pool's reconcile; the primary watcher keeps arming.
+      this.logger.error(
+        '[GitWatcher] Root change listener failed',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
   }
 
   /**
@@ -937,11 +994,14 @@ export class GitWatcherService {
     try {
       const pruned = await this.gitInfo.pruneWorktrees(main);
       if (!pruned.success) {
-        this.logger.warn('[GitWatcher] Pruning vanished agent worktrees failed', {
-          workspaceRoot,
-          paths: vanished.map((w) => w.path),
-          error: pruned.error,
-        });
+        this.logger.warn(
+          '[GitWatcher] Pruning vanished agent worktrees failed',
+          {
+            workspaceRoot,
+            paths: vanished.map((w) => w.path),
+            error: pruned.error,
+          },
+        );
         return;
       }
       const listing = await this.gitInfo.getWorktrees(main);

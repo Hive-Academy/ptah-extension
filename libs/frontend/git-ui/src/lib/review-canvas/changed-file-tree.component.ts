@@ -26,6 +26,7 @@ import type {
   GitFileStatus,
   GitReviewFile,
 } from '@ptah-extension/shared';
+import { isSameWorkingRoot } from '@ptah-extension/shared';
 import { FileStatusBadgeComponent } from '@ptah-extension/ui';
 import { RailResizeHandleComponent } from '../git-dock/rail-resize-handle.component';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
@@ -49,6 +50,7 @@ import {
   type PendingDiscard,
 } from './pending-discard';
 import { TreeMutationTracker } from './tree-mutation-tracker';
+import { worktreeFolderName } from '../review-shell/worktree-scope-bar.component';
 
 /** The comparison the tree lists files for. */
 export type ChangedFileTreeComparison = ReviewScope['kind'];
@@ -471,9 +473,23 @@ export class ChangedFileTreeComponent {
       !this.readOnly() && !this.mutations.anyPending(this.workspacePrefix()),
   );
 
-  protected readonly discardCopy = computed(() =>
-    discardConfirmCopy(this.pendingDiscard()),
-  );
+  protected readonly discardCopy = computed(() => {
+    const pending = this.pendingDiscard();
+    return discardConfirmCopy(pending, this.worktreeLabelFor(pending));
+  });
+
+  /**
+   * The worktree a pending discard runs in, by folder name, when its root is
+   * not an open workspace folder (the dock scoped to a session worktree,
+   * TASK_2026_855); null for a workspace folder.
+   */
+  private worktreeLabelFor(pending: PendingDiscard | null): string | null {
+    if (pending === null || pending.workspaceRoot === '') return null;
+    const isFolder = this.layout
+      .workspaceFolders()
+      .some((folder) => isSameWorkingRoot(folder.path, pending.workspaceRoot));
+    return isFolder ? null : worktreeFolderName(pending.workspaceRoot);
+  }
 
   // ---------------------------------------------------------------------------
   // Selection and keyboard
@@ -797,13 +813,13 @@ export class ChangedFileTreeComponent {
     if (pending.kind === 'all') {
       if (!this.canRunBulk()) return Promise.resolve();
       return this.mutations.run(this.sectionKey('unstaged'), () =>
-        this.sourceControl.discardAll(pending.paths),
+        this.sourceControl.discardAll(pending.paths, pending.workspaceRoot),
       );
     }
     const key = this.rowKey(pending.section, pending.path);
     if (!this.canRunKey(key)) return Promise.resolve();
     return this.mutations.run(key, () =>
-      this.sourceControl.discardChanges(pending.path),
+      this.sourceControl.discardChanges(pending.path, pending.workspaceRoot),
     );
   }
 

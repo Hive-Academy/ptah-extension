@@ -37,6 +37,9 @@ export interface IWorkspaceProvider {
     defaultValue?: T,
   ): T | undefined;
 
+  /** Synchronous generation of effective host-routing and decision-model writes. */
+  getRoutingConfigurationGeneration?(): number;
+
   /**
    * Update a configuration value.
    * Replaces: vscode.workspace.getConfiguration(section).update(key, value)

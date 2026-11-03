@@ -13,6 +13,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { computed } from '@angular/core';
 import {
   createEmptyStreamingState,
   type TabState,
@@ -1138,5 +1139,59 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       );
       expect(service.tabs()).toBe(before);
     });
+  });
+});
+
+describe('TabManagerService background tab lookup reactivity', () => {
+  let service: TabManagerService;
+
+  beforeEach(() => {
+    localStorage.clear();
+    jest.useFakeTimers();
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        TabWorkspacePartitionService,
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },
+        },
+      ],
+    });
+    service = TestBed.inject(TabManagerService);
+  });
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    localStorage.clear();
+  });
+
+  it('re-evaluates after a background update and resolves null after removal', () => {
+    service.switchWorkspace('/ws/a');
+    const tabId = service.createTab('background');
+    service.switchWorkspace('/ws/b');
+
+    let evaluations = 0;
+    const trackedTab = computed(() => {
+      service.backgroundTabsRevision();
+      evaluations += 1;
+      return service.findTabByIdAcrossWorkspaces(tabId);
+    });
+
+    expect(trackedTab()?.tab.status).toBe('fresh');
+    expect(evaluations).toBe(1);
+
+    expect(service.updateBackgroundTab(tabId, { status: 'streaming' })).toBe(true);
+    expect(trackedTab()?.tab.status).toBe('streaming');
+    expect(evaluations).toBe(2);
+
+    service.removeWorkspaceState('/ws/a');
+    expect(trackedTab()).toBeNull();
+    expect(evaluations).toBe(3);
   });
 });

@@ -17,7 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
-import { admission } from './verify-lock.mjs';
+import { admission, minFreeBytes, slotCount } from './verify-lock.mjs';
 
 const GB = 1024 ** 3;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -352,4 +352,22 @@ test('old single-holder clients and new clients never share a slot', async (t) =
     spans.find((s) => s.id === 'new2').start <
       spans.find((s) => s.id === 'old1').start,
   );
+});
+
+test('defaults: 3 slots and a 5 GB memory gate when the variables are unset', () => {
+  const saved = {
+    slots: process.env.PTAH_VERIFY_SLOTS,
+    minFree: process.env.PTAH_VERIFY_MIN_FREE_GB,
+  };
+  delete process.env.PTAH_VERIFY_SLOTS;
+  delete process.env.PTAH_VERIFY_MIN_FREE_GB;
+  try {
+    assert.equal(slotCount(), 3);
+    assert.equal(minFreeBytes(), 5 * GB);
+  } finally {
+    if (saved.slots !== undefined) process.env.PTAH_VERIFY_SLOTS = saved.slots;
+    if (saved.minFree !== undefined) {
+      process.env.PTAH_VERIFY_MIN_FREE_GB = saved.minFree;
+    }
+  }
 });

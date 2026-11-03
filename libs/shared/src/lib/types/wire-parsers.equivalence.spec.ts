@@ -64,7 +64,7 @@ const UUID_BAD_VARIANT = '3f2504e0-4f89-41d3-ca0c-0305e82c3301';
  * numeric edges that separate `z.number()` from `typeof === 'number'`
  * (`NaN`, `±Infinity`) and `.int()` from `Number.isInteger` (`2 ** 53`), plus
  * the UUID variants that separate Zod's version-agnostic `.uuid()` from the
- * v4-only `UUID_REGEX`.
+ * v4/v7-only `UUID_REGEX`.
  */
 const HOSTILE_VALUES: readonly unknown[] = [
   undefined,
@@ -463,7 +463,7 @@ describe('wire parser ≡ Zod schema equivalence', () => {
       PERMISSION_REQUEST,
       [],
       [
-        // `id` takes any UUID version; `sessionId`/`tabId` take v4 only.
+        // `id` takes any UUID version; `sessionId`/`tabId` take v4 or v7 only.
         // These four inputs are the ones that catch a parser that uses the
         // same check for both.
         { ...PERMISSION_REQUEST, id: UUID_V1 },

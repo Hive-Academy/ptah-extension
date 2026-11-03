@@ -156,6 +156,22 @@ describe('SessionStatsSummaryComponent', () => {
         model: LIVE.model,
       },
     },
+    {
+      contextCapacity: {
+        tokens: 200_000,
+        source: 'provider-catalog' as const,
+        providerId: null,
+        model: LIVE.model,
+      },
+    },
+    {
+      contextCapacity: {
+        tokens: 200_000,
+        source: 'sdk-native' as const,
+        providerId: null,
+        model: 'another-model',
+      },
+    },
   ])(
     'renders unknown main context as an em dash without changing tree totals: %j',
     (unknown) => {
@@ -187,6 +203,13 @@ describe('SessionStatsSummaryComponent', () => {
       expect(fixture.componentInstance.snapshot()).toBe(SNAPSHOT);
     },
   );
+
+  it('renders a trusted 130,000 of 200,000 context as 65% (F2)', () => {
+    const root = render(SNAPSHOT, { ...LIVE, contextUsed: 130_000, contextPercent: 65 });
+    expect(text(root, 'stats-context')).toBe('65%');
+    click(root, '[data-testid="stats-expand"]');
+    expect(text(root, 'stats-context')).toBe('65%');
+  });
 
   it('displays one backend snapshot in both layouts without message-derived totals', () => {
     const root = render(SNAPSHOT, LIVE);
@@ -471,6 +494,42 @@ describe('SessionStatsSummaryComponent', () => {
         'est. 6.2M / 9.0M weighted tokens (no price for this model)',
       );
       expect(root.querySelector('[data-testid="stats-cost"]')).toBeNull();
+    });
+  });
+
+  describe('final cost meaning', () => {
+    it.each([
+      ['estimated', 'estimated', 'Estimated cost, not a charge.'],
+      [
+        'covered-by-subscription',
+        'covered by subscription',
+        'Published-rate value covered by the subscription, not a charge.',
+      ],
+    ] as const)('shows %s in both cost chip layouts and their tooltips', (basis, label, tooltip) => {
+      const root = render({ ...SNAPSHOT, costBasis: basis });
+      const assertCost = (): void => {
+        const badge = required(root, '[data-testid="stats-cost"] .badge');
+        expect(badge.textContent).toContain(label);
+        expect(badge.getAttribute('title')).toContain(label);
+        expect(badge.parentElement?.closest('[title]')?.getAttribute('title')).toContain(tooltip);
+        expect(root.querySelector('[data-testid="stats-cost-estimate"]')).toBeNull();
+      };
+      assertCost();
+      click(root, '[data-testid="stats-expand"]');
+      assertCost();
+    });
+
+    it('keeps final basis separate from the provisional turn marker', () => {
+      const root = render({ ...SNAPSHOT, costBasis: 'estimated', provisional: true });
+      expect(root.querySelector('[data-testid="stats-cost-estimate"]')).not.toBeNull();
+      expect(text(root, 'stats-cost')).toContain('estimated');
+    });
+
+    it('shows unavailable with a null cost even if a basis arrives', () => {
+      const root = render({ ...SNAPSHOT, totalCost: null, costBasis: 'covered-by-subscription' });
+      expect(text(root, 'stats-cost')).toBe('cost unavailable');
+      expect(root.querySelector('[data-testid="stats-cost"]')?.closest('[title]')?.getAttribute('title'))
+        .toContain('Cost unavailable');
     });
   });
 

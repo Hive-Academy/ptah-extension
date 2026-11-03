@@ -82,6 +82,7 @@ describe('registerChatServices — output-style precondition', () => {
 type ResolveSubscriber = (payload: {
   tabId: string | undefined;
   realSessionId: string;
+  isNewSession?: true;
 }) => void;
 
 describe('registerChatServices — SessionMcpStatusRegistry', () => {
@@ -130,6 +131,34 @@ describe('registerChatServices — SessionMcpStatusRegistry', () => {
     expect(registry.get('real-1')?.servers).toEqual([
       { name: 'a', status: 'connected' },
     ]);
+  });
+
+  it('marks only a brand-new session as holding its full resume state', () => {
+    const c = makeContainer();
+    const subscribers: ResolveSubscriber[] = [];
+    c.register(SDK_SESSION_ID_RESOLVED, {
+      useValue: {
+        register: (cb: ResolveSubscriber) => {
+          subscribers.push(cb);
+          return () => undefined;
+        },
+      },
+    });
+    const hydrateResumeState = jest.fn();
+    c.register(TOKENS.SUBAGENT_REGISTRY_SERVICE, {
+      useValue: { hydrateResumeState },
+    });
+    registerChatServices(c);
+
+    subscribers[0]?.({ tabId: 'tab-1', realSessionId: 'resumed-1' });
+    expect(hydrateResumeState).not.toHaveBeenCalled();
+
+    subscribers[0]?.({
+      tabId: 'tab-2',
+      realSessionId: 'new-1',
+      isNewSession: true,
+    });
+    expect(hydrateResumeState).toHaveBeenCalledWith('new-1', {});
   });
 
   it('ignores a resolve event that carries no tabId — nothing to re-key', () => {

@@ -91,7 +91,7 @@ describe('recovery-mode IPC responders', () => {
       correlationId: 'abc-1',
       success: false,
       error:
-        'Ptah is in recovery mode and cannot serve requests (worker-unresponsive).',
+        'PtahCode is in recovery mode and cannot serve requests (worker-unresponsive).',
       errorCode: 'state-storage-recovery-required',
     });
   });

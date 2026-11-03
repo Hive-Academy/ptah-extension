@@ -16,7 +16,6 @@ labels:
   - cli-agents
   - messaging
 relates_to:
-  - TASK_2026_465_a25a
   - TASK_2026_402_a5c7
 ---
 

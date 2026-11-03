@@ -131,16 +131,15 @@ coverage suggestions). When you cannot decide between two levels, take the highe
 
 ## Logic review focus for this repository
 
-- **Registrations before runtime.** Every new `@inject(token)` needs a matching `register*` call in a composition root such as `apps/ptah-extension-vscode/src/di/phase-0-platform.ts` through `phase-4-app.ts`. `tools/di-lint/check-injects.ts` enforces this on push from `.husky/pre-push`. Confirm the token is also bound for the Electron and CLI hosts.
-- **Ports work on every host.** A new or changed `I*` port in `libs/backend/platform-core/src/interfaces/` must have a real binding in `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`. It must also pass `libs/backend/platform-core/src/testing/contracts/index.ts`. A stub on one host that silently does nothing is a finding.
+- **Registrations before runtime.** Every new `@inject(token)` needs a matching `register*` call in a composition root such as `apps/ptah-electron/src/di/phase-0-platform.ts` through `phase-4-app.ts`. `tools/di-lint/check-injects.ts` enforces this on push from `.husky/pre-push`. Confirm the token is also bound for the Electron and CLI hosts.
+- **Ports work on every host.** A new or changed `I*` port in `libs/backend/platform-core/src/interfaces/` must have a real binding in `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`. It must also pass `libs/backend/platform-core/src/testing/contracts/index.ts`. A stub on one host that silently does nothing is a finding.
 - **Shims hide failures.** On Electron, `vscode` calls resolve to stubs in `apps/ptah-electron/src/shims/`. A new `vscode-core` import in a host-agnostic lib is a correctness risk there, not just a style problem.
 - **Validate RPC input.** Messages between webview and host are typed in `libs/shared/src/lib/types/rpc/` and `libs/shared/src/lib/types/rpc.types.ts`. Handlers must parse their params, for example with the schemas in `rpc-harness.schemas.ts`. They must never trust the declared type alone.
 - **Return coded RPC errors.** User-facing RPC failures must use a code from `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`, raised through `RpcUserError` in `libs/backend/vscode-core/src/messaging/rpc-types.ts`. Add new codes to that shared union so the frontend and backend cannot drift.
 - **Errors must not leak or disappear.** Follow `libs/backend/platform-core/src/file-settings-errors.ts`: typed errors carry a code and fixed text, never a file path, secret or setting value. An empty `catch`, or a fallback that hides a persistence failure, is a finding.
 - **Concurrent settings writes.** Writes through `libs/backend/platform-core/src/file-settings-manager.ts` can race between processes and can fail partway (full disk, locks). Check that callers handle a rejected write and do not cache a value that was never saved.
 - **Sanitize rendered output.** Model and user markdown must render through `libs/frontend/markdown/src/lib/markdown-block.component.ts` and `marked-extensions.ts`, where DOMPurify and the URI allowlist apply. Any `innerHTML` path that skips them is a finding.
-- **License server boundaries.** NestJS endpoints validate DTOs the way `libs/api/licensing/src/lib/license/dto/` does. Admin routes are guarded as in `libs/api/licensing/src/lib/license/guards/admin-api-key.guard.ts`. Webhooks in `libs/api/billing/src/lib/paddle/paddle-webhook.service.ts` must verify the signature before acting, and must tolerate replayed events.
-- **Expensive files.** Schema changes under `apps/ptah-license-server/prisma/migrations` cannot be undone in production. A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
+- **Expensive files.** A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
 
 ## Output contract
 

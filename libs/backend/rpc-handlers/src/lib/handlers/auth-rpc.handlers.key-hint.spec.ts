@@ -151,8 +151,10 @@ function makeHarness(
   });
   const sentry = createMockSentryService();
   const store = new Map<string, unknown>();
+  const read = jest.fn((key: string) => store.get(key));
   const scopeResolver = {
-    read: jest.fn((key: string) => store.get(key)),
+    read,
+    isStored: jest.fn((key: string) => read(key) !== undefined),
     hasOverride: jest.fn(() => false),
     write: jest.fn(async (key: string, value: unknown) => {
       store.set(key, value);

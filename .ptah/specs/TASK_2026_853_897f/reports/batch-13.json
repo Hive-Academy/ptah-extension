@@ -1,0 +1,96 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 13,
+  "status": "blocked",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts",
+      "change": "MODIFIED: applied R1-R36, removed duplicate preset rules and the MANDATE constant, retained one substitution table, and deferred verification/commit authorization to project instructions"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.spec.ts",
+      "change": "MODIFIED: removed the MANDATE spec, set the measured +5% budget pin to 3301, and added deferral and contradiction assertions"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-c/libs/backend/agent-sdk/src/lib/prompt-harness/index.ts",
+      "change": "MODIFIED: removed the dead PTAH_MCP_MANDATE_PROMPT export"
+    }
+  ],
+  "retainedHomeEvidence": {
+    "R1": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:94-103",
+    "R2": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:344705",
+    "R3": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:206-210",
+    "R4": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:344695",
+    "R5": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:345114",
+    "R6": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:344705",
+    "R7": "deleted as required by implementation-plan.md:237; no retained home required",
+    "R8": "deleted as required by implementation-plan.md:238; no retained home required",
+    "R9": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:25; libs/backend/agent-generation/templates/agents/_shared/tooling-precedence.md:3; libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.ts:36-38",
+    "R10": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:29-46; libs/backend/agent-generation/templates/agents/_shared/tooling-precedence.md:6-15; libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.ts:36-41",
+    "R11": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:48-49; libs/backend/agent-generation/templates/agents/_shared/tooling-precedence.md:4,17; libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.ts:37-38",
+    "R12": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:51-52",
+    "R13": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:54-60",
+    "R14": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:43,62-63",
+    "R15": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:34 (before any refactoring); five-step duplicate removed",
+    "R16": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:65-67",
+    "R17": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:68",
+    "R18": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:69-70",
+    "R19": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:40-41,71",
+    "R20": "deleted from core; fallback retained at libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:48-49 and in the preset",
+    "R21": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:109-111",
+    "R22": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:83,113; libs/backend/agent-generation/templates/agents/_shared/cli-delegation.md:1",
+    "R23": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:82-86,115; libs/backend/agent-generation/templates/agents/_shared/cli-delegation.md:1",
+    "R24": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:117; libs/backend/agent-generation/templates/agents/_shared/cli-delegation.md:1",
+    "R25": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:119",
+    "R26": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:121",
+    "R27": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:125-140; libs/backend/agent-generation/templates/agents/_shared/clarification-protocol.md:1-3",
+    "R28": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:142-144",
+    "R29": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:146-148",
+    "R30": "deleted from core; retained in claude_code preset /home/amun/.local/share/claude/versions/2.1.312:340397 and libs/backend/agent-generation/templates/agents/_shared/replacement-policy.md:1",
+    "R31": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:206-210",
+    "R32": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:150-200",
+    "R33": "libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:202-204; preset safety text at /home/amun/.local/share/claude/versions/2.1.312:357815",
+    "R34": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:345222",
+    "R35": "claude_code preset, /home/amun/.local/share/claude/versions/2.1.312:338067",
+    "R36": "MANDATE constant deleted; unique delegation rules retained at libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts:82-86,109-117"
+  },
+  "budget": {
+    "before": {
+      "chars": 15974,
+      "estimatedTokens": 3994,
+      "measurement": "existing ptah-core-prompt.ts header, chars / 4"
+    },
+    "after": {
+      "chars": 12570,
+      "estimatedTokens": 3143,
+      "measurement": "compiled PTAH_CORE_SYSTEM_PROMPT.length and PTAH_CORE_SYSTEM_PROMPT_TOKENS via ts-node --transpile-only"
+    },
+    "savedChars": 3404,
+    "planTarget": "C main saves at least 1000 tokens; 3404 / 2.72 = 1251 tokens using the plan's measured prefix ratio",
+    "specPin": 3301,
+    "pinCalculation": "ceil(3143 * 1.05) = 3301"
+  },
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b13-verify.log 2>&1; tail -40 /tmp/tpd-b13-verify.log",
+    "logPath": "/tmp/tpd-b13-verify.log",
+    "status": "PENDING: the one permitted command remains queued for a machine-wide lock slot (queue position 4 at the last log read); no target has run",
+    "perTarget": {
+      "@ptah-extension/agent-sdk": "not run",
+      "ptah-electron": "not run",
+      "ptah-extension-vscode": "not run",
+      "ptah-cli": "not run",
+      "ptah-tui": "not run",
+      "@ptah-extension/cli-engine": "not run",
+      "ptah-extension-webview": "not run"
+    },
+    "diagnostics": "ptah_get_diagnostics was attempted for the three changed files but TypeScript was still running after 45 seconds; no diagnostic result was available"
+  },
+  "assignedToBatch14": [],
+  "decisions": [
+    "libs/backend/agent-sdk/src/index.ts already had no PTAH_MCP_MANDATE_PROMPT export, so it was not edited.",
+    "A search of libs/ and apps/ found no mandate importer outside the permitted core, spec, and prompt-harness barrel files.",
+    "The MCP server handshake file was not changed; it still derives from the single substitution section.",
+    "docs/ptah-prompt-mapping.md was not created.",
+    "git diff --check passed for the four permitted source paths and no PTAH_MCP_MANDATE_PROMPT references remain in libs/ or apps/."
+  ]
+}

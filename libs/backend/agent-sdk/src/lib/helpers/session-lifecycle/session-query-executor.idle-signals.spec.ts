@@ -131,8 +131,8 @@ describe('SessionQueryExecutor idle signal producers', () => {
     const h = harness();
     const run = await h.executor.executeQuery(h.config);
     run.onMessage(init());
-    const [[sessionId, runToken, codexProxy]] = h.idle.sessionBound.mock.calls;
-    expect([sessionId, codexProxy]).toEqual(['sdk', false]);
+    const [[sessionId, runToken]] = h.idle.sessionBound.mock.calls;
+    expect(sessionId).toBe('sdk');
     expect(runToken).toBeTruthy();
 
     run.onMessage(

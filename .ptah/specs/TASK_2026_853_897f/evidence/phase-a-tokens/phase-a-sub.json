@@ -1,0 +1,93 @@
+{
+  "denyTools": [
+    "Workflow",
+    "ReportFindings",
+    "PushNotification",
+    "DesignSync",
+    "EnterWorktree",
+    "ExitWorktree"
+  ],
+  "denySkills": [
+    "keybindings-help",
+    "update-config",
+    "fewer-permission-prompts",
+    "plugin-authoring",
+    "init",
+    "workflow-authoring",
+    "code-review"
+  ],
+  "results": [
+    {
+      "run": 1,
+      "side": "before",
+      "main": 37752,
+      "subagent": 27267,
+      "toolCount": 101,
+      "skillCount": 59,
+      "sessionId": "d6ce881c-4951-43fb-ae3c-2f94a448e1a4",
+      "result": "success",
+      "subagentFiles": 1
+    },
+    {
+      "run": 1,
+      "side": "after",
+      "main": 33932,
+      "subagent": 25426,
+      "toolCount": 95,
+      "skillCount": 54,
+      "sessionId": "4618c809-fcdd-497f-ba50-73d5c8e2bae1",
+      "result": "success",
+      "subagentFiles": 1
+    },
+    {
+      "run": 2,
+      "side": "before",
+      "main": 37752,
+      "subagent": 27267,
+      "toolCount": 93,
+      "skillCount": 59,
+      "sessionId": "eebadc97-622e-4838-9b2a-6343625a0978",
+      "result": "success",
+      "subagentFiles": 1
+    },
+    {
+      "run": 2,
+      "side": "after",
+      "main": 33932,
+      "subagent": 25426,
+      "toolCount": 87,
+      "skillCount": 54,
+      "sessionId": "9c51c220-7152-4944-82d3-d83cf21da014",
+      "result": "success",
+      "subagentFiles": 1
+    },
+    {
+      "run": 3,
+      "side": "before",
+      "main": 37752,
+      "subagent": 27267,
+      "toolCount": 101,
+      "skillCount": 59,
+      "sessionId": "d07a0b12-28b3-4b1f-861d-8f6c16faf066",
+      "result": "success",
+      "subagentFiles": 1
+    },
+    {
+      "run": 3,
+      "side": "after",
+      "main": 33932,
+      "subagent": 25426,
+      "toolCount": 87,
+      "skillCount": 54,
+      "sessionId": "b0042969-1a6b-4081-885f-e5f5d381443e",
+      "result": "success",
+      "subagentFiles": 1
+    }
+  ],
+  "summary": {
+    "before.main": 37752,
+    "before.subagent": 27267,
+    "after.main": 33932,
+    "after.subagent": 25426
+  }
+}

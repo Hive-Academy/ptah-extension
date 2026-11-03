@@ -5,11 +5,14 @@ import {
   input,
 } from '@angular/core';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
-import { hasReportedCliCacheTokens } from '@ptah-extension/shared';
+import {
+  hasReportedCliCacheTokens,
+  isValidTokenCount,
+} from '@ptah-extension/shared';
+import { resolveCliLaneUsage } from '../../../utils/lane-stats.adapters';
 import {
   formatEstimatedCost,
   formatOptionalTokens,
-  usageTotalsFromSegments,
 } from './stats-bar.utils';
 
 /** Compact lane-usage card using the same value formatting as chat's subagent summary. */
@@ -67,21 +70,10 @@ import {
 export class CliLaneUsageSummaryComponent {
   readonly agent = input.required<MonitoredAgent>();
 
-  protected readonly structured = computed(
-    () => this.agent().usageTotals ?? null,
-  );
-  private readonly fallbackUsage = computed(() =>
-    this.agent().usageTotals == null
-      ? usageTotalsFromSegments(this.agent().segments)
-      : null,
-  );
-  protected readonly usage = computed(() => {
-    const agent = this.agent();
-    return agent.usageTotals ?? this.fallbackUsage();
-  });
-  protected readonly partial = computed(
-    () => this.fallbackUsage()?.partial === true,
-  );
+  protected readonly lane = computed(() => resolveCliLaneUsage(this.agent()));
+  protected readonly structured = computed(() => this.lane().structured);
+  protected readonly usage = computed(() => this.lane().usage);
+  protected readonly partial = computed(() => this.lane().partial);
   protected readonly cacheReported = computed(() =>
     hasReportedCliCacheTokens(this.structured()),
   );
@@ -92,7 +84,7 @@ export class CliLaneUsageSummaryComponent {
   );
 
   protected tokens(value: number | undefined, partial = false): string {
-    return partial && value !== undefined
+    return partial && isValidTokenCount(value)
       ? `≥ ${formatOptionalTokens(value)}`
       : formatOptionalTokens(value);
   }

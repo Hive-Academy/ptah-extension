@@ -88,6 +88,8 @@ describe('CommandCenterPageComponent', () => {
       sessionStats?: SessionStatsEntry | null;
     }[]
   >([]);
+  let backgroundTabs: ReturnType<typeof tabs> = [];
+  const backgroundTabsRevision = signal(0);
   const stats: SessionStatsEntry = {
     sessionId: 'root',
     model: null,
@@ -148,8 +150,12 @@ describe('CommandCenterPageComponent', () => {
     tabs: {
       activeWorkspacePath: '/workspace',
       tabs,
-      findTabByIdAcrossWorkspaces: (id: string) =>
-        otherWorkspaceTabIds.has(id) ? { tab: { id } } : null,
+      backgroundTabsRevision,
+      findTabByIdAcrossWorkspaces: (id: string) => {
+        const tab = tabs().find((candidate) => candidate.id === id)
+          ?? backgroundTabs.find((candidate) => candidate.id === id);
+        return tab ? { tab } : otherWorkspaceTabIds.has(id) ? { tab: { id } } : null;
+      },
     },
     open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
@@ -168,6 +174,9 @@ describe('CommandCenterPageComponent', () => {
     jest.clearAllMocks();
     store.setSession('root-tab', null, '/workspace');
     tabs.set([]);
+    backgroundTabs = [];
+    backgroundTabsRevision.set(0);
+    otherWorkspaceTabIds.clear();
     controller.coordinator.currentTabId.set(null);
     projection.set({ nodes, edges: [] });
     controller.sendCommand.mockResolvedValue(true);
@@ -374,6 +383,44 @@ describe('CommandCenterPageComponent', () => {
     controller.coordinator.currentTabId.set(null);
     fixture.detectChanges();
     expect(start.currentStats()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('renders and refreshes stats for a current tab in a background workspace', () => {
+    store.setSession(null, null, '/workspace');
+    controller.coordinator.currentTabId.set('background-tab');
+    backgroundTabs = [{ id: 'background-tab', sessionStats: stats }];
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.currentStats()?.messageCount).toBe(3);
+
+    backgroundTabs = [
+      { id: 'background-tab', sessionStats: { ...stats, messageCount: 8 } },
+    ];
+    backgroundTabsRevision.update((revision) => revision + 1);
+    fixture.detectChanges();
+    expect(start.currentStats()?.messageCount).toBe(8);
+    fixture.destroy();
+  });
+
+  it('uses background root and child stats with the F2 context percentage', () => {
+    backgroundTabs = [
+      { id: 'root-tab', sessionStats: stats, liveModelStats: verifiedContext(65) },
+      { id: 'child-tab', sessionStats: { ...stats, messageCount: 7 } },
+    ];
+    projection.set({
+      nodes: [nodes[0], { ...nodes[1], tabId: 'child-tab' }],
+      edges: [],
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.rootStats()?.sessionId).toBe('root');
+    expect(fixture.componentInstance.childStats()['child:one']?.messages).toBe(7);
+    expect(fixture.componentInstance.contextCue().percent).toBe(65);
+    expect(fixture.nativeElement.querySelector('header')?.textContent).toContain('Context 65%');
     fixture.destroy();
   });
 

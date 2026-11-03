@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_715_6cba
-status: pending
+status: backlog
 type: FEATURE
 title: Codex multi-account on the App Server route
 depends_on: [TASK_2026_712_5d7c, TASK_2026_714_c8a2]
 created: "2026-10-22T18:42:55.000Z"
-updated: "2026-10-22T18:42:55.000Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: Add named Codex accounts (per-account CODEX_HOME) on top of the unified Codex App Server route from TASK_2026_714, reusing the TASK_2026_712 account store and Electron Accounts surface.
 estimate: L
 ---

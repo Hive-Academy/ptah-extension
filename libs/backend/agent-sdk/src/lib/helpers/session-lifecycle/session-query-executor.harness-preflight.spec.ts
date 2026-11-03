@@ -123,11 +123,19 @@ function buildExecutor(opts: {
   };
 }
 
-async function run(h: Harness): Promise<void> {
+async function run(
+  h: Harness,
+  pluginConfigAncestorRoots?: readonly string[],
+): Promise<void> {
   await expect(
     h.executor.executeQuery({
       sessionId: 'sess-1' as never,
-      sessionConfig: { projectPath: PROJECT_PATH } as never,
+      sessionConfig: {
+        projectPath: PROJECT_PATH,
+        ...(pluginConfigAncestorRoots === undefined
+          ? {}
+          : { pluginConfigAncestorRoots }),
+      } as never,
     } as never),
   ).rejects.toThrow('stop-after-preflight');
 }
@@ -146,6 +154,48 @@ describe('SessionQueryExecutor — capability policy and harness sync (E24, C5)'
     await run(h);
 
     expect(h.resolve).toHaveBeenCalledWith(PROJECT_PATH);
+  });
+
+  it('forwards ordered ancestor roots without changing the harness destination or policy snapshot', async () => {
+    const resolved = policy({ harnessFingerprint: 'fp-context' });
+    const h = buildExecutor({ resolve: jest.fn().mockResolvedValue(resolved) });
+    const roots = ['/repo/parent', '/repo/grandparent'] as const;
+
+    await run(h, roots);
+
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+    expect(h.resolve).toHaveBeenCalledWith(PROJECT_PATH, {
+      pluginConfigAncestorRoots: roots,
+    });
+    expect(h.resolve.mock.calls[0][1].pluginConfigAncestorRoots).toBe(roots);
+    expect(h.apply).toHaveBeenCalledWith(PHYSICAL_ROOT, 'fp-context');
+    expect(builtPolicy(h)).toBe(resolved);
+  });
+
+  it('forwards an explicit empty ancestor list', async () => {
+    const h = buildExecutor({});
+
+    await run(h, []);
+
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+    expect(h.resolve).toHaveBeenCalledWith(PROJECT_PATH, {
+      pluginConfigAncestorRoots: [],
+    });
+  });
+
+  it('reads ancestor roots afresh for each query creation', async () => {
+    const h = buildExecutor({});
+    const first = ['/repo/first'] as const;
+    const second = ['/repo/second'] as const;
+
+    await run(h, first);
+    await run(h, second);
+
+    expect(h.resolve.mock.calls).toEqual([
+      [PROJECT_PATH, { pluginConfigAncestorRoots: first }],
+      [PROJECT_PATH, { pluginConfigAncestorRoots: second }],
+    ]);
+    expect(h.build).toHaveBeenCalledTimes(2);
   });
 
   it("syncs the harness to the policy's physical root and fingerprint", async () => {

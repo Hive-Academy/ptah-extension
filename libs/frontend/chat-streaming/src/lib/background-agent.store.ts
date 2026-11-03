@@ -26,6 +26,7 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import type {
+  AgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
@@ -337,24 +338,18 @@ export class BackgroundAgentStore {
 
   /**
    * Resolve the entry a terminal event addresses. A terminal event with no
-   * agentId resolves to its `toolCallId` key, but SubagentStop may already
-   * have moved that entry onto its real agentId (`adoptRealAgentId`) — so on
-   * a miss, fall back to the toolCallId identity space before treating the
-   * event as one for an unseen agent.
+   * Resolve by the exact Task tool id first. An agent id can be reused after
+   * a prior execution has ended, while that earlier entry remains in the tray.
    */
   private locateEntry(
     map: ReadonlyMap<BackgroundAgentId, BackgroundAgentEntry>,
     key: BackgroundAgentId,
     toolCallId: string,
   ): [BackgroundAgentId, BackgroundAgentEntry | undefined] {
-    const direct = map.get(key);
-    // Only an event that carried no agentId falls back; a real agentId that
-    // misses is a genuinely unseen agent.
-    if (direct || key !== toolCallId) return [key, direct];
     for (const [k, a] of map) {
       if (a.toolCallId === toolCallId) return [k, a];
     }
-    return [key, undefined];
+    return [key, map.get(key)];
   }
 
   onCompleted(event: BackgroundAgentCompletedEvent): void {
@@ -402,6 +397,57 @@ export class BackgroundAgentStore {
       }
 
       return this.evictOldCompleted(next);
+    });
+  }
+
+  /**
+   * Settle a known entry from the stream's `agent_completed`
+   * (`task_notification`). For most background spawns the transformer emits
+   * no `background_agent_completed`, so without this the tray entry stayed
+   * `running` while the monitor record had finished. Only an existing entry
+   * is touched: a foreground agent's completion never creates one.
+   */
+  onAgentCompleted(event: AgentCompletedEvent): void {
+    const exact = this.findByToolCallId(event.parentToolUseId);
+    const candidates =
+      exact || !event.agentId
+        ? []
+        : this.agents().filter(
+            (agent) =>
+              agent.hasRealAgentId &&
+              agent.agentId === event.agentId &&
+              agentVisibleInSession(agent.sessionId, event.sessionId),
+          );
+    const running = candidates.filter((agent) => agent.status === 'running');
+    const entry =
+      exact ??
+      (running.length === 1
+        ? running[0]
+        : candidates.length === 1
+          ? candidates[0]
+          : null);
+    if (!entry) return;
+    // The entry's own key and toolCallId, so both handlers land on it even
+    // when it is still filed under its toolCallId.
+    const target = {
+      id: event.id,
+      timestamp: event.timestamp,
+      sessionId: event.sessionId,
+      messageId: event.messageId,
+      toolCallId: entry.toolCallId,
+      agentId: entry.agentId,
+      agentType: entry.agentType,
+    };
+    if (event.status === 'stopped') {
+      this.onStopped({ ...target, eventType: 'background_agent_stopped' });
+      return;
+    }
+    this.onCompleted({
+      ...target,
+      eventType: 'background_agent_completed',
+      status: event.status,
+      result: event.summary || undefined,
+      duration: event.durationMs,
     });
   }
 

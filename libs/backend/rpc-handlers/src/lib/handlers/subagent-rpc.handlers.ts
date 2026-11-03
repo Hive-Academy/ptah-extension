@@ -5,6 +5,8 @@
  *
  * RPC Methods:
  * - chat:subagent-query    — Query subagents (resumable or by specific ID)
+ * - chat:dismiss-resumable-subagents — Hide interrupted subagents from the
+ *                            resume banner (the model still hears once)
  * - subagent:send-message  — Push a user message into a running subagent
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
@@ -41,22 +43,31 @@ import {
   SubagentCommandResult,
   SubagentHistoryPageParams,
   SubagentHistoryPageResult,
+  ChatDismissResumableSubagentsParams,
+  ChatDismissResumableSubagentsResult,
+  SessionId,
+  type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
   SDK_TOKENS,
   SubagentHistoryValidationError,
+  retainSubagentEventsTail,
 } from '@ptah-extension/agent-sdk';
 import type {
   SubagentMessageDispatcher,
   SessionHistoryReaderService,
+  SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
 import {
   assembleHistoryPage,
   parseHistoryCursor,
 } from './subagent-history-page';
+import { CHAT_TOKENS } from '../chat/tokens';
+import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 import {
   SubagentQuerySchema,
+  DismissResumableSubagentsSchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
@@ -88,8 +99,17 @@ import {
  */
 @injectable()
 export class SubagentRpcHandlers {
+  private readonly nativeHistoryCache = new Map<string, {
+    events: readonly FlatStreamEventUnion[];
+    expiresAt: number;
+  }>();
+  private readonly nativeHistoryInFlight = new Map<string, Promise<readonly FlatStreamEventUnion[]>>();
+  private nativeHistoryUnavailableWarned = false;
+  private static readonly NATIVE_CACHE_TTL_MS = 15_000;
+  private static readonly NATIVE_CACHE_MAX = 8;
   static readonly METHODS = [
     'chat:subagent-query',
+    'chat:dismiss-resumable-subagents',
     'subagent:send-message',
     'subagent:stop',
     'subagent:interrupt',
@@ -110,13 +130,102 @@ export class SubagentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly sessionMetadataStore: SessionMetadataStore,
+    @inject(CHAT_TOKENS.HISTORY_READ, { isOptional: true })
+    private readonly nativeHistory?: Pick<ChatHistoryReadService, 'readForResume'>,
   ) {}
+
+  private async nativeEvents(sessionId: SessionId): Promise<readonly FlatStreamEventUnion[]> {
+    const now = Date.now();
+    const cached = this.nativeHistoryCache.get(sessionId);
+    if (cached && cached.expiresAt > now) {
+      this.nativeHistoryCache.delete(sessionId);
+      this.nativeHistoryCache.set(sessionId, cached);
+      return cached.events;
+    }
+    this.nativeHistoryCache.delete(sessionId);
+    if (!this.nativeHistory) return [];
+    const inFlight = this.nativeHistoryInFlight.get(sessionId);
+    if (inFlight) return inFlight;
+    // A child may precede the parent's compaction boundary. Keep the complete
+    // snapshot for all pages so cursor positions cannot shift mid-read.
+    const read = this.nativeHistory.readForResume(sessionId, {
+      includeCompactedEvents: true,
+    }).then((history) => {
+      const events = history.events;
+      this.nativeHistoryCache.set(sessionId, {
+        events,
+        expiresAt: Date.now() + SubagentRpcHandlers.NATIVE_CACHE_TTL_MS,
+      });
+      while (this.nativeHistoryCache.size > SubagentRpcHandlers.NATIVE_CACHE_MAX) {
+        const oldest = this.nativeHistoryCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.nativeHistoryCache.delete(oldest);
+      }
+      return events;
+    });
+    this.nativeHistoryInFlight.set(sessionId, read);
+    try {
+      return await read;
+    } finally {
+      this.nativeHistoryInFlight.delete(sessionId);
+    }
+  }
+
+  private async readNativeChild(
+    sessionId: string,
+    toolCallId: string,
+    agentId?: string,
+  ): Promise<{
+    readonly events: FlatStreamEventUnion[];
+    readonly agentId: string | null;
+    readonly truncated: boolean;
+    readonly start?: Extract<FlatStreamEventUnion, { eventType: 'agent_start' }>;
+  } | null> {
+    const metadata = await this.sessionMetadataStore.get(sessionId);
+    if (metadata?.codexExecution?.runtime !== 'codex-app-server') return null;
+    const id = SessionId.safeParse(sessionId);
+    if (!id) {
+      this.logger.warn('RPC: native child history has invalid session identity', { sessionId });
+      return { events: [], agentId: null, truncated: false };
+    }
+    if (!this.nativeHistory) {
+      if (!this.nativeHistoryUnavailableWarned) {
+        this.nativeHistoryUnavailableWarned = true;
+        this.logger.warn('RPC: native child history reader is unbound', { sessionId });
+      }
+      return { events: [], agentId: null, truncated: false };
+    }
+    const eventsForSession = await this.nativeEvents(id);
+    const start = eventsForSession.find(
+      (event) =>
+        event.eventType === 'agent_start' &&
+        event.toolCallId === toolCallId &&
+        (!agentId || event.agentId === agentId),
+    );
+    if (!start || start.eventType !== 'agent_start') {
+      this.nativeHistoryCache.delete(id);
+      this.logger.warn('RPC: native child missing from full history', {
+        sessionId, toolCallId, reason: 'No matching agent_start in complete session events',
+      });
+      return { events: [], agentId: null, truncated: false };
+    }
+    const events = eventsForSession.filter(
+      (event) =>
+        event.parentToolUseId === toolCallId &&
+        event.eventType !== 'agent_start',
+    );
+    if (events.length === 0) this.nativeHistoryCache.delete(id);
+    return { agentId: start.agentId ?? null, start, ...retainSubagentEventsTail(events) };
+  }
 
   /**
    * Register all subagent RPC methods
    */
   register(): void {
     this.registerSubagentQuery();
+    this.registerDismissResumable();
     this.registerSendMessage();
     this.registerStop();
     this.registerInterrupt();
@@ -156,7 +265,28 @@ export class SubagentRpcHandlers {
           });
           if (toolCallId) {
             const record = this.registry.get(toolCallId);
-            return { subagents: this.withCacheInfo(record ? [record] : []) };
+            if (!record && sessionId) {
+              const native = await this.readNativeChild(sessionId, toolCallId);
+              if (native?.agentId && native.events.length > 0 && native.start) {
+                const start = native.start;
+                return {
+                  subagents: this.withCacheInfo([{
+                    toolCallId,
+                    agentType: start.agentType,
+                    status: 'completed',
+                    startedAt: start.timestamp,
+                    parentSessionId: sessionId,
+                    agentId: native.agentId,
+                  }]),
+                };
+              }
+            }
+            // A dismissed record is owed to the model, not to the webview.
+            return {
+              subagents: this.withCacheInfo(
+                record && !record.dismissed ? [record] : [],
+              ),
+            };
           }
           // A sessionId that is present but empty is a scoped query whose
           // scope cannot be resolved — answer with nothing. Falling through to
@@ -194,6 +324,44 @@ export class SubagentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * chat:dismiss-resumable-subagents - Dismiss the resume banner for good.
+   *
+   * Marks the session's interrupted records dismissed in the registry and in
+   * the durable resume snapshot. They disappear from every webview read but
+   * are still described to the model once, on the next chat:continue, which
+   * then retires them.
+   */
+  private registerDismissResumable(): void {
+    this.rpcHandler.registerMethod<
+      ChatDismissResumableSubagentsParams,
+      ChatDismissResumableSubagentsResult
+    >('chat:dismiss-resumable-subagents', async (params) => {
+      try {
+        const { sessionId, toolCallIds } =
+          DismissResumableSubagentsSchema.parse(params);
+        const dismissed = this.registry.dismissResumable(
+          sessionId,
+          toolCallIds,
+        );
+        if (dismissed.length > 0) {
+          await this.sessionMetadataStore.dismissResumableSubagents(
+            sessionId,
+            dismissed,
+          );
+        }
+        return { success: true };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.error('RPC: chat:dismiss-resumable-subagents failed', err);
+        this.sentryService.captureException(err, {
+          errorSource: 'SubagentRpcHandlers.registerDismissResumable',
+        });
+        return { success: false, error: err.message };
+      }
+    });
   }
 
   /**
@@ -367,12 +535,15 @@ export class SubagentRpcHandlers {
         );
       }
       try {
-        const read = await this.historyReader.readSubagentEvents(
-          sessionId,
-          toolCallId,
-          agentId,
-        );
-        if (read.status !== 'ok')
+        const native = await this.readNativeChild(sessionId, toolCallId, agentId);
+        const read = native
+          ? {
+              status: native.events.length > 0 ? 'ok' as const : 'not-found' as const,
+              ...native,
+            }
+          : await this.historyReader.readSubagentEvents(sessionId, toolCallId, agentId);
+        if (read.status !== 'ok') {
+          if (native) this.nativeHistoryCache.delete(sessionId);
           return assembleHistoryPage(
             [],
             0,
@@ -381,17 +552,20 @@ export class SubagentRpcHandlers {
             read.truncated,
             maxBytes,
           );
+        }
         const position = anchor
           ? read.events.findIndex(
               (event) =>
                 event.id === anchor[0] && event.eventType === anchor[1],
             )
           : -1;
-        if (anchor && position < 0)
+        if (anchor && position < 0) {
+          if (native) this.nativeHistoryCache.delete(sessionId);
           throw new RpcUserError(
             'Agent history cursor expired; restart from the first page',
             'HISTORY_CURSOR_STALE',
           );
+        }
         const start = position + 1;
         const page = assembleHistoryPage(
           read.events,
@@ -402,6 +576,7 @@ export class SubagentRpcHandlers {
           maxBytes,
         );
         if (!page.done && page.nextCursor === cursor) {
+          if (native) this.nativeHistoryCache.delete(sessionId);
           throw new RpcUserError(
             'Agent history cursor did not advance',
             'HISTORY_CURSOR_STALE',
@@ -416,11 +591,10 @@ export class SubagentRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        this.logger.error('RPC: subagent:history-page failed', {
-          sessionId,
-          agentId: agentId ?? null,
-          reason: error instanceof Error ? error.name : 'unknown',
-        });
+        this.logger.error(
+          'RPC: subagent:history-page failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
         throw new RpcUserError(
           'Could not read agent output',
           'PERSISTENCE_UNAVAILABLE',

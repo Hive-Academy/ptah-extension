@@ -82,13 +82,13 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     await shoot(page, 'theme-toggle', { crop: dropdown });
   });
 
-  test('setup hub new project card', async ({ ui, page }) => {
+  test('onboarding Home new project card', async ({ ui, page }) => {
     test.setTimeout(300_000);
-    await ui.goto('setup-hub');
-    await expect(page.locator('ptah-setup-hub')).toBeVisible();
+    await ui.goto('onboarding');
+    await expect(page.locator('ptah-onboarding-home')).toBeVisible();
     await page.waitForTimeout(1_500);
 
-    const card = page.locator('[data-testid="new-project-card"]');
+    const card = page.getByTestId('onboarding-path-new-project');
     await expect(card).toBeVisible();
     await shoot(page, 'setup-new-project', { crop: card });
   });

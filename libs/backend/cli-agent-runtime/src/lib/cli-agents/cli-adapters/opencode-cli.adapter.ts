@@ -54,7 +54,7 @@
  *   primary path. Upstream issues report the generated `.ps1` wrapper shelling
  *   out to `/bin/sh.exe`; as a fallback we resolve the bundled native binary
  *   (`opencode-windows-x64/bin/opencode.exe`) directly, mirroring
- *   CodexCliAdapter.resolveCodexNativeBinary().
+ *   resolveOpencodeNativeBinary().
  *
  * See: https://opencode.ai/docs/cli/ , https://opencode.ai/docs/config/
  */
@@ -628,7 +628,7 @@ export class OpencodeCliAdapter implements CliAdapter {
     // Primary: detected binary path (the `.cmd` shim on Windows). We always
     // attempt native-binary resolution (passing the detected path as a hint) and
     // prefer the bundled native `.exe` when it exists — mirroring
-    // CodexCliAdapter.resolveCodexNativeBinary(). On Windows the wrapper's target
+    // resolveOpencodeNativeBinary(). On Windows the wrapper's target
     // binary can be wrong/missing/corrupt (open upstream #28920/#36737), so the
     // native `.exe` bypasses it entirely. No-op off-Windows / when absent.
     let binary = options.binaryPath ?? 'opencode';

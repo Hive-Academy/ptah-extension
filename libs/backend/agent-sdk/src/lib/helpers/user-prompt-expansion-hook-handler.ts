@@ -10,6 +10,7 @@ import type {
 import { isUserPromptExpansionHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookSessionId } from './hook-session-resolver';
+import { agentIdField } from './callback-registry.base';
 import { UserPromptExpansionCallbackRegistry } from './user-prompt-expansion-callback-registry';
 
 @injectable()
@@ -58,6 +59,7 @@ export class UserPromptExpansionHookHandler {
                   sessionId: resolvedSessionId,
                   workspaceRoot: cwd,
                   timestamp: Date.now(),
+                  ...agentIdField(input.agent_id),
                 });
               } catch (error: unknown) {
                 this.logger.warn(

@@ -41,7 +41,10 @@ export interface RouteServiceLocator {
 }
 
 export interface RouteNamespace {
-  decide(args: RouteDecideArgs): Promise<RouteDecideResult>;
+  decide(
+    args: RouteDecideArgs,
+    context?: { readonly sessionKey?: string },
+  ): Promise<RouteDecideResult>;
 }
 
 export interface RouteNamespaceDependencies {
@@ -76,7 +79,9 @@ function limitKey(row: Pick<CliDetectionResult, 'cli' | 'ptahCliId'>): string {
   return row.cli;
 }
 
-function buildRouteCandidateSource(agent: RouteAgent): RouteCandidateSource {
+export function buildRouteCandidateSource(
+  agent: RouteAgent,
+): RouteCandidateSource {
   return {
     rows: () => agent.list(),
 
@@ -102,10 +107,14 @@ export function buildRouteNamespace(
   deps: RouteNamespaceDependencies,
 ): RouteNamespace {
   return {
-    decide: async (args) => {
+    decide: async (args, context) => {
       const service = resolveRouteDecideService(deps.container);
       if (!service) throw new RoutingUnavailableError();
-      return service.decide(args, buildRouteCandidateSource(deps.agent));
+      return service.decide(
+        args,
+        buildRouteCandidateSource(deps.agent),
+        context,
+      );
     },
   };
 }

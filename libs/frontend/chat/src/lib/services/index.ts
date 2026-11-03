@@ -126,6 +126,10 @@ export { RecentSessionsStore } from './session-list/recent-sessions.store';
 export { PreviousSessionsDialogService } from './session-list/previous-sessions-dialog.service';
 export { SessionOrganizerService } from './session-list/session-organizer.service';
 export {
+  SessionOrganizationCache,
+  SESSION_ORGANIZATION_CACHE_MAX,
+} from './session-organization/session-organization-cache.store';
+export {
   SessionRowActionsService,
   SESSION_NAME_MAX_LENGTH,
 } from './session-list/session-row-actions.service';

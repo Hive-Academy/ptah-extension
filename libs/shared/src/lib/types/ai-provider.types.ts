@@ -8,18 +8,21 @@ import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Supported AI Provider IDs
+ *
+ * `codex-app-server` labels the native Codex App Server chat adapter. It
+ * matches the `runtime` value of a native Codex execution profile.
  */
-export type ProviderId = 'claude-cli' | 'vscode-lm' | 'ptah-cli';
+export type ProviderId =
+  | 'claude-cli'
+  | 'vscode-lm'
+  | 'ptah-cli'
+  | 'codex-app-server';
 
 /**
  * Provider Status Types
  */
 export type ProviderStatus =
-  | 'available'
-  | 'unavailable'
-  | 'error'
-  | 'initializing'
-  | 'disabled';
+  'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
 
 /**
  * Provider Capability Flags
@@ -165,6 +168,8 @@ export interface AISessionConfig {
   readonly ptahUiFence?: boolean;
   readonly projectPath?: string;
   readonly workspaceId?: string;
+  /** Ordered governing plugin-config roots, nearest ancestor first. Internal session context. */
+  readonly pluginConfigAncestorRoots?: readonly string[];
   readonly maxTokens?: number;
   readonly systemPrompt?: string;
   readonly model?: string;
@@ -207,8 +212,8 @@ export interface AISessionConfig {
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
    * otherwise falls back to 'claude_code'.
    *
-   * PTAH_SYSTEM_PROMPT (MCP documentation) is always injected regardless of
-   * preset selection when the MCP server is running.
+   * The core Ptah prompt is assembled by the host according to the selected
+   * preset; MCP tool documentation comes from the tool surface.
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**
@@ -459,7 +464,12 @@ export function isProviderError(error: unknown): error is ProviderError {
 }
 
 export function isValidProviderId(id: string): id is ProviderId {
-  return id === 'claude-cli' || id === 'vscode-lm' || id === 'ptah-cli';
+  return (
+    id === 'claude-cli' ||
+    id === 'vscode-lm' ||
+    id === 'ptah-cli' ||
+    id === 'codex-app-server'
+  );
 }
 
 /**
@@ -469,6 +479,7 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   'claude-cli',
   'vscode-lm',
   'ptah-cli',
+  'codex-app-server',
 ] as const;
 
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {

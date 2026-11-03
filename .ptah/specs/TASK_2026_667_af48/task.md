@@ -2,11 +2,11 @@
 id: TASK_2026_667_af48
 status: backlog
 type: BUGFIX
-title: Close session-handoff open items from PR 724
+title: "Return an acknowledgement when a child session fails to start"
 depends_on: []
 created: "2026-10-14T17:08:12.287Z"
-updated: "2026-10-14T17:08:12.287Z"
-description: "Failed-start chat:error has no ack; closing a tab keeps a held /session-handoff command and a pending banner promise."
+updated: "2026-10-30T03:38:08.921Z"
+description: "PR #724 already drops a held /session-handoff on tab close, /clear and workspace removal. A failed child-session start still only broadcasts chat:error from reportStartFailure, so the caller cannot tell the start failed."
 estimate: S
 labels:
   - follow-up

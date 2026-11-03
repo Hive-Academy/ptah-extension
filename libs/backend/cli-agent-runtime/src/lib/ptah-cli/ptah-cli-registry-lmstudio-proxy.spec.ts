@@ -146,6 +146,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
 
   const spawnOptionsService = {
     assembleSpawnOptions: jest.fn().mockResolvedValue({
+      builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
       mcpServers: {},
       hooks: undefined,
       autoCompact: {},

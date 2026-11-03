@@ -7,6 +7,11 @@ const envelope = (id: string, agentId = 'a', kind: 'report' | 'completed' = 'rep
     ...(peer ? { inboundPeer: { label: 'codex · Agent' } } : {}),
   });
 const assistant = (id: string): ExecutionChatMessage => createExecutionChatMessage({ id, role: 'assistant', timestamp: 10 });
+const sdkEnvelope = (id: string, from = 'ad589f82c811f90e5', peerLabel = 'researcher-expert'): ExecutionChatMessage =>
+  createExecutionChatMessage({ id, role: 'user', timestamp: Number(id.replace(/\D/g, '')) || 1,
+    rawContent: `Another Claude session sent a message:\n<agent-message from="${from}">\nFinding ${id}\n</agent-message>\n\nThat "other Claude session" is an agent working inside this same session.`,
+    inboundPeer: { label: peerLabel },
+  });
 
 describe('groupLaneEvents', () => {
   it('merges a contiguous report and completion without changing slot keys or order', () => {
@@ -16,6 +21,31 @@ describe('groupLaneEvents', () => {
     expect(slots.get('m1')).toMatchObject({ kind: 'row', row: { rowKey: 'm1', liveLane: true, events: [{ messageId: 'm1' }, { messageId: 'm2' }] } });
     expect(slots.get('m2')).toEqual({ kind: 'merged', rowKey: 'm1' });
     expect([...groupLaneEvents(messages, new Set()).keys()]).toEqual([...slots.keys()]);
+  });
+
+  it('merges SDK subagent reports from the same sender and strips the SDK wrapper', () => {
+    const slots = groupLaneEvents([sdkEnvelope('m1'), sdkEnvelope('m2')], new Set());
+    expect(slots.get('m1')).toMatchObject({
+      kind: 'row',
+      row: {
+        agentId: 'ad589f82c811f90e5',
+        agent: 'researcher-expert',
+        cli: 'subagent',
+        events: [
+          { kind: 'report', body: 'Finding m1' },
+          { kind: 'report', body: 'Finding m2' },
+        ],
+      },
+    });
+    expect(slots.get('m2')).toEqual({ kind: 'merged', rowKey: 'm1' });
+  });
+
+  it('uses the short from id when an SDK subagent has no peer label', () => {
+    const slots = groupLaneEvents([sdkEnvelope('m1', 'abcdef123456', ' ')], new Set());
+    expect(slots.get('m1')).toMatchObject({
+      kind: 'row',
+      row: { agent: 'abcdef12', cli: 'subagent', peerLabel: 'peer session' },
+    });
   });
 
   it('starts a new row after an assistant message and lists earlier events', () => {

@@ -4,7 +4,18 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { formatUsdCost } from '@ptah-extension/shared';
+import { formatUsdCost, type SessionCostBasis } from '@ptah-extension/shared';
+
+/** Final price meaning shared by cost badges and session stats views. */
+export function costBasisLabel(
+  cost: number | null | undefined,
+  basis: SessionCostBasis | undefined,
+): string | null {
+  if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
+  if (basis === 'estimated') return 'estimated';
+  if (basis === 'covered-by-subscription') return 'covered by subscription';
+  return null;
+}
 
 /**
  * CostBadgeComponent - Displays message cost with formatting
@@ -36,9 +47,12 @@ import { formatUsdCost } from '@ptah-extension/shared';
     @if (knownCost(); as cost) {
       <span
         class="badge badge-sm badge-success ok-solid-text"
-        [title]="'$' + cost.value.toFixed(4) + ' USD'"
+        [title]="'$' + cost.value.toFixed(4) + ' USD' + (basisLabel() ? ' — ' + basisLabel() : '')"
       >
         {{ formatUsdCost(cost.value) }}
+        @if (basisLabel(); as label) {
+          <span class="ml-1" data-testid="cost-basis-label">{{ label }}</span>
+        }
       </span>
     } @else {
       <span
@@ -61,6 +75,13 @@ export class CostBadgeComponent {
    * callers were previously forced into `!` assertions that lied at runtime.
    */
   readonly cost = input.required<number | null | undefined>();
+
+  /** Optional final price meaning; absent snapshots keep the legacy badge. */
+  readonly costBasis = input<SessionCostBasis>();
+
+  protected readonly basisLabel = computed(() =>
+    costBasisLabel(this.cost(), this.costBasis()),
+  );
 
   /**
    * The cost when it is genuinely known, wrapped so a real `0` survives the

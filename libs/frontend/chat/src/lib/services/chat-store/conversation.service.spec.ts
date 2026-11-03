@@ -19,6 +19,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ConversationService } from './conversation.service';
 import {
+  ConfirmationDialogService,
   TabManagerService,
   type ClosedTabEvent,
   type WorkspaceRemovalEvent,
@@ -90,6 +91,8 @@ describe('ConversationService', () => {
   };
   let rpcCall: jest.Mock;
   let claudeRpcService: { call: jest.Mock };
+  let confirm: jest.Mock;
+  let setResumableSubagents: jest.Mock;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -183,6 +186,8 @@ describe('ConversationService', () => {
 
     rpcCall = jest.fn();
     claudeRpcService = { call: rpcCall };
+    confirm = jest.fn();
+    setResumableSubagents = jest.fn();
 
     messageFinalization = {
       finalizeCurrentMessage: jest.fn(),
@@ -201,10 +206,11 @@ describe('ConversationService', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: MessageValidationService, useValue: validator },
         { provide: ClaudeRpcService, useValue: claudeRpcService },
+        { provide: ConfirmationDialogService, useValue: { confirm } },
         { provide: MessageFinalizationService, useValue: messageFinalization },
         {
           provide: SessionLoaderService,
-          useValue: { setResumableSubagents: jest.fn() },
+          useValue: { setResumableSubagents },
         },
       ],
     });
@@ -563,6 +569,125 @@ describe('ConversationService', () => {
         'tab-1',
         true,
       );
+    });
+  });
+
+  describe('targeted inspector Stop', () => {
+    beforeEach(() => {
+      tabsSignal.set([
+        makeTab({ id: 'inspector', claudeSessionId: 'session-inspector', status: 'streaming', queuedContent: 'keep this draft' }),
+        makeTab({ id: 'active', claudeSessionId: 'session-active', status: 'streaming', queuedContent: 'other draft' }),
+      ]);
+      activeTabIdSignal.set('inspector');
+    });
+
+    it('keeps the captured target through agent query, confirmation and abort after an active-tab change', async () => {
+      let resolveAgents: ((value: { data: { agents: { agentType: string }[] } }) => void) | undefined;
+      let resolveConfirm: ((value: boolean) => void) | undefined;
+      rpcCall.mockImplementation((method: string) => method === 'chat:running-agents'
+        ? new Promise((resolve) => { resolveAgents = resolve; })
+        : Promise.resolve({ success: true, data: { resumableSubagents: [{ toolCallId: 'tool-1' }] } }));
+      confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirm = resolve; }));
+
+      const stop = service.abortWithConfirmationFor('inspector', 'session-inspector');
+      activeTabIdSignal.set('active');
+      resolveAgents?.({ data: { agents: [{ agentType: 'worker' }] } });
+      await Promise.resolve();
+      expect(confirm).toHaveBeenCalledTimes(1);
+      resolveConfirm?.(true);
+      expect(await stop).toBe(true);
+
+      expect(rpcCall).toHaveBeenCalledWith('chat:running-agents', { sessionId: 'session-inspector' });
+      expect(rpcCall).toHaveBeenCalledWith('chat:abort', { sessionId: 'session-inspector' });
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:abort')).toHaveLength(1);
+      expect(tabManager.setLastTerminalReason).toHaveBeenCalledWith('inspector', 'aborted_streaming');
+      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith('inspector');
+      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalledWith('active');
+      expect(service.queueRestoreSignal()).toEqual({ tabId: 'inspector', content: 'keep this draft' });
+      expect(messageFinalization.markAgentsAsInterruptedByToolCallIds).toHaveBeenCalledWith('inspector', new Set(['tool-1']));
+      expect(setResumableSubagents).toHaveBeenCalledWith([{ toolCallId: 'tool-1' }], 'session-inspector');
+    });
+
+    it('sends no abort when the user cancels after switching tabs', async () => {
+      rpcCall.mockResolvedValue({ data: { agents: [{ agentType: 'worker' }] } });
+      confirm.mockImplementation(async () => { activeTabIdSignal.set('active'); return false; });
+      expect(await service.abortWithConfirmationFor('inspector', 'session-inspector')).toBe(false);
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:abort')).toHaveLength(0);
+      expect(tabManager.setLastTerminalReason).not.toHaveBeenCalled();
+    });
+
+    it('uses the captured tab for the rejected query and abort-failure fallback', async () => {
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'chat:running-agents') {
+          activeTabIdSignal.set('active');
+          return Promise.reject(new Error('query failed'));
+        }
+        activeTabIdSignal.set('active');
+        return Promise.reject(new Error('abort failed'));
+      });
+      expect(await service.abortWithConfirmationFor('inspector', 'session-inspector')).toBe(false);
+      expect(rpcCall).toHaveBeenCalledWith('chat:abort', { sessionId: 'session-inspector' });
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('inspector');
+      expect(tabManager.markTabIdle).not.toHaveBeenCalledWith('active');
+      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalledWith('active');
+      expect(messageFinalization.clearPendingPromptsForSession).not.toHaveBeenCalledWith('active', 'session-active');
+    });
+
+    it('does not reset a tab rebound to another session during the abort RPC', async () => {
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'chat:running-agents') return Promise.reject(new Error('query failed'));
+        tabsSignal.update((tabs) => tabs.map((tab) => tab.id === 'inspector'
+          ? { ...tab, claudeSessionId: 'replacement' }
+          : tab));
+        return Promise.reject(new Error('abort failed'));
+      });
+      await service.abortWithConfirmationFor('inspector', 'session-inspector');
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(messageFinalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])('joins overlapping Stop requests for one target with abort success %s', async (success) => {
+      let resolveAgents: ((value: { data: { agents: [] } }) => void) | undefined;
+      let resolveAbort: ((value: { success: boolean }) => void) | undefined;
+      rpcCall.mockImplementation((method: string) => method === 'chat:running-agents'
+        ? new Promise((resolve) => { resolveAgents = resolve; })
+        : new Promise((resolve) => { resolveAbort = resolve; }));
+
+      const first = service.abortWithConfirmationFor('inspector', 'session-inspector');
+      const second = service.abortWithConfirmationFor('inspector', 'session-inspector');
+      expect(service.isStopping()).toBe(true);
+      await Promise.resolve();
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:running-agents')).toHaveLength(1);
+
+      resolveAgents?.({ data: { agents: [] } });
+      await Promise.resolve();
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:abort')).toHaveLength(1);
+      expect(service.isStopping()).toBe(true);
+
+      resolveAbort?.({ success });
+      expect(await Promise.all([first, second])).toEqual([success, success]);
+      expect(service.isStopping()).toBe(false);
+    });
+
+    it('allows different targets to abort independently and keeps the flag until both finish', async () => {
+      const resolveAbort = new Map<string, (value: { success: boolean }) => void>();
+      rpcCall.mockImplementation((method: string, args: { sessionId: string }) =>
+        method === 'chat:running-agents'
+          ? Promise.resolve({ data: { agents: [] } })
+          : new Promise((resolve) => { resolveAbort.set(args.sessionId, resolve); }));
+
+      const first = service.abortWithConfirmationFor('inspector', 'session-inspector');
+      const second = service.abortWithConfirmationFor('active', 'session-active');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:abort')).toHaveLength(2);
+
+      resolveAbort.get('session-inspector')?.({ success: true });
+      expect(await first).toBe(true);
+      expect(service.isStopping()).toBe(true);
+      resolveAbort.get('session-active')?.({ success: true });
+      expect(await second).toBe(true);
+      expect(service.isStopping()).toBe(false);
     });
   });
 

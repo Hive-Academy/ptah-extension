@@ -147,9 +147,6 @@ const REQUIRED_REFERENCES: readonly string[] = [
 const TARGET_SKILL_LINES = 300;
 const SKILL_ROOT: string = path.join(
   process.cwd(),
-  'apps',
-  'ptah-extension-vscode',
-  'assets',
   'plugins',
   'ptah-core',
   'skills',

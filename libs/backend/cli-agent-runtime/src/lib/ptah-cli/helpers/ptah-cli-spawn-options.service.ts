@@ -26,6 +26,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IMcpServerStatus,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
@@ -33,13 +34,21 @@ import {
   CompactionHookHandler,
   CompactionConfigProvider,
   assembleSystemPrompt,
+  buildSafeEnv,
   capabilityFlagsFor,
   capabilityIsolationOptions,
   filterMcpServersByPolicy,
   getActiveProviderId,
+  guardClaudeBuiltinSkillDenials,
+  readClaudeBuiltinOptInSettings,
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
   resolveAutoCompactControl,
+  resolveClaudeBuiltinPolicy,
   unverifiedCapabilityPolicy,
+  withClaudeBuiltinSkillDenials,
   type AutoCompactSettings,
+  type ClaudeBuiltinPolicy,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
@@ -52,7 +61,10 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
-import { renderRoleBlock, PTAH_LANE_POLICY } from '../../cli-agents/cli-adapters/cli-adapter.utils';
+import {
+  renderRoleBlock,
+  PTAH_LANE_POLICY,
+} from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -89,6 +101,29 @@ export interface PtahSpawnAssembly {
    * when it is verified. Spread by the caller into the SDK options.
    */
   readonly capabilityIsolation: ReturnType<typeof capabilityIsolationOptions>;
+  /**
+   * Claude built-ins this spawn must deny (TASK_2026_853), from the same
+   * global opt-in settings the main session reads. The caller sets
+   * `disallowedTools` from it on every route; its skill denials are already
+   * in {@link capabilityFlags} on the verified path only, minus any that
+   * would hide a same-name workspace, user or plugin skill.
+   */
+  readonly builtinPolicy: ClaudeBuiltinPolicy;
+}
+
+/**
+ * Where a spawn's Claude child really reads skills from, when that differs
+ * from the ambient defaults (a named account lane: its certified cwd and
+ * config dir). Used only to find skills a built-in denial must not hide.
+ */
+export interface PtahSpawnSkillScope {
+  readonly cwd?: string;
+  readonly claudeConfigDir?: string;
+  /**
+   * The child's SDK `settingSources`. Absent is the ambient lane and spawn
+   * default, `user`, `project` and `local`.
+   */
+  readonly settingSources?: readonly string[];
 }
 
 /**
@@ -142,6 +177,12 @@ export class PtahCliSpawnOptions {
     @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { isOptional: true })
     private readonly outputStyleActivation:
       OutputStyleSessionActivationService | undefined,
+    /**
+     * Reads the Claude built-in opt-ins. Optional like the builder's: a host
+     * without it spawns with every catalog built-in off, the safe default.
+     */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace?: IWorkspaceProvider,
   ) {}
 
   /**
@@ -165,6 +206,10 @@ export class PtahCliSpawnOptions {
    *   resolved for `cwd` (TASK_2026_560). Absent is treated as unverified, so
    *   a caller that supplies none can only narrow the spawn, never widen it
    *   (R8).
+   * @param skillScope - The named launch's cwd, config dir and setting
+   *   sources, so the built-in skill guard and the synced-skill reader scan
+   *   what that child reads. Absent is the `CLAUDE_CONFIG_DIR` of the env
+   *   the child gets (or `~/.claude`) and `cwd`; the host env is not read.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -175,6 +220,7 @@ export class PtahCliSpawnOptions {
     agentId?: string,
     role?: AgentRoleDefinition,
     capabilityPolicy?: EffectiveCapabilitySet,
+    skillScope?: PtahSpawnSkillScope,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -216,9 +262,46 @@ export class PtahCliSpawnOptions {
         { cwd, reasons: policy.reasons },
       );
     }
+    // Same settings, pure rule, synced reader and same-name guard as the
+    // main session (TASK_2026_853, R1 and Phase B). Only the verified path
+    // emits skill denials, so only it reads the synced skills.
+    const optIns = readClaudeBuiltinOptInSettings(this.workspace, this.logger);
+    const optInPolicy = resolveClaudeBuiltinPolicy(optIns);
+    // The config dir this child reads, from the env the child gets
+    // (`buildClaudeLaneEnv`): a named launch's certified dir, else the safe
+    // env's (the auth env's value; the host `CLAUDE_CONFIG_DIR` does not reach
+    // an ambient child), else `~/.claude` (decision #42).
+    const claudeConfigDir = resolveClaudeConfigDir([
+      skillScope?.claudeConfigDir
+        ? { CLAUDE_CONFIG_DIR: skillScope.claudeConfigDir }
+        : buildSafeEnv(authEnv),
+    ]);
+    const builtinPolicy =
+      policy.status === 'verified'
+        ? await guardClaudeBuiltinSkillDenials(
+            resolveClaudeBuiltinPolicy({
+              ...optIns,
+              // Qualified `anthropic-skills:<name>` ids only; none on failure.
+              syncedSkillIds: (
+                await readSyncedClaudeSkills(claudeConfigDir, this.logger)
+              ).map((skill) => skill.id),
+            }),
+            {
+              cwds: skillScope?.cwd ? [cwd, skillScope.cwd] : [cwd],
+              claudeConfigDir,
+              // Only the tiers the child loads can collide (R2).
+              settingSources: skillScope?.settingSources,
+            },
+            this.logger,
+          )
+        : optInPolicy;
     // A spawn has no MCP back-off set of its own; the only lists are the
-    // policy's.
-    const capabilityFlags = capabilityFlagsFor(policy, []);
+    // policy's, plus the built-in skill denials when the policy is verified.
+    const capabilityFlags = withClaudeBuiltinSkillDenials(
+      capabilityFlagsFor(policy, []),
+      policy,
+      builtinPolicy,
+    );
     const builtMcpServers: Record<string, McpHttpServerConfig> =
       mcpServerRunning
         ? {
@@ -299,6 +382,7 @@ export class PtahCliSpawnOptions {
       ownSessionId: ownSessionId ?? null,
       role: role?.name ?? null,
       capabilityPolicy: policy.status,
+      disallowedBuiltinTools: builtinPolicy.disallowedTools,
     });
 
     return {
@@ -310,6 +394,7 @@ export class PtahCliSpawnOptions {
       outputStyleName: outputStyle.outputStyleName,
       capabilityFlags,
       capabilityIsolation: capabilityIsolationOptions(policy),
+      builtinPolicy,
     };
   }
 

@@ -5,8 +5,10 @@ import {
   signal,
   computed,
   effect,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { injectWallClock, WallClockService } from '@ptah-extension/core';
 import {
   LucideAngularModule,
   ShieldAlert,
@@ -158,7 +160,12 @@ export class PermissionRequestCardComponent {
   protected readonly XIcon = X;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly ClockIcon = Clock;
-  private readonly _currentTime = signal(Date.now());
+  private readonly clockNow = inject(WallClockService).now('second');
+  readonly expired = computed(() => {
+    const timeout = this.request().timeoutAt;
+    return timeout > 0 && this.clockNow() >= timeout;
+  });
+  private deniedRequestId: string | null = null;
   private readonly _isDenyPopoverOpen = signal(false);
   readonly isDenyPopoverOpen = this._isDenyPopoverOpen.asReadonly();
 
@@ -168,7 +175,7 @@ export class PermissionRequestCardComponent {
    * timeoutAt === 0 means "no timeout — block indefinitely"
    */
   readonly remainingTime = computed(() => {
-    const current = this._currentTime();
+    const current = this.clockNow();
     const timeout = this.request().timeoutAt;
     if (timeout <= 0) {
       return 'No timeout';
@@ -199,30 +206,18 @@ export class PermissionRequestCardComponent {
   protected isExpiringSoon(): boolean {
     const timeout = this.request().timeoutAt;
     if (timeout <= 0) return false; // No timeout — never expiring
-    const remaining = timeout - this._currentTime();
+    const remaining = timeout - this.clockNow();
     return remaining <= 60000; // Less than 1 minute
   }
 
-  private timerInterval: ReturnType<typeof setInterval> | null = null;
-
   constructor() {
-    effect((onCleanup) => {
-      if (this.request().timeoutAt <= 0) {
-        return;
+    injectWallClock('second', () => this.request().timeoutAt > 0 && !this.expired());
+    effect(() => {
+      const requestId = this.request().id;
+      if (this.expired() && requestId !== this.deniedRequestId) {
+        this.deniedRequestId = requestId;
+        this.respond('deny', 'Request timeout');
       }
-      this.timerInterval = setInterval(() => {
-        this._currentTime.set(Date.now());
-        const timeout = this.request().timeoutAt;
-        if (timeout > 0 && Date.now() >= timeout) {
-          this.respond('deny', 'Request timeout');
-        }
-      }, 1000);
-      onCleanup(() => {
-        if (this.timerInterval) {
-          clearInterval(this.timerInterval);
-          this.timerInterval = null;
-        }
-      });
     });
   }
 
@@ -388,10 +383,6 @@ export class PermissionRequestCardComponent {
     decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message',
     reason?: string,
   ): void {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
     this.responded.emit({
       id: this.request().id,
       decision,
@@ -422,10 +413,6 @@ export class PermissionRequestCardComponent {
    * @param message - The message to send to Claude explaining the denial
    */
   handleDenyWithMessage(message: string): void {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
     this._isDenyPopoverOpen.set(false);
     this.responded.emit({
       id: this.request().id,

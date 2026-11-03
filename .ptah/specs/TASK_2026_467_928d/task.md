@@ -1,12 +1,12 @@
 ---
 id: TASK_2026_467_928d
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Completed ptah-cli agents lose their output because the Electron state worker rejects it
 depends_on: []
 created: '2026-09-17T00:00:00.000Z'
-updated: '2026-09-17T00:00:00.000Z'
+updated: "2026-10-30T01:09:07.477Z"
 description: >-
   Every ptah-cli agent that exits on Electron logs "Failed to persist CLI session
   reference after retries" with ElectronStateWorkerProtocolError "Worker message

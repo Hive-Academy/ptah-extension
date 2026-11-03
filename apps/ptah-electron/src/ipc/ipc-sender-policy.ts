@@ -6,10 +6,12 @@
  * `windows/navigation-policy.ts`).
  *
  * `rpc`, `get-state`, `set-state` and `diag:cpu-profile` reach the whole
- * backend, so only one sender may call them: the main window's TOP frame,
- * showing one of the app's own documents (the Angular renderer or the
- * preparing-workspace boot shell). A subframe, another webContents, or the
- * main frame after it navigated somewhere else is refused.
+ * backend, so only the app's own windows may call them: the TOP frame of a
+ * trusted webContents (the main window, and the detached Display window while
+ * it is open — TASK_2026_853_3401), showing one of the app's own documents
+ * (the Angular renderer or the preparing-workspace boot shell). A subframe,
+ * another webContents, or a main frame after it navigated somewhere else is
+ * refused. What each trusted window may call is decided by `IpcBridge`.
  */
 
 import * as path from 'path';
@@ -25,10 +27,13 @@ export interface IpcSenderIdentity {
   readonly isMainFrame: boolean;
 }
 
-/** The only sender allowed through. */
+/** The senders allowed through. */
 export interface TrustedIpcSender {
-  /** The main window's `webContents.id`; `null` before a window exists. */
-  readonly webContentsId: number | null;
+  /**
+   * `webContents.id` of every trusted app window (main window, then the
+   * detached Display window when open). Empty before a window exists.
+   */
+  readonly webContentsIds: readonly number[];
   /** Absolute filesystem paths of the documents the main window may show. */
   readonly documentPaths: readonly string[];
 }
@@ -69,7 +74,7 @@ function comparable(filePath: string, windows: boolean): string {
 }
 
 /**
- * Whether an IPC call comes from the trusted main-window document.
+ * Whether an IPC call comes from a trusted app-window document.
  *
  * Fail-closed: no window yet, another webContents, a subframe, a missing or
  * malformed frame URL, a non-`file:` URL, or a `file:` path outside
@@ -82,8 +87,7 @@ export function isTrustedIpcSender(
   trusted: TrustedIpcSender,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  if (trusted.webContentsId === null) return false;
-  if (sender.webContentsId !== trusted.webContentsId) return false;
+  if (!trusted.webContentsIds.includes(sender.webContentsId)) return false;
   if (!sender.isMainFrame) return false;
   if (sender.frameUrl === undefined) return false;
 

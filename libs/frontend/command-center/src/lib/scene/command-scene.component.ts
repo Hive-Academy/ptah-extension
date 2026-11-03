@@ -32,7 +32,7 @@ import {
 
 const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
   dark: {
-    gold: { lit: '#f6d58f', mid: '#a16d37', dark: '#392818', rim: '#f7deaa' },
+    stone: { lit: '#f4f3f0', mid: '#c9c7c2', dark: '#7d7b77', rim: '#f2f1ee' },
     blue: { lit: '#a8d3f5', mid: '#4579ae', dark: '#1c3457', rim: '#b9ddfa' },
     teal: { lit: '#9ce8df', mid: '#387f80', dark: '#1d4149', rim: '#adf1e9' },
     plum: { lit: '#d9b7e9', mid: '#865b9c', dark: '#3d2853', rim: '#e4c9ef' },
@@ -41,7 +41,7 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
     silver: { lit: '#e8e6f0', mid: '#898ba5', dark: '#41445d', rim: '#f1eff8' },
   },
   light: {
-    gold: { lit: '#fff0c5', mid: '#ce9d53', dark: '#79532d', rim: '#b27b3b' },
+    stone: { lit: '#ffffff', mid: '#e4e3df', dark: '#a5a39e', rim: '#8d8b86' },
     blue: { lit: '#e5f3ff', mid: '#8ab4db', dark: '#446c99', rim: '#638db7' },
     teal: { lit: '#e0faf5', mid: '#85cbc3', dark: '#43817e', rim: '#589b95' },
     plum: { lit: '#f7eaff', mid: '#c6a4d7', dark: '#795e91', rim: '#9574a7' },
@@ -50,6 +50,9 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
     silver: { lit: '#fafaff', mid: '#c4c5d2', dark: '#777a91', rim: '#9c9eb2' },
   },
 };
+
+/** Neutral face so the grey engraved logo is not tinted. */
+const ROOT_PALETTE = 'stone';
 
 const FALLBACK_INKS: Record<CommandTheme, SceneInks> = {
   dark: {
@@ -73,7 +76,7 @@ function paletteName(
   providerId: string | null,
   nodeKind: CommandWorkNode['kind'],
 ): string {
-  if (kind === 'root') return 'gold';
+  if (kind === 'root') return ROOT_PALETTE;
   if (nodeKind === 'child') return 'silver';
   const id = providerId?.toLowerCase() ?? '';
   if (id.includes('grok')) return 'teal';
@@ -265,8 +268,8 @@ export class CommandSceneComponent {
       const voiceHalo = root
         ? this.cache.getVoiceHalo({
             theme,
-            paletteName: 'gold',
-            palette: SCENE_PALETTES[theme]['gold'],
+            paletteName: ROOT_PALETTE,
+            palette: SCENE_PALETTES[theme][ROOT_PALETTE],
             dpr,
           })
         : undefined;

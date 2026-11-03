@@ -7,11 +7,8 @@ import {
   computed,
   ChangeDetectionStrategy,
   viewChild,
-  inject,
 } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
 import {
-  ArtifactCardComponent,
   ToolCallHeaderComponent,
   ToolInputDisplayComponent,
   ToolOutputDisplayComponent,
@@ -19,18 +16,12 @@ import {
   isPtahMcpToolName,
   toolStatusPresentation,
 } from '@ptah-extension/chat-ui';
-import { ArtifactStore } from '../../../services/artifact.store';
-import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
+import { publishedArtifactFromNode } from '../../../services/artifacts/published-artifact';
 import type {
   ExecutionNode,
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * ToolCallItemComponent - One tool call as a quiet log line with a status rail
@@ -80,7 +71,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     ToolInputDisplayComponent,
     ToolOutputDisplayComponent,
     PermissionRequestCardComponent,
-    ArtifactCardComponent,
   ],
   template: `
     <div class="relative pl-2.5 my-0.5" data-glass-surface="tile">
@@ -100,15 +90,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
         (toggleClicked)="toggleCollapse()"
       />
 
-      @if (canOpenArtifacts && artifact(); as record) {
-        <ptah-artifact-card [artifact]="record" (open)="openArtifact($event)" (fullscreen)="openArtifact($event, true)" />
-      } @else if (publishedArtifact(); as published) {
-        <article class="flex flex-col gap-1 rounded-box border border-base-content/15 bg-base-200/40 p-3" data-testid="artifact-card">
-          <p class="truncate text-sm font-semibold" data-testid="artifact-card-title">{{ published.title }}</p>
-          <p class="text-xs text-base-content-muted" data-testid="artifact-card-status">
-            {{ artifact() ? 'Preview not available here' : 'Not loaded yet' }}
-          </p>
-        </article>
+      <!-- Read-only: the reply card at the turn end owns Open / Full screen. -->
+      @if (publishedArtifact(); as published) {
+        <p
+          class="truncate pl-1 text-xs text-base-content-muted"
+          data-testid="tool-artifact-line"
+        >
+          Artifact · {{ published.title }}
+        </p>
       }
 
       <!-- Collapsible content -->
@@ -145,50 +134,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {
-  private readonly artifacts = inject(ArtifactStore);
-  // Optional: only a session chat view provides the Display dock and sheet
-  // (and VS Code provides a null dock). A subagent or CLI lane renders the
-  // same tool rows without them; there the artifact shows as a read-only
-  // card instead of offering Open / Full screen actions that cannot work.
-  private readonly dock = inject(DisplayDockState, { optional: true });
-  private readonly sheet = inject(DisplaySheetState, { optional: true });
-  protected readonly canOpenArtifacts = this.dock !== null;
-  private readonly tabs = inject(TabManagerService);
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
 
   private readonly headerRef = viewChild<ToolCallHeaderComponent>('headerRef');
 
-  protected readonly publishedArtifact = computed((): { id: string; title: string } | null => {
-    const node = this.node();
-    if (node.isError || node.status !== 'complete' || !/^(?:mcp__ptah__)?ptah_artifact_publish$/.test(node.toolName ?? '')) return null;
-    const output = node.toolOutput;
-    const content = Array.isArray(output) ? output : isRecord(output) ? output['content'] : null;
-    const part = Array.isArray(content)
-      ? content.find((entry: unknown) => isRecord(entry) && entry['type'] === 'text')
-      : null;
-    const text = typeof output === 'string' ? output : isRecord(part) ? part['text'] : null;
-    if (typeof text !== 'string') return null;
-    try {
-      const result: unknown = JSON.parse(text);
-      return isRecord(result) && typeof result['id'] === 'string'
-        ? { id: result['id'], title: typeof result['title'] === 'string' ? result['title'] : 'Artifact' } : null;
-    } catch { return null; }
-  });
-  protected readonly artifact = computed(() => {
-    const published = this.publishedArtifact();
-    return published ? this.artifacts.recordById(published.id) : null;
-  });
-
-  protected openArtifact(id: string, full = false): void {
-    const tabId = this.tabs.activeTabId();
-    if (!tabId || !this.dock) return;
-    this.dock.openArtifact(tabId, id);
-    if (full) {
-      this.dock.requestFullscreenArtifact(tabId, id);
-      this.sheet?.setMode(tabId, 'full');
-    }
-  }
+  /**
+   * The artifact this call published, shown as a compact read-only line.
+   * Open and Full screen live on the turn's reply card
+   * (`TranscriptTurnArtifacts`), which targets the transcript's own tab.
+   */
+  protected readonly publishedArtifact = computed(() =>
+    publishedArtifactFromNode(this.node()),
+  );
 
   /** A permission request for this call is waiting on the user. */
   protected readonly awaitingPermission = computed(() => !!this.permission());

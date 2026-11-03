@@ -90,17 +90,17 @@ export function resolveStrategy(
 
 /**
  * Normalize any persisted `authMethod` value (legacy or new spelling) to the
- * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on unknown input.
+ * canonical `LegacyAuthMethod` triad. Defaults to `'claudeCli'` on unknown input.
  *
- * Mapping (first match wins, default `'apiKey'`):
+ * Mapping (first match wins, default `'claudeCli'`):
  *   'apiKey'                              → 'apiKey'
  *   'claudeCli' | 'claude-cli'            → 'claudeCli'
  *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
- *   anything else                         → 'apiKey'
+ *   anything else                         → 'claudeCli'
  */
 export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
   if (typeof rawValue !== 'string') {
-    return 'apiKey';
+    return 'claudeCli';
   }
 
   if (rawValue === 'apiKey') return 'apiKey';
@@ -113,5 +113,5 @@ export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
     return 'thirdParty';
   }
 
-  return 'apiKey';
+  return 'claudeCli';
 }

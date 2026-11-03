@@ -20,3 +20,7 @@ Full original scope: `../TASK_2026_570_fd05/` and `../TASK_2026_310/`.
 - Sequence the store split after TASK_2026_577 and TASK_2026_573 land, and after any TASK_2026_568 work that
   edits the store, to avoid conflicts.
 - One PR per file is acceptable; the task closes when all three are under the limit.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_310`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

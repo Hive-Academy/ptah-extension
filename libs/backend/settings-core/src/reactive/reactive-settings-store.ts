@@ -38,6 +38,12 @@ export class ReactiveSettingsStore implements ISettingsStore {
     return value;
   }
 
+  hasGlobal(key: string): boolean {
+    return this.backend.hasGlobal
+      ? this.backend.hasGlobal(key)
+      : this.readGlobal(key) !== undefined;
+  }
+
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     await this.backend.writeGlobal(key, value);
     this.globalCache.set(key, value);

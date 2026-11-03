@@ -33,9 +33,9 @@ const booleanSettings = ADVANCED_SETTINGS.filter(
 );
 
 describe('ADVANCED_SETTINGS table', () => {
-  it('describes the 25 surfaced keys, each once', () => {
+  it('describes the 26 surfaced keys, each once', () => {
     const keys = ADVANCED_SETTINGS.map((setting) => setting.key);
-    expect(keys).toHaveLength(25);
+    expect(keys).toHaveLength(26);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -108,10 +108,11 @@ describe('ADVANCED_SETTINGS table', () => {
     expect(setting.integer).toBe(integer);
   });
 
-  it('describes the six boolean keys', () => {
+  it('describes the seven boolean keys', () => {
     expect(booleanSettings.map((setting) => setting.key).sort()).toEqual([
       'agentOrchestration.codexWebSearch',
       'compaction.idleCompactionEnabled',
+      'display.autoOpenArtifacts',
       'harness.manageGitignore',
       'memory.symbolInjectionEnabled',
       'notifications.failureHostEnabled',
@@ -131,6 +132,16 @@ describe('ADVANCED_SETTINGS table', () => {
       expect(setting.apply).toBe('live');
     },
   );
+
+  it('describes display.autoOpenArtifacts in the display group, on by default, live', () => {
+    const setting = booleanSetting('display.autoOpenArtifacts');
+    expect(setting.group).toBe('display');
+    expect(setting.default).toBe(true);
+    expect(setting.apply).toBe('live');
+    expect(ADVANCED_SETTING_GROUPS.map((group) => group.id)).toContain(
+      'display',
+    );
+  });
 });
 
 describe('findAdvancedSetting', () => {

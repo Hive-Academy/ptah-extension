@@ -396,6 +396,32 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     });
   }
 
+  /**
+   * A newly published artifact (plan B), with the {@link requestAutoOpen}
+   * rules: an open pinned dock does not move; an open unpinned dock shows the
+   * Displays tab with the artifact selected; after a user close during the
+   * live turn the dock stays closed and `newCount` grows; otherwise the dock
+   * opens on Displays with the artifact selected. Focus and the active chat
+   * tab never change. Several publishes: the latest wins.
+   */
+  requestArtifactAutoOpen(tabId: string, artifactId: string): void {
+    this.update(tabId, (state) => {
+      const selection: DisplayDockSelection = { kind: 'artifact', artifactId };
+      if (state.open) {
+        return state.pinned
+          ? state
+          : { ...state, activeTab: 'displays', selection };
+      }
+      if (
+        state.userClosedTurnKey !== null &&
+        state.userClosedTurnKey === state.liveTurnKey
+      ) {
+        return { ...state, newCount: state.newCount + 1 };
+      }
+      return { ...openedState(state, 'displays'), selection };
+    });
+  }
+
   // --- Internals -----------------------------------------------------------
 
   private update(

@@ -136,6 +136,9 @@ describe('SubagentCacheTtlSettingComponent', () => {
 
   it('offers the three values with a label, shows the saved one, and has no env notice without an override', () => {
     expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
+    expect(
       Array.from(select()?.options ?? []).map((option) => [
         option.value,
         option.textContent?.trim(),

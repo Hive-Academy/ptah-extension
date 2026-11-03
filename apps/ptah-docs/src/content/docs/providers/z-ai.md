@@ -24,7 +24,7 @@ Pricing figures are approximate and subject to change. Check the [Z.AI platform]
 ## What you need
 
 - A Z.AI account and API key from [z.ai](https://z.ai/).
-- The Ptah Electron desktop app, or `ptah-cli` for headless use.
+- The Ptah Electron desktop app.
 
 ## Configuration
 

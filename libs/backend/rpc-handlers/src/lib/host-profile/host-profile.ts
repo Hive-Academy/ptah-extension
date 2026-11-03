@@ -84,6 +84,7 @@ const ALL_DISABLED: HostCapabilities = {
   goVetDiagnostics: false,
   lanePlanLimits: false,
   providerAccounts: false,
+  gitRootWatch: false,
 };
 
 /**

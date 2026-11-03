@@ -141,8 +141,7 @@ export interface ListingBrandQuery {
   readonly registryName?: string | null;
   /**
    * Every remote URL the listing connects to: MCP Registry
-   * `version_detail.transports[].url` and Smithery
-   * `connections[].deploymentUrl`.
+   * `remotes[].url` and Smithery `connections[].deploymentUrl`.
    */
   readonly remoteUrls: readonly string[];
   readonly serverKey?: never;

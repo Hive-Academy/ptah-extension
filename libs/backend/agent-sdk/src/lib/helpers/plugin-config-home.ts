@@ -336,9 +336,10 @@ export class PluginConfigHome {
    * The `IStateStorage` view of `root`'s home over the single key
    * `ptah.plugins.config`. `get` returns the governing config (passing a
    * chosen legacy record through unchanged) and `update` writes the home
-   * record. Any other key throws.
+   * record. A read-only view returns that same config without queuing a legacy
+   * import. Any other key throws.
    */
-  viewFor(root: string): IStateStorage {
+  viewFor(root: string, readOnly = false): IStateStorage {
     const assertKey = (key: string): void => {
       if (key !== PLUGIN_CONFIG_KEY) {
         throw new SdkError(
@@ -349,7 +350,7 @@ export class PluginConfigHome {
     return {
       get: <T>(key: string, defaultValue?: T): T | undefined => {
         assertKey(key);
-        const value = this.governingValue(root);
+        const value = this.governingValue(root, !readOnly);
         return value === undefined ? defaultValue : (value as T);
       },
       update: async (key: string, value: unknown): Promise<void> => {
@@ -363,7 +364,7 @@ export class PluginConfigHome {
         await this.save(root, config);
       },
       keys: (): readonly string[] =>
-        this.governingValue(root) === undefined ? [] : [PLUGIN_CONFIG_KEY],
+        this.governingValue(root, !readOnly) === undefined ? [] : [PLUGIN_CONFIG_KEY],
     };
   }
 
@@ -506,7 +507,7 @@ export class PluginConfigHome {
   }
 
   /** The value the view's `get` answers with; may queue the one-time import. */
-  private governingValue(root: string): unknown {
+  private governingValue(root: string, queueImport = true): unknown {
     const harnessRoot = path.resolve(root);
     const resolution = this.resolve(harnessRoot);
     switch (resolution.kind) {
@@ -517,7 +518,7 @@ export class PluginConfigHome {
       case 'empty':
         return undefined;
       case 'import':
-        this.queueImport(harnessRoot, resolution.candidates);
+        if (queueImport) this.queueImport(harnessRoot, resolution.candidates);
         return resolution.candidates[0].raw;
       case 'unreadable':
         return resolution.candidate.raw;

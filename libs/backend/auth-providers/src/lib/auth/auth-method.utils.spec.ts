@@ -6,7 +6,7 @@
  *   - Legacy spellings ('apiKey' | 'claudeCli' | 'thirdParty') pass through
  *   - New spellings ('claude-cli' | 'oauth') map back to legacy triad
  *   - 'openrouter' (legacy migration) maps to 'thirdParty'
- *   - Unknown / non-string / undefined → 'apiKey'
+ *   - Unknown / non-string / undefined → 'claudeCli'
  *   - Case-sensitive (matches existing AuthManager behaviour)
  *
  * Source-under-test:
@@ -52,43 +52,43 @@ describe('normalizeAuthMethod', () => {
 
   describe('case sensitivity (matches existing AuthManager behaviour)', () => {
     it('uppercase variants fall through to default', () => {
-      expect(normalizeAuthMethod('APIKEY')).toBe('apiKey');
-      expect(normalizeAuthMethod('CLAUDE-CLI')).toBe('apiKey');
-      expect(normalizeAuthMethod('OAUTH')).toBe('apiKey');
-      expect(normalizeAuthMethod('ThirdParty')).toBe('apiKey');
+      expect(normalizeAuthMethod('APIKEY')).toBe('claudeCli');
+      expect(normalizeAuthMethod('CLAUDE-CLI')).toBe('claudeCli');
+      expect(normalizeAuthMethod('OAUTH')).toBe('claudeCli');
+      expect(normalizeAuthMethod('ThirdParty')).toBe('claudeCli');
     });
 
     it('mixed-case variants fall through to default', () => {
-      expect(normalizeAuthMethod('ClaudeCli')).toBe('apiKey');
-      expect(normalizeAuthMethod('apikey')).toBe('apiKey');
+      expect(normalizeAuthMethod('ClaudeCli')).toBe('claudeCli');
+      expect(normalizeAuthMethod('apikey')).toBe('claudeCli');
     });
   });
 
   describe('invalid input', () => {
     it('maps undefined → "apiKey"', () => {
-      expect(normalizeAuthMethod(undefined)).toBe('apiKey');
+      expect(normalizeAuthMethod(undefined)).toBe('claudeCli');
     });
 
     it('maps null → "apiKey"', () => {
-      expect(normalizeAuthMethod(null)).toBe('apiKey');
+      expect(normalizeAuthMethod(null)).toBe('claudeCli');
     });
 
     it('maps numbers → "apiKey"', () => {
-      expect(normalizeAuthMethod(42)).toBe('apiKey');
+      expect(normalizeAuthMethod(42)).toBe('claudeCli');
     });
 
     it('maps objects → "apiKey"', () => {
-      expect(normalizeAuthMethod({ method: 'apiKey' })).toBe('apiKey');
+      expect(normalizeAuthMethod({ method: 'apiKey' })).toBe('claudeCli');
     });
 
     it('maps empty string → "apiKey"', () => {
-      expect(normalizeAuthMethod('')).toBe('apiKey');
+      expect(normalizeAuthMethod('')).toBe('claudeCli');
     });
 
     it('maps unknown strings → "apiKey"', () => {
-      expect(normalizeAuthMethod('github-copilot')).toBe('apiKey');
-      expect(normalizeAuthMethod('auto')).toBe('apiKey');
-      expect(normalizeAuthMethod('garbage')).toBe('apiKey');
+      expect(normalizeAuthMethod('github-copilot')).toBe('claudeCli');
+      expect(normalizeAuthMethod('auto')).toBe('claudeCli');
+      expect(normalizeAuthMethod('garbage')).toBe('claudeCli');
     });
   });
 });
@@ -120,18 +120,21 @@ describe('resolveDefaultAuthMethod', () => {
     ).toBe('claudeCli');
   });
 
-  it('keeps the API key when one is stored, even with a connected login', () => {
+  it('prefers the connected Claude CLI login over a stored API key', () => {
     expect(
       resolveDefaultAuthMethod({ hasApiKey: true, claudeCliConnected: true }),
-    ).toBe('apiKey');
+    ).toBe('claudeCli');
+  });
+
+  it('uses the API key only when one is stored and the login is not connected', () => {
     expect(
       resolveDefaultAuthMethod({ hasApiKey: true, claudeCliConnected: false }),
     ).toBe('apiKey');
   });
 
-  it('keeps the API key path when neither is available', () => {
+  it('defaults to the Claude CLI path when neither is available', () => {
     expect(
       resolveDefaultAuthMethod({ hasApiKey: false, claudeCliConnected: false }),
-    ).toBe('apiKey');
+    ).toBe('claudeCli');
   });
 });

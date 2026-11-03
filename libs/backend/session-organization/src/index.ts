@@ -24,6 +24,25 @@ export type {
   SessionOrganizationSessionIdResolvedSource,
 } from './lib/session-organization-capture.service';
 
+// Automatic links (TASK_2026_854): reconcile, side tables, todo progress
+export { SessionAutoLinkService } from './lib/session-auto-link.service';
+export type {
+  AutoLinkExpansionSource,
+  AutoLinkFileSystem,
+  AutoLinkMetadataReader,
+  AutoLinkOrganizationService,
+  AutoLinkOrganizationStore,
+  AutoLinkPromptSource,
+  AutoLinkSideTableReader,
+  AutoLinkTaskIndexEvents,
+} from './lib/session-auto-link.service';
+export { SessionAutoLinkStore } from './lib/session-auto-link.store';
+export type { SessionOrganizationSideTables } from './lib/session-organization-side-tables';
+export { SessionTodoProgressService } from './lib/session-todo-progress.service';
+export type {
+  TodoProgressOrganizationService,
+  TodoProgressStore,
+} from './lib/session-todo-progress.service';
 // Service (recorder port adapter + RPC query/mutation API)
 export {
   SessionOrganizationInputError,
@@ -48,4 +67,6 @@ export type {
   StoredSessionTaskLink,
   StoredTaskLink,
   StoredTaskLinkInput,
+  StoredWorktreePeer,
+  UnlinkTaskOptions,
 } from './lib/session-organization.store';

@@ -354,9 +354,66 @@ describe('DisplayPanelComponent', () => {
 
     it('shows an error for an artifact absent from this tab', () => {
       set({ selectedKey: 'artifact:missing' });
-      expect(query('display-panel-artifact-missing') ?? native().querySelector('[role="alert"]')).not.toBeNull();
+      const notices = queryAll('display-panel-artifact-missing');
+      expect(notices).toHaveLength(1);
+      expect(notices[0].getAttribute('role')).toBe('alert');
+      expect(text(notices[0])).toContain(
+        'This artifact is not available. It may have been deleted, or the list did not load.',
+      );
+      expect(text(native())).not.toContain('not loaded in this tab');
       expect(native().querySelector('iframe')).toBeNull();
     });
+
+    it('emits retryArtifacts from the missing-artifact Retry button', () => {
+      const retries: number[] = [];
+      fixture.componentInstance.retryArtifacts.subscribe(() => retries.push(1));
+      set({ selectedKey: 'artifact:missing' });
+      const retry = query('display-panel-artifact-retry') as HTMLButtonElement;
+      expect(retry.tagName).toBe('BUTTON');
+      expect(retry.type).toBe('button');
+      expect(text(retry)).toBe('Retry');
+      retry.click();
+      expect(retries).toHaveLength(1);
+      expect(selections).toEqual([]);
+    });
+
+    it('shows one missing notice beside other items and no active tab', () => {
+      set({
+        surfaces: [surface('id:a', 'A', 0)],
+        selectedKey: 'artifact:missing',
+      });
+      expect(queryAll('display-panel-artifact-missing')).toHaveLength(1);
+      expect(query('display-panel-artifact-retry')).not.toBeNull();
+      expect(selectedTab()).toBeUndefined();
+      expect(visiblePanels()).toHaveLength(0);
+      expect(native().querySelector('iframe')).toBeNull();
+    });
+
+    it('drops the notice once the selected artifact arrives', () => {
+      set({ selectedKey: 'artifact:late' });
+      expect(query('display-panel-artifact-missing')).not.toBeNull();
+      set({
+        artifacts: [{
+          id: 'late', title: 'Late', sessionId: 'session-1', revision: 1,
+          createdAt: '2026-10-20T00:00:00.000Z', viewerUrl: 'ptah-artifact://late/index.html',
+        }],
+      });
+      expect(query('display-panel-artifact-missing')).toBeNull();
+      expect(text(selectedTab() ?? null)).toBe('Late');
+      expect(queryAll('display-panel-artifact-viewer')).toHaveLength(1);
+    });
+
+    it('has no axe violations with the missing-artifact notice', async () => {
+      set({ selectedKey: 'artifact:missing' });
+      const results = await axe.run(native() as Parameters<typeof axe.run>[0], {
+        rules: {
+          'color-contrast': { enabled: false },
+          'target-size': { enabled: false },
+        },
+      });
+      expect(results.violations).toEqual([]);
+    });
+
     it('renders each surface read-only at container width with the store view state', () => {
       const stored: SurfaceViewState = {
         components: { acc: { expanded: true } },

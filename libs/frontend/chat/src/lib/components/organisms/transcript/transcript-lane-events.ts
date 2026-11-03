@@ -67,7 +67,10 @@ export function groupLaneEvents(
       const row: LaneEventRow = {
         rowKey: message.id,
         agentId: envelope.agentId,
-        agent: envelope.agent,
+        agent:
+          envelope.cli === 'subagent'
+            ? message.inboundPeer?.label.trim() || envelope.agent
+            : envelope.agent,
         cli: envelope.cli,
         peerLabel: message.inboundPeer?.label.trim() || 'peer session',
         events,

@@ -20,7 +20,10 @@
  *   committed with the project.
  * Only the user-global root feeds each host's `buildMirrorSources`; see
  * {@link PluginLoaderService.discoverWorkspaceHarnessPluginPaths} for why that
- * asymmetry is what makes the scope real.
+ * asymmetry is what makes the scope real. skills.sh roots (`ptah-skillssh-*`)
+ * follow the same two-root split, and a user-global one whose id is in the
+ * retired registry (`~/.ptah/plugins/.ptah-skillssh-retired.json`) is not
+ * discovered at all (TASK_2026_853 D-2/D-3).
  *
  * Design:
  * - Initialized from main.ts with pluginsBasePath and workspaceState (late initialization)
@@ -40,8 +43,11 @@ import {
   CAPABILITY_POLICY_UNKNOWN_ERROR_NAME,
   HARNESS_PLUGIN_ID_PREFIX,
   harnessPolicyFingerprint,
+  isRetiredSkillsShRoot,
+  parseSkillsShRetiredRegistry,
   pluginConfigLayer,
   SKILLS_SH_PLUGIN_ID_PREFIX,
+  SKILLS_SH_RETIRED_FILE,
   workspacePluginsDir,
   type CapabilityExplicitItem,
   type CapabilityPolicyReason,
@@ -49,10 +55,13 @@ import {
   type PluginInfo,
   type PluginConfigState,
   type PluginConfigHomeStatus,
+  type PluginSessionNotice,
+  type PluginSessionOverride,
   type PluginHealthIssue,
   type PluginHealthStatus,
   type PluginSkillEntry,
   type PluginSource,
+  type SkillsShRetiredRegistry,
 } from '@ptah-extension/shared';
 import {
   PLATFORM_TOKENS,
@@ -215,6 +224,50 @@ function layerGlobalItems(
     disabledPluginIds,
     disabledSkillIds,
     ...(workspace.enabledSkillIds !== undefined || addedEnabledSkill
+      ? { enabledSkillIds }
+      : {}),
+  };
+}
+
+/** Add only IDs that no nearer layer has chosen. Agent disables belong to the child. */
+function layerAncestorConfigs(
+  local: PluginConfigState,
+  ancestors: readonly PluginConfigState[],
+): PluginConfigState {
+  const enabledPluginIds = [...local.enabledPluginIds];
+  const disabledPluginIds = [...(local.disabledPluginIds ?? [])];
+  const enabledSkillIds = [...(local.enabledSkillIds ?? [])];
+  const disabledSkillIds = [...local.disabledSkillIds];
+  const chosen = pluginConfigLayer(local);
+  const plugins = new Set(chosen.plugins.keys());
+  const skills = new Set(chosen.skills.keys());
+  let addedEnabledSkill = false;
+
+  for (const ancestor of ancestors) {
+    const layer = pluginConfigLayer(ancestor);
+    for (const [id, value] of layer.plugins) {
+      if (plugins.has(id)) continue;
+      (value === 'on' ? enabledPluginIds : disabledPluginIds).push(id);
+      plugins.add(id);
+    }
+    for (const [id, value] of layer.skills) {
+      if (skills.has(id)) continue;
+      if (value === 'on') {
+        enabledSkillIds.push(id);
+        addedEnabledSkill = true;
+      } else {
+        disabledSkillIds.push(id);
+      }
+      skills.add(id);
+    }
+  }
+
+  return {
+    ...local,
+    enabledPluginIds,
+    disabledPluginIds,
+    disabledSkillIds,
+    ...(local.enabledSkillIds !== undefined || addedEnabledSkill
       ? { enabledSkillIds }
       : {}),
   };
@@ -653,7 +706,10 @@ export class PluginLoaderService {
         label: humanizeSlug(dir.slice(HARNESS_PLUGIN_PREFIX.length)),
       };
     }
-    for (const pluginPath of this.discoverSkillsShPluginPaths()) {
+    for (const pluginPath of [
+      ...this.discoverSkillsShPluginPaths(),
+      ...this.discoverWorkspaceSkillsShPluginPaths(),
+    ]) {
       const dir = path.basename(pluginPath);
       descriptors[pluginPath] = {
         sourceRef: `skills-sh:${dir}`,
@@ -687,9 +743,13 @@ export class PluginLoaderService {
    * Listing them here is what makes them toggleable at all: the Plugins panel
    * is where `disabledPluginIds` is set, and that is now the per-workspace
    * control that replaced the old `scope` parameter.
+   *
+   * The merged view (active workspace root plus non-retired user-global
+   * roots), so a workspace-scoped install is toggleable too; the scope rides
+   * in `keywords`, as it does for harness plugins.
    */
   private describeSkillsShPlugins(): PluginInfo[] {
-    return this.discoverSkillsShPluginPaths().map((pluginPath) => {
+    return this.resolveSkillsShOverlayPaths().map((pluginPath) => {
       const id = path.basename(pluginPath);
       const slug = id.slice(SKILLS_SH_PLUGIN_PREFIX.length);
       const { skills, issues } = this.scanPluginSkills([pluginPath]);
@@ -706,6 +766,9 @@ export class PluginLoaderService {
         keywords: [
           ...slug.split('-').filter((word) => word.length > 0),
           'skills.sh',
+          ...(this.isWorkspaceScopedPluginPath(pluginPath)
+            ? ['workspace']
+            : ['global']),
         ],
         source: 'skillssh' as const,
         // `ptah-skillssh-oso95-scroll-world` is the case this exists for: one
@@ -934,13 +997,19 @@ export class PluginLoaderService {
    * With no root asked for and no active folder, the injected storage answers
    * as before.
    */
-  private storageFor(workspaceRoot?: string): IStateStorage | null {
+  private storageFor(
+    workspaceRoot?: string,
+    readOnly = false,
+  ): IStateStorage | null {
     const storage = this.workspaceState;
     if (storage === null) return null;
     if (this.configHome !== null) {
       const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
       if (target === undefined) return storage;
-      return this.configHome.viewFor(this.configHome.harnessRootFor(target));
+      return this.configHome.viewFor(
+        this.configHome.harnessRootFor(target),
+        readOnly,
+      );
     }
     if (workspaceRoot === undefined) return storage;
     if (!isWorkspaceScopedStateStorage(storage)) return storage;
@@ -979,6 +1048,75 @@ export class PluginLoaderService {
     const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
     if (target === undefined) return null;
     return this.configHome.status(this.configHome.harnessRootFor(target));
+  }
+
+  /** Choices recorded at the session's root or an ancestor nearer than the project. */
+  getSessionPluginNotice(
+    sessionFolder: string,
+    ancestorRoots: readonly string[],
+    projectRoot: string,
+  ): PluginSessionNotice | null {
+    const home = this.configHome;
+    if (home === null) return null;
+
+    const sessionRoot = home.harnessRootFor(sessionFolder);
+    const projectKey = canonicalRootKey(home.harnessRootFor(projectRoot));
+    const keyOf = (root: string): string =>
+      canonicalRootKey(home.harnessRootFor(root));
+    if (canonicalRootKey(sessionRoot) === projectKey) return null;
+
+    const seenRoots = new Set<string>();
+    const seenPlugins = new Set<string>();
+    const seenSkills = new Set<string>();
+    const overrides: PluginSessionOverride[] = [];
+    let inheritsProjectSettings = false;
+    let incomplete = false;
+
+    for (const layer of [sessionFolder, ...ancestorRoots]) {
+      const key = keyOf(layer);
+      if (seenRoots.has(key)) continue;
+      seenRoots.add(key);
+      if (key === projectKey) {
+        inheritsProjectSettings = true;
+        break;
+      }
+
+      const read = this.readWorkspaceLayer(layer, true, true);
+      if (read.status === 'error') {
+        incomplete = true;
+        this.logger.warn(
+          '[PluginLoaderService] Session plugin layer unreadable',
+          { root: home.harnessRootFor(layer), reason: read.reason },
+        );
+        continue;
+      }
+
+      const root = home.harnessRootFor(layer);
+      const config = pluginConfigLayer(read.config);
+      for (const [id, value] of config.plugins) {
+        if (seenPlugins.has(id)) continue;
+        seenPlugins.add(id);
+        overrides.push({ kind: 'plugin', id, value, root });
+      }
+      for (const [id, value] of config.skills) {
+        if (seenSkills.has(id)) continue;
+        seenSkills.add(id);
+        overrides.push({ kind: 'skill', id, value, root });
+      }
+    }
+
+    return {
+      sessionRoot,
+      inheritsProjectSettings,
+      overrides: inheritsProjectSettings
+        ? overrides.sort((a, b) =>
+            a.kind === b.kind
+              ? a.id.localeCompare(b.id)
+              : a.kind.localeCompare(b.kind),
+          )
+        : [],
+      incomplete,
+    };
   }
 
   /**
@@ -1054,10 +1192,25 @@ export class PluginLoaderService {
    * value that is not an object, or an id list that is present but not a list
    * of strings is an error here (TASK_2026_560, N3). Absent storage and absent
    * values keep their legacy meaning (nothing recorded).
+   * `readOnly` prevents the configuration home from importing a legacy layer;
+   * plain workspace storage still uses its usual get method.
    */
-  private readWorkspaceLayer(workspaceRoot?: string): WorkspaceLayerRead {
-    const storage = this.storageFor(workspaceRoot);
+  private readWorkspaceLayer(
+    workspaceRoot?: string,
+    requireStorage = false,
+    readOnly = false,
+  ): WorkspaceLayerRead {
+    const storage = this.storageFor(workspaceRoot, readOnly);
     if (storage === null) {
+      if (requireStorage) {
+        return {
+          status: 'error',
+          reason: {
+            path: `${workspaceRoot} (${PLUGIN_CONFIG_KEY})`,
+            error: 'missing workspace storage',
+          },
+        };
+      }
       return { status: 'ok', config: emptyPluginConfig() };
     }
 
@@ -1113,20 +1266,59 @@ export class PluginLoaderService {
    */
   async getEffectivePluginConfig(
     workspaceRoot?: string,
-    options: { stateRoot?: string } = {},
+    options: { stateRoot?: string; ancestorRoots?: readonly string[] } = {},
   ): Promise<EffectivePluginConfig> {
     const globalRead = this.globalLayer
       ? await this.globalLayer.readGlobalLayer()
       : { status: 'ok' as const, items: [], fingerprintEntries: [] };
-    const workspace = this.readWorkspaceLayer(
-      options.stateRoot ?? workspaceRoot,
-    );
+    const localRoot = options.stateRoot ?? workspaceRoot;
+    const contextRoot = localRoot ?? this.workspace?.getWorkspaceRoot();
+    const roots = options.ancestorRoots;
+    const reasons: CapabilityPolicyReason[] = [];
+    const ancestors: Array<{ root: string; pluginConfig: PluginConfigState }> =
+      [];
+    const seen = new Set<string>();
+    if (roots !== undefined) {
+      if (contextRoot === undefined) {
+        reasons.push({
+          path: 'active workspace',
+          error: 'missing policy root',
+        });
+      } else {
+        seen.add(canonicalRootKey(contextRoot));
+        for (const root of [contextRoot, ...roots]) {
+          try {
+            if (!fs.statSync(root).isDirectory()) {
+              reasons.push({ path: root, error: 'not a directory' });
+            }
+          } catch (error: unknown) {
+            reasons.push({ path: root, error: errnoOf(error) || 'unreadable' });
+          }
+        }
+      }
+    }
+    const workspace = this.readWorkspaceLayer(localRoot);
+    if (roots !== undefined) {
+      for (const root of roots) {
+        const key = canonicalRootKey(root);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const read = this.readWorkspaceLayer(root, true);
+        if (read.status === 'error') reasons.push(read.reason);
+        else ancestors.push({ root: key, pluginConfig: read.config });
+      }
+    }
 
-    if (globalRead.status === 'error' || workspace.status === 'error') {
-      const reasons: CapabilityPolicyReason[] = [
-        ...(globalRead.status === 'error' ? globalRead.reasons : []),
-        ...(workspace.status === 'error' ? [workspace.reason] : []),
-      ];
+    if (globalRead.status === 'error') reasons.push(...globalRead.reasons);
+    if (workspace.status === 'error') reasons.push(workspace.reason);
+    const localConfig =
+      workspace.status === 'ok' ? workspace.config : undefined;
+    const globalSnapshot = globalRead.status === 'ok' ? globalRead : undefined;
+    if (
+      reasons.length > 0 ||
+      localConfig === undefined ||
+      globalSnapshot === undefined
+    ) {
       this.logger.warn(
         '[PluginLoaderService] Capability policy unreadable; skills and plugins are treated as unknown',
         { workspaceRoot, reasons },
@@ -1134,12 +1326,26 @@ export class PluginLoaderService {
       throw new CapabilityPolicyUnknownError(reasons);
     }
 
-    const config = layerGlobalItems(workspace.config, globalRead.items);
+    const config = layerGlobalItems(
+      layerAncestorConfigs(
+        localConfig,
+        ancestors.map(({ pluginConfig }) => pluginConfig),
+      ),
+      globalSnapshot.items,
+    );
     return {
       config,
       fingerprint: harnessPolicyFingerprint({
-        entries: globalRead.fingerprintEntries,
-        pluginConfig: workspace.config,
+        entries: globalSnapshot.fingerprintEntries,
+        pluginConfig: localConfig,
+        ...(roots === undefined
+          ? {}
+          : {
+              context: {
+                localRoot: canonicalRootKey(contextRoot as string),
+                ancestors,
+              },
+            }),
       }),
       overlayPluginPaths: this.overlayPathsFor(config, workspaceRoot),
     };
@@ -1395,7 +1601,7 @@ export class PluginLoaderService {
   private knownSkillIds(workspaceRoot?: string): string[] {
     const pluginPaths: string[] = [
       ...this.resolveHarnessOverlayPaths(workspaceRoot),
-      ...this.discoverSkillsShPluginPaths(),
+      ...this.resolveSkillsShOverlayPaths(workspaceRoot),
     ];
     const pluginsBasePath = this.pluginsBasePath;
     if (pluginsBasePath !== null) {
@@ -1472,9 +1678,72 @@ export class PluginLoaderService {
    * skills.sh root is gone from disk is reaped when it carries no local work
    * (kept and flagged `orphaned` when it does), while a switched-off root is
    * still on disk, so its clones are kept.
+   *
+   * USER-GLOBAL ONLY, and a root whose id is in the retired registry
+   * (`{pluginsBasePath}/.ptah-skillssh-retired.json`, TASK_2026_853 D-2) is
+   * skipped: a retired legacy root stays on disk, but nothing loads, mirrors
+   * or syncs it. Every caller (overlay, Plugins panel, source descriptors,
+   * each host's mirror sources) goes through here, so the skip has one home.
+   * Make global depends on the converse: once it clears an id from the
+   * registry, the root is listed here again. Workspace roots are never
+   * filtered by this registry — see
+   * {@link discoverWorkspaceSkillsShPluginPaths}. Make global's staging dirs
+   * (`.staging-ptah-skillssh-*`) never match the prefix, so they are never
+   * discovered half-written.
    */
   discoverSkillsShPluginPaths(): string[] {
-    return this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);
+    const roots = this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);
+    if (roots.length === 0 || this.pluginsBasePath === null) return roots;
+    const registry = this.readRetiredSkillsShRegistry(this.pluginsBasePath);
+    if (registry === null) return roots;
+    return roots.filter(
+      (root) => !isRetiredSkillsShRoot(path.basename(root), registry),
+    );
+  }
+
+  /**
+   * The retired-root registry under `pluginsBasePath`, or null when nothing
+   * is retired. Absent is the normal state; an unreadable or malformed file
+   * also retires nothing (decision #56) and is warned, so a root it would
+   * have named stays visible rather than every root vanishing.
+   */
+  private readRetiredSkillsShRegistry(
+    pluginsBasePath: string,
+  ): SkillsShRetiredRegistry | null {
+    const registryPath = path.join(pluginsBasePath, SKILLS_SH_RETIRED_FILE);
+    let raw: string;
+    try {
+      raw = fs.readFileSync(registryPath, 'utf-8');
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - no registry file means no
+      // root was ever retired; any other read failure is warned and likewise
+      // retires nothing (decision #56).
+      if (errnoOf(error) !== 'ENOENT') {
+        this.logger.warn(
+          '[PluginLoaderService] Retired skills.sh registry unreadable; no root is treated as retired',
+          {
+            path: registryPath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return null;
+    }
+    let registry: SkillsShRetiredRegistry | null;
+    try {
+      registry = parseSkillsShRetiredRegistry(JSON.parse(raw));
+    } catch {
+      // degradation-audit: reported - invalid JSON is handled exactly like a
+      // malformed registry: warned below, nothing retired (decision #56).
+      registry = null;
+    }
+    if (registry === null) {
+      this.logger.warn(
+        '[PluginLoaderService] Retired skills.sh registry malformed; no root is treated as retired',
+        { path: registryPath },
+      );
+    }
+    return registry;
   }
 
   /**
@@ -1521,6 +1790,73 @@ export class PluginLoaderService {
       workspacePluginsPath,
       HARNESS_PLUGIN_PREFIX,
     );
+  }
+
+  /**
+   * Discover skills.sh roots (`ptah-skillssh-*`) under `{ws}/.ptah/plugins`
+   * for ONE workspace: `workspaceRoot`, or the active folder when absent.
+   * Another open folder's roots are never listed.
+   *
+   * Same overlay-only rule as {@link discoverWorkspaceHarnessPluginPaths}:
+   * these reach `resolveCurrentPluginPaths` and the Plugins panel, never a
+   * host's `buildMirrorSources`, because the user-layer mirror would carry a
+   * workspace install into every other project.
+   *
+   * The base is `workspacePluginsDir(ws)` itself (through
+   * {@link getWorkspacePluginsBasePath}), so each path resolves equal to the
+   * manifest builder's workspace skills.sh exemption parent (D-D4).
+   *
+   * NOT filtered by the retired registry: that registry names legacy
+   * user-global roots, and a workspace root carries its own v2 ownership
+   * proof (decision #61).
+   */
+  discoverWorkspaceSkillsShPluginPaths(workspaceRoot?: string): string[] {
+    const workspacePluginsPath =
+      this.getWorkspacePluginsBasePath(workspaceRoot);
+    if (workspacePluginsPath === null) return [];
+    return this.scanPrefixedPluginDirs(
+      workspacePluginsPath,
+      SKILLS_SH_PLUGIN_PREFIX,
+    );
+  }
+
+  /**
+   * Every skills.sh root backing the CURRENT desired state: the non-retired
+   * user-global roots plus the workspace ones, one path per plugin id.
+   *
+   * Deduped by id with the workspace root winning, the same more-specific-
+   * scope rule as {@link resolveHarnessOverlayPaths}. The expected clash is a
+   * Make global retry remnant: the global root is written and validated
+   * before the workspace root is removed, so an interrupted removal leaves
+   * both roots with equal files (D-3 failure step 8). Listing both would
+   * offer every skill twice; either copy is the same bytes. A clash with
+   * different content is still resolved to the workspace install, and logged.
+   *
+   * Kept apart from {@link resolveHarnessOverlayPaths} because that list is
+   * also what `describeHarnessPlugins` labels as harness plugins and what
+   * resolves an enabled `ptah-harness-*` id.
+   */
+  private resolveSkillsShOverlayPaths(workspaceRoot?: string): string[] {
+    const byId = new Map<string, string>();
+    for (const pluginPath of this.discoverSkillsShPluginPaths()) {
+      byId.set(path.basename(pluginPath), pluginPath);
+    }
+    for (const pluginPath of this.discoverWorkspaceSkillsShPluginPaths(
+      workspaceRoot,
+    )) {
+      const id = path.basename(pluginPath);
+      const shadowed = byId.get(id);
+      if (shadowed !== undefined) {
+        // DEBUG, not WARN: a Make global remnant is an expected, self-healing
+        // state, and this runs on every overlay resolution until it heals.
+        this.logger.debug(
+          '[PluginLoaderService] Workspace skills.sh root shadows a user-global one of the same id',
+          { pluginId: id, using: pluginPath, shadowed },
+        );
+      }
+      byId.set(id, pluginPath);
+    }
+    return [...byId.values()];
   }
 
   /**
@@ -1667,7 +2003,7 @@ export class PluginLoaderService {
     );
     const optOutPaths = [
       ...this.resolveHarnessOverlayPaths(workspaceRoot),
-      ...this.discoverSkillsShPluginPaths(),
+      ...this.resolveSkillsShOverlayPaths(workspaceRoot),
     ].filter((pluginPath) => !disabledIds.has(path.basename(pluginPath)));
 
     return Array.from(new Set([...enabledPaths, ...optOutPaths]));

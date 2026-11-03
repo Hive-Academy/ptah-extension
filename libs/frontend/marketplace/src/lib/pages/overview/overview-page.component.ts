@@ -107,7 +107,9 @@ const SKILL_SLICES = [
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'block',
+    class: 'block ptah-motion-panel',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
     'data-testid': 'overview-page',
     '[attr.data-tier]': 'tier()',
   },

@@ -8,6 +8,7 @@ import { ClaudeAccountCommand } from './claude-account-command';
 import {
   CLAUDE_POLICY_COVERAGE,
   CLAUDE_REMOTE_SETTINGS_FILES,
+  claudeCoverageAcceptsVersion,
   claudePolicyCoverage,
   claudeRemoteSignalsAbsent,
   scanClaudeAuthPolicy,
@@ -125,11 +126,28 @@ describe('CLAUDE_POLICY_COVERAGE', () => {
   it('has exactly one entry: win32@2.1.310 with every source S1-S12', () => {
     expect(CLAUDE_POLICY_COVERAGE.map((item) => item.id)).toEqual(['win32@2.1.310']);
     const win = claudePolicyCoverage('win32');
-    expect(win?.versions).toEqual(['2.1.310']);
+    expect(win?.inspectedVersion).toBe('2.1.310');
     expect(win?.managedSettingsDir).toBe(MANAGED_DIR);
     expect(win?.sources).toEqual(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12']);
     expect(Object.isFrozen(CLAUDE_POLICY_COVERAGE)).toBe(true);
     expect(Object.isFrozen(win)).toBe(true);
+  });
+
+  it.each([
+    ['2.1.310', true],
+    ['2.1.312', true],
+    ['2.1.999', true],
+    ['2.1.309', false],
+    ['2.2.0', false],
+    ['3.1.310', false],
+    ['1.1.310', false],
+    ['2.1', false],
+    ['2.1.312 (Claude Code)', false],
+    ['2.1.312-beta', false],
+  ] as const)('accepts version %s: %s', (version, accepted) => {
+    const win = claudePolicyCoverage('win32');
+    expect(win).not.toBeNull();
+    if (win) expect(claudeCoverageAcceptsVersion(win, version)).toBe(accepted);
   });
 
   it.each(['darwin', 'linux'] as const)('has no entry for %s', (platform) => {
@@ -178,15 +196,15 @@ describe('scanClaudeAuthPolicy', () => {
       const { fs, calls } = fakeFs();
       const registry = fakeRegistry();
       const result = await scanClaudeAuthPolicy(
-        request({ knownVersion: '2.1.311', fs, queryRegistry: registry.queryRegistry }),
+        request({ knownVersion: '2.2.0', fs, queryRegistry: registry.queryRegistry }),
       );
       expect(result).toEqual(REFUSED);
       expect(calls).toEqual([]);
       expect(registry.queryRegistry).not.toHaveBeenCalled();
     });
 
-    it('scans when the known version is covered', async () => {
-      await expect(scanClaudeAuthPolicy(request({ knownVersion: '2.1.310' }))).resolves.toMatchObject({ ok: true });
+    it.each(['2.1.310', '2.1.312'])('scans when the known version %s is covered', async (knownVersion) => {
+      await expect(scanClaudeAuthPolicy(request({ knownVersion }))).resolves.toMatchObject({ ok: true });
     });
   });
 

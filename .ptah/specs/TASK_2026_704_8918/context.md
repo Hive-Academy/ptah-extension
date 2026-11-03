@@ -36,3 +36,13 @@ section 1 (moves into the PR of TASK_2026_699_833e).
 
 The paired RPC timeout (`agent:getLanePlanLimits`) was fixed in the TASK_2026_699_833e PR
 (LANE_PLAN_LIMITS_TIMEOUT_MS 10 s → 15 s).
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: UNSURE (lane grok; Claude agrees). No status change.
+
+- The warning was observed in the single-session layout, which #777 (92c289d2e, 2026-10-20) removed the day after this report.
+- The only NG0956 fix on main is 312b54f36 (2026-10-17, canvas lane view), before this report.
+- Note: this folder also holds `code-logic-review.md` / `code-logic-rereview.md` for an unrelated RPC-timeout change.
+
+Next step: check the Electron DevTools console on current main. If NG0956 no longer appears, cancel as obsolete.

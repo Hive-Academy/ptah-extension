@@ -23,6 +23,7 @@ import {
   ClaudeNamedAccountPersistence,
   OpenRouterPricingService,
   ProviderAccountService,
+  PlanUsageService,
   registerAuthProvidersServices,
 } from '@ptah-extension/auth-providers';
 import {
@@ -62,15 +63,19 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
+  startAndRegisterLaneOutcomes,
+  type LaneOutcomesDisposer,
 } from '@ptah-extension/lane-outcomes';
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
   CLAUDE_LANE_ACCOUNT_PERSISTENCE,
   CLI_AGENT_RUNTIME_TOKENS,
+  CodexAppServerLaneAdapter,
   ChildWorktreeProvisioner,
   LaneCompletionNotifier,
   registerCliAgentRuntimeServices,
 } from '@ptah-extension/cli-agent-runtime';
+import { registerElectronCodexLaneFactory } from './codex-lane-composition';
 import {
   SESSION_ORGANIZATION_TOKENS,
   registerSessionOrganizationServices,
@@ -86,6 +91,7 @@ import {
   AgentRpcHandlers,
   AuthRpcHandlers,
   DecisionModelCatalogRpcHandlers,
+  GitWatchRpcHandlers,
   LanePlanLimitsRpcHandlers,
   PluginRpcHandlers,
   ProviderAccountRpcHandlers,
@@ -99,6 +105,10 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_RESOLVABLE_TOKENS,
+  EXPECTED_RUNTIME_TOKENS,
+  EXPECTED_NULL_RUNTIME_TOKENS,
+  GIT_ROOT_WATCH_REGISTRY_TOKEN,
   HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -108,6 +118,7 @@ import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import { GitRootWatcherPool } from '../services/git-root-watcher-pool';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 
 describe('Electron DI — host attention coordinator', () => {
@@ -265,6 +276,12 @@ function buildMinimalContainer(): DependencyContainer {
   // real Electron container binds this in `phase-4-handlers.ts`.
   c.register(TOKENS.GIT_INFO_SERVICE, {
     useValue: { getWorktrees: jest.fn(async () => []) },
+  });
+  // `GitWatchRpcHandlers` (in EXPECTED_RESOLVABLE) injects the lease port. The
+  // real Electron container binds the pool in `phase-4-handlers.ts`; that
+  // binding is pinned by the "git root watch registry" describe below.
+  c.register(GIT_ROOT_WATCH_REGISTRY_TOKEN, {
+    useValue: new GitRootWatcherPool(c.resolve<Logger>(TOKENS.LOGGER)),
   });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
@@ -461,13 +478,29 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     });
     c.register<Pick<ProviderAccountService, 'readStoredSelection'>>(
       ProviderAccountService,
-      { useValue: { readStoredSelection: jest.fn(async () => ({ profileId: null })) } },
+      {
+        useValue: {
+          readStoredSelection: jest.fn(async () => ({ profileId: null })),
+        },
+      },
     );
     if (withSqlite) {
       c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
     }
     return c;
   }
+
+  it('resolves plan usage with the registered Kimi auth singleton', () => {
+    const c = buildAccountsContainer(false);
+    const auth = c.resolve(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH);
+    expect(auth).toBeDefined();
+    c.register(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER, { useValue: {} });
+    c.register(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE, { useValue: {} });
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE, { useValue: {} });
+    expect(c.resolve<PlanUsageService>(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE))
+      .toBeInstanceOf(PlanUsageService);
+  });
 
   it('binds the three tokens to one adapter and the query runner holds it', () => {
     const c = buildAccountsContainer(true);
@@ -506,8 +539,12 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
       path.join(__dirname, 'phase-2-libraries.ts'),
       'utf8',
     );
-    const sqlite = source.indexOf('registerPersistenceSqliteServices(container, logger);');
-    const bind = source.indexOf('registerClaudeNamedAccountBindings(container)');
+    const sqlite = source.indexOf(
+      'registerPersistenceSqliteServices(container, logger);',
+    );
+    const bind = source.indexOf(
+      'registerClaudeNamedAccountBindings(container)',
+    );
     const sdk = source.indexOf('registerSdkServices(container, logger);');
     expect(sqlite).toBeGreaterThan(-1);
     expect(sdk).toBeGreaterThan(-1);
@@ -725,8 +762,8 @@ describe('Electron DI — lane outcomes', () => {
     const runtime = source.indexOf(
       'registerCliAgentRuntimeServices(container, logger);',
     );
-    expect(source).toContain(
-      'container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });',
+    expect(source).toMatch(
+      /container\.register\(CLI_AGENT_RUNTIME_TOKENS\.MCP_ATTACHMENT_PROBE,\s*\{\s*useValue: mcpAttachmentObserver,\s*\}\);/,
     );
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
@@ -738,9 +775,25 @@ describe('Electron DI — lane outcomes', () => {
     expect(outcomes).toBeLessThan(runtime);
     expect(reader).toBeGreaterThan(outcomes);
     expect(classifier).toBeGreaterThan(outcomes);
+    expect(source).toContain(
+      'useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER',
+    );
+    const orchestrator = fs.readFileSync(
+      path.join(__dirname, 'container.ts'),
+      'utf8',
+    );
+    const handlers = orchestrator.indexOf(
+      'registerPhase4Handlers(root, logger);',
+    );
+    const start = orchestrator.indexOf(
+      'startAndRegisterLaneOutcomes(root, logger,',
+    );
+    expect(source).not.toContain('startAndRegisterLaneOutcomes(');
+    expect(start).toBeGreaterThan(handlers);
+    expect(orchestrator).toContain('observeSubagentEnded: true');
   });
 
-  it('resolves both aliases', () => {
+  it('resolves the lane-routing and lane-outcome aliases and starts their recorder', async () => {
     const c = buildMinimalContainer();
     c.register(PLATFORM_TOKENS.STATE_STORAGE, {
       useValue: {
@@ -758,12 +811,30 @@ describe('Electron DI — lane outcomes', () => {
     c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
       useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
     });
+    c.register(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER,
+    });
     expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
       c.resolve(LANE_OUTCOME_TOKENS.READER),
     );
     expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
       c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
     );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.RECORDER)).toBeDefined();
+    const warn = jest.spyOn(logger, 'warn');
+    startAndRegisterLaneOutcomes(c, logger);
+    expect(warn).not.toHaveBeenCalledWith(
+      'Lane outcomes start failed (non-fatal)',
+      expect.anything(),
+    );
+    const disposer = c.resolve<LaneOutcomesDisposer>(
+      LANE_OUTCOME_TOKENS.DISPOSER,
+    );
+    await expect(disposer.dispose()).resolves.toBeUndefined();
+    warn.mockRestore();
   });
 });
 
@@ -828,6 +899,18 @@ function buildPhase4Container(): { c: DependencyContainer; logger: Logger } {
   } as unknown as Logger;
 
   registerOutputStyleServices(c, logger);
+  // The isolated phase-4 alias test supplies the earlier-phase tokens that
+  // registerHostRouting validates at registration time.
+  for (const token of [
+    LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING,
+    LANE_ROUTING_TOKENS.SCOPE_CHECK_SERVICE,
+    LANE_ROUTING_TOKENS.ROUTE_DECIDE_SERVICE,
+    LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE,
+    TOKENS.PTAH_API_BUILDER,
+  ]) {
+    c.register(token, { useValue: {} });
+  }
 
   return { c, logger };
 }
@@ -911,12 +994,40 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
     });
 
     registerPhase4Handlers(c, logger);
+    expect(c.isRegistered(EXPECTED_RESOLVABLE_TOKENS[0][1])).toBe(true);
 
     const viaPort = c.resolve(PLATFORM_TOKENS.APP_UPDATER);
     const viaConcreteToken = c.resolve(UPDATE_MANAGER_TOKEN);
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY` (TASK_2026_855 D20) is bound by the
+ * REAL `registerPhase4Handlers` to one `GitRootWatcherPool`, and
+ * `GitWatchRpcHandlers` resolves against it. The heavy boot attaches that same
+ * instance, so a second registration would leave leases on an unattached pool.
+ */
+describe('Electron DI — git root watch registry (TASK_2026_855)', () => {
+  it('binds the registry to a single GitRootWatcherPool that GitWatchRpcHandlers resolves', () => {
+    const { c, logger } = buildPhase4Container();
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    c.register(TOKENS.RPC_HANDLER, {
+      useValue: { registerMethod: jest.fn(), handleMessage: jest.fn() },
+    });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: { getWorkspaceFolders: jest.fn(() => []) },
+    });
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+
+    registerPhase4Handlers(c, logger);
+
+    const registry = c.resolve(GIT_ROOT_WATCH_REGISTRY_TOKEN);
+    expect(registry).toBeInstanceOf(GitRootWatcherPool);
+    expect(c.resolve(PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY)).toBe(registry);
+    expect(c.resolve(GitWatchRpcHandlers)).toBeDefined();
   });
 });
 
@@ -1117,7 +1228,12 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
    * run collaborators stubbed, so constructing the spawner touches only the
    * SDK registries and the recorder.
    */
-  function composePhase2(withCliAgentRuntime: boolean) {
+  function composePhase2(
+    withCliAgentRuntime: boolean,
+    captureDetection = false,
+    isPackaged = false,
+    hostPlatform = { platform: 'linux', arch: 'x64' },
+  ) {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
     const output = createMockOutputChannel();
@@ -1132,7 +1248,12 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     });
 
     registerSdkServices(c, logger);
+    let detection: { getAdapter(cli: 'codex'): unknown } | undefined;
     if (withCliAgentRuntime) {
+      registerElectronCodexLaneFactory(c, logger, {
+        isPackaged, resourcesPath: process.cwd(), appPath: process.cwd(),
+        env: process.env, platform: hostPlatform,
+      });
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [
         TOKENS.AGENT_PROCESS_MANAGER,
@@ -1143,6 +1264,8 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
         MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER,
       ] as InjectionToken[]) {
+        // A captured detector is the real one, resolved below.
+        if (captureDetection && token === TOKENS.CLI_DETECTION_SERVICE) continue;
         c.register(token, { useValue: {} });
       }
       // The constructor subscribes to prompt lifecycle events.
@@ -1157,13 +1280,40 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
       ]) {
         if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
       }
+      if (captureDetection) {
+        // The detector builds the Claude lane, whose spawn options reach these
+        // producers. Other phase-2 libraries bind them in production; they
+        // play no part in Codex adapter selection.
+        for (const token of [
+          TOKENS.SUBAGENT_REGISTRY_SERVICE,
+          TOKENS.WEBVIEW_MANAGER,
+          AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+          AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
+          AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
+          SDK_TOKENS.PRICING_PROVIDER,
+        ] as InjectionToken[]) {
+          if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+        }
+        detection = c.resolve<{ getAdapter(cli: 'codex'): unknown }>(
+          TOKENS.CLI_DETECTION_SERVICE,
+        );
+      }
     }
+    // Never opened: the store-open signal is subscribed but never fires.
     c.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
-      useValue: { isOpen: false },
+      useValue: {
+        isOpen: false,
+        onDidOpen: () => ({ dispose: () => undefined }),
+      },
     });
+    // Bound by the platform registration (phase 1) in production; the
+    // auto-link service reads worktree pointers and task.md through it.
+    if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, true)) {
+      c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+    }
     registerSessionOrganizationServices(c);
     startSessionOrganization(c);
-    return { c, logger, output };
+    return { c, logger, output, detection };
   }
 
   /**
@@ -1235,6 +1385,20 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
       ).size,
     ).toBeGreaterThan(0);
+    // TASK_2026_854: auto-link subscribed to both prompt registries and the
+    // session-id registry (next to capture's own subscription there).
+    for (const token of [
+      SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
+      SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+      SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    ]) {
+      expect(c.resolve<{ size: number }>(token).size).toBeGreaterThan(0);
+    }
+    expect(
+      c.resolve<{ size: number }>(
+        SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+      ).size,
+    ).toBeGreaterThan(1);
     expect(
       output.__state.lines.filter((line) =>
         line.startsWith('[SessionOrganization]'),
@@ -1246,6 +1410,25 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     const { c } = composePhase2(true);
     const token = CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE;
     expect(c.resolve(token)).toBe(c.resolve(token));
+  });
+
+  it('resolves native Codex through phase 2 when unpackaged', () => {
+    const { detection } = composePhase2(true, true);
+    expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
+  });
+
+  it('marks Codex unavailable when packaged on linux/x64', () => {
+    const { c, detection } = composePhase2(true, true, true);
+    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
+    const codex = detection?.getAdapter('codex');
+    expect(codex).toMatchObject({ name: 'codex', supportsMcp: false });
+  });
+
+  it('binds native Codex through phase 2 when packaged on win32/x64', () => {
+    const { c, detection } = composePhase2(true, true, true,
+      { platform: 'win32', arch: 'x64' });
+    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(true);
+    expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
   });
 
   it('the bound recorder reaches the child-session spawner (R-TL8)', () => {
@@ -1288,5 +1471,19 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     );
     expect(registered).toEqual([...LanePlanLimitsRpcHandlers.METHODS]);
     expect(registered).toEqual(['agent:getLanePlanLimits']);
+  });
+});
+
+describe('Electron SDK runtime defaults before bootstrap', () => {
+  it('registers every runtime port and keeps native disabled until host binding', () => {
+    const c = buildMinimalContainer();
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    for (const token of EXPECTED_RUNTIME_TOKENS)
+      expect(c.isRegistered(token, true)).toBe(true);
+    for (const token of EXPECTED_NULL_RUNTIME_TOKENS)
+      expect(c.resolve(token)).toBeNull();
+    expect(c.resolve(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES)).toEqual({
+      nativeCodex: false,
+    });
   });
 });

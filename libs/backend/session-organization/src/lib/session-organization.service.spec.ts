@@ -151,6 +151,7 @@ function storedOrganization(
     updatedAt: 1000,
     tasks: [],
     prLinks: [],
+    todos: null,
     ...overrides,
   };
 }
@@ -715,7 +716,12 @@ describe('SessionOrganizationService', () => {
             SESSION,
             storedOrganization({
               tasks: [
-                { taskId: 'T', role: 'primary', source: 'user', createdAt: 5 },
+                {
+          taskId: 'T', role: 'primary', source: 'user',
+          createdAt: 5,
+          autoRule: null,
+          autoEvidence: null,
+        },
               ],
             }),
           ],
@@ -761,6 +767,7 @@ describe('SessionOrganizationService', () => {
           prLinks: [],
           childCount: 2,
           updatedAt: 1000,
+          todos: null,
         },
       });
     });
@@ -785,6 +792,56 @@ describe('SessionOrganizationService', () => {
       });
       // Nothing was removed, so nothing changed.
       expect(h.changes).toEqual([]);
+    });
+
+    it('a user unlink suppresses the pair in the same store call', async () => {
+      const h = setup();
+      await h.service.unlinkSessionTask({ sessionId: SESSION, taskId: 'T' });
+      expect(h.store.unlinkTask).toHaveBeenCalledWith(
+        KEY,
+        SESSION,
+        'T',
+        expect.any(Number),
+        { suppress: true },
+      );
+    });
+
+    it.each(['orchestrate', 'worktree', 'inherited'] as const)(
+      'rejects the automatic source %s on an explicit link',
+      async (source) => {
+        const h = setup();
+        await expect(
+          h.service.linkSessionTask({
+            sessionId: SESSION,
+            taskId: 'T',
+            role: 'primary',
+            source,
+          }),
+        ).rejects.toThrow(/source must be one of board-start, agent, user/);
+        expect(h.store.linkTask).not.toHaveBeenCalled();
+      },
+    );
+
+    it('commitCapture reports each outcome', async () => {
+      const h = setup();
+      await expect(
+        h.service.commitCapture('t', SESSION, undefined, () => [SESSION]),
+      ).resolves.toBe('written');
+      await expect(
+        h.service.commitCapture('t', SESSION, undefined, () => []),
+      ).resolves.toBe('unchanged');
+      await expect(
+        h.service.commitCapture('t', SESSION, undefined, () => {
+          throw new Error('boom');
+        }),
+      ).resolves.toBe('failed');
+      await expect(
+        h.service.commitCapture('t', 'no-such-session', undefined, () => []),
+      ).resolves.toBe('no-metadata');
+      h.store.isReady.mockReturnValue(false);
+      await expect(
+        h.service.commitCapture('t', SESSION, undefined, () => [SESSION]),
+      ).resolves.toBe('unavailable');
     });
 
     it('add and remove use the same canonical PR URL', async () => {

@@ -19,6 +19,7 @@ import {
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
 import {
+  createMockFileSystemProvider,
   createMockOutputChannel,
   createMockStateStorage,
 } from '@ptah-extension/platform-core/testing';
@@ -29,6 +30,8 @@ import {
   SDK_TOKENS,
   SessionIdResolvedCallbackRegistry,
   SessionMetadataStore,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptSubmitCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { SessionMetadataChangedNotification } from '@ptah-extension/shared';
@@ -107,6 +110,14 @@ class FakeOrganizationStore {
   });
 
   readonly addPrLink = jest.fn();
+
+  // The auto-link service (started with the capture) reads these after a
+  // change. No organization row exists, so its reconcile is a no-op.
+  readonly getOrganization = jest.fn(() => null);
+  readonly listDependentIds = jest.fn((): string[] => []);
+  readonly listWorktreePeers = jest.fn((): { sessionId: string }[] => []);
+  readonly applyAutoLinkPlan = jest.fn(() => false);
+  readonly upsertOrganization = jest.fn();
 
   seed(root: string, sessionId: string): void {
     const ids = this.rows.get(root) ?? new Set<string>();
@@ -466,6 +477,16 @@ describe('SessionOrganizationCaptureService', () => {
         useValue: postToolUse,
       });
       c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, { useValue: output });
+      // The auto-link part (also started here) reads prompts and files.
+      c.register(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY, {
+        useValue: new UserPromptSubmitCallbackRegistry(logger),
+      });
+      c.register(SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY, {
+        useValue: new UserPromptExpansionCallbackRegistry(logger),
+      });
+      c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+        useValue: createMockFileSystemProvider(),
+      });
       registerSessionOrganizationServices(c);
       // Only the SQLite store is faked; the service and capture are real.
       c.register(SESSION_ORGANIZATION_TOKENS.STORE, { useValue: store });

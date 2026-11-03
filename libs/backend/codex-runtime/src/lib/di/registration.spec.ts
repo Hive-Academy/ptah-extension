@@ -4,6 +4,7 @@ import {
   CodexParityGate,
   CodexRuntime,
   CODEX_RUNTIME_TOKENS,
+  readCodexDevRouteOverride,
   registerCodexRuntime,
   resolveGatedCodexRuntime,
   type CodexRuntimePort,
@@ -49,6 +50,87 @@ function ports(): CodexRuntimeRegistrationPorts {
 }
 
 describe('registerCodexRuntime composition', () => {
+  it.each([{}, { devRoute: null }])(
+    'keeps all consumers gated with override ports %p',
+    async (overridePorts) => {
+      const child = container.createChildContainer();
+      const dependencies = { ...ports(), ...overridePorts };
+      registerCodexRuntime(child, dependencies);
+
+      expect(child.resolve(CODEX_RUNTIME_TOKENS.DevRouteOverride)).toBeNull();
+      const resolve = jest.spyOn(child, 'resolve');
+      for (const consumer of ['chat', 'gateway', 'lane'] as const) {
+        expect(() =>
+          resolveGatedCodexRuntime(child, consumer, {
+            platform: 'win32',
+            arch: 'x64',
+          }),
+        ).toThrow('Codex production routing disabled by parity gate');
+      }
+      expect(resolve).not.toHaveBeenCalledWith(CODEX_RUNTIME_TOKENS.Runtime);
+      expect(dependencies.logger.warn).not.toHaveBeenCalled();
+      resolve.mockRestore();
+      await child.dispose();
+    },
+  );
+
+  it('allows chat and gateway routing and warns once per container per consumer', async () => {
+    const first = container.createChildContainer();
+    const second = container.createChildContainer();
+    const dependencies: CodexRuntimeRegistrationPorts = {
+      ...ports(),
+      devRoute: readCodexDevRouteOverride({
+        isPackaged: false,
+        env: { PTAH_CODEX_RUNTIME_DEV: '1' },
+      }),
+    };
+    const platform = { platform: 'win32', arch: 'x64' };
+
+    for (const [index, child] of [first, second].entries()) {
+      registerCodexRuntime(child, dependencies);
+      expect(child.resolve(CODEX_RUNTIME_TOKENS.DevRouteOverride)).toBe(
+        dependencies.devRoute,
+      );
+      expect(() =>
+        resolveGatedCodexRuntime(child, 'lane', platform),
+      ).toThrow('Codex production routing disabled by parity gate');
+      expect(dependencies.logger.warn).toHaveBeenCalledTimes(index * 2);
+
+      const gatewayRuntime = resolveGatedCodexRuntime(child, 'gateway', platform);
+      expect(gatewayRuntime).toBeInstanceOf(CodexRuntime);
+      expect(resolveGatedCodexRuntime(child, 'gateway', platform)).toBe(gatewayRuntime);
+      expect(dependencies.logger.warn).toHaveBeenCalledTimes(index * 2 + 1);
+      expect(dependencies.logger.warn).toHaveBeenLastCalledWith(
+        expect.stringMatching(/PTAH_CODEX_RUNTIME_DEV.*Codex gateway routing/),
+      );
+
+      const runtime = resolveGatedCodexRuntime(child, 'chat', platform);
+      expect(runtime).toBeInstanceOf(CodexRuntime);
+      expect(runtime).toBe(gatewayRuntime);
+      expect(runtime).toBe(child.resolve(CODEX_RUNTIME_TOKENS.Runtime));
+      expect(resolveGatedCodexRuntime(child, 'chat', platform)).toBe(runtime);
+      expect(dependencies.logger.warn).toHaveBeenCalledTimes(index * 2 + 2);
+      expect(dependencies.logger.warn).toHaveBeenLastCalledWith(
+        expect.stringMatching(/PTAH_CODEX_RUNTIME_DEV.*Codex chat routing/),
+      );
+      const gate = child.resolve(CodexParityGate);
+      for (const consumer of ['chat', 'gateway', 'lane'] as const) {
+        expect(gate.evaluate(consumer, platform)).toMatchObject({
+          enabled: false,
+          reason: 'production-routing-disabled',
+        });
+      }
+      expect(resolveGatedCodexRuntime(child, 'gateway', platform)).toBe(runtime);
+      expect(() => resolveGatedCodexRuntime(child, 'lane', platform)).toThrow(
+        'Codex production routing disabled by parity gate',
+      );
+      expect(dependencies.logger.warn).toHaveBeenCalledTimes(index * 2 + 2);
+      expect(dependencies.spawner.spawnProcess).not.toHaveBeenCalled();
+      await runtime.close();
+      await child.dispose();
+    }
+  });
+
   it('registers real host-owned services and ports without spawning or enabling routing', async () => {
     const child = container.createChildContainer();
     const dependencies = ports();

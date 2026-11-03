@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { GIT_HOOK_TIMEOUT_MS, gitRpcTimeoutFor } from '@ptah-extension/shared';
+import { GitDockMutationGate } from './git-dock-mutation-gate';
 import { GitStatusService } from './git-status.service';
 import {
   COMMIT_MESSAGE_RPC_TIMEOUT_MS,
@@ -45,6 +46,32 @@ describe('SourceControlService', () => {
 
   it('verifies MUTATION_RPC_TIMEOUT_MS equals 615_000 ms', () => {
     expect(EXPECTED_MUTATION_TIMEOUT).toBe(615_000);
+  });
+
+  it('refuses every mutation without an RPC while the dock scope is unresolved (S1)', async () => {
+    const gate = TestBed.inject(GitDockMutationGate);
+    gate.setBlockedReason('not loaded');
+
+    const results = await Promise.all([
+      service.stageFile('a.ts'),
+      service.unstageFile('a.ts'),
+      service.stageAll(),
+      service.unstageAll(),
+      service.discardChanges('a.ts', '/test/workspace'),
+      service.discardAll(['a.ts'], '/test/workspace'),
+      service.commit('msg'),
+    ]);
+    const abort = await service.abortOperation();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    for (const result of results) {
+      expect(result).toEqual({ success: false, error: 'not loaded' });
+    }
+    expect(abort).toMatchObject({ status: 'failed', error: 'not loaded' });
+
+    gate.setBlockedReason(null);
+    await service.stageFile('a.ts');
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
   });
 
   it('stageFile passes MUTATION_RPC_TIMEOUT_MS and scoped workspace', async () => {
@@ -91,8 +118,10 @@ describe('SourceControlService', () => {
     );
   });
 
-  it('discardChanges passes MUTATION_RPC_TIMEOUT_MS and scoped workspace', async () => {
-    await service.discardChanges('src/app.ts');
+  it('discardChanges sends the confirmed root, not a re-read of the dock root (TASK_2026_855)', async () => {
+    // The dock moved to another scope between confirm and call.
+    workspace.set('/other/scope');
+    await service.discardChanges('src/app.ts', '/test/workspace');
 
     expect(mockRpcCall).toHaveBeenCalledWith(
       expect.anything(),
@@ -104,7 +133,8 @@ describe('SourceControlService', () => {
 
   it("discardAll sends the listed paths worktree-only, never '.', scoped and with MUTATION_RPC_TIMEOUT_MS", async () => {
     const paths = ['src/app.ts', 'notes.md'] as const;
-    await service.discardAll(paths);
+    workspace.set('/other/scope');
+    await service.discardAll(paths, '/test/workspace');
 
     expect(mockRpcCall).toHaveBeenCalledWith(
       expect.anything(),

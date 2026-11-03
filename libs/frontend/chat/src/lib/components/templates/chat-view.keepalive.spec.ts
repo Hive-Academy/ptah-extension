@@ -68,7 +68,7 @@ import {
   type ModelRefreshControl,
 } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, ExecutionTreeBuilderService, type MonitoredAgent } from '@ptah-extension/chat-streaming';
-import { SURFACE_ACTIVE, VSCodeService, AppStateManager, AuthStateService, ClaudeRpcService, PlanLimitsStore } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService, AppStateManager, AuthStateService, ClaudeRpcService, PlanLimitsStore, ElectronLayoutService } from '@ptah-extension/core';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { DisplayPanelComponent, type DisplaySurface } from '@ptah-extension/chat-ui/display-panel';
@@ -88,6 +88,7 @@ import { ChangeSetActionsService } from '../../services/change-set/change-set-ac
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ArtifactStore } from '../../services/artifact.store';
+import { DisplayWindowSync } from '../../services/display-window/display-window-sync.service';
 import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-context.token';
 
 @Component({
@@ -424,6 +425,27 @@ function mountRail(
           recordById: () => null,
           forSession: () => signal([]),
           reload: jest.fn(),
+          panelArtifacts: () => [],
+          autoOpenRequest: signal(null),
+        },
+      },
+      {
+        provide: ElectronLayoutService,
+        useValue: {
+          displaySidebarWidth: signal<number | null>(null),
+          setDisplaySidebarWidth: jest.fn(),
+        },
+      },
+      {
+        provide: DisplayWindowSync,
+        useValue: {
+          detached: signal(false),
+          error: signal<string | null>(null),
+          count: signal(0),
+          bindSource: jest.fn(() => () => undefined),
+          detach: jest.fn(),
+          focus: jest.fn(),
+          attach: jest.fn(),
         },
       },
       {
@@ -623,7 +645,10 @@ describe('Rail ChatView per-pane display dock', () => {
   });
 
   const sheet = () => h.fixture.nativeElement.querySelector('ptah-display-sheet') as HTMLElement | null;
-  const bar = () => h.fixture.nativeElement.querySelector('[data-testid="display-sheet-bar"]') as HTMLButtonElement | null;
+  /** The control that carries `aria-expanded`: the sidebar tab when collapsed, Collapse when open. */
+  const bar = () => h.fixture.nativeElement.querySelector(
+    'ptah-display-sheet [data-testid="display-sheet-tab"] button, ptah-display-sheet [data-testid="display-sheet-close"]',
+  ) as HTMLButtonElement | null;
   async function openSheet(): Promise<void> {
     bar()?.click();
     for (let round = 0; round < 3; round += 1) {

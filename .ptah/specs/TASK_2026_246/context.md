@@ -216,3 +216,10 @@ Out of scope here, worth their own tasks:
 - **Barrels re-export implementation internals**, turning internal moves into
   multi-project rebuilds. `tasks-ui` exports ~40 symbols of which 2 are consumed.
   Narrowing barrels is the highest-leverage, lowest-risk repo-wide change available.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Split the oversized services, remove the divergent transformer duplication, and finish the source and spec cleanup described in the task.
+- Evidence on main: main:libs/backend/agent-generation/project.json:36 now declares typecheck. main:libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts is 2651 lines; content-generation.service.ts:814 and wizard/multi-phase-analysis.service.ts:1025 still each define convertStreamEventToFlatEvent.

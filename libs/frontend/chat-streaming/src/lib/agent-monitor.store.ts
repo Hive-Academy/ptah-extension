@@ -451,6 +451,8 @@ const CLI_LANE_CACHE_FIELDS = {
 
 export interface MonitoredAgent {
   readonly agentId: string;
+  /** Latest lifecycle turn for a same-id CLI continuation. */
+  turnSeq?: number;
   readonly cli: CliType;
   readonly task: string;
   status: AgentStatus;
@@ -538,7 +540,7 @@ export interface MonitoredAgent {
   /** Classified failure reason of the run, from `AgentProcessInfo`. */
   failureKind?: AgentFailureKind;
   /**
-   * Why the host stopped the lane (`tool-call-budget` or `repeat-call`).
+   * Why the host stopped the lane (`repeat-call`).
    * Copied from `AgentProcessInfo.stopReason`. Absent when the lane ended
    * on its own or the caller stopped it.
    */
@@ -581,6 +583,13 @@ export interface MonitoredAgent {
   readonly cacheReported?: boolean;
 }
 
+/** Record statuses a SubagentStop may still finish. */
+const LIVE_SUBAGENT_STATUSES: ReadonlySet<SubagentRecord['status']> = new Set([
+  'pending',
+  'running',
+  'background',
+]);
+
 /**
  * Per-subagent record for SDK task_* events.
  *
@@ -595,6 +604,12 @@ export interface MonitoredAgent {
 export interface SubagentRecord {
   /** Provisional terminal from authoritative inactive history evidence. */
   settledFromHistory?: boolean;
+  /**
+   * `completed` set by the SubagentStop hook, which fires for failed agents
+   * too and usually before the Task tool_result. The tool_result, which
+   * knows whether the agent failed, may still settle the record.
+   */
+  settledFromHook?: boolean;
   /** Parent Task tool_use ID — primary key */
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
@@ -946,6 +961,22 @@ export class AgentMonitorStore implements OnDestroy {
     );
   }
 
+  private isNewAgentStart(
+    existing: SubagentRecord | undefined,
+    event: AgentStartEvent,
+  ): boolean {
+    if (!existing || event.source === 'history') return false;
+    if (this.isNewExecution(existing, event.taskId)) return true;
+    return (
+      this.isTerminal(existing.status) &&
+      existing.completedAt !== undefined &&
+      event.timestamp > existing.completedAt &&
+      !!event.agentId &&
+      !!existing.agentId &&
+      event.agentId !== existing.agentId
+    );
+  }
+
   private settledStatus(
     existing: SubagentRecord | undefined,
     incoming: SubagentRecord['status'],
@@ -978,14 +1009,20 @@ export class AgentMonitorStore implements OnDestroy {
       const existing = map.get(event.toolCallId);
       if (
         !existing ||
-        (this.isTerminal(existing.status) && !existing.settledFromHistory)
+        (this.isTerminal(existing.status) &&
+          !existing.settledFromHistory &&
+          !existing.settledFromHook)
       )
         return map;
       const next = new Map(map);
       next.set(event.toolCallId, {
         ...existing,
-        status: this.settledStatus(existing, status),
+        // The hook's `completed` is provisional: the real outcome wins.
+        status: existing.settledFromHook
+          ? status
+          : this.settledStatus(existing, status),
         settledFromHistory: false,
+        settledFromHook: false,
         completedAt: event.timestamp,
         durationMs:
           event.eventType === 'background_agent_completed'
@@ -1035,12 +1072,6 @@ export class AgentMonitorStore implements OnDestroy {
     { equal: (a, b) => a === b },
   );
 
-  /**
-   * Shared tick signal incremented every 1s while agents are running.
-   * Agent cards derive elapsed time from this instead of per-card setInterval.
-   */
-  readonly tick = signal(0);
-  private _tickInterval: ReturnType<typeof setInterval> | null = null;
   /**
    * All agents, newest first.
    *
@@ -1280,7 +1311,6 @@ export class AgentMonitorStore implements OnDestroy {
   readonly panelOpenRequest = this._panelOpenRequest.asReadonly();
 
   ngOnDestroy(): void {
-    this.stopTick();
     this.historyCandidates.clear();
     this._historyCandidates.set([]);
     // Apply queued output before teardown so the last deltas are not lost;
@@ -1293,35 +1323,6 @@ export class AgentMonitorStore implements OnDestroy {
     this._pendingBackgroundIdentity.clear();
   }
 
-  private startTick(): void {
-    if (this._tickInterval) return;
-    this._tickInterval = setInterval(() => {
-      this.tick.update((t) => t + 1);
-    }, 1000);
-  }
-
-  private stopTick(): void {
-    if (this._tickInterval) {
-      clearInterval(this._tickInterval);
-      this._tickInterval = null;
-    }
-  }
-
-  /** Start or stop tick based on whether any agents are running */
-  private syncTick(): void {
-    let hasRunning = false;
-    for (const a of this._agents()) {
-      if (a.status === 'running') {
-        hasRunning = true;
-        break;
-      }
-    }
-    if (hasRunning) {
-      this.startTick();
-    } else {
-      this.stopTick();
-    }
-  }
   togglePanel(): void {
     this._panelOpen.update((v) => !v);
   }
@@ -1404,6 +1405,9 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
   onAgentSpawned(info: AgentProcessInfo): void {
+    const current = this._agents().find((agent) => agent.agentId === info.agentId);
+    if (info.turnSeq !== undefined && current?.turnSeq !== undefined &&
+      info.turnSeq < current.turnSeq) return;
     const hadAgents = this._agents().length > 0;
     const wf = readWorkflowFields(info);
     const parentSessionId = knownSessionId(info.parentSessionId);
@@ -1414,6 +1418,7 @@ export class AgentMonitorStore implements OnDestroy {
         const existing = list[existingIndex];
         const reopened: MonitoredAgent = {
           ...existing,
+          turnSeq: info.turnSeq ?? existing.turnSeq,
           status: info.status,
           completedAt: undefined,
           exitCode: undefined,
@@ -1464,6 +1469,7 @@ export class AgentMonitorStore implements OnDestroy {
         }
         const replacement: MonitoredAgent = {
           agentId: info.agentId,
+          turnSeq: info.turnSeq,
           cli: info.cli,
           task: info.task,
           status: info.status,
@@ -1500,6 +1506,7 @@ export class AgentMonitorStore implements OnDestroy {
 
       const fresh: MonitoredAgent = {
         agentId: info.agentId,
+        turnSeq: info.turnSeq,
         cli: info.cli,
         task: info.task,
         status: info.status,
@@ -1547,7 +1554,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._panelOpen.set(true);
     }
 
-    this.syncTick();
   }
 
   /**
@@ -1715,6 +1721,9 @@ export class AgentMonitorStore implements OnDestroy {
       if (foundIndex === -1) return list;
 
       const agent = list[foundIndex];
+      if ((info.turnSeq !== undefined && agent.turnSeq !== undefined &&
+          info.turnSeq < agent.turnSeq) ||
+        (info.turnSeq === undefined && (agent.turnSeq ?? 1) > 1)) return list;
       const completedAt = info.completedAt
         ? new Date(info.completedAt).getTime()
         : Date.now();
@@ -1722,6 +1731,7 @@ export class AgentMonitorStore implements OnDestroy {
       const next = [...list];
       next[foundIndex] = {
         ...agent,
+        turnSeq: info.turnSeq ?? agent.turnSeq,
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
@@ -1750,7 +1760,6 @@ export class AgentMonitorStore implements OnDestroy {
       return this.evictOldCompletedAgents(next);
     });
 
-    this.syncTick();
   }
 
   /**
@@ -1902,17 +1911,17 @@ export class AgentMonitorStore implements OnDestroy {
       }
     }
     if (info.cliSessionId) {
-      for (const a of list) {
-        if (a.cliSessionId !== info.cliSessionId) continue;
-        if (a.status === 'running') continue;
-        if (
-          a.parentSessionId !== undefined &&
-          parentSessionId !== undefined &&
-          a.parentSessionId !== parentSessionId
-        ) {
-          continue;
-        }
-        return a;
+      const candidates = list.filter((a) =>
+        a.cli === info.cli &&
+        a.cliSessionId === info.cliSessionId &&
+        a.status !== 'running' &&
+        (a.parentSessionId === undefined || parentSessionId === undefined ||
+          a.parentSessionId === parentSessionId),
+      );
+      if (candidates.length > 0) {
+        return candidates.reduce((latest, candidate) =>
+          candidate.startedAt > latest.startedAt ? candidate : latest,
+        );
       }
     }
 
@@ -2134,7 +2143,6 @@ export class AgentMonitorStore implements OnDestroy {
       return next ?? map;
     });
     this.dropUnmatchedSubagentEntries(sessionId);
-    this.syncTick();
   }
 
   /**
@@ -2236,7 +2244,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._userExplicitlyClosed = false;
     }
 
-    this.syncTick();
   }
 
   /**
@@ -2256,7 +2263,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._userExplicitlyClosed = false;
     }
 
-    this.syncTick();
   }
 
   /**
@@ -2273,8 +2279,27 @@ export class AgentMonitorStore implements OnDestroy {
     this._subagents.update((map) => {
       this.claimHistoryCandidate(key);
       const existing = map.get(key);
-      const restart = this.isNewExecution(existing, event.taskId);
-      const status = this.settledStatus(existing, 'running', event.taskId);
+      if (existing && this.isTerminal(existing.status) && event.source === 'history') {
+        const filled: SubagentRecord = {
+          ...existing,
+          taskId: existing.taskId ?? event.taskId,
+          agentId: existing.agentId ?? event.agentId,
+          teammateName: existing.teammateName ?? event.teammateName,
+          agentType: existing.agentType || event.agentType,
+          description: existing.description ?? event.agentDescription,
+          taskDescription: existing.taskDescription ?? event.agentDescription,
+          parentSessionId: existing.parentSessionId ?? knownSessionId(event.sessionId),
+          workflowRunId: existing.workflowRunId ?? wf.workflowRunId,
+          workflowName: existing.workflowName ?? wf.workflowName,
+        };
+        const next = new Map(map);
+        next.set(key, this.withPendingIdentity(key, filled));
+        return next;
+      }
+      const restart = this.isNewAgentStart(existing, event);
+      const status = existing && this.isTerminal(existing.status) && !restart
+        ? existing.status
+        : 'running';
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2290,7 +2315,7 @@ export class AgentMonitorStore implements OnDestroy {
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
-        startedAt: existing?.startedAt ?? event.timestamp,
+        startedAt: restart ? event.timestamp : (existing?.startedAt ?? event.timestamp),
         completedAt: this.isTerminal(status)
           ? restart
             ? event.timestamp
@@ -2596,8 +2621,10 @@ export class AgentMonitorStore implements OnDestroy {
    * its cache state stays `'unknown'`.
    */
   async loadSubagentCacheInfo(parentToolUseId: string): Promise<void> {
+    const sessionId = this._subagents().get(parentToolUseId)?.parentSessionId;
     const result = await this.rpc.call('chat:subagent-query', {
       toolCallId: parentToolUseId,
+      ...(sessionId ? { sessionId } : {}),
     });
     if (!result.isSuccess()) {
       console.warn(
@@ -2725,6 +2752,7 @@ export class AgentMonitorStore implements OnDestroy {
       if (!existing) return map;
       if (
         !existing.settledFromHistory &&
+        !existing.settledFromHook &&
         existing.status !== 'pending' &&
         existing.status !== 'running'
       ) {
@@ -2735,6 +2763,7 @@ export class AgentMonitorStore implements OnDestroy {
         ...existing,
         status: isError ? 'failed' : 'completed',
         settledFromHistory: false,
+        settledFromHook: false,
         completedAt:
           timestamp !== undefined && Number.isFinite(timestamp)
             ? timestamp
@@ -2745,15 +2774,33 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Monitor key (the Task tool_use id) of the record for an SDK `agentId`,
+   * preferring a record that is still live. The `SubagentStop` hook carries
+   * the agent id but no Task tool_use id, so the stop push finds its record
+   * through this lookup.
+   */
+  findKeyByAgentId(agentId: string): string | null {
+    if (!agentId) return null;
+    let settled: string | null = null;
+    for (const [key, record] of this._subagents()) {
+      if (record.agentId !== agentId) continue;
+      if (LIVE_SUBAGENT_STATUSES.has(record.status)) return key;
+      settled ??= key;
+    }
+    return settled;
+  }
+
+  /**
    * Terminalise a subagent from the `session:subagentEnded` push (the
-   * backend `SubagentStop` hook), keyed by its Task tool_use id.
+   * backend `SubagentStop` hook), keyed by its Task tool_use id (resolve it
+   * with {@link findKeyByAgentId}).
    *
    * Backstop for a subagent that has no other completion signal in the
    * stream: a Task the SDK backgrounded by default gets the "launched in the
    * background" placeholder tool_result (which must not terminalise it, see
    * {@link onTaskToolResult}), and its `agent_completed` can be missing. The
    * SubagentStop hook fires once the agent has actually finished, so a record
-   * still `pending`/`running` moves to `completed`.
+   * still `pending`/`running`/`background` moves to `completed`.
    *
    * Same invariant as {@link onTaskToolResult}: a terminal status already set
    * by `agent_completed` / `agent_status` / a stop is never overridden, and an
@@ -2768,13 +2815,12 @@ export class AgentMonitorStore implements OnDestroy {
     this._subagents.update((map) => {
       const existing = map.get(toolCallId);
       if (!existing) return map;
-      if (existing.status !== 'pending' && existing.status !== 'running') {
-        return map;
-      }
+      if (!LIVE_SUBAGENT_STATUSES.has(existing.status)) return map;
       const next = new Map(map);
       next.set(toolCallId, {
         ...existing,
         status: 'completed',
+        settledFromHook: true,
         latestSummary: summary || existing.latestSummary,
         completedAt:
           timestamp !== undefined && Number.isFinite(timestamp)

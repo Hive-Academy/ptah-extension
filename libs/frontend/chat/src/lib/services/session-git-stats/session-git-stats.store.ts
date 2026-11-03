@@ -13,7 +13,11 @@ import {
   rpcCall,
   type MessageHandler,
 } from '@ptah-extension/core';
-import { MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  resolveSessionWorkingRoot,
+  type GitInfoResult,
+} from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from '../workspace-root';
 
 const LOG_PREFIX = '[SessionGitStatsStore]';
@@ -130,12 +134,27 @@ interface RootEntry {
   rerun: boolean;
 }
 
+/**
+ * The working root of one session, by the shared precedence the git dock
+ * also uses (TASK_2026_855): organization worktree → agent-origin worktree →
+ * session cwd (its workspace partition) → the fallback folder. Card stats,
+ * the inspector and the dock therefore always agree on the root.
+ *
+ * `organizationWorktreePath` defaults to null, which gives exactly the
+ * pre-organization result.
+ */
 export function sessionWorkingRoot(
   tab: TabState,
   partitionPath: string | null,
   fallback: string | undefined,
+  organizationWorktreePath: string | null = null,
 ): string | null {
-  return tab.agentOrigin?.worktreePath ?? partitionPath ?? fallback ?? null;
+  return resolveSessionWorkingRoot({
+    organizationWorktreePath,
+    agentOriginWorktreePath: tab.agentOrigin?.worktreePath ?? null,
+    sessionCwd: partitionPath,
+    workspaceRoot: fallback ?? null,
+  }).root;
 }
 
 /** Git status shared by cards whose sessions use the same working root. */

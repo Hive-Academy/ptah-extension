@@ -194,6 +194,46 @@ describe('plugin kept-item and config-home registration (TASK_2026_701 B12)', ()
   });
 });
 
+describe('displayWindow methods (TASK_2026_853_3401)', () => {
+  const displayWindowMethods = [
+    'displayWindow:open',
+    'displayWindow:close',
+    'displayWindow:status',
+    'displayWindow:publishState',
+    'displayWindow:getState',
+    'displayWindow:action',
+  ] as const;
+
+  it.each(displayWindowMethods)('%s is in the shared RPC registry', (method) => {
+    expect(RPC_METHOD_NAMES).toContain(method);
+  });
+
+  it('the displayWindow entry is library-owned, ungated and claims exactly these six', () => {
+    const entry = RPC_HANDLER_MANIFEST.find(
+      (candidate) => candidate.key === 'displayWindow',
+    );
+    expect(entry && 'handler' in entry).toBe(true);
+    expect(entry?.requires).toEqual([]);
+    expect([...(entry?.methods ?? [])].sort()).toEqual(
+      [...displayWindowMethods].sort(),
+    );
+  });
+
+  it.each(displayWindowMethods)(
+    '%s is owned by the displayWindow entry and no other',
+    (method) => {
+      const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+        (entry.methods as readonly string[]).includes(method),
+      ).map((entry) => entry.key);
+      expect(owners).toEqual(['displayWindow']);
+    },
+  );
+
+  it('is accepted by the `displayWindow:` runtime prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('displayWindow:');
+  });
+});
+
 describe('provider account methods (TASK_2026_712 Batch 35)', () => {
   const accountMethods: readonly string[] = PROVIDER_ACCOUNT_RPC_METHOD_NAMES;
 

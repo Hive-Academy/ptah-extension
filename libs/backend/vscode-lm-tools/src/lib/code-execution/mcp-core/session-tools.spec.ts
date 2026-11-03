@@ -135,6 +135,11 @@ describe('session tool schemas', () => {
     ['TASK_2026_58', false],
     ['task_2026_584', false],
     ['TASK_2026_584_XYZW', false],
+    // One grammar with the host auto-link rules (TASK_2026_854 RR1-8).
+    ['TASK_2026_1234', true],
+    ['TASK_2026_1234_ab12', true],
+    ['TASK_2026_123_AB12', false],
+    [`TASK_2026_${'1'.repeat(64)}`, false],
   ])('taskId %s -> %p', (taskId, ok) => {
     expect(
       SessionStartArgsSchema.safeParse({ task: 't', branch: 'b', taskId })

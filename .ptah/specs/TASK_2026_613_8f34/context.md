@@ -85,3 +85,10 @@ These rules apply now to the rest of TASK_2026_597. This task ships them.
   accepted: a new task (different owners of the files, existing settings to extend, TASK_2026_597 already
   large). The spec files are committed in the TASK_2026_597 S4 PR (branch `fix/task-597-s4-lane-guards`)
   at the user's request.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Relay rule (150k/60 calls), model-per-role marking, maxTurns in generated agents, and Settings controls for these limits. Re-decide the 60-call backup after #848 dropped the lane tool-call budget.
+- Evidence on main: Rule 2 (batches of about 6 files) shipped: main:apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/fleet.md:40 and lane-assignment.md:96 ('<=6 files, <=2 libs'). No 150k-context / 60-call relay rule, no Sonnet-per-role rule, no maxTurns in generated agent templates, and no Settings controls for them were found in the shipped skills.

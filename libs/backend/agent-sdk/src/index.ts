@@ -75,6 +75,15 @@ export {
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
 export type { SubagentEventsReadResult } from './lib/session-history-reader.service';
+export {
+  SessionHistoryRouter,
+  SessionHistoryRouteError,
+} from './lib/codex-app-server/session-history-router';
+export type {
+  NativeSessionHistoryPort,
+  SessionHistoryReadResult,
+  SessionHistoryRouteErrorCode,
+} from './lib/codex-app-server/session-history-router';
 
 export {
   SessionStatsReaderService,
@@ -113,6 +122,10 @@ export type {
   PermissionPromptLifecycleListener,
 } from './lib/sdk-permission-handler';
 export {
+  UNROUTABLE_PERMISSION_TIMEOUT_MS,
+  buildSystemAbortPermissionMessage,
+} from './lib/system-abort-permission-message';
+export {
   UnattendedSessionPolicyRegistry,
   type UnattendedSessionPolicy,
 } from './lib/permission/unattended-session-policy.registry';
@@ -139,12 +152,58 @@ export {
   AuthRequiredError,
   InternalQueryQueueTimeoutError,
 } from './lib/errors';
+// Electron codex-runtime-composition.spec.ts and di/register.ts consume registration; hosts must override only nullable port tokens.
 export {
   registerSdkServices,
+  /** @internal Electron composition specs only. */
+  registerCodexChatServices,
   wireAgentAdapterAliases,
 } from './lib/di/register';
+export { initializeSessionRuntimeIdentityLookup } from './lib/wiring/session-runtime-identity-cache';
+export { createCodexThreadIdentityStore } from './lib/wiring/codex-thread-identity-store';
+export { createCodexChatMetadataPort } from './lib/wiring/codex-chat-metadata-port';
+export { SessionUnavailableError } from './lib/helpers/session-lifecycle/session-control.service';
+export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-controls-composition';
+export type { AuthOperationContext } from './lib/auth-env.port';
 export { SDK_TOKENS } from './lib/di/tokens';
+// Electron codex-runtime-composition.spec.ts constructs this adapter; hosts must override only nullable port tokens.
+export {
+  /** @internal Electron composition specs only. */
+  CodexChatAdapter,
+  type CodexChatAdapterPorts,
+  type CodexChatScope,
+  type CodexChatSessionLifecycle,
+} from './lib/codex-app-server/codex-chat-adapter';
+export {
+  CodexChatAdapterError,
+  isCodexChatAdapterError,
+  isWebviewReportedError,
+  type CodexChatAdapterErrorCode,
+} from './lib/codex-app-server/codex-chat-adapter-error';
+export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-adapter';
+export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
+export type { NativeSessionControls, StreamlessFollowUpAdmission } from './lib/codex-app-server/session-runtime-router';
+export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
+export {
+  legacyClaudeSessionRuntimeIdentity,
+  resolveSessionRuntimeIdentity,
+} from './lib/codex-app-server/session-runtime-identity';
+export type { LegacySettingsPersistence } from './lib/codex-app-server/legacy-session-controls';
+export {
+  type CodexChatEventCallbacks,
+  type CodexChatTurnIdentity,
+} from './lib/codex-app-server/codex-chat-events';
+export {
+  presentCodexApproval,
+  presentCodexTool,
+} from './lib/codex-app-server/codex-tool-presentation';
 export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
+// Native Codex questions reuse Claude's AskUserQuestion service and registry.
+export {
+  AskUserQuestionService,
+  ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
+} from './lib/permission/ask-user-question.service';
+export { PendingResponseRegistry } from './lib/permission/pending-response-registry';
 export type { SdkDIToken } from './lib/di/tokens';
 export {
   SubagentMessageDispatcher,
@@ -273,6 +332,7 @@ export {
   type SubagentResumeAdviceInput,
 } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
+export { NextTurnReminderQueue } from './lib/helpers/next-turn-reminder.queue';
 export {
   SdkAdapterEvents,
   type SdkAdapterInitializedEvent,
@@ -305,7 +365,51 @@ export {
   filterMcpServersByPolicy,
   resolveSessionCapabilityPolicy,
   unverifiedCapabilityPolicy,
+  withClaudeBuiltinSkillDenials,
 } from './lib/helpers/sdk-query-options-builder';
+// Claude built-ins Ptah turns off by default (TASK_2026_853, A-1), shared with
+// the Claude lanes and the settings RPC so all three apply ONE catalog.
+export {
+  CLAUDE_BUILTIN_TOOLS,
+  CLAUDE_BUILTIN_TERMINAL_SKILLS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  PROTECTED_CLAUDE_TOOLS,
+  SYNCED_CLAUDE_SKILL_PREFIX,
+  isSyncedClaudeSkillId,
+  syncedClaudeSkillId,
+  normalizeClaudeBuiltinIds,
+  readClaudeBuiltinOptIns,
+  readClaudeBuiltinOptInSettings,
+  resolveClaudeBuiltinPolicy,
+  withoutCollidingBuiltinSkillDenials,
+  type ClaudeBuiltinSkillCollisionResult,
+  type ClaudeBuiltinSkillKeptVisible,
+  type ClaudeSameNameSkills,
+  type ClaudeSkillSourceKind,
+  type ClaudeBuiltinToolRow,
+  type ClaudeBuiltinSkillRow,
+  type ClaudeBuiltinPolicy,
+  type ClaudeBuiltinPolicyInput,
+  type ClaudeBuiltinOptIns,
+} from './lib/helpers/claude-builtin-catalog';
+// A bare built-in skill denial must never hide a same-name user skill
+// (TASK_2026_853 review fix R1); the three session paths share this guard.
+export {
+  discoverClaudeSkillNames,
+  guardClaudeBuiltinSkillDenials,
+  type ClaudeSkillDiscoveryInput,
+  type ClaudeSkillNameDiscovery,
+} from './lib/helpers/claude-skill-name-discovery';
+// claude.ai account-synced skills, hidden by default under their qualified
+// `anthropic-skills:<name>` key (TASK_2026_853, Phase B); shared with the
+// Claude lanes and the settings RPC.
+export {
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
+  type SyncedClaudeSkill,
+} from './lib/helpers/synced-claude-skills.reader';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,
@@ -377,6 +481,7 @@ export {
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './lib/prompt-harness';
+export { PTAH_UI_HINT, PTAH_UI_HINT_CODEX } from './lib/prompt-harness';
 export { PluginLoaderService } from './lib/helpers';
 export {
   discoverPluginSkills,

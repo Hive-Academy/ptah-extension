@@ -134,9 +134,21 @@ describe('AdvancedSettingsGroupComponent', () => {
 
   afterEach(() => fixture?.destroy());
 
+  it('omits its own plane when the parent Fine-tuning section supplies one', async () => {
+    await create('memory-upkeep');
+    fixture.componentRef.setInput('contentSurface', false);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.hasAttribute('data-glass-surface'),
+    ).toBe(false);
+  });
+
   describe('load', () => {
     it('reads only the group keys, in parallel with a 5 s timeout, and shows the saved values', async () => {
       await create('memory-upkeep');
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+      ).toBe('content');
       const groupKeys = keysOf('memory-upkeep');
       expect(
         reads()

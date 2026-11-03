@@ -15,7 +15,7 @@ import {
   agentRunDurationMs,
 } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { ModelStateService } from '@ptah-extension/core';
+import { ModelStateService, injectWallClock } from '@ptah-extension/core';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
@@ -46,7 +46,6 @@ import {
 import { laneUsage } from './inspector-agent-usage';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
 
-const TICK_MS = 1000;
 /** Rows shown before "Show N more". */
 export const AGENTS_VISIBLE_LIMIT = 6;
 
@@ -68,7 +67,7 @@ let nextSectionId = 0;
  * one the section keeps its own. `agentSelected` reports a pick (and a
  * normalized key when the host's key left the roster); opening a thread emits
  * `laneRequested` with a lane surface, else focuses the owning tab.
- * Durations tick through ONE interval, alive only while an agent runs.
+ * Running durations use the shared wall clock only while an agent runs.
  */
 @Component({
   selector: 'ptah-inspector-agents-section',
@@ -257,7 +256,6 @@ export class InspectorAgentsSectionComponent {
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
   protected readonly steerErrorKey = signal<string | null>(null);
-  private readonly now = signal(Date.now());
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);
   private readonly orchestratorAgent = computed(
@@ -277,6 +275,7 @@ export class InspectorAgentsSectionComponent {
       this.orchestratorAgent()?.status === 'running' ||
       this.rows().some((row) => row.agent.status === 'running'),
   );
+  private readonly now = injectWallClock('second', () => this.hasRunning());
 
   protected readonly list = computed((): readonly AgentListRow[] => {
     const now = this.hasRunning() ? this.now() : Date.now();
@@ -315,12 +314,6 @@ export class InspectorAgentsSectionComponent {
   );
 
   constructor() {
-    // One section-level tick, alive only while an agent runs.
-    effect((onCleanup) => {
-      if (!this.hasRunning()) return;
-      const timer = setInterval(() => this.now.set(Date.now()), TICK_MS);
-      onCleanup(() => clearInterval(timer));
-    });
     // A host key that left the roster (lane gone, sub-agent moved to the
     // background) is reported back in its roster form.
     effect(() => {

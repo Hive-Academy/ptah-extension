@@ -4,6 +4,7 @@ import {
   createMockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import {
+  DECISION_MODEL_TIMEOUT_SETTING_KEY,
   LANE_FAILURE_CLASSES,
   type LaneFailureClassificationInput,
 } from '@ptah-extension/shared';
@@ -78,6 +79,7 @@ async function harness(options: {
   readonly selection?: unknown;
   readonly structured?: StructuredDecisionCompleter;
   readonly fetchImpl?: SystemOneFetch;
+  readonly config?: Record<string, unknown>;
 }): Promise<{
   readonly classifier: DecisionModelFailureClassifier;
   readonly config: DecisionModelConfig;
@@ -85,7 +87,7 @@ async function harness(options: {
 }> {
   const logger = testLogger();
   const config = new DecisionModelConfig(
-    createMockWorkspaceProvider(),
+    createMockWorkspaceProvider({ config: options.config ?? {} }),
     createMockSecretStorage(),
     createMockStateStorage(),
     logger,
@@ -420,6 +422,40 @@ describe('DecisionModelFailureClassifier', () => {
       expect(timeout).toHaveBeenCalledWith(
         DECISION_REQUEST_TIMEOUT_REMOTE_MS + DECISION_RETURN_MARGIN_MS,
       );
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it('gives a System One classification the configured request timeout', async () => {
+    const fetchImpl: SystemOneFetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          model: 'nimble',
+          answers: {
+            failureClass: {
+              type: 'choice',
+              choice: 'usage-limit',
+              confidence: 0.9,
+            },
+          },
+        }),
+    });
+    const timeout = jest
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => new AbortController().signal);
+    try {
+      const { classifier } = await harness({
+        selection: { kind: 'ollama', model: 'nimble' },
+        fetchImpl,
+        config: { [`ptah.${DECISION_MODEL_TIMEOUT_SETTING_KEY}`]: 25_000 },
+      });
+
+      await expect(classifier.classify(INPUT)).resolves.toBe('usage-limit');
+
+      expect(timeout).toHaveBeenCalledWith(25_000 + DECISION_RETURN_MARGIN_MS);
     } finally {
       timeout.mockRestore();
     }

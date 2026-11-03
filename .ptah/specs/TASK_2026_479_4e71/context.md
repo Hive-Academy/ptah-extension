@@ -73,3 +73,10 @@ into a layer that does not own the process.
 
 Whatever reaping you add must itself be bounded. Do not introduce a sweeper that
 scans all system processes on a timer.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Kill the orphaned cmd.exe/node tree after a connect-timeout spawn failure — off-thread-process-spawner.ts:387-389 still only records the Windows tree-kill gap — and de-duplicate the ~/.claude.json registration that different drive letters create.
+- Evidence on main: Delivered in part: the MCP server back-off service exists on main (libs/agent-sdk/helpers/mcp-server-backoff.service.ts, added by 54ceb9c10 / PR #539, 2026-09-19) and prevents re-spawns via disabledMcpjsonServers/deniedMcpServers, with the exact firecrawl CONNECT_TIMEOUT orphan case as its documented example. Still open: main:off-thread-process-spawner.ts:387-389 records the Windows tree-kill gap ("that gap is recorded, not papered over here").

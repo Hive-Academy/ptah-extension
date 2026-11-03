@@ -78,8 +78,8 @@ function harness(send?: IdleCompactSender['sendIdleCompact']) {
     { scheduler, now: () => now },
   );
   const arm = (id = 's', run = 'run-1') => {
-    coordinator.register(id, { codexProxy: false, e2Passed: true });
-    service.sessionBound(id, run, false);
+    coordinator.register(id, { e2Passed: true });
+    service.sessionBound(id, run);
     service.turnEnded(id, 'turn', {
       requestKey: 'request',
       anchorAt: now,
@@ -192,7 +192,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
       const h = harness();
       h.arm();
       if (!acting)
-        h.coordinator.register('s', { codexProxy: false, e2Passed: false });
+        h.coordinator.register('s', { e2Passed: false });
       h.advance(DUE);
       await settle();
       if (acting) h.coordinator.onPreCompact('s', 'manual');
@@ -215,7 +215,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
       const h = harness();
       h.arm();
       if (!acting)
-        h.coordinator.register('s', { codexProxy: false, e2Passed: false });
+        h.coordinator.register('s', { e2Passed: false });
       h.advance(DUE);
       await settle();
       expect(h.coordinator.getIdleClaim('s')).toBeDefined();
@@ -235,7 +235,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
       expect(h.scheduler.frame).toBe(DUE);
       h.service.compactBoundary('s', 225_000);
       expect(h.service.boundaryNoticeFor('s')).toEqual({ preTokens: 225_000 });
-      h.service.sessionBound('s', 'run-2', false);
+      h.service.sessionBound('s', 'run-2');
       expect(h.service.boundaryNoticeFor('s')).toBeUndefined();
       h.service.compactBoundary('s', 12_000);
       expect(h.service.boundaryNoticeFor('s')).toBeUndefined();
@@ -249,7 +249,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
       const h = harness();
       h.arm();
       if (!acting)
-        h.coordinator.register('s', { codexProxy: false, e2Passed: false });
+        h.coordinator.register('s', { e2Passed: false });
       h.advance(DUE);
       await settle();
       if (acting) h.coordinator.onPreCompact('s', 'manual');
@@ -377,7 +377,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
     h.arm();
     h.advance(DUE);
     h.service.sessionReleased('s');
-    h.service.sessionBound('s', 'run-2', false);
+    h.service.sessionBound('s', 'run-2');
     h.service.turnEnded('s', 'turn-2', {
       requestKey: 'request-2',
       anchorAt: DUE,
@@ -397,7 +397,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
   it('isolates a reducer failure and frees the failed group after release', async () => {
     const h = harness();
     h.arm('healthy');
-    h.service.sessionBound('failed', 'run-1', false);
+    h.service.sessionBound('failed', 'run-1');
     h.failNextSettings();
     h.service.turnEnded('failed', 'turn', {
       requestKey: 'request',
@@ -446,7 +446,7 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
     h.warn.mockImplementation(() => {
       throw new Error('logger failed');
     });
-    h.service.sessionBound('failed', 'run', false);
+    h.service.sessionBound('failed', 'run');
     h.failNextSettings();
     h.service.turnEnded('failed', 'turn', {
       requestKey: 'request',

@@ -199,7 +199,7 @@ were deleted rather than left in place:
 
 | Shot               | Why                                                                                                                                                                                                                                                                               |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `welcome`          | Showed the pre-open-source gate — "Create Account & Start Free Trial", a 100-day trial pitch and a license-key field. That screen was deleted in `c11282e03`. The current first screen is `ElectronWelcomeComponent`: logo, "Welcome to Ptah Desktop", one **Open Folder** button |
+| `welcome`          | Showed the pre-open-source gate — "Create Account & Start Free Trial", a 100-day trial pitch and a license-key field. That screen was deleted in `c11282e03`. The current first screen is `ElectronWelcomeComponent`: logo, heading "Open a workspace", one **Open Folder** button |
 | `license-activate` | A crop of the same removed screen. Key entry now lives in the **Membership** card at the top of Settings (`license-status-card.component.ts`)                                                                                                                                     |
 
 Re-capturing `welcome` needs an Electron profile with **zero** persisted

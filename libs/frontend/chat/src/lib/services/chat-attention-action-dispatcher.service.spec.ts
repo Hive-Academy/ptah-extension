@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ATTENTION_LANE_OPENER, LoggingService, NOTIFICATION_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService } from '@ptah-extension/core';
+import { parsePermissionRequest, type PermissionRequest } from '@ptah-extension/shared';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
 import { AgentPermissionResponder } from './agent-permission-responder';
 import { ChatAttentionActionDispatcherService } from './chat-attention-action-dispatcher.service';
@@ -9,6 +10,7 @@ describe('ChatAttentionActionDispatcherService', () => {
   const respondLane = jest.fn();
   const respondSession = jest.fn(() => true);
   const isSessionPending = jest.fn(() => true);
+  let parsedPermission: PermissionRequest | undefined;
   const focus = jest.fn();
   const openLane = jest.fn();
   const upsert = jest.fn();
@@ -36,6 +38,7 @@ describe('ChatAttentionActionDispatcherService', () => {
     respondLane.mockReturnValue(true);
     respondSession.mockReturnValue(true);
     isSessionPending.mockReturnValue(true);
+    parsedPermission = undefined;
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
     openLane.mockReturnValue(true);
     runNotice.mockResolvedValue({ kind: 'completed' });
@@ -47,6 +50,11 @@ describe('ChatAttentionActionDispatcherService', () => {
               actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
                 { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' }] },
             target: { kind: 'permission', request: { id: 'closed-tab' }, tabId: undefined },
+          } : key === 'parsed' && parsedPermission ? {
+            item: { ...live.item, key, kind: 'permission', tabId: undefined,
+              actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
+                { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' }] },
+            target: { kind: 'permission', request: parsedPermission, tabId: undefined },
           } : key === 'lane'
             ? { ...live, item: { ...live.item, workspacePath: itemWorkspacePath, tabId: itemTabId } } : undefined,
       } },
@@ -71,6 +79,30 @@ describe('ChatAttentionActionDispatcherService', () => {
   it.each(['allow', 'always_allow', 'deny'] as const)('dispatches a closed-tab permission through the session responder: %s', async decision => {
     expect(await service.dispatchOutcome('permission', 1, decision)).toEqual({ kind: 'completed' });
     expect(respondSession).toHaveBeenCalledWith({ id: 'closed-tab' }, decision, undefined);
+  });
+
+  it('answers a parser-produced permission with Claude decisions', async () => {
+    const request = parsePermissionRequest({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      toolName: 'Bash',
+      toolInput: { command: 'ls' },
+      timestamp: 1,
+      description: 'List files',
+      timeoutAt: 0,
+      allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
+    });
+    if (!request) throw new Error('parser rejected the permission payload');
+    expect(request).not.toHaveProperty('allowedDecisions');
+    parsedPermission = request;
+    const decisions = ['allow', 'always_allow', 'deny', 'deny_with_message'] as const;
+    for (const decision of decisions) {
+      const reason = decision === 'deny_with_message' ? 'use ls' : undefined;
+      expect(await service.dispatchOutcome('parsed', 1, decision, reason)).toEqual({ kind: 'completed' });
+      expect(respondSession).toHaveBeenCalledWith(
+        request, decision, undefined, ...(reason === undefined ? [] : [reason]),
+      );
+    }
+    expect(respondSession).toHaveBeenCalledTimes(decisions.length);
   });
 
   it('carries denial feedback and rejects an empty reason', async () => {

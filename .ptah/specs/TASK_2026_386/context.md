@@ -170,3 +170,10 @@ the working tree and adds a Task tab for branch versus main, one
 - Where the task to worktree binding lives if the task has no carrier yet.
   Proposal: create the carrier on first bind, since a folder without
   `task.md` is invisible to the board anyway.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Complete the specified @codemirror/merge diff integration and verify the remaining task-to-worktree and merge actions against the task acceptance criteria.
+- Evidence on main: TASK_2026_576 PRs #611, #627 and #630 delivered the review shell: main has TurnChangeSetStore, git-ui review-canvas/spot-editor, task-pr-panel.component.ts:104, and platform-core editor-launcher.interface.ts:55. main has no @codemirror/merge import or MergeView.

@@ -175,6 +175,14 @@ export interface CapabilityFingerprintEntry {
 export interface HarnessPolicyFingerprintInput {
   entries: readonly CapabilityFingerprintEntry[];
   pluginConfig: Partial<PluginConfigState> | null | undefined;
+  /** Canonical storage identities in nearest-first policy order. */
+  context?: {
+    localRoot: string;
+    ancestors: readonly {
+      root: string;
+      pluginConfig: Partial<PluginConfigState> | null | undefined;
+    }[];
+  };
 }
 
 /**
@@ -189,7 +197,7 @@ export function harnessPolicyFingerprint(
   input: HarnessPolicyFingerprintInput,
 ): string {
   const config = input.pluginConfig ?? {};
-  const canonical = canonicalJson({
+  const base = {
     v: 1,
     entries: [...input.entries]
       .map(({ name, content }) => ({ name, content }))
@@ -205,7 +213,25 @@ export function harnessPolicyFingerprint(
       disabledSkillIds: idSet(config.disabledSkillIds),
       disabledAgentIds: idSet(config.disabledAgentIds),
     },
-  });
+  };
+  const canonical = canonicalJson(
+    input.context === undefined
+      ? base
+      : {
+          ...base,
+          v: 2,
+          localRoot: input.context.localRoot,
+          ancestors: input.context.ancestors.map(({ root, pluginConfig }) => ({
+            root,
+            pluginConfig: {
+              enabledPluginIds: idSet(pluginConfig?.enabledPluginIds),
+              disabledPluginIds: idSet(pluginConfig?.disabledPluginIds),
+              enabledSkillIds: idSet(pluginConfig?.enabledSkillIds),
+              disabledSkillIds: idSet(pluginConfig?.disabledSkillIds),
+            },
+          })),
+        },
+  );
   return fnv1a64Hex(utf8Bytes(canonical));
 }
 

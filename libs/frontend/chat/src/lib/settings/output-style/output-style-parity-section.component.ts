@@ -60,7 +60,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
   template: `
     <details
       #details
-      class="mt-3 rounded border border-base-300 p-2 text-xs text-base-content"
+      class="mt-3 border-t border-base-content/10 pt-3 text-xs text-base-content"
       data-testid="output-style-parity-details"
       (toggle)="onDetailsToggle()"
     >

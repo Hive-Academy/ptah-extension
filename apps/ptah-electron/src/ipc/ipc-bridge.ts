@@ -20,6 +20,8 @@
 
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
 import {
   TOKENS,
@@ -32,6 +34,11 @@ import {
   type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 import { isTrustedIpcSender } from './ipc-sender-policy';
+import {
+  createReplayRecorderIfEnabled,
+  tapReplayRecorder,
+  type ReplayRecorder,
+} from '../replay/replay-recorder';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
 
@@ -107,6 +114,26 @@ type GetWindowFn = () => ElectronWindowHandle | null;
 type IpcSenderEvent = Pick<IpcMainEvent, 'sender' | 'senderFrame'>;
 
 /**
+ * Which trusted window an IPC call came from. `display` is the detached
+ * Display window (TASK_2026_853_3401): it shares the preload and the renderer
+ * document with the main window, so the sender policy trusts it the same way,
+ * and this bridge then narrows what it may call.
+ */
+type IpcSenderRole = 'main' | 'display';
+
+/**
+ * The only RPC methods the detached Display window may call. Everything it
+ * shows comes from the snapshot the main renderer publishes, so it needs no
+ * other backend access. Any other method gets an RPC error reply.
+ */
+export const DISPLAY_WINDOW_ALLOWED_METHODS: ReadonlySet<string> = new Set([
+  'displayWindow:getState',
+  'displayWindow:action',
+  'displayWindow:close',
+  'artifacts:openLink',
+]);
+
+/**
  * IPC Bridge -- Routes messages between the Angular renderer and the
  * Electron main process via ipcMain/ipcRenderer channels.
  *
@@ -137,6 +164,9 @@ export class IpcBridge {
   private hasHadWindow = false;
   /** Sender ids already warned about, so a misbehaving frame logs once. */
   private readonly warnedSenderIds = new Set<number>();
+  /** `webContents.id` of the open detached Display window, or `null`. */
+  private displayWindowSenderId: number | null = null;
+  private readonly recorder: ReplayRecorder | null;
 
   /**
    * @param trustedDocumentPaths - absolute paths of the documents the main
@@ -148,11 +178,18 @@ export class IpcBridge {
     private readonly container: DependencyContainer,
     private readonly getWindow: GetWindowFn,
     private readonly trustedDocumentPaths: readonly string[],
+    recorder?: ReplayRecorder | null,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
+    this.recorder =
+      recorder !== undefined
+        ? recorder
+        : __PTAH_REPLAY_RECORDER__
+          ? createReplayRecorderIfEnabled()
+          : null;
   }
 
   /**
@@ -195,7 +232,20 @@ export class IpcBridge {
       return false;
     }
     win.webContents.send('to-renderer', message);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(message));
+    }
     return true;
+  }
+
+  /**
+   * Trust (or, with `null`, stop trusting) the detached Display window's
+   * webContents. Called by `ElectronDisplayWindowHost` when the window is
+   * created and when it closes. Its calls are limited to
+   * {@link DISPLAY_WINDOW_ALLOWED_METHODS} and the `get-state` read.
+   */
+  setDisplayWindowSender(webContentsId: number | null): void {
+    this.displayWindowSenderId = webContentsId;
   }
 
   /**
@@ -295,29 +345,47 @@ export class IpcBridge {
       return;
     }
     if (events.length === 1) {
-      win.webContents.send('to-renderer', {
+      const singleMessage = {
         type: events[0].type,
         payload: events[0].payload,
-      });
+      };
+      win.webContents.send('to-renderer', singleMessage);
+      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+        tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+      }
       return;
     }
-    win.webContents.send('to-renderer', {
+    const batchMessage = {
       type: MESSAGE_TYPES.BATCH,
       payload: { events },
-    });
+    };
+    win.webContents.send('to-renderer', batchMessage);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+    }
   }
 
   /**
-   * Whether an `ipcMain` call comes from the main window's top frame showing
-   * a trusted document. An untrusted call is dropped by the caller; the first
+   * Which trusted window an `ipcMain` call comes from: the top frame of the
+   * main window or of the detached Display window, showing a trusted
+   * document. `null` means untrusted: the caller drops the call; the first
    * drop per sender id is warned about, without the payload or the URL.
    */
-  private isTrustedSender(event: IpcSenderEvent, channel: string): boolean {
+  private senderRole(
+    event: IpcSenderEvent,
+    channel: string,
+  ): IpcSenderRole | null {
     let senderId: number | undefined;
     let trusted = false;
     try {
       senderId = event.sender.id;
       const frame = event.senderFrame;
+      const trustedIds: number[] = [];
+      const mainId = this.getWindow()?.webContents.id;
+      if (mainId !== undefined) trustedIds.push(mainId);
+      if (this.displayWindowSenderId !== null) {
+        trustedIds.push(this.displayWindowSenderId);
+      }
       trusted = isTrustedIpcSender(
         {
           webContentsId: senderId,
@@ -325,7 +393,7 @@ export class IpcBridge {
           isMainFrame: frame !== null && frame === event.sender.mainFrame,
         },
         {
-          webContentsId: this.getWindow()?.webContents.id ?? null,
+          webContentsIds: trustedIds,
           documentPaths: this.trustedDocumentPaths,
         },
       );
@@ -334,7 +402,9 @@ export class IpcBridge {
       // webContents throws; a sender we cannot identify stays untrusted, so
       // the call is dropped (fail closed) and the drop is warned about below.
     }
-    if (trusted) return true;
+    if (trusted && senderId !== undefined) {
+      return senderId === this.displayWindowSenderId ? 'display' : 'main';
+    }
     // A sender with no readable id is not remembered, so each such drop warns.
     if (senderId === undefined || !this.warnedSenderIds.has(senderId)) {
       if (senderId !== undefined) this.warnedSenderIds.add(senderId);
@@ -343,7 +413,17 @@ export class IpcBridge {
         `[IpcBridge] Dropped '${channel}' from webContents ${who}: not the main window's top frame on a trusted document, or its frame is gone (reload). Further drops from it are silent.`,
       );
     }
-    return false;
+    return null;
+  }
+
+  /**
+   * Refuse a channel the detached Display window may not use. Logged without
+   * the payload; the window has no legitimate caller for these.
+   */
+  private refuseDisplayWindow(channel: string): void {
+    console.warn(
+      `[IpcBridge] Refused '${channel}' from the Display window: not in its IPC allowlist.`,
+    );
   }
 
   /**
@@ -357,7 +437,8 @@ export class IpcBridge {
    */
   private setupRpcHandler(): void {
     ipcMain.on('rpc', async (event: IpcMainEvent, message: unknown) => {
-      if (!this.isTrustedSender(event, 'rpc')) return;
+      const role = this.senderRole(event, 'rpc');
+      if (role === null) return;
       try {
         if (!message || typeof message !== 'object') {
           console.warn(
@@ -377,11 +458,34 @@ export class IpcBridge {
           '';
 
         if (!method) {
+          // Fire-and-forget messages answer permission prompts and drive the
+          // wizard; the Display window has no such caller.
+          if (role === 'display') {
+            this.refuseDisplayWindow('rpc (fire-and-forget)');
+            return;
+          }
           const messageType = msg['type'] as string | undefined;
           if (messageType) {
             this.handleFireAndForgetMessage(messageType, msg);
           }
           return;
+        }
+        if (role === 'display' && !DISPLAY_WINDOW_ALLOWED_METHODS.has(method)) {
+          this.refuseDisplayWindow(`rpc ${method}`);
+          if (correlationId && !event.sender.isDestroyed()) {
+            event.sender.send('to-renderer', {
+              type: MESSAGE_TYPES.RPC_RESPONSE,
+              correlationId,
+              success: false,
+              error: `Method '${method}' is not available in the Display window`,
+            });
+          }
+          return;
+        }
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcCall(method, params, correlationId),
+          );
         }
         const response = await this.rpcHandler.handleMessage({
           method,
@@ -403,6 +507,11 @@ export class IpcBridge {
           error: response.error,
           errorCode: response.errorCode,
         });
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcResult(correlationId, response),
+          );
+        }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -470,15 +579,40 @@ export class IpcBridge {
           console.warn('[IpcBridge] SDK permission response missing payload');
           return;
         }
+        const { decision } = response;
+        if (
+          decision !== 'allow' &&
+          decision !== 'always_allow' &&
+          decision !== 'deny_with_message' &&
+          decision !== 'deny'
+        ) {
+          console.warn('[IpcBridge] SDK permission response has invalid decision');
+          return;
+        }
         try {
+          // Codex host ports first (null when native Codex is not bound).
+          const codexPorts = this.container.isRegistered(
+            SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+            true,
+          )
+            ? this.container.resolve<
+                Pick<CodexChatHostPorts, 'handlePermissionResponse'> | null
+              >(
+                SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+              )
+            : null;
+          if (
+            codexPorts?.handlePermissionResponse({ ...response, decision }) === true
+          ) {
+            return;
+          }
           if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
             const handler = this.container.resolve<ISdkPermissionHandler>(
               SDK_PERMISSION_HANDLER,
             );
             handler.handleResponse(response.id, {
               id: response.id,
-              decision: response.decision as
-                'allow' | 'deny' | 'deny_with_message' | 'always_allow',
+              decision,
               reason: response.reason,
               modifiedInput: response.modifiedInput,
             });
@@ -490,7 +624,7 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process SDK permission response',
-            error instanceof Error ? error.message : String(error),
+            error instanceof Error ? error : new Error(String(error)),
           );
         }
         break;
@@ -602,7 +736,9 @@ export class IpcBridge {
     ipcMain.on('get-state', (event: IpcMainEvent) => {
       // A sync caller blocks until `returnValue` is set, so even a dropped
       // call must answer — with the empty state, never the stored one.
-      if (!this.isTrustedSender(event, 'get-state')) {
+      // The Display window may read: the shared preload calls this while it
+      // boots. It may not write (`set-state` below).
+      if (this.senderRole(event, 'get-state') === null) {
         event.returnValue = {};
         return;
       }
@@ -626,7 +762,14 @@ export class IpcBridge {
       }
     });
     ipcMain.on('set-state', async (event: IpcMainEvent, state: unknown) => {
-      if (!this.isTrustedSender(event, 'set-state')) return;
+      const role = this.senderRole(event, 'set-state');
+      if (role === null) return;
+      // One shared blob belongs to the main renderer; the Display window
+      // writing it would overwrite the main window's routes and layout.
+      if (role === 'display') {
+        this.refuseDisplayWindow('set-state');
+        return;
+      }
       const workspacePath = this.activeStateWorkspace();
       const pending = { state };
       this.pendingWebviewStates.set(workspacePath, pending);
@@ -673,8 +816,13 @@ export class IpcBridge {
       async (event, durationMs?: number): Promise<string> => {
         // `invoke` always settles: a dropped call rejects instead of
         // capturing, so the untrusted caller learns nothing but the refusal.
-        if (!this.isTrustedSender(event, 'diag:cpu-profile')) {
+        const role = this.senderRole(event, 'diag:cpu-profile');
+        if (role === null) {
           throw new Error('diag:cpu-profile refused: untrusted sender');
+        }
+        if (role === 'display') {
+          this.refuseDisplayWindow('diag:cpu-profile');
+          throw new Error('diag:cpu-profile refused: Display window');
         }
         const capture = this.container.resolve<{
           captureFor(durationMs?: number): Promise<string>;
@@ -690,6 +838,9 @@ export class IpcBridge {
    */
   dispose(): void {
     this.flushStreamQueue();
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.flush());
+    }
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');

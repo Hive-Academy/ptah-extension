@@ -233,7 +233,8 @@ export class SubagentRegistryService {
    * on it alone let a resume in session A delete session B's interrupted
    * record. Because removal here is permanent (it also marks the id injected,
    * which blocks re-registration from history), a missed supersede is the far
-   * cheaper error: the stale record is retired by the injection-attempt cap.
+   * cheaper error: the stale record is retired after its one-shot injection
+   * into the next chat:continue prompt.
    */
   private removeSupersededInterrupted(
     registration: SubagentRegistration,
@@ -439,9 +440,10 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Get all resumable subagents (status='interrupted', within TTL).
-   *
-   * Returns subagents that can be resumed via SDK's resume parameter.
+   * Get all resumable subagents (status='interrupted', within TTL) that the
+   * user has not dismissed. This is the webview-facing view; the prompt
+   * injector and the durable snapshot read {@link getInterruptedBySession},
+   * which also carries dismissed records.
    */
   getResumable(): SubagentRecord[] {
     this.store.lazyCleanup();
@@ -449,7 +451,11 @@ export class SubagentRegistryService {
     const resumable: SubagentRecord[] = [];
 
     for (const record of this.store.values()) {
-      if (record.status === 'interrupted' && !this.store.isExpired(record)) {
+      if (
+        record.status === 'interrupted' &&
+        !record.dismissed &&
+        !this.store.isExpired(record)
+      ) {
         resumable.push(record);
       }
     }
@@ -522,6 +528,122 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Every interrupted record of a session that is still owed to the model,
+   * dismissed or not (within TTL).
+   *
+   * Used by the chat:continue prompt injector and by every write of the
+   * durable resume snapshot. A snapshot written from
+   * {@link getResumableBySession} would drop dismissed records, and history
+   * replay would then bring them back undismissed after a restart.
+   *
+   * @param parentSessionId - Filter by parent session
+   */
+  getInterruptedBySession(parentSessionId: string): SubagentRecord[] {
+    if (blankToUndefined(parentSessionId) === undefined) return [];
+    this.store.lazyCleanup();
+    const interrupted: SubagentRecord[] = [];
+    for (const record of this.store.values()) {
+      if (
+        record.status === 'interrupted' &&
+        record.parentSessionId === parentSessionId &&
+        !this.store.isExpired(record)
+      ) {
+        interrupted.push(record);
+      }
+    }
+    return interrupted;
+  }
+
+  /**
+   * Hide interrupted records of a session from the webview (the resume
+   * banner's dismiss). The records stay in the registry so the next
+   * chat:continue still describes them to the model once.
+   *
+   * Only `interrupted` records whose parent is `parentSessionId` are touched;
+   * an id from another session, or one that is not interrupted, is ignored.
+   *
+   * @returns The dismissed records, for the caller to persist.
+   */
+  dismissResumable(
+    parentSessionId: string,
+    toolCallIds: readonly string[],
+  ): SubagentRecord[] {
+    if (blankToUndefined(parentSessionId) === undefined) return [];
+    const dismissed: SubagentRecord[] = [];
+    for (const toolCallId of new Set(toolCallIds)) {
+      const record = this.store.getRaw(toolCallId);
+      if (
+        !record ||
+        record.status !== 'interrupted' ||
+        record.parentSessionId !== parentSessionId
+      ) {
+        continue;
+      }
+      const next: SubagentRecord = { ...record, dismissed: true };
+      this.store.set(toolCallId, next);
+      dismissed.push(next);
+    }
+    this.logger.info(
+      '[SubagentRegistryService.dismissResumable] Dismissed interrupted subagents',
+      {
+        parentSessionId,
+        requested: toolCallIds.length,
+        dismissed: dismissed.length,
+      },
+    );
+    return dismissed;
+  }
+
+  /**
+   * Load a session's durable resume state into the registry: retired ids are
+   * remembered as injected (so neither the snapshot nor history replay brings
+   * them back), then the snapshot's interrupted records are restored.
+   * Additive and safe to repeat; marks the session hydrated.
+   *
+   * @returns Number of records restored from the snapshot.
+   */
+  hydrateResumeState(
+    parentSessionId: string,
+    state: {
+      readonly retiredToolCallIds?: readonly string[];
+      readonly resumableSdkSubagents?: readonly SubagentRecord[];
+    },
+  ): number {
+    if (blankToUndefined(parentSessionId) === undefined) return 0;
+    this.retire(state.retiredToolCallIds ?? []);
+    const restored = this.restoreResumableBySession(
+      parentSessionId,
+      state.resumableSdkSubagents ?? [],
+    );
+    this.store.markHydrated(parentSessionId);
+    return restored;
+  }
+
+  /**
+   * Whether {@link hydrateResumeState} ran for this session in this process.
+   * A registry that is not hydrated holds only part of the session's
+   * interrupted agents and must not replace the durable snapshot.
+   */
+  isResumeStateHydrated(parentSessionId: string): boolean {
+    return this.store.isHydrated(parentSessionId);
+  }
+
+  /**
+   * Retire interrupted records for good: remember them as injected (so
+   * history replay cannot re-register them in this process) and drop them
+   * from the registry. Callers that need the retirement to survive a restart
+   * also record it in the session's durable resume snapshot.
+   *
+   * @param toolCallIds - Records to retire; unknown ids are only remembered.
+   */
+  retire(toolCallIds: readonly string[]): void {
+    for (const toolCallId of toolCallIds) {
+      this.store.markInjected(toolCallId);
+      this.store.delete(toolCallId);
+    }
+  }
+
+  /**
    * Restore a durable snapshot of interrupted SDK subagents.
    *
    * Existing toolCallIds win so this is additive and history replay can safely
@@ -545,7 +667,8 @@ export class SubagentRegistryService {
         blankToUndefined(record.toolCallId) === undefined ||
         blankToUndefined(record.agentId) === undefined ||
         this.store.isExpired(record) ||
-        this.store.has(record.toolCallId)
+        this.store.has(record.toolCallId) ||
+        this.store.wasInjected(record.toolCallId)
       ) {
         continue;
       }
@@ -619,27 +742,6 @@ export class SubagentRegistryService {
    */
   endSessionTeardown(parentSessionId: string): void {
     this.store.endTeardown(parentSessionId);
-  }
-
-  /**
-   * Increment and return the number of times a record's interrupted-agent
-   * context has been injected into a chat:continue prompt.
-   *
-   * @param toolCallId - The subagent's toolCallId
-   * @returns The attempt count after incrementing
-   */
-  recordInjectionAttempt(toolCallId: string): number {
-    return this.store.recordInjectionAttempt(toolCallId);
-  }
-
-  /**
-   * Current injection-attempt count for a record.
-   *
-   * @param toolCallId - The subagent's toolCallId
-   * @returns Number of prior injection attempts
-   */
-  getInjectionAttempts(toolCallId: string): number {
-    return this.store.getInjectionAttempts(toolCallId);
   }
 
   /**

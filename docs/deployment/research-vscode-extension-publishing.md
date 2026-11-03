@@ -97,7 +97,7 @@ The extension ID is formed as `<publisher>.<name>`. Here are all the fields rele
   "icon": "assets/images/ptah-icon.png",     // PNG, min 128x128px, NOT SVG
   "repository": {
     "type": "git",
-    "url": "https://github.com/Hive-Academy/ptah-extension.git"
+    "url": "https://github.com/Hive-Academy/PtahCode.git"
   },
   "license": "SEE LICENSE IN LICENSE",       // Or SPDX identifier
   "homepage": "https://...",

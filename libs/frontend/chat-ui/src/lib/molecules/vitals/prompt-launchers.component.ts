@@ -94,7 +94,7 @@ export function buildLaunchers(
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 10px;
+        gap: var(--ptah-launcher-gap, 10px);
         padding: 0;
         border: 0;
         background: none;

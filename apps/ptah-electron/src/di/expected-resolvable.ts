@@ -1,3 +1,4 @@
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
@@ -9,8 +10,13 @@ import {
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+import { CHAT_TOKENS } from '@ptah-extension/rpc-handlers';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 
 export const EXPECTED_RESOLVABLE = [
   AnalyticsRpcHandlers,
@@ -23,11 +29,36 @@ export const EXPECTED_RESOLVABLE = [
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  // `git:watchRoots` (TASK_2026_855 D20); needs GIT_ROOT_WATCH_REGISTRY_TOKEN.
+  GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 ] as const;
 
+/** Lib-owned tokens composed by Electron in addition to handler classes. */
+export const EXPECTED_RESOLVABLE_TOKENS = [
+  ['HOST_ROUTING_COORDINATOR', CHAT_TOKENS.HOST_ROUTING_COORDINATOR],
+  ['HOST_ROUTING_SETTING', LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING],
+  ['LANE_TASK_KIND_CLASSIFIER', LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER],
+  ['OUTCOME_TASK_KIND_CLASSIFIER', LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER],
+  ['SDK_NEXT_TURN_REMINDER_QUEUE', SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE],
+  ['SESSION_HISTORY_ROUTER', SDK_TOKENS.SESSION_HISTORY_ROUTER],
+] as const;
+
+/**
+ * Electron-only port bound in `phase-4-handlers.ts` (TASK_2026_855 D20).
+ * Same symbol as `PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY`. Kept out of
+ * `EXPECTED_RESOLVABLE` because that list is handler classes and the smoke
+ * title reads `.name`.
+ */
+export const GIT_ROOT_WATCH_REGISTRY_TOKEN = Symbol.for(
+  'PlatformGitRootWatchRegistry',
+);
+
 /** Phase-2 singleton; kept separate from the handler-class census. */
-export const HOST_ATTENTION_COORDINATOR_TOKEN = Symbol.for('HostAttentionCoordinator');
+export const HOST_ATTENTION_COORDINATOR_TOKEN = Symbol.for(
+  'HostAttentionCoordinator',
+);
 
 /**
  * Optional port registered by `registerSharedRpcHandlers` (Batch 14).
@@ -69,3 +100,32 @@ export const DECISION_MODEL_CONFIG_TOKEN = Symbol.for(
 export const DECISION_MODEL_CATALOG_TOKEN = Symbol.for(
   'LaneRoutingDecisionModelCatalog',
 );
+
+/** SDK defaults before bootstrap installs the complete Electron binding. */
+export const EXPECTED_NULL_RUNTIME_TOKENS = [
+  SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+  SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+  SDK_TOKENS.RUNTIME_ADMISSION_PORT,
+  SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+  SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+  SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT,
+  SDK_TOKENS.LEGACY_SESSION_CONTROLS,
+  SDK_TOKENS.SESSION_RUNTIME_ROUTER,
+  SDK_TOKENS.CODEX_CHAT_ADAPTER,
+  SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+] as const;
+
+export const EXPECTED_RUNTIME_TOKENS = [
+  ...EXPECTED_NULL_RUNTIME_TOKENS,
+  SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+] as const;
+
+export const ELECTRON_CODEX_BOUND_TOKENS = [
+  SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+  SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+  SDK_TOKENS.RUNTIME_ADMISSION_PORT,
+  SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+  SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+  SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+  SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT,
+] as const;

@@ -28,9 +28,13 @@ import {
   TabManagerService,
   type BackgroundAgentId,
 } from '@ptah-extension/chat-state';
-import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  BackgroundAgentStore,
+} from '@ptah-extension/chat-streaming';
 import {
   SessionId,
+  type AgentStartEvent,
   type BackgroundAgentStartedEvent,
   type SdkSubagentEndedPayload,
 } from '@ptah-extension/shared';
@@ -41,6 +45,8 @@ import { TurnEndHandlerService } from './turn-end-handler.service';
 const SESS = SessionId.create();
 const TOOL_CALL_ID = 'toolu_placeholder_first';
 const REAL_AGENT_ID = 'adcecb2';
+/** What the SDK passes SubagentStop as `toolUseID` (Electron log). */
+const HOOK_INVOCATION_ID = 'c16f6ac0-2b21-47e7-bc21-a0d451b05f25';
 
 function makeTab(): TabState {
   return {
@@ -234,6 +240,58 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
     expect(entry?.status).toBe('stopped');
     expect(store.totalCount()).toBe(1);
     expect(store.revision()).toBe(before);
+  });
+
+  it('settles the monitor record and the tray entry when toolCallId is a hook UUID', () => {
+    const monitor = TestBed.inject(AgentMonitorStore);
+    monitor.onAgentStart({
+      eventType: 'agent_start',
+      id: 'start-1',
+      timestamp: 1_700_000_000_000,
+      sessionId: SESS,
+      messageId: 'msg-1',
+      toolCallId: TOOL_CALL_ID,
+      agentType: 'software-architect',
+      agentId: REAL_AGENT_ID,
+    } as AgentStartEvent);
+    store.onStarted(startedWithoutAgentId());
+    expect(monitor.getSubagent(TOOL_CALL_ID)?.status).toBe('running');
+
+    service.handleSubagentEnded(
+      makeSubagentEndedPayload({ toolCallId: HOOK_INVOCATION_ID }),
+    );
+
+    expect(monitor.getSubagent(TOOL_CALL_ID)?.status).toBe('completed');
+    const entry = store.findByAgentId(REAL_AGENT_ID as BackgroundAgentId);
+    expect(entry?.status).toBe('completed');
+    expect(entry?.toolCallId).toBe(TOOL_CALL_ID);
+    expect(store.runningCount()).toBe(0);
+  });
+
+  it('ends a failed foreground agent as failed when the stop hook beats its tool_result', () => {
+    const monitor = TestBed.inject(AgentMonitorStore);
+    monitor.onAgentStart({
+      eventType: 'agent_start',
+      id: 'start-fg',
+      timestamp: 1_700_000_000_000,
+      sessionId: SESS,
+      messageId: 'msg-1',
+      toolCallId: 'toolu_foreground',
+      agentType: 'Explore',
+      agentId: 'fg-agent',
+    } as AgentStartEvent);
+
+    service.handleSubagentEnded(
+      makeSubagentEndedPayload({
+        agentId: 'fg-agent',
+        toolCallId: HOOK_INVOCATION_ID,
+      }),
+    );
+    expect(monitor.getSubagent('toolu_foreground')?.status).toBe('completed');
+    // The Task tool_result follows with is_error.
+    monitor.onTaskToolResult('toolu_foreground', true, 1_700_000_002_000);
+
+    expect(monitor.getSubagent('toolu_foreground')?.status).toBe('failed');
   });
 
   it('does not adopt an entry belonging to a different Task tool call', () => {

@@ -17,7 +17,7 @@
  *     bubbling the exception to the RPC boundary.
  *
  *   - `auth:getAuthStatus`: Legacy `authMethod` values like 'vscode-lm' /
- *     'auto' are normalised to 'apiKey'; 'openrouter' is normalised to
+ *     'auto' are normalised to 'claudeCli'; 'openrouter' is normalised to
  *     'thirdParty'.
  *
  *   - `auth:saveSettings`: Empty-string credentials delete, non-empty
@@ -105,6 +105,7 @@ import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 interface MockScopeResolver {
   read: jest.Mock<unknown, [string, boolean?]>;
+  isStored: jest.Mock<boolean, [string, boolean?]>;
   hasOverride: jest.Mock<boolean, [string, boolean?]>;
   write: jest.Mock<
     Promise<void>,
@@ -144,6 +145,11 @@ function createMockScopeResolver(opts: {
     if (activePath && workspaceStore.has(key)) return workspaceStore.get(key);
     return globalStore.get(key);
   });
+
+  // Stored at some tier exactly when `read` resolves a value for the key.
+  const isStored = jest.fn(
+    (key: string, appScopable = false) => read(key, appScopable) !== undefined,
+  );
 
   const hasOverride = jest.fn((key: string, appScopable = false) => {
     if (appScopable && appStore.has(key)) return true;
@@ -201,6 +207,7 @@ function createMockScopeResolver(opts: {
 
   return {
     read,
+    isStored,
     hasOverride,
     write,
     clearOverride,
@@ -659,7 +666,7 @@ describe('AuthRpcHandlers', () => {
       expect(result.availableProviders[0]).toHaveProperty('id');
     });
 
-    it('normalises legacy authMethod "vscode-lm" to "apiKey"', async () => {
+    it('normalises legacy authMethod "vscode-lm" to "claudeCli"', async () => {
       const h = makeHarness({ configSeed: { authMethod: 'vscode-lm' } });
       h.handlers.register();
 
@@ -667,7 +674,7 @@ describe('AuthRpcHandlers', () => {
         h,
         'auth:getAuthStatus',
       );
-      expect(result.authMethod).toBe('apiKey');
+      expect(result.authMethod).toBe('claudeCli');
     });
 
     it('normalises "openrouter" to "thirdParty"', async () => {

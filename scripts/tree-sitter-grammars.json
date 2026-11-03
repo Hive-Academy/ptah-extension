@@ -2,9 +2,7 @@
   "schemaVersion": 1,
   "consumers": [
     "scripts/copy-wasm.js",
-    "apps/ptah-electron/scripts/verify-packed-wasm.js",
-    "apps/ptah-cli/scripts/verify-packed-wasm.cjs",
-    ".github/workflows/publish-cli.yml"
+    "apps/ptah-electron/scripts/verify-packed-wasm.js"
   ],
   "assets": [
     {

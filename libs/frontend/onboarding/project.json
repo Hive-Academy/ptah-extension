@@ -1,0 +1,21 @@
+{
+  "name": "@ptah-extension/onboarding",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/onboarding/src",
+  "prefix": "ptah",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:feature"],
+  "targets": {
+    "test": {
+      "options": {
+        "passWithNoTests": true
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/onboarding/tsconfig.lib.json"
+      }
+    }
+  }
+}

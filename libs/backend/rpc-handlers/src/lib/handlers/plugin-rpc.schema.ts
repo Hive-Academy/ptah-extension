@@ -13,7 +13,15 @@
  */
 
 import { z } from 'zod';
-import { SAFE_SOURCE_PATTERN } from '@ptah-extension/shared';
+import { SAFE_SOURCE_PATTERN, SessionId } from '@ptah-extension/shared';
+
+/** Optional session hint for the read-only plugin configuration request. */
+export const GetConfigParamsSchema = z.object({
+  sessionId: z
+    .string()
+    .refine((id) => SessionId.validate(id))
+    .optional(),
+});
 
 /** Single `[a-zA-Z0-9_.-]` token — a plugin name or path segment. */
 const SAFE_TOKEN_PATTERN = /^[a-zA-Z0-9_.-]+$/;
@@ -62,6 +70,12 @@ export const ExternalInstallParamsSchema = z.object({
     .optional(),
   /** Keep/replace per plan `approvalId`; a missing entry means keep. */
   localItemDecisions: LocalItemDecisionsSchema.optional(),
+  /**
+   * Where the plugin's declared MCP servers are recorded. Read only on the
+   * consented call; the plan call ignores it. Workspace unless the user
+   * explicitly chose "All workspaces".
+   */
+  mcpScope: z.enum(['workspace', 'global']).default('workspace'),
 });
 
 /** `plugins:replace-kept-items`. */

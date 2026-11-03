@@ -3,7 +3,7 @@
  * (TASK_2026_592 Batch 4).
  *
  * Closing an idle tab now sends `chat:abort` for a session that may have no
- * live SDK record. `abortSession` persists `getResumableBySession(sessionId)`
+ * live SDK record. `abortSession` persists `getInterruptedBySession(sessionId)`
  * through `SessionMetadataStore.saveResumeState`, which REPLACES the stored
  * list. These specs pin, with the REAL `SubagentRegistryService` and the REAL
  * `SessionMetadataStore` (over a mock state storage), what each abort writes:
@@ -328,15 +328,74 @@ describe('ChatSessionService.abortSession — durable resumable-subagent list', 
   it('a live abort still clears a stale durable list when nothing is resumable any more', async () => {
     const h = makeHarness();
     await h.store.create(SESSION as string, WORKSPACE, 'parent');
+    const stale = interruptedRecord();
     await h.store.saveResumeState(SESSION as string, {
-      resumableSdkSubagents: [interruptedRecord()],
+      resumableSdkSubagents: [stale],
     });
-    // The session was resumed and its interrupted agent finished this run.
+    // The session was resumed (chat:resume hydrated the registry) and its
+    // interrupted agent finished this run.
+    h.registry.hydrateResumeState(SESSION as string, {
+      resumableSdkSubagents: [stale],
+    });
+    h.registry.remove(stale.toolCallId);
     h.live.add(SESSION as string);
 
     await h.service.abortSession({ sessionId: SESSION });
 
     expect(h.interruptSession).toHaveBeenCalledWith(SESSION);
     expect(await durableList(h.store)).toEqual([]);
+  });
+
+  it('a live abort on a cold registry keeps the durable list it never restored', async () => {
+    const h = makeHarness();
+    const durable = interruptedRecord();
+    await h.store.create(SESSION as string, WORKSPACE, 'parent');
+    await h.store.saveResumeState(SESSION as string, {
+      resumableSdkSubagents: [durable],
+    });
+    // After a restart a new turn ran (live record) without chat:resume.
+    h.live.add(SESSION as string);
+
+    const result = await h.service.abortSession({ sessionId: SESSION });
+
+    expect(result.resumableSubagents?.map((r) => r.toolCallId)).toEqual([
+      durable.toolCallId,
+    ]);
+    expect(await durableList(h.store)).toEqual([durable]);
+  });
+
+  it('a dismissed record is hidden from the abort reply but stays durable, and stays hidden after a restart', async () => {
+    const h = makeHarness();
+    const durable = interruptedRecord();
+    await h.store.create(SESSION as string, WORKSPACE, 'parent');
+    await h.store.saveResumeState(SESSION as string, {
+      resumableSdkSubagents: [durable],
+    });
+    h.registry.restoreResumableBySession(SESSION as string, [durable]);
+
+    const dismissed = h.registry.dismissResumable(SESSION as string, [
+      durable.toolCallId,
+    ]);
+    await h.store.dismissResumableSubagents(SESSION as string, dismissed);
+    h.live.add(SESSION as string);
+
+    const result = await h.service.abortSession({ sessionId: SESSION });
+
+    expect(result).toEqual({ success: true });
+    expect(await durableList(h.store)).toEqual([
+      { ...durable, dismissed: true },
+    ]);
+
+    const restarted = new SubagentRegistryService(
+      createMockLogger() as unknown as Logger,
+    );
+    restarted.restoreResumableBySession(
+      SESSION as string,
+      (await durableList(h.store)) ?? [],
+    );
+    expect(restarted.getResumableBySession(SESSION as string)).toEqual([]);
+    expect(restarted.getInterruptedBySession(SESSION as string)).toHaveLength(
+      1,
+    );
   });
 });

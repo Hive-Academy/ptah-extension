@@ -47,7 +47,9 @@ const DEFAULT_ROLE: Readonly<Record<PhaseKind, string>> = {
   design: 'ui-ux-designer',
 };
 
-const BUILTIN_ROLES = new Set<string>(Object.values(DEFAULT_ROLE));
+export const BUILTIN_SUBAGENT_ROLES: ReadonlySet<string> = new Set(
+  Object.values(DEFAULT_ROLE),
+);
 
 export type GateArgs = Extract<RouteDecideArgs, { stage: 'gate-0.1' }>;
 
@@ -236,7 +238,7 @@ function candidatesFor(
 ): RoutingCandidate[] {
   const role = phase.role ?? DEFAULT_ROLE[phase.kind];
   const candidates: RoutingCandidate[] = [...gathered.lanes];
-  if (BUILTIN_ROLES.has(role) || gathered.roles.includes(role)) {
+  if (BUILTIN_SUBAGENT_ROLES.has(role) || gathered.roles.includes(role)) {
     candidates.push(toSubagentCandidate(role));
   }
   return candidates;

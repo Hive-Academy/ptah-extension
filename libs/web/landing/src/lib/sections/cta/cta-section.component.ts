@@ -10,8 +10,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 /**
  * CTASectionComponent — S10 Final CTA (design spec §4 S10, copy deck S10).
  *
- * Repeats the single primary action (Download) with trial framing, and absorbs
- * the "Open Source (MIT)" fact from the retired open-source section into
+ * Repeats the primary Download action and carries the open-source facts in
  * its trust row. Bookends the page on the same ConsoleGridBackground + amber
  * glow treatment as the hero.
  */
@@ -27,7 +26,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
   template: `
     <section
       id="cta"
-      aria-label="Download Ptah"
+      aria-label="Download PtahCode"
       class="relative bg-ink-950 py-24 sm:py-32 overflow-hidden"
     >
       <ptah-console-grid-background [glow]="true" />
@@ -40,7 +39,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           [viewportConfig]="headlineConfig"
           class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-6"
         >
-          Download Ptah.
+          Download PtahCode.
         </h2>
 
         <p
@@ -55,27 +54,14 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           <a
             routerLink="/download"
             class="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-amber-500 text-ink-950 font-semibold text-sm sm:text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-            aria-label="Download the Ptah desktop app"
+            aria-label="Download PtahCode desktop app"
           >
             <lucide-angular
               [img]="downloadIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Download Ptah
-          </a>
-        </div>
-
-        <div
-          viewportAnimation
-          [viewportConfig]="tertiaryCtaConfig"
-          class="mt-6"
-        >
-          <a
-            routerLink="/pricing"
-            class="text-amber-500 hover:text-amber-400 text-sm font-medium underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
-          >
-            or view pricing →
+            Download PtahCode
           </a>
         </div>
 
@@ -129,13 +115,6 @@ export class CTASectionComponent {
     delay: 0.2,
     threshold: 0.2,
     ease: 'power2.out',
-  };
-
-  protected readonly tertiaryCtaConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.3,
-    threshold: 0.2,
   };
 
   public getTrustSignalConfig(index: number): ViewportAnimationConfig {

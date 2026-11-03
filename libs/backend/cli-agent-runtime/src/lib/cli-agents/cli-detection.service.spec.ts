@@ -4,21 +4,26 @@ import type {
   CliDetectionResult,
   CliType,
 } from '@ptah-extension/shared';
-import type {
-  IAuthSecretsService,
-  Logger,
-  SentryService,
-} from '@ptah-extension/vscode-core';
+import { AuthSecretsService, Logger, SentryService } from '@ptah-extension/vscode-core';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import type {
+  AgentMessagingCapabilities,
+  CliAdapter,
+  CliCommandOptions,
+  CliModelInfo,
+  CodexAdapterFactory,
+  SdkHandle,
+} from './cli-adapters/cli-adapter.interface';
 
-interface MockAdapter {
+interface MockAdapter extends CliAdapter {
   name: CliType;
   displayName: string;
   roleChannel: AgentRoleChannel;
   detect: jest.Mock<Promise<CliDetectionResult>, []>;
-  capabilities: jest.Mock;
-  parseOutput: jest.Mock;
-  runSdk: jest.Mock;
+  capabilities: jest.Mock<AgentMessagingCapabilities, []>;
+  parseOutput: jest.Mock<string, [string]>;
+  runSdk: jest.Mock<Promise<SdkHandle>, [CliCommandOptions]>;
+  listModels: jest.Mock<Promise<CliModelInfo[]>, []>;
 }
 
 const mockAdapters = new Map<CliType, MockAdapter>();
@@ -31,9 +36,6 @@ function mockAdapterFor(name: CliType): MockAdapter {
   return adapter;
 }
 
-jest.mock('./cli-adapters/codex-cli.adapter', () => ({
-  CodexCliAdapter: jest.fn(() => mockAdapterFor('codex')),
-}));
 jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({
   CopilotSdkAdapter: jest.fn(() => mockAdapterFor('copilot')),
 }));
@@ -91,33 +93,49 @@ function createAdapter(
       messagingMode: 'queue',
     }),
     capabilities: jest
-      .fn()
+      .fn<AgentMessagingCapabilities, []>()
       .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
-    parseOutput: jest.fn((raw: string) => raw),
-    runSdk: jest.fn(),
+    parseOutput: jest.fn<string, [string]>((raw) => raw),
+    runSdk: jest.fn<Promise<SdkHandle>, [CliCommandOptions]>()
+      .mockResolvedValue({
+        abort: new AbortController(), done: Promise.resolve(0),
+        onOutput: () => undefined,
+      }),
+    listModels: jest.fn<Promise<CliModelInfo[]>, []>().mockResolvedValue([]),
   };
 }
 
-function createService(): {
+function createService(codexAdapterFactory: CodexAdapterFactory | null = {
+  create: () => mockAdapterFor('codex'),
+}): {
   service: CliDetectionService;
+  logger: Logger;
   sentry: { captureException: jest.Mock };
   authSecrets: { getProviderKey: jest.Mock };
 } {
-  const logger = {
-    info: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  } as unknown as Logger;
+  const logger = Object.create(Logger.prototype) as Logger;
+  for (const method of ['info', 'debug', 'warn', 'error'] as const) {
+    Object.defineProperty(logger, method, { value: jest.fn() });
+  }
+  const sentryService = Object.create(SentryService.prototype) as SentryService;
   const sentry = { captureException: jest.fn() };
+  Object.defineProperty(sentryService, 'captureException', {
+    value: sentry.captureException,
+  });
   const authSecrets = { getProviderKey: jest.fn(async () => undefined) };
+  const authSecretsService = Object.create(AuthSecretsService.prototype) as AuthSecretsService;
+  Object.defineProperty(authSecretsService, 'getProviderKey', {
+    value: authSecrets.getProviderKey,
+  });
   const service = new CliDetectionService(
     logger,
-    sentry as unknown as SentryService,
+    sentryService,
     {} as IProcessSpawner,
-    authSecrets as unknown as IAuthSecretsService,
+    authSecretsService,
+    null,
+    codexAdapterFactory,
   );
-  return { service, sentry, authSecrets };
+  return { service, logger, sentry, authSecrets };
 }
 
 describe('CliDetectionService role stamp', () => {
@@ -128,6 +146,38 @@ describe('CliDetectionService role stamp', () => {
     for (const [name, channel] of CHANNELS) {
       mockAdapters.set(name, createAdapter(name, channel));
     }
+  });
+
+  it('reports an unavailable Codex slot when no native factory is registered', async () => {
+    const { service, logger } = createService(null);
+    expect(await service.getDetection('codex')).toMatchObject({ installed: false });
+    await expect(service.getAdapter('codex')?.runSdk({
+      task: 'work', workingDirectory: '/work',
+    })).rejects.toThrow('Native Codex lane adapter factory is not registered');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[CliDetection] Native Codex adapter unavailable',
+      expect.any(Error),
+    );
+  });
+
+  it('keeps peer adapters usable and reports a native factory failure without legacy fallback', async () => {
+    const failure = new Error('native composition failed');
+    const { service, logger, sentry } = createService({
+      create: () => { throw failure; },
+    });
+
+    expect(service.getAdapter('copilot')).toBe(mockAdapterFor('copilot'));
+    expect(await service.getDetection('codex')).toMatchObject({ installed: false });
+    expect(await service.listModelsForAll()).not.toHaveProperty('codex');
+    await expect(service.getAdapter('codex')?.runSdk({
+      task: 'work', workingDirectory: '/work',
+    })).rejects.toThrow('Native Codex adapter unavailable: native composition failed');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CliDetection] Native Codex adapter factory failed', failure,
+    );
+    expect(sentry.captureException).toHaveBeenCalledWith(failure, {
+      errorSource: 'CliDetectionService.codexAdapterFactory',
+    });
   });
 
   it('constructs the Cursor adapter with a resolver over getProviderKey("cursor")', async () => {

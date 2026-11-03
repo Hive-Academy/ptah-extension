@@ -140,6 +140,12 @@ describe('OutputStyleConfigComponent', () => {
     TestBed.resetTestingModule();
   });
 
+  it('marks the Output Style section as a glass reading plane', () => {
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
+  });
+
   describe('parity outcome in the toast (Serious 2)', () => {
     it('a selection saved with a failed parity write shows the failure, not "Saved"', async () => {
       activate.mockImplementation(async () => {

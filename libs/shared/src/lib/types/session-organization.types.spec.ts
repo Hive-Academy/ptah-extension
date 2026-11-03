@@ -33,7 +33,14 @@ describe('session organization tuples', () => {
     [
       'SESSION_TASK_LINK_SOURCES',
       SESSION_TASK_LINK_SOURCES,
-      ['board-start', 'agent', 'user'],
+      [
+        'board-start',
+        'agent',
+        'user',
+        'orchestrate',
+        'worktree',
+        'inherited',
+      ],
     ],
     ['SESSION_PR_LINK_SOURCES', SESSION_PR_LINK_SOURCES, ['agent', 'user']],
     [

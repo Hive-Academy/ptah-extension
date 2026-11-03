@@ -38,6 +38,8 @@ export interface JsonlMessageLine {
   isSynthetic?: boolean;
   /** True on a subagent record (unvalidated). */
   isSidechain?: unknown;
+  /** True on the SDK's post-compaction summary user record (unvalidated). */
+  isCompactSummary?: unknown;
   /** Author of a user record, e.g. `{ kind: 'human' }` (unvalidated). */
   origin?: unknown;
   /** `'human'` or `'sdk'` on a user record (unvalidated). */
@@ -82,6 +84,7 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   readonly isSynthetic?: boolean;
   /** True on a subagent record written into the main transcript. */
   readonly isSidechain?: boolean;
+  readonly isCompactSummary?: boolean;
   /**
    * Author of a user record as the CLI wrote it. A prompt typed at the tab
    * carries `{ kind: 'human' }`; a turn injected through the input stream

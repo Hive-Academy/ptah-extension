@@ -47,3 +47,12 @@ export const GIT_DIFF_MAX_SIDE_BYTES = 2 * 1024 * 1024;
 export function gitRpcTimeoutFor(backendMs: number): number {
   return backendMs + GIT_RPC_TIMEOUT_MARGIN_MS;
 }
+
+/**
+ * Message of the `GIT_ROOT_UNAVAILABLE` RPC error: a `git:*` call named a
+ * root that is no longer a workspace folder or a live worktree of one
+ * (TASK_2026_855). The webview matches it because `rpcCall` forwards only
+ * the message, not the code.
+ */
+export const GIT_ROOT_UNAVAILABLE_MESSAGE =
+  'This worktree is no longer available.';

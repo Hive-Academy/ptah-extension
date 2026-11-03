@@ -6,12 +6,8 @@ import { CTASectionComponent } from './sections/cta/cta-section.component';
 import { FooterComponent } from '@ptah-web/ui';
 import { HeroComponent } from './sections/hero/hero.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
-import { VideoShowcaseComponent } from './sections/video-showcase/video-showcase.component';
 import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
-import { BuildersSectionComponent } from './sections/builders/builders-section.component';
-import { WaitlistFormComponent } from './sections/builders/waitlist-form.component';
-import { AlsoAvailableComponent } from './sections/also-available/also-available.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -20,13 +16,9 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
     NavigationComponent,
     HeroComponent,
     ProblemSectionComponent,
-    VideoShowcaseComponent,
     PillarsSpineComponent,
     ProviderStripComponent,
     ComparisonSectionComponent,
-    BuildersSectionComponent,
-    WaitlistFormComponent,
-    AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
   ],
@@ -35,43 +27,19 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
       <ptah-navigation />
 
       <main>
-        <!-- S1 Promise -->
         <ptah-hero />
-
-        <!-- S2 Problem -->
         <ptah-problem-section />
 
-        <!-- S3 Demo -->
-        <ptah-video-showcase />
-
         <!--
-          S4–S7 render eagerly (not @defer) so their SEO/GEO-bearing copy and
-          citable claims ship in the prerendered static HTML. They are lightweight
-          coded DOM (no images), and their entrance animations are SSG-safe
-          (final DOM state fully opaque; the from-state is applied post-hydration).
+          Render eagerly so SEO copy ships in the prerendered static HTML.
+          Entrance animations apply their from-state only after hydration.
         -->
         <ptah-pillars-spine />
-
         <ptah-provider-strip />
-
-        <!-- S8 Comparison -->
         <ptah-comparison-section />
-
-        <!-- S8.5 Ptah Builders -->
-        <ptah-builders-section />
-
-        <!-- Early Adopter apply form — scroll target for #waitlist (this page
-             and /#waitlist from any other page, incl. the pricing CTA) -->
-        <ptah-waitlist-form source="early-adopter" />
-
-        <!-- S9 Also Available (single VS Code / CLI mention) -->
-        <ptah-also-available />
-
-        <!-- S10 Final CTA -->
         <ptah-cta-section />
       </main>
 
-      <!-- S11 Footer -->
       <ptah-footer />
     </div>
   `,
@@ -88,13 +56,13 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
 export class LandingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
+      title: 'PtahCode — Your AI dev team. Free and open source.',
       description:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
+        'PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine. Bring any model — open-weight or frontier — and keep your code and keys with you.',
       url: 'https://ptah.live',
-      ogTitle: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
+      ogTitle: 'PtahCode — Your AI dev team. Free and open source.',
       ogDescription:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
+        'PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine. Bring any model — open-weight or frontier — and keep your code and keys with you.',
     });
   }
 }

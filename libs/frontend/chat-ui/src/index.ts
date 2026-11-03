@@ -29,6 +29,7 @@ export {
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
 export { ThemeToggleComponent } from './lib/atoms/theme-toggle.component';
+export { MotionStylePickerComponent } from './lib/atoms/motion-style-picker.component';
 export { TokenBadgeComponent } from './lib/atoms/token-badge.component';
 export { ToolIconComponent } from './lib/atoms/tool-icon.component';
 export { TypingCursorComponent } from './lib/atoms/typing-cursor.component';
@@ -65,6 +66,7 @@ export {
   COMPOSER_TEXTAREA_CLASS,
   COMPOSER_TOOLBAR_CLASS,
 } from './lib/molecules/composer-card';
+export { ComposerCompactBarComponent } from './lib/molecules/composer-compact-bar.component';
 export {
   AgentLaneStatsComponent,
   type AgentLaneStatsView,
@@ -79,11 +81,15 @@ export {
   sameGitState,
   todoTitle,
   gitTitle,
+  linkedTaskTitle,
+  todoStateFromProgress,
+  type CompactLinkedTask,
   type CompactTodoState,
   type CompactGitState,
 } from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export { CompactRailCardComponent } from './lib/molecules/compact-session/compact-rail-card.component';
+export { compactRailStateLabel } from './lib/molecules/compact-session/compact-rail-state-label.util';
 export { COMPACT_RAIL_CARD_HEIGHT } from './lib/molecules/compact-session/compact-lane.types';
 export type {
   CompactCallout,
@@ -113,7 +119,6 @@ export { CompactionMarkerComponent } from './lib/molecules/notifications/compact
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';
-export { SessionCostSummaryComponent } from './lib/molecules/session/session-cost-summary.component';
 export {
   SessionStatsSummaryComponent,
   type LiveModelStats,
@@ -127,13 +132,25 @@ export type {
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {
+  InstallScopeFieldComponent,
+  INSTALL_SCOPE_NO_FOLDER_HELP,
+  defaultInstallScope,
+  effectiveInstallScope,
+  installScopeButtonLabel,
+  type InstallScopeChoice,
+  type InstallScopeItemKind,
+} from './lib/molecules/setup-plugins/install-scope-field.component';
+export {
   groupInstalledServers,
   mcpTargetLabel,
   type InstalledServerGroup,
 } from './lib/molecules/setup-plugins/installed-mcp-groups';
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
-export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
+export {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export {
   LAUNCHER_IDS,
   PROMPT_CATALOGUE,

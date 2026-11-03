@@ -121,6 +121,7 @@ import { CliDetectionService } from './cli-detection.service';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import { PTAH_API_RATE_LIMIT_SEGMENT } from './limits/lane-rate-limit-classifier';
 import type {
   CliAdapter,
   SdkHandle,
@@ -511,6 +512,42 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   });
 
   describe('spawn() with SDK adapter', () => {
+    it('starts SDK and handle records at turn one', async () => {
+      const sdk = await manager.spawn({ task: 'A', cli: 'codex', workingDirectory: '/workspace/root' });
+      expect((manager.getStatus(sdk.agentId) as AgentProcessInfo).turnSeq).toBe(1);
+      const handle = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
+        task: 'B', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
+      });
+      expect((manager.getStatus(handle.agentId) as AgentProcessInfo).turnSeq).toBe(1);
+    });
+
+    it('inherits owner and predecessor on resume while honoring an explicit owner', async () => {
+      const first = await manager.spawn({ task: 'A', cli: 'codex', workingDirectory: '/workspace/root',
+        parentSessionId: 'owner-one', resumeSessionId: 'thread' });
+      const inherited = await manager.spawn({ task: 'B', cli: 'codex', workingDirectory: '/workspace/root',
+        resumeSessionId: 'thread' });
+      expect(manager.getStatus(inherited.agentId)).toMatchObject({
+        parentSessionId: 'owner-one', resumedFromAgentId: first.agentId,
+      });
+      const explicit = await manager.spawn({ task: 'C', cli: 'codex', workingDirectory: '/workspace/root',
+        parentSessionId: 'owner-two', resumeSessionId: 'thread' });
+      expect((manager.getStatus(explicit.agentId) as AgentProcessInfo).parentSessionId).toBe('owner-two');
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('resume owner'), expect.anything());
+    });
+
+    it('inherits owner and predecessor from a prior SDK-handle record', async () => {
+      const first = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
+        task: 'A', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
+        parentSessionId: 'owner', resumeSessionId: 'thread',
+      });
+      const resumed = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
+        task: 'B', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
+        resumeSessionId: 'thread',
+      });
+      expect(manager.getStatus(resumed.agentId)).toMatchObject({
+        parentSessionId: 'owner', resumedFromAgentId: first.agentId,
+      });
+    });
     it('should call runSdk() instead of child_process.spawn for SDK adapters', async () => {
       // Auto-resolve the SDK handle after a tick
       setTimeout(() => sdkControls.resolve(0), 10);
@@ -1157,6 +1194,22 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       manager.restoreAgents([ref], '/workspace/root');
     }
 
+    it('does not inherit an owner from a restored lane when resume omits the owner', async () => {
+      restorePreviousLane();
+      // Simulate a legacy restored record that retained its old owner.
+      const previous = manager['agents'].get('agent-previous');
+      if (!previous) throw new Error('Expected restored lane');
+      previous.info.parentSessionId = 'stale-owner';
+
+      const resumed = await manager.spawn({
+        task: 'Fix the lexer tests', cli: 'codex',
+        workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+      });
+      const info = manager.getStatus(resumed.agentId) as AgentProcessInfo;
+      expect(info.parentSessionId).toBeUndefined();
+      expect(info.resumedFromAgentId).toBe(previous.info.agentId);
+    });
+
     it('passes the previous lane figures to the gate and resumes on `resume`', async () => {
       restorePreviousLane();
 
@@ -1199,8 +1252,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       restorePreviousLane();
       resumeGate.evaluate.mockResolvedValueOnce({
         decision: 'fresh',
-        reason: 'last request 61000 tokens exceeds 60000',
-        contextTokens: 61_000,
+        reason: 'last request 151000 tokens exceeds 150000',
+        contextTokens: 151_000,
         source: 'rollout',
         idleMs: 1_000,
       });
@@ -1215,7 +1268,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
       expect(runSdkCall.resumeSessionId).toBeUndefined();
       const task: string = runSdkCall.task;
-      expect(task).toContain('last request 61000 tokens exceeds 60000');
+      expect(task).toContain('last request 151000 tokens exceeds 150000');
       expect(task).toContain('Original task:\nImplement the parser');
       expect(task).toContain('- src/parser.ts\n- src/lexer.ts');
       expect(task.match(/src\/parser\.ts/g)).toHaveLength(1);
@@ -1231,7 +1284,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       // S2: the caller is told the lane was not resumed, and why.
       expect(result.resumeDecision).toEqual({
         decision: 'fresh',
-        reason: 'last request 61000 tokens exceeds 60000',
+        reason: 'last request 151000 tokens exceeds 150000',
         sessionKnown: true,
       });
       // M1: the fresh record keeps the chain's first task.
@@ -1432,9 +1485,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
     });
 
-    it('records the last streamed input figure as an estimate and hands it to the gate', async () => {
+    it('records a declared terminal turn total and hands its input estimate to the gate', async () => {
       const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
       Object.assign(sdkControls.handle, {
+        outcomeUsageIsTurnTotal: true,
         onSegment: (cb: (segment: CliOutputSegment) => void) => {
           segmentCallbacks.push(cb);
         },
@@ -1448,9 +1502,12 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const emit = (segment: CliOutputSegment): void => {
         for (const cb of segmentCallbacks) cb(segment);
       };
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 12_000 } });
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 0 } });
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 18_500 } });
+      emit({ type: 'info', content: 'Turn started' });
+      emit({
+        type: 'info',
+        content: 'Usage',
+        usage: { inputTokens: 18_500, outputTokens: 321, cacheReadTokens: 900 },
+      });
 
       const info = manager.getStatus(first.agentId) as AgentProcessInfo;
       expect(info.lastRequestContext).toEqual({
@@ -1460,6 +1517,12 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       sdkControls.resolve(0);
       await Promise.resolve();
+      expect(laneCompletion.signal).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: first.agentId }),
+        expect.objectContaining({
+          usage: { inputTokens: 18_500, outputTokens: 321, cacheReadTokens: 900 },
+        }),
+      );
       await manager.spawn({
         task: 'Next step',
         cli: 'codex',
@@ -1471,6 +1534,37 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         expect.objectContaining({
           lastRequestContext: { tokens: 18_500, source: 'estimate' },
         }),
+      );
+    });
+
+    it('leaves outcome usage absent for multiple step usage segments without a turn-total declaration', async () => {
+      const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(sdkControls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          segmentCallbacks.push(cb);
+        },
+      });
+      const spawned = await manager.spawn({
+        task: 'Implement two steps',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      for (const usage of [
+        { inputTokens: 100, outputTokens: 20 },
+        { inputTokens: 200, outputTokens: 40 },
+      ]) {
+        for (const callback of segmentCallbacks) {
+          callback({ type: 'info', content: 'Step usage', usage });
+        }
+      }
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      expect(laneCompletion.signal).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: spawned.agentId }),
+        expect.any(Object),
+      );
+      expect(laneCompletion.signal.mock.calls[0]?.[1]).not.toHaveProperty(
+        'usage',
       );
     });
   });
@@ -1825,6 +1919,72 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   // TASK_2026_515: the orchestrator hears from a lane on EVERY ending. A path
   // that forgets this call puts the session back to polling with no notice.
   describe('lane completion signal', () => {
+    it('flushes the final output before signalling a normal completion', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      sdkControls.emitOutput('final delta');
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(order).toEqual(['output', 'completion']);
+      expect(manager.readOutput(result.agentId).stdout).toContain('final delta');
+    });
+
+    it('flushes buffered output before signalling a stop', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      sdkControls.emitOutput('last words');
+      const stopped = manager.stop(result.agentId);
+      jest.advanceTimersByTime(600);
+      await stopped;
+
+      expect(order).toEqual(['output', 'completion']);
+    });
+
+    it('flushes buffered output before signalling a timeout or emitting exit', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 5000,
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      manager.events.on('agent:exited', () => order.push('exit'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      jest.advanceTimersByTime(4999);
+      sdkControls.emitOutput('last words');
+      jest.advanceTimersByTime(1);
+
+      expect(order).toEqual(['output', 'completion', 'exit']);
+      expect(manager.getStatus(result.agentId)).toHaveProperty('status', 'timeout');
+    });
+
     it('signals a normal completion with the terminal status', async () => {
       const result = await manager.spawn({
         task: 'Task',
@@ -1936,6 +2096,183 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         reportsDelivered: 2,
         authMatched: false,
       });
+    });
+  });
+
+  // TASK_2026_857 B10c (Req 1): a CLI can print an API 429 and still exit 0.
+  // The exit path reads the current turn's error segments for it, before the
+  // output is discarded, and hands the result to the notifier as
+  // `rateLimited`. It is not quota.
+  describe('lane completion signal: API rate limit', () => {
+    const attachSegments = (
+      controls: MockSdkHandleControls,
+    ): ((segment: CliOutputSegment) => void) => {
+      const callbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(controls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          callbacks.push(cb);
+        },
+      });
+      return (segment) => {
+        for (const cb of callbacks) cb(segment);
+      };
+    };
+
+    const spawnCodex = async (): Promise<string> =>
+      (
+        await manager.spawn({
+          task: 'Task',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+        })
+      ).agentId;
+
+    const contextOf = (call: number): Record<string, unknown> =>
+      laneCompletion.signal.mock.calls[call][1] as Record<string, unknown>;
+
+    it('flags an exit-0 turn whose error segment is the ptah-cli marker', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      const info = laneCompletion.signal.mock.calls[0][0] as AgentProcessInfo;
+      expect(info.status).toBe('completed');
+      expect(info.failureKind).toBeUndefined();
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[AgentProcessManager] Lane turn matched an API rate-limit wording',
+        { agentId, cli: 'codex', exitCode: 0 },
+      );
+    });
+
+    it('flags an exit-0 turn with a provider 429 wording in an error segment', async () => {
+      const emit = attachSegments(sdkControls);
+      await spawnCodex();
+
+      emit({ type: 'error', content: 'API Error: Request rejected (429)' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not read stdout on exit 0', async () => {
+      await spawnCodex();
+
+      sdkControls.emitOutput('Summary: handled API Error: 429 retries\n');
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).not.toHaveProperty('rateLimited');
+    });
+
+    it('flags a failed exit with a 429 rate wording in its tail', async () => {
+      await spawnCodex();
+
+      sdkControls.emitOutput('429 Too Many Requests from the API\n');
+      sdkControls.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      const info = laneCompletion.signal.mock.calls[0][0] as AgentProcessInfo;
+      expect(info.status).toBe('failed');
+      expect(info.failureKind).toBeUndefined();
+    });
+
+    it('sets the flag before the output buffer is discarded', async () => {
+      const emit = attachSegments(sdkControls);
+      await spawnCodex();
+      const atDiscard: Array<Record<string, unknown> | undefined> = [];
+      const original = outputBuffer.discard.bind(outputBuffer);
+      jest.spyOn(outputBuffer, 'discard').mockImplementation((id: string) => {
+        atDiscard.push(
+          laneCompletion.signal.mock.calls[0]?.[1] as
+            Record<string, unknown> | undefined,
+        );
+        original(id);
+      });
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(atDiscard[0]).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not let an earlier turn 429 taint a continuation turn', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      Object.assign(continuable.handle, { outcomeUsageIsTurnTotal: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 42 } });
+      continuable.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      expect(contextOf(0)).toMatchObject({ usage: { inputTokens: 42 } });
+
+      await manager.continueConversation(agentId, 'second turn');
+      continuable.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(2);
+      expect(contextOf(1)).not.toHaveProperty('rateLimited');
+      expect(contextOf(1)).not.toHaveProperty('usage');
+    });
+
+    it('flags a continuation turn that hits its own 429', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      continuable.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).not.toHaveProperty('rateLimited');
+
+      await manager.continueConversation(agentId, 'second turn');
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      continuable.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(1)).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not carry an earlier turn auth match into a stopped continuation', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: 'Error: invalid api key' });
+      continuable.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).toMatchObject({ authMatched: true });
+
+      await manager.continueConversation(agentId, 'second turn');
+      const stopped = manager.stop(agentId);
+      jest.advanceTimersByTime(600);
+      await stopped;
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(2);
+      expect(contextOf(1)).toMatchObject({ authMatched: false });
     });
   });
 
@@ -2998,7 +3335,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     it('does not double-fire handleExit across turn1 -> continue -> turn2', async () => {
       const agentId = await spawnContinuable();
 
-      const exitInfos: Array<{ agentId: string; status: string }> = [];
+      const exitInfos: AgentProcessInfo[] = [];
       manager.events.on('agent:exited', (info) => exitInfos.push(info));
 
       await completeTurn1();
@@ -3012,6 +3349,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(exitInfos).toHaveLength(2);
+      expect(exitInfos.map((info) => info.turnSeq)).toEqual([1, 2]);
+      expect((manager.getStatus(agentId) as AgentProcessInfo).turnSeq).toBe(2);
       expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
     });
 
@@ -3570,6 +3909,71 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(parentOf(matching)).toBe(realSessionId);
       expect(parentOf(other)).toBe('');
+    });
+
+    it('uses a Codex session id resolved before the lane spawns', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+      const realSessionId = '11111111-2222-4333-8444-666666666666';
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      const agentId = await spawnWithParent(tabId);
+
+      expect(parentOf(agentId)).toBe(realSessionId);
+    });
+
+    it('replaces a tab mapping when the tab resolves a new session', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+      const firstSessionId = '11111111-2222-4333-8444-666666666666';
+      const nextSessionId = '11111111-2222-4333-8444-777777777777';
+      manager.resolveParentSessionId(tabId, firstSessionId);
+      manager.resolveParentSessionId(tabId, nextSessionId);
+
+      expect(parentOf(await spawnWithParent(tabId))).toBe(nextSessionId);
+    });
+
+    it('evicts the oldest tab mapping after the fixed cap', async () => {
+      const oldestTab = 'oldest-tab';
+      manager.resolveParentSessionId(oldestTab, 'first-session');
+      for (let index = 0; index < 256; index += 1) {
+        manager.resolveParentSessionId(`tab-${index}`, `session-${index}`);
+      }
+
+      expect(parentOf(await spawnWithParent(oldestTab))).toBe(oldestTab);
+      expect(parentOf(await spawnWithParent('tab-255'))).toBe('session-255');
+    });
+
+    it('keeps a re-resolved tab newer than other mappings', async () => {
+      manager.resolveParentSessionId('refreshed-tab', 'first-session');
+      manager.resolveParentSessionId('older-tab', 'older-session');
+      manager.resolveParentSessionId('refreshed-tab', 'new-session');
+      for (let index = 0; index < 255; index += 1) {
+        manager.resolveParentSessionId(`tab-${index}`, `session-${index}`);
+      }
+
+      expect(parentOf(await spawnWithParent('older-tab'))).toBe('older-tab');
+      expect(parentOf(await spawnWithParent('refreshed-tab'))).toBe('new-session');
+    });
+
+    it('uses the resolved parent for an SDK handle lane and its spawn event', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-999999999999';
+      const realSessionId = '11111111-2222-4333-8444-999999999999';
+      const spawned: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) => spawned.push(info));
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      const { agentId } = await manager.spawnFromSdkHandle(
+        createMockSdkHandle().handle,
+        {
+          task: 'Task',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          parentSessionId: tabId,
+          expectsMcp: false,
+        },
+      );
+
+      expect(parentOf(agentId)).toBe(realSessionId);
+      expect(spawned[0]?.parentSessionId).toBe(realSessionId);
     });
   });
 

@@ -109,7 +109,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
               <span class="flex items-center" data-testid="account-detail-state">
                 @if (account().state === 'pending') {
                   <span
-                    class="mr-1.5 inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-base-content-muted border-t-base-content motion-reduce:animate-none"
+                    class="mr-1.5 inline-block h-3 w-3 shrink-0 loading loading-spinner text-base-content-muted motion-reduce:animate-none"
                     aria-hidden="true"
                   ></span>
                 } @else {

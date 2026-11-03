@@ -459,6 +459,23 @@ describe('SessionReplayService', () => {
       expect(peerOf(out)).toEqual({ label: 'session · Reviewer' });
     });
 
+    it('labels an SDK subagent message with its short sender id', () => {
+      const text = [
+        'Another Claude session sent a message:',
+        '<agent-message from="ad589f82c811f90e5">',
+        'Source follow-up finding.',
+        '</agent-message>',
+        '',
+        'That "other Claude session" is an agent working inside this same session.',
+      ].join('\n');
+      const out = service.replayToStreamEvents(
+        'session-1',
+        [u({ role: 'user', content: text })],
+        [],
+      );
+      expect(peerOf(out)).toEqual({ label: 'ad589f82' });
+    });
+
     it('does not label plain user text', () => {
       const out = service.replayToStreamEvents(
         'session-1',
@@ -649,16 +666,19 @@ describe('SessionReplayService', () => {
   describe('background task notifications from parent JSONL', () => {
     const fixtureDir = ['with-background-subagent'];
 
-    function fixtureReplay(): FlatStreamEventUnion[] {
-      const agents: AgentSessionData[] = ['bgone', 'bgtwo'].map((id) => ({
+    function fixtureAgents(): AgentSessionData[] {
+      return ['bgone', 'bgtwo'].map((id) => ({
         agentId: `agent-${id}`,
         filePath: `agent-${id}.jsonl`,
         messages: jsonlFixture(...fixtureDir, `agent-${id}.jsonl`),
       }));
+    }
+
+    function fixtureReplay(): FlatStreamEventUnion[] {
       return service.replayToStreamEvents(
         'history-bg',
         jsonlFixture(...fixtureDir, 'parent.jsonl'),
-        agents,
+        fixtureAgents(),
       );
     }
 
@@ -785,6 +805,231 @@ describe('SessionReplayService', () => {
         parentToolUseId: 'toolu_bg_1',
         status: expected,
         summary: 'x'.repeat(240),
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_861 B2: reload rebuilds the background tray chips.
+    // -----------------------------------------------------------------------
+
+    describe('background tray events replayed from history', () => {
+      const isBackgroundStarted = (
+        event: FlatStreamEventUnion,
+      ): event is Extract<
+        FlatStreamEventUnion,
+        { eventType: 'background_agent_started' }
+      > => event.eventType === 'background_agent_started';
+
+      const isBackgroundTerminal = (
+        event: FlatStreamEventUnion,
+      ): event is Extract<
+        FlatStreamEventUnion,
+        {
+          eventType: 'background_agent_completed' | 'background_agent_stopped';
+        }
+      > =>
+        event.eventType === 'background_agent_completed' ||
+        event.eventType === 'background_agent_stopped';
+
+      const isToolResultEvent = (
+        event: FlatStreamEventUnion,
+      ): event is Extract<FlatStreamEventUnion, { eventType: 'tool_result' }> =>
+        event.eventType === 'tool_result';
+
+      it('replays a background_agent_started for each background Task before its placeholder tool_result', () => {
+        const events = fixtureReplay();
+        const started = events.filter(isBackgroundStarted);
+        expect(started.map((event) => event.toolCallId)).toEqual([
+          'toolu_bg_1',
+          'toolu_bg_2',
+        ]);
+        expect(started[0]).toMatchObject({
+          eventType: 'background_agent_started',
+          source: 'history',
+          messageId: 'a-1',
+          toolCallId: 'toolu_bg_1',
+          agentType: 'general-purpose',
+          agentDescription: 'First check',
+          teammateName: 'background-checker',
+          agentId: '4f8a2c91d3e6',
+          outputFilePath: 'C:\\Temp\\tasks\\bgone.output',
+        });
+        expect(started[1]).toMatchObject({
+          toolCallId: 'toolu_bg_2',
+          agentDescription: 'Second check',
+        });
+        // The frontend accumulator checks the chip exists before the
+        // placeholder tool_result arrives, so replay keeps that order.
+        for (const spawn of started) {
+          const startedAt = events.indexOf(spawn);
+          const resultAt = events.findIndex(
+            (event) =>
+              isToolResultEvent(event) &&
+              event.toolCallId === spawn.toolCallId,
+          );
+          expect(resultAt).toBeGreaterThan(-1);
+          expect(startedAt).toBeLessThan(resultAt);
+        }
+      });
+
+      it('settles each background chip with a terminal when its correlated notification replays', () => {
+        const events = fixtureReplay();
+        const terminals = events.filter(isBackgroundTerminal);
+        // bg_1's notification carries the tool-use id; bg_2's correlates
+        // through the agent file map. Both settle the chip they announced.
+        expect(terminals.map((event) => event.toolCallId)).toEqual([
+          'toolu_bg_1',
+          'toolu_bg_2',
+        ]);
+        expect(terminals[0]).toMatchObject({
+          eventType: 'background_agent_completed',
+          source: 'history',
+          toolCallId: 'toolu_bg_1',
+          agentId: '4f8a2c91d3e6',
+          status: 'completed',
+          result: 'Agent "First check" finished',
+        });
+        expect(terminals[1]).toMatchObject({
+          eventType: 'background_agent_completed',
+          toolCallId: 'toolu_bg_2',
+          // The r-2 placeholder carries no agentId line, so the terminal
+          // falls back to the toolCallId identity the store keys on.
+          agentId: '',
+        });
+        for (const terminal of terminals) {
+          const startedAt = events.findIndex(
+            (event) =>
+              isBackgroundStarted(event) &&
+              event.toolCallId === terminal.toolCallId,
+          );
+          expect(startedAt).toBeGreaterThan(-1);
+          expect(events.indexOf(terminal)).toBeGreaterThan(startedAt);
+        }
+      });
+
+      it('replays a background_agent_stopped when the correlated notification says stopped', () => {
+        const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+        const notification = parent[parent.length - 2];
+        const content = notification.message?.content;
+        if (typeof content !== 'string') {
+          throw new Error('Expected text notification fixture');
+        }
+        const stopped = {
+          ...notification,
+          message: {
+            role: 'user',
+            content: content.replace(
+              '<status>completed</status>',
+              '<status>killed</status>',
+            ),
+          },
+        };
+        const events = service.replayToStreamEvents(
+          'history-bg',
+          [...parent.slice(0, 3), stopped],
+          [],
+        );
+        const terminals = events.filter(isBackgroundTerminal);
+        expect(terminals).toHaveLength(1);
+        expect(terminals[0]).toMatchObject({
+          eventType: 'background_agent_stopped',
+          source: 'history',
+          toolCallId: 'toolu_bg_1',
+          agentId: '4f8a2c91d3e6',
+        });
+      });
+
+      it('settles a background Task when its correlated tool result is final', () => {
+        const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+        const finalResult = {
+          ...parent[2],
+          message: {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'toolu_bg_1',
+              content: 'First check finished',
+              is_error: false,
+            }],
+          },
+        } as SessionHistoryMessage;
+        const events = service.replayToStreamEvents(
+          'history-bg',
+          [...parent.slice(0, 2), finalResult],
+          [],
+        );
+        expect(events.filter(isBackgroundStarted)).toHaveLength(1);
+        expect(events.filter(isBackgroundTerminal)).toEqual([
+          expect.objectContaining({
+            eventType: 'background_agent_completed',
+            toolCallId: 'toolu_bg_1',
+            status: 'completed',
+            result: 'First check finished',
+          }),
+        ]);
+      });
+
+      it('emits no background tray events for the foreground Task', () => {
+        const events = fixtureReplay();
+        // Every background event in the replay belongs to one of the two
+        // background tool ids; the foreground Task (toolu_fg_1) never
+        // announces a chip.
+        const chipEvents = [
+          ...events.filter(isBackgroundStarted),
+          ...events.filter(isBackgroundTerminal),
+        ];
+        expect(chipEvents.map((event) => event.toolCallId).sort()).toEqual([
+          'toolu_bg_1',
+          'toolu_bg_1',
+          'toolu_bg_2',
+          'toolu_bg_2',
+        ]);
+      });
+
+      it('leaves both chips started when no notification replays', () => {
+        const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+        // All parent records except the two trailing task notifications.
+        const events = service.replayToStreamEvents(
+          'history-bg',
+          parent.slice(0, 7),
+          fixtureAgents(),
+        );
+        expect(events.filter(isBackgroundStarted)).toHaveLength(2);
+        // No correlated completion, no invented terminal — the live backend
+        // snapshot decides whether each task still runs.
+        expect(events.filter(isBackgroundTerminal)).toHaveLength(0);
+      });
+
+      it('keeps a real SDK launch placeholder running until its correlated notification', () => {
+        const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+        const launch = {
+          ...parent[2],
+          message: {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'toolu_bg_1',
+              content: 'Async agent launched successfully.\nagentId: 4f8a2c91d3e6\noutput_file: C:\\Temp\\tasks\\bgone.output\nThe agent is working in the background.',
+              is_error: false,
+            }],
+          },
+        } as SessionHistoryMessage;
+        const running = service.replayToStreamEvents(
+          'history-bg', [...parent.slice(0, 2), launch], [],
+        );
+        expect(running.filter(isBackgroundStarted)).toHaveLength(1);
+        expect(running.filter(isBackgroundTerminal)).toHaveLength(0);
+
+        const settled = service.replayToStreamEvents(
+          'history-bg', [...parent.slice(0, 2), launch, parent[7]], [],
+        );
+        expect(settled.filter(isBackgroundTerminal)).toEqual([
+          expect.objectContaining({
+            eventType: 'background_agent_completed',
+            toolCallId: 'toolu_bg_1',
+            status: 'completed',
+          }),
+        ]);
       });
     });
   });

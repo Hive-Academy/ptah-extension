@@ -19,7 +19,11 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   CatalogCardComponent,
   CatalogCardSkeletonComponent,
@@ -33,13 +37,15 @@ import type {
   ExternalInstallResult,
   ExternalMarketplace,
   ExternalPluginListing,
-  FileDecision,
   KeptItem,
   LocalItemFamily,
   PluginsReplaceKeptItemsResult,
   SuggestedMarketplace,
 } from '@ptah-extension/shared';
-import { ExternalConsentDialogComponent } from './external-consent-dialog.component';
+import {
+  ExternalConsentDialogComponent,
+  type ExternalConsentApproval,
+} from './external-consent-dialog.component';
 import { ExternalInstallReportComponent } from './external-install-report.component';
 import { KeptItemsRepairPromptComponent } from './kept-items-repair-prompt.component';
 import { ExternalInstalledRowComponent } from './external-installed-row.component';
@@ -458,6 +464,7 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
         [reason]="pendingReason()"
         [busy]="isConfirming()"
         [installFailed]="consentFailed()"
+        [workspaceName]="workspaceName()"
         (confirmed)="confirmInstall($event)"
         (cancelled)="cancelInstall()"
       />
@@ -485,6 +492,12 @@ export class ExternalMarketplacesComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly vscode = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly appState = inject(AppStateManager);
+
+  /** Open folder name for the consent dialog's MCP scope field. */
+  protected readonly workspaceName = computed(
+    () => this.appState.workspaceInfo()?.name ?? null,
+  );
   private destroyed = false;
 
   /** Increment to reload the marketplace list (parity with the other surfaces). */
@@ -856,11 +869,14 @@ export class ExternalMarketplacesComponent implements OnInit {
    * old token.
    *
    * `localItemDecisions` (keep/replace by the plan's `approvalId`) is sent
-   * only when the plan listed local items. A failure keeps the dialog open
+   * only when the plan listed local items; `mcpScope` only when the dialog
+   * chose one for declared servers (the plan call never sends it). A failure keeps the dialog open
    * with the plan and the user's choices, so "Retry install" re-sends them.
    */
   public async confirmInstall(
-    localItemDecisions: Record<string, FileDecision> = {},
+    { localItemDecisions, mcpScope }: ExternalConsentApproval = {
+      localItemDecisions: {},
+    },
   ): Promise<void> {
     const plan = this.pendingPlan();
     if (plan === null || this.isConfirming()) return;
@@ -878,6 +894,7 @@ export class ExternalMarketplacesComponent implements OnInit {
           ...(Object.keys(localItemDecisions).length > 0
             ? { localItemDecisions }
             : {}),
+          ...(mcpScope !== undefined ? { mcpScope } : {}),
         },
         { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS },
       );

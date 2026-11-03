@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/chat-routing';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
@@ -28,8 +29,8 @@ import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
 import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
-import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
+import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -62,6 +63,9 @@ function makeValidAskUserQuestionRequest() {
 describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', () => {
   let handler: ChatMessageHandler;
   let chatStore: {
+    permissionRequests: jest.Mock;
+    handlePermissionAutoResolved: jest.Mock;
+    handlePermissionResponse: jest.Mock;
     handlePermissionRequest: jest.Mock;
     handleQuestionRequest: jest.Mock;
     handleTurnEndedNotification: jest.Mock;
@@ -76,7 +80,6 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     handleSessionStatsLive: jest.Mock;
     retireEndedSessionPrompts: jest.Mock;
   };
-  let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
     routePermissionPrompt: jest.Mock;
     routeQuestionPrompt: jest.Mock;
@@ -96,6 +99,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let turnStateApplier: { apply: jest.Mock };
   let agentSessionAdoption: { adopt: jest.Mock; adoptHandoff: jest.Mock };
   let organizer: { onOrganizationChanged: jest.Mock };
+  let organizationCache: { onOrganizationChanged: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -110,6 +114,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
   beforeEach(() => {
     chatStore = {
+      permissionRequests: jest.fn(() => []),
+      handlePermissionAutoResolved: jest.fn(),
+      handlePermissionResponse: jest.fn(),
       handlePermissionRequest: jest.fn(),
       handleQuestionRequest: jest.fn(),
       handleTurnEndedNotification: jest.fn(),
@@ -123,9 +130,6 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       handleSessionStats: jest.fn(),
       handleSessionStatsLive: jest.fn(),
       retireEndedSessionPrompts: jest.fn(),
-    };
-    linkCapture = {
-      onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
     };
     streamRouter = {
       routePermissionPrompt: jest.fn(),
@@ -146,6 +150,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     turnStateApplier = { apply: jest.fn() };
     agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
     organizer = { onOrganizationChanged: jest.fn() };
+    organizationCache = { onOrganizationChanged: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -166,12 +171,12 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         },
         { provide: TabManagerService, useValue: tabManager },
         { provide: TurnStateApplier, useValue: turnStateApplier },
-        { provide: BoardTaskLinkCaptureService, useValue: linkCapture },
         {
           provide: AgentSessionAdoptionService,
           useValue: agentSessionAdoption,
         },
         { provide: SessionOrganizerService, useValue: organizer },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
       ],
     });
 
@@ -185,9 +190,26 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   });
 
   it('retires pending ids only on a confirmed session-ended message', () => {
+    const tasks = TestBed.inject(BackgroundTaskStore);
+    tasks.replace({
+      id: 'snapshot-1', eventType: 'background_tasks_snapshot',
+      timestamp: 1, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_COMPLETE, payload: { tabId: 'tab-1' } });
+    expect(tasks.tasksForSession('old-session')).toHaveLength(1);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1', sessionId: 'old-session' } });
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledWith('tab-1', 'old-session');
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1' } });
+    expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
+    tasks.replace({
+      id: 'snapshot-2', eventType: 'background_tasks_snapshot',
+      timestamp: 2, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-2', taskType: 'local_bash', description: 'Package', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { sessionId: 'old-session' } });
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
   });
 
@@ -227,6 +249,47 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     expect(chatStore.handlePermissionRequest).toHaveBeenCalledTimes(1);
     expect(streamRouter.routePermissionPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers prompt cancellation and removes only the correlated session prompt', () => {
+    const prompt = { ...makeValidPermissionRequest(), sessionId: SESS_VALID };
+    chatStore.permissionRequests.mockReturnValue([prompt]);
+    expect(handler.handledMessageTypes).toContain(
+      MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+    );
+    handler.handleMessage({
+      type: MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+      payload: {
+        sessionId: SESS_VALID,
+        requestId: prompt.id,
+        reason: 'turn-ended',
+      },
+    });
+    expect(chatStore.handlePermissionAutoResolved).toHaveBeenCalledWith({
+      id: prompt.id,
+      toolName: prompt.toolName,
+    });
+    expect(chatStore.handlePermissionAutoResolved).toHaveBeenCalledTimes(1);
+    expect(chatStore.handlePermissionResponse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { sessionId: 'other-session', requestId: VALID_UUID },
+    { sessionId: SESS_VALID, requestId: 'other-request' },
+    { requestId: VALID_UUID },
+    { sessionId: SESS_VALID },
+    { sessionId: SESS_VALID, requestId: 42 },
+    null,
+  ])('ignores unrelated or malformed prompt cancellations: %j', (payload) => {
+    chatStore.permissionRequests.mockReturnValue([
+      { ...makeValidPermissionRequest(), sessionId: SESS_VALID },
+    ]);
+    handler.handleMessage({
+      type: MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+      payload,
+    });
+    expect(chatStore.handlePermissionAutoResolved).not.toHaveBeenCalled();
+    expect(chatStore.handlePermissionResponse).not.toHaveBeenCalled();
   });
 
   // ----- ASK_USER_QUESTION_REQUEST ------------------------------------------
@@ -1006,41 +1069,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     });
   });
 
-  // ----- TASK_2026_580: board-start capture + organization push ------------
+  // ----- TASK_2026_580: organization push ----------------------------------
 
   describe('session organization (TASK_2026_580)', () => {
-    it('hands session:id-resolved to the board-task link capture after the store resolves it', () => {
-      handler.handleMessage({
-        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
-        payload: { tabId: 'tab-board', realSessionId: 'real-session-1' },
-      });
-
-      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledTimes(1);
-      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledWith(
-        'tab-board',
-        'real-session-1',
-      );
-      expect(
-        chatStore.handleSessionIdResolved.mock.invocationCallOrder[0],
-      ).toBeLessThan(
-        linkCapture.onSessionIdResolved.mock.invocationCallOrder[0],
-      );
-    });
-
-    it('does not hand a claimed-surface resolve to the link capture', () => {
-      const correlationId = VALID_UUID;
-      const surfaceId = SurfaceId.create();
-      claims.claim(correlationId, surfaceId);
-      registerSurfaceAdapter(surfaceId);
-
-      handler.handleMessage({
-        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
-        payload: { tabId: correlationId, realSessionId: 'real-session-2' },
-      });
-
-      expect(linkCapture.onSessionIdResolved).not.toHaveBeenCalled();
-    });
-
     it('handles session:organizationChanged', () => {
       expect(handler.handledMessageTypes).toContain(
         MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
@@ -1071,7 +1102,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       }
     });
 
-    it('hands the pushed session ids to the organizer next to the list refresh (TASK_2026_679)', () => {
+    it('hands the pushed session ids to the organizer and the organization cache next to the list refresh (TASK_2026_679, TASK_2026_854)', () => {
       jest.useFakeTimers();
       try {
         handler.handleMessage({
@@ -1087,6 +1118,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           's-1',
           's-2',
         ]);
+        expect(organizationCache.onOrganizationChanged).toHaveBeenCalledWith([
+          's-1',
+          's-2',
+        ]);
 
         handler.handleMessage({
           type: MESSAGE_TYPES.SESSION_METADATA_CHANGED,
@@ -1098,6 +1133,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           payload: { sessionIds: 'not-a-list' },
         });
         expect(organizer.onOrganizationChanged).toHaveBeenLastCalledWith([]);
+        expect(
+          organizationCache.onOrganizationChanged,
+        ).toHaveBeenLastCalledWith([]);
 
         jest.advanceTimersByTime(250);
         expect(chatStore.loadSessions).toHaveBeenCalledTimes(1);

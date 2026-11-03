@@ -1,0 +1,163 @@
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html b/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html
+index 5c5533c05..255fe6b2e 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html
+@@ -6,7 +6,8 @@
+   #messageContainer
+   #motion="ptahTranscriptMotion"
+   [ptahTranscriptMotion]="vm().slots"
+-  [suppressed]="replayMotionHold() || isFinalizingTransition()"
++  [suppressed]="isFinalizingTransition()"
++  [replayMotionHold]="replayMotionHold()"
+   #prependAnchor="ptahTranscriptPrependAnchor"
+   [ptahTranscriptPrependAnchor]="vm().messages"
+   [tabId]="tabId()"
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.stagger.spec.ts b/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.stagger.spec.ts
+index 781ef2aef..0ae27ffd4 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.stagger.spec.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.stagger.spec.ts
+@@ -182,6 +182,30 @@ describe('ChatTranscript message stagger', () => {
+     expect(h.motion.index('b')).toBeNull();
+   });
+ 
++  it('staggers the last six rows of a long open batch after replay clears', () => {
++    const h = mount([], true);
++    h.fixture.componentRef.setInput('paneSwitching', true);
++    h.fixture.componentRef.setInput('historyReplaying', false);
++    h.fixture.detectChanges();
++    const ids = Array.from({ length: 30 }, (_, index) => `m${index}`);
++    update(h, ids);
++    for (let index = 0; index < ids.length; index++) {
++      const id = ids[index];
++      const staggerIndex = index < 24 ? null : index - 24;
++      expect(h.motion.index(id)).toBe(staggerIndex);
++      expect(h.motion.enterClass(id)).toBe(staggerIndex === null ? '' : 'ptah-msg-enter');
++    }
++    const scroller = h.fixture.nativeElement.querySelector('[data-testid="chat-transcript-scroller"]') as HTMLElement;
++    expect(scroller.classList.contains('ptah-pane-switch-pending')).toBe(true);
++    h.fixture.componentRef.setInput('paneSwitching', false);
++    h.fixture.componentRef.setInput('entering', true);
++    h.fixture.detectChanges();
++    expect(scroller.classList.contains('ptah-pane-switch-pending')).toBe(false);
++    expect(h.motion.index('m29')).toBe(5);
++    update(h, [...ids, 'late']);
++    expect(h.motion.index('late')).toBeNull();
++  });
++
+   it('does not stagger older-history prepends or activation catch-up', () => {
+     const h = mount(['b', 'c']);
+     update(h, ['a', 'b', 'c']);
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.spec.ts b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.spec.ts
+index 604d2879d..52432c5dc 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.spec.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.spec.ts
+@@ -5,6 +5,7 @@ const defaults = {
+   nextIds: [] as readonly string[],
+   suppressed: false,
+   replaying: false,
++  replayMotionHold: false,
+   pinned: true,
+   cap: ENTRANCE_CAP,
+ };
+@@ -56,8 +57,10 @@ describe('planEntrance', () => {
+       .toEqual([['a', 0], ['b', 1]]);
+   });
+ 
+-  it('suppresses a batch during the replay hold', () => {
+-    expect(planned({ nextIds: ['a', 'b'], suppressed: true, replaying: false }))
++  it('allows an open batch during the replay hold but suppresses later rows', () => {
++    expect(planned({ nextIds: ['a', 'b'], replayMotionHold: true }))
++      .toEqual([['a', 0], ['b', 1]]);
++    expect(planned({ previousIds: ['a'], nextIds: ['a', 'b'], replayMotionHold: true }))
+       .toEqual([]);
+   });
+ 
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.ts b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.ts
+index 223312cd1..b2e559a0a 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-entrance.ts
+@@ -7,6 +7,7 @@ export interface EntranceInput {
+   readonly nextIds: readonly string[];
+   readonly suppressed: boolean;
+   readonly replaying: boolean;
++  readonly replayMotionHold: boolean;
+   readonly pinned: boolean;
+   readonly cap: number;
+ }
+@@ -43,7 +44,7 @@ export function isTailSwap(
+ 
+ /** Assign delays only to newly added messages in the mounted tail. */
+ export function planEntrance(input: EntranceInput): ReadonlyMap<string, number> {
+-  const { previousIds, nextIds, suppressed, replaying, pinned, cap } = input;
++  const { previousIds, nextIds, suppressed, replaying, replayMotionHold, pinned, cap } = input;
+   if (suppressed || cap <= 0 || isStrictHeadPrepend(previousIds, nextIds) ||
+       isTailSwap(previousIds, nextIds)) return new Map();
+ 
+@@ -52,7 +53,7 @@ export function planEntrance(input: EntranceInput): ReadonlyMap<string, number>
+   if (added.length === 0) return new Map();
+ 
+   const openBatch = previousIds.length === 0 || !nextIds.some((id) => previous.has(id));
+-  if ((replaying && !openBatch) || (!openBatch && !pinned)) return new Map();
++  if (!openBatch && (replaying || replayMotionHold || !pinned)) return new Map();
+ 
+   const addedIds = new Set(added);
+   const result = new Map<string, number>();
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.spec.ts b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.spec.ts
+index 082002b46..5b8f985ed 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.spec.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.spec.ts
+@@ -8,6 +8,7 @@ import { TranscriptMotionDirective } from './transcript-motion.directive';
+   template: `
+     <div data-testid="motion-root" [ptahTranscriptMotion]="messages()" [active]="active()"
+       [suppressed]="suppressed()" [historyReplaying]="historyReplaying()"
++      [replayMotionHold]="replayMotionHold()"
+       [pinnedToBottom]="pinnedToBottom()">
+       @for (message of messages(); track message.id) {
+         <div class="chat-msg-item" [attr.data-ptah-msg-item]="message.id"></div>
+@@ -20,6 +21,7 @@ class MotionHostComponent {
+   readonly active = signal(true);
+   readonly suppressed = signal(false);
+   readonly historyReplaying = signal(false);
++  readonly replayMotionHold = signal(false);
+   readonly pinnedToBottom = signal(true);
+   readonly motion = viewChild.required(TranscriptMotionDirective);
+ }
+@@ -119,12 +121,15 @@ describe('TranscriptMotionDirective', () => {
+     expect(h.motion.index('c')).toBeNull();
+   });
+ 
+-  it('suppresses a new row during the replay hold', () => {
++  it('allows the first batch but suppresses later rows during the replay hold', () => {
+     const h = harness();
+-    h.host.suppressed.set(true);
++    h.host.replayMotionHold.set(true);
+     h.host.messages.set(messages('a'));
+     h.fixture.detectChanges();
+-    expect(h.motion.index('a')).toBeNull();
++    expect(h.motion.index('a')).toBe(0);
++    h.host.messages.set(messages('a', 'b'));
++    h.fixture.detectChanges();
++    expect(h.motion.index('b')).toBeNull();
+   });
+ 
+   it('marks a visible removed item inert and leaves it animated', () => {
+diff --git a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.ts b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.ts
+index a6bfa6534..9a4493880 100644
+--- a/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.ts
++++ b/libs/frontend/chat/src/lib/components/organisms/transcript/transcript-motion.directive.ts
+@@ -18,6 +18,7 @@ export class TranscriptMotionDirective implements OnChanges {
+   readonly active = input.required<boolean>();
+   readonly suppressed = input(false);
+   readonly historyReplaying = input(false);
++  readonly replayMotionHold = input(false);
+   readonly pinnedToBottom = input(false);
+ 
+   private previousIds: readonly string[] = [];
+@@ -47,6 +48,7 @@ export class TranscriptMotionDirective implements OnChanges {
+       nextIds,
+       suppressed,
+       replaying: this.historyReplaying(),
++      replayMotionHold: this.replayMotionHold(),
+       pinned: this.pinnedToBottom(),
+       cap: ENTRANCE_CAP,
+     });

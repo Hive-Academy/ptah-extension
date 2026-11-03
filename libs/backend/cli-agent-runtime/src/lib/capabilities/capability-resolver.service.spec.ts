@@ -232,6 +232,33 @@ function setup(
   };
 }
 
+function resolverWithPluginStates(
+  env: Env,
+  states: ReadonlyMap<string, IStateStorage>,
+): { loader: PluginLoaderService; resolver: CapabilityResolverService } {
+  const scoped = {
+    ...env.storage,
+    getStorageForWorkspace: (root: string) => states.get(root),
+    getAllWorkspacePaths: () => [...states.keys()],
+  };
+  const loader = new PluginLoaderService(
+    createMockLogger() as unknown as Logger,
+    { isInstalled: () => false, listInstalled: () => [] } as never,
+    { getWorkspaceRoot: () => env.repo } as never,
+    env.store,
+  );
+  loader.initialize(path.join(env.home, 'plugins'), scoped);
+  const resolver = new CapabilityResolverService({
+    output: env.output,
+    store: env.store,
+    inventory: env.inventory,
+    approvals: env.approvals,
+    plugins: loader,
+    homeDir: env.home,
+  });
+  return { loader, resolver };
+}
+
 function writeMcpJson(root: string, servers: Record<string, unknown>): void {
   writeJson(path.join(root, '.mcp.json'), { mcpServers: servers });
 }
@@ -926,6 +953,107 @@ describe('CapabilityResolverService', () => {
   });
 
   describe('skills and plugins (P9)', () => {
+    it('forwards absent, independent, and ordered ancestor context only to the effective plugin read', async () => {
+      const env = setup();
+      const nearest = env.mkRepo('nearest');
+      const distant = env.mkRepo('distant');
+      const effective = jest.spyOn(env.loader, 'getEffectivePluginConfig');
+
+      const legacy = await env.resolver.resolve(env.repo);
+      const independent = await env.resolver.resolve(env.repo, {
+        pluginConfigAncestorRoots: [],
+      });
+      const inherited = await env.resolver.resolve(env.repo, {
+        pluginConfigAncestorRoots: [nearest, distant],
+      });
+
+      expect(effective.mock.calls).toEqual([
+        [env.physical()],
+        [env.physical(), { ancestorRoots: [] }],
+        [env.physical(), { ancestorRoots: [nearest, distant] }],
+      ]);
+      expect(legacy.status).toBe('verified');
+      expect(independent.status).toBe('verified');
+      expect(inherited.status).toBe('verified');
+      expect(legacy.harnessFingerprint).not.toBe(
+        independent.harnessFingerprint,
+      );
+      expect(independent.harnessFingerprint).not.toBe(
+        inherited.harnessFingerprint,
+      );
+
+      await env.resolver.list(env.repo);
+      expect(effective).toHaveBeenLastCalledWith(env.physical());
+    });
+
+    it('resolves child ON over ancestor OFF from the same plugin snapshot as its fingerprint', async () => {
+      const env = setup();
+      const ancestor = env.mkRepo('ancestor');
+      env.storage.raw.set(CONFIG_KEY, {
+        enabledPluginIds: ['ptah-harness-alpha'],
+        enabledSkillIds: ['alpha-skill'],
+      });
+      const ancestorStorage = createStateStorage({
+        enabledPluginIds: [],
+        disabledPluginIds: ['ptah-harness-alpha'],
+        disabledSkillIds: ['alpha-skill'],
+      });
+      const { loader, resolver } = resolverWithPluginStates(
+        env,
+        new Map([
+          [env.repo, env.storage],
+          [ancestor, ancestorStorage],
+        ]),
+      );
+      const effective = jest.spyOn(loader, 'getEffectivePluginConfig');
+
+      const policy = await resolver.resolve(env.repo, {
+        pluginConfigAncestorRoots: [ancestor],
+      });
+
+      expect(policy.reasons).toEqual([]);
+      expect(policy.status).toBe('verified');
+      expect(policy.disabledPluginIds).not.toContain('ptah-harness-alpha');
+      expect(policy.deniedSkillNames).not.toContain('alpha-skill');
+      expect(effective).toHaveBeenCalledTimes(1);
+      const snapshot = await effective.mock.results[0].value;
+      expect(policy.harnessFingerprint).toBe(snapshot.fingerprint);
+      expect(snapshot.config.enabledPluginIds).toContain('ptah-harness-alpha');
+    });
+
+    it('treats an invalid ancestor layer as policy-unknown even when child choices shadow it', async () => {
+      const env = setup();
+      const ancestor = env.mkRepo('ancestor');
+      env.storage.raw.set(CONFIG_KEY, {
+        enabledPluginIds: ['ptah-harness-alpha'],
+      });
+      const ancestorStorage = createStateStorage({
+        enabledPluginIds: [],
+        disabledPluginIds: 'invalid',
+      });
+      const { resolver } = resolverWithPluginStates(
+        env,
+        new Map([
+          [env.repo, env.storage],
+          [ancestor, ancestorStorage],
+        ]),
+      );
+
+      const policy = await resolver.resolve(env.repo, {
+        pluginConfigAncestorRoots: [ancestor],
+      });
+
+      expect(policy.status).toBe('unverified');
+      expect(policy.reasons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: `${ancestor} (${CONFIG_KEY})` }),
+        ]),
+      );
+      expect(policy.harnessFingerprint).toBe('');
+      expect(policy.disabledPluginIds).toEqual([]);
+      expect((await resolver.list(env.repo)).status).toBe('verified');
+    });
+
     it('takes its inputs only from getEffectivePluginConfig', async () => {
       const env = setup();
       // Record the calls the RESOLVER makes. (The loader's own skill scan reads

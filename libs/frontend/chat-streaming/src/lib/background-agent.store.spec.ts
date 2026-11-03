@@ -13,6 +13,9 @@
  *   - onProgress: appends summary and respects error status
  *   - onCompleted: updates status + cost + duration
  *   - onCompleted for an unknown agentId inserts a synthetic entry
+ *   - reused agent id across two executions: onAgentCompleted and the
+ *     onCompleted/onStopped locateEntry settle the entry under the event's
+ *     toolCallId, not the prior terminal entry holding the same agent id
  *   - onStopped: marks the entry stopped (with fallback insertion)
  *   - agentsForSession filters by sessionId
  *   - isBackgroundAgent lookup (by toolCallId, scans entries)
@@ -36,6 +39,7 @@ import { TestBed } from '@angular/core/testing';
 import { BackgroundAgentStore } from './background-agent.store';
 import { BackgroundAgentId } from '@ptah-extension/chat-state';
 import type {
+  AgentCompletedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
@@ -81,6 +85,24 @@ function stoppedEvent(
     timestamp: Date.now(),
     ...overrides,
   } as BackgroundAgentStoppedEvent;
+}
+
+function agentCompleted(
+  overrides: Partial<AgentCompletedEvent> = {},
+): AgentCompletedEvent {
+  return {
+    id: 'agent-completed-1',
+    eventType: 'agent_completed',
+    timestamp: 5_000,
+    sessionId: 'sess-1',
+    messageId: 'm-1',
+    parentToolUseId: 'tc-1',
+    taskId: 'task-1',
+    status: 'completed',
+    summary: 'All done',
+    outputFile: '',
+    ...overrides,
+  };
 }
 
 describe('BackgroundAgentStore', () => {
@@ -266,7 +288,11 @@ describe('BackgroundAgentStore', () => {
     it('keeps a failed entry failed', () => {
       store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
       store.onCompleted(
-        completedEvent({ agentId: 'a-E', toolCallId: 'tc-E', status: 'failed' }),
+        completedEvent({
+          agentId: 'a-E',
+          toolCallId: 'tc-E',
+          status: 'failed',
+        }),
       );
       store.onStopped(stoppedEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
 
@@ -652,6 +678,179 @@ describe('BackgroundAgentStore', () => {
       expect(store.findByToolCallId('toolu_1')?.agentId).toBe('a-real');
 
       expect(store.findByToolCallId('toolu_absent')).toBeNull();
+    });
+  });
+
+  describe('onAgentCompleted (stream task_notification)', () => {
+    it('settles a known entry found by its Task toolCallId', () => {
+      // Filed under the toolCallId: the SubagentStart hook had not fired.
+      store.onStarted(startEvent({ agentId: '' }));
+      store.onAgentCompleted(agentCompleted({ durationMs: 900 }));
+      const entry = store.findByToolCallId('tc-1');
+      expect(entry).toMatchObject({
+        status: 'completed',
+        result: 'All done',
+        duration: 900,
+        completedAt: 5_000,
+      });
+      expect(store.totalCount()).toBe(1);
+    });
+
+    it('settles an entry found by agentId and maps failed and stopped', () => {
+      store.onStarted(startEvent());
+      store.onAgentCompleted(
+        agentCompleted({
+          parentToolUseId: 'other',
+          agentId: 'a-1',
+          status: 'failed',
+        }),
+      );
+      expect(store.findByAgentId('a-1' as BackgroundAgentId)?.status).toBe(
+        'error',
+      );
+      store.onStarted(startEvent({ toolCallId: 'tc-2', agentId: 'a-2' }));
+      store.onAgentCompleted(
+        agentCompleted({ parentToolUseId: 'tc-2', status: 'stopped' }),
+      );
+      expect(store.findByAgentId('a-2' as BackgroundAgentId)?.status).toBe(
+        'stopped',
+      );
+    });
+
+    it('creates no entry for a foreground agent', () => {
+      const before = store.revision();
+      store.onAgentCompleted(agentCompleted({ parentToolUseId: 'toolu_fg' }));
+      expect(store.totalCount()).toBe(0);
+      expect(store.revision()).toBe(before);
+    });
+
+    describe('reused agent id across two executions', () => {
+      /**
+       * The two-execution reuse shape: the first execution is filed under the
+       * real agent id and already terminal; the second execution reuses the
+       * id but started before any id was known, and `adoptRealAgentId`
+       * declines the adoption because the prior entry still holds the id —
+       * so it stays filed under its own Task toolCallId.
+       */
+      function seedTwoExecutions(): void {
+        store.onStarted(
+          startEvent({ agentId: 'a-reuse', toolCallId: 'tc-first' }),
+        );
+        store.onCompleted(
+          completedEvent({
+            agentId: 'a-reuse',
+            toolCallId: 'tc-first',
+            result: 'first done',
+          }),
+        );
+        store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-second' }));
+        // Adoption is declined: the id key is still occupied.
+        expect(store.adoptRealAgentId('tc-second', 'a-reuse')).toBeNull();
+        expect(store.findByToolCallId('tc-first')?.status).toBe('completed');
+        expect(store.findByToolCallId('tc-second')?.status).toBe('running');
+      }
+
+      it('onAgentCompleted settles the second execution, not the prior terminal entry', () => {
+        seedTwoExecutions();
+
+        store.onAgentCompleted(
+          agentCompleted({
+            agentId: 'a-reuse',
+            parentToolUseId: 'tc-second',
+            status: 'completed',
+          }),
+        );
+
+        // The completion belongs to the second execution: its entry settles.
+        expect(store.findByToolCallId('tc-second')).toMatchObject({
+          status: 'completed',
+          result: 'All done',
+        });
+        // The prior execution keeps its own result and completion.
+        expect(store.findByToolCallId('tc-first')).toMatchObject({
+          status: 'completed',
+          result: 'first done',
+        });
+      });
+
+      it('onAgentCompleted maps a stopped notification onto the second execution', () => {
+        seedTwoExecutions();
+
+        store.onAgentCompleted(
+          agentCompleted({
+            agentId: 'a-reuse',
+            parentToolUseId: 'tc-second',
+            status: 'stopped',
+          }),
+        );
+
+        expect(store.findByToolCallId('tc-second')?.status).toBe('stopped');
+        expect(store.findByToolCallId('tc-first')?.status).toBe('completed');
+      });
+
+      it('falls back to the agent id only while exactly one entry carries it', () => {
+        store.onStarted(startEvent({ agentId: 'a-solo', toolCallId: 'tc-1' }));
+        // No tool correlation in the event: the id fallback must resolve it.
+        store.onAgentCompleted(
+          agentCompleted({
+            parentToolUseId: 'not-a-known-tool',
+            agentId: 'a-solo',
+          }),
+        );
+        expect(
+          store.findByAgentId('a-solo' as BackgroundAgentId)?.status,
+        ).toBe('completed');
+      });
+    });
+  });
+
+  describe('terminal background events with a reused agent id', () => {
+    /**
+     * Same two-execution shape as above, driven through the
+     * `background_agent_completed` / `background_agent_stopped` handlers:
+     * they also used to resolve the agent id first and land on the prior
+     * terminal entry.
+     */
+    function seedTwoExecutions(): void {
+      store.onStarted(startEvent({ agentId: 'a-reuse', toolCallId: 'tc-a' }));
+      store.onCompleted(
+        completedEvent({
+          agentId: 'a-reuse',
+          toolCallId: 'tc-a',
+          result: 'first done',
+        }),
+      );
+      store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-b' }));
+      expect(store.adoptRealAgentId('tc-b', 'a-reuse')).toBeNull();
+    }
+
+    it('onCompleted settles the entry under the event toolCallId', () => {
+      seedTwoExecutions();
+
+      store.onCompleted(
+        completedEvent({
+          agentId: 'a-reuse',
+          toolCallId: 'tc-b',
+          result: 'second done',
+        }),
+      );
+
+      expect(store.findByToolCallId('tc-b')).toMatchObject({
+        status: 'completed',
+        result: 'second done',
+      });
+      expect(store.findByToolCallId('tc-a')?.result).toBe('first done');
+    });
+
+    it('onStopped relabels the second execution without reopening the prior entry', () => {
+      seedTwoExecutions();
+
+      store.onStopped(
+        stoppedEvent({ agentId: 'a-reuse', toolCallId: 'tc-b' }),
+      );
+
+      expect(store.findByToolCallId('tc-b')?.status).toBe('stopped');
+      expect(store.findByToolCallId('tc-a')?.status).toBe('completed');
     });
   });
 });

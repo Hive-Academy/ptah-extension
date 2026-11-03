@@ -10,7 +10,7 @@ Professional software developers and engineering teams evaluating AI coding tool
 
 ## Product Purpose
 
-Ptah is an "AI coding orchestra": an orchestration platform delivered as a VS Code extension, an Electron desktop app, and a headless CLI, all sharing one core. It runs Claude, GitHub Copilot, OpenAI Codex, and Ollama through one harness, executes up to 9 agents in parallel on a canvas, and (via the Thoth suite) remembers across sessions, learns reusable skills, runs scheduled agents, and bridges to Telegram/Discord/Slack. The landing page's job: convert a skeptical developer into a 100-day trial install. Success = downloads and signups.
+PtahCode is an "AI coding orchestra": an orchestration platform delivered as a VS Code extension, an Electron desktop app, and a headless CLI, all sharing one core. It runs Claude, GitHub Copilot, OpenAI Codex, and Ollama through one harness, executes up to 9 agents in parallel on a canvas, and (via the Thoth suite) remembers across sessions, learns reusable skills, runs scheduled agents, and bridges to Telegram/Discord/Slack. The landing page's job: convert a skeptical developer into a 100-day trial install. Success = downloads and signups.
 
 ## Brand Personality
 

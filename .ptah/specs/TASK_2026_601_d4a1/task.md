@@ -12,8 +12,6 @@ estimate: S
 labels:
   - cli-agents
   - security
-relates_to:
-  - TASK_2026_555
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

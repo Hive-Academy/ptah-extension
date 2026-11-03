@@ -20,6 +20,9 @@ import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
+import type { KimiCodeAuthStatus } from '../providers/kimi-code/kimi-code-provider.types';
+import { KimiCodeHomeResolver } from '../providers/kimi-code/kimi-code-home-resolver';
 import {
   ProviderOwnerResolver,
   ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS,
@@ -56,8 +59,12 @@ function harness(
     account?: ClaudeAccountInfo;
     codexOwnerKey?: string | null;
     codexOwnerKeyAfterRead?: string | null;
+    explicitHome?: string;
+    explicitOwnerKey?: string | null;
     fileContent?: string;
     fileReadFails?: boolean;
+    kimiStatus?: KimiCodeAuthStatus;
+    kimiStatusFails?: boolean;
   } = {},
 ) {
   const logger = createMockLogger();
@@ -84,10 +91,14 @@ function harness(
   });
   let codexUsageRead = false;
   const codexAccountUsage = {
-    currentOwnerKey: () =>
-      codexUsageRead
-        ? (options.codexOwnerKeyAfterRead ?? options.codexOwnerKey ?? null)
-        : (options.codexOwnerKey ?? null),
+    currentOwnerKey: (home?: string) =>
+      home !== undefined && home !== codexHome.path
+        ? home === options.explicitHome && codexUsageRead
+          ? (options.explicitOwnerKey ?? null)
+          : null
+        : codexUsageRead
+          ? (options.codexOwnerKeyAfterRead ?? options.codexOwnerKey ?? null)
+          : (options.codexOwnerKey ?? null),
     getAccountUsage: jest.fn(async () => {
       codexUsageRead = true;
       return { status: 'available' as const, providerId: 'openai-codex' };
@@ -101,6 +112,13 @@ function harness(
     probe,
     codexAccountUsage,
     codexHome,
+    { getStatus: async () => {
+      if (options.kimiStatusFails) throw new Error(SECRET);
+      return options.kimiStatus ?? {
+        cliDetected: false, loggedIn: false, stale: false,
+        hasApiKey: false, credentialSource: 'none',
+      };
+    } },
   );
   return {
     resolver,
@@ -407,7 +425,40 @@ describe('ProviderOwnerResolver', () => {
       'glm-1',
       'kimi-code',
     );
-    expect(missing.key).toBe(unknownOwnerKey('kimi-code', 'ptah-cli:glm-1'));
+    expect(missing.key).toBe(unknownOwnerKey('kimi-code', 'shared-connection'));
+  });
+
+  it('uses the Kimi CLI login owner for a placeholder lane and shared route', async () => {
+    const status: KimiCodeAuthStatus = {
+      cliDetected: true, loggedIn: true, stale: false,
+      hasApiKey: false, credentialSource: 'cli-login',
+    };
+    const { resolver } = harness({
+      keys: { 'ptahCli.kimi-1': KIMI_CODE_PROXY_TOKEN_PLACEHOLDER },
+      kimiStatus: status,
+    });
+    const expected = cliStoreOwnerKey('kimi-code', new KimiCodeHomeResolver().path);
+    expect((await resolver.ownerForPtahCli('kimi-1', 'kimi-code')).key).toBe(expected);
+    expect((await resolver.ownerForKimiCode()).key).toBe(expected);
+  });
+
+  it('uses the shared Kimi key for a successfully missing lane slot', async () => {
+    const { resolver } = harness({
+      keys: { 'kimi-code': SECRET },
+      kimiStatus: {
+        cliDetected: false, loggedIn: false, stale: false,
+        hasApiKey: true, credentialSource: 'api-key',
+      },
+    });
+    expect((await resolver.ownerForPtahCli('kimi-1', 'kimi-code')).key)
+      .toBe(credentialOwnerKey('kimi-code', SECRET));
+  });
+
+  it('keeps failed Kimi slot and status reads unknown', async () => {
+    const failedSlot = harness({ keyReadFails: true });
+    expect((await failedSlot.resolver.ownerForPtahCli('kimi-1', 'kimi-code')).identityKind).toBe('unknown');
+    const failedStatus = harness({ kimiStatusFails: true });
+    expect((await failedStatus.resolver.ownerForKimiCode()).identityKind).toBe('unknown');
   });
 
   it('bills an Ollama Cloud Ptah CLI agent to the shared ollama-cloud provider key, not its sign-in placeholder slot', async () => {
@@ -499,6 +550,7 @@ describe('ProviderOwnerResolver', () => {
       key: known,
     });
     expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith();
   });
 
   it('keys CLI stores by their on-disk root', () => {
@@ -770,6 +822,34 @@ describe('ProviderOwnerResolver', () => {
       );
     });
 
+    it('Kimi OAuth proxy: resolves the CLI login owner without a provider key', async () => {
+      const { resolver, getProviderKey } = harness({
+        route: { providerId: 'kimi-code', routeKind: 'proxy' },
+        kimiStatus: {
+          cliDetected: true, loggedIn: true, stale: false,
+          hasApiKey: false, credentialSource: 'cli-login',
+        },
+      });
+      const owner = await resolver.ownerForSession('kimi-session');
+      expect(owner.key).toBe(cliStoreOwnerKey('kimi-code', new KimiCodeHomeResolver().path));
+      expect(owner.identityKind).toBe('cli-store');
+      expect(getProviderKey).not.toHaveBeenCalled();
+    });
+
+    it('Kimi API-key proxy: resolves the shared provider key owner', async () => {
+      const { resolver, getProviderKey } = harness({
+        route: { providerId: 'kimi-code', routeKind: 'proxy' },
+        keys: { 'kimi-code': SECRET },
+        kimiStatus: {
+          cliDetected: false, loggedIn: false, stale: false,
+          hasApiKey: true, credentialSource: 'api-key',
+        },
+      });
+      const owner = await resolver.ownerForSession('kimi-session');
+      expect(owner.key).toBe(credentialOwnerKey('kimi-code', SECRET));
+      expect(getProviderKey).toHaveBeenCalledWith('kimi-code');
+    });
+
     it('cloud-direct proxy with no provider id resolves to the Ollama Cloud key', async () => {
       const { resolver, getProviderKey } = harness({
         route: {
@@ -853,5 +933,74 @@ describe('ProviderOwnerResolver', () => {
     const serialized = JSON.stringify({ refs, logger });
     expect(serialized).not.toContain(EMAIL);
     expect(serialized).not.toContain(SECRET);
+  });
+});
+
+describe('Codex explicit-home owner resolution', () => {
+  it('shares the default unknown owner key with lexical aliases of the default home', () => {
+    const { resolver, codexHome } = harness();
+    const aliases = [
+      `${codexHome.path}/`,
+      `${codexHome.path}/../synthetic-codex-home`,
+    ];
+    if (process.platform === 'win32') {
+      aliases.push(
+        codexHome.path.toUpperCase(),
+        codexHome.path.replace(/\\/g, '/'),
+      );
+    }
+    for (const home of aliases) {
+      expect(resolver.ownerForCodexHome(home).key).toBe(
+        resolver.ownerForCodexHome().key,
+      );
+    }
+  });
+
+  it('keeps invalid homes unknown without throwing or merging into the default', () => {
+    const { resolver } = harness();
+    const home = 'relative-home';
+    expect(resolver.ownerForCodexHome(home).key).toBe(
+      unknownOwnerKey('openai-codex', home),
+    );
+    expect(resolver.ownerForCodexHome(home).key).not.toBe(
+      resolver.ownerForCodexHome().key,
+    );
+  });
+
+  it('never substitutes the default owner and reads the requested home', async () => {
+    const home = resolve('explicit-codex-home');
+    const defaultKey = accountOwnerKey('openai-codex', 'default-account');
+    const explicitKey = accountOwnerKey('openai-codex', 'explicit-account');
+    const h = harness({
+      codexOwnerKey: defaultKey,
+      explicitHome: home,
+      explicitOwnerKey: explicitKey,
+    });
+    expect(h.resolver.ownerForCodexHome(home).key).toBe(
+      unknownOwnerKey('openai-codex', home),
+    );
+    expect(h.resolver.ownerForCodexHome().key).toBe(defaultKey);
+    await expect(h.resolver.resolveCodexHomeOwner(home)).resolves.toMatchObject(
+      { key: explicitKey },
+    );
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ home });
+    expect(h.resolver.ownerForCodexHome(home).key).toBe(explicitKey);
+    expect(h.resolver.ownerForCodexHome().key).toBe(defaultKey);
+    await h.resolver.resolveCodexHomeOwner(home);
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unreadable explicit home unknown after its read', async () => {
+    const home = resolve('unknown-codex-home');
+    const h = harness({
+      codexOwnerKey: accountOwnerKey('openai-codex', 'default-account'),
+    });
+    await expect(h.resolver.resolveCodexHomeOwner(home)).resolves.toMatchObject(
+      {
+        key: unknownOwnerKey('openai-codex', home),
+        identityKind: 'unknown',
+      },
+    );
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ home });
   });
 });

@@ -106,7 +106,7 @@ Clears the thread's session link so the next message starts a brand-new session 
 
 ### `/workspace list` and `/workspace use`
 
-The workspace list is a **closed allowlist**: exactly the folders you've opened in the Ptah desktop app, nothing else. There is no way to type a raw path from Discord — the `pick` autocomplete offers only allowlisted folders, and the submitted value is re-validated against the freshly re-read list (exact folder roots only, no subpaths). Adding a workspace to the list happens only in the desktop app.
+The workspace list is a **closed allowlist**: exactly the folders you've opened in the PtahCode desktop app, nothing else. There is no way to type a raw path from Discord — the `pick` autocomplete offers only allowlisted folders, and the submitted value is re-validated against the freshly re-read list (exact folder roots only, no subpaths). Adding a workspace to the list happens only in the desktop app.
 
 Switching with `/workspace use`:
 

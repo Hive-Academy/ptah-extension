@@ -17,7 +17,7 @@
  * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Z.AI, and
  *   other api-key passthroughs) get a fully isolated snapshot — these
  *   work concurrently across workspaces after this change.
- * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
+ * - Proxy-based providers (Copilot OAuth, OpenRouter/Sakana/LM
  *   Studio translation proxies) require a running local proxy. Phase 3: this
  *   resolver acquires a pooled proxy from {@link ProviderProxyPool} (one
  *   instance per provider configuration, shared by the workspaces on it,
@@ -38,8 +38,15 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import {
+  CODEX_PROVIDER_ENTRY,
+  CODEX_DEFAULT_TIERS,
   type AuthEnv,
   type ProviderProfile,
+  type SessionRuntimeIdentity,
+  type RuntimeHostCapabilities,
+  type RuntimeConsumer,
+  type CodexProfileSeed,
+  sessionRuntimeIdentityMismatch,
   type AnthropicProvider,
   type ProviderModelTier,
   createEmptyAuthEnv,
@@ -54,6 +61,11 @@ import {
   buildStaticTierCapabilityEnv,
 } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
+import {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from '@ptah-extension/codex-runtime';
+import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
 import {
@@ -69,6 +81,7 @@ import { isStoredModelOffered } from './stored-model-offer';
 import { API_KEY_RECOVERY_HINT } from './auth-method.utils';
 import { ClaudeAmbientLoginStatusReader } from '../accounts/claude-ambient-login-status';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 
 /**
  * Start a workspace snapshot with every tier-scoped key PRESENT and
@@ -95,6 +108,38 @@ function createIsolatedSnapshot(): AuthEnv {
   return snapshot;
 }
 
+export interface ExecutionProfileRequest {
+  workspacePath: string;
+  requestedModel: string;
+  /**
+   * `requestedModel` is the stored model setting, not the caller's choice.
+   * Only the Claude branch checks it with {@link
+   * WorkspaceProviderProfileResolver.resolveStoredModel}; the native branch
+   * maps every model to the Codex catalog.
+   */
+  requestedModelIsStored?: boolean;
+  existingIdentity?: SessionRuntimeIdentity;
+  hostCapabilities: RuntimeHostCapabilities;
+  consumer: RuntimeConsumer;
+}
+
+export type ResolvedExecutionProfile =
+  | {
+      runtime: 'claude-sdk';
+      /** The model the Claude session runs on. */
+      model: string;
+      providerProfile: ProviderProfile | undefined;
+    }
+  | {
+      runtime: 'codex-app-server';
+      seed: CodexProfileSeed;
+      modelSubstitution?: {
+        readonly requested: string;
+        readonly used: string;
+        readonly reason: 'not-in-catalog' | 'case-mismatch';
+      };
+    };
+
 @injectable()
 export class WorkspaceProviderProfileResolver {
   private readonly credentialProbe: AuthCredentialProbe;
@@ -114,6 +159,8 @@ export class WorkspaceProviderProfileResolver {
     private readonly authManager: AuthManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
     private readonly proxyPool: ProviderProxyPool,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
+    private readonly codexHome: CodexHomeResolver,
     @inject(ClaudeAmbientLoginStatusReader)
     ambientLogin: Pick<ClaudeAmbientLoginStatusReader, 'read'>,
   ) {
@@ -130,6 +177,178 @@ export class WorkspaceProviderProfileResolver {
       this.credentialProbe,
       workspacePath,
     );
+  }
+
+  /** Select a runtime before materializing credentials or starting a proxy. */
+  async resolveExecutionProfile(
+    input: ExecutionProfileRequest,
+  ): Promise<ResolvedExecutionProfile> {
+    const {
+      workspacePath,
+      requestedModel,
+      existingIdentity,
+    } = input;
+    const resumeNative = existingIdentity?.runtime === 'codex-app-server';
+    if (resumeNative && !this.hasNativeCodexCapability(input)) {
+      throw new AuthRequiredError(
+        'This session requires a host with native Codex support.',
+      );
+    }
+    const startNative = !existingIdentity && this.shouldStartNativeCodex(input);
+    if (resumeNative || startNative) {
+      const home = this.codexHome.path;
+      let normalizedHome: string;
+      let storedHome: string | undefined;
+      try {
+        normalizedHome = normalizeCodexHomeKey(home, process.platform);
+        if (resumeNative) {
+          storedHome = normalizeCodexHomeKey(
+            existingIdentity.codex.normalizedHome,
+            process.platform,
+          );
+        }
+      } catch {
+        throw new AuthRequiredError(
+          'Cannot use native Codex session: normalizedHome is invalid.',
+        );
+      }
+      let workspaceId: string;
+      let storedWorkspaceId: string | undefined;
+      try {
+        workspaceId = normalizeCodexWorkspaceKey(
+          workspacePath,
+          process.platform,
+        );
+        if (resumeNative) {
+          storedWorkspaceId = normalizeCodexWorkspaceKey(
+            existingIdentity.workspaceId,
+            process.platform,
+          );
+        }
+      } catch {
+        throw new AuthRequiredError(
+          'Cannot use native Codex session: workspaceId is invalid.',
+        );
+      }
+      if (resumeNative) {
+        const mismatch = sessionRuntimeIdentityMismatch(
+          {
+            ...existingIdentity,
+            workspaceId: storedWorkspaceId ?? workspaceId,
+            codex: { normalizedHome: storedHome ?? normalizedHome },
+          },
+          {
+            ...existingIdentity,
+            providerId: 'openai-codex',
+            workspaceId,
+            codex: { normalizedHome },
+          },
+        );
+        if (mismatch) {
+          throw new AuthRequiredError(
+            `Cannot resume native Codex session: ${mismatch} changed.`,
+          );
+        }
+      }
+      const { model, modelSubstitution } =
+        this.resolveNativeCodexModel(requestedModel);
+      return {
+        runtime: 'codex-app-server',
+        ...(modelSubstitution ? { modelSubstitution } : {}),
+        seed: {
+          providerId: 'openai-codex',
+          consumer: input.consumer,
+          workspacePath,
+          home,
+          normalizedHome,
+          model,
+          existingIdentity,
+        },
+      };
+    }
+    // A stored session keeps its own provider; only a new session follows the
+    // workspace's active provider.
+    const servingProviderId = existingIdentity
+      ? existingIdentity.providerId
+      : this.activeProviderResolver.resolveActiveAuthForPath(workspacePath)
+          .providerId;
+    if (servingProviderId === 'openai-codex') {
+      this.rejectLegacyCodexProfile();
+    }
+    if (existingIdentity) {
+      const active = await this.resolveAuthForPath(workspacePath);
+      if (active.providerId !== existingIdentity.providerId) {
+        this.rejectStoredProviderMismatch(
+          existingIdentity.providerId,
+          active.providerId,
+        );
+      }
+    }
+    const model = input.requestedModelIsStored
+      ? this.resolveStoredModel(workspacePath, requestedModel)
+      : requestedModel;
+    const providerProfile = existingIdentity
+      ? await this.resolveProviderProfileForWorkspace(
+          workspacePath,
+          model,
+          existingIdentity.providerId,
+        )
+      : await this.resolveProviderProfileForWorkspace(workspacePath, model);
+    return {
+      runtime: 'claude-sdk',
+      model,
+      providerProfile,
+    };
+  }
+
+  private shouldStartNativeCodex(input: ExecutionProfileRequest): boolean {
+    return (
+      this.hasNativeCodexCapability(input) &&
+      this.activeProviderResolver.resolveActiveAuthForPath(input.workspacePath)
+        .providerId === 'openai-codex'
+    );
+  }
+
+  private hasNativeCodexCapability(input: ExecutionProfileRequest): boolean {
+    switch (input.consumer) {
+      case 'chat':
+        return input.hostCapabilities.nativeCodex;
+      case 'gateway':
+        return input.hostCapabilities.nativeCodexGateway === true;
+      case 'lane':
+        return false;
+      default: {
+        const consumer: never = input.consumer;
+        return consumer;
+      }
+    }
+  }
+
+  private resolveNativeCodexModel(requestedModel: string): {
+    model: string;
+    modelSubstitution?: Extract<
+      ResolvedExecutionProfile,
+      { runtime: 'codex-app-server' }
+    >['modelSubstitution'];
+  } {
+    const requested = requestedModel.trim();
+    const tier = requested.toLowerCase();
+    if (tier === 'opus' || tier === 'sonnet' || tier === 'haiku') {
+      return { model: CODEX_DEFAULT_TIERS[tier] };
+    }
+    const catalog = CODEX_PROVIDER_ENTRY.staticModels;
+    const exactMatch = catalog?.find((model) => model.id === requested);
+    if (exactMatch) return { model: exactMatch.id };
+    const caseMatch = catalog?.find((model) => model.id.toLowerCase() === tier);
+    const model = caseMatch?.id ?? catalog?.[0]?.id ?? CODEX_DEFAULT_TIERS.opus;
+    return {
+      model,
+      modelSubstitution: {
+        requested: requestedModel,
+        used: model,
+        reason: caseMatch ? 'case-mismatch' : 'not-in-catalog',
+      },
+    };
   }
 
   /**
@@ -151,8 +370,12 @@ export class WorkspaceProviderProfileResolver {
   async resolveProviderProfileForWorkspace(
     workspacePath: string,
     requestedModel: string,
+    expectedProviderId?: string,
   ): Promise<ProviderProfile | undefined> {
     const active = await this.resolveAuthForPath(workspacePath);
+    if (expectedProviderId && active.providerId !== expectedProviderId) {
+      this.rejectStoredProviderMismatch(expectedProviderId, active.providerId);
+    }
     const profile = await this.buildProfile(
       active,
       workspacePath,
@@ -263,6 +486,9 @@ export class WorkspaceProviderProfileResolver {
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
+    // This also protects callers that bypass resolveExecutionProfile, including
+    // hosts whose AGENT_ADAPTER alias points directly at SdkAgentAdapter.
+    if (providerId === 'openai-codex') this.rejectLegacyCodexProfile();
     try {
       if (authMethod === 'claudeCli') {
         return this.buildNativeAnthropicProfile(requestedModel);
@@ -305,6 +531,25 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
+  }
+
+  private rejectLegacyCodexProfile(): never {
+    throw codexNativeRuntimeRequired(
+      'Use the Ptah desktop app (Electron) with native Codex enabled.',
+    );
+  }
+
+  private rejectStoredProviderMismatch(
+    storedProviderId: string,
+    activeProviderId: string,
+  ): never {
+    throw new AuthRequiredError(
+      `Cannot resume this session: its provider (${storedProviderId}) differs from the workspace's active provider (${activeProviderId}). Restore the session's provider in Settings and retry.`,
+      {
+        providerId: storedProviderId,
+        recoveryHint: `Select ${storedProviderId} for this workspace in Settings and retry.`,
+      },
+    );
   }
 
   /**

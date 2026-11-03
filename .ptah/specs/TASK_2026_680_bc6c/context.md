@@ -31,3 +31,12 @@ same for other sessions for setup hub and project builder".
 - `../TASK_2026_649_33c4/decisions.md` D1, D2.
 - `../TASK_2026_648_374e/decisions.md`, `libs/frontend/chat-state/src/lib/workflow-session-index.service.ts`,
   `libs/frontend/chat/src/lib/components/atoms/workflow-badge.component.ts`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: STALE-REWRITE (lane grok, verified by Claude).
+
+- The session sidebar named by this task is gone: #745 (e2e9c1e5b) replaced it with the Previous sessions modal; #777 removed the tab bar.
+- The modal opens every row with `openSession` (`main:libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.ts:532`) and shows the workflow badge (`previous-sessions-modal.component.html`).
+- Builder pages already host the session through `ptah-session-embed` (#736); `HarnessBuilderFocusRouter` routes only attention focus today and can be reused.
+- Parallel branch risk: feat/session-auto-links (TASK_2026_854) links sessions to tasks/worktrees and may touch session cards; check before starting.

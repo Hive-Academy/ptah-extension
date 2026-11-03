@@ -78,6 +78,7 @@ import {
   SubagentRpcHandlers,
   TasksRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -85,7 +86,9 @@ import {
 } from '../handlers';
 import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-rpc.handlers';
 import { ArtifactRpcHandlers } from '../handlers/artifact-rpc.handlers';
+import { DisplayWindowRpcHandlers } from '../handlers/display-window-rpc.handlers';
 import { ProviderAccountRpcHandlers } from '../handlers/provider-account-rpc.handlers';
+import { InstallScopeNoticeRpcHandlers } from '../install-scope/install-scope-notice-rpc.handlers';
 
 /**
  * Structural shape every RPC handler class satisfies. tsyringe's
@@ -115,6 +118,16 @@ export const RPC_HANDLER_MANIFEST = [
     methods: ArtifactRpcHandlers.METHODS,
     requires: [],
     handler: ArtifactRpcHandlers,
+  },
+  {
+    // Detached Display window (TASK_2026_853_3401, D2). `requires: []` on
+    // purpose: only Electron has the window, but every host serves the
+    // namespace. VS Code and the CLI bind `DesktopOnlyDisplayWindowHost`,
+    // which answers `desktop-only`, and an unbound port answers `not-ready`.
+    key: 'displayWindow',
+    methods: DisplayWindowRpcHandlers.METHODS,
+    requires: [],
+    handler: DisplayWindowRpcHandlers,
   },
   {
     key: 'configScope',
@@ -238,6 +251,14 @@ export const RPC_HANDLER_MANIFEST = [
     handler: GitRpcHandlers,
   },
   {
+    // Secondary per-root watcher leases (TASK_2026_855): only a host that
+    // can run extra git watchers registers the registry port.
+    key: 'gitWatch',
+    methods: GitWatchRpcHandlers.METHODS,
+    requires: ['gitRootWatch'],
+    handler: GitWatchRpcHandlers,
+  },
+  {
     // `requires: []`: a read of workspace state, which every host has. A
     // host without git simply has no change sets recorded.
     key: 'gitChangeSet',
@@ -260,6 +281,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: HarnessRpcHandlers.METHODS,
     requires: [],
     handler: HarnessRpcHandlers,
+  },
+  {
+    // `requires: []`: the notice reads and writes only the per-user migration
+    // ledger, which every host can reach. Only Electron runs the migration, so
+    // VS Code and the CLI answer `notice: null` until it has run once.
+    key: 'installScopeNotice',
+    methods: InstallScopeNoticeRpcHandlers.METHODS,
+    requires: [],
+    handler: InstallScopeNoticeRpcHandlers,
   },
   {
     // `requires: []`: the resolver reads per-user and per-workspace policy

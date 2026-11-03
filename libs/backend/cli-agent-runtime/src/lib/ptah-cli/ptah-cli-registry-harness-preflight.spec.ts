@@ -108,6 +108,7 @@ function buildHarness(ensure: jest.Mock | null): Harness {
       jest.fn((_args: { options?: Options }) => emptyStream()),
     );
   const assembleSpawnOptions = jest.fn().mockResolvedValue({
+    builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
     mcpServers: {},
     hooks: undefined,
     autoCompact: {},

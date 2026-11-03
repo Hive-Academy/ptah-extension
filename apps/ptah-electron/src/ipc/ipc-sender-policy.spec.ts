@@ -5,7 +5,7 @@ import {
 } from './ipc-sender-policy';
 
 const WIN_TRUSTED: TrustedIpcSender = {
-  webContentsId: 7,
+  webContentsIds: [7],
   documentPaths: [
     'C:\\app\\renderer\\index.html',
     'C:\\app\\assets\\preparing-workspace.html',
@@ -14,7 +14,7 @@ const WIN_TRUSTED: TrustedIpcSender = {
 const WIN_RENDERER_URL = 'file:///C:/app/renderer/index.html';
 
 const POSIX_TRUSTED: TrustedIpcSender = {
-  webContentsId: 7,
+  webContentsIds: [7],
   documentPaths: [
     '/opt/app/renderer/index.html',
     '/opt/app/assets/preparing-workspace.html',
@@ -80,16 +80,39 @@ describe('isTrustedIpcSender', () => {
       ).toBe(true);
     });
 
+    it('a second trusted window (the detached Display window) on the renderer document', () => {
+      const trusted: TrustedIpcSender = { ...WIN_TRUSTED, webContentsIds: [7, 9] };
+      expect(
+        onWindows(
+          sender({
+            webContentsId: 9,
+            frameUrl: `${WIN_RENDERER_URL}?ptahWindow=display`,
+          }),
+          trusted,
+        ),
+      ).toBe(true);
+      expect(onWindows(sender({ webContentsId: 7 }), trusted)).toBe(true);
+    });
+
     it('the renderer document on POSIX', () => {
       expect(onPosix(sender({ frameUrl: POSIX_RENDERER_URL }))).toBe(true);
     });
   });
 
   describe('rejects', () => {
-    it('any sender before a window exists (webContentsId null)', () => {
-      expect(onWindows(sender(), { ...WIN_TRUSTED, webContentsId: null })).toBe(
+    it('any sender before a window exists (no trusted ids)', () => {
+      expect(onWindows(sender(), { ...WIN_TRUSTED, webContentsIds: [] })).toBe(
         false,
       );
+    });
+
+    it('a webContents that is no longer in the trusted set (closed Display window)', () => {
+      expect(
+        onWindows(sender({ webContentsId: 9 }), {
+          ...WIN_TRUSTED,
+          webContentsIds: [7],
+        }),
+      ).toBe(false);
     });
 
     it('another webContents showing the same document', () => {

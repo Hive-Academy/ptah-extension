@@ -106,13 +106,14 @@ export async function setupThroughDrawer(page: Page, providerName: string): Prom
 }
 
 /**
- * Opens a connection's drawer the way a user does since Batch 24: a click on the card itself (the
- * provider name, clear of the card's one inline action).
+ * Opens a connection's drawer the way a user does since Batch 24: a click on the card itself. The
+ * card face is a full-surface details trigger; the click lands at its top-left corner, clear of the
+ * card's inline action and scope control.
  */
 export async function openCardDrawer(page: Page, providerName: string): Promise<void> {
-  const name = card(page, providerName).locator('[data-testid="provider-name"]');
-  await expect(name).toBeVisible();
-  await name.click();
+  const trigger = card(page, providerName).locator('[data-testid="provider-card-details-trigger"]');
+  await expect(trigger).toBeVisible();
+  await trigger.click({ position: { x: 12, y: 12 } });
   await expect(page.locator('[data-testid="connection-detail-drawer"]')).toBeVisible();
 }
 

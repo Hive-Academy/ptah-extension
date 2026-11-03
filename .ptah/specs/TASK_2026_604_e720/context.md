@@ -37,3 +37,7 @@ them. Highest counts: `cli-orchestration-matrix.component.ts`, `output-style-lis
 ## Out of scope
 
 New features; the files outside Settings.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_555`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

@@ -8,15 +8,15 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - Verify with `npm run verify`. It runs `nx affected -t lint test typecheck --base=main`.
   - Only some projects or targets: `npm run verify -- -p A,B` / `npm run verify -- -t test -p A`.
   - Extra Nx or Jest flags go after a second `--`: `npm run verify -- -p A -- --testPathPatterns=foo`.
-- `npm run verify` takes a slot of a machine-wide FIFO counting lock first, so at most 2 heavy
-  checks run at a time across all sessions, lanes and worktrees. A second check starts only while
-  at least 8 GB of memory is free and the first check has run for 30 s. A check on an empty lock
+- `npm run verify` takes a slot of a machine-wide FIFO counting lock first, so at most 3 heavy
+  checks run at a time across all sessions, lanes and worktrees. Another check starts only while
+  at least 5 GB of memory is free and the newest check has run for 30 s. A check on an empty lock
   always starts. While it waits it prints why (`waiting for a slot` / `waiting for memory`). Do
   not message other sessions about a "slot". `node scripts/verify.mjs --status` shows the slot
   holders, the queue and the free memory. A slot whose process is dead or older than 120 minutes
   is taken over automatically.
-  - Tune per shell: `PTAH_VERIFY_SLOTS` (default 2; 1 restores one check at a time),
-    `PTAH_VERIFY_MIN_FREE_GB` (default 8), `PTAH_VERIFY_SETTLE_SEC` (default 30).
+  - Tune per shell: `PTAH_VERIFY_SLOTS` (default 3; 1 restores one check at a time),
+    `PTAH_VERIFY_MIN_FREE_GB` (default 5), `PTAH_VERIFY_SETTLE_SEC` (default 30).
 - The caps are in config: `nx.json` runs one task at a time and `jest.preset.js` gives Jest 2
   workers per check. Do not raise them: Nx tasks, Jest workers and lock slots multiply. Run any
   other heavy command under the same lock:
@@ -35,13 +35,10 @@ The Electron desktop app (`apps/ptah-electron`) is the priority host. These rule
 main agent, every subagent and every CLI lane. Repeat them in any task prompt you hand to a lane.
 
 - Plan, build and verify features for Electron first.
-- Do not start feature or polish work for the TUI (`apps/ptah-tui`) or the VS Code extension
-  (`apps/ptah-extension-vscode` and VS Code-only webview surfaces) unless the user asks for it.
+- Keep the Electron renderer in `apps/ptah-extension-webview`; its name does not make it a VS Code host.
 - Run visual reviews and screenshots in Electron only.
-- Keep every host compiling. When a change touches a shared lib, still run typecheck and tests
-  for each host project that depends on it; CI and the pre-push hook run them too.
-- When a shared change removes something that a TUI or VS Code surface uses, make the smallest
-  change that keeps that host working (for example a read-only view), and report it.
+- When a change touches a shared lib, run scoped checks for the affected Electron and renderer projects.
+- Keep provider CLI lanes and the benchmark's `platform-cli` and `cli-engine` libraries working.
 
 ## Git: start every task in its own worktree
 

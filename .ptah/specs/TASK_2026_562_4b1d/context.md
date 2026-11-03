@@ -72,3 +72,10 @@ Agents never edit user-owned files; Ptah features may, after explicit user opt-i
 1. Wave 4.1 changes the orchestration skill and every agent template — confirm the spec-format change before design.
 2. Wave 4.4 stops lanes automatically — confirm the thresholds (40 / 60 calls) and the looping-model block list.
 3. Wave 4.5 opus pins and the scaled review mandate change the team's review policy — user decision.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: 2.1 proxied strict MCP, 2.4 Responses translator and 2.5 usage accounting are now listed in TASK_2026_634_daec Stage A.1. Only these stay unique to this task: 2.6 injected-text trimming, 4.1 spec format and lane brief, 4.2 resume gate, and 4.6 the Codex 'Failed to parse item' robustness.
+- Evidence on main: Delivered: Wave 2.2 (Codex lane config with user MCP servers off, PR #634), 2.3 (effort precedence and effort on spawn, PR #634), 4.4 (lane budget guard with steer/stop, repeat detector and blocked looping model, PR #647), 4.5 (disallowedTools in agent definitions, PR #634) and 4.3 (ptah_agent_wait and ptah_run_check exist). Still open: Wave 2.4. main:libs/backend/auth-providers/src/lib/translation/responses-request-translator.ts:136-153 still pushes translateSystemToDeveloper() AND sets `instructions: systemText`.

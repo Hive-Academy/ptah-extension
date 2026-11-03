@@ -1,21 +1,21 @@
 /**
- * Lane budget guard (TASK_2026_597, component 16, R9.3/R9.4).
+ * Lane repeat-call guard (TASK_2026_597, component 16, R9.3/R9.4).
  *
- * Bounds a runaway lane by watching its `tool-call` segments:
+ * Stops a looping lane by watching its `tool-call` segments. There is no
+ * tool-call budget: the vendor CLIs manage their own context, and a count
+ * says little about cost. The guard only counts calls (the count is reported
+ * in the completion signal) and catches a repeat loop:
  *
- * - At `steerAt` calls it asks for ONE steer message ("finish now").
- * - At `stopAt` calls it asks for a stop with `tool-call-budget`.
  * - When one identical call (tool name plus normalised `toolInput` JSON, else
  *   `toolArgs`, else the tool name alone) reaches `repeatAt` occurrences it
  *   asks for a stop with `repeat-call`. Cursor's adapter redacts or drops
  *   `toolInput`, so its keys can be coarser; that is accepted.
- * - File-edit calls (Write, Edit, Delete, ...) count toward the budget but not
- *   toward the repeat check: some adapters (Codex file changes) report only
+ * - File-edit calls (Write, Edit, Delete, ...) count toward the call count but
+ *   not toward the repeat check: some adapters (Codex file changes) report only
  *   the path, so repeated normal edits to one file would share a key.
  *
- * The guard only decides. The manager delivers the steer and performs the
- * stop. One guard per tracked lane, dropped with the lane, and {@link reset}
- * when the caller starts a new turn on it. No timers; each segment costs one
+ * The guard only decides. The manager performs the stop. One guard per
+ * tracked lane, dropped with the lane, and {@link reset} when the caller starts a new turn on it. No timers; each segment costs one
  * map update.
  */
 
@@ -35,10 +35,6 @@ const FILE_EDIT_TOOLS: ReadonlySet<string> = new Set([
 const MAX_COUNTED_IDS = 512;
 
 export interface LaneBudgetThresholds {
-  /** Tool calls after which ONE steer message is sent. */
-  readonly steerAt: number;
-  /** Tool calls after which the lane is stopped. */
-  readonly stopAt: number;
   /** Occurrences of one identical call after which the lane is stopped. */
   readonly repeatAt: number;
 }
@@ -46,15 +42,14 @@ export interface LaneBudgetThresholds {
 /** What the manager should do after a segment. */
 export type LaneBudgetAction =
   | { readonly kind: 'none' }
-  | { readonly kind: 'steer'; readonly message: string }
-  | { readonly kind: 'stop'; readonly stopReason: LaneStopReason };
+  | {
+      readonly kind: 'stop';
+      readonly stopReason: LaneStopReason;
+      /** How many times the repeated call ran when the stop was asked for. */
+      readonly repeats: number;
+    };
 
 const NONE: LaneBudgetAction = { kind: 'none' };
-
-/** The steer text sent once at the steer threshold. */
-export function laneBudgetSteerMessage(toolCalls: number): string {
-  return `You have made ${toolCalls} tool calls. Stop exploring, finish the deliverable now, and report.`;
-}
 
 /**
  * Not decorated for tsyringe: the manager builds one per lane with the
@@ -62,7 +57,6 @@ export function laneBudgetSteerMessage(toolCalls: number): string {
  */
 export class LaneBudgetGuard {
   private toolCalls = 0;
-  private steered = false;
   private stopped = false;
   private readonly repeats = new Map<string, number>();
   /** Call ids already counted, so start + completion segments count once. */
@@ -88,28 +82,20 @@ export class LaneBudgetGuard {
       const repeats = (this.repeats.get(key) ?? 0) + 1;
       this.repeats.set(key, repeats);
       if (repeats >= this.thresholds.repeatAt) {
-        return this.stop('repeat-call');
+        return this.stop('repeat-call', repeats);
       }
-    }
-    if (this.toolCalls >= this.thresholds.stopAt) {
-      return this.stop('tool-call-budget');
-    }
-    if (!this.steered && this.toolCalls >= this.thresholds.steerAt) {
-      this.steered = true;
-      return { kind: 'steer', message: laneBudgetSteerMessage(this.toolCalls) };
     }
     return NONE;
   }
 
   /**
-   * Start counting afresh for a new task the caller sent to the lane: counts,
-   * repeats and the one-time steer are cleared. A guard that already asked
+   * Start counting afresh for a new task the caller sent to the lane: counts
+   * and repeats are cleared. A guard that already asked
    * for a stop stays stopped.
    */
   reset(): void {
     if (this.stopped) return;
     this.toolCalls = 0;
-    this.steered = false;
     this.repeats.clear();
     this.countedIds.clear();
   }
@@ -141,10 +127,10 @@ export class LaneBudgetGuard {
     this.countedIds.add(id);
   }
 
-  private stop(stopReason: LaneStopReason): LaneBudgetAction {
+  private stop(stopReason: LaneStopReason, repeats: number): LaneBudgetAction {
     this.stopped = true;
     this.repeats.clear();
-    return { kind: 'stop', stopReason };
+    return { kind: 'stop', stopReason, repeats };
   }
 }
 

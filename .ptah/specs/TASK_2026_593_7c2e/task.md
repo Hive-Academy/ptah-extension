@@ -3,8 +3,7 @@ id: TASK_2026_593_7c2e
 status: in_progress
 type: FEATURE
 title: Unify inline notices into one global notification system (toasts + center)
-depends_on:
-  - TASK_2026_576_e16a
+depends_on: []
 created: '2026-10-02T14:51:00.000Z'
 updated: '2026-10-19T00:57:38.183Z'
 description: >-
@@ -19,7 +18,6 @@ labels:
   - notifications
   - ux
 relates_to:
-  - TASK_2026_576_e16a
   - TASK_2026_702_594d
 ---
 

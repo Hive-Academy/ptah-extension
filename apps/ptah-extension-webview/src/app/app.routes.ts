@@ -6,10 +6,7 @@ import {
 } from '@ptah-extension/core';
 import { SettingsComponent } from '@ptah-extension/chat';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
-import {
-  GenerationWorkflowShellComponent,
-  WizardViewComponent,
-} from '@ptah-extension/setup-wizard/app';
+import { onboardingFirstRunGuard } from '@ptah-extension/onboarding/services';
 
 import { electronOnlySurface } from './electron-only-surface.guard';
 
@@ -47,16 +44,17 @@ import { electronOnlySurface } from './electron-only-surface.guard';
  * **No routed surface is retained.** There is no `RouteReuseStrategy`: every
  * surface below is destroyed on leave and re-created on return, as under the
  * old `@switch`. Configuration surfaces re-mount on a workspace switch, and
- * `tasks` / `harness-builder` rely on construction-time work, so a stored
- * handle would be stale. Retaining one needs its mount-time work moved onto
+ * `tasks` relies on construction-time work, so a stored handle would be stale.
+ * Retaining it needs its mount-time work moved onto
  * `SURFACE_ACTIVE` edges first (TASK_2026_524 implementation plan, L3).
  *
  * Eagerness is chosen per surface, not by default:
- * - `chat` — no component to load.
- * - `setup-wizard` — EAGER. `ptah.setupAgents` opens a dedicated panel
- *   hardcoded to `initialView: 'setup-wizard'`, so it is a launch surface with
- *   a user already waiting; a module hop would be added to that wait for
- *   nothing.
+ * - `chat` — no component to load. `canActivate: [onboardingFirstRunGuard]`
+ *   sends the first Electron boot to `/onboarding/ready` once (TASK_2026_ONBOARDING);
+ *   every other path to chat passes straight through.
+ * - `onboarding` — `loadChildren`. Only the narrow
+ *   `@ptah-extension/onboarding/services` entry (the guard, flag and tracker)
+ *   is eager; the pages load with `ONBOARDING_ROUTES`.
  * - `settings` — EAGER. Startup-reachable (`initialView: 'settings'`), and the
  *   boot auth check in `AppShellComponent` navigates here when no credential
  *   is configured. It also lives in `@ptah-extension/chat`, which the shell
@@ -74,9 +72,6 @@ import { electronOnlySurface } from './electron-only-surface.guard';
  *   fallback lands on `chat`. Nothing eager may import
  *   `@ptah-extension/mcp-apps-page`; this dynamic import is its only entry.
  *
- * `harness-builder` and `setup-hub` both resolve out of
- * `@ptah-extension/harness-builder`, so ONE chunk serves both. That is
- * expected — do not restructure to force two.
  */
 export const appRoutes: Routes = [
   {
@@ -88,6 +83,10 @@ export const appRoutes: Routes = [
     // (`/chat/<tabId>`). It renders nothing either: `TabManagerService` owns the
     // active tab and `ChatTabRouteSync` keeps this segment in step with it.
     path: 'chat',
+    // First run only: an Electron boot with no `shownAt` in the onboarding
+    // flag is redirected to `/onboarding/ready`. Deep links to other surfaces never
+    // reach this guard.
+    canActivate: [onboardingFirstRunGuard],
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     ],
@@ -97,18 +96,12 @@ export const appRoutes: Routes = [
     ],
   },
   {
-    path: 'setup-wizard/generation/:workflow/:tabId',
+    path: 'onboarding',
     providers: [
-      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-wizard') },
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('onboarding') },
     ],
-    component: GenerationWorkflowShellComponent,
-  },
-  {
-    path: 'setup-wizard',
-    providers: [
-      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-wizard') },
-    ],
-    component: WizardViewComponent,
+    loadChildren: () =>
+      import('@ptah-extension/onboarding').then((m) => m.ONBOARDING_ROUTES),
   },
   {
     path: 'settings',
@@ -123,42 +116,6 @@ export const appRoutes: Routes = [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('analytics') },
     ],
     component: DashboardGridComponent,
-  },
-  {
-    path: 'harness-builder/:mode/:tabId',
-    providers: [
-      {
-        provide: SURFACE_ACTIVE,
-        useFactory: surfaceActiveFor('harness-builder'),
-      },
-    ],
-    loadComponent: () =>
-      import('@ptah-extension/harness-builder').then(
-        (m) => m.HarnessBuilderViewComponent,
-      ),
-  },
-  {
-    path: 'harness-builder',
-    providers: [
-      {
-        provide: SURFACE_ACTIVE,
-        useFactory: surfaceActiveFor('harness-builder'),
-      },
-    ],
-    loadComponent: () =>
-      import('@ptah-extension/harness-builder').then(
-        (m) => m.HarnessBuilderViewComponent,
-      ),
-  },
-  {
-    path: 'setup-hub',
-    providers: [
-      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-hub') },
-    ],
-    loadComponent: () =>
-      import('@ptah-extension/harness-builder').then(
-        (m) => m.SetupHubComponent,
-      ),
   },
   {
     path: 'thoth',

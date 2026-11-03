@@ -273,7 +273,7 @@ export class PiCliAdapter implements CliAdapter {
   /**
    * Path to Pi's auth file (`~/.pi/agent/auth.json`).
    * Prefers $HOME / $USERPROFILE over os.homedir() so tests that reassign HOME
-   * are honoured (mirrors CodexCliAdapter.getAuthPath()).
+   * are honoured (mirrors FileCodexLaneCredentialProbe.check()).
    */
   private static getAuthPath(): string {
     const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();

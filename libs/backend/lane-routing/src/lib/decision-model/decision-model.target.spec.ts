@@ -5,6 +5,9 @@ import {
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import {
+  DECISION_MODEL_TIMEOUT_MAX_MS,
+  DECISION_MODEL_TIMEOUT_MIN_MS,
+  DECISION_MODEL_TIMEOUT_SETTING_KEY,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
 } from '@ptah-extension/shared';
@@ -629,6 +632,65 @@ describe('resolveDecisionEndpoint', () => {
       expect(logged).not.toContain(key);
     }
   });
+});
+
+describe('resolveDecisionEndpoint request timeout setting', () => {
+  const TIMEOUT_CONFIG = `ptah.${DECISION_MODEL_TIMEOUT_SETTING_KEY}`;
+  const local = { kind: 'ollama', model: 'clef:27b' } as const;
+  const remote = { kind: 'ollama', model: 'clef:27b-cloud' } as const;
+
+  async function timeoutWith(
+    selection: DecisionEndpointSelection,
+    value: unknown,
+    secrets: Record<string, string> = {},
+  ): Promise<number> {
+    const config = value === undefined ? {} : { [TIMEOUT_CONFIG]: value };
+    const h = harness({ config, secrets });
+    return asEndpoint(await resolveDecisionEndpoint(selection, h.deps))
+      .timeoutMs;
+  }
+
+  it('keeps the locality defaults when the setting is unset', async () => {
+    await expect(timeoutWith(local, undefined)).resolves.toBe(LOCAL);
+    await expect(timeoutWith(remote, undefined)).resolves.toBe(REMOTE);
+  });
+
+  it('uses a configured value for both localities and every System One kind', async () => {
+    await expect(timeoutWith(local, 30_000)).resolves.toBe(30_000);
+    await expect(timeoutWith(remote, 30_000)).resolves.toBe(30_000);
+    await expect(
+      timeoutWith({ kind: 'jev', model: 'jev-1.13.0' }, 30_000, {
+        [DECISION_MODEL_JEV_SECRET_KEY]: JEV_KEY,
+      }),
+    ).resolves.toBe(30_000);
+    await expect(
+      timeoutWith({ kind: 'ollama-cloud', model: 'clef:27b' }, 30_000),
+    ).resolves.toBe(30_000);
+    await expect(
+      timeoutWith(
+        { kind: 'custom', baseUrl: 'http://10.0.0.5:8080', model: 'd3:4b' },
+        30_000,
+      ),
+    ).resolves.toBe(30_000);
+  });
+
+  it.each<[number, number]>([
+    [1, DECISION_MODEL_TIMEOUT_MIN_MS],
+    [999.4, DECISION_MODEL_TIMEOUT_MIN_MS],
+    [12_345.6, 12_346],
+    [60_001, DECISION_MODEL_TIMEOUT_MAX_MS],
+    [Number.MAX_SAFE_INTEGER, DECISION_MODEL_TIMEOUT_MAX_MS],
+  ])('rounds and clamps %p to %p', async (value, expected) => {
+    await expect(timeoutWith(local, value)).resolves.toBe(expected);
+  });
+
+  it.each<unknown>([null, '15000', 0, -5, Number.NaN, Infinity, true, {}])(
+    'ignores the invalid value %p',
+    async (value) => {
+      await expect(timeoutWith(local, value)).resolves.toBe(LOCAL);
+      await expect(timeoutWith(remote, value)).resolves.toBe(REMOTE);
+    },
+  );
 });
 
 describe('localityOfSelection', () => {

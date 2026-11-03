@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { CodexStderrTail, redactCodexDiagnostics } from './codex-stderr-tail';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
+  CodexRuntimeLogger,
   CodexExecutableSource,
   IProcessSpawner,
 } from './codex-runtime-ports';
@@ -11,6 +13,7 @@ import {
   type CodexBinaryIdentity,
 } from './codex-protocol-manifest';
 import {
+  CodexProtocolError,
   codexRequestSchemas,
   codexServerRequestSchemas,
   validateCodexFrame,
@@ -20,9 +23,15 @@ import {
   type CodexRequestResult,
 } from './codex-protocol-validator';
 
-const FRAME_BYTES = 1024 * 1024;
-const QUEUED_BYTES = 4 * FRAME_BYTES;
+const OUTBOUND_FRAME_BYTES = 1024 * 1024;
+const INBOUND_FRAME_BYTES = 16 * 1024 * 1024;
+const QUEUED_BYTES = 4 * OUTBOUND_FRAME_BYTES;
 const MAX_PENDING = 128;
+const MAX_BUFFERED_NOTIFICATIONS = 64;
+const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
+// Includes OS process start-up before the initialize response arrives.
+export const CODEX_INITIALIZE_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 type RequestMethod = Exclude<keyof typeof codexRequestSchemas, 'initialize'>;
 type ServerRequest = Extract<
   CodexProtocolFrame,
@@ -50,6 +59,16 @@ export interface CodexAppServerHandlers {
   ) => Promise<unknown>;
 }
 
+/**
+ * A signal death leaves exitCode null. The off-thread handle also reports
+ * signalCode and exitObserved, which the shared handle type does not declare.
+ */
+function childHasExited(child: SpawnedProcessHandle): boolean {
+  if (child.exitCode !== null) return true;
+  if ('signalCode' in child && child.signalCode != null) return true;
+  return 'exitObserved' in child && child.exitObserved === true;
+}
+
 /** One child and one handshake. Construct a new instance for a new generation. */
 export class CodexRequestRejectedError extends Error {
   readonly retryable = true;
@@ -57,6 +76,7 @@ export class CodexRequestRejectedError extends Error {
     readonly method: string,
     readonly rpcCode: number,
     readonly code: 'codexRequestRejected' | 'codexTurnNoLongerActive',
+    readonly threadNotFound = false,
   ) {
     super(
       code === 'codexTurnNoLongerActive'
@@ -76,8 +96,30 @@ export class CodexHomeMismatchError extends Error {
   }
 }
 
+export class CodexProcessFailureError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly method?: string,
+    options?: ErrorOptions,
+  ) {
+    super(reason, options);
+    this.name = 'CodexProcessFailureError';
+  }
+}
+
+class CodexInboundFrameLimitError extends Error {
+  constructor(readonly byteSize: number) {
+    super('Frame limit');
+  }
+}
+
 export class CodexAppServerProcess {
   private verifiedHome?: string;
+  private readonly stderr = new CodexStderrTail();
+
+  stderrTail(maxBytes?: number): string {
+    return this.stderr.tail(maxBytes);
+  }
 
   get verifiedCodexHome(): string | undefined {
     return this.verifiedHome;
@@ -89,15 +131,19 @@ export class CodexAppServerProcess {
   private closing = false;
   private closed = false;
   private ready = false;
+  private initializeResponseReceived = false;
+  private readonly bufferedNotifications: Notification[] = [];
+  private readonly unknownNotificationMethods = new Set<string>();
   private failure?: Error;
   private nextId = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly approvals = new Map<string | number, Approval>();
-  private frameBuffer = Buffer.alloc(FRAME_BYTES);
+  private frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
   private frameBytes = 0;
   private queuedBytes = 0;
   private killTimer?: Timer;
   private abortSignal?: AbortSignal;
+  private spawnStartedAt?: number;
 
   constructor(
     private readonly spawner: IProcessSpawner,
@@ -106,6 +152,7 @@ export class CodexAppServerProcess {
     private readonly binary: CodexBinaryIdentity,
     private readonly profile: CodexExecutionProfile,
     private readonly handlers: CodexAppServerHandlers,
+    private readonly logger?: CodexRuntimeLogger,
   ) {}
 
   start(signal?: AbortSignal): Promise<void> {
@@ -117,12 +164,17 @@ export class CodexAppServerProcess {
     try {
       this.assertOpen();
       if (signal?.aborted) throw new Error('Codex process aborted');
+      const pinVerification = verifyCodexBinary(
+        this.binary,
+        this.executable.expectedManifestRow,
+      );
       if (
         this.binary.executablePath !== this.executable.resolvedPath ||
-        verifyCodexBinary(this.binary, this.executable.expectedManifestRow)
-          .status !== 'ok'
+        pinVerification.status !== 'ok'
       )
         throw new Error('Codex executable pin mismatch');
+      const spawnStartedAt = Date.now();
+      this.spawnStartedAt = spawnStartedAt;
       this.child = this.spawner.spawnProcess({
         command: this.executable.resolvedPath,
         args: ['app-server'],
@@ -166,7 +218,7 @@ export class CodexAppServerProcess {
       this.child.stdout?.on('error', this.onError);
       this.child.stdin?.on('error', this.onError);
       this.child.stderr?.on('error', this.onError);
-      this.child.stderr?.resume();
+      this.child.stderr?.on('data', this.onStderr);
       this.abortSignal = signal;
       signal?.addEventListener('abort', this.onAbort, { once: true });
       if (signal?.aborted) this.onAbort();
@@ -181,9 +233,10 @@ export class CodexAppServerProcess {
             // The pinned schema requires true, including for granular approval policy.
             capabilities: { experimentalApi: true },
           },
-          10_000,
+          CODEX_INITIALIZE_TIMEOUT_MS,
         ),
       );
+      const startupDurationMs = Date.now() - spawnStartedAt;
       try {
         if (
           normalizeCodexHomeKey(initialized.codexHome, this.binary.platform) !==
@@ -200,9 +253,24 @@ export class CodexAppServerProcess {
       this.assertOpen();
       this.verifiedHome = this.profile.normalizedHome;
       this.ready = true;
+      for (const frame of this.bufferedNotifications) {
+        try {
+          this.handlers.onNotification(frame);
+          this.assertOpen();
+        } catch (error) {
+          this.fail('Codex invalid protocol frame', error, frame.method);
+          throw this.failure;
+        }
+      }
+      this.bufferedNotifications.length = 0;
+      this.logger?.info('Codex process started', {
+        binaryPath: this.executable.resolvedPath,
+        pinnedVersion: this.executable.expectedManifestRow.pinnedVersion,
+        pinStatus: pinVerification.status,
+        startupDurationMs,
+      });
     } catch (error) {
-      if (error instanceof CodexHomeMismatchError) this.failure ??= error;
-      this.fail('Codex initialization failed');
+      this.fail('Codex initialization failed', error, 'initialize');
       throw this.failure;
     }
   }
@@ -213,8 +281,19 @@ export class CodexAppServerProcess {
   ): Promise<CodexRequestResult<M>> {
     this.assertOpen();
     if (!this.ready) throw new Error('Codex process not initialized');
-    const result = await this.sendRequest(method, params, 30_000);
-    return validateCodexResult(method, result);
+    const result = await this.sendRequest(method, params, REQUEST_TIMEOUT_MS);
+    try {
+      return validateCodexResult(method, result);
+    } catch (error) {
+      // receive() normally validates first; keep the same safe diagnostic if
+      // a future schema transform makes this second validation fail.
+      if (error instanceof CodexProtocolError && error.code === 'invalidResult')
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(method),
+          issues: JSON.stringify(error.issues),
+        });
+      throw error;
+    }
   }
 
   private sendRequest(
@@ -230,30 +309,38 @@ export class CodexAppServerProcess {
     validateCodexFrame({ id, method, params });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.fail('Codex request timed out'),
+        () => this.fail('Codex request timed out', undefined, method),
         timeout,
       );
       this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });
-      } catch {
-        this.fail('Codex request write failed');
+      } catch (error) {
+        this.fail('Codex request write failed', error, method);
       }
     });
   }
 
   private readonly onData = (chunk: unknown): void => {
     if (this.closing) return;
+    let method: string | undefined;
     try {
       if (!Buffer.isBuffer(chunk)) throw new Error('Invalid stream chunk');
       let offset = 0;
       while (offset < chunk.length && !this.closing) {
+        method = undefined;
         const newline = chunk.indexOf(10, offset);
         const end = newline < 0 ? chunk.length : newline;
         const length = end - offset;
-        if (this.frameBytes + length > FRAME_BYTES)
-          throw new Error('Frame limit');
-        // Fixed storage also bounds allocation overhead for single-byte fragmentation.
+        const byteSize = this.frameBytes + length;
+        if (byteSize > INBOUND_FRAME_BYTES)
+          throw new CodexInboundFrameLimitError(byteSize);
+        // Grow only when needed; small frames retain the cheap initial buffer.
+        if (byteSize > this.frameBuffer.length)
+          this.frameBuffer = Buffer.concat(
+            [this.frameBuffer],
+            Math.min(INBOUND_FRAME_BYTES, Math.max(byteSize, this.frameBuffer.length * 2)),
+          );
         chunk.copy(this.frameBuffer, this.frameBytes, offset, end);
         this.frameBytes += length;
         if (newline < 0) break;
@@ -262,11 +349,22 @@ export class CodexAppServerProcess {
         const value: unknown = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         );
+        // The frame is consumed; return a grown buffer to the cheap initial
+        // size so one large response does not stay allocated for the process
+        // lifetime. frameBytes is 0 here, so no partial frame is lost.
+        if (this.frameBuffer.length > OUTBOUND_FRAME_BYTES)
+          this.frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
+        if (typeof value === 'object' && value !== null) {
+          if ('method' in value && typeof value.method === 'string')
+            method = value.method;
+          else if ('id' in value && typeof value.id === 'number')
+            method = this.pending.get(value.id)?.method;
+        }
         this.receive(value);
         offset = end + 1;
       }
-    } catch {
-      this.fail('Codex invalid protocol frame');
+    } catch (error) {
+      this.fail('Codex invalid protocol frame', error, method);
     }
   };
 
@@ -304,7 +402,52 @@ export class CodexAppServerProcess {
       );
       return;
     }
-    const frame = validateCodexFrame(value, pending?.method);
+    let frame: CodexProtocolFrame;
+    try {
+      frame = validateCodexFrame(value, pending?.method);
+    } catch (error) {
+      // unknownMethod is raised only after envelope validation. Requests and
+      // malformed envelopes must retain their existing failure behaviour.
+      if (
+        error instanceof CodexProtocolError &&
+        error.code === 'unknownMethod' &&
+        typeof value === 'object' &&
+        value !== null &&
+        !('id' in value) &&
+        'method' in value &&
+        typeof value.method === 'string'
+      ) {
+        if (
+          !this.unknownNotificationMethods.has(value.method) &&
+          this.unknownNotificationMethods.size < MAX_UNKNOWN_NOTIFICATION_METHODS
+        ) {
+          this.unknownNotificationMethods.add(value.method);
+          this.logger?.debug('Codex unknown notification ignored', {
+            method: redactCodexDiagnostics(value.method),
+          });
+        }
+        return;
+      }
+      // A known response result is request-local. The validator checks the
+      // envelope first, so malformed framing still fails closed in onData.
+      if (
+        pending &&
+        typeof id === 'number' &&
+        error instanceof CodexProtocolError &&
+        error.code === 'invalidResult' &&
+        error.method === pending.method
+      ) {
+        clearTimeout(pending.timer);
+        this.pending.delete(id);
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(pending.method),
+          issues: JSON.stringify(error.issues),
+        });
+        pending.reject(error);
+        return;
+      }
+      throw error;
+    }
     if ('method' in frame) {
       if ('id' in frame) {
         if (
@@ -314,8 +457,14 @@ export class CodexAppServerProcess {
           throw new Error('Unexpected server request');
         this.dispatchApproval(frame);
       } else {
-        if (!this.ready || frame.method === 'initialized')
+        if (!this.initializeResponseReceived || frame.method === 'initialized')
           throw new Error('Unexpected notification');
+        if (!this.ready) {
+          if (this.bufferedNotifications.length >= MAX_BUFFERED_NOTIFICATIONS)
+            throw new Error('Codex pre-ready notification buffer limit reached');
+          this.bufferedNotifications.push(frame);
+          return;
+        }
         this.handlers.onNotification(frame);
       }
       return;
@@ -325,6 +474,11 @@ export class CodexAppServerProcess {
     clearTimeout(pending.timer);
     this.pending.delete(frame.id);
     if ('error' in frame) {
+      this.logger?.debug('Codex request rejected', {
+        reason: 'Codex request rejected',
+        method: redactCodexDiagnostics(pending.method),
+        rpcCode: frame.error.code,
+      });
       const race =
         (pending.method === 'turn/steer' ||
           pending.method === 'turn/interrupt') &&
@@ -336,9 +490,14 @@ export class CodexAppServerProcess {
           pending.method,
           frame.error.code,
           race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
+          pending.method === 'thread/read' &&
+            /^thread(?: [^\r\n]{1,200})? not found\.?$/i.test(frame.error.message),
         ),
       );
-    } else pending.resolve(frame.result);
+    } else {
+      if (pending.method === 'initialize') this.initializeResponseReceived = true;
+      pending.resolve(frame.result);
+    }
   }
 
   private dispatchApproval(frame: ServerRequest): void {
@@ -346,7 +505,7 @@ export class CodexAppServerProcess {
       throw new Error('Approval limit or duplicate');
     const controller = new AbortController();
     const timer = setTimeout(
-      () => this.fail('Codex approval timed out'),
+      () => this.fail('Codex approval timed out', undefined, frame.method),
       300_000,
     );
     const approval = { controller, timer };
@@ -362,7 +521,9 @@ export class CodexAppServerProcess {
         clearTimeout(timer);
         this.approvals.delete(frame.id);
       })
-      .catch(() => this.fail('Codex server request failed'));
+      .catch((error: unknown) =>
+        this.fail('Codex server request failed', error, frame.method),
+      );
   }
 
   private write(frame: unknown, responseMethod?: string): void {
@@ -370,7 +531,7 @@ export class CodexAppServerProcess {
     validateCodexFrame(frame, responseMethod);
     const bytes = Buffer.from(JSON.stringify(frame) + '\n');
     if (
-      bytes.length - 1 > FRAME_BYTES ||
+      bytes.length - 1 > OUTBOUND_FRAME_BYTES ||
       this.queuedBytes + bytes.length > QUEUED_BYTES
     )
       throw new Error('Codex outbound queue limit reached');
@@ -378,7 +539,7 @@ export class CodexAppServerProcess {
     this.queuedBytes += bytes.length;
     this.child.stdin.write(bytes, (error?: Error | null) => {
       this.queuedBytes = Math.max(0, this.queuedBytes - bytes.length);
-      if (error) this.fail('Codex stdin failed');
+      if (error) this.fail('Codex stdin failed', error, responseMethod);
     });
   }
 
@@ -386,8 +547,12 @@ export class CodexAppServerProcess {
     if (this.closing || this.failure)
       throw this.failure ?? new Error('Codex process closed');
   }
-  private readonly onError = (): void => {
-    this.fail('Codex process failed');
+  private readonly onStderr = (chunk: unknown): void => {
+    if (typeof chunk === 'string' || Buffer.isBuffer(chunk))
+      this.stderr.append(chunk);
+  };
+  private readonly onError = (error: unknown): void => {
+    this.fail('Codex process failed', error);
   };
   private readonly onAbort = (): void => {
     this.fail('Codex process aborted');
@@ -402,19 +567,76 @@ export class CodexAppServerProcess {
     this.finishClose?.();
   };
 
-  private fail(message: string): void {
-    this.failure ??= new Error(message);
+  private fail(message: string, cause?: unknown, method?: string): void {
+    const first = !this.failure;
+    const failedMethod =
+      method ??
+      (cause instanceof CodexProtocolError ||
+      cause instanceof CodexRequestRejectedError
+        ? cause.method
+        : undefined) ??
+      (this.pending.size === 1
+        ? this.pending.values().next().value?.method
+        : undefined);
+    this.failure ??=
+      cause instanceof CodexHomeMismatchError
+        ? cause
+        : new CodexProcessFailureError(message, failedMethod, { cause });
+    if (first) {
+      const spawnStartedAt = this.spawnStartedAt;
+      const initializeTimeout =
+        message === 'Codex request timed out' &&
+        failedMethod === 'initialize' &&
+        spawnStartedAt !== undefined;
+      const metadata = {
+        reason: message,
+        ...(failedMethod
+          ? { method: redactCodexDiagnostics(failedMethod) }
+          : {}),
+        ...(cause instanceof CodexRequestRejectedError
+          ? { rpcCode: cause.rpcCode }
+          : {}),
+        ...(cause instanceof CodexInboundFrameLimitError
+          ? { byteSize: cause.byteSize }
+          : {}),
+        ...(initializeTimeout && spawnStartedAt !== undefined
+          ? {
+              elapsedMs: Date.now() - spawnStartedAt,
+              timeoutMs: CODEX_INITIALIZE_TIMEOUT_MS,
+            }
+          : {}),
+      };
+      if (initializeTimeout)
+        this.logger?.warn('Codex process failure', metadata);
+      else this.logger?.debug('Codex process failure', metadata);
+    }
     void this.close();
   }
 
   /** Stops sends immediately; forces kill and releases listeners after a one-second ceiling. */
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
+    // The context may observe child exit first and close us before our own
+    // exit/close listener runs. Preserve the outstanding RPC method then.
+    if (
+      !this.failure &&
+      this.child &&
+      childHasExited(this.child) &&
+      this.pending.size > 0
+    ) {
+      const method =
+        this.pending.size === 1
+          ? this.pending.values().next().value?.method
+          : undefined;
+      this.failure = new CodexProcessFailureError('Codex process exited', method);
+    }
     this.closePromise = new Promise<void>((resolve) => {
       this.finishClose = resolve;
     });
     this.closing = true;
     this.ready = false;
+    this.bufferedNotifications.length = 0;
+    this.unknownNotificationMethods.clear();
     const error = this.failure ?? new Error('Codex process closed');
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
@@ -469,6 +691,7 @@ export class CodexAppServerProcess {
     this.child?.stdout?.off('error', this.onError);
     this.child?.stdin?.off('error', this.onError);
     this.child?.stderr?.off('error', this.onError);
+    this.child?.stderr?.off('data', this.onStderr);
     this.queuedBytes = 0;
   }
 }

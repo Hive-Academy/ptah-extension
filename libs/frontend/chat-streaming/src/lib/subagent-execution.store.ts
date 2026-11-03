@@ -6,6 +6,7 @@ import {
   untracked,
   type Signal,
   type WritableSignal,
+  type OnDestroy,
 } from '@angular/core';
 import {
   createEmptyStreamingState,
@@ -34,6 +35,7 @@ import {
   rewriteSubagentEvent,
 } from './subagent-execution-history-merge';
 import { SubagentExecutionOwnership } from './subagent-execution-ownership';
+import { SubagentLiveRefreshTracker } from './subagent-live-refresh';
 import {
   ENTRY_EVENT_CAP,
   FINALIZED_ENTRY_CAP,
@@ -46,6 +48,7 @@ import {
 const HISTORY_EVENT_CAP = 10000;
 const HISTORY_PAGE_CAP = 100;
 const HISTORY_PAGE_BYTES = 256 * 1024;
+const TERMINAL_DRAIN_MS = 1500;
 const TERMINAL_STATUSES: ReadonlySet<SubagentRecord['status']> = new Set([
   'completed',
   'failed',
@@ -70,6 +73,13 @@ const RETRYABLE_HISTORY: ReadonlySet<SubagentHistoryState> = new Set([
   'error',
   'unresolved',
 ]);
+
+interface HistorySnapshot {
+  readonly status: 'ok' | 'not-found' | 'unresolved';
+  readonly events: FlatStreamEventUnion[];
+  readonly clipped: number;
+  readonly truncated: boolean;
+}
 
 export interface SubagentExecutionEntryView {
   readonly state: StreamingState | null;
@@ -99,12 +109,13 @@ export interface SubagentExecutionEntry {
   lastEventAt: number;
   refs: number;
   idAlias: Map<string, string>;
+  restoredEventIds: Set<string>;
   revision: number;
 }
 
 /** Keeps each SDK subagent's execution outside the parent tab's turn state. */
 @Injectable({ providedIn: 'root' })
-export class SubagentExecutionStore {
+export class SubagentExecutionStore implements OnDestroy {
   private readonly accumulator = inject(StreamingAccumulatorCore);
   private readonly builder = inject(ExecutionTreeBuilderService);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -134,6 +145,7 @@ export class SubagentExecutionStore {
     this._entries.asReadonly();
   private readonly ownership = new SubagentExecutionOwnership();
   private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly liveRefresh = new SubagentLiveRefreshTracker();
   private readonly overflowWarned = new Set<string>();
   private readonly continuationStarts = new Map<
     string,
@@ -146,6 +158,10 @@ export class SubagentExecutionStore {
   private readClock = 0;
   private readonly lastRead = new Map<string, number>();
   private readonly syncedRecords = new Map<string, SubagentRecord>();
+  private readonly finalizationTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   constructor() {
     effect(() => {
@@ -157,6 +173,11 @@ export class SubagentExecutionStore {
         this.syncRecord(record);
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    for (const timer of this.finalizationTimers.values()) clearTimeout(timer);
+    this.finalizationTimers.clear();
   }
 
   private publish(entry?: SubagentExecutionEntry): void {
@@ -212,6 +233,7 @@ export class SubagentExecutionStore {
         lastEventAt: 0,
         refs: 0,
         idAlias: new Map(),
+        restoredEventIds: new Set(),
         revision: 0,
       };
       this.mutableEntries.set(key, entry);
@@ -233,11 +255,36 @@ export class SubagentExecutionStore {
     if (record.lastEventAt)
       entry.lastEventAt = Math.max(entry.lastEventAt, record.lastEventAt);
     if (TERMINAL_STATUSES.has(record.status)) {
-      this.finalize(key);
+      this.settleRecord(key, record);
     } else {
+      this.clearFinalizationTimer(key);
       entry.live = true;
       this.publish(entry);
     }
+  }
+
+  private settleRecord(key: string, record: SubagentRecord): void {
+    if (record.settledFromHistory) this.finalize(key);
+    else this.scheduleFinalize(key);
+  }
+
+  private scheduleFinalize(key: string): void {
+    const entry = this.mutableEntries.get(key);
+    if (!entry?.live) return;
+    this.clearFinalizationTimer(key);
+    const timer = setTimeout(() => {
+      if (this.finalizationTimers.get(key) !== timer) return;
+      this.finalizationTimers.delete(key);
+      if (this.mutableEntries.get(key) === entry) this.finalize(key);
+    }, TERMINAL_DRAIN_MS);
+    this.finalizationTimers.set(key, timer);
+  }
+
+  private clearFinalizationTimer(key: string): void {
+    const timer = this.finalizationTimers.get(key);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.finalizationTimers.delete(key);
   }
 
   /**
@@ -251,10 +298,14 @@ export class SubagentExecutionStore {
     sessionId: string | undefined,
   ): void {
     if (!sessionId || entry.sessionId === sessionId) return;
+    const key = this.entryKeys.get(entry);
+    if (key) this.clearFinalizationTimer(key);
     entry.sessionId = sessionId;
     // A load in flight pages the old session; drop it so the next load
-    // starts over in the new one.
-    if (entry.history === 'loading') this.abort(entry);
+    // starts over in the new one. That includes a silent live refresh.
+    if (entry.history === 'loading' || (key && this.inFlight.has(key)))
+      this.abort(entry);
+    if (key) this.liveRefresh.reset(key);
     if (RETRYABLE_HISTORY.has(entry.history)) {
       entry.history = 'idle';
       entry.historyError = undefined;
@@ -320,7 +371,8 @@ export class SubagentExecutionStore {
       const record =
         this.syncedRecords.get(key) ??
         this.agentMonitorStore.subagents?.().get(key);
-      if (record && TERMINAL_STATUSES.has(record.status)) this.finalize(key);
+      if (record && TERMINAL_STATUSES.has(record.status))
+        this.settleRecord(key, record);
       return true;
     } catch (error) {
       this.logger.error(
@@ -398,7 +450,45 @@ export class SubagentExecutionStore {
     ];
   }
 
+  /** Recover a completed child from a resume page when live ownership did not retain it. */
+  restoreHistoryChild(
+    key: string,
+    sessionId: string,
+    agentId: string | undefined,
+    events: readonly FlatStreamEventUnion[],
+  ): boolean {
+    const existing = this.mutableEntries.get(key);
+    const record = this.syncedRecords.get(key) ?? this.agentMonitorStore.subagents?.().get(key);
+    if (
+      events.length === 0 ||
+      (record && !TERMINAL_STATUSES.has(record.status)) ||
+      (existing && events.every((event) => existing.restoredEventIds.has(event.id))) ||
+      (existing && (
+        existing.history === 'loading' ||
+        (existing.live && existing.lastEventAt > 0 && !record)
+      ))
+    ) return false;
+    const entry = this.open(key, sessionId);
+    if (agentId) entry.agentId = agentId;
+    // Native history is a complete child snapshot. Replace earlier finalized
+    // fragments; the merger preserves any still-active state by event id.
+    entry.finalized = [];
+    mergeSubagentHistory(
+      key,
+      entry,
+      events,
+      this.accumulator,
+      this.builder,
+      this.context(undefined, true),
+    );
+    entry.restoredEventIds = new Set(events.map((event) => event.id));
+    this.finalize(key);
+    this.publish(entry);
+    return this.treeFor(key).length > 0;
+  }
+
   finalize(key: string): void {
+    this.clearFinalizationTimer(key);
     const entry = this.mutableEntries.get(key);
     if (!entry) return;
     if (entry.state) {
@@ -460,7 +550,7 @@ export class SubagentExecutionStore {
         this.syncedRecords.get(key) ??
         this.agentMonitorStore.subagents?.().get(key);
       if (record && TERMINAL_STATUSES.has(record.status) && entry.live)
-        this.finalize(key);
+        this.settleRecord(key, record);
       this.lastRead.set(key, ++this.readClock);
       this.publish(entry);
     });
@@ -470,7 +560,11 @@ export class SubagentExecutionStore {
     const entry = this.mutableEntries.get(key);
     if (!entry || entry.refs === 0) return;
     entry.refs--;
-    if (entry.refs === 0 && entry.history === 'loading') this.abort(entry);
+    if (
+      entry.refs === 0 &&
+      (entry.history === 'loading' || this.inFlight.has(key))
+    )
+      this.abort(entry);
     if (
       entry.refs === 0 &&
       !entry.sessionId &&
@@ -521,12 +615,14 @@ export class SubagentExecutionStore {
       entry.state = null;
       entry.spilled = true;
       entry.history = 'idle';
+      this.liveRefresh.reset(key);
       this.builder.clearCache(`subagent-${key}`);
       this.publish(entry);
     }
   }
 
   private remove(key: string, entry: SubagentExecutionEntry): void {
+    this.clearFinalizationTimer(key);
     this.abort(entry);
     this.mutableEntries.delete(key);
     this.entryViews.delete(key);
@@ -535,6 +631,7 @@ export class SubagentExecutionStore {
     this.keyRevisions.get(key)?.update((value) => value + 1);
     this.keyRevisions.delete(key);
     this.ownership.drop(key);
+    this.liveRefresh.reset(key);
     entry.idAlias.clear();
     this.lastRead.delete(key);
     this.overflowWarned.delete(key);
@@ -576,14 +673,49 @@ export class SubagentExecutionStore {
     )
       return;
     const active = this.inFlight.get(key);
-    if (active) return active;
+    if (active && entry.history === 'loading') return active;
+    // Anything else in flight is a silent live refresh; the explicit load
+    // supersedes it rather than waiting on a read that changes no state.
+    if (active) entry.generation++;
     entry.history = 'loading';
     entry.historyError = undefined;
     this.publish(entry);
+    return this.startLoad(key, entry, false);
+  }
+
+  /**
+   * Backfills a live agent's tree from its sidechain transcript. A background
+   * agent's child messages may never reach the stream (only `task_progress`
+   * summaries do), so its transcript on disk is the only source of its tree
+   * while it runs. Unlike `ensureHistory` this read is repeatable and silent:
+   * it leaves `history` as it was, so the lane shows no loading state on every
+   * refresh, a transcript not written yet is retried on the next call, and
+   * the authoritative load still runs once the agent finalizes.
+   */
+  async refreshLiveHistory(key: string): Promise<void> {
+    const entry = this.mutableEntries.get(key);
+    if (!entry || !entry.live || !entry.sessionId) return;
+    if (entry.history === 'loading') return;
+    const active = this.inFlight.get(key);
+    if (active) return active;
+    // Failed refreshes back off instead of re-reading every interval.
+    if (!this.liveRefresh.canRefresh(key, Date.now())) return;
+    return this.startLoad(key, entry, true);
+  }
+
+  private async startLoad(
+    key: string,
+    entry: SubagentExecutionEntry,
+    silent: boolean,
+  ): Promise<void> {
     const generation = entry.generation;
+    // A silent refresh that finishes after the agent finalized would rebuild
+    // the finalized tree from a stale snapshot; the final load supersedes it.
     const valid = () =>
-      this.mutableEntries.get(key) === entry && entry.generation === generation;
-    const loading = this.loadHistory(key, entry, valid);
+      this.mutableEntries.get(key) === entry &&
+      entry.generation === generation &&
+      (!silent || entry.live);
+    const loading = this.loadHistory(key, entry, valid, silent);
     this.inFlight.set(key, loading);
     try {
       await loading;
@@ -592,18 +724,26 @@ export class SubagentExecutionStore {
     }
   }
 
-  private async loadHistory(
+  /**
+   * Pages the agent's transcript into one snapshot. A transcript that grows
+   * between pages can expire the cursor (`HISTORY_CURSOR_STALE`); the read
+   * then restarts once from the first page. `null` means the request was
+   * superseded.
+   */
+  private async fetchSnapshot(
     key: string,
     entry: SubagentExecutionEntry,
     valid: () => boolean,
-  ): Promise<void> {
-    const snapshot: FlatStreamEventUnion[] = [];
-    let cursor: string | undefined;
-    let clipped = 0;
-    let truncated = false;
-    const cursors = new Set<string>();
-    let pages = 0;
-    try {
+  ): Promise<HistorySnapshot | null> {
+    let restarted = false;
+    for (;;) {
+      const snapshot: FlatStreamEventUnion[] = [];
+      let cursor: string | undefined;
+      let clipped = 0;
+      let truncated = false;
+      const cursors = new Set<string>();
+      let pages = 0;
+      let stale = false;
       while (valid()) {
         const response = await this.rpc.call('subagent:history-page', {
           sessionId: entry.sessionId!,
@@ -612,16 +752,22 @@ export class SubagentExecutionStore {
           cursor,
           maxBytes: HISTORY_PAGE_BYTES,
         });
-        if (!valid()) return;
-        if (!response.isSuccess())
+        if (!valid()) return null;
+        if (!response.isSuccess()) {
+          if (
+            response.errorCode === 'HISTORY_CURSOR_STALE' &&
+            cursor !== undefined &&
+            !restarted
+          ) {
+            stale = true;
+            break;
+          }
           throw new Error(response.error ?? 'History request failed');
+        }
         const page = response.data;
         if (page.agentId) entry.agentId = page.agentId;
-        if (page.status !== 'ok') {
-          entry.history = page.status;
-          this.publish(entry);
-          return;
-        }
+        if (page.status !== 'ok')
+          return { status: page.status, events: [], clipped: 0, truncated };
         pages++;
         if (pages > HISTORY_PAGE_CAP)
           throw new Error('Agent history page limit exceeded');
@@ -638,25 +784,84 @@ export class SubagentExecutionStore {
         cursors.add(page.nextCursor);
         cursor = page.nextCursor;
       }
-      if (!valid()) return;
-      truncated ||= mergeSubagentHistory(
-        key,
-        entry,
-        snapshot,
-        this.accumulator,
-        this.builder,
-        this.context(undefined, true),
-      );
-      entry.clipped = clipped;
+      if (!valid()) return null;
+      if (!stale) return { status: 'ok', events: snapshot, clipped, truncated };
+      restarted = true;
+    }
+  }
+
+  private async loadHistory(
+    key: string,
+    entry: SubagentExecutionEntry,
+    valid: () => boolean,
+    silent: boolean,
+  ): Promise<void> {
+    try {
+      const result = await this.fetchSnapshot(key, entry, valid);
+      if (!result) return;
+      if (result.status !== 'ok') {
+        // A running agent's transcript may not exist yet; keep the state so
+        // a later refresh retries, backing off once it stays missing.
+        if (silent) {
+          this.liveRefresh.missing(key, Date.now());
+          return;
+        }
+        entry.history = result.status;
+        this.publish(entry);
+        return;
+      }
+      const snapshot = result.events;
+      if (silent) {
+        // An unchanged or still-empty transcript adds nothing to the tree.
+        if (this.liveRefresh.unchanged(key, snapshot) || snapshot.length === 0)
+          return;
+        // The transcript is the whole run, including any earlier run of a
+        // resumed agent that `finalize` moved into `finalized`; keeping both
+        // would show those messages twice.
+        entry.finalized = [];
+      } else {
+        this.liveRefresh.reset(key);
+      }
+      const truncated =
+        mergeSubagentHistory(
+          key,
+          entry,
+          snapshot,
+          this.accumulator,
+          this.builder,
+          this.context(undefined, true),
+          { dropRepeatedText: silent },
+        ) || result.truncated;
+      if (silent) this.liveRefresh.merged(key, snapshot);
+      entry.clipped = result.clipped;
       entry.truncated = truncated;
-      entry.history = 'loaded';
+      if (!silent) entry.history = 'loaded';
       entry.spilled = false;
       this.publish(entry);
       this.enforceLiveCap(key);
     } catch (error) {
       // degradation-audit: reported - a superseded request returns early;
       // a current one records history 'error' and logs the failure below.
+      // A failed silent refresh backs off and is retried, so a transcript
+      // that is not readable yet never shows an error state; a failure that
+      // persists is warned about once.
       if (!valid()) return;
+      if (silent) {
+        const persistent = this.liveRefresh.failed(key, Date.now());
+        if (persistent)
+          this.logger.warn(
+            'SubagentExecutionStore',
+            `Live history refresh keeps failing for ${key}`,
+            error,
+          );
+        else
+          this.logger.debug(
+            'SubagentExecutionStore',
+            'Live history refresh failed',
+            error,
+          );
+        return;
+      }
       entry.history = 'error';
       entry.historyError =
         error instanceof Error ? error.message : 'History request failed';

@@ -175,7 +175,7 @@ export const PLUGIN_SETTINGS_POINTER_COPY =
         data-testid="clones-desktop-notice"
       >
         <p class="text-sm font-medium">
-          Skill clones are only available in the Ptah desktop app.
+          Skill clones are only available in the PtahCode desktop app.
         </p>
       </div>
     } @else {
@@ -774,12 +774,12 @@ export class SkillClonesViewComponent implements OnInit {
   }
 
   /**
-   * A-nav: the same navigation the Setup hub uses to open the wizard
-   * (`AppStateManager.setCurrentView('setup-wizard')`). No-op while the app
+   * A-nav: open onboarding Home through
+   * `AppStateManager.setCurrentView('onboarding')`. No-op while the app
    * cannot switch views.
    */
   protected onOpenSetupWizard(): void {
-    this.appState.setCurrentView('setup-wizard');
+    this.appState.setCurrentView('onboarding');
   }
 
   /**

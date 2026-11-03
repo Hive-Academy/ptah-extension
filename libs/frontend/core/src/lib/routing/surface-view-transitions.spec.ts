@@ -130,7 +130,6 @@ describe('surface view transitions', () => {
     if (originalMatch) Object.defineProperty(globalThis, 'matchMedia', originalMatch);
     else Reflect.deleteProperty(globalThis, 'matchMedia');
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
     expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
   });
 
@@ -300,60 +299,38 @@ describe('SurfaceTransitionTracker', () => {
     tracker = TestBed.inject(SurfaceTransitionTracker);
   });
 
-  it('marks the live entrance after the update and clears both classes on settle', async () => {
+  it('marks the transition before capture and changes no class at update time', async () => {
     let finishUpdate: () => void = () => undefined;
     const updateCallbackDone = new Promise<void>((resolve) => { finishUpdate = resolve; });
     const stub = makeTransition();
     tracker.track({ ...stub.transition, updateCallbackDone });
 
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(true);
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
+    const before = document.documentElement.className;
+    // The browser captures the new state as it resolves updateCallbackDone, so
+    // a class added in a then() handler would miss that capture.
     finishUpdate();
     await Promise.resolve();
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(true);
+    expect(document.documentElement.className).toBe(before);
 
     stub.finish();
     await Promise.resolve();
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
   });
 
-  it('ignores a superseded update and clears the latest entrance on settle', async () => {
-    let finishFirstUpdate: () => void = () => undefined;
-    let finishSecondUpdate: () => void = () => undefined;
-    let finishThirdUpdate: () => void = () => undefined;
-    const firstUpdate = new Promise<void>((resolve) => { finishFirstUpdate = resolve; });
-    const secondUpdate = new Promise<void>((resolve) => { finishSecondUpdate = resolve; });
-    const thirdUpdate = new Promise<void>((resolve) => { finishThirdUpdate = resolve; });
+  it('keeps the class until the latest of overlapping transitions settles', async () => {
     const first = makeTransition();
     const second = makeTransition();
-    const third = makeTransition();
 
-    tracker.track({ ...first.transition, updateCallbackDone: firstUpdate });
-    finishFirstUpdate();
-    await Promise.resolve();
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(true);
-
-    tracker.track({ ...second.transition, updateCallbackDone: secondUpdate });
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
+    tracker.track(first.transition);
+    tracker.track(second.transition);
     first.finish();
     await Promise.resolve();
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(true);
-    tracker.track({ ...third.transition, updateCallbackDone: thirdUpdate });
-    finishSecondUpdate();
-    await Promise.resolve();
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
-    finishThirdUpdate();
-    await Promise.resolve();
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(true);
 
     second.finish();
     await Promise.resolve();
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(true);
-    third.finish();
-    await Promise.resolve();
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
-    expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
   });
 
   it('skips the active transition on capture-phase pointerdown', () => {

@@ -38,6 +38,7 @@ export {
 } from './lib/model-refresh-control';
 export type { LiveModelStatsPayload } from './lib/tab-state.types';
 export { isValidSessionStatsSnapshot } from './lib/session-stats-snapshot';
+export { contextFillStats } from './lib/live-context-stats';
 export {
   TabId,
   ConversationId,

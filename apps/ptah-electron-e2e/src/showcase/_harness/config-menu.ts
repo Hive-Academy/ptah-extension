@@ -1,9 +1,10 @@
 import type { Page } from '@playwright/test';
 import type { Director } from './director';
 
-export type ConfigSurfaceId = 'thoth' | 'setup-hub' | 'marketplace' | 'settings';
+export type ConfigSurfaceId =
+  'thoth' | 'onboarding' | 'marketplace' | 'settings';
 
-// Thoth, Marketplace and Settings are navbar icon buttons; Setup hub is a
+// Thoth, Marketplace and Settings are navbar icon buttons; Setup is a
 // navbar tab with a workspace open and an icon button on the welcome screen.
 // All keep the `config-menu-item-<id>` hook and are visible without opening
 // anything.
@@ -11,7 +12,8 @@ const ITEMS = '[data-test^="config-menu-item-"]';
 const SILENT_TIMEOUT = 2_000;
 
 function itemFor(page: Page, id: ConfigSurfaceId) {
-  return page.locator(`[data-test="config-menu-item-${id}"]`);
+  const hook = id === 'onboarding' ? 'setup-hub' : id;
+  return page.locator(`[data-test="config-menu-item-${hook}"]`);
 }
 
 /** Enter a configuration surface with the click recorded by the camera. */
@@ -51,12 +53,14 @@ export async function activeConfigSurface(
   try {
     const item = page.locator(`${ITEMS}[aria-current="true"]`).first();
     if (!(await item.isVisible())) return null;
-    const hook = await item.getAttribute('data-test', { timeout: SILENT_TIMEOUT });
+    const hook = await item.getAttribute('data-test', {
+      timeout: SILENT_TIMEOUT,
+    });
     switch (hook) {
       case 'config-menu-item-thoth':
         return 'thoth';
       case 'config-menu-item-setup-hub':
-        return 'setup-hub';
+        return 'onboarding';
       case 'config-menu-item-marketplace':
         return 'marketplace';
       case 'config-menu-item-settings':

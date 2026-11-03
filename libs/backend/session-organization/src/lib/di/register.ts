@@ -10,7 +10,12 @@
  *  - `PLATFORM_TOKENS.OUTPUT_CHANNEL` (platform-core).
  *
  * Post-conditions, only when the SQLite connection token is registered:
- *  - store, service and capture service resolve as singletons;
+ *  - store, service, capture service, auto-link store and services (the
+ *    auto-link service also needs `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER` and
+ *    the two prompt registries; the task index service is optional) resolve
+ *    as singletons;
+ *  - `SESSION_ORGANIZATION_TOKENS.SIDE_TABLES` aliases the auto-link store,
+ *    the main store's transaction participant;
  *  - `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` and the
  *    `SessionOrganizationService` class resolve to the SAME service instance
  *    as `SESSION_ORGANIZATION_TOKENS.SERVICE` (`useToken`),
@@ -28,6 +33,9 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { SessionOrganizationStore } from '../session-organization.store';
 import { SessionOrganizationService } from '../session-organization.service';
 import { SessionOrganizationCaptureService } from '../session-organization-capture.service';
+import { SessionAutoLinkStore } from '../session-auto-link.store';
+import { SessionAutoLinkService } from '../session-auto-link.service';
+import { SessionTodoProgressService } from '../session-todo-progress.service';
 import { SESSION_ORGANIZATION_TOKENS } from './tokens';
 
 export function registerSessionOrganizationServices(
@@ -37,6 +45,15 @@ export function registerSessionOrganizationServices(
     return;
   }
 
+  // The side tables first: the main store requires them as its transaction
+  // participant (SIDE_TABLES aliases the same singleton).
+  container.registerSingleton(
+    SESSION_ORGANIZATION_TOKENS.AUTO_LINK_STORE,
+    SessionAutoLinkStore,
+  );
+  container.register(SESSION_ORGANIZATION_TOKENS.SIDE_TABLES, {
+    useToken: SESSION_ORGANIZATION_TOKENS.AUTO_LINK_STORE,
+  });
   container.registerSingleton(
     SESSION_ORGANIZATION_TOKENS.STORE,
     SessionOrganizationStore,
@@ -54,4 +71,6 @@ export function registerSessionOrganizationServices(
     useToken: SESSION_ORGANIZATION_TOKENS.SERVICE,
   });
   container.registerSingleton(SessionOrganizationCaptureService);
+  container.registerSingleton(SessionAutoLinkService);
+  container.registerSingleton(SessionTodoProgressService);
 }

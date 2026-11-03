@@ -25,7 +25,7 @@ import type {
   GitWorkspaceScopedParams,
 } from '@ptah-extension/shared';
 
-const WorkspaceRootSchema = z.string().min(1).max(4096);
+export const WorkspaceRootSchema = z.string().min(1).max(4096);
 const hasNoControlCharacters = (value: string): boolean =>
   [...value].every((character) => {
     const code = character.charCodeAt(0);

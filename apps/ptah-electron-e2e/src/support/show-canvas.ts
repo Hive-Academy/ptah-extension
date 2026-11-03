@@ -27,13 +27,18 @@ import type { UiDriver } from './ui-driver';
  * failure in CI and was deleted with the editor panel (TASK_2026_385).
  */
 export async function showCanvas(ui: UiDriver): Promise<void> {
-  const grid = ui.page.locator('[data-testid="canvas-grid"]');
+  // The update-dialog probe waits up to 5 s, long enough for the one-shot
+  // auth redirect to land after an early canvas check. Probe first, then make
+  // the final switch and check the heading the callers actually measure.
+  await dismissUpdateDialog(ui);
+
+  const emptyBoardHeading = ui.page
+    .locator('[data-testid="canvas-rail-empty-board"]')
+    .getByRole('heading', { level: 1 });
   await expect(async () => {
     await ui.goto('canvas');
-    await expect(grid).toBeVisible({ timeout: 1_000 });
+    await expect(emptyBoardHeading).toBeVisible({ timeout: 1_000 });
   }).toPass({ timeout: 60_000 });
-
-  await dismissUpdateDialog(ui);
 }
 
 /**

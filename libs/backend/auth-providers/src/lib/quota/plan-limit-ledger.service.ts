@@ -76,6 +76,7 @@ import {
   ALL_MODELS,
   allowanceId,
   carryExhaustion,
+  carryUsage,
   clearUnknownResetEvidence,
   cooldownEnd,
   evidenceExpired,
@@ -218,7 +219,7 @@ export class PlanLimitLedgerService {
       return;
     }
     this.ownerState(owner).windows.set(id, {
-      window: carryExhaustion(prev, next, now),
+      window: carryUsage(prev, carryExhaustion(prev, next, now)),
       stale: next.stale,
     });
     this.changed(owner.key);

@@ -159,9 +159,23 @@ export class TurnEndHandlerService {
    * overrides a terminal status an `agent_completed`/`agent_status` set.
    */
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
-    if (payload.toolCallId) {
+    // Prefer the payload Task tool_use id when it names an exact monitor or
+    // tray entry. This adopts a placeholder even when the monitor's agent-id
+    // mapping is absent or stale. Otherwise retain the legacy agent-id
+    // fallback for a hook-specific id from an older backend.
+    const payloadToolCallId = payload.toolCallId;
+    const payloadTargetsKnownEntry =
+      payloadToolCallId !== undefined &&
+      (this.agentMonitor.getSubagent(payloadToolCallId) !== undefined ||
+        this.backgroundAgents.findByToolCallId(payloadToolCallId) !== null);
+    const toolCallId =
+      payloadToolCallId && payloadTargetsKnownEntry
+        ? payloadToolCallId
+        : (this.agentMonitor.findKeyByAgentId(payload.agentId) ??
+          payloadToolCallId);
+    if (toolCallId) {
       this.agentMonitor.onSubagentEnded(
-        payload.toolCallId,
+        toolCallId,
         payload.lastAssistantMessage ?? undefined,
         payload.timestamp,
       );
@@ -170,13 +184,9 @@ export class TurnEndHandlerService {
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
     const agentKey = payload.agentId as BackgroundAgentId;
     const knownEntry =
-      this.backgroundAgents.findByAgentId(agentKey) ??
-      (payload.toolCallId
-        ? this.backgroundAgents.adoptRealAgentId(
-            payload.toolCallId,
-            payload.agentId,
-          )
-        : null);
+      (toolCallId
+        ? this.backgroundAgents.adoptRealAgentId(toolCallId, payload.agentId)
+        : null) ?? this.backgroundAgents.findByAgentId(agentKey);
     if (knownEntry) {
       // SubagentStop is the normal-finish hook, so the entry completes. A
       // user stop arrives as `background_agent_stopped` from the SDK's

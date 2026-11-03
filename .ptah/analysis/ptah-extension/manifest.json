@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "runId": "01M4VSDK08BRNJ7KRR82FDP303",
+  "slug": "ptah-extension",
+  "analyzedAt": "2026-10-13T23:26:31.944Z",
+  "updatedAt": "2026-10-15T07:28:19.624Z",
+  "lifecycle": "completed",
+  "model": "opus",
+  "totalDurationMs": 2965231,
+  "phases": {
+    "project-profile": {
+      "status": "completed",
+      "file": "01-project-profile.md",
+      "durationMs": 506167
+    },
+    "architecture-assessment": {
+      "status": "completed",
+      "file": "02-architecture-assessment.md",
+      "durationMs": 362868
+    },
+    "quality-audit": {
+      "status": "completed",
+      "file": "03-quality-audit.md",
+      "durationMs": 553666
+    },
+    "elevation-plan": {
+      "status": "completed",
+      "file": "04-elevation-plan.md",
+      "durationMs": 634839
+    }
+  }
+}

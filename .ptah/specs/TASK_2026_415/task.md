@@ -2,20 +2,13 @@
 id: TASK_2026_415
 status: backlog
 type: BUGFIX
-title: Investigate boot readiness RPC timeout and startup freeze
+title: "Single-flight the boot readiness pull and make the harness target reads async"
 depends_on: []
 created: '2026-09-10T16:16:02.872Z'
-updated: '2026-09-26T14:40:58.102Z'
-description: >-
-  Trace repeated boot:getReadiness timeouts and reported initial-load UI freeze,
-  identify the cause and define a regression-tested fix independent of
-  compaction.
+updated: "2026-10-30T03:43:14.678Z"
+description: "Worker-backed state storage already removed the whole-store write blocker. Remaining: add a single-flight guard around BootStatusService.pullReadiness and replace the synchronous reads in harness-sync claude-target.ts and workspace-target.ts behind the plan's profile gate."
 executor: ollama cloud
 estimate: M
-relates_to:
-  - TASK_2026_414
-  - TASK_2026_411
-  - TASK_2026_430_83a2
 labels:
   - partial
 ---

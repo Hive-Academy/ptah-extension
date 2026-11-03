@@ -33,7 +33,11 @@ import {
   signal,
 } from '@angular/core';
 import { LucideAngularModule, Plus } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
+import {
+  ElectronLayoutService,
+  VSCodeService,
+  injectWallClock,
+} from '@ptah-extension/core';
 import {
   ActivityGridComponent,
   StagedStepsComponent,
@@ -207,7 +211,7 @@ const PENDING_STEPS: readonly StagedStep[] = [
             <ptah-activity-grid
               class="ptah-loading__grid"
               [days]="[]"
-              [today]="today"
+              [today]="today()"
               ariaLabel="Activity, loading"
             />
             <ptah-staged-steps
@@ -260,13 +264,15 @@ const PENDING_STEPS: readonly StagedStep[] = [
 })
 export class WorkspaceLoadingStateComponent {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly layout = inject(ElectronLayoutService);
+  private readonly coarse = injectWallClock('coarse');
 
   /** The workspace being restored; `null` when the host named none. */
   readonly workspaceName = input<string | null>(null);
 
   protected readonly PlusIcon = Plus;
   protected readonly steps = PENDING_STEPS;
-  protected readonly today = localDayKey(new Date());
+  protected readonly today = computed(() => localDayKey(new Date(this.coarse())));
   protected readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 
   /** The hidden status line is filled after the first render. */
@@ -280,7 +286,11 @@ export class WorkspaceLoadingStateComponent {
   });
 
   constructor() {
-    const timer = setTimeout(() => this.slow.set(true), SLOW_HINT_MS);
+    const delay = Math.max(
+      0,
+      this.layout.workspaceResolveStartedAt + SLOW_HINT_MS - Date.now(),
+    );
+    const timer = setTimeout(() => this.slow.set(true), delay);
     inject(DestroyRef).onDestroy(() => clearTimeout(timer));
     afterNextRender(() => this.announced.set(true));
   }

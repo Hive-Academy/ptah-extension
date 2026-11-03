@@ -302,13 +302,13 @@ describe('runAgentWait', () => {
     expect(text).toContain('ptah_agent_read');
   });
 
-  it('names the lane budget guard stop reason instead of "on request"', async () => {
-    const lane = (stopReason?: 'tool-call-budget' | 'repeat-call') => ({
+  it('names the repeat-call stop instead of "on request"', async () => {
+    const lane = (stopReason?: 'repeat-call') => ({
       agentId: 'lane-1',
       state: 'exited' as const,
       info: info('lane-1', { status: 'stopped', exitCode: 1, stopReason }),
     });
-    const run = (stopReason?: 'tool-call-budget' | 'repeat-call') =>
+    const run = (stopReason?: 'repeat-call') =>
       runAgentWait(
         AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
         deps({
@@ -320,11 +320,8 @@ describe('runAgentWait', () => {
         }),
       );
 
-    expect(await run('tool-call-budget')).toContain(
-      'stopped by the lane budget guard: tool-call budget reached',
-    );
     expect(await run('repeat-call')).toContain(
-      'stopped by the lane budget guard: repeated identical call',
+      'stopped by Ptah: repeated the same call in a loop',
     );
     expect(await run()).toContain('stopped on request');
   });

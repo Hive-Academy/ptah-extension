@@ -42,16 +42,13 @@ import type {
   RpcHandler,
   WebviewManager,
 } from '@ptah-extension/vscode-core';
-import { FileType, PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { GitOperationOutputThrottle } from './git-operation-output.throttle';
-import {
-  findRegisteredWorkspaceFolder,
-  findRegisteredWorktree,
-} from './git-workspace-root';
+import { GitRootResolver, createWorktreeRootProbe } from './git-root-resolver';
 import {
   parseGitApplyHunksParams,
   parseGitCommitParams,
@@ -153,18 +150,32 @@ export class GitRpcHandlers {
     'git:lastCommit',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Every `git:*` root goes through this (TASK_2026_855 D5/D17/D18): a named
+   * root must be a registered folder or, except for worktree create/remove,
+   * a live worktree of one; it is re-validated on every call and a refused
+   * root never falls back to the active folder.
+   */
+  private readonly roots: GitRootResolver;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider,
+    workspace: IWorkspaceProvider,
     @inject(TOKENS.GIT_INFO_SERVICE)
     private readonly gitInfo: GitInfoService,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fileSystem: IFileSystemProvider,
-  ) {}
+  ) {
+    this.roots = new GitRootResolver({
+      workspace,
+      probe: createWorktreeRootProbe(gitInfo, fileSystem),
+      warn: (message, context) => this.logger.warn(message, context),
+    });
+  }
 
   register(): void {
     this.registerGitInfo();
@@ -195,7 +206,7 @@ export class GitRpcHandlers {
 
   /**
    * git:info - Returns branch info and changed file list for the workspace
-   * folder (or, read-only, a registered worktree of one) named in
+   * folder (or a registered worktree of one) named in
    * `params.workspaceRoot`, falling back to the active workspace when
    * omitted. An unregistered folder, or no workspace at all,
    * returns a non-git default.
@@ -204,9 +215,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitInfoParams, GitInfoResult>(
       'git:info',
       async (params) => {
-        const wsRoot = await this.resolveReadRoot(
+        const wsRoot = await this.roots.resolve(
           params?.workspaceRoot,
           'git:info',
+          'folder-or-worktree',
         );
         if (!wsRoot) {
           return {
@@ -228,7 +240,11 @@ export class GitRpcHandlers {
     >('git:reviewChanges', async (rawParams) => {
       const params = parseGitReviewChangesParams(rawParams);
       if (!params) return this.reviewChangesFailure('Invalid review request.');
-      const root = this.resolveRoot(params.workspaceRoot, 'git:reviewChanges');
+      const root = await this.roots.resolve(
+        params.workspaceRoot,
+        'git:reviewChanges',
+        'folder-or-worktree',
+      );
       if (!root) return this.reviewChangesFailure('No workspace folder open.');
       return this.gitInfo.reviewChanges(root, params.base, params.head);
     });
@@ -247,7 +263,11 @@ export class GitRpcHandlers {
           'Invalid review file request.',
         );
         if (!params) return invalid;
-        const root = this.resolveRoot(params.workspaceRoot, 'git:reviewFile');
+        const root = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:reviewFile',
+          'folder-or-worktree',
+        );
         if (!root) return { ...invalid, error: 'No workspace folder open.' };
         return this.gitInfo.reviewFile(root, params);
       },
@@ -288,66 +308,6 @@ export class GitRpcHandlers {
   }
 
   /**
-   * Resolve the workspace folder a git operation should run in.
-   *
-   * When the caller names a folder, it must be one of the registered
-   * workspace folders — an unregistered folder resolves to undefined rather
-   * than falling back to the active folder, so a stale or malicious request
-   * can never read from (or worse, mutate) a different repository. With no
-   * folder named, the active workspace folder is used.
-   */
-  private resolveRoot(
-    requested: string | undefined,
-    method: string,
-  ): string | undefined {
-    if (requested) {
-      const registered = findRegisteredWorkspaceFolder(
-        this.workspace,
-        requested,
-      );
-      if (registered) return registered;
-      this.logger.warn(
-        `[GitRpc] ${method} called with unregistered workspaceRoot`,
-        { workspaceRoot: requested } as unknown as Error,
-      );
-      return undefined;
-    }
-    return this.workspace.getWorkspaceRoot();
-  }
-
-  /**
-   * {@link resolveRoot} for the read-only methods (`git:info`,
-   * `git:diffFile`), which also accept a registered worktree of an open
-   * folder's repository: the review dock reads a turn that ran in a worktree
-   * without opening it as a workspace folder. Mutating methods never use this.
-   */
-  private async resolveReadRoot(
-    requested: string | undefined,
-    method: string,
-  ): Promise<string | undefined> {
-    if (
-      requested &&
-      !findRegisteredWorkspaceFolder(this.workspace, requested)
-    ) {
-      const worktree = await findRegisteredWorktree(
-        this.workspace,
-        {
-          listWorktrees: (folder) => this.gitInfo.getWorktrees(folder),
-          commonDir: (dir) => this.gitInfo.getCommonDir(dir),
-          directoryExists: (dir) =>
-            this.fileSystem.stat(dir).then(
-              (stat) => (stat.type & FileType.Directory) !== 0,
-              () => false,
-            ),
-        },
-        requested,
-      );
-      if (worktree) return worktree;
-    }
-    return this.resolveRoot(requested, method);
-  }
-
-  /**
    * git:worktrees - Returns all worktrees for the workspace folder named in
    * `params.workspaceRoot`, falling back to the active workspace. Invalid
    * params, an unregistered folder or no workspace return an empty list.
@@ -361,7 +321,11 @@ export class GitRpcHandlers {
           this.logger.warn('[GitRpc] git:worktrees called with invalid params');
           return { worktrees: [] };
         }
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:worktrees');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:worktrees',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { worktrees: [] };
         }
@@ -387,9 +351,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitAddWorktreeParams, GitAddWorktreeResult>(
       'git:addWorktree',
       async (params) => {
-        const wsRoot = this.resolveRoot(
+        const wsRoot = await this.roots.resolve(
           params?.workspaceRoot,
           'git:addWorktree',
+          'folder',
         );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
@@ -454,9 +419,10 @@ export class GitRpcHandlers {
       GitRemoveWorktreeParams,
       GitRemoveWorktreeResult
     >('git:removeWorktree', async (params) => {
-      const wsRoot = this.resolveRoot(
+      const wsRoot = await this.roots.resolve(
         params?.workspaceRoot,
         'git:removeWorktree',
+        'folder',
       );
       if (!wsRoot) {
         return { success: false, error: 'No workspace folder open' };
@@ -534,7 +500,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitStageParams, GitStageResult>(
       'git:stage',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:stage');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:stage',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -555,7 +525,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitUnstageParams, GitUnstageResult>(
       'git:unstage',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:unstage');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:unstage',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -576,7 +550,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitDiscardParams, GitDiscardResult>(
       'git:discard',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:discard');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:discard',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -621,7 +599,11 @@ export class GitRpcHandlers {
           return { success: false, error: 'Invalid commit request.' };
         }
 
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:commit');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:commit',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -689,7 +671,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitShowFileParams, GitShowFileResult>(
       'git:showFile',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:showFile');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:showFile',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { content: '' };
         }
@@ -731,9 +717,10 @@ export class GitRpcHandlers {
         }
 
         const originalPath = params.originalPath ?? params.path;
-        const wsRoot = await this.resolveReadRoot(
+        const wsRoot = await this.roots.resolve(
           params.workspaceRoot,
           'git:diffFile',
+          'folder-or-worktree',
         );
         if (!wsRoot) {
           return this.diffFileFailure(
@@ -832,7 +819,11 @@ export class GitRpcHandlers {
           };
         }
 
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:applyHunks');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:applyHunks',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return {
             success: false,
@@ -878,7 +869,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitPushParams, GitPushResult>(
       'git:push',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:push');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:push',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -899,7 +894,11 @@ export class GitRpcHandlers {
       async (rawParams) => {
         const params = parseGitWorkspaceScopedParams(rawParams);
         if (!params) return { success: false, error: 'Invalid pull request.' };
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:pull');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:pull',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -915,7 +914,11 @@ export class GitRpcHandlers {
       async (rawParams) => {
         const params = parseGitWorkspaceScopedParams(rawParams);
         if (!params) return { success: false, error: 'Invalid fetch request.' };
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:fetch');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:fetch',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -965,7 +968,11 @@ export class GitRpcHandlers {
           if (!params) {
             return { success: false, error: 'Invalid stash request.' };
           }
-          const wsRoot = this.resolveRoot(params.workspaceRoot, method);
+          const wsRoot = await this.roots.resolve(
+            params.workspaceRoot,
+            method,
+            'folder-or-worktree',
+          );
           if (!wsRoot) {
             return { success: false, error: 'No workspace folder open' };
           }
@@ -996,7 +1003,11 @@ export class GitRpcHandlers {
         if (!params) {
           return { success: false, files: [], error: 'Invalid stash request.' };
         }
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:stashShow');
+        const wsRoot = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:stashShow',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return {
             success: false,
@@ -1019,7 +1030,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitBranchesParams, GitBranchesResult>(
       'git:branches',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:branches');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:branches',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           this.logger.debug(
             '[GitRpc] git:branches called with no workspace open',
@@ -1042,7 +1057,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitCheckoutParams, GitCheckoutResult>(
       'git:checkout',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:checkout');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:checkout',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -1077,7 +1096,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitStashListParams, GitStashListResult>(
       'git:stashList',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:stashList');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:stashList',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { count: 0, entries: [] };
         }
@@ -1094,7 +1117,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitTagsParams, GitTagsResult>(
       'git:tags',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:tags');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:tags',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { tags: [] };
         }
@@ -1111,7 +1138,11 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitRemotesParams, GitRemotesResult>(
       'git:remotes',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:remotes');
+        const wsRoot = await this.roots.resolve(
+          params?.workspaceRoot,
+          'git:remotes',
+          'folder-or-worktree',
+        );
         if (!wsRoot) {
           return { remotes: [] };
         }
@@ -1128,9 +1159,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitLastCommitParams, GitLastCommitResult>(
       'git:lastCommit',
       async (params) => {
-        const wsRoot = this.resolveRoot(
+        const wsRoot = await this.roots.resolve(
           params?.workspaceRoot,
           'git:lastCommit',
+          'folder-or-worktree',
         );
         if (!wsRoot) {
           return {

@@ -4,8 +4,7 @@ status: backlog
 type: FEATURE
 title: >-
   Git-first review surface: change set per turn, CodeMirror diff, worktree per task, PR, open in external editor
-depends_on:
-  - TASK_2026_385
+depends_on: []
 created: '2026-09-06T00:00:00.000Z'
 updated: '2026-09-06T00:00:00.000Z'
 description: >-
@@ -17,9 +16,6 @@ labels:
   - editor
   - feature
   - ux
-relates_to:
-  - TASK_2026_384
-  - TASK_2026_385
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

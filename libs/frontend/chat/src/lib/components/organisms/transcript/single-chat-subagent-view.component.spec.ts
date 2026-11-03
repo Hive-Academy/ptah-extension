@@ -66,7 +66,6 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import { DisplaySheetState } from '../display-sheet/display-sheet.state';
 import { ChatStore } from '../../../services/chat.store';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
 import { MessageBubbleComponent } from '../message-bubble.component';
@@ -189,7 +188,6 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
           },
         },
         DisplayDockState,
-        DisplaySheetState,
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },

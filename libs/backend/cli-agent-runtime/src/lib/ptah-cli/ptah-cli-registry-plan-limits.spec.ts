@@ -201,6 +201,7 @@ function buildHarness(accountInfo: jest.Mock): Harness {
     { loadConfigs: jest.fn().mockReturnValue([CONFIG]) } as unknown as never,
     {
       assembleSpawnOptions: jest.fn().mockResolvedValue({
+        builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
         mcpServers: {},
         hooks: undefined,
         autoCompact: {},

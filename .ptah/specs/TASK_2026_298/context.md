@@ -228,3 +228,10 @@ a moving spec. If third parties point their frontends at it, that is a signal.
 If not, one leaf lib is deleted.
 
 Not part of this task. Recorded so the question is not re-opened from scratch.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Reassess the still-live SdkHandle/output-channel duplication and shared participant identity against the current lanes-first orchestration; the Tribunal family-key fix no longer applies.
+- Evidence on main: dea55817c retired the Tribunal page; main no longer has buildCliFamilyLanes, buildProviderLanes or CLI_FAMILY_PROVIDER_IDS. main:libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts:1217 still subscribes to onSegment, alongside other output channels.

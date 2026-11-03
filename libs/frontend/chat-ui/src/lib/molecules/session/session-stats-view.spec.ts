@@ -1,5 +1,55 @@
 import type { SessionStatsEntry } from '@ptah-extension/shared';
-import { compactSessionMetrics, contextDetailsText, costDetailsText, tokenDetailsText, type SessionStatsInputs } from './session-stats-view';
+import { compactSessionMetrics, contextDetailsText, costDetailsText, sessionContextCue, tokenDetailsText, type SessionStatsInputs } from './session-stats-view';
+import type { LiveModelStats } from './session-stats-summary.component';
+
+const liveContext: LiveModelStats = {
+  model: 'claude-sonnet-4-5',
+  contextKnown: true,
+  contextCapacity: {
+    tokens: 200_000,
+    source: 'sdk-native',
+    providerId: null,
+    model: 'claude-sonnet-4-5',
+  },
+  contextUsed: 130_000,
+  contextWindow: 200_000,
+  contextPercent: 65,
+};
+
+describe('sessionContextCue', () => {
+  it.each([
+    { window: 200_000, percent: 65 }, // F2
+    { window: 1_000_000, percent: 13 }, // F3
+  ])('shows $percent% for a trusted $window window', ({ window, percent }) => {
+    expect(sessionContextCue({
+      ...liveContext,
+      contextCapacity: { ...liveContext.contextCapacity!, tokens: window },
+      contextWindow: window,
+      contextPercent: percent,
+    })).toEqual({
+      hasLive: true,
+      known: true,
+      percent,
+      label: `${percent}%`,
+      usedTokens: 130_000,
+    });
+  });
+
+  it.each([
+    { contextCapacity: { ...liveContext.contextCapacity!, source: 'unknown' as const } },
+    { contextCapacity: { ...liveContext.contextCapacity!, source: 'provider-catalog' as const, providerId: null } },
+    { contextCapacity: { ...liveContext.contextCapacity!, model: 'another-model' } },
+    { contextWindow: 1_000_000 },
+  ])('shows an em dash for an untrusted or mismatched window (F6): %j', (change) => {
+    expect(sessionContextCue({ ...liveContext, ...change })).toEqual({
+      hasLive: true,
+      known: false,
+      percent: null,
+      label: '\u2014',
+      usedTokens: null,
+    });
+  });
+});
 
 const empty: SessionStatsInputs = {
   sessionId: 'one', snapshot: null, liveModelStats: null, compactionCount: 0,
@@ -25,6 +75,30 @@ describe('compactSessionMetrics', () => {
     const metrics = compactSessionMetrics({ ...empty, snapshot });
     expect(metrics[1]).toMatchObject({ value: '0', unavailable: false });
     expect(metrics[2]).toMatchObject({ value: '$0.0000', unavailable: false });
+  });
+  it.each([
+    ['estimated', 'estimated', 'Estimated cost, not a charge.'],
+    ['covered-by-subscription', 'covered by subscription',
+      'Published-rate value covered by the subscription, not a charge.'],
+  ] as const)('uses the shared %s label in compact and inspector text', (basis, label, details) => {
+    const priced = { ...snapshot, totalCost: 0.5, costBasis: basis };
+    const cost = compactSessionMetrics({ ...empty, snapshot: priced })[2];
+    expect(cost.value).toContain(label);
+    expect(cost.ariaLabel).toContain(label);
+    expect(costDetailsText(priced, null)).toContain(details);
+  });
+  it('speaks a provisional estimated cost without repeating estimated', () => {
+    const priced = { ...snapshot, provisional: true, totalCost: 0.5, costBasis: 'estimated' as const };
+    const cost = compactSessionMetrics({ ...empty, snapshot: priced })[2];
+    expect(cost.value).toBe('~$0.50 estimated');
+    expect(cost.ariaLabel).toBe('Cost 0.50 US dollars, estimated');
+  });
+  it('keeps null cost unavailable regardless of basis', () => {
+    const unavailable = { ...snapshot, totalCost: null, costBasis: 'estimated' as const };
+    const cost = compactSessionMetrics({ ...empty, snapshot: unavailable })[2];
+    expect(cost).toMatchObject({ unavailable: true, ariaLabel: 'Cost unavailable' });
+    expect(costDetailsText(unavailable, null)).toContain('Cost unavailable');
+    expect(costDetailsText(unavailable, null)).not.toContain('estimated');
   });
   it('formats existing totals with partial/estimate markers and full accessible values', () => {
     const metrics = compactSessionMetrics({ ...empty, snapshot: {

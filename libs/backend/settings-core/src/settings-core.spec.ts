@@ -255,12 +255,12 @@ describe('TC-4: ReactiveSettingsStore listener isolation', () => {
 // ---------------------------------------------------------------------------
 
 describe('TC-5: SettingHandle.get() returns definition default for empty store', () => {
-  it('returns the AUTH_METHOD_DEF default ("apiKey") when nothing is stored', () => {
+  it('returns the AUTH_METHOD_DEF default ("claudeCli") when nothing is stored', () => {
     class TestRepo extends BaseSettingsRepository {
       public readonly handle = this.handleFor(AUTH_METHOD_DEF);
     }
     const testRepo = new TestRepo(makeMockStore({}));
-    expect(testRepo.handle.get()).toBe('apiKey');
+    expect(testRepo.handle.get()).toBe('claudeCli');
   });
 });
 
@@ -788,17 +788,10 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]settings-core[\\/]/,
       /libs[\\/]backend[\\/]platform-electron[\\/]src[\\/]settings[\\/]/,
       /libs[\\/]backend[\\/]platform-cli[\\/]src[\\/]settings[\\/]/,
-      /libs[\\/]backend[\\/]platform-vscode[\\/]src[\\/]settings[\\/]/,
       // Call sites migrated to modelSettings / reasoningSettings.
-      /apps[\\/]ptah-cli[\\/]src[\\/]cli[\\/]bootstrap[\\/]/,
       /apps[\\/]ptah-electron[\\/]src[\\/]activation[\\/]/,
-      /apps[\\/]ptah-extension-vscode[\\/]src[\\/]activation[\\/]/,
-      // Integration spec files legitimately need typed repo imports for mocking.
-      /apps[\\/]ptah-extension-vscode[\\/]src[\\/]integration[\\/]/,
       // DI smoke specs register SETTINGS_TOKENS.MODEL_SETTINGS for resolution drift checks.
-      /apps[\\/]ptah-cli[\\/]src[\\/]di[\\/]container\.smoke\.spec\.ts$/,
       /apps[\\/]ptah-electron[\\/]src[\\/]di[\\/]container\.smoke\.spec\.ts$/,
-      /apps[\\/]ptah-extension-vscode[\\/]src[\\/]di[\\/]container\.smoke\.spec\.ts$/,
       /libs[\\/]backend[\\/]agent-generation[\\/]/,
       /libs[\\/]backend[\\/]agent-sdk[\\/]/,
       /libs[\\/]backend[\\/]rpc-handlers[\\/]/,

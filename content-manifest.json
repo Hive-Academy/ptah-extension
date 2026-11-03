@@ -1,11 +1,11 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:79b30e855e871a1b3c6875bc83e2800d52968a341b180dbab9fcb637eff584e9",
-  "generatedAt": "2026-10-29T03:02:32.634Z",
-  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
+  "contentHash": "sha256:8ead47fc98143c58ef7317a02a3f55bf5fb4cb74a478fe6742d8d490a37aaa90",
+  "generatedAt": "2026-11-02T08:44:14.036Z",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main",
   "plugins": {
-    "basePath": "apps/ptah-extension-vscode/assets/plugins",
+    "basePath": "plugins",
     "files": [
       "ptah-angular/.claude-plugin/plugin.json",
       "ptah-angular/skills/angular-3d-scene-crafter/SKILL.md",
@@ -67,14 +67,6 @@
       "ptah-core/skills/orchestration/references/strategies.md",
       "ptah-core/skills/orchestration/references/task-tracking.md",
       "ptah-core/skills/orchestration/references/team-leader-modes.md",
-      "ptah-core/skills/ptah-cli-usage/SKILL.md",
-      "ptah-core/skills/ptah-cli-usage/references/agent-cli.md",
-      "ptah-core/skills/ptah-cli-usage/references/auth-and-providers.md",
-      "ptah-core/skills/ptah-cli-usage/references/harness.md",
-      "ptah-core/skills/ptah-cli-usage/references/internal-mcp.md",
-      "ptah-core/skills/ptah-cli-usage/references/jsonrpc.md",
-      "ptah-core/skills/ptah-cli-usage/references/mcp-serve.md",
-      "ptah-core/skills/ptah-cli-usage/references/setup.md",
       "ptah-core/skills/ptah-surface-authoring/SKILL.md",
       "ptah-core/skills/ptah-surface-authoring/references/catalog.md",
       "ptah-core/skills/ptah-surface-authoring/references/ptah-ui.md",
@@ -235,7 +227,6 @@
     "files": [
       "_shared/clarification-protocol.md",
       "_shared/cli-delegation.md",
-      "_shared/engineering-hygiene.md",
       "_shared/replacement-policy.md",
       "_shared/reviewer-stance.md",
       "_shared/tooling-precedence.md",

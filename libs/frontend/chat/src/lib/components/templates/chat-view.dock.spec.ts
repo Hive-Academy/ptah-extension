@@ -60,6 +60,7 @@ import {
   AppStateManager,
   AuthStateService,
   ClaudeRpcService,
+  ElectronLayoutService,
   PlanLimitsStore,
   VSCodeService,
 } from '@ptah-extension/core';
@@ -92,6 +93,7 @@ import { SessionHistoryReplayer } from '../../services/chat-store/session-histor
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ArtifactStore } from '../../services/artifact.store';
+import { DisplayWindowSync } from '../../services/display-window/display-window-sync.service';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import {
@@ -264,6 +266,27 @@ function mount(
           recordById: () => null,
           forSession: () => signal([]),
           reload: jest.fn(),
+          panelArtifacts: () => [],
+          autoOpenRequest: signal(null),
+        },
+      },
+      {
+        provide: ElectronLayoutService,
+        useValue: {
+          displaySidebarWidth: signal<number | null>(null),
+          setDisplaySidebarWidth: jest.fn(),
+        },
+      },
+      {
+        provide: DisplayWindowSync,
+        useValue: {
+          detached: signal(false),
+          error: signal<string | null>(null),
+          count: signal(0),
+          bindSource: jest.fn(() => () => undefined),
+          detach: jest.fn(),
+          focus: jest.fn(),
+          attach: jest.fn(),
         },
       },
       {
@@ -473,8 +496,11 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   const native = (): HTMLElement => h.fixture.nativeElement as HTMLElement;
   const store = (): DisplayDockState =>
     h.fixture.debugElement.injector.get(DisplayDockState);
+  /** The control that carries `aria-expanded`: the tab when collapsed, Collapse when open. */
   const toggle = (): HTMLButtonElement | null =>
-    native().querySelector('[data-testid="display-sheet-bar"]');
+    native().querySelector(
+      'ptah-display-sheet [data-testid="display-sheet-tab"] button, ptah-display-sheet [data-testid="display-sheet-close"]',
+    );
   const dockEl = (): HTMLElement | null =>
     native().querySelector('ptah-display-sheet');
   /** Change detection plus the deferred dock block, a few rounds. */
@@ -612,37 +638,42 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     });
   });
 
-  describe('peek bar', () => {
-    it('opens and collapses the sheet with aria-expanded', async () => {
+  describe('sidebar tab', () => {
+    it('opens and collapses the sidebar with aria-expanded', async () => {
       h = mount();
+      h.emitHostWidth(1280);
       store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
       await settle();
-      const bar = toggle() as HTMLButtonElement;
-      expect(bar.tagName).toBe('BUTTON');
-      expect(bar.tabIndex).toBe(0);
-      expect(bar.getAttribute('aria-expanded')).toBe('false');
+      const tab = toggle() as HTMLButtonElement;
+      expect(tab.tagName).toBe('BUTTON');
+      expect(tab.tabIndex).toBe(0);
+      expect(tab.getAttribute('aria-expanded')).toBe('false');
       await clickToggle();
-      expect(bar.getAttribute('aria-expanded')).toBe('true');
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('true');
       expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
       await clickToggle();
-      expect(bar.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
       expect(native().querySelector('[data-testid="display-sheet-region"]')).toBeNull();
     });
   });
 
-  it('sheet region opens above the composer and Escape restores bar focus', async () => {
+  it('sidebar opens beside the session column and Escape restores focus to its tab', async () => {
     h = mount();
+    h.emitHostWidth(1280);
     store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
     await settle();
-    const bar = toggle() as HTMLButtonElement;
     await clickToggle();
     expect(native().querySelectorAll('ptah-display-sheet')).toHaveLength(1);
-    expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
+    expect(dockEl()?.closest('ptah-chat-session-layout')).toBeNull();
+    expect(native().querySelector('[data-testid="display-sidebar-separator"]')).not.toBeNull();
+    const region = native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement;
+    expect(region).not.toBeNull();
     expect(native().querySelector('ptah-display-sheet ptah-agent-monitor-panel')).toBeNull();
-    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    region.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await settle();
+    TestBed.tick();
     expect(store().tab('tab-1').open).toBe(false);
-    expect(document.activeElement).toBe(bar);
+    expect(document.activeElement).toBe(toggle());
   });
 
   it('auto-open does not move focus (R1.7)', async () => {

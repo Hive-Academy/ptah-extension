@@ -144,6 +144,7 @@ export type SelectedProviderDiscovery =
 export type DiscoveryOwnerSource = Pick<
   ProviderOwnerResolver,
   | 'ownerForProviderKey'
+  | 'ownerForKimiCode'
   | 'ownerForPtahCli'
   | 'ownerForClaudeAccount'
   | 'ownerForCodexHome'
@@ -431,6 +432,9 @@ export class PlanLimitOwnerDiscoveryService {
         origin,
       );
     }
+    if (driver === 'kimi-code') {
+      return this.entryFor(await this.owners.ownerForKimiCode(), origin);
+    }
     if (STORED_KEY_PROVIDERS.has(driver)) {
       return this.entryFor(
         await this.owners.ownerForProviderKey(driver),
@@ -585,7 +589,8 @@ export class PlanLimitOwnerDiscoveryService {
   }
 
   /**
-   * Enabled Ptah CLI agents on Ollama Cloud, each under its own key. A Ptah
+   * Enabled Ptah CLI agents on Ollama Cloud or Kimi Code, each under its own
+   * key or the shared provider connection. A Ptah
    * CLI Claude lane has no owner until its run reads its own account, so it
    * is listed through that run's `ownerKeys` entry instead.
    */
@@ -593,7 +598,7 @@ export class PlanLimitOwnerDiscoveryService {
     Array<DiscoveredPlanOwner | undefined>
   > {
     const agents = (await this.ptahCliAgents.listAgents()).filter(
-      (agent) => agent.enabled && agent.providerId === 'ollama-cloud',
+      (agent) => agent.enabled && (agent.providerId === 'ollama-cloud' || agent.providerId === 'kimi-code'),
     );
     return Promise.all(
       agents.map(async (agent) =>

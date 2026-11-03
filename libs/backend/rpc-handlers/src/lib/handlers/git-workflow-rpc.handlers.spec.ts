@@ -20,8 +20,14 @@ import {
   createMockRpcHandler,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
+import type {
+  IFileSystemProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import {
+  createMockFileSystemProvider,
+  createMockWorkspaceProvider,
+} from '@ptah-extension/platform-core/testing';
 import type { CommitMessageGenerator } from '@ptah-extension/agent-sdk';
 import type {
   GitGenerateCommitMessageResult,
@@ -46,6 +52,8 @@ type MockGitInfo = jest.Mocked<
     | 'abortOperation'
     | 'continueOperation'
     | 'getLog'
+    | 'getWorktrees'
+    | 'getCommonDir'
   >
 >;
 
@@ -101,6 +109,8 @@ function buildSuite(): Suite {
       .fn()
       .mockResolvedValue({ status: 'completed', kind: 'rebase' }),
     getLog: jest.fn().mockResolvedValue(LOG_OK),
+    getWorktrees: jest.fn().mockResolvedValue([]),
+    getCommonDir: jest.fn().mockResolvedValue('/workspace/.git'),
   };
   const generator: MockGenerator = {
     generate: jest.fn().mockResolvedValue({
@@ -114,6 +124,7 @@ function buildSuite(): Suite {
     workspace as unknown as IWorkspaceProvider,
     gitInfo as unknown as GitInfoService,
     generator as unknown as CommitMessageGenerator,
+    createMockFileSystemProvider() as unknown as IFileSystemProvider,
   ).register();
   return { rpc, gitInfo, generator, logger };
 }
@@ -234,7 +245,7 @@ describe('GitWorkflowRpcHandlers', () => {
         )({
           workspaceRoot: '/somewhere/else',
         }),
-      ).resolves.toEqual({ status: 'unavailable', reason: 'unreachable' });
+      ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
       expect(generator.generate).not.toHaveBeenCalled();
     });
 
@@ -333,7 +344,7 @@ describe('GitWorkflowRpcHandlers', () => {
 
       await expect(
         getHandler(rpc, 'git:prStatus')({ workspaceRoot: '/somewhere/else' }),
-      ).resolves.toEqual({ status: 'unavailable', reason: 'failed' });
+      ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
       expect(gitInfo.getBranches).not.toHaveBeenCalled();
       expect(gitInfo.readPrStatus).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalled();
@@ -393,11 +404,7 @@ describe('GitWorkflowRpcHandlers', () => {
 
       await expect(
         getHandler(rpc, method)({ workspaceRoot: '/somewhere/else' }),
-      ).resolves.toEqual({
-        status: 'failed',
-        code: 'GIT_ERROR',
-        error: 'No registered workspace folder to act on.',
-      });
+      ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
       expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalled();
     });
@@ -501,7 +508,7 @@ describe('GitWorkflowRpcHandlers', () => {
 
       await expect(
         getHandler(rpc, 'git:log')({ workspaceRoot: '/somewhere/else' }),
-      ).resolves.toEqual({ status: 'unavailable', reason: 'not-a-repository' });
+      ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
       expect(gitInfo.getLog).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalled();
     });

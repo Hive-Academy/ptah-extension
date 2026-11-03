@@ -171,8 +171,8 @@ describe('SessionLifecycleManager idle compaction facade', () => {
       debug: jest.fn(),
     } as unknown as Logger;
     const coordinator = new CompactionCoordinator();
-    coordinator.register('current', { codexProxy: false, e2Passed: true });
-    coordinator.register('new-id', { codexProxy: false, e2Passed: true });
+    coordinator.register('current', { e2Passed: true });
+    coordinator.register('new-id', { e2Passed: true });
     const config = {
       getIdleCompactionConfig: () => ({ enabled: true, minTokens: 200_000 }),
       getConfig: () => ({ enabled: true }),
@@ -209,7 +209,7 @@ describe('SessionLifecycleManager idle compaction facade', () => {
       null,
       { scheduler, now: () => now },
     );
-    service.sessionBound('current', 'run', false);
+    service.sessionBound('current', 'run');
     service.turnEnded('current', 'turn', {
       requestKey: 'request',
       anchorAt: 0,

@@ -2,17 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  inject,
   signal,
   viewChild,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { DisplayDockState } from '../../services/display-dock/display-dock.state';
-import { ArtifactStore } from '../../services/artifact.store';
-import { ClaudeRpcService } from '@ptah-extension/core';
-import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
-import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
-import { DisplaySheetState } from '../organisms/display-sheet/display-sheet.state';
 import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 
 @Component({
@@ -35,37 +28,6 @@ class HostComponent {
   readonly messages = signal(['first', 'second']);
   readonly chatInputRef =
     viewChild.required<ElementRef<HTMLTextAreaElement>>('chatInputRef');
-}
-
-@Component({
-  imports: [ChatSessionLayoutComponent, DisplaySheetComponent],
-  providers: [
-    DisplayDockState,
-    DisplaySheetState,
-    { provide: ChangeSetActionsService, useValue: {} },
-    { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
-    {
-      provide: ArtifactStore,
-      useValue: {
-        records: signal({}),
-        lastError: signal(null),
-        recordById: () => null,
-        forSession: () => signal([]),
-        reload: jest.fn(),
-      },
-    },
-  ],
-  template: `
-    <ptah-chat-session-layout>
-      <div sessionTranscript class="flex-1 min-h-0">Transcript</div>
-      <ptah-display-sheet sessionSheet tabId="tab-1" />
-      <div sessionComposer class="flex-shrink-0"><textarea aria-label="Message"></textarea></div>
-    </ptah-chat-session-layout>
-  `,
-})
-class FullHeightHostComponent {
-  readonly dock = inject(DisplayDockState);
-  readonly sheet = inject(DisplaySheetState);
 }
 
 describe('ChatSessionLayoutComponent', () => {
@@ -112,23 +74,6 @@ describe('ChatSessionLayoutComponent', () => {
       expect(type).not.toBe('size');
       expect(type).not.toBe('inline-size');
     }
-    fixture.destroy();
-  });
-
-  it('gives full mode the remaining flex height while keeping the composer after the sheet', async () => {
-    await TestBed.configureTestingModule({ imports: [FullHeightHostComponent] }).compileComponents();
-    const fixture = TestBed.createComponent(FullHeightHostComponent);
-    fixture.componentInstance.dock.open('tab-1');
-    fixture.componentInstance.sheet.setMode('tab-1', 'full');
-    fixture.detectChanges();
-    const layout = fixture.nativeElement.querySelector('ptah-chat-session-layout') as HTMLElement;
-    const sheet = layout.querySelector('ptah-display-sheet') as HTMLElement;
-    const composer = layout.querySelector('[sessionComposer]') as HTMLElement;
-    expect(sheet.classList.contains('sheet-full')).toBe(true);
-    expect(sheet.querySelector('[data-testid="display-sheet-region"]')?.classList.contains('full')).toBe(true);
-    expect(layout.lastElementChild).toBe(composer);
-    expect(composer.querySelector('textarea')).not.toBeNull();
-    expect(sheet.querySelector('[data-testid="display-sheet-bar"]')).not.toBeNull();
     fixture.destroy();
   });
 });

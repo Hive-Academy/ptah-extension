@@ -17,6 +17,7 @@ import type {
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
   SessionStatsLiveWire,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -291,6 +292,11 @@ export class ChatStore {
     this.sessionLoader.removeResumableSubagent(toolCallId);
   }
 
+  /** Dismiss interrupted subagents for good. Delegates to SessionLoaderService. */
+  dismissResumableSubagents(agents: SubagentRecord[]): Promise<void> {
+    return this.sessionLoader.dismissResumableSubagents(agents);
+  }
+
   /** License status fetch with retry. Delegates to ChatLifecycleService. */
   async fetchLicenseStatus(retries = 3): Promise<void> {
     return this.lifecycle.fetchLicenseStatus(retries);
@@ -374,6 +380,10 @@ export class ChatStore {
    */
   async abortWithConfirmation(): Promise<boolean> {
     return this.conversation.abortWithConfirmation();
+  }
+
+  async abortWithConfirmationFor(tabId: string, sessionId: SessionId): Promise<boolean> {
+    return this.conversation.abortWithConfirmationFor(tabId, sessionId);
   }
 
   /**

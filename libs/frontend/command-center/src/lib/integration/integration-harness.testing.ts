@@ -41,6 +41,8 @@ export class SceneStubComponent {
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
+  public readonly setOverlayLabels = jest.fn();
+  public readonly setCardAnchor = jest.fn();
   public readonly layout = signal({
     // Integration tests exercise the work list; empty scene nodes keep the overlay hidden.
     nodes: [],
@@ -84,6 +86,7 @@ export function createHarness(
     ),
     terminalTurnPulses: pulses,
     lastTerminalPulseByTab,
+    backgroundTabsRevision: signal(0),
     findTabByIdAcrossWorkspaces: (id: string) => {
       const tab = tabs().find((candidate) => candidate.id === id);
       return tab ? { tab, workspacePath: '/repo' } : null;

@@ -76,7 +76,7 @@ export class SessionAgentRosterService {
       : null;
     if (!tab) return [orchestratorAgent(null, [])];
     const { permissions, questions } = this.requestsForTab(tab.id);
-    return buildSessionAgentRoster({
+    const roster = buildSessionAgentRoster({
       sessionId: tab.claudeSessionId ?? null,
       tabStatus: tab.status,
       subagents: [...this.monitor.subagents().values()],
@@ -85,6 +85,19 @@ export class SessionAgentRosterService {
       permissions,
       questions,
     });
+    // Pre-stream failures have no turn_state broadcast. Their sender stamps
+    // the terminal reason while settling the tab, whose status is still loaded.
+    if (tab.status !== 'loaded') return roster;
+    if (tab.lastTerminalReason === 'api_error') {
+      return [
+        orchestratorAgent('failed', roster[0].openRequestIds),
+        ...roster.slice(1),
+      ];
+    }
+    if (!tab.claudeSessionId) {
+      return [orchestratorAgent(null, roster[0].openRequestIds), ...roster.slice(1)];
+    }
+    return roster;
   }
 
   private targetsTab(

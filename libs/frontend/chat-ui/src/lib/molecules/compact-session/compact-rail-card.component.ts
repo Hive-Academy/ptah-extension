@@ -14,9 +14,11 @@ import {
 import type { DoCheck } from '@angular/core';
 import type {
   CompactGitState,
+  CompactLinkedTask,
   CompactTodoState,
 } from './compact-session-metrics';
-import { gitTitle, todoTitle } from './compact-session-metrics';
+import { gitTitle, linkedTaskTitle, todoTitle } from './compact-session-metrics';
+import { compactRailStateLabel } from './compact-rail-state-label.util';
 import type { CompactSessionSummary } from './compact-session-summary';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
@@ -221,7 +223,7 @@ const EMPTY_LANES: CompactLaneSummary = {
       class="rc-select"
       [attr.aria-label]="selectName()"
       [attr.aria-current]="focused() ? 'true' : null"
-      [tabIndex]="focused() ? 0 : -1"
+      [tabIndex]="tabStop() ? 0 : -1"
       (click)="selectRequested.emit()"
     ></button>
     <div class="rc-body rc-content text-xs">
@@ -234,7 +236,7 @@ const EMPTY_LANES: CompactLaneSummary = {
         <span class="rc-ellipsis flex-1 font-semibold" [title]="title()">{{
           title()
         }}</span>
-        <span class="rc-pill shrink-0 text-[10px]">{{ state() }}</span>
+        <span class="rc-pill shrink-0 text-[10px]">{{ stateLabel() }}</span>
       </div>
       @if (density() === 'comfortable') {
         <div class="rc-line rc-meta text-[11px] text-base-content-muted">
@@ -375,13 +377,23 @@ const EMPTY_LANES: CompactLaneSummary = {
         [title]="todoTitle(todos()) + '; ' + gitTitle(gitStats())"
       >
         @if (todos().kind === 'known') { <span>{{ todoCount() }}</span> }
+        @if (linkedTask(); as task) {
+          <span
+            class="rc-ellipsis font-mono"
+            data-testid="rail-linked-task"
+            [class.line-through]="task.missing"
+            [title]="linkedTaskTitle(task)"
+            [attr.aria-label]="linkedTaskTitle(task)"
+            >{{ task.taskId }}</span
+          >
+        }
         @if (summary().metrics.agentCount > 0) {
           <span class="badge badge-xs badge-outline">{{ summary().metrics.agentCount }} {{ summary().metrics.agentCount === 1 ? 'agent' : 'agents' }}</span>
         }
         @if (cliCount(); as count) {
           <span class="badge badge-xs badge-outline">{{ count }} CLI</span>
         }
-        @if (roundedContextPercent() > 0) {
+        @if (roundedContextPercent() !== null) {
           <span class="badge badge-xs badge-outline" aria-label="Context used">{{ roundedContextPercent() }}% ctx</span>
         }
         <span class="ml-auto shrink-0">{{ gitCount() }}</span>
@@ -392,6 +404,7 @@ const EMPTY_LANES: CompactLaneSummary = {
 export class CompactRailCardComponent implements DoCheck {
   readonly todoTitle = todoTitle;
   readonly gitTitle = gitTitle;
+  readonly linkedTaskTitle = linkedTaskTitle;
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly injector = inject(Injector);
   readonly title = input('');
@@ -404,9 +417,12 @@ export class CompactRailCardComponent implements DoCheck {
   readonly contextPercent = input<number | null>(null);
   readonly todos = input<CompactTodoState>({ kind: 'none' });
   readonly gitStats = input<CompactGitState>({ kind: 'none' });
+  /** The session's primary linked task, shown in the footer line. */
+  readonly linkedTask = input<CompactLinkedTask | null>(null);
   readonly state = input<CompactRailState>('idle');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly innerTabbable = input(false);
   readonly holdText = input(false);
   /** The host overlays a control on the top-right corner; keep the title clear of it. */
@@ -431,17 +447,19 @@ export class CompactRailCardComponent implements DoCheck {
   );
   readonly selectName = computed(
     () =>
-      `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
+      `${this.title()}, ${this.stateLabel()}${this.branch() ? ', branch ' + this.branch() : ''}${this.linkedTask() ? ', task ' + this.linkedTask()?.taskId : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
   );
+  readonly stateLabel = computed(() => compactRailStateLabel(this.state()));
   /** Every CLI lane of the session, including rows capped into `+N more`. */
   readonly cliCount = computed(() => this.lanes().kinds.cli);
   readonly todoCount = computed(() => {
     const t = this.todos();
     return t.kind === 'known' ? `${t.done}/${t.total}` : '—';
   });
-  readonly roundedContextPercent = computed(() =>
-    Math.round(this.contextPercent() ?? 0),
-  );
+  readonly roundedContextPercent = computed(() => {
+    const percent = this.contextPercent();
+    return percent === null ? null : Math.round(percent);
+  });
   readonly gitCount = computed(() => {
     const g = this.gitStats();
     return g.kind === 'known' ? `+${g.additions} −${g.deletions}` : '—';

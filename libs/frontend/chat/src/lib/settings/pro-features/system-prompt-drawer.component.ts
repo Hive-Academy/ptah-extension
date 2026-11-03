@@ -21,7 +21,7 @@ import {
   RotateCw,
   Sparkles,
 } from 'lucide-angular';
-import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
+import { ClaudeRpcService, WorkspaceScopeService, WALL_CLOCK_COARSE_MS, injectWallClock } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
@@ -34,10 +34,13 @@ const PROMPT_DOWNLOAD_FAILED = 'Could not download the system prompt.';
 const PROMPT_PREVIEW_LOAD_FAILED = 'Could not load the prompt preview.';
 const PROMPT_DOWNLOAD_SAVED = 'Saved to the chosen file.';
 
-/** The client's regenerate budget; the host is not told to stop when it runs out. */
 const REGENERATE_TIMEOUT_MS = 120_000;
-/** A timer may fire a little before the wall clock shows the full budget; a failure this close counts as the timeout. */
-const TIMEOUT_CLOCK_TOLERANCE_MS = 1_000;
+
+function parseIso(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
 
 /**
  * When the user dismisses the file save dialog without picking a path, the backend returns
@@ -56,9 +59,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
  * - A17: View/Hide prompt preview rendered through {@link MarkdownBlockComponent} (safe DOMPurify chokepoint)
  * - A18: Empty-state guidance when no prompt has been generated yet — only after a successful status read
  *
- * A regenerate that runs out the 120 s client timeout may still be running on the host, which has no stop
- * signal; a failure that comes back sooner is shown as the fixed failure sentence. The drawer then re-reads the status and keeps Regenerate off until a
- * newer prompt appears or a later "Check again" is at least another 120 s on, so two runs never overlap.
+ * The host reports a running regeneration in status. The drawer refreshes that status while open.
  *
  * P6 drawer pattern: single body, no tabs. Header with Sparkles icon; footer with Regenerate (outline),
  * Download (ghost) and Close (ghost). Parent owns visibility; {@link NativeDrawerComponent} handles
@@ -116,7 +117,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
           </div>
         }
 
-        @if (regenerateStartedAt() !== null) {
+        @if (regenerationStartedAt() !== null) {
           <div
             role="status"
             class="flex items-center gap-1.5 rounded border border-base-300 p-2 text-xs text-base-content"
@@ -124,8 +125,8 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
           >
             <lucide-angular [img]="ClockIcon" class="w-3.5 h-3.5 text-warning shrink-0" aria-hidden="true" />
             <span class="flex-1">
-              The regeneration did not answer in time and may still be running. Regenerate stays off until
-              a newer prompt appears.
+              Regeneration may still be running ({{ regenerationElapsedSeconds() === null ? '—' : regenerationElapsedSeconds() + ' s elapsed' }}).
+              Regenerate stays off until the host finishes.
             </span>
             <button
               type="button"
@@ -256,7 +257,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
               #regenerateButton
               type="button"
               class="btn btn-outline btn-xs gap-1 text-base-content"
-              [ptahBusyDisabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt() || regenerateStartedAt() !== null"
+              [ptahBusyDisabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt() || regenerationStartedAt() !== null"
               (click)="requestRegenerate()"
               aria-label="Regenerate Enhanced Prompt"
               data-testid="system-prompt-regenerate-button"
@@ -333,13 +334,14 @@ export class SystemPromptDrawerComponent {
   readonly confirmingRegenerate = signal(false);
   readonly isDownloading = signal(false);
 
-  /**
-   * When a regenerate went unanswered, the time it started; `null` otherwise. While set, the host may still be
-   * generating, so Regenerate stays disabled.
-   */
-  readonly regenerateStartedAt = signal<number | null>(null);
-  /** `generatedAt` before the unanswered regenerate, to recognise the prompt it produces. */
-  private regenerateBaseline: string | null = null;
+  readonly regenerationStartedAt = computed(() => parseIso(this.status()?.regenerationStartedAt));
+  private readonly now = injectWallClock('second', () => this.isOpen() && this.regenerationStartedAt() !== null);
+  private readonly coarseNow = injectWallClock('coarse', () => this.isOpen() && this.regenerationStartedAt() !== null);
+  readonly regenerationElapsedSeconds = computed(() => {
+    const startedAt = this.regenerationStartedAt();
+    return startedAt === null ? null : Math.max(0, Math.floor((this.now() - startedAt) / 1000));
+  });
+  private lastReconciliationTick: number | null = null;
 
   readonly promptPreviewContent = signal<string | null>(null);
   readonly promptPreviewExpanded = signal(false);
@@ -386,11 +388,24 @@ export class SystemPromptDrawerComponent {
     });
     // P8: the opened regenerate confirm takes focus on Cancel, so Esc reaches it.
     effect(() => this.regenerateCancel()?.nativeElement.focus());
+    effect(() => {
+      if (!this.isOpen() || this.regenerationStartedAt() === null) {
+        this.lastReconciliationTick = null;
+        return;
+      }
+      const tick = this.coarseNow();
+      if (this.lastReconciliationTick !== null && tick - this.lastReconciliationTick >= WALL_CLOCK_COARSE_MS) {
+        untracked(() => void this.checkRegenerate(true));
+        this.lastReconciliationTick = tick;
+      } else if (this.lastReconciliationTick === null) {
+        this.lastReconciliationTick = tick;
+      }
+    });
   }
 
   /** Reads the status; an RPC failure, a throw or a host-reported `error` all show the fixed load error. */
-  async loadStatus(): Promise<boolean> {
-    this.isLoading.set(true);
+  async loadStatus(background = false): Promise<boolean> {
+    if (!background) this.isLoading.set(true);
     this.error.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:getStatus', {
@@ -404,7 +419,7 @@ export class SystemPromptDrawerComponent {
     } catch {
       // Falls through to the fixed load error below.
     } finally {
-      this.isLoading.set(false);
+      if (!background) this.isLoading.set(false);
     }
     this.statusLoadFailed.set(true);
     this.error.set(PROMPT_STATUS_LOAD_FAILED);
@@ -412,7 +427,7 @@ export class SystemPromptDrawerComponent {
   }
 
   requestRegenerate(): void {
-    if (this.regenerateStartedAt() !== null) return;
+    if (this.regenerationStartedAt() !== null) return;
     this.confirmingRegenerate.set(true);
   }
 
@@ -423,69 +438,43 @@ export class SystemPromptDrawerComponent {
     afterNextRender(() => this.regenerateButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
-  /**
-   * Regenerates the enhanced prompt (A15, S-confirm).
-   * Host reports a failed generation as `{success:false, error}` inside a successful RPC: the host has stopped,
-   * so only the fixed sentence is shown and the status is not re-read (F1). A failed call or a throw that comes
-   * back well inside the client budget is a definitive failure too: fixed sentence, Regenerate stays enabled
-   * (N1). Only a call that ran out the 120 s client timeout may have left the host running: the status is
-   * re-read and Regenerate is blocked.
-   */
+  /** Re-read host status after the RPC settles, including failures and timeouts. */
   async confirmRegenerate(): Promise<void> {
-    if (this.regenerateStartedAt() !== null) return;
+    if (this.regenerationStartedAt() !== null) return;
     this.confirmingRegenerate.set(false);
     this.isRegenerating.set(true);
     this.error.set(null);
-    const baseline = this.status()?.generatedAt ?? null;
-    const startedAt = Date.now();
+    const generatedBefore = this.status()?.generatedAt ?? null;
     try {
-      const result = await this.rpcService.call(
+      await this.rpcService.call(
         'enhancedPrompts:regenerate',
         { workspacePath: this.workspacePath(), force: true },
         { timeout: REGENERATE_TIMEOUT_MS },
       );
-      if (result.isSuccess() && result.data.success) {
-        this.promptPreviewContent.set(null);
-        this.promptPreviewExpanded.set(false);
-        await this.loadStatus();
-        this.changed.emit();
-        return;
-      }
-      if (!result.isSuccess() && this.ranOutClientBudget(startedAt)) {
-        this.regenerateBaseline = baseline;
-        this.regenerateStartedAt.set(startedAt);
-        await this.checkRegenerate();
-        return;
-      }
     } catch {
-      // A throw is not the client timeout (that resolves a failed result); shown as the fixed failure below.
+      // Host status is still authoritative after a transport failure.
     } finally {
       this.isRegenerating.set(false);
     }
-    this.feedback.announce(PROMPT_REGENERATE_FAILED, 'alert');
+    if (await this.loadStatus()) this.resolveRegeneration(generatedBefore);
   }
 
-  /** The RPC client resolves a timeout as a failed result once the budget has elapsed (`claude-rpc.service`). */
-  private ranOutClientBudget(startedAt: number): boolean {
-    return Date.now() - startedAt >= REGENERATE_TIMEOUT_MS - TIMEOUT_CLOCK_TOLERANCE_MS;
+  /** Reconcile a host-reported run on demand or on the shared coarse tick. */
+  async checkRegenerate(background = false): Promise<void> {
+    if (this.regenerationStartedAt() === null) return;
+    const generatedBefore = this.status()?.generatedAt ?? null;
+    if (!(await this.loadStatus(background))) return;
+    this.resolveRegeneration(generatedBefore);
   }
 
-  /**
-   * Re-reads the status after an unanswered regenerate. The block lifts when a newer prompt is on disk, or when
-   * the check comes at least another full timeout after the regenerate started, by which time the host is done.
-   */
-  async checkRegenerate(): Promise<void> {
-    const startedAt = this.regenerateStartedAt();
-    if (startedAt === null) return;
-    if (!(await this.loadStatus())) return;
+  private resolveRegeneration(generatedBefore: string | null): void {
+    if (this.regenerationStartedAt() !== null) return;
     const current = this.status()?.generatedAt ?? null;
-    if (current !== null && current !== this.regenerateBaseline) {
-      this.regenerateStartedAt.set(null);
+    if (current !== null && current !== generatedBefore) {
       this.promptPreviewContent.set(null);
       this.promptPreviewExpanded.set(false);
       this.changed.emit();
-    } else if (Date.now() - startedAt >= 2 * REGENERATE_TIMEOUT_MS) {
-      this.regenerateStartedAt.set(null);
+    } else {
       this.feedback.announce(PROMPT_REGENERATE_FAILED, 'alert');
     }
   }

@@ -25,7 +25,10 @@ import {
   type RpcHandler,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   type CommitMessageGenerator,
@@ -47,7 +50,7 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 
-import { findRegisteredWorkspaceFolder } from './git-workspace-root';
+import { GitRootResolver, createWorktreeRootProbe } from './git-root-resolver';
 import {
   parseGitCancelOperationParams,
   parseGitGenerateCommitMessageParams,
@@ -85,16 +88,32 @@ export class GitWorkflowRpcHandlers {
     'git:log',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Same rule as `GitRpcHandlers` (TASK_2026_855 D5/D17): a named root must be
+   * a registered folder or a live worktree of one, re-validated per call, and
+   * a refused root never falls back to the active folder.
+   */
+  private readonly roots: GitRootResolver;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider,
+    workspace: IWorkspaceProvider,
     @inject(TOKENS.GIT_INFO_SERVICE)
     private readonly gitInfo: GitInfoService,
     @inject(SDK_TOKENS.SDK_COMMIT_MESSAGE_GENERATOR)
     private readonly commitMessages: CommitMessageGenerator,
-  ) {}
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    fileSystem: IFileSystemProvider,
+  ) {
+    this.roots = new GitRootResolver({
+      workspace,
+      probe: createWorktreeRootProbe(gitInfo, fileSystem),
+      warn: (message, context) =>
+        this.logger.warn(`${LOG_TAG} ${message}`, context),
+    });
+  }
 
   register(): void {
     this.registerCancelOperation();
@@ -147,9 +166,10 @@ export class GitWorkflowRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      const root = this.resolveRoot(
-        'git:generateCommitMessage',
+      const root = await this.roots.resolve(
         params.workspaceRoot,
+        'git:generateCommitMessage',
+        'folder-or-worktree',
       );
       // No repository to read a staged diff from: `unreachable` is the
       // reason the shared type documents for an unreadable staged diff.
@@ -186,7 +206,11 @@ export class GitWorkflowRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        const root = this.resolveRoot('git:prStatus', params.workspaceRoot);
+        const root = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:prStatus',
+          'folder-or-worktree',
+        );
         if (!root) return { status: 'unavailable', reason: 'failed' };
 
         try {
@@ -227,7 +251,11 @@ export class GitWorkflowRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      const root = this.resolveRoot('git:operationAbort', params.workspaceRoot);
+      const root = await this.roots.resolve(
+        params.workspaceRoot,
+        'git:operationAbort',
+        'folder-or-worktree',
+      );
       if (!root) return NO_REPOSITORY;
 
       try {
@@ -255,9 +283,10 @@ export class GitWorkflowRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      const root = this.resolveRoot(
-        'git:operationContinue',
+      const root = await this.roots.resolve(
         params.workspaceRoot,
+        'git:operationContinue',
+        'folder-or-worktree',
       );
       if (!root) return NO_REPOSITORY;
 
@@ -285,7 +314,11 @@ export class GitWorkflowRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        const root = this.resolveRoot('git:log', params.workspaceRoot);
+        const root = await this.roots.resolve(
+          params.workspaceRoot,
+          'git:log',
+          'folder-or-worktree',
+        );
         if (!root) return { status: 'unavailable', reason: 'not-a-repository' };
 
         try {
@@ -304,23 +337,5 @@ export class GitWorkflowRpcHandlers {
       `${LOG_TAG} ${what}`,
       error instanceof Error ? error : new Error(String(error)),
     );
-  }
-
-  /**
-   * Same rule as `GitRpcHandlers`: a named folder must be registered, and an
-   * unregistered one never falls back to the active folder.
-   */
-  private resolveRoot(
-    method: RpcMethodName,
-    requested: string | undefined,
-  ): string | undefined {
-    if (!requested) return this.workspace.getWorkspaceRoot();
-    const registered = findRegisteredWorkspaceFolder(this.workspace, requested);
-    if (registered) return registered;
-    this.logger.warn(
-      `${LOG_TAG} ${method} called with unregistered workspaceRoot`,
-      { workspaceRoot: requested },
-    );
-    return undefined;
   }
 }

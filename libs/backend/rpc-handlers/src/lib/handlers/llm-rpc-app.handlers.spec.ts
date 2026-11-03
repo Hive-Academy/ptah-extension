@@ -85,6 +85,7 @@ function makeActiveProviderResolver(
 ): ActiveProviderResolver {
   const scope = {
     read: <T>(key: string): T | undefined => values[key] as T | undefined,
+    isStored: (key: string): boolean => values[key] !== undefined,
   } as unknown as WorkspaceScopeResolver;
   return new ActiveProviderResolver(scope);
 }
@@ -261,7 +262,7 @@ describe('LlmRpcHandlers', () => {
   describe('llm:getProviderStatus', () => {
     it('reports hasApiKey + isDefault for each status provider', async () => {
       const h = makeHarness({
-        configSeed: { 'llm.defaultProvider': 'openrouter' },
+        configSeed: { 'llm.defaultProvider': 'openrouter', authMethod: 'apiKey' },
         secretSeed: { 'ptah.apiKey.anthropic': 'sk-ant-abc' },
       });
       h.handlers.register();
@@ -292,6 +293,7 @@ describe('LlmRpcHandlers', () => {
 
     it('reports hasApiKey=true for anthropic when only the SDK slot is populated', async () => {
       const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
         authCredentials: { apiKey: `sk-ant-${'a'.repeat(25)}` },
       });
       h.handlers.register();
@@ -302,6 +304,20 @@ describe('LlmRpcHandlers', () => {
 
       const anthropic = result.providers.find((p) => p.name === 'anthropic');
       expect(anthropic?.hasApiKey).toBe(true);
+    });
+
+    it('reports anthropic as authType=cli under the default (unset) auth method', async () => {
+      const h = makeHarness({
+        authCredentials: { apiKey: `sk-ant-${'a'.repeat(25)}` },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{ name: string; authType: string }>;
+      }>(h, 'llm:getProviderStatus');
+
+      const anthropic = result.providers.find((p) => p.name === 'anthropic');
+      expect(anthropic?.authType).toBe('cli');
     });
 
     it('reports hasApiKey=true for a third-party provider via the SDK provider slot', async () => {

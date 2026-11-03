@@ -38,8 +38,10 @@
  * that know the least.
  */
 import { basename, dirname, join } from 'path';
-import { readdir } from 'fs/promises';
+import { lstat, readdir } from 'fs/promises';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { isRetiredSourceRef } from '@ptah-extension/shared';
+import type { SkillsShRetiredRegistry } from '@ptah-extension/shared';
 import type {
   OriginKind,
   OriginSidecar,
@@ -80,12 +82,70 @@ export interface OrphanedClone {
   readonly slug: string;
 }
 
+/**
+ * Why a clone the sweep would otherwise delete was kept on disk.
+ *
+ * - `diverged`: the sidecar's explicit flag.
+ * - `edited`: the live content hash no longer equals `sourceHash` (this is
+ *   also how an enhanced clone shows up).
+ * - `unhashable`: the hash could not be computed, or the clone tree is deeper
+ *   than the hash walk reaches. Refusing on a read failure is the safe side.
+ * - `symlink`: the clone, its sidecar or any entry inside the clone is a
+ *   symbolic link. The content hash skips links, so a link is unproven content
+ *   and the sweep never deletes through one.
+ */
+export type ReapKeptReason = 'diverged' | 'edited' | 'unhashable' | 'symlink';
+
+/**
+ * One clone the sweep acted on, keyed by its absolute path.
+ *
+ * `path` is the clone itself: the skill directory, or the `<slug>.md` file of a
+ * command/agent clone. It is stable across runs, so a durable ledger can key
+ * on it (TASK_2026_853 D-6). `sourceRef` is the sidecar's durable source
+ * identity (`skills-sh:<rootId>` for a skills.sh clone, which equals the
+ * ledger item id); `null` when the sidecar predates the field or was not read.
+ */
+export interface ReapClonePath {
+  readonly kind: OriginKind;
+  readonly slug: string;
+  readonly path: string;
+  readonly sourceRef: string | null;
+}
+
+export interface ReapedClonePath extends ReapClonePath {
+  /**
+   * Every path this deletion removed: the skill directory, or the `.md` file
+   * plus its `.ptah-origin.json` sidecar. History snapshots are written to the
+   * root-level `.history/` first and are not listed.
+   */
+  readonly removedPaths: readonly string[];
+}
+
+export interface KeptClonePath extends ReapClonePath {
+  readonly reason: ReapKeptReason;
+}
+
+export interface FailedClonePath extends ReapClonePath {
+  /** The failure message (never a stack). */
+  readonly error: string;
+}
+
 export interface ReapResult {
   reaped: number;
   orphaned: number;
   errors: number;
   reapedClones: OrphanedClone[];
   orphanedClones: OrphanedClone[];
+  /** Clones deleted this pass, one row per clone. */
+  reapedPaths: ReapedClonePath[];
+  /** Clones kept because they carry local work or cannot be proven. */
+  keptPaths: KeptClonePath[];
+  /**
+   * Clones whose read, snapshot or delete threw. Each row is also counted in
+   * `errors`. A root listing that fails has no clone path and is counted in
+   * `errors` only.
+   */
+  failedPaths: FailedClonePath[];
 }
 
 export function emptyReapResult(): ReapResult {
@@ -95,6 +155,9 @@ export function emptyReapResult(): ReapResult {
     errors: 0,
     reapedClones: [],
     orphanedClones: [],
+    reapedPaths: [],
+    keptPaths: [],
+    failedPaths: [],
   };
 }
 
@@ -104,10 +167,7 @@ export function emptyReapResult(): ReapResult {
  * tell the two apart. The classifier stays pure and hands that one case back.
  */
 export type UpstreamVerdict =
-  | 'live'
-  | 'orphan'
-  | 'unknown'
-  | 'check-plugin-dir';
+  'live' | 'orphan' | 'unknown' | 'check-plugin-dir';
 
 export function classifyUpstream(
   sidecar: OriginSidecar,
@@ -140,23 +200,87 @@ export function classifyUpstream(
   return 'unknown';
 }
 
+/**
+ * How one sweep treats a clone that has a sidecar.
+ *
+ * - `live`: the upstream exists; a stale `orphaned` flag is cleared.
+ * - `orphan`: delete the clone when it carries no local work, else keep it.
+ * - `skip`: not this sweep's business; nothing is touched or reported.
+ */
+type SweepDecision = 'live' | 'orphan' | 'skip';
+
+interface SweepPolicy {
+  /** Log label for the summary line. */
+  readonly label: string;
+  /** Write `orphaned: true` on a kept clone and clear it on a live one. */
+  readonly flagKept: boolean;
+  decide(sidecar: OriginSidecar): Promise<SweepDecision>;
+}
+
+const MAX_LINK_SCAN_DEPTH = 20;
+
 export class UserLayerOrphanReaper {
   constructor(
     private readonly logger: Logger,
     private readonly fs: UserLayerFsOps,
   ) {}
 
+  /** Deleted-upstream sweep: the three rules in the file header. */
   async reap(
     roots: UserLayerRoots,
     live: UpstreamLiveness,
   ): Promise<ReapResult> {
+    return this.sweep(roots, {
+      label: 'deleted-upstream sweep',
+      flagKept: true,
+      decide: async (sidecar) => {
+        const verdict = await this.resolveVerdict(sidecar, live);
+        return verdict === 'unknown' ? 'skip' : verdict;
+      },
+    });
+  }
+
+  /**
+   * Retired skills.sh roots (TASK_2026_853 D-6): the same per-clone rule as
+   * {@link reap}, with "upstream gone" replaced by "the clone's `sourceRef` is
+   * `skills-sh:<rootId>` and that root id is in the retired registry".
+   *
+   * - A clone whose live hash equals `sourceHash`, with `diverged` false, no
+   *   symlink anywhere in it and a complete hash walk, is snapshotted to the
+   *   root `.history/` and deleted.
+   * - Every other retired clone is kept and reported in `keptPaths`. Its
+   *   sidecar is NOT rewritten: the manifest builder already treats a retired
+   *   clone as inactive, and the next deleted-upstream pass would clear an
+   *   `orphaned` flag again while the retired root is still on disk.
+   * - Only user-layer paths are deleted (`removePath` refuses anything outside
+   *   `~/.ptah/user/` and anything under `~/.ptah/plugins/`), so the retired
+   *   source root itself is never touched here; its deletion has its own proof.
+   * - A clone with no sidecar, with no `sourceRef` or with any other ref is
+   *   skipped. A `null` registry retires nothing.
+   */
+  async reapRetired(
+    roots: UserLayerRoots,
+    retired: SkillsShRetiredRegistry | null,
+  ): Promise<ReapResult> {
+    return this.sweep(roots, {
+      label: 'retired-root clone sweep',
+      flagKept: false,
+      decide: async (sidecar) =>
+        isRetiredSourceRef(sourceRefOf(sidecar), retired) ? 'orphan' : 'skip',
+    });
+  }
+
+  private async sweep(
+    roots: UserLayerRoots,
+    policy: SweepPolicy,
+  ): Promise<ReapResult> {
     const result = emptyReapResult();
-    await this.reapSkillClones(roots.skills, live, result);
-    await this.reapFileClones('command', roots.commands, live, result);
-    await this.reapFileClones('agent', roots.agents, live, result);
+    await this.reapSkillClones(roots.skills, policy, result);
+    await this.reapFileClones('command', roots.commands, policy, result);
+    await this.reapFileClones('agent', roots.agents, policy, result);
 
     if (result.reaped > 0 || result.orphaned > 0) {
-      this.logger.info('[UserLayerMirror] deleted-upstream sweep', {
+      this.logger.info(`[UserLayerMirror] ${policy.label}`, {
         reaped: result.reaped,
         orphaned: result.orphaned,
         errors: result.errors,
@@ -167,7 +291,7 @@ export class UserLayerOrphanReaper {
 
   private async reapSkillClones(
     skillsRoot: string,
-    live: UpstreamLiveness,
+    policy: SweepPolicy,
     result: ReapResult,
   ): Promise<void> {
     let names: string[];
@@ -190,23 +314,27 @@ export class UserLayerOrphanReaper {
     for (const name of names) {
       if (name === DEFAULT_HISTORY_DIR) continue;
       const cloneDir = join(skillsRoot, name);
+      let sidecar: OriginSidecar | null = null;
       try {
-        const sidecar = await readSidecar(cloneDir);
+        sidecar = await readSidecar(cloneDir);
         if (!sidecar) continue;
-        const verdict = await this.resolveVerdict(sidecar, live);
-        if (verdict === 'live') {
-          await this.clearOrphanFlagDir(cloneDir, sidecar);
+        const decision = await policy.decide(sidecar);
+        if (decision === 'live') {
+          if (policy.flagKept) await this.clearOrphanFlagDir(cloneDir, sidecar);
           continue;
         }
-        if (verdict !== 'orphan') continue;
+        if (decision !== 'orphan') continue;
 
-        if (await this.hasLocalWork(cloneDir, sidecar)) {
-          await this.markOrphanedDir(cloneDir, sidecar);
+        const row = clonePathRow(sidecar.kind, sidecar.slug, cloneDir, sidecar);
+        const keptReason = await this.localWorkReason(cloneDir, sidecar);
+        if (keptReason !== null) {
+          if (policy.flagKept) await this.markOrphanedDir(cloneDir, sidecar);
           result.orphaned += 1;
           result.orphanedClones.push({
             kind: sidecar.kind,
             slug: sidecar.slug,
           });
+          result.keptPaths.push({ ...row, reason: keptReason });
           continue;
         }
 
@@ -214,11 +342,17 @@ export class UserLayerOrphanReaper {
         await this.fs.removePath(cloneDir);
         result.reaped += 1;
         result.reapedClones.push({ kind: sidecar.kind, slug: sidecar.slug });
+        result.reapedPaths.push({ ...row, removedPaths: [cloneDir] });
       } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
         result.errors += 1;
+        result.failedPaths.push({
+          ...clonePathRow('skill', name, cloneDir, sidecar),
+          error: message,
+        });
         this.logger.warn('[UserLayerMirror] reap failed for skill clone', {
           slug: name,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
       }
     }
@@ -227,7 +361,7 @@ export class UserLayerOrphanReaper {
   private async reapFileClones(
     kind: Extract<OriginKind, 'command' | 'agent'>,
     rootDir: string,
-    live: UpstreamLiveness,
+    policy: SweepPolicy,
     result: ReapResult,
   ): Promise<void> {
     let files: string[];
@@ -253,20 +387,30 @@ export class UserLayerOrphanReaper {
       const slug = fileName.replace(/\.md$/, '');
       const cloneFile = join(rootDir, fileName);
       const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+      let sidecar: OriginSidecar | null = null;
       try {
-        const sidecar = await readSidecarAt(sidecarPath);
+        sidecar = await readSidecarAt(sidecarPath);
         if (!sidecar) continue;
-        const verdict = await this.resolveVerdict(sidecar, live);
-        if (verdict === 'live') {
-          await this.clearOrphanFlagAt(sidecarPath, sidecar);
+        const decision = await policy.decide(sidecar);
+        if (decision === 'live') {
+          if (policy.flagKept) {
+            await this.clearOrphanFlagAt(sidecarPath, sidecar);
+          }
           continue;
         }
-        if (verdict !== 'orphan') continue;
+        if (decision !== 'orphan') continue;
 
-        if (await this.hasLocalWork(cloneFile, sidecar)) {
-          await this.markOrphanedAt(sidecarPath, sidecar);
+        const row = clonePathRow(sidecar.kind, slug, cloneFile, sidecar);
+        const keptReason = await this.localWorkReason(
+          cloneFile,
+          sidecar,
+          sidecarPath,
+        );
+        if (keptReason !== null) {
+          if (policy.flagKept) await this.markOrphanedAt(sidecarPath, sidecar);
           result.orphaned += 1;
           result.orphanedClones.push({ kind: sidecar.kind, slug });
+          result.keptPaths.push({ ...row, reason: keptReason });
           continue;
         }
 
@@ -275,12 +419,21 @@ export class UserLayerOrphanReaper {
         await this.fs.removePath(sidecarPath);
         result.reaped += 1;
         result.reapedClones.push({ kind: sidecar.kind, slug });
+        result.reapedPaths.push({
+          ...row,
+          removedPaths: [cloneFile, sidecarPath],
+        });
       } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
         result.errors += 1;
+        result.failedPaths.push({
+          ...clonePathRow(kind, slug, cloneFile, sidecar),
+          error: message,
+        });
         this.logger.warn('[UserLayerMirror] reap failed for file clone', {
           kind,
           slug,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
       }
     }
@@ -308,26 +461,35 @@ export class UserLayerOrphanReaper {
   }
 
   /**
-   * Does this clone carry work the user would lose?
+   * Does this clone carry work the user would lose? `null` means "no, it may
+   * be deleted"; anything else is the reason it is kept.
    *
    * `diverged` is the explicit flag; the hash comparison catches the enhanced
    * clone, which is edited-by-Ptah-on-the-user's-behalf and is never flagged
-   * diverged. A hash that cannot be computed is treated as "yes" — refusing to
-   * delete on a read failure is the only safe direction here.
+   * diverged. The hash walk skips symbolic links and stops at a depth cap, so
+   * a link anywhere in the clone (or a sidecar that is a link) and a truncated
+   * walk both leave content the hash did not prove: kept. A hash that cannot be
+   * computed is treated as "yes" — refusing to delete on a read failure is the
+   * only safe direction here.
    */
-  private async hasLocalWork(
+  private async localWorkReason(
     clonePath: string,
     sidecar: OriginSidecar,
-  ): Promise<boolean> {
-    if (sidecar.diverged) return true;
+    sidecarPath?: string,
+  ): Promise<ReapKeptReason | null> {
+    if (sidecar.diverged) return 'diverged';
     try {
-      const liveHash = await computeSourceHash(clonePath);
-      return liveHash !== sidecar.sourceHash;
+      const unproven = await findUnprovenEntry(clonePath, sidecarPath);
+      if (unproven !== null) return unproven;
+      const walk = { truncatedAtDepth: false };
+      const liveHash = await computeSourceHash(clonePath, walk);
+      if (walk.truncatedAtDepth) return 'unhashable';
+      return liveHash === sidecar.sourceHash ? null : 'edited';
     } catch (error: unknown) {
       // degradation-audit: optional-capability - per the doc comment above, a
-      // hash that cannot be computed is treated as "yes, there is local work",
-      // which keeps the clone instead of reaping it; the warn below still
-      // surfaces the underlying read failure.
+      // clone that cannot be inspected or hashed is treated as "yes, there is
+      // local work", which keeps the clone instead of reaping it; the warn
+      // below still surfaces the underlying read failure.
       this.logger.warn(
         '[UserLayerMirror] could not hash clone before reaping; keeping it',
         {
@@ -335,7 +497,7 @@ export class UserLayerOrphanReaper {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return true;
+      return 'unhashable';
     }
   }
 
@@ -382,6 +544,55 @@ export class UserLayerOrphanReaper {
     this.fs.assertUnderUserLayer(sidecarPath);
     await writeSidecarAtomicAt(sidecarPath, { ...sidecar, orphaned: false });
   }
+}
+
+/** The sidecar's `sourceRef` when it is a string; anything else is `null`. */
+function sourceRefOf(sidecar: OriginSidecar | null): string | null {
+  return typeof sidecar?.sourceRef === 'string' ? sidecar.sourceRef : null;
+}
+
+function clonePathRow(
+  kind: OriginKind,
+  slug: string,
+  path: string,
+  sidecar: OriginSidecar | null,
+): ReapClonePath {
+  return { kind, slug, path, sourceRef: sourceRefOf(sidecar) };
+}
+
+/**
+ * `lstat` the clone (and a file clone's separate sidecar) and walk a clone
+ * directory without following links. Returns `'symlink'` for the first link
+ * found, `'unhashable'` when the tree is deeper than the scan reaches, and
+ * `null` when every entry is a plain file or directory. Read errors propagate
+ * to the caller, which keeps the clone.
+ */
+async function findUnprovenEntry(
+  clonePath: string,
+  sidecarPath?: string,
+): Promise<'symlink' | 'unhashable' | null> {
+  if (sidecarPath && (await lstat(sidecarPath)).isSymbolicLink()) {
+    return 'symlink';
+  }
+  const stats = await lstat(clonePath);
+  if (stats.isSymbolicLink()) return 'symlink';
+  if (!stats.isDirectory()) return null;
+  return scanDirForLinks(clonePath, 0);
+}
+
+async function scanDirForLinks(
+  dir: string,
+  depth: number,
+): Promise<'symlink' | 'unhashable' | null> {
+  if (depth > MAX_LINK_SCAN_DEPTH) return 'unhashable';
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) return 'symlink';
+    if (entry.isDirectory()) {
+      const found = await scanDirForLinks(join(dir, entry.name), depth + 1);
+      if (found !== null) return found;
+    }
+  }
+  return null;
 }
 
 /**

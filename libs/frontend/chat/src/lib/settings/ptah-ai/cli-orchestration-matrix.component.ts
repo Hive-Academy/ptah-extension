@@ -22,7 +22,6 @@ import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import {
   NativePopoverComponent,
   ProviderMarkComponent,
-  SurfaceSectionComponent,
 } from '@ptah-extension/ui';
 import type { SystemCliType } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -166,18 +165,17 @@ const SAVE_SCOPE = 'global';
     CursorCredentialPopoverComponent,
     AddCliInstanceModalComponent,
     CliTierMappingModalComponent,
-    SurfaceSectionComponent,
     ClaudeLaneAccountCellComponent,
     PtahCliInstancesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ptah-surface-section
-      tone="subtle"
-      padding="md"
-      glassSurface="chrome"
+    <div class="flex flex-col gap-4">
+    <section
+      class="flex flex-col gap-4"
       aria-labelledby="cli-matrix-heading"
       data-testid="settings-cli-matrix"
+      data-glass-surface="content"
     >
       <div section-header class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h2
@@ -202,7 +200,7 @@ const SAVE_SCOPE = 'global';
       <!-- A glass tile in glass themes, a base-100 plate with a hairline in solid themes. The table fits its width
            (headers and permission badges wrap); overflow-x-auto is only a safety net. -->
       <div
-        class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+        class="overflow-x-auto rounded-lg border border-base-content/10"
         data-glass-surface="tile"
       >
         <!-- table-sm density; cell padding is set in the styles below (wide and narrow).
@@ -216,7 +214,7 @@ const SAVE_SCOPE = 'global';
         >
           <thead>
             <tr
-              class="cli-head whitespace-normal bg-base-200/60 text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+              class="cli-head whitespace-normal border-b border-base-content/10 text-xs font-semibold uppercase tracking-wide text-base-content-muted"
             >
               <th>On</th>
               <th>Agent / Instance</th>
@@ -236,7 +234,7 @@ const SAVE_SCOPE = 'global';
             >
               @if (group.id === 'uninstalled') {
                 <!-- Decision 1 (Gate V 36): collapsed by default; the disclosure expands the rows in place. -->
-                <tr class="bg-base-300">
+                <tr class="border-b border-base-content/10">
                   <th colspan="8" scope="colgroup" class="py-1">
                     <button
                       type="button"
@@ -270,8 +268,7 @@ const SAVE_SCOPE = 'global';
                   class="cli-row"
                   [attr.data-testid]="'cli-matrix-row-' + row.id"
                   [attr.data-kind]="row.kind"
-                  [class.surface-2]="!rowOpen(row.id)"
-                  [class.surface-3]="rowOpen(row.id)"
+                  [class.border-primary]="rowOpen(row.id)"
                   [attr.data-dimmed]="row.interactive ? null : 'true'"
                 >
                   <td class="align-middle">
@@ -750,6 +747,8 @@ const SAVE_SCOPE = 'global';
         </table>
       </div>
 
+    </section>
+
       <!-- The Ptah CLI instances: their own sub-section under a hairline, with Add and one card per instance. -->
       <ptah-cli-instances
         [rows]="instances()"
@@ -773,7 +772,7 @@ const SAVE_SCOPE = 'global';
         (deleteCancelled)="cancelDelete($event)"
         (deleteConfirmed)="remove($event)"
       />
-    </ptah-surface-section>
+    </div>
 
     <!-- Batch 32: centered modals on the shared native <dialog> (design-spec §6), in this lazy chunk. -->
     <ptah-add-cli-instance-modal
@@ -796,6 +795,9 @@ const SAVE_SCOPE = 'global';
       display: block;
       container-type: inline-size;
     }
+    :host-context([data-glass='on']) [data-testid='settings-cli-matrix'] {
+      padding: 1.25rem;
+    }
     /* Cells: 10 px block and 8 px inline padding (8 px both in the narrow box, below), so every column of the wide
        VS Code box fits beside the others; rows read as rows, not lines. The On box is daisyUI's
        checkbox-sm (20 px), whose tick is drawn centred at that native size. */
@@ -811,16 +813,13 @@ const SAVE_SCOPE = 'global';
     .cli-row {
       border-bottom: 1px solid oklch(var(--bc) / 0.1);
     }
-    .cli-row.surface-2:hover {
+    .cli-row:hover {
       background: oklch(var(--bc) / 0.05);
     }
-    /* Glass: rows sit on the wrapper's tile (a <tr> cannot carry a glass role); the open row keeps a light fill. */
+    /* Rows stay transparent in glass as well; the open row uses its border. */
     :host-context(:root[data-glass='on']) .cli-row {
       background: transparent;
       box-shadow: none;
-    }
-    :host-context(:root[data-glass='on']) .cli-row.surface-3 {
-      background: oklch(var(--bc) / 0.1);
     }
     .cli-narrow-inline {
       display: none;

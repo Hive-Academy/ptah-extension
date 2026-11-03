@@ -37,7 +37,11 @@ function rollout(tokens: number, modifiedAtMs = NOW - 1_000) {
 }
 
 describe('LaneResumeGate', () => {
-  describe('context boundary (60k)', () => {
+  describe('context boundary (150k)', () => {
+    it('pins the limit at 150k tokens', () => {
+      expect(RESUME_GATE_MAX_CONTEXT_TOKENS).toBe(150_000);
+    });
+
     it('resumes at exactly the limit', async () => {
       const { gate } = gateWith(rollout(RESUME_GATE_MAX_CONTEXT_TOKENS));
 
@@ -49,7 +53,7 @@ describe('LaneResumeGate', () => {
 
       expect(result).toMatchObject({
         decision: 'resume',
-        contextTokens: 60_000,
+        contextTokens: 150_000,
         source: 'rollout',
       });
     });
@@ -64,7 +68,7 @@ describe('LaneResumeGate', () => {
       });
 
       expect(result.decision).toBe('fresh');
-      expect(result.reason).toBe('last request 60001 tokens exceeds 60000');
+      expect(result.reason).toBe('last request 150001 tokens exceeds 150000');
     });
   });
 
@@ -195,13 +199,13 @@ describe('LaneResumeGate', () => {
         cli: 'opencode',
         cliSessionId: 'ses_1',
         lastActivityAt: NOW,
-        lastRequestContext: { tokens: 61_000, source: 'estimate' },
+        lastRequestContext: { tokens: 151_000, source: 'estimate' },
       });
 
       expect(reader).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         decision: 'fresh',
-        contextTokens: 61_000,
+        contextTokens: 151_000,
         source: 'estimate',
       });
     });
@@ -239,7 +243,7 @@ describe('LaneResumeGate', () => {
   });
 
   it('always logs the decision with its source', async () => {
-    const { gate, output } = gateWith(rollout(61_000));
+    const { gate, output } = gateWith(rollout(151_000));
 
     await gate.evaluate({
       cli: 'codex',
@@ -249,8 +253,8 @@ describe('LaneResumeGate', () => {
 
     expect(output.appendLine).toHaveBeenCalledTimes(1);
     expect(output.appendLine.mock.calls[0][0]).toBe(
-      '[LaneResumeGate] fresh: codex session thread-1 — last request 61000 tokens ' +
-        'exceeds 60000 (context 61000 tokens, source: rollout, idle 30s)',
+      '[LaneResumeGate] fresh: codex session thread-1 — last request 151000 tokens ' +
+        'exceeds 150000 (context 151000 tokens, source: rollout, idle 30s)',
     );
   });
 });

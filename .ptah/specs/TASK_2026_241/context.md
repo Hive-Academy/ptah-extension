@@ -73,3 +73,10 @@ Open design questions for the architect, not decided here:
   is unrelated in code but shares the `cli-agent-runtime` lib.
 - `composio` is already registered as a `coming-soon` provider and would become
   a fifth inventory source when it lands.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Combine Smithery and OAuth installations with the MCP config inventory and group the result by target config file.
+- Evidence on main: main:libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts:44-46 defines an installed slice; :562-567 loads only mcpDirectory:listInstalled. main:libs/frontend/marketplace/src/lib/smithery-surface.component.ts:1289 and oauth-surface.component.ts:791 still load separate provider lists.

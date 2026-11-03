@@ -1,0 +1,81 @@
+{
+  "denyTools": [
+    "Workflow",
+    "ReportFindings",
+    "PushNotification",
+    "DesignSync",
+    "EnterWorktree",
+    "ExitWorktree"
+  ],
+  "denySkills": [
+    "keybindings-help",
+    "update-config",
+    "fewer-permission-prompts",
+    "plugin-authoring",
+    "init",
+    "workflow-authoring",
+    "code-review"
+  ],
+  "results": [
+    {
+      "run": 1,
+      "side": "before",
+      "main": 34407,
+      "subagent": null,
+      "toolCount": 27,
+      "skillCount": 59,
+      "result": "success"
+    },
+    {
+      "run": 1,
+      "side": "after",
+      "main": 33932,
+      "subagent": null,
+      "toolCount": 95,
+      "skillCount": 54,
+      "result": "success"
+    },
+    {
+      "run": 2,
+      "side": "before",
+      "main": 34407,
+      "subagent": null,
+      "toolCount": 27,
+      "skillCount": 59,
+      "result": "success"
+    },
+    {
+      "run": 2,
+      "side": "after",
+      "main": 30587,
+      "subagent": null,
+      "toolCount": 21,
+      "skillCount": 54,
+      "result": "success"
+    },
+    {
+      "run": 3,
+      "side": "before",
+      "main": 34407,
+      "subagent": null,
+      "toolCount": 27,
+      "skillCount": 59,
+      "result": "success"
+    },
+    {
+      "run": 3,
+      "side": "after",
+      "main": 30587,
+      "subagent": null,
+      "toolCount": 21,
+      "skillCount": 54,
+      "result": "success"
+    }
+  ],
+  "summary": {
+    "before.main": 34407,
+    "before.subagent": null,
+    "after.main": 30587,
+    "after.subagent": null
+  }
+}

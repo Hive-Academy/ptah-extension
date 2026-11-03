@@ -35,6 +35,7 @@ import type {
   BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
+  BackgroundTasksSnapshotEvent,
   CompactionCompleteEvent,
   CompactionStartEvent,
   FlatStreamEventUnion,
@@ -57,6 +58,7 @@ import {
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { BackgroundAgentStore } from './background-agent.store';
+import { BackgroundTaskStore } from './background-task.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 import { SessionManager } from './session-manager.service';
 
@@ -317,7 +319,11 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
-      'onStarted' | 'onCompleted' | 'onStopped' | 'isBackgroundAgent'
+      | 'onStarted'
+      | 'onCompleted'
+      | 'onStopped'
+      | 'onAgentCompleted'
+      | 'isBackgroundAgent'
     >
   >;
   let agentMonitorStore: jest.Mocked<
@@ -371,6 +377,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onStarted: jest.fn(),
       onCompleted: jest.fn(),
       onStopped: jest.fn(),
+      onAgentCompleted: jest.fn(),
       isBackgroundAgent: jest.fn().mockReturnValue(false),
     } as jest.Mocked<
       Pick<
@@ -379,6 +386,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'onProgress'
         | 'onCompleted'
         | 'onStopped'
+        | 'onAgentCompleted'
         | 'isBackgroundAgent'
       >
     >;
@@ -433,6 +441,27 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('replaces task rows without writing a tree node and respects skipStoreEffects', () => {
+    const store = TestBed.inject(BackgroundTaskStore);
+    const snapshot: BackgroundTasksSnapshotEvent = {
+      id: 'snapshot-1',
+      eventType: 'background_tasks_snapshot',
+      timestamp: 1,
+      sessionId: SESSION_ID,
+      messageId: 'background-tasks-' + SESSION_ID,
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    };
+    const result = core.process(state, snapshot, makeCtx());
+    expect(result.stateMutated).toBe(false);
+    expect(state.events.size).toBe(0);
+    expect(store.tasksForSession(SESSION_ID)).toEqual(snapshot.tasks);
+
+    core.process(state, { ...snapshot, id: 'snapshot-2', tasks: [] }, makeCtx({ skipStoreEffects: true }));
+    expect(store.tasksForSession(SESSION_ID)).toEqual(snapshot.tasks);
+    core.process(state, { ...snapshot, id: 'snapshot-3', tasks: [] }, makeCtx());
+    expect(store.tasksForSession(SESSION_ID)).toEqual([]);
   });
 
   // ---- Event-type matrix (parametrized over a bare list of events) -------
@@ -588,6 +617,79 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(result.agentStartFlushNeeded).toBe(false);
       expect(sessionManager.registerAgent).not.toHaveBeenCalled();
       expect(onAgentStart).not.toHaveBeenCalled();
+    });
+
+    it('forwards a resumed start with the same agentId and a new toolCallId', () => {
+      core.process(state, agentStart({ source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-resumed',
+        toolCallId: 'toolu_agent_2',
+        timestamp: 20,
+        source: 'stream',
+      });
+      const result = core.process(state, resumed, makeCtx());
+
+      expect(result.stateMutated).toBe(true);
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect(state.events.has('evt-resumed')).toBe(true);
+    });
+
+    it('forwards a new taskId on a reused toolCallId', () => {
+      core.process(state, agentStart({ taskId: 'task-1', source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-task-2',
+        taskId: 'task-2',
+        timestamp: 20,
+        source: 'stream',
+      });
+      const result = core.process(state, resumed, makeCtx());
+
+      expect(result.stateMutated).toBe(true);
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect([...state.events.values()].filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+    });
+
+    it('replaces the stored start when a new agentId reuses a toolCallId', () => {
+      core.process(state, agentStart({ agentId: 'old-agent', source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-new-agent',
+        agentId: 'new-agent',
+        timestamp: 20,
+        source: 'stream',
+      });
+      core.process(state, resumed, makeCtx());
+
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect([...state.events.values()].filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+      expect(state.eventsByMessage.get(MESSAGE_ID)?.filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+    });
+
+    it('deduplicates hook and stream starts for the same execution key', () => {
+      core.process(state, agentStart({ taskId: 'task-1' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const duplicate = agentStart({
+        id: 'evt-duplicate',
+        taskId: 'task-1',
+        source: 'stream',
+      });
+      const result = core.process(state, duplicate, makeCtx());
+
+      expect(result.stateMutated).toBe(false);
+      expect(agentMonitorStore.onAgentStart).not.toHaveBeenCalled();
+      expect(state.events.has('evt-duplicate')).toBe(false);
     });
 
     // TASK_2026_327: a same-id write replaced the object in `events` only, so
@@ -1038,6 +1140,25 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       core.process(state, bgAgentStopped(), makeCtx());
       expect(backgroundAgentStore.onStopped).toHaveBeenCalled();
     });
+    it('agent_completed also settles the background store entry', () => {
+      // Most background spawns get no background_agent_completed, so the
+      // tray entry stayed running while the monitor record finished.
+      const event: FlatStreamEventUnion = {
+        id: 'completed-bg',
+        eventType: 'agent_completed',
+        timestamp: 17,
+        sessionId: SESSION_ID,
+        messageId: MESSAGE_ID,
+        parentToolUseId: 'toolu_agent_1',
+        taskId: 'task-1',
+        status: 'completed',
+        summary: 'Done',
+        outputFile: '',
+      };
+      core.process(state, event, makeCtx());
+      expect(agentMonitorStore.onAgentCompleted).toHaveBeenCalledWith(event);
+      expect(backgroundAgentStore.onAgentCompleted).toHaveBeenCalledWith(event);
+    });
   });
 
   // ---- Subagent usage via message_complete (TASK_2026_597 N6) -------------
@@ -1137,6 +1258,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onAgentProgress).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentStatus).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentCompleted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onAgentCompleted).not.toHaveBeenCalled();
       expect(sessionManager.registerAgent).not.toHaveBeenCalled();
     });
 

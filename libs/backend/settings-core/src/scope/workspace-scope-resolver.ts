@@ -138,6 +138,35 @@ export class WorkspaceScopeResolver {
     return defined;
   }
 
+  /**
+   * Whether any scope {@link read} resolves from has a stored value — the
+   * registered default does not count. A caller that applies its own default
+   * for an unset setting uses this to tell that case from an explicit choice.
+   */
+  isStored(globalKey: string, appScopable = false): boolean {
+    return this.candidateKeys(globalKey, appScopable).some((key) =>
+      this.storedAt(key),
+    );
+  }
+
+  /** Path-scoped counterpart of {@link isStored}. */
+  isStoredForPath(
+    globalKey: string,
+    workspacePath: string,
+    appScopable = false,
+  ): boolean {
+    const norm = normalizeActivePath(workspacePath);
+    return this.candidateKeysForNorm(globalKey, appScopable, norm).some((key) =>
+      this.storedAt(key),
+    );
+  }
+
+  private storedAt(key: string): boolean {
+    return this.store.hasGlobal
+      ? this.store.hasGlobal(key)
+      : this.store.readGlobal(key) !== undefined;
+  }
+
   hasOverride(globalKey: string, appScopable = false): boolean {
     const candidates = this.candidateKeys(globalKey, appScopable);
     for (let i = 0; i < candidates.length - 1; i++) {

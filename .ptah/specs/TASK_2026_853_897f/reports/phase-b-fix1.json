@@ -1,0 +1,66 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": "phase-b-fix1",
+  "status": "IMPLEMENTED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts",
+      "change": "MODIFIED: agent:setConfig skills branch keeps stored qualified synced ids the reader does not find now; the submitted list decides the found ids (defect 1)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts",
+      "change": "MODIFIED: two regression specs (two-account whole-list write, reader-failure whole-list write)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.service.ts",
+      "change": "MODIFIED: lane discovery dir = certified named dir, else resolveClaudeConfigDir([buildSafeEnv(authEnv)]), else ~/.claude; host process.env fallback removed (defect 2, decision #42)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.builtins.spec.ts",
+      "change": "MODIFIED: isolation now mocks os.homedir() and clears the host CLAUDE_CONFIG_DIR; specs for host-only dir (ignored), auth-env dir (used), named dir (used over auth and host)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-capabilities.spec.ts",
+      "change": "MODIFIED (outside the assigned list, test isolation only): its host CLAUDE_CONFIG_DIR isolation stopped working once lanes ignore the host env; it now mocks os.homedir() to an empty temp dir. No assertion changed"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/.ptah/specs/TASK_2026_853_897f/decisions.md",
+      "change": "MODIFIED: rows 49 (closes #42) and 50 (whole-list rule, amends #46)"
+    }
+  ],
+  "defects": [
+    {
+      "id": 1,
+      "fix": "agent-rpc.handlers.ts:1227-1241: known = knownClaudeSkillIds(); kept = stored qualified synced ids not in known; write normalizeClaudeBuiltinIds([...submitted, ...kept], [...known, ...kept]). Still runs inside applySetConfig on setConfigQueue",
+      "tests": [
+        "agent-rpc.handlers.spec.ts:1397 agent:setConfig keeps another account's stored synced opt-in and removes a found one",
+        "agent-rpc.handlers.spec.ts:1415 agent:setConfig keeps stored synced opt-ins when the synced folder cannot be read"
+      ]
+    },
+    {
+      "id": 2,
+      "fix": "ptah-cli-spawn-options.service.ts:270-278: resolveClaudeConfigDir([skillScope.claudeConfigDir ? {CLAUDE_CONFIG_DIR} : buildSafeEnv(authEnv)]). Trace: ptah-cli-registry.ts passes the same authEnv to assembleSpawnOptions (:767) and buildClaudeSdkLaneOptions (:811); claude-cli.adapter.ts passes {} to both; buildClaudeLaneEnv gives ambient children buildSafeEnv(authEnv) and named children certifiedNamedEnv (CLAUDE_CONFIG_DIR = canonicalConfigDir). Child env not widened; main-session path unchanged",
+      "tests": [
+        "ptah-cli-spawn-options.builtins.spec.ts:393 ambient lane: ignores a host-only CLAUDE_CONFIG_DIR the child never gets (decision #42)",
+        "ptah-cli-spawn-options.builtins.spec.ts:407 ambient lane: reads the auth env CLAUDE_CONFIG_DIR the child gets, not the host one",
+        "ptah-cli-spawn-options.builtins.spec.ts:427 named lane: reads the certified config dir over the auth and host dirs"
+      ]
+    }
+  ],
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers,@ptah-extension/chat,@ptah-extension/shared,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b-fix1-verify.log 2>&1",
+    "result": "80 tasks: 74 succeeded (33 cached), 1 failed, 1 stopped, 4 skipped; exit 130 — the run was stopped by the agent tool's background time limit after 37m 35s (lock wait 134 s)",
+    "perTarget": {
+      "@ptah-extension/cli-agent-runtime:test": "passed: 121 suites, 2751 tests passed, 2 skipped (nx output 1758730683587657176, this worktree)",
+      "@ptah-extension/rpc-handlers:test": "passed: 188 suites, 5096 tests passed, 3 skipped (nx output 15781689328737490238, this worktree)",
+      "ptah-extension-webview:lint": "failed: this failure was already there: circular dependency ptah-extension-webview <-> @ptah-extension/command-center (app.routes.ts:214), failing on main too",
+      "ptah-tui:test": "stopped before finishing (time limit); not verified",
+      "skipped (4)": "not started before the stop; the Nx summary does not name them; not verified",
+      "other targets": "succeeded per the Nx summary (74 succeeded); the log does not list them one by one"
+    }
+  },
+  "deviations": [
+    "ptah-cli-registry-capabilities.spec.ts is outside the assigned file list: needed because its isolation relied on the host CLAUDE_CONFIG_DIR that lanes no longer read. Test isolation only",
+    "A Jest-sandbox HOME override does not reach os.homedir() (batch-11 report), so the specs mock node:os homedir instead"
+  ]
+}

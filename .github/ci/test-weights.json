@@ -42,7 +42,6 @@
     "@ptah-extension/platform-cli": 31.291,
     "@ptah-extension/platform-core": 42.116,
     "@ptah-extension/platform-electron": 73.316,
-    "@ptah-extension/platform-vscode": 34.08,
     "@ptah-extension/plugin-marketplace": 11.271,
     "@ptah-extension/rpc-handlers": 110.478,
     "@ptah-extension/session-organization": 23.438,
@@ -63,23 +62,8 @@
     "@ptah-extension/vscode-lm-tools": 183.243,
     "@ptah-extension/workspace-indexing": 14.928,
     "@ptah-extension/workspace-intelligence": 52.273,
-    "api-admin": 24.732,
-    "api-billing": 3.183,
-    "api-community": 26.697,
-    "api-forum": 35.808,
-    "api-identity": 17.088,
-    "api-learning": 33.952,
-    "api-licensing": 15.803,
-    "api-marketing": 10.412,
-    "api-member-hub": 28.265,
-    "api-membership": 13.31,
-    "api-notifications": 20.023,
     "mcp-bench": 83.428,
-    "ptah-cli": 93.817,
     "ptah-electron": 57.93,
-    "ptah-extension-vscode": 47.359,
-    "ptah-extension-webview": 6.008,
-    "ptah-license-server": 36.17,
-    "ptah-tui": 106.282
+    "ptah-extension-webview": 6.008
   }
 }

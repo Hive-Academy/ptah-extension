@@ -64,6 +64,9 @@ import {
   validateAdvancedSettingValue,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { z } from 'zod';
+
+const motionPreferenceSchema = z.enum(['always', 'system', 'reduce']);
 
 /**
  * File-based keys that `settings:set` refuses. Each one has its own RPC that
@@ -82,6 +85,8 @@ export class SettingsRpcHandlers {
   static readonly METHODS = [
     'settings:get',
     'settings:set',
+    'settings:getMotion',
+    'settings:setMotion',
     'settings:export',
     'settings:import',
   ] as const satisfies readonly RpcMethodName[];
@@ -108,11 +113,38 @@ export class SettingsRpcHandlers {
   register(): void {
     this.registerGet();
     this.registerSet();
+    this.registerMotion();
     this.registerExport();
     this.registerImport();
 
     this.logger.debug('Settings RPC handlers registered', {
       methods: [...SettingsRpcHandlers.METHODS],
+    });
+  }
+
+  private registerMotion(): void {
+    this.rpcHandler.registerMethod('settings:getMotion', async () => {
+      if (!process.versions['electron']) return { success: false, error: 'unsupported' };
+      try {
+        const stored = this.workspaceProvider.getConfiguration('ptah', 'motionPreference');
+        const parsed = motionPreferenceSchema.safeParse(stored);
+        return { success: true, preference: parsed.success ? parsed.data : 'always' };
+      } catch (error: unknown) {
+        this.logger.error('[RPC] settings:getMotion failed', error instanceof Error ? error : new Error(String(error)));
+        return { success: false, error: 'Could not load Motion setting' };
+      }
+    });
+    this.rpcHandler.registerMethod('settings:setMotion', async (rawParams) => {
+      if (!process.versions['electron']) return { success: false, error: 'unsupported' };
+      const parsed = z.object({ preference: motionPreferenceSchema }).safeParse(rawParams);
+      if (!parsed.success) return { success: false, error: 'Invalid Motion setting' };
+      try {
+        await this.workspaceProvider.setConfiguration('ptah', 'motionPreference', parsed.data.preference);
+        return { success: true };
+      } catch (error: unknown) {
+        this.logger.error('[RPC] settings:setMotion failed', error instanceof Error ? error : new Error(String(error)));
+        return { success: false, error: 'Could not save Motion setting' };
+      }
     });
   }
 

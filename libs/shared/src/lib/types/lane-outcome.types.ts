@@ -3,8 +3,9 @@
  * writes, the summary the router reads, the per-slug signals the Agents tab
  * shows, and the two ports between the libraries (SC-1, SC-2, SC-4).
  *
- * Privacy rule (Req 5.8): no type here may carry request text, prompt text,
- * file contents or paths. Ids, enums and numbers only.
+ * Privacy rule (Req 5.8): only the classifier input's transient `brief` may
+ * carry text. Never persist or log it. Outcome records hold ids, enums and
+ * numbers only, apart from existing join metadata.
  *
  * This file is the one definition backend and webview share. The SQLite row
  * (migration 0054) keeps `family TEXT` nullable, but the write-edge schema in
@@ -23,6 +24,13 @@ export const OUTCOME_TASK_KINDS = [
   'docs',
 ] as const;
 export type OutcomeTaskKind = (typeof OUTCOME_TASK_KINDS)[number];
+export const OUTCOME_TASK_KIND_SOURCES = [
+  'explicit',
+  'mapped',
+  'classified',
+  'unclassified',
+] as const;
+export type OutcomeTaskKindSource = (typeof OUTCOME_TASK_KIND_SOURCES)[number];
 export const LANE_FAILURE_CLASSES = [
   'usage-limit',
   'auth',
@@ -79,6 +87,8 @@ export interface LaneOutcomeRecord {
   readonly role: string | null;
   /** null = not routed with one. */
   readonly taskKind: OutcomeTaskKind | null;
+  /** Null for older rows whose provenance is unknown. */
+  readonly taskKindSource: OutcomeTaskKindSource | null;
   readonly taskId: string | null;
   readonly verdict: LaneCompletionVerdict;
   readonly failureClass: LaneFailureClass | null;
@@ -196,4 +206,20 @@ export interface LaneFailureClassifier {
   classify(
     input: LaneFailureClassificationInput,
   ): Promise<LaneFailureClass | null>;
+}
+
+/** Transient classifier input; `brief` must never be persisted or logged. */
+export interface LaneTaskKindClassificationInput {
+  readonly runId: string;
+  readonly executorKind: OutcomeExecutorKind;
+  readonly role: string | null;
+  readonly brief: string;
+}
+
+/** Port lane-outcomes calls to classify a task kind after insertion. */
+export interface LaneTaskKindClassifier {
+  /** Never rejects; an unset model returns null after zero requests. */
+  classify(
+    input: LaneTaskKindClassificationInput,
+  ): Promise<OutcomeTaskKind | null>;
 }

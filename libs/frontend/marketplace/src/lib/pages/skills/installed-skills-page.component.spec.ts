@@ -643,6 +643,7 @@ describe('InstalledSkillsPageComponent', () => {
 
     expect(router.url).toBe(`/marketplace/skills/${COMMUNITY_REF}`);
     expect(q('[data-testid="native-drawer-panel"]')).toBeTruthy();
+    expect(q('[data-testid="native-drawer-body"] > .ptah-motion-stage > router-outlet')).toBeTruthy();
     expect(q('[data-testid="docked-inspector"]')).toBeNull();
     expect(q('[data-testid="skill-drawer-heading"]')?.textContent?.trim()).toBe(
       'deep-research',
@@ -659,6 +660,7 @@ describe('InstalledSkillsPageComponent', () => {
     await click(rowLink(COMMUNITY_REF));
 
     expect(q('[data-testid="docked-inspector"]')).toBeTruthy();
+    expect(q('[data-testid="docked-inspector-body"] > .ptah-motion-stage > router-outlet')).toBeTruthy();
     expect(q('[data-testid="native-drawer-panel"]')).toBeNull();
     expect(
       q('[data-testid="docked-inspector-heading"]')?.textContent?.trim(),

@@ -5,7 +5,11 @@ import {
   input,
 } from '@angular/core';
 import { formatAgentDuration, formatTokenCount } from '@ptah-extension/chat-ui';
-import { formatDurationMs, formatUsdCost } from '@ptah-extension/shared';
+import {
+  formatDurationMs,
+  formatUsdCost,
+  messageTokenTotal,
+} from '@ptah-extension/shared';
 import type { MessageTokenUsage } from '@ptah-extension/shared';
 import {
   summarizeTurnMetrics,
@@ -30,8 +34,10 @@ interface MessageSection {
   readonly items: readonly ActivityItem[];
 }
 
-function tokensText(input: number, output: number): string {
-  return `${formatTokenCount(input)} in · ${formatTokenCount(output)} out`;
+function tokensText(tokens: MessageTokenUsage): string {
+  const cache = (tokens.cacheRead ?? 0) + (tokens.cacheCreation ?? 0);
+  const base = `${formatTokenCount(tokens.input)} in · ${formatTokenCount(tokens.output)} out`;
+  return cache > 0 ? `${base} · ${formatTokenCount(cache)} cache` : base;
 }
 
 /** `Tokens` or `Tokens · 2 of 3 messages` when not every message knows it. */
@@ -61,8 +67,8 @@ function messageDurationItem(
 function messageTokensItem(
   tokens: MessageTokenUsage | undefined,
 ): ActivityItem | null {
-  return tokens
-    ? { label: 'Tokens', value: tokensText(tokens.input, tokens.output) }
+  return tokens && messageTokenTotal(tokens) !== null
+    ? { label: 'Tokens', value: tokensText(tokens) }
     : null;
 }
 
@@ -236,7 +242,7 @@ export class TurnActivityPanelComponent {
       totals.tokens
         ? {
             label: coverageLabel('Tokens', totals.tokens.knownCount, n),
-            value: tokensText(totals.tokens.input, totals.tokens.output),
+            value: tokensText(totals.tokens),
           }
         : null,
       totals.cost

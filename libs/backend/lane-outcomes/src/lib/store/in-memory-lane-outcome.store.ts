@@ -1,6 +1,9 @@
-import type { LaneOutcomeRecord } from '@ptah-extension/shared';
+import type {
+  LaneOutcomeRecord,
+  OutcomeTaskKind,
+} from '@ptah-extension/shared';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
-import { applyOutcomeEffect } from './lane-outcome.store';
+import { applyOutcomeEffect, heldReportJoinsRow } from './lane-outcome.store';
 import type {
   HeldOutcomeReport,
   LaneOutcomeRow,
@@ -46,10 +49,12 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
     const joined: HeldOutcomeReport[] = [];
     const invalid: HeldOutcomeReport[] = [];
     const remove: string[] = [];
+    const target = row;
     const reports = [...this.held.values()]
-      .filter((r) => r.runId === input.runId && r.expiresAt > nowMs)
+      .filter((r) => heldReportJoinsRow(r, target) && r.expiresAt > nowMs)
       .sort((a, b) => a.heldAt - b.heldAt);
-    for (const report of reports) {
+    for (const held of reports) {
+      const report = { ...held, runId: input.runId };
       remove.push(report.reportId);
       if (report.kind === 'budget-stop') {
         budgetStopped = true;
@@ -134,6 +139,53 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
       runId,
       LaneOutcomeRowSchema.parse({ ...current, ...patch, runId }),
     );
+    return true;
+  }
+  async setClassifiedTaskKind(
+    runId: string,
+    kind: OutcomeTaskKind,
+  ): Promise<boolean> {
+    const row = this.rows.get(runId);
+    if (
+      !row ||
+      row.taskKind !== null ||
+      (row.taskKindSource !== null &&
+        row.taskKindSource !== undefined &&
+        row.taskKindSource !== 'unclassified')
+    )
+      return false;
+    this.rows.set(runId, {
+      ...row,
+      taskKind: kind,
+      taskKindSource: 'classified',
+    });
+    return true;
+  }
+  async fillMissingSubagentJoin(
+    runId: string,
+    join: {
+      readonly subagentSessionId: string | null;
+      readonly parentSessionId: string | null;
+      readonly workspaceRoot: string | null;
+    },
+  ): Promise<boolean> {
+    const row = this.rows.get(runId);
+    if (!row) return false;
+    const subagentSessionId = row.subagentSessionId ?? join.subagentSessionId;
+    const parentSessionId = row.parentSessionId ?? join.parentSessionId;
+    const workspaceRoot = row.workspaceRoot ?? join.workspaceRoot;
+    if (
+      subagentSessionId === (row.subagentSessionId ?? null) &&
+      parentSessionId === (row.parentSessionId ?? null) &&
+      workspaceRoot === (row.workspaceRoot ?? null)
+    )
+      return false;
+    this.rows.set(runId, {
+      ...row,
+      subagentSessionId,
+      parentSessionId,
+      workspaceRoot,
+    });
     return true;
   }
   async get(runId: string): Promise<LaneOutcomeRow | null> {

@@ -53,6 +53,12 @@ const MAX_GIT_RAIL_WIDTH = 480;
 const DEFAULT_APPS_SPLIT_WIDTH = 360;
 const MIN_APPS_SPLIT_WIDTH = 240;
 const MAX_APPS_SPLIT_WIDTH = 1200;
+/**
+ * The chat view's Display sidebar (TASK_2026_853_3401). `null` until the user
+ * resizes it, so the chat view uses its own default. The chat view clamps to
+ * its host width (max 75%); this floor only rejects a corrupt stored value.
+ */
+const MIN_DISPLAY_SIDEBAR_WIDTH = 300;
 /** Dynamic max: capped at 50% of viewport to prevent chat panel collapse below its 400px CSS min-width */
 const MAX_EDITOR_WIDTH_RATIO = 0.5;
 
@@ -61,6 +67,8 @@ const MAX_EDITOR_WIDTH_RATIO = 0.5;
  * Prevents rapid-fire RPC when user clicks through workspaces quickly.
  */
 const SWITCH_DEBOUNCE_MS = 100;
+
+export type FolderPickerOutcome = 'added' | 'cancelled' | 'failed';
 
 @Injectable({ providedIn: 'root' })
 export class ElectronLayoutService implements MessageHandler {
@@ -78,6 +86,7 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _gitRailWidth = signal(DEFAULT_GIT_RAIL_WIDTH);
   private readonly _gitRailCollapsed = signal(false);
   private readonly _appsSplitWidth = signal(DEFAULT_APPS_SPLIT_WIDTH);
+  private readonly _displaySidebarWidth = signal<number | null>(null);
   private readonly _sidebarDragging = signal(false);
   private readonly _editorDragging = signal(false);
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
@@ -89,6 +98,15 @@ export class ElectronLayoutService implements MessageHandler {
    * elsewhere, so VS Code never sees the loading state.
    */
   private readonly _workspaceResolved = signal(!this.vscodeService.isElectron);
+  /** True from an optimistic folder selection until its backend switch settles. */
+  private readonly _workspaceSwitchPending = signal(false);
+  /**
+   * True while a backend sync runs. Kept apart from `_workspaceResolved` so an
+   * external WORKSPACE_CHANGED sync never unmounts the shell content.
+   */
+  private readonly _syncInFlight = signal(false);
+  /** Start of the initial workspace resolution, shared across loading view mounts. */
+  readonly workspaceResolveStartedAt = Date.now();
   /** Basename of the active folder in the restored layout cache, if any. */
   private readonly _cachedWorkspaceName = signal<string | null>(null);
   private _switchId = 0;
@@ -109,6 +127,8 @@ export class ElectronLayoutService implements MessageHandler {
   readonly appsSplitWidth = this._appsSplitWidth.asReadonly();
   readonly appsSplitMinWidth = MIN_APPS_SPLIT_WIDTH;
   readonly appsSplitMaxWidth = MAX_APPS_SPLIT_WIDTH;
+  /** The Display sidebar width the user chose, or `null` for the default. */
+  readonly displaySidebarWidth = this._displaySidebarWidth.asReadonly();
   readonly sidebarDragging = this._sidebarDragging.asReadonly();
   readonly editorDragging = this._editorDragging.asReadonly();
   readonly workspaceFolders = this._workspaceFolders.asReadonly();
@@ -129,6 +149,9 @@ export class ElectronLayoutService implements MessageHandler {
    * outcome. Starts true outside Electron.
    */
   readonly workspaceResolved = this._workspaceResolved.asReadonly();
+  readonly workspaceSwitchPending = computed(
+    () => this._workspaceSwitchPending() || this._syncInFlight(),
+  );
 
   /**
    * The workspace name to show while {@link workspaceResolved} is false.
@@ -267,6 +290,29 @@ export class ElectronLayoutService implements MessageHandler {
     this.persistLayout();
   }
 
+  /**
+   * Commits the Display sidebar width at the end of a drag, a key step or a
+   * reset (`null` returns to the chat view's default). Persisted at once; the
+   * chat view does not call this per drag frame.
+   */
+  setDisplaySidebarWidth(width: number | null): void {
+    if (!this.applyDisplaySidebarWidth(width)) return;
+    this.persistLayout();
+  }
+
+  /** Sets the signal; `false` (nothing set) for a non-finite width. */
+  private applyDisplaySidebarWidth(width: number | null): boolean {
+    if (width === null) {
+      this._displaySidebarWidth.set(null);
+      return true;
+    }
+    if (!Number.isFinite(width)) return false;
+    this._displaySidebarWidth.set(
+      Math.round(Math.max(width, MIN_DISPLAY_SIDEBAR_WIDTH)),
+    );
+    return true;
+  }
+
   toggleGitRail(): void {
     this._gitRailCollapsed.update((collapsed) => !collapsed);
     this.persistLayout();
@@ -320,23 +366,24 @@ export class ElectronLayoutService implements MessageHandler {
     this.switchWorkspace(newIndex);
   }
 
-  async addFolder(): Promise<void> {
+  async addFolder(mode?: 'open' | 'create'): Promise<FolderPickerOutcome> {
     try {
       const result = await this.rpcService.call(
         'workspace:addFolder',
-        {},
+        mode ? { mode } : {},
         {
           timeout: 300_000,
         },
       );
-      if (!result.isSuccess() || !result.data) return;
+      if (!result.isSuccess() || !result.data) return 'failed';
 
       const data = result.data;
       if (!data.path) {
         if (data.error) {
           console.error('[ElectronLayout] addFolder error:', data.error);
+          return 'failed';
         }
-        return;
+        return 'cancelled';
       }
       const existing = this._workspaceFolders();
       if (existing.some((f) => f.path === data.path)) {
@@ -344,7 +391,7 @@ export class ElectronLayoutService implements MessageHandler {
         if (existingIndex >= 0) {
           this.switchWorkspace(existingIndex);
         }
-        return;
+        return 'added';
       }
 
       this._workspaceFolders.update((folders) => [
@@ -356,8 +403,11 @@ export class ElectronLayoutService implements MessageHandler {
       ]);
       const newIndex = this._workspaceFolders().length - 1;
       this.switchWorkspace(newIndex);
+      return 'added';
     } catch (error) {
+      // degradation-audit: reported — callers receive failed and display a retryable folder error.
       console.error('[ElectronLayout] Failed to add folder:', error);
+      return 'failed';
     }
   }
 
@@ -440,6 +490,7 @@ export class ElectronLayoutService implements MessageHandler {
       );
       return false;
     }
+    this.supersedeWorkspaceSwitch();
     // Read the removed workspace's sessions now: after the backend accepted
     // the removal and before cleanupWorkspaceState destroys its tabs.
     this.abortIdleSessionsOfRemovedFolder(
@@ -491,6 +542,7 @@ export class ElectronLayoutService implements MessageHandler {
       return;
     }
     const previousIndex = this._activeWorkspaceIndex();
+    this._workspaceSwitchPending.set(true);
     this._activeWorkspaceIndex.set(index);
     this.persistLayout();
     const folder = folders[index];
@@ -548,8 +600,22 @@ export class ElectronLayoutService implements MessageHandler {
           this._activeWorkspaceIndex.set(previousIndex);
           this.persistLayout();
         }
+      } finally {
+        if (this._switchId === currentSwitchId)
+          this._workspaceSwitchPending.set(false);
       }
     }, SWITCH_DEBOUNCE_MS);
+  }
+
+  /** Invalidate a user switch when a backend sync, restore, or removal takes over. */
+  private supersedeWorkspaceSwitch(): number {
+    if (this._switchDebounceTimer !== null) {
+      clearTimeout(this._switchDebounceTimer);
+      this._switchDebounceTimer = null;
+    }
+    this._pendingOriginRef.current = null;
+    this._workspaceSwitchPending.set(false);
+    return ++this._switchId;
   }
 
   /**
@@ -753,6 +819,7 @@ export class ElectronLayoutService implements MessageHandler {
       gitRailWidth: this._gitRailWidth(),
       gitRailCollapsed: this._gitRailCollapsed(),
       appsSplitWidth: this._appsSplitWidth(),
+      displaySidebarWidth: this._displaySidebarWidth(),
     };
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
@@ -775,6 +842,7 @@ export class ElectronLayoutService implements MessageHandler {
       gitRailWidth?: number;
       gitRailCollapsed?: boolean;
       appsSplitWidth?: number;
+      displaySidebarWidth?: number | null;
       workspaceFolders?: unknown[];
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
@@ -798,6 +866,10 @@ export class ElectronLayoutService implements MessageHandler {
       // default stays.
       if (typeof state.appsSplitWidth === 'number') {
         this.setAppsSplitWidth(state.appsSplitWidth);
+      }
+      // A non-number (or NaN/Infinity) keeps the `null` default.
+      if (typeof state.displaySidebarWidth === 'number') {
+        this.applyDisplaySidebarWidth(state.displaySidebarWidth);
       }
       this._cachedWorkspaceName.set(persistedActiveFolderName(state));
     }
@@ -827,8 +899,9 @@ export class ElectronLayoutService implements MessageHandler {
   private async syncFromBackend(
     cachedState: PersistedWorkspaceState | null,
   ): Promise<void> {
-    const syncId = ++this._switchId;
+    const syncId = this.supersedeWorkspaceSwitch();
     this._latestSyncId = syncId;
+    this._syncInFlight.set(true);
 
     try {
       const result = await this.rpcService.call('workspace:getInfo', {});
@@ -895,7 +968,10 @@ export class ElectronLayoutService implements MessageHandler {
       if (this._switchId !== syncId) return;
       if (cachedState) await this.fallBackToPersistedFolders(cachedState);
     } finally {
-      if (this._latestSyncId === syncId) this._workspaceResolved.set(true);
+      if (this._latestSyncId === syncId) {
+        this._workspaceResolved.set(true);
+        this._syncInFlight.set(false);
+      }
     }
   }
 
@@ -923,7 +999,7 @@ export class ElectronLayoutService implements MessageHandler {
     const restoredIndex = this._activeWorkspaceIndex();
     const activePath = this._workspaceFolders()[restoredIndex]?.path;
     if (!activePath) return;
-    const restoreSwitchId = ++this._switchId;
+    const restoreSwitchId = this.supersedeWorkspaceSwitch();
     try {
       const result = await this.rpcService.call('workspace:switch', {
         path: activePath,

@@ -163,6 +163,15 @@ describe('plan-limit constants', () => {
 });
 
 describe('limitLookupDeadlineMs', () => {
+  it('gives Kimi Code the slow deadline', () => {
+    expect(limitLookupDeadlineMs('kimi-code')).toBe(
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+    );
+    expect(limitLookupDeadlineMs('ptah-cli', 'kimi-code')).toBe(
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+    );
+  });
+
   it('gives Codex and Antigravity the slow deadline', () => {
     expect(limitLookupDeadlineMs('openai-codex')).toBe(
       SLOW_LIMIT_LOOKUP_DEADLINE_MS,

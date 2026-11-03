@@ -7,12 +7,10 @@ export type ElectronView =
   | 'dashboard'
   | 'git'
   | 'settings'
-  | 'setup-wizard'
   | 'thoth'
   | 'marketplace'
   | 'tasks'
-  | 'harness-builder'
-  | 'setup-hub';
+  | 'onboarding';
 
 /**
  * Host element of each routed surface (`apps/ptah-extension-webview/src/app/
@@ -25,7 +23,6 @@ const SURFACE_HOSTS: Record<
 > = {
   dashboard: 'ptah-dashboard-grid',
   settings: 'ptah-settings',
-  'setup-wizard': 'ptah-wizard-view',
   thoth: 'ptah-thoth-shell',
   // TASK_2026_533 replaced the tabbed MarketplaceHubComponent with the
   // routed MarketplaceShellComponent (implementation-plan.md C6/C10); the
@@ -34,8 +31,7 @@ const SURFACE_HOSTS: Record<
   // element's selector moved.
   marketplace: 'ptah-marketplace-shell',
   tasks: 'ptah-tasks-view',
-  'harness-builder': 'ptah-harness-builder-view',
-  'setup-hub': 'ptah-setup-hub',
+  onboarding: 'ptah-onboarding-shell',
 };
 
 /** Total time `goto` waits for a surface, and the wait between re-pushes. */

@@ -94,30 +94,23 @@ const CAPTION_RESERVE_PX = 72;
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
+  private tabById(id: string | null) {
+    this.page.tabs.backgroundTabsRevision();
+    return id ? this.page.tabs.findTabByIdAcrossWorkspaces(id)?.tab ?? null : null;
+  }
   public readonly currentStats = computed(
-    () =>
-      this.page.tabs
-        .tabs()
-        .find((tab) => tab.id === this.page.coordinator.currentTabId())
-        ?.sessionStats ?? null,
+    () => this.tabById(this.page.coordinator.currentTabId())?.sessionStats ?? null,
   );
   public readonly rootStats = computed(
-    () =>
-      this.page.tabs
-        .tabs()
-        .find((tab) => tab.id === this.page.store.markedTabId())
-        ?.sessionStats ?? null,
+    () => this.tabById(this.page.store.markedTabId())?.sessionStats ?? null,
   );
   public readonly childStats = computed<Record<string, CommandChildStats>>(
     () => {
-      const tabs = new Map(
-        this.page.tabs.tabs().map((tab) => [tab.id as string, tab]),
-      );
       const result: Record<string, CommandChildStats> = {};
       for (const node of this.page.projection().nodes) {
         if (!node.tabId || node.kind === 'root') continue;
         const snapshot: SessionStatsEntry | null =
-          tabs.get(node.tabId)?.sessionStats ?? null;
+          this.tabById(node.tabId)?.sessionStats ?? null;
         if (!snapshot) continue;
         const stats: CommandChildStats = {
           ...(!snapshot.provisional || snapshot.messageCount > 0
@@ -140,7 +133,7 @@ export class CommandCenterPageComponent {
   );
   public readonly contextCue = computed(() => {
     const rootId = this.page.store.markedTabId();
-    const root = this.page.tabs.tabs().find((tab) => tab.id === rootId);
+    const root = this.tabById(rootId);
     return sessionContextCue(root?.liveModelStats ?? null);
   });
   public readonly contextWarning = computed(

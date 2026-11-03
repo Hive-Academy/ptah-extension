@@ -81,6 +81,7 @@ import type {
   HarnessPlan,
   HarnessPlanRemove,
   HarnessPlanWrite,
+  HarnessRetiredSources,
   IHarnessTarget,
 } from './harness-target.port';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
@@ -90,6 +91,12 @@ import {
   planMcpFacet,
   type McpFacetPlan,
 } from './mcp/mcp-facet-planner';
+import {
+  createGitTrackingProbe,
+  removeRetiredCopy,
+  retiredSourceItemId,
+  type GitTrackingProbe,
+} from './retirement-proof';
 import type { IHarnessAgentTransformer } from './transformers/agent-transformer.port';
 
 /**
@@ -121,15 +128,24 @@ export interface WorkspaceHarnessTargetOptions {
    * agents home-first, so a stale home copy shadows the workspace copy (E19).
    */
   homeReap?: { dir: () => string; prefixes: readonly string[] };
+  /**
+   * Answers whether git tracks a path, for the retired-copy proof (D-D7).
+   * Defaults to `git ls-files --error-unmatch` ({@link createGitTrackingProbe});
+   * specs substitute a runner to reach git-missing and timeout outcomes.
+   */
+  gitTrackingProbe?: GitTrackingProbe;
 }
 
 export class WorkspaceHarnessTarget implements IHarnessTarget {
   readonly id: HarnessTargetId;
   readonly facets: HarnessFacetMatrix;
+  private readonly probeGitTracking: GitTrackingProbe;
 
   constructor(private readonly options: WorkspaceHarnessTargetOptions) {
     this.id = options.id;
     this.facets = options.facets;
+    this.probeGitTracking =
+      options.gitTrackingProbe ?? createGitTrackingProbe();
   }
 
   /**
@@ -152,11 +168,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     return keys;
   }
 
+  /**
+   * @param retired the pass's retired sources (D-2). A removal whose manifest
+   *   source lies under a retired skill root, or whose MCP key is retired, is
+   *   marked with `retiredItemId` so apply runs the proof policy on it. Absent
+   *   means nothing is retired.
+   */
   async plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
     signal?: AbortSignal,
+    retired?: HarnessRetiredSources,
   ): Promise<HarnessPlan> {
     const hashOptions: ContentHashOptions = { signal };
     const migrations: HarnessMigration[] = [];
@@ -236,8 +259,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       });
     }
 
-    const mcpPlan = this.planMcp(desired, workspaceRoot, baseEntries);
-    const removals = this.planRemovals(baseEntries, desiredEntries, mcpPlan);
+    const mcpPlan = this.planMcp(
+      desired,
+      workspaceRoot,
+      baseEntries,
+      retired?.mcpServerKeys ?? [],
+    );
+    const removals = this.planRemovals(
+      baseEntries,
+      desiredEntries,
+      mcpPlan,
+      retired?.skillSourceRoots ?? [],
+    );
     this.scanForeignDirs(workspaceRoot, desiredEntries, ownership, foreign);
 
     return {
@@ -274,6 +307,17 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
 
     for (const removal of plan.removals) {
       if (removal.kind === 'mcp') continue;
+      if (removal.retiredItemId !== undefined) {
+        await removeRetiredCopy({
+          workspaceRoot,
+          removal,
+          itemId: removal.retiredItemId,
+          baseEntries: plan.baseEntries,
+          probeGitTracking: this.probeGitTracking,
+          result,
+        });
+        continue;
+      }
       await this.retireOwned(
         removal,
         workspaceRoot,
@@ -296,6 +340,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         plan.removals.filter((removal) => removal.kind === 'mcp'),
         workspaceRoot,
         result,
+        {
+          baseEntries: plan.baseEntries,
+          probeGitTracking: this.probeGitTracking,
+        },
       );
     }
 
@@ -445,6 +493,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     desired: HarnessDesiredState,
     workspaceRoot: string,
     baseEntries: ManagedEntries,
+    retiredServerKeys: readonly string[],
   ): McpFacetPlan {
     const facet = this.options.mcpFacet;
     if (facet === undefined) return emptyMcpFacetPlan();
@@ -455,6 +504,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       ),
       workspaceRoot,
       baseEntries,
+      retiredServerKeys,
     );
   }
 
@@ -587,11 +637,16 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     return hashTransformedDir(entry.source, slug, hashOptions);
   }
 
-  /** Manifest-owned paths that are no longer desired. MCP is handled separately. */
+  /**
+   * Manifest-owned paths that are no longer desired. MCP is handled separately.
+   * A copy whose manifest source lies under a retired skills.sh root carries
+   * that root's item id (D-2).
+   */
   private planRemovals(
     baseEntries: ManagedEntries,
     desiredEntries: Map<string, DesiredEntry>,
     mcpPlan: McpFacetPlan,
+    retiredSkillRoots: readonly string[],
   ): HarnessPlanRemove[] {
     const removals: HarnessPlanRemove[] = [];
     for (const relPath of Object.keys(baseEntries)) {
@@ -599,10 +654,15 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       const entry = baseEntries[relPath];
       if (entry.kind === 'mcp') continue; // owned by the facet planner
       if (mcpPlan.ownedKeys.has(relPath)) continue;
+      const retiredItemId = retiredSourceItemId(
+        entry.source,
+        retiredSkillRoots,
+      );
       removals.push({
         relPath,
         kind: entry.kind,
         isDirectory: entry.kind === 'skill',
+        ...(retiredItemId === undefined ? {} : { retiredItemId }),
       });
     }
     return removals;
@@ -943,7 +1003,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         ownedHash: owned.hash,
       });
       if (gate.kind === 'failed') {
-        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
+        result.writeFailed.push({
+          relPath: write.relPath,
+          reason: gate.reason,
+        });
         return;
       }
       if (gate.kind === 'kept-local-edit') {

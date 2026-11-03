@@ -1,0 +1,34 @@
+# Phase D correction round 2: code logic review
+
+**Verdict: REVISE. Score: 6/10.** The accepted data-loss and scoped-config defects are corrected. A no-folder edge misses the explicit deferred contract, and newly propagated intent-read errors are still converted into successful, empty MCP RPC responses. This is a source review of the uncommitted `git diff` against `HEAD`; I ran no tests, builds, verify, or visual session.
+
+## Accepted findings
+
+| Finding | Status | File:line evidence |
+| --- | --- | --- |
+| L1 — rollback of a resumed global root | **FIXED** | `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:591,618,636,807-834` passes `!resumed` to rollback and deletes the global root only when this call staged it. |
+| L2 — typed MCP persistence failure and unreadable reads | **FIXED** | `libs/backend/harness-sync/src/lib/sources/mcp-intent-store.ts:187-205,541-552,585-594` throws `McpIntentPersistError` for non-ENOENT reads and failed writes; `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts:332` lets `listFor` reject. See new finding 1 for other RPC callers. |
+| L3 — config per MCP scope bucket | **FIXED** | `libs/backend/harness-sync/src/lib/sources/mcp-intent-store.ts:294-319,418-431,525-535` reads local/global configs separately, stores config in each bucket, and promotes the local config. |
+| L4 — workspace stat errors | **FIXED** | `libs/backend/rpc-handlers/src/lib/install-scope/install-scope-migration.service.ts:802-814,914-925,1119-1135` treats ENOENT/ENOTDIR as absence and keeps other stat failures incomplete. The prior ledger workspace also remains without `passedAt` or `missingAt` (`:1017-1025`). |
+| L5 — no-folder global install | **PARTIAL** | `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts:731-740` returns `deferred-no-workspace` with no reconcile when a reconciler exists. The `reconciler === null` return at `:721-729` runs first and returns `reconciler-unavailable` instead. See new finding 2. |
+| L6 — raw host exception text in install UI | **FIXED** | `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts:747-763,775-781` logs causes and returns coded copy; `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts:561-576` masks top-level exceptions; `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts:690-706` renders copy by code and masks generic RPC failures. |
+| S3 — CLI DI smoke list | **FIXED** | `apps/ptah-cli/src/di/expected-resolvable.ts:5-11,20-28` includes both `InstallScopeMigrationService` and `InstallScopeNoticeRpcHandlers`. |
+| V1 — migration notice gate | **FIXED** | `libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:362-374` admits the focused full-chrome Electron session embed and excludes bare/read-only views; the template reads the computed gate at `chat-view.component.html:29`. |
+| V2 — consent dialog Tab stops | **FIXED** | `libs/frontend/marketplace/src/lib/kept-items-repair-prompt.component.ts:253-257,287-332` includes enabled input/select/textarea/link stops, groups radios, and moves Tab and Shift+Tab within the dialog. |
+| V3 — built-in Ptah server badge | **FIXED** | `libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts:215-230` classifies an unmanaged built-in `ptah` row as global when its payload has scope, while preserving recorded intent scope. |
+| V4 — retired skills.sh roots listed as global | **FIXED** | `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:948-975,986-1006` makes both installed lists filter retired global roots; an unreadable registry logs and retains visible roots. |
+| V5 — selected workspace loses moved skill | **FIXED** | `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:647-658` requires `keepSelected` before removing the workspace root; `libs/backend/harness-sync/src/lib/state/skill-sync-gate.ts:193-206` persists the merged selection; `libs/backend/harness-sync/src/lib/manifest/harness-manifest.builder.ts:418-422,554-556` treats a selection-excluded skill as a present source. See new finding 3 for an overbroad health classification. |
+
+## New defects in the fix diff
+
+1. **Major — unreadable MCP intent still becomes an empty successful RPC result.** `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts:665-675,687-700`. The new `read-failed` exception reaches `registerUninstall` through `uninstallScopes`/`targetsIn` and reaches `registerListInstalled` through `withInstallScope`/`intentScopeOf`. Both catch and return success-shaped empty arrays (`{results: []}` or `{servers: []}`). With EACCES/EIO on `mcp-installed.json`, uninstall silently does nothing and the Installed view can show zero servers although config rows exist. Return a fixed coded failure through RPC, and let the frontend show that failure rather than an empty state. This downstream effect was introduced by changing reads from empty to thrown errors; it is separate from L2's store and resolver fix.
+
+2. **Major — a no-folder install can report a hard failure despite saved global intent.** `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts:721-739`. If a host has no reconciler (an explicitly supported constructor case at `:188-196`), the null check precedes the no-workspace branch. Global install persists the intent, then every target reports `reconciler-unavailable` rather than `deferred-no-workspace`; no reconcile runs. Decision #79 says *every* target is deferred with no folder open. Resolve the no-workspace branch first, or explicitly revise that host contract and prevent persisting intent when it cannot ever be applied.
+
+3. **Minor — excluded retired or disabled skills can make missing sources look healthy.** `libs/backend/harness-sync/src/lib/manifest/harness-manifest.builder.ts:509-525,418-422`. The new `excludedBySelection` flag is set before the disabled-skill and retired-clone checks. If a selected-mode workspace has no usable skill except a retired user-layer clone whose slug is not selected, the loop marks `excludedBySelection=true` and `classifySources` returns `ok` rather than `sources-missing`. Set the flag only after proving the candidate is an active, enabled source that selection alone excluded it; apply the same ordering to overlay skills at `:554-558`.
+
+## Decisions
+
+- Decision rows #77-#81 define the correction scope. S1, S2, and S4 remain deferred and are not reopened here. The no-folder path is judged against #79's explicit every-target deferred rule; there is no home-target direct write requirement in this round.
+- V1-V5 are assessed for code logic only. I did not infer rendered quality from the Angular source or run Electron, because the handoff forbids tests/builds and asks for a fix-diff logic review.
+- No source file was modified. The review file is the only write.

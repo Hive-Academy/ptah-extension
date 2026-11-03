@@ -232,6 +232,17 @@ describe('ElectronLayoutService', () => {
   // ── First launch (null stored state) ──────────────────────────────────────
 
   describe('restoreLayout — first launch (no stored state)', () => {
+    it('records the initial workspace resolution start during construction', () => {
+      setup(null);
+      const beforeConstruction = Date.now();
+      const service = createService();
+
+      expect(service.workspaceResolveStartedAt).toBeGreaterThanOrEqual(
+        beforeConstruction,
+      );
+      expect(service.workspaceResolveStartedAt).toBeLessThanOrEqual(Date.now());
+    });
+
     it('calls workspace:getInfo even when LAYOUT_STATE_KEY state is null', fakeAsync(() => {
       setup(null); // null = no stored state (first launch)
       createService();
@@ -1476,6 +1487,7 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
         gitRailWidth: 300,
         gitRailCollapsed: false,
         appsSplitWidth: 512,
+        displaySidebarWidth: null,
       });
     });
 
@@ -1491,6 +1503,64 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
         expect(value).toEqual(expect.objectContaining({ appsSplitWidth: 480 }));
       }
       expect(vscodeService.setState).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Display sidebar width (TASK_2026_853_3401)', () => {
+    it('is null until the user commits a width', () => {
+      setup();
+      expect(service.displaySidebarWidth()).toBeNull();
+    });
+
+    it('persists each commit in the shared layout object, rounded', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(420.6);
+      expect(service.displaySidebarWidth()).toBe(421);
+      expect(vscodeService.setState).toHaveBeenCalledTimes(1);
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: 421, appsSplitWidth: 360 }),
+      );
+    });
+
+    it('raises a width under the 300px floor', () => {
+      setup();
+      service.setDisplaySidebarWidth(120);
+      expect(service.displaySidebarWidth()).toBe(300);
+    });
+
+    it('reset to null persists null', () => {
+      setup();
+      service.setDisplaySidebarWidth(500);
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(null);
+      expect(service.displaySidebarWidth()).toBeNull();
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: null }),
+      );
+    });
+
+    it('drops non-finite widths without persisting', () => {
+      setup();
+      service.setDisplaySidebarWidth(500);
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(Number.NaN);
+      service.setDisplaySidebarWidth(Number.POSITIVE_INFINITY);
+      expect(service.displaySidebarWidth()).toBe(500);
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('is kept when another layout writer persists afterwards', () => {
+      setup();
+      service.setDisplaySidebarWidth(480);
+      vscodeService.setState.mockClear();
+      service.toggleGitRail();
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: 480 }),
+      );
     });
   });
 
@@ -1714,8 +1784,24 @@ describe('ElectronLayoutService — addFolder()', () => {
     });
     setup(rpc);
 
-    await service.addFolder();
+    expect(await service.addFolder()).toBe('cancelled');
+    expect(rpc.call).toHaveBeenCalledWith('workspace:addFolder', {}, { timeout: 300_000 });
     expect(service.workspaceFolders()).toHaveLength(0);
+  });
+
+  it('forwards the requested dialog mode to the workspace RPC', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async () => rpcSuccess({ path: null }));
+    setup(rpc);
+
+    expect(await service.addFolder('open')).toBe('cancelled');
+    expect(await service.addFolder('create')).toBe('cancelled');
+    expect(rpc.call).toHaveBeenCalledWith(
+      'workspace:addFolder', { mode: 'open' }, { timeout: 300_000 },
+    );
+    expect(rpc.call).toHaveBeenCalledWith(
+      'workspace:addFolder', { mode: 'create' }, { timeout: 300_000 },
+    );
   });
 
   it('appends folder and auto-switches when addFolder succeeds', async () => {
@@ -1730,9 +1816,11 @@ describe('ElectronLayoutService — addFolder()', () => {
     setup(rpc);
 
     const addPromise = service.addFolder();
-    await addPromise;
+    expect(await addPromise).toBe('added');
+    expect(service.workspaceSwitchPending()).toBe(true);
     jest.advanceTimersByTime(150);
     await Promise.resolve();
+    expect(service.workspaceSwitchPending()).toBe(false);
     jest.useRealTimers();
 
     expect(service.workspaceFolders()).toEqual(
@@ -1772,8 +1860,18 @@ describe('ElectronLayoutService — addFolder()', () => {
     });
     setup(rpc);
 
-    await service.addFolder();
+    expect(await service.addFolder()).toBe('failed');
     expect(service.workspaceFolders()).toHaveLength(0);
+  });
+  it('reports an explicit picker failure separately from cancellation', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) =>
+      method === 'workspace:addFolder'
+        ? rpcSuccess({ path: null, name: null, error: 'picker failed' })
+        : rpcSuccess(undefined),
+    );
+    setup(rpc);
+    expect(await service.addFolder()).toBe('failed');
   });
 });
 
@@ -2353,6 +2451,67 @@ describe('ElectronLayoutService — syncFromBackend fallback paths', () => {
     });
   }
 
+  it('settles pending when backend sync supersedes an in-flight user switch', fakeAsync(() => {
+    let finishUserSwitch!: (result: RpcResult<{ success: boolean }>) => void;
+    const userSwitch = new Promise<RpcResult<{ success: boolean }>>((resolve) => {
+      finishUserSwitch = resolve;
+    });
+    const syncRpc = buildRpc();
+    syncRpc.call = jest.fn(async (method: string, params?: { path?: string }) => {
+      if (method === 'workspace:switch' && params?.path === '/two')
+        return userSwitch;
+      if (method === 'workspace:getInfo') return DEFAULT_GET_INFO_RESULT;
+      if (method === 'workspace:switch') return DEFAULT_SWITCH_RESULT;
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(syncRpc);
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+    (service as never)['_workspaceFolders'].set([
+      { path: '/projects/my-repo', name: 'my-repo' },
+      { path: '/two', name: 'two' },
+    ]);
+
+    service.switchWorkspace(1);
+    tick(100);
+    expect(service.workspaceSwitchPending()).toBe(true);
+
+    void (service as never)['syncFromBackend'](null);
+    // The sync keeps the shell mounted and reports itself as pending.
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceSwitchPending()).toBe(true);
+    tick(0);
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/projects/my-repo');
+
+    finishUserSwitch(DEFAULT_SWITCH_RESULT);
+    tick(0);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/projects/my-repo');
+  }));
+
+  it('settles pending when a cached-folder fallback supersedes a user switch', fakeAsync(() => {
+    setupWithRpc(buildRpc());
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+    (service as never)['_workspaceFolders'].set([
+      { path: '/projects/my-repo', name: 'my-repo' },
+      { path: '/two', name: 'two' },
+    ]);
+    service.switchWorkspace(1);
+    expect(service.workspaceSwitchPending()).toBe(true);
+
+    void (service as never)['fallBackToPersistedFolders']({
+      workspaceFolders: [{ path: '/cached', name: 'cached' }],
+      activeWorkspaceIndex: 0,
+    });
+    expect(service.workspaceSwitchPending()).toBe(false);
+    tick(100);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/cached');
+  }));
+
   it('falls back to cachedState when getInfo returns empty folders and cachedState is available', fakeAsync(() => {
     const emptyRpc = buildRpc(
       rpcSuccess({ folders: [], activeFolder: undefined }),
@@ -2652,6 +2811,45 @@ describe('ElectronLayoutService — restoreLayout with stored state', () => {
       expect(service.appsSplitWidth()).toBe(360);
     }),
   );
+
+  it('round-trips the Display sidebar width through the persisted layout object', fakeAsync(() => {
+    const first = restoreFrom(null);
+    tick(0);
+    const firstVscode = TestBed.inject(VSCodeService) as unknown as ReturnType<
+      typeof buildVscodeService
+    >;
+    firstVscode.setState.mockClear();
+    first.setDisplaySidebarWidth(540);
+    const [[key, persisted]] = firstVscode.setState.mock.calls;
+    expect(key).toBe('electron-layout');
+    TestBed.resetTestingModule();
+
+    const second = restoreFrom(persisted);
+    tick(0);
+
+    expect(second.displaySidebarWidth()).toBe(540);
+  }));
+
+  it.each([
+    ['missing', { gitRailWidth: 300 }],
+    ['a string', { displaySidebarWidth: '500' }],
+    ['NaN', { displaySidebarWidth: Number.NaN }],
+    ['Infinity', { displaySidebarWidth: Number.POSITIVE_INFINITY }],
+    ['null', { displaySidebarWidth: null }],
+  ])(
+    'keeps the null Display sidebar default when the stored width is %s',
+    fakeAsync((_label: string, stored: unknown) => {
+      const service = restoreFrom(stored);
+      tick(0);
+      expect(service.displaySidebarWidth()).toBeNull();
+    }),
+  );
+
+  it('raises a restored Display sidebar width under the floor', fakeAsync(() => {
+    const service = restoreFrom({ displaySidebarWidth: 40 });
+    tick(0);
+    expect(service.displaySidebarWidth()).toBe(300);
+  }));
 
   it('clamps a restored Apps split width that is out of range', fakeAsync(() => {
     const service = restoreFrom({ appsSplitWidth: 40 });
