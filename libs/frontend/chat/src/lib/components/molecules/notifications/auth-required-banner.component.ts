@@ -50,15 +50,16 @@ let nextId = 0;
           @if (carryOverProvider(); as provider) {
             <button
               type="button"
-              class="btn btn-xs btn-outline btn-primary gap-0.5 px-2"
+              class="btn btn-xs btn-outline text-base-content-muted gap-0.5 px-2"
               [disabled]="carryOverBusy()"
               [attr.aria-busy]="carryOverBusy()"
               [attr.aria-describedby]="disclosureId"
               (click)="carryOver.emit()"
             >
               @if (carryOverBusy()) {
+                <!-- Own colour: the disabled button dims currentColor to 20%. -->
                 <span
-                  class="loading loading-spinner loading-xs"
+                  class="loading loading-spinner loading-xs text-base-content-muted"
                   aria-hidden="true"
                 ></span>
               }

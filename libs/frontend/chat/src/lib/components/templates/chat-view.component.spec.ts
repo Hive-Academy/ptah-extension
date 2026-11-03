@@ -1874,6 +1874,28 @@ describe('ChatViewComponent — per-tile banner scoping', () => {
     h.realActionBanner.clear();
   });
 
+  it('renders the info notice in base-content text, not text-success (contrast)', () => {
+    // text-success on the bg-success/10 tint is 2.15:1 in anubis-light; the
+    // carry-over notice and the branch/rewind notices share this banner.
+    const h = makeHarness({
+      useRealBanner: true,
+      renderCompactTemplate: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('Continued with Claude in a new chat.', 'tile-A');
+    h.fixture.detectChanges();
+
+    const notice = Array.from(
+      (h.fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[role="status"]',
+      ),
+    ).find((el) => el.textContent?.includes('Continued with Claude'));
+    expect(notice).toBeDefined();
+    expect(notice?.classList.contains('text-base-content')).toBe(true);
+    expect(notice?.classList.contains('text-success')).toBe(false);
+    h.realActionBanner.clear();
+  });
+
   it('does NOT surface a banner scoped to ANOTHER tile (the wrong-session-toast bug)', () => {
     const h = makeHarness({
       useRealBanner: true,

@@ -107,10 +107,12 @@
           </div>
         }
       }
-      <!-- Branch/Rewind action info banner (auto-clears after 4s) -->
+      <!-- Action info banner: branch/rewind (4s) and carry-over notices.
+           Text is base-content: text-success on this tint is 2.15:1 in
+           anubis-light. The green tint and border keep the success cue. -->
       @if (actionInfo(); as infoMsg) {
         <div
-          class="px-4 py-2 mx-2 my-1 rounded-md bg-success/10 border border-success/30 text-success text-xs"
+          class="px-4 py-2 mx-2 my-1 rounded-md bg-success/10 border border-success/30 text-base-content text-xs"
           role="status"
           animate.enter="banner-enter"
           animate.leave="banner-leave"

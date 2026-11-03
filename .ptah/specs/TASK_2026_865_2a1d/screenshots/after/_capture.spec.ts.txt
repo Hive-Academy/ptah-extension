@@ -1,0 +1,227 @@
+import { randomUUID } from 'crypto';
+import type { Page, Locator } from '@playwright/test';
+import { test, expect } from '/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/apps/ptah-electron-e2e/src/support/fixtures';
+
+const OUT = '/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/.ptah/specs/TASK_2026_865_2a1d/screenshots/after';
+const MSG = 'Your OpenAI Codex sign-in has expired. Re-authenticate in a terminal to continue.';
+const THEMES: [string, string][] = [['dark', 'anubis'], ['light', 'anubis-light']];
+const OLD_SESSION = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+const NEW_SESSION = '9b2c1d7e-5a4f-4c3b-8e21-7d6f5a4b3c2d';
+const ELIGIBLE = { eligible: true, providerId: 'anthropic', providerName: 'Claude' };
+
+function turnStateIdle(tabId: string, sessionId: string) {
+  return {
+    type: 'chat:chunk',
+    payload: {
+      tabId, sessionId,
+      event: {
+        id: randomUUID(), eventType: 'turn_state', timestamp: Date.now(), sessionId,
+        messageId: `turn-state-${tabId}-1`, phase: 'idle', revision: 1,
+        backgroundTasks: [], sessionCrons: [], terminalReason: 'completed',
+      },
+    },
+  };
+}
+
+async function setTheme(ui: any, rpcBridge: any, theme: string) {
+  await rpcBridge.setState({ 'theme-v2': theme });
+  await ui.page.evaluate((t: string) => localStorage.setItem('ptah-theme-v2', t), theme);
+}
+
+/** Opens a chat tab bound to OLD_SESSION and returns its tab id. */
+async function openBoundTab(ui: any, firstPrompt: string): Promise<string> {
+  const page: Page = ui.page;
+  await ui.goto('chat');
+  const ta = page.locator('ptah-chat-input textarea[role="combobox"]').first();
+  await ta.fill(firstPrompt);
+  await page.locator('[data-testid="chat-send-btn"]').first().click();
+  await expect.poll(async () => (await ui.getObservedCalls('chat:start')).length).toBe(1);
+  const tabId = ((await ui.getObservedCalls('chat:start'))[0].params as { tabId: string }).tabId;
+  await ui.pushEvent({ type: 'session:id-resolved', payload: { tabId, realSessionId: OLD_SESSION } });
+  await ui.pushEvent(turnStateIdle(tabId, OLD_SESSION));
+  await page.waitForTimeout(600);
+  return tabId;
+}
+
+async function send(page: Page, text: string) {
+  const ta = page.locator('ptah-chat-input textarea[role="combobox"]').first();
+  await ta.fill(text);
+  await page.locator('[data-testid="chat-send-btn"]').first().click();
+}
+
+async function delayCarryOver(ui: any) {
+  await ui.app.evaluate(({ ipcMain }: any) => {
+    const g = globalThis as any;
+    const ls = ipcMain.listeners('rpc');
+    ipcMain.removeAllListeners('rpc');
+    ipcMain.on('rpc', (event: any, msg: any) => {
+      const method = (msg?.payload || msg)?.method;
+      if (method === 'chat:carry-over') {
+        (g.__uiObservedCalls ?? []).push({ method, params: (msg?.payload || msg).params });
+        setTimeout(() => ls.forEach((l: any) => l(event, msg)), 90000);
+        return;
+      }
+      ls.forEach((l: any) => l(event, msg));
+    });
+  });
+}
+
+async function shoot(page: Page, el: Locator, name: string) {
+  await page.screenshot({ path: `${OUT}/${name}-full.png` });
+  await el.screenshot({ path: `${OUT}/${name}-closeup.png` });
+}
+
+async function baseMocks(ui: any, check: unknown, extra: Record<string, unknown> = {}) {
+  await ui.mockRpc({
+    'session:list': { sessions: [], total: 0, hasMore: false },
+    'session:validate': { exists: true },
+    'chat:start': { success: true },
+    'chat:abort': { success: true },
+    'chat:carry-over-check': check,
+    ...extra,
+  });
+}
+
+async function metrics(page: Page, banner: Locator) {
+  return banner.evaluate((el: HTMLElement) => {
+    const out: Record<string, unknown> = { banner: el.getBoundingClientRect().toJSON() };
+    const btns = Array.from(el.querySelectorAll('button'));
+    out['buttons'] = btns.map((b) => {
+      const cs = getComputedStyle(b);
+      const r = b.getBoundingClientRect();
+      return { text: b.textContent?.trim(), w: r.width, h: r.height, disabled: b.disabled, ariaBusy: b.getAttribute('aria-busy'), color: cs.color, bg: cs.backgroundColor, border: cs.borderTopColor, fs: cs.fontSize, scrollW: b.scrollWidth, clientW: b.clientWidth };
+    });
+    const bs = getComputedStyle(el);
+    out['bannerBg'] = bs.backgroundColor;
+    out['hscroll'] = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+    return out;
+  });
+}
+
+for (const [label, theme] of THEMES) {
+  const bootstrap = async (ui: any, rpcBridge: any, check: unknown, extra: Record<string, unknown> = {}) => {
+    await setTheme(ui, rpcBridge, theme);
+    await baseMocks(ui, check, extra);
+    await ui.prepare();
+    await ui.page.waitForTimeout(1500);
+    expect(await ui.page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe(theme);
+  };
+  const refuse = async (ui: any) => {
+    await ui.mockRpc({ 'chat:continue': { success: false, errorCode: 'AUTH_REQUIRED', error: MSG, providerId: 'openai-codex' } });
+    await send(ui.page, 'Please continue where we left off');
+    const banner = ui.page.locator('ptah-auth-required-banner');
+    await expect(banner).toBeVisible({ timeout: 15000 });
+    return banner;
+  };
+
+  test(`1 banner without button ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, { eligible: false });
+    await openBoundTab(ui, 'Refactor the parser please');
+    const banner = await refuse(ui);
+    await expect.poll(async () => (await ui.getObservedCalls('chat:carry-over-check')).length).toBe(1);
+    await ui.page.waitForTimeout(600);
+    await expect(banner.getByRole('button', { name: /Continue with/ })).toHaveCount(0);
+    await shoot(ui.page, banner, `state1-banner-no-button-${label}`);
+    console.log('M1', label, JSON.stringify(await metrics(ui.page, banner)));
+  });
+
+  test(`2 banner with button ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, ELIGIBLE);
+    await openBoundTab(ui, 'Refactor the parser please');
+    await ui.page.waitForTimeout(100);
+    const banner = await refuse(ui);
+    const before = await banner.boundingBox();
+    const btn = banner.getByRole('button', { name: /Continue with Claude/ });
+    await expect(btn).toBeVisible();
+    const after = await banner.boundingBox();
+    await ui.page.waitForTimeout(500);
+    await shoot(ui.page, banner, `state2-banner-with-button-${label}`);
+    await btn.focus();
+    await ui.page.keyboard.press('Shift+Tab');
+    await ui.page.keyboard.press('Tab');
+    await ui.page.waitForTimeout(200);
+    const focusInfo = await btn.evaluate((b) => {
+      const cs = getComputedStyle(b);
+      return { focused: document.activeElement === b, focusVisible: b.matches(':focus-visible'), outline: cs.outline, boxShadow: cs.boxShadow };
+    });
+    await banner.screenshot({ path: `${OUT}/state2-banner-button-focused-${label}.png` });
+    console.log('M2', label, JSON.stringify({ before, after, focusInfo, m: await metrics(ui.page, banner) }));
+  });
+
+  test(`3 busy ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, ELIGIBLE);
+    await openBoundTab(ui, 'Refactor the parser please');
+    await delayCarryOver(ui);
+    const banner = await refuse(ui);
+    const btn = banner.getByRole('button', { name: /Continue with Claude/ });
+    await expect(btn).toBeVisible();
+    const hBefore = (await banner.boundingBox())?.height;
+    await btn.click();
+    await expect(btn).toBeDisabled();
+    await ui.page.waitForTimeout(700);
+    await btn.click({ force: true }).catch(() => undefined);
+    await btn.dispatchEvent('click').catch(() => undefined);
+    await ui.page.waitForTimeout(500);
+    const calls = (await ui.getObservedCalls('chat:carry-over')).length;
+    await shoot(ui.page, banner, `state3-busy-${label}`);
+    console.log('M3', label, JSON.stringify({ hBefore, hBusy: (await banner.boundingBox())?.height, carryOverCalls: calls, m: await metrics(ui.page, banner) }));
+    expect(calls).toBe(1);
+  });
+
+  const noticeLocator = (page: Page) => page.getByText(/Continued with Claude in a new chat/).first();
+
+  test(`4 notice after button ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, ELIGIBLE, { 'chat:carry-over': { success: true, providerId: 'anthropic', providerName: 'Claude' } });
+    const tabId = await openBoundTab(ui, 'Refactor the parser please');
+    const banner = await refuse(ui);
+    await banner.getByRole('button', { name: /Continue with Claude/ }).click();
+    await expect.poll(async () => (await ui.getObservedCalls('chat:carry-over')).length).toBe(1);
+    const p = (await ui.getObservedCalls('chat:carry-over'))[0].params as { requestId: string };
+    await ui.pushEvent({ type: 'session:id-resolved', payload: { tabId, realSessionId: NEW_SESSION, carryOverRequestId: p.requestId } });
+    await ui.pushEvent(turnStateIdle(tabId, NEW_SESSION));
+    const notice = noticeLocator(ui.page);
+    await expect(notice).toBeVisible({ timeout: 10000 });
+    await ui.page.waitForTimeout(400);
+    const box = notice.locator('xpath=ancestor::*[self::div][contains(@class,"alert") or @role="status" or @role="alert"][1]');
+    const target = (await box.count()) > 0 ? box.first() : notice;
+    await shoot(ui.page, target, `state4-notice-after-button-${label}`);
+    console.log('M4', label, JSON.stringify({ bannerStillShown: await banner.count(), text: await notice.textContent() }));
+  });
+
+  test(`5 notice after compact ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, ELIGIBLE, { 'chat:carry-over': { success: true, providerId: 'anthropic', providerName: 'Claude' } });
+    const tabId = await openBoundTab(ui, 'Refactor the parser please');
+    await send(ui.page, '/compact');
+    await expect.poll(async () => (await ui.getObservedCalls('chat:carry-over')).length).toBe(1);
+    const p = (await ui.getObservedCalls('chat:carry-over'))[0].params as { requestId: string };
+    await ui.pushEvent({ type: 'session:id-resolved', payload: { tabId, realSessionId: NEW_SESSION, carryOverRequestId: p.requestId } });
+    await ui.pushEvent(turnStateIdle(tabId, NEW_SESSION));
+    const notice = noticeLocator(ui.page);
+    await expect(notice).toBeVisible({ timeout: 10000 });
+    await ui.page.waitForTimeout(400);
+    const box = notice.locator('xpath=ancestor::*[self::div][contains(@class,"alert") or @role="status" or @role="alert"][1]');
+    const target = (await box.count()) > 0 ? box.first() : notice;
+    await shoot(ui.page, target, `state5-notice-after-compact-${label}`);
+    console.log('M5', label, JSON.stringify({ continueCalls: (await ui.getObservedCalls('chat:continue')).length, carryParams: p }));
+  });
+
+  test(`6 compact native codex ${label}`, async ({ ui, rpcBridge }) => {
+    await bootstrap(ui, rpcBridge, ELIGIBLE, {
+      'chat:start': { success: true, providerId: 'openai-codex' },
+      'chat:carry-over': { success: true, providerId: 'anthropic', providerName: 'Claude' },
+    });
+    const tabId = await openBoundTab(ui, 'Audit the codex app-server adapter');
+    await send(ui.page, '/compact');
+    await expect.poll(async () => (await ui.getObservedCalls('chat:carry-over')).length).toBe(1);
+    const p = (await ui.getObservedCalls('chat:carry-over'))[0].params as { requestId: string };
+    await ui.pushEvent({ type: 'session:id-resolved', payload: { tabId, realSessionId: NEW_SESSION, carryOverRequestId: p.requestId } });
+    await ui.pushEvent(turnStateIdle(tabId, NEW_SESSION));
+    const notice = noticeLocator(ui.page);
+    await expect(notice).toBeVisible({ timeout: 10000 });
+    await ui.page.waitForTimeout(400);
+    const box = notice.locator('xpath=ancestor::*[self::div][contains(@class,"alert") or @role="status" or @role="alert"][1]');
+    const target = (await box.count()) > 0 ? box.first() : notice;
+    await shoot(ui.page, target, `state6-compact-codex-to-claude-${label}`);
+    console.log('M6', label, JSON.stringify({ carryParams: p }));
+  });
+}

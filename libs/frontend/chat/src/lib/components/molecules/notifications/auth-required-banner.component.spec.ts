@@ -143,6 +143,24 @@ describe('AuthRequiredBannerComponent', () => {
     expect(secondId).not.toBe(firstId);
   });
 
+  it('is a secondary outline in the muted text tier, not the primary colour', () => {
+    // btn-primary's outline was 1.3:1 (anubis-light) and 3.2:1 (anubis).
+    // base-content-muted is tuned to >= 5:1 on base-300 in every theme.
+    const host = render({ carryOverProvider: 'Codex' });
+    const classes = carryOverButton(host)?.classList;
+
+    expect(classes?.contains('btn-outline')).toBe(true);
+    expect(classes?.contains('text-base-content-muted')).toBe(true);
+    expect(classes?.contains('btn-primary')).toBe(false);
+  });
+
+  it('colours its busy spinner itself so the disabled dimming does not hide it', () => {
+    const host = render({ carryOverProvider: 'Codex', carryOverBusy: true });
+    const spinner = carryOverButton(host)?.querySelector('.loading');
+
+    expect(spinner?.classList.contains('text-base-content-muted')).toBe(true);
+  });
+
   it('is enabled and not busy by default', () => {
     const host = render({ carryOverProvider: 'Codex' });
     const button = carryOverButton(host);
