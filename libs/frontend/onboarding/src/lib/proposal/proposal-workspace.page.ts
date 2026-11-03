@@ -66,7 +66,7 @@ import { RevisionHistoryComponent } from './revision-history.component';
         <button type="button" class="btn btn-sm btn-ghost btn-outline" (click)="beginLeave()">Leave</button>
       </header>
       <div #stepperRegion><ptah-onboarding-stepper [steps]="steps" /></div>
-      <ptah-live-run-layout #layout [hasLog]="hasLog()" [composer]="composerShown()">
+      <ptah-live-run-layout #layout [composer]="composerShown()">
         <ptah-details-log runLog #sessionLog variant="pane" mode="tab"
           [tabId]="store.session.record()?.tabId ?? null"
           [sessionInitialized]="!!store.session.record()?.sessionId"
@@ -151,7 +151,7 @@ export class ProposalWorkspacePage implements OnInit {
     { id: 'proposal', label: 'Proposal', state: 'current' },
     { id: 'review', label: 'Review', state: 'upcoming' },
   ];
-  private readonly layout = viewChild<ElementRef<HTMLElement>>('layout');
+  private readonly layout = viewChild<ElementRef<HTMLElement>>('layout', { read: ElementRef });
   private readonly sessionLog = viewChild<DetailsLogComponent>('sessionLog');
   private readonly replyComposer = viewChild<ReplyComposerComponent>('replyComposer');
   protected readonly replyDraft = inject(ReplyDraftStore);
@@ -176,8 +176,6 @@ export class ProposalWorkspacePage implements OnInit {
   readonly stopUncertain = signal(false);
   readonly composerShown = computed(() => !!this.store.session.record() &&
     (this.store.restoreState() === 'ready' || this.store.restoreState() === 'proposal-unavailable'));
-  readonly hasLog = computed(() => this.store.restoreState() === 'loading' ||
-    this.store.restoreState() === 'ready' || this.composerShown());
   readonly logState = computed<'live' | 'idle' | 'stopped' | 'loading' | 'unavailable'>(() => {
     const status = this.store.sessionStatus();
     return status === 'working' ? 'live' : status === 'stopping' ? 'stopped' :

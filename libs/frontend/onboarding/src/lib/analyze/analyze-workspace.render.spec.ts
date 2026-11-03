@@ -249,7 +249,7 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     const root = fixture.nativeElement as HTMLElement;
     const transcript = root.querySelector('ptah-analysis-transcript');
     running.set(false); canceling.set(true); fixture.detectChanges();
-    expect(root.classList.contains('max-w-[1120px]')).toBe(true);
+    expect(root.querySelector('[data-testid="analyze-workspace"]')?.classList.contains('max-w-[1120px]')).toBe(true);
     expect(root.querySelector('ptah-analysis-transcript')).toBe(transcript);
     expect(root.querySelector('[data-testid="details-log"]')?.textContent).toContain('Stopped');
     expect(root.textContent).toContain('Waiting for the run to stop.');

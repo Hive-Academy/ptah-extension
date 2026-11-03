@@ -113,7 +113,7 @@ describe('ProposalWorkspacePage rendered parity', () => {
     [...root.querySelectorAll('button')].find((button) => button.textContent?.includes('Propose again'))?.click();
     fixture.detectChanges();
     expect(root.querySelector('[role="log"]')).not.toBeNull();
-    expect(root.querySelector('textarea[aria-label="Desktop reply"]')?.getAttribute('value')).toContain('Please propose');
+    expect(root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Desktop reply"]')?.value).toContain('Please propose');
     expect(document.activeElement).toBe(root.querySelector('textarea[aria-label="Desktop reply"]'));
     expect(send).not.toHaveBeenCalled();
   });
