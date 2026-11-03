@@ -1202,6 +1202,8 @@ export class TasksStore implements MessageHandler {
   public async loadBoard(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
+    // The board now owns the banner; a later detail load must not clear it.
+    this.detailErrorMessage = null;
     await this.trackFetch(this.activeKey(), this.activeRoot());
   }
 
@@ -2487,6 +2489,7 @@ export class TasksStore implements MessageHandler {
           this._error.set(null);
         } else {
           this._noWorkspace.set(false);
+          this.detailErrorMessage = null;
           this._error.set(result.error ?? 'Failed to load tasks');
         }
       }
