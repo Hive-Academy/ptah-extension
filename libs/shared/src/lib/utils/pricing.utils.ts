@@ -392,15 +392,18 @@ function lookupPricingEntry(
   }
 
   if (bestMatch || !stripVariantTags) return bestMatch;
-  // A dated id resolves like its undated model, as rule 2 does.
-  const key = resolvePricingKey(
-    strippedId.replace(TRAILING_DATE_SNAPSHOT, ''),
-  );
+  // A tagged dotted entry wins over the base entry, as rule 1 does. A dated
+  // id resolves like its undated model, as rule 2 does.
+  const key =
+    (lowerId === untaggedId
+      ? null
+      : resolvePricingKey(stripProviderPrefix(lowerId))) ??
+    resolvePricingKey(strippedId.replace(TRAILING_DATE_SNAPSHOT, ''));
   return key === null ? null : modelPricingMap[key];
 }
 
-/** `claude-<family>-<major>-<minor>`, nothing after it. */
-const CLAUDE_DASHED_VERSION = /^(claude-[a-z]+-\d+)-(\d{1,2})$/;
+/** `claude-<family>-<major>-<minor>`, then at most a `[1m]` context tag. */
+const CLAUDE_DASHED_VERSION = /^(claude-[a-z]+-\d+)-(\d{1,2})(\[1m\])?$/;
 
 /**
  * The map key a lowercase model id is priced under: the id itself when it
@@ -409,6 +412,8 @@ const CLAUDE_DASHED_VERSION = /^(claude-[a-z]+-\d+)-(\d{1,2})$/;
  * hydrates Claude rates, publishes it as `anthropic/claude-opus-5.5` (also
  * registered as `claude-opus-5.5`). Only the major-minor separator differs.
  * Other families' dashes and dots name distinct models, so they never alias.
+ * A `[1m]` tag stays on the dotted spelling, so a tagged catalog entry
+ * (`claude-opus-5.5[1m]`) is found before any base entry.
  * `null` when neither spelling has an entry.
  *
  * The one resolver behind both {@link findModelPricing} (rule 4) and
@@ -420,7 +425,7 @@ function resolvePricingKey(key: string): string | null {
   if (Object.hasOwn(modelPricingMap, key) && modelPricingMap[key]) return key;
   const match = CLAUDE_DASHED_VERSION.exec(key);
   if (!match) return null;
-  const dotted = `${match[1]}.${match[2]}`;
+  const dotted = `${match[1]}.${match[2]}${match[3] ?? ''}`;
   return Object.hasOwn(modelPricingMap, dotted) && modelPricingMap[dotted]
     ? dotted
     : null;

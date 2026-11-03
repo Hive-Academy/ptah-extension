@@ -32,6 +32,7 @@ import {
   agentDurationText,
   agentStatusInk,
   dockCapacity,
+  dockMarkerCount,
   dockGroup,
   GROUP_MARKER_PX,
   NAMED_CHIP_STEP_PX,
@@ -335,9 +336,16 @@ export class CanvasLaneTabsComponent {
     const selected = this.selectedKey();
     const idPrefix = this.idPrefix();
     const width = this.width();
+    const frozenKeys = this.rail() ? null : this.frozenVisibleKeys();
+    // A frozen order can draw a third marker; reserve its width so the
+    // chips and the overflow trigger stay on one line.
+    const frozenMarkers = frozenKeys
+      ? dockMarkerCount(this.agents().filter((agent) => frozenKeys.includes(agent.key))
+        .sort((a, b) => frozenKeys.indexOf(a.key) - frozenKeys.indexOf(b.key)))
+      : undefined;
     let { visible, hidden } = planDockOverflow(
-      this.agents(), selected, dockCapacity(width),
-      this.rail() ? null : this.frozenVisibleKeys(),
+      this.agents(), selected, dockCapacity(width, frozenMarkers),
+      frozenKeys,
       this.focusedChipKey(),
     );
     if (this.rail()) {

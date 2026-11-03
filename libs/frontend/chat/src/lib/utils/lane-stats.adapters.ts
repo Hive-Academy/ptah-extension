@@ -121,6 +121,8 @@ export function resolveCliLaneUsage(source: MonitoredAgent): CliLaneUsage {
  * (`counters` in codex-runtime's event translator subtracts both to get the
  * uncached part), so the classes are split before pricing. Other CLIs do not
  * document how their counts overlap, and a guessed split is a wrong price.
+ * A lane that reports cache writes is not priced: the translator marks Codex
+ * cache-write semantics as ambiguous, and their retention tier is unknown.
  */
 export function estimateCliLaneCost(
   agent: Pick<MonitoredAgent, 'cli' | 'model'>,
@@ -137,6 +139,7 @@ export function estimateCliLaneCost(
   if (!isValidTokenCount(cacheHit) || !isValidTokenCount(cacheCreation)) {
     return null;
   }
+  if (cacheCreation > 0) return null;
   const uncached = inputTokens - cacheHit - cacheCreation;
   if (uncached < 0) return null;
   const pricing = findExactModelPricing(model)?.pricing ?? null;

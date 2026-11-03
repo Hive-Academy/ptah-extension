@@ -1,5 +1,5 @@
 import type { SessionAgent } from '@ptah-extension/chat';
-import { dockCapacity, dockGroup, orderDockAgents, planDockOverflow } from './dock-overflow';
+import { dockCapacity, dockGroup, dockMarkerCount, orderDockAgents, planDockOverflow } from './dock-overflow';
 
 function agent(key: string, status: SessionAgent['status'] = 'running', kind: SessionAgent['kind'] = 'cli'): SessionAgent {
   return { key, kind, status, name: key, cliId: null, agentType: null,
@@ -9,6 +9,15 @@ function agent(key: string, status: SessionAgent['status'] = 'running', kind: Se
 const keys = (agents: readonly SessionAgent[]): string[] => agents.map(({ key }) => key);
 
 describe('dock overflow planner', () => {
+  it('reserves the width of every marker a frozen order draws', () => {
+    const frozen = [agent('o', 'waiting', 'orchestrator'), agent('a'), agent('f', 'done'), agent('b')];
+    expect(dockMarkerCount(frozen)).toBe(3);
+    expect(dockMarkerCount(orderDockAgents(frozen))).toBe(2);
+    expect(dockCapacity(450, 3)).toBeLessThan(dockCapacity(450));
+    // Fewer than two markers never gives back reserved width.
+    expect(dockCapacity(450, 0)).toBe(dockCapacity(450));
+  });
+
   it.each([0, 1, 5, 6, 20])('partitions a %i-agent roster with a five-chip ceiling', (count) => {
     const agents = Array.from({ length: count }, (_, index) => agent(`a${index}`));
     const plan = planDockOverflow(agents, 'a0', 100);

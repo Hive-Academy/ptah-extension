@@ -385,6 +385,22 @@ describe('pricing.utils', () => {
       ).toMatchObject({ totalCost: null, costUnavailableReason: 'rate-missing' });
     });
 
+    it('prices a dashed [1m] id at its dotted tagged entry before the base', () => {
+      registerProviderPricing({ 'claude-opus-5.5[1m]': OTHER });
+      expect(findExactModelPricing('claude-opus-5-5[1m]')).toEqual({
+        modelIdUsed: 'claude-opus-5.5[1m]',
+        pricing: OTHER,
+      });
+      expect(findModelPricing('claude-opus-5-5[1m]')).toEqual(OTHER);
+      const tokens = { input: 1000, output: 0, cacheHit: 0, cacheCreation: 0 };
+      const options = { billingMode: 'api-key' as const, cacheSemantics: 'disjoint' as const };
+      expect(
+        calculateExactMessageCost('claude-opus-5-5[1m]', tokens, options).totalCost,
+      ).not.toBeNull();
+      // The base id still resolves to the base entry.
+      expect(findModelPricing('claude-opus-5-5')).toEqual(OPUS_55);
+    });
+
     it('lets an entry under the dashed id win on the exact path too', () => {
       registerProviderPricing({ 'claude-opus-5-5': OTHER });
       expect(findExactModelPricing('claude-opus-5-5')).toEqual({

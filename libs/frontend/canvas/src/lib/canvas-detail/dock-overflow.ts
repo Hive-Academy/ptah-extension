@@ -20,7 +20,8 @@ export const NAMED_CHIP_STEP_PX = 140 + DOCK_GAP_PX;
  * gap after it. The dock reserves two, one per group.
  */
 export const GROUP_MARKER_PX = 1 + 4 + 14 + DOCK_GAP_PX;
-const GROUP_MARKERS_PX = 2 * GROUP_MARKER_PX;
+/** Markers in a settled dock: one per group. */
+const SETTLED_MARKERS = 2;
 /** `N agents ›` at a comfortable width, and the count badge below 480 px. */
 const MENU_WIDTH_PX = 120;
 const MENU_WIDTH_COMPACT_PX = 44;
@@ -41,15 +42,18 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
 };
 
 /**
- * Total chips that fit beside the overflow trigger and both group markers:
+ * Total chips that fit beside the overflow trigger and the group markers:
  * one selected pill, then avatar circles (the pinned orchestrator is a circle
- * unless it is the selection). Unknown width is safe.
+ * unless it is the selection). A settled dock has at most two markers; a
+ * keyboard-frozen dock can have more (see {@link dockMarkerCount}). Unknown
+ * width is safe.
  */
-export function dockCapacity(width: number): number {
+export function dockCapacity(width: number, markers = SETTLED_MARKERS): number {
   if (!Number.isFinite(width)) return 1;
   const menuWidth =
     width < COMPACT_BELOW_PX ? MENU_WIDTH_COMPACT_PX : MENU_WIDTH_PX;
-  const room = width - DOCK_PADDING_PX - GROUP_MARKERS_PX - menuWidth;
+  const markerWidth = Math.max(SETTLED_MARKERS, markers) * GROUP_MARKER_PX;
+  const room = width - DOCK_PADDING_PX - markerWidth - menuWidth;
   if (room < PILL_RESERVE_PX) return 0;
   const circles = Math.floor((room - PILL_RESERVE_PX) / CHIP_STEP_PX);
   return Math.min(DOCK_INLINE_MAX, 1 + circles);
@@ -69,6 +73,22 @@ export function dockGroup(agent: SessionAgent): DockGroup {
     default:
       return 'active';
   }
+}
+
+/**
+ * Group markers the dock draws for agents in this order: one at every change
+ * of group after the pinned orchestrator. A keyboard freeze keeps an agent
+ * that just finished in its old place, so a frozen order can need three.
+ */
+export function dockMarkerCount(agents: readonly SessionAgent[]): number {
+  let markers = 0;
+  let previous: DockGroup | null = null;
+  for (const agent of agents) {
+    const group = dockGroup(agent);
+    if (group !== 'orchestrator' && group !== previous) markers++;
+    previous = group;
+  }
+  return markers;
 }
 
 const GROUP_ORDER: Readonly<Record<DockGroup, number>> = {

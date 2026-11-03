@@ -141,6 +141,16 @@ describe('inspector CLI lane usage', () => {
     expect(laneUsage(roster, { ...sources, cli: reported }, 2_000).usage.cost).toBe(0.5);
   });
 
+  it('leaves the cost unknown when a Codex lane reports cache writes', () => {
+    const lane = {
+      ...codexDone,
+      usageTotals: { ...codexDone.usageTotals, cacheWriteTokens: 50 },
+    };
+    const result = laneUsage(roster, { ...sources, cli: lane }, 2_000);
+    expect(result.usage.tokens).toBe(1_000);
+    expect(result.usage.cost).toBeNull();
+  });
+
   it.each([
     ['a CLI with undocumented token overlap', { cli: 'copilot' as const }],
     ['a model without an exact rate', { model: 'gpt-6-sol-preview' }],
