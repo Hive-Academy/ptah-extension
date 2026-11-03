@@ -553,6 +553,11 @@ function captureShutdownHandles(
   container: DependencyContainer,
   coordinator: BootCoordinator,
 ): void {
+  if (container.isRegistered(PLATFORM_TOKENS.SESSION_USAGE_SINK)) {
+    coordinator.refs.sessionUsageSink = container.resolve<{ flush: () => Promise<void> }>(
+      PLATFORM_TOKENS.SESSION_USAGE_SINK,
+    );
+  }
   // Capture the registered drain while the container is healthy. Quit uses
   // this ref after the agent reap, without resolving DI during teardown.
   try {

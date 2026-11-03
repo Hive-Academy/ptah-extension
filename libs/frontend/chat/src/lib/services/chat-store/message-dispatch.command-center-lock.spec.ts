@@ -71,6 +71,8 @@ describe('Command Center dispatch lock', () => {
           useValue: {
             queueOrAppendMessage: queue,
             releaseHeldCommand: jest.fn(),
+            queuedCommandForFlush: () => null,
+            isQueuedCommand: () => false,
           },
         },
         {

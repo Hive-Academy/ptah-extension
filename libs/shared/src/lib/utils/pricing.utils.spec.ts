@@ -323,6 +323,101 @@ describe('pricing.utils', () => {
     });
   });
 
+  describe('dashed Claude ids against the dotted OpenRouter catalog', () => {
+    const OPUS_55 = {
+      inputCostPerToken: 4e-6,
+      outputCostPerToken: 20e-6,
+      cacheReadCostPerToken: 0.2e-6,
+      cacheCreationCostPerToken: 5e-6,
+      provider: 'openrouter',
+    };
+    const OTHER = {
+      inputCostPerToken: 1e-6,
+      outputCostPerToken: 2e-6,
+      provider: 'openrouter',
+    };
+
+    beforeEach(() => {
+      // What OpenRouterPricingService registers: the full id and its tail.
+      registerProviderPricing({
+        'anthropic/claude-opus-5.5': OPUS_55,
+        'claude-opus-5.5': OPUS_55,
+      });
+    });
+
+    it.each([
+      'claude-opus-5-5',
+      'claude-opus-5-5[1m]',
+      'claude-opus-5-5-20260101',
+      'anthropic/claude-opus-5-5',
+      'Claude-Opus-5-5',
+    ])('prices the SDK id %s at the dotted catalog rate', (modelId) => {
+      expect(findModelPricing(modelId)).toEqual(OPUS_55);
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('prefers an entry under the dashed id itself', () => {
+      registerProviderPricing({ 'claude-opus-5-5': OTHER });
+      expect(findModelPricing('claude-opus-5-5')).toEqual(OTHER);
+    });
+
+    it('resolves the exact-cost path through the same dotted spelling', () => {
+      expect(findExactModelPricing('claude-opus-5-5')).toEqual({
+        modelIdUsed: 'claude-opus-5.5',
+        pricing: OPUS_55,
+      });
+      // [1m] finds the base for lookup but still refuses to value it.
+      expect(findExactModelPricing('claude-opus-5-5[1m]')?.modelIdUsed).toBe(
+        'claude-opus-5.5',
+      );
+      // Snapshots keep needing their own entry on the exact path.
+      expect(findExactModelPricing('claude-opus-5-5-20260101')).toBeNull();
+
+      const tokens = { input: 1000, output: 500, cacheHit: 2000, cacheCreation: 400 };
+      const options = { billingMode: 'api-key' as const, cacheSemantics: 'disjoint' as const };
+      // 1000*4e-6 + 500*20e-6 + 2000*0.2e-6 + 400*5e-6
+      expect(
+        calculateExactMessageCost('claude-opus-5-5', tokens, options).totalCost,
+      ).toBeCloseTo(0.0164, 6);
+      expect(calculateMessageCost('claude-opus-5-5', tokens)).toBeCloseTo(0.0164, 6);
+      expect(
+        calculateExactMessageCost('claude-opus-5-5[1m]', tokens, options),
+      ).toMatchObject({ totalCost: null, costUnavailableReason: 'rate-missing' });
+    });
+
+    it('prices a dashed [1m] id at its dotted tagged entry before the base', () => {
+      registerProviderPricing({ 'claude-opus-5.5[1m]': OTHER });
+      expect(findExactModelPricing('claude-opus-5-5[1m]')).toEqual({
+        modelIdUsed: 'claude-opus-5.5[1m]',
+        pricing: OTHER,
+      });
+      expect(findModelPricing('claude-opus-5-5[1m]')).toEqual(OTHER);
+      const tokens = { input: 1000, output: 0, cacheHit: 0, cacheCreation: 0 };
+      const options = { billingMode: 'api-key' as const, cacheSemantics: 'disjoint' as const };
+      expect(
+        calculateExactMessageCost('claude-opus-5-5[1m]', tokens, options).totalCost,
+      ).not.toBeNull();
+      // The base id still resolves to the base entry.
+      expect(findModelPricing('claude-opus-5-5')).toEqual(OPUS_55);
+    });
+
+    it('lets an entry under the dashed id win on the exact path too', () => {
+      registerProviderPricing({ 'claude-opus-5-5': OTHER });
+      expect(findExactModelPricing('claude-opus-5-5')).toEqual({
+        modelIdUsed: 'claude-opus-5-5',
+        pricing: OTHER,
+      });
+    });
+
+    it.each(['claude-opus-5-5-codex', 'gpt-5-5', 'claude-opus-5-55555'])(
+      'leaves %s unpriced',
+      (modelId) => {
+        registerProviderPricing({ 'gpt-5.5': OTHER });
+        expect(findModelPricing(modelId)).toBeNull();
+      },
+    );
+  });
+
   describe('stripModelVariantTags', () => {
     it.each([
       ['claude-opus-5-5[1m]', 'claude-opus-5-5'],

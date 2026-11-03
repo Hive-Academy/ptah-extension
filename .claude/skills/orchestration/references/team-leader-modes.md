@@ -40,7 +40,7 @@ Task({
   capable different-family lane when available. A same-family or subagent fallback needs its
   specific reason and a weaker-evidence label; record `Review family` and `Subagent reason` when used.
 - At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
-  lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
+  lose data (else a named later task); Minor fixed when local (one file, no contract or public API change), else recorded. Then one re-review scoped to the
   fixes.
 
 ## Completion checks

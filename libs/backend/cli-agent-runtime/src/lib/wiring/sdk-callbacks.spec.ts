@@ -606,6 +606,7 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
       revision: 7,
       compactions: 1,
       autoHandoff: false,
+      closeSourceAfterAutoHandoff: false,
     };
 
     await onResult({ ...footer, budget });

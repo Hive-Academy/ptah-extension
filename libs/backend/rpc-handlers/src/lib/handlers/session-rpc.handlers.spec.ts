@@ -2749,8 +2749,13 @@ describe('SessionRpcHandlers', () => {
           scope: { kind: 'range', since: 1_000, until: 2_000 },
         }),
       );
-      expect(result).toEqual({
-        sessionStats: [],
+        expect(result).toEqual({
+          sessionStats: [expect.objectContaining({
+            sessionId: VALID_SESSION_ID,
+            status: 'error',
+            coverage: 'partial',
+            scope: 'range',
+          })],
         scope: 'range',
         since: 1_000,
         until: 2_000,

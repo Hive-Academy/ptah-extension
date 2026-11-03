@@ -30,6 +30,8 @@
  * with the session id and never the prompt text.
  */
 import * as path from 'node:path';
+import { z } from 'zod';
+import { TOKENS, resolveWorktreePath, type Logger } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -42,6 +44,7 @@ import {
 import {
   SDK_TOKENS,
   type SessionIdResolvedPayload,
+  type PostToolUsePayload,
   type SessionMetadataStore,
   type UserPromptExpansionCallbackRegistry,
   type UserPromptExpansionPayload,
@@ -53,7 +56,7 @@ import {
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
 import { CARRIER_FILE } from '@ptah-extension/shared';
-import { TASK_ID_PATTERN } from '@ptah-extension/shared/schemas';
+import { TASK_ID_PATTERN, TASK_ID_TOKEN_SOURCE } from '@ptah-extension/shared/schemas';
 import { SESSION_ORGANIZATION_TOKENS } from './di/tokens';
 import {
   isAutoRule,
@@ -66,6 +69,7 @@ import {
   type AutoCandidate,
 } from './auto-link/task-link-rules';
 import { readGitWorktreeInfo } from './auto-link/git-worktree-info';
+import { extractBashPaths } from './auto-link/bash-path-extractor';
 import type { SessionAutoLinkStore } from './session-auto-link.store';
 import type {
   CaptureOutcome,
@@ -80,6 +84,25 @@ import type {
 import type { SessionOrganizationSessionIdResolvedSource } from './session-organization-capture.service';
 
 const LOG_PREFIX = '[SessionOrganization]';
+const fileToolInput = z.object({ file_path: z.string().min(1) });
+const notebookToolInput = z.object({ notebook_path: z.string().min(1) });
+const bashToolInput = z.object({ command: z.string().min(1) });
+const worktreeArgs = z.object({ branch: z.string().min(1), path: z.string().optional() });
+const taskResult = z.object({ ok: z.literal(true), task: z.object({ id: z.string() }) });
+const mcpContent = z.object({ content: z.array(z.object({ type: z.string(), text: z.string().optional() })), isError: z.boolean().optional() });
+const MAX_SEEN = 512;
+const MAX_DEFERRED_SESSIONS = 256;
+const MAX_DEFERRED_TASKS = 16;
+const taskIdInResponse = new RegExp(`"id"\\s*:\\s*"(${TASK_ID_TOKEN_SOURCE})"`);
+export function pathKey(value: string, platform: NodeJS.Platform): string {
+  const slashed = (platform === 'win32' ? value.replace(/\\/g, '/') : value).replace(/\/+$/, '');
+  return platform === 'win32' ? slashed.toLowerCase() : slashed;
+}
+function remember(set: Set<string>, key: string): void {
+  set.delete(key);
+  set.add(key);
+  if (set.size > MAX_SEEN) set.delete(set.values().next().value ?? key);
+}
 
 /** R3 candidates waiting for metadata or the store (RR1-2). */
 const MAX_QUEUED_PROMPTS = 64;
@@ -123,6 +146,9 @@ export type AutoLinkExpansionSource = Pick<
   UserPromptExpansionCallbackRegistry,
   'register'
 >;
+export interface AutoLinkToolSource {
+  register(callback: (payload: PostToolUsePayload) => void): () => void;
+}
 /** The task index event (optional: absent when task-specs is not composed). */
 export interface AutoLinkTaskIndexEvents {
   readonly onDidChangeIndex: IEvent<TaskIndexChangeEvent>;
@@ -131,6 +157,7 @@ export interface AutoLinkTaskIndexEvents {
 interface ReconcileRequest {
   /** R3 task ids to add (already validated, folder exists). */
   r3: Set<string>;
+  r8: Set<string>;
   /** Also reconcile children, forks and worktree peers, one level deep. */
   cascade: boolean;
   /** Re-runs already spent on a failed write (bounded by MAX_COMMIT_RETRIES). */
@@ -156,6 +183,9 @@ export class SessionAutoLinkService implements IDisposable {
   private readonly requests = new Map<string, ReconcileRequest>();
   /** Sessions whose change event this service's own reconcile emitted. */
   private readonly ownWrites = new Set<string>();
+  private readonly seenWorktrees = new Set<string>();
+  private readonly seenTaskWrites = new Set<string>();
+  private readonly deferredR8 = new Map<string, Set<string>>();
 
   constructor(
     @inject(SESSION_ORGANIZATION_TOKENS.SERVICE)
@@ -172,10 +202,14 @@ export class SessionAutoLinkService implements IDisposable {
     private readonly prompts: AutoLinkPromptSource,
     @inject(SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY)
     private readonly expansions: AutoLinkExpansionSource,
+    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
+    private readonly tools: AutoLinkToolSource,
     @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
     private readonly sessionIdResolved: SessionOrganizationSessionIdResolvedSource,
     @inject(PLATFORM_TOKENS.OUTPUT_CHANNEL)
     private readonly output: IOutputChannel,
+    @inject(TOKENS.LOGGER, { isOptional: true })
+    private readonly logger?: Pick<Logger, 'error'>,
     @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
     private readonly taskIndex?: AutoLinkTaskIndexEvents,
   ) {}
@@ -190,6 +224,7 @@ export class SessionAutoLinkService implements IDisposable {
     const subscriptions: Array<() => () => void> = [
       () => this.prompts.register((payload) => this.onPrompt(payload)),
       () => this.expansions.register((payload) => this.onExpansion(payload)),
+      () => this.tools.register((payload) => this.onToolUse(payload)),
       () =>
         this.sessionIdResolved.register((payload) =>
           this.onSessionIdResolved(payload),
@@ -224,6 +259,9 @@ export class SessionAutoLinkService implements IDisposable {
     this.existingTasks.clear();
     this.requests.clear();
     this.ownWrites.clear();
+    this.seenWorktrees.clear();
+    this.seenTaskWrites.clear();
+    this.deferredR8.clear();
   }
 
   // ── Triggers ───────────────────────────────────────────────────────────────
@@ -266,6 +304,7 @@ export class SessionAutoLinkService implements IDisposable {
   private onStoreOpen(): void {
     const resolved = [...this.pendingResolves];
     this.pendingResolves.clear();
+    for (const id of this.deferredR8.keys()) if (!resolved.includes(id)) resolved.push(id);
     for (const id of resolved) {
       this.detach('store open', id, () => this.handleResolved(id));
     }
@@ -382,6 +421,9 @@ export class SessionAutoLinkService implements IDisposable {
       queued === undefined
         ? undefined
         : await this.checkedOrchestrateTask(sessionId, queued, metadata);
+    const r8 = this.deferredR8.get(sessionId);
+    this.deferredR8.delete(sessionId);
+    for (const taskId of r8 ?? []) await this.reconcile(sessionId, { r8: taskId, cascade: true });
     await this.reconcile(sessionId, { r3, cascade: true });
   }
 
@@ -404,11 +446,13 @@ export class SessionAutoLinkService implements IDisposable {
   private async recordWorktree(
     sessionId: string,
     metadata: SessionMetadata,
+    candidate = metadata.workingDirectory,
+    branchHint?: string,
   ): Promise<void> {
-    const cwd = metadata.workingDirectory;
+    const cwd = candidate;
     if (cwd === undefined || cwd.trim().length === 0) return;
     const root = normalizeWorkspaceRoot(metadata.workspaceId);
-    if (normalizeWorkspaceRoot(cwd) === root) return;
+    if (pathKey(cwd, process.platform) === pathKey(root, process.platform)) return;
     if (this.store.getOrganization(root, sessionId)?.worktreePath) return;
     const info = await readGitWorktreeInfo(this.fs, cwd);
     if (info === null || !this.started) return;
@@ -426,13 +470,162 @@ export class SessionAutoLinkService implements IDisposable {
           sessionId,
           {
             worktreePath: info.worktreePath,
-            ...(info.branch !== null ? { branch: info.branch } : {}),
+            ...(info.branch !== null || branchHint ? { branch: info.branch ?? branchHint } : {}),
           },
           now,
         );
         return [sessionId];
       },
     );
+  }
+
+  private onToolUse(payload: PostToolUsePayload): void {
+    if (payload.agentId !== undefined || !payload.success) return;
+    void this.captureToolUse(payload).catch((error: unknown) => {
+      if (this.logger) {
+        this.logger.error(`autoLink tool activity failed for ${payload.sessionId}`,
+          error instanceof Error ? error : new Error(String(error)));
+      } else {
+        this.log(`autoLink tool activity failed for ${payload.sessionId}: ${describe(error)}`);
+      }
+    });
+  }
+
+  private async captureToolUse(payload: PostToolUsePayload): Promise<void> {
+    const ptahWorktree = payload.toolName === 'mcp__ptah__ptah_git_worktree_add';
+    const file = ['Write', 'Edit', 'MultiEdit'].includes(payload.toolName)
+      ? fileToolInput.safeParse(payload.toolInput)
+      : null;
+    const notebook = payload.toolName === 'NotebookEdit' ? notebookToolInput.safeParse(payload.toolInput) : null;
+    const bash = payload.toolName === 'Bash' ? bashToolInput.safeParse(payload.toolInput) : null;
+    const paths: string[] = [];
+    if (file?.success) paths.push(file.data.file_path);
+    if (notebook?.success) paths.push(notebook.data.notebook_path);
+    if (bash?.success) paths.push(...extractBashPaths(bash.data.command));
+    if (ptahWorktree) {
+      const args = worktreeArgs.safeParse(payload.toolInput);
+      if (args.success) {
+        const content = mcpContent.safeParse(payload.toolOutput);
+        const responsePath = content.success ? /\*\*Path:\*\*\s*(.+?)\s{2}/.exec(content.data.content.map((c) => c.text ?? '').join('\n'))?.[1] : undefined;
+        const argumentPath = resolveWorktreePath(payload.workspaceRoot, args.data.branch, args.data.path?.trim());
+        paths.push(argumentPath || (responsePath && responsePath !== 'unknown' ? responsePath : ''));
+      }
+    }
+    if (payload.toolName === 'mcp__ptah__ptah_task_create') {
+      const content = mcpContent.safeParse(payload.toolOutput);
+      if (content.success && !content.data.isError) {
+        let foundId = false;
+        for (const part of content.data.content) {
+          const parsed = z.string().transform((s, ctx) => { try { return JSON.parse(s) as unknown; } catch { ctx.addIssue({ code: 'custom', message: 'invalid JSON' }); return z.NEVER; } }).pipe(taskResult).safeParse(part.text);
+          if (parsed.success) {
+            foundId = true;
+            await this.captureTaskId(payload.sessionId, payload.workspaceRoot, parsed.data.task.id);
+          } else {
+            const fallbackId = taskIdInResponse.exec(part.text ?? '')?.[1];
+            if (fallbackId) {
+              foundId = true;
+              await this.captureTaskId(payload.sessionId, payload.workspaceRoot, fallbackId);
+            }
+          }
+        }
+        if (!foundId) this.log(`autoLink task-create id unavailable for ${payload.sessionId}`);
+      }
+    }
+    if (paths.length === 0) return;
+    const metadata = await this.metadata.get(payload.sessionId);
+    if (metadata === null || !this.started) return;
+    const root = normalizeWorkspaceRoot(metadata.workspaceId);
+    if (pathKey(root, process.platform) !== pathKey(payload.workspaceRoot, process.platform)) return;
+    if (ptahWorktree) {
+      const args = worktreeArgs.safeParse(payload.toolInput);
+      if (args.success && paths[0]) {
+        await this.recordWorktree(payload.sessionId, metadata, path.resolve(root, paths[0]), args.data.branch);
+        if (this.store.getOrganization(root, payload.sessionId)?.worktreePath) {
+          await this.reconcile(payload.sessionId, { cascade: true });
+        }
+      }
+      return;
+    }
+    const rootPathKey = pathKey(root, process.platform);
+    for (const raw of paths) {
+      const absolute = path.resolve(metadata.workingDirectory ?? root, raw);
+      // Compare with platform case rules; slice names from original casing.
+      const slashed = process.platform === 'win32' ? absolute.replace(/\\/g, '/') : absolute;
+      const normalized = pathKey(absolute, process.platform);
+      const prefix = `${rootPathKey}/.claude-worktrees/`;
+      const originalPrefix = `${process.platform === 'win32' ? root.replace(/\\/g, '/') : root}/.claude-worktrees/`;
+      if (!normalized.startsWith(prefix)) {
+        if (file?.success || notebook?.success) await this.captureTaskWrite(payload.sessionId, slashed, root, root);
+        continue;
+      }
+      if (slashed.length < originalPrefix.length) continue;
+      const name = slashed.slice(originalPrefix.length).split('/')[0];
+      if (!name) continue;
+      const worktree = path.join(
+        metadata.workspaceId ?? root,
+        '.claude-worktrees',
+        name,
+      );
+      const worktreeKey = `${payload.sessionId}\0${pathKey(worktree, process.platform)}`;
+      if (this.seenWorktrees.has(worktreeKey)) {
+        remember(this.seenWorktrees, worktreeKey);
+      } else {
+        remember(this.seenWorktrees, worktreeKey);
+        try {
+          await this.recordWorktree(payload.sessionId, metadata, worktree);
+          if (this.store.getOrganization(root, payload.sessionId)?.worktreePath) {
+            await this.reconcile(payload.sessionId, { cascade: true });
+          } else {
+            this.seenWorktrees.delete(worktreeKey);
+          }
+        } catch (error: unknown) {
+          this.seenWorktrees.delete(worktreeKey);
+          throw error;
+        }
+      }
+      if (file?.success || notebook?.success) await this.captureTaskWrite(payload.sessionId, slashed, worktree, root);
+    }
+  }
+
+  /** `file` is slash-separated in its original casing. */
+  private async captureTaskWrite(sessionId: string, file: string, dir: string, root: string): Promise<void> {
+    const originalPrefix = `${process.platform === 'win32' ? dir.replace(/\\/g, '/') : dir}/.ptah/specs/`;
+    const prefix = `${pathKey(dir, process.platform)}/.ptah/specs/`;
+    if (!pathKey(file, process.platform).startsWith(prefix)) return;
+    if (file.length < originalPrefix.length) return;
+    const taskId = file.slice(originalPrefix.length).split('/')[0];
+    if (!TASK_ID_PATTERN.test(taskId)) return;
+    const taskKey = `${sessionId}\0${taskId}`;
+    if (this.seenTaskWrites.has(taskKey)) {
+      remember(this.seenTaskWrites, taskKey);
+      return;
+    }
+    remember(this.seenTaskWrites, taskKey);
+    try {
+      if (await this.taskPresence([dir, root], taskId) !== 'present') {
+        this.seenTaskWrites.delete(taskKey);
+        return;
+      }
+      await this.reconcile(sessionId, { r8: taskId, cascade: true });
+      if (this.deferredR8.get(sessionId)?.has(taskId) ||
+          !this.store.getOrganization(root, sessionId)?.tasks.some((link) => link.taskId === taskId)) {
+        this.seenTaskWrites.delete(taskKey);
+      }
+    } catch (error: unknown) {
+      this.seenTaskWrites.delete(taskKey);
+      throw error;
+    }
+  }
+
+  private async captureTaskId(sessionId: string, workspaceRoot: string, taskId: string): Promise<void> {
+    if (!TASK_ID_PATTERN.test(taskId)) return;
+    const metadata = await this.metadata.get(sessionId);
+    if (!metadata || !this.started) return;
+    const root = normalizeWorkspaceRoot(metadata.workspaceId);
+    if (pathKey(root, process.platform) !== pathKey(workspaceRoot, process.platform)) return;
+    if (await this.taskPresence([root, metadata.workingDirectory ?? null], taskId) === 'present') {
+      await this.reconcile(sessionId, { r8: taskId, cascade: true });
+    }
   }
 
   // ── Reconcile ──────────────────────────────────────────────────────────────
@@ -443,11 +636,12 @@ export class SessionAutoLinkService implements IDisposable {
    */
   private async reconcile(
     sessionId: string,
-    request: { r3?: string; cascade: boolean },
+    request: { r3?: string; r8?: string; cascade: boolean },
   ): Promise<void> {
     if (!this.started) return;
     this.mergeRequest(sessionId, {
       r3: new Set(request.r3 === undefined ? [] : [request.r3]),
+      r8: new Set(request.r8 === undefined ? [] : [request.r8]),
       cascade: request.cascade,
       attempt: 0,
     });
@@ -464,6 +658,7 @@ export class SessionAutoLinkService implements IDisposable {
           await this.reconcileOnce(sessionId, next);
         } catch (error: unknown) {
           // One failed run must not strand requests merged in meanwhile.
+          this.keepR8(sessionId, next);
           this.log(`autoLink reconcile failed for ${sessionId}: ${describe(error)}`);
         }
       }
@@ -475,10 +670,12 @@ export class SessionAutoLinkService implements IDisposable {
   private mergeRequest(sessionId: string, request: ReconcileRequest): void {
     const pending = this.requests.get(sessionId) ?? {
       r3: new Set<string>(),
+      r8: new Set<string>(),
       cascade: false,
       attempt: 0,
     };
     for (const taskId of request.r3) pending.r3.add(taskId);
+    for (const taskId of request.r8) pending.r8.add(taskId);
     pending.cascade = pending.cascade || request.cascade;
     pending.attempt = Math.max(pending.attempt, request.attempt);
     this.requests.set(sessionId, pending);
@@ -492,6 +689,7 @@ export class SessionAutoLinkService implements IDisposable {
     if (!this.started) return;
     if (metadata === null) {
       this.keepR3(sessionId, request, 'no-metadata');
+      this.keepR8(sessionId, request);
       return;
     }
     if (!this.service.isAvailable()) {
@@ -500,13 +698,14 @@ export class SessionAutoLinkService implements IDisposable {
     }
     const root = normalizeWorkspaceRoot(metadata.workspaceId);
     const organization = this.store.getOrganization(root, sessionId);
-    if (organization === null && request.r3.size === 0) return;
+      if (organization === null && request.r3.size === 0 && request.r8.size === 0) return;
 
     const desired = await this.desiredLinks(
       root,
       organization,
       metadata,
       request.r3,
+      request.r8,
     );
     if (!this.started) return;
     let outcome: CaptureOutcome;
@@ -552,6 +751,7 @@ export class SessionAutoLinkService implements IDisposable {
   /** The store closed mid-way: keep the R3 candidates and the reconcile. */
   private deferRequest(sessionId: string, request: ReconcileRequest): void {
     for (const taskId of request.r3) this.queue(sessionId, taskId);
+    this.keepR8(sessionId, request);
     this.addPendingResolve(sessionId);
   }
 
@@ -571,6 +771,7 @@ export class SessionAutoLinkService implements IDisposable {
       return;
     }
     this.keepR3(sessionId, request, outcome);
+    this.keepR8(sessionId, request);
   }
 
   /** Park the R3 candidates of a run that could not commit (bounded queue). */
@@ -583,6 +784,29 @@ export class SessionAutoLinkService implements IDisposable {
       this.queue(sessionId, taskId);
       this.log(`autoLink R3 ${taskId} kept for ${sessionId}: ${reason}`);
     }
+  }
+  private keepR8(sessionId: string, request: ReconcileRequest): void {
+    if (request.r8.size === 0) return;
+    if (!this.deferredR8.has(sessionId) && this.deferredR8.size >= MAX_DEFERRED_SESSIONS) {
+      const oldest = this.deferredR8.keys().next().value;
+      if (oldest) {
+        this.deferredR8.delete(oldest);
+        this.log(`autoLink R8 deferred evidence evicted for ${oldest}: too many sessions`);
+      }
+    }
+    const pending = this.deferredR8.get(sessionId) ?? new Set<string>();
+    for (const taskId of request.r8) {
+      pending.delete(taskId);
+      pending.add(taskId);
+      if (pending.size > MAX_DEFERRED_TASKS) {
+        const oldest = pending.values().next().value;
+        if (oldest) pending.delete(oldest);
+        this.log(`autoLink R8 deferred evidence evicted for ${sessionId}: too many tasks`);
+      }
+    }
+    this.deferredR8.delete(sessionId);
+    this.deferredR8.set(sessionId, pending);
+    this.addPendingResolve(sessionId);
   }
 
   /** Children, forks and worktree peers, one level deep (no further cascade). */
@@ -609,6 +833,7 @@ export class SessionAutoLinkService implements IDisposable {
     organization: StoredOrganization | null,
     metadata: SessionMetadata,
     r3: ReadonlySet<string>,
+    r8: ReadonlySet<string>,
   ): Promise<AutoCandidate[]> {
     const desired: AutoCandidate[] = [...r3].map((taskId) => ({
       taskId,
@@ -616,6 +841,7 @@ export class SessionAutoLinkService implements IDisposable {
       role: 'primary',
       evidence: null,
     }));
+    for (const taskId of r8) desired.push({ taskId, rule: 'R8', role: 'primary', evidence: null });
     if (organization === null) return desired;
 
     const worktreePath = organization.worktreePath;
@@ -798,9 +1024,9 @@ function holdsAutoRule(
   );
 }
 
-/** Explicit primaries and R3 primaries are evidence for a worktree peer. */
+/** Explicit and directly observed primaries are evidence for a worktree peer. */
 function isPeerEvidence(link: StoredTaskLink): boolean {
-  return link.autoRule === 'R3' ||
+  return link.autoRule === 'R3' || link.autoRule === 'R8' ||
     (!isAutoRule(link.autoRule) && isProtectedSource(link.source));
 }
 

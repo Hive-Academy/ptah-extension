@@ -372,6 +372,7 @@ describe('SessionStatsSummaryComponent', () => {
       revision: 4,
       compactions: 0,
       autoHandoff: false,
+      closeSourceAfterAutoHandoff: false,
     };
 
     function renderWithBudget(
@@ -620,6 +621,7 @@ describe('SessionStatsSummaryComponent', () => {
         revision: 4,
         compactions: 0,
         autoHandoff: false,
+        closeSourceAfterAutoHandoff: false,
       } satisfies SessionBudgetState);
       fixture.detectChanges();
 
@@ -647,6 +649,7 @@ describe('SessionStatsSummaryComponent', () => {
         revision: 4,
         compactions: 0,
         autoHandoff: false,
+        closeSourceAfterAutoHandoff: false,
       } satisfies SessionBudgetState);
       fixture.detectChanges();
 

@@ -106,8 +106,8 @@ describe('startSessionOrganization', () => {
     expect(h.onMetadataChanged).toHaveBeenCalledTimes(1);
     // capture + auto-link
     expect(h.registry.size).toBe(2);
-    // capture (PR links) + todo progress
-    expect(h.postToolUse.size).toBe(2);
+    // capture (PR links) + auto-link + todo progress
+    expect(h.postToolUse.size).toBe(3);
     expect(h.prompts.size).toBe(1);
     expect(h.expansions.size).toBe(1);
     expect(h.output.__state.lines).toEqual([]);
@@ -119,7 +119,7 @@ describe('startSessionOrganization', () => {
     startSessionOrganization(h.c);
 
     expect(h.registry.size).toBe(1);
-    expect(h.postToolUse.size).toBe(1);
+    expect(h.postToolUse.size).toBe(2);
     expect(h.prompts.size).toBe(1);
   });
 

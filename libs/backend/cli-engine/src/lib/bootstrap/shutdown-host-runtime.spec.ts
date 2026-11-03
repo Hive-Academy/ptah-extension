@@ -14,6 +14,7 @@
 
 import type { DependencyContainer } from 'tsyringe';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import {
   shutdownAgentProcesses,
@@ -258,7 +259,7 @@ describe('shutdownHostRuntime', () => {
       ).toBe(true);
     });
 
-    it('absorbs a resolve() failure for either subsystem', async () => {
+    it('absorbs each resolve() failure and still attempts the usage sink drain', async () => {
       const container = {
         isRegistered: jest.fn(() => true),
         resolve: jest.fn(() => {
@@ -269,7 +270,16 @@ describe('shutdownHostRuntime', () => {
       await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
 
       // Every step was attempted — one failure does not skip the next.
-      expect(container.resolve).toHaveBeenCalledTimes(4);
+      expect((container.resolve as jest.Mock).mock.calls.map(([token]) => token)).toEqual([
+        AGENT_PROCESS_MANAGER_TOKEN,
+        PTAH_CLI_REGISTRY_TOKEN,
+        LANE_OUTCOME_TOKENS.DISPOSER,
+        PLATFORM_TOKENS.SESSION_USAGE_SINK,
+        WORKSPACE_WATCHER_TOKEN,
+      ]);
+      expect(stderrSpy.mock.calls.map(([message]) => String(message))).toEqual(
+        expect.arrayContaining([expect.stringContaining('session usage drain failed: resolution failed')]),
+      );
     });
   });
 

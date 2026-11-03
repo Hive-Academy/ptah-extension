@@ -277,6 +277,17 @@ describe('SubagentLaneComponent', () => {
     }
   });
 
+  // Positioned rows in a streaming bubble must be clipped by the lane
+  // scroller, not by the canvas lane host (second scrollbar regression).
+  it('makes the lane scroller the containing block of its rows', () => {
+    const fixture = setup();
+    const scroller = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="lane-scroll"]',
+    );
+    expect(scroller?.classList).toContain('relative');
+    expect(scroller?.classList).toContain('overflow-y-auto');
+  });
+
   // The control row (stats, meta, Details, actions) renders inline in the
   // lane, above its transcript, in every host.
   it('renders its control row inside the lane', () => {

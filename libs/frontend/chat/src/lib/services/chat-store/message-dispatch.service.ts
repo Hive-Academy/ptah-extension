@@ -19,7 +19,10 @@ import type {
   StreamingState,
   TabState,
 } from '@ptah-extension/chat-types';
-import { ConversationService } from './conversation.service';
+import {
+  ConversationService,
+  type QueuedCommand,
+} from './conversation.service';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 
 /**
@@ -118,6 +121,10 @@ export function isTabBusyGenerating(input: {
  */
 @Injectable({ providedIn: 'root' })
 export class MessageDispatchService {
+  private readonly queuedOutcomeListeners = new Map<
+    QueuedCommand,
+    (delivered: boolean) => void
+  >();
   private readonly tabManager = inject(TabManagerService);
   private readonly authState = inject(AuthStateService);
   private readonly messageSender = inject(MessageSenderService);
@@ -149,6 +156,31 @@ export class MessageDispatchService {
       destroyed = true;
       unsubscribe();
     });
+  }
+
+  /** Report each flush outcome of this exact queued slash command. */
+  onQueuedCommandOutcome(
+    command: QueuedCommand,
+    listener: (delivered: boolean) => void,
+  ): void {
+    this.queuedOutcomeListeners.set(command, listener);
+  }
+
+  isQueuedCommandPending(command: QueuedCommand): boolean {
+    return this.conversation.isQueuedCommand(command);
+  }
+
+  private settleQueuedCommand(
+    command: QueuedCommand | null,
+    failed: boolean,
+  ): void {
+    if (!command) return;
+    const listener = this.queuedOutcomeListeners.get(command);
+    if (!listener) return;
+    listener(!failed);
+    if (!failed || !this.conversation.isQueuedCommand(command)) {
+      this.queuedOutcomeListeners.delete(command);
+    }
   }
 
   /**
@@ -280,6 +312,7 @@ export class MessageDispatchService {
     if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
     let queuedOptions: SendMessageOptions | undefined;
     let queuedContent = content;
+    const queuedCommand = this.conversation.queuedCommandForFlush(tabId);
     let delivered = false;
     try {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
@@ -296,6 +329,7 @@ export class MessageDispatchService {
           { tabId },
         );
         this.tabManager.setQueuedContent(tabId, content);
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       queuedContent = tab?.queuedContent ?? content;
@@ -312,15 +346,18 @@ export class MessageDispatchService {
       if (outcome?.cancelled === true) {
         this.restoreCancelledSend(tabId, previousTerminalReason);
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       if (outcome?.errorAlreadyShown === true) {
         // CHAT_ERROR already settled this command. Do not requeue it or
         // release a held command as though the failed operation succeeded.
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+        this.settleQueuedCommand(queuedCommand, true);
         this.showSendFailure(
           tabId,
           outcome.error,
@@ -328,9 +365,11 @@ export class MessageDispatchService {
         );
       } else {
         delivered = true;
+        this.settleQueuedCommand(queuedCommand, false);
       }
     } catch (error) {
       this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+      this.settleQueuedCommand(queuedCommand, true);
       console.error('[ChatStore] sendQueuedMessage failed:', error);
       this.showSendFailure(
         tabId,
@@ -348,7 +387,10 @@ export class MessageDispatchService {
   ): void {
     this.tabManager.markLoaded(tabId);
     this.tabManager.markTabIdle(tabId);
-    this.tabManager.setLastTerminalReason(tabId, previousTerminalReason ?? null);
+    this.tabManager.setLastTerminalReason(
+      tabId,
+      previousTerminalReason ?? null,
+    );
   }
 
   /**

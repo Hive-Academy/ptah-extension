@@ -3019,6 +3019,7 @@ describe('SdkAgentAdapter', () => {
       return {
         sessionId,
         autoHandoff: false,
+        closeSourceAfterAutoHandoff: false,
         stage: 'tighten',
         unit: 'tokens',
         measure: 'tokens',

@@ -402,3 +402,4 @@ export {
   isSdkAuthSecretKey,
   authProviderIdOfSecretKey,
 } from './provider-key-slots';
+export type { SessionUsageSink, SessionUsageContribution, SessionUsageModelDelta } from './interfaces/session-usage-sink.interface';

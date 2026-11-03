@@ -14,7 +14,7 @@ import {
   SessionBudgetConfigProvider,
 } from './session-budget-config.provider';
 
-function makeProvider(values: Record<string, unknown>): {
+function makeProvider(values: Record<string, unknown>, devBudgetTokens?: number): {
   provider: SessionBudgetConfigProvider;
   warn: jest.Mock;
   get: jest.Mock;
@@ -29,7 +29,7 @@ function makeProvider(values: Record<string, unknown>): {
   const get = jest.fn((key: string) => values[key]);
   const config = { get } as unknown as ConfigManager;
   return {
-    provider: new SessionBudgetConfigProvider(config, logger),
+    provider: new SessionBudgetConfigProvider(config, logger, devBudgetTokens),
     warn,
     get,
   };
@@ -46,11 +46,24 @@ const NUMERIC_FIELDS = [
 ] as const;
 
 describe('SessionBudgetConfigProvider.getConfig', () => {
+  it('uses the development token limit even when the store is unreadable', () => {
+    const { provider, get, warn } = makeProvider({}, 1_000);
+    get.mockImplementation(() => { throw new Error('store unavailable'); });
+    expect(provider.getConfig().tokens).toBe(1_000);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the development token limit with a readable store', () => {
+    const { provider } = makeProvider({ [SESSION_BUDGET_SETTINGS.tokens.key]: 2_000_000 }, 1_000);
+    expect(provider.getConfig().tokens).toBe(1_000);
+  });
+
   it('returns the shared defaults when nothing is set, with no warning', () => {
     const { provider, warn } = makeProvider({});
     expect(provider.getConfig()).toEqual({
       enabled: true,
       autoHandoffAtLimit: false,
+      closeSourceAfterAutoHandoff: false,
       unit: 'tokens',
       tokens: 50_000_000,
       usd: 30,
@@ -182,6 +195,23 @@ describe('SessionBudgetConfigProvider.getConfig', () => {
         expect(warn).toHaveBeenCalledTimes(1);
       },
     );
+  });
+
+  describe('closeSourceAfterAutoHandoff', () => {
+    it('reads true when enabled', () => {
+      const { provider } = makeProvider({
+        'sessionBudget.closeSourceAfterAutoHandoff': true,
+      });
+      expect(provider.getConfig().closeSourceAfterAutoHandoff).toBe(true);
+    });
+
+    it('uses false for an invalid value', () => {
+      const { provider, warn } = makeProvider({
+        'sessionBudget.closeSourceAfterAutoHandoff': 'true',
+      });
+      expect(provider.getConfig().closeSourceAfterAutoHandoff).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('booleans', () => {
