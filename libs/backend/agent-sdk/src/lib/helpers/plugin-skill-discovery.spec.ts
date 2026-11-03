@@ -65,4 +65,23 @@ describe('discoverPluginSkills', () => {
       },
     ]);
   });
+
+  it('skips a skill directory that has no SKILL.md instead of throwing', () => {
+    // The content sync prunes files but used to leave their directories, so
+    // a skill removed upstream stayed behind as `skills/<id>/references/`.
+    const plugin = path.join(root, 'ptah-core');
+    writeSkill(plugin, 'orchestration', 'name: orchestration');
+    fs.mkdirSync(path.join(plugin, 'skills', 'removed-skill', 'references'), {
+      recursive: true,
+    });
+
+    expect(discoverPluginSkills([plugin])).toEqual([
+      {
+        pluginId: 'ptah-core',
+        skillId: 'orchestration',
+        skillName: 'orchestration',
+        description: 'orchestration',
+      },
+    ]);
+  });
 });

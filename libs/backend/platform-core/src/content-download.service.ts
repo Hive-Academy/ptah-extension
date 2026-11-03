@@ -433,6 +433,67 @@ export class ContentDownloadService {
         );
       }
     }
+
+    // Unlinking files leaves their directories behind. A skill removed
+    // upstream then stays on disk as an empty `skills/<id>/` folder, and
+    // skill discovery treats every folder there as a skill. Sweep the empty
+    // directories, but only inside the same manifest-owned roots.
+    for (const root of manifestRoots) {
+      // Accept only a plain directory name. A manifest path such as
+      // `./ptah-core/...` yields root `.`, and `..` would leave `localDir`:
+      // either would sweep far more than the manifest owns.
+      if (
+        RESERVED_PRUNE_ROOTS.has(root) ||
+        root === '' ||
+        root === '.' ||
+        root === '..' ||
+        /[\\/:]/.test(root)
+      ) {
+        continue;
+      }
+      this.removeEmptyDirs(path.join(localDir, root));
+    }
+  }
+
+  /**
+   * Remove every empty directory below `dir`, deepest first. `dir` itself is
+   * kept. A directory that still holds a file is never touched, so this can
+   * only delete structure the prune emptied. Failures are logged and skipped.
+   *
+   * @returns true when `dir` is empty after the sweep
+   */
+  private removeEmptyDirs(dir: string): boolean {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      return false;
+    }
+
+    let remaining = entries.length;
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      let isDirectory: boolean;
+      try {
+        isDirectory = fs.lstatSync(fullPath).isDirectory();
+      } catch {
+        continue;
+      }
+      if (!isDirectory || !this.removeEmptyDirs(fullPath)) {
+        continue;
+      }
+      try {
+        fs.rmdirSync(fullPath);
+        remaining--;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[ContentDownloadService] Failed to remove empty directory ${fullPath}: ${message}`,
+        );
+      }
+    }
+
+    return remaining === 0;
   }
 
   /**
