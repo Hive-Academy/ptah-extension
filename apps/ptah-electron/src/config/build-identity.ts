@@ -35,3 +35,21 @@ export function readBuildIdentity(
 export function isLocalProductionBuild(): boolean {
   return readBuildIdentity()?.kind === 'local-production';
 }
+
+export type DistributionChannel = 'microsoft-store' | 'direct';
+
+/**
+ * Reports how this install was distributed. Electron sets
+ * `process.windowsStore` from the MSIX package identity, so no environment
+ * variable or build metadata can fake it. Anything other than `true` means
+ * the direct (GitHub release) channel.
+ */
+export function readDistributionChannel(
+  runtime: { readonly windowsStore?: boolean } = process,
+): DistributionChannel {
+  return runtime.windowsStore === true ? 'microsoft-store' : 'direct';
+}
+
+export function isMicrosoftStoreBuild(): boolean {
+  return readDistributionChannel() === 'microsoft-store';
+}

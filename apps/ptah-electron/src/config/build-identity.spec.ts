@@ -1,7 +1,22 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readBuildIdentity } from './build-identity';
+import { readBuildIdentity, readDistributionChannel } from './build-identity';
+
+describe('readDistributionChannel', () => {
+  it('reports the Microsoft Store channel when Electron sets windowsStore', () => {
+    expect(readDistributionChannel({ windowsStore: true })).toBe(
+      'microsoft-store',
+    );
+  });
+
+  it.each([{}, { windowsStore: false }])(
+    'reports the direct channel otherwise (%o)',
+    (runtime) => {
+      expect(readDistributionChannel(runtime)).toBe('direct');
+    },
+  );
+});
 
 describe('readBuildIdentity', () => {
   it('accepts the immutable local-production metadata', () => {
