@@ -59,6 +59,7 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
   spawning, then load [fleet.md](references/fleet.md). One ID keeps ordinary continuation.
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
+- Create the task with `ptah_task_create` and the worktree with `ptah_git_worktree_add` when listed; both link to the session automatically. Otherwise call `ptah_session_link_task` with the TASK ID.
 - `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
   an existing surface. PM writes it from the **OLD code before design starts**. In flows without
   a PM (including BUGFIX and REFACTORING), the orchestrator first invokes software-architect in

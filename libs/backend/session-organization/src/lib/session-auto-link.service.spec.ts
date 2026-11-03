@@ -12,6 +12,7 @@ import {
 } from '@ptah-extension/platform-core';
 import type {
   SessionIdResolvedPayload,
+  PostToolUsePayload,
   UserPromptExpansionPayload,
   UserPromptSubmitPayload,
 } from '@ptah-extension/agent-sdk';
@@ -23,6 +24,7 @@ import {
 } from '../testing/sqlite-test-db';
 import {
   SessionAutoLinkService,
+  pathKey,
   type AutoLinkFileSystem,
   type AutoLinkMetadataReader,
 } from './session-auto-link.service';
@@ -68,6 +70,7 @@ interface World {
   changes: SessionOrganizationChange[];
   prompts: FakeRegistry<UserPromptSubmitPayload>;
   expansions: FakeRegistry<UserPromptExpansionPayload>;
+  tools: FakeRegistry<PostToolUsePayload>;
   resolved: FakeRegistry<SessionIdResolvedPayload>;
   index: FakeRegistry<TaskIndexChangeEvent>;
   /** Awaited by every `exists` call (resolved path); lets a test hold a run. */
@@ -92,6 +95,7 @@ function world(options: { open?: boolean } = {}): World {
     changes: [],
     prompts: new FakeRegistry(),
     expansions: new FakeRegistry(),
+    tools: new FakeRegistry(),
     resolved: new FakeRegistry(),
     index: new FakeRegistry(),
   };
@@ -133,8 +137,10 @@ function host(w: World): Host {
     fs,
     w.prompts,
     w.expansions,
+    w.tools,
     w.resolved,
     output,
+    { error: jest.fn() },
     {
       onDidChangeIndex: (listener): IDisposable => ({
         dispose: w.index.register(listener),
@@ -184,6 +190,14 @@ function resolve(w: World, sessionId: string): void {
   w.resolved.fire({ tabId: 'tab', realSessionId: sessionId, timestamp: 1 });
 }
 
+function tool(w: World, toolName: string, toolInput: unknown, agentId?: string, toolOutput: unknown = {}): void {
+  w.tools.fire({
+    toolName, toolInput, toolOutput, exitCode: 0, success: true,
+    sessionId: S, workspaceRoot: ROOT, timestamp: 1,
+    ...(agentId ? { agentId } : {}),
+  });
+}
+
 /** `[taskId, role, source]` of a session, sorted by task. */
 function links(h: Host, sessionId: string): Array<[string, string, string]> {
   return (h.store.getOrganization(ROOT, sessionId)?.tasks ?? [])
@@ -202,6 +216,181 @@ async function inWorktree(
 }
 
 describe('SessionAutoLinkService', () => {
+  describe('tool activity links', () => {
+    function setup() {
+      const w = world();
+      const h = host(w);
+      const wt = path.resolve(ROOT, '.claude-worktrees', 'x');
+      const gitdir = path.resolve(ROOT, '.git', 'worktrees', 'x');
+      w.files.set(path.join(wt, '.git'), `gitdir: ${gitdir}`);
+      w.files.set(path.join(gitdir, 'HEAD'), 'ref: refs/heads/feature/x');
+      addSession(w, S, ROOT);
+      return { w, h, wt };
+    }
+
+    it('records an Edit in a linked worktree', async () => {
+      const { w, h, wt } = setup();
+      tool(w, 'Edit', { file_path: path.join(wt, 'src', 'a.ts') });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(wt);
+      expect(h.store.getOrganization(ROOT, S)?.branch).toBe('feature/x');
+    });
+
+    it('records a git worktree add command', async () => {
+      const { w, h, wt } = setup();
+      tool(w, 'Bash', { command: 'git worktree add -b feature/x .claude-worktrees/x main' });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(wt);
+    });
+
+    it('ignores main checkout edits and subagent calls', async () => {
+      const { w, h, wt } = setup();
+      tool(w, 'Edit', { file_path: path.join(ROOT, 'src', 'a.ts') });
+      tool(w, 'Edit', { file_path: path.join(wt, 'src', 'a.ts') }, 'agent-1');
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBeUndefined();
+    });
+
+    it('links a spec write and keeps a user unlink suppressed', async () => {
+      const { w, h, wt } = setup();
+      addTask(w, A, wt);
+      tool(w, 'Write', { file_path: path.join(wt, '.ptah', 'specs', A, 'context.md') });
+      await flush();
+      expect(links(h, S)).toEqual([[A, 'primary', 'worktree']]);
+      await h.service.unlinkSessionTask({ sessionId: S, taskId: A });
+      tool(w, 'Write', { file_path: path.join(wt, '.ptah', 'specs', A, 'task.md') });
+      await flush();
+      expect(links(h, S)).toEqual([]);
+    });
+
+    it('does not link a spec write without a task carrier', async () => {
+      const { w, h, wt } = setup();
+      tool(w, 'Write', { file_path: path.join(wt, '.ptah', 'specs', A, 'context.md') });
+      await flush();
+      expect(links(h, S)).toEqual([]);
+    });
+
+    it('accepts separator and case variants in the worktree path', async () => {
+      const { w, h, wt } = setup();
+      // Windows variants: drive-letter case and separators. Folder names keep
+      // their casing (Linux paths are case-sensitive).
+      const variant = path
+        .join(wt, 'src', 'a.ts')
+        .replace(/^d:/, 'D:')
+        .replaceAll('\\', '/');
+      tool(w, 'Edit', { file_path: variant });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(wt);
+    });
+
+    it('treats Linux path casing as significant', () => {
+      expect(pathKey('/home/User/ws', 'linux')).not.toBe(pathKey('/home/user/ws', 'linux'));
+      expect(pathKey('D:\\WS\\file', 'win32')).toBe(pathKey('d:/ws/file', 'win32'));
+      expect(pathKey('/tmp/ws\\.claude-worktrees/x/file', 'linux').startsWith('/tmp/ws/.claude-worktrees/')).toBe(false);
+    });
+
+    it('uses original Windows prefix lengths for worktree and task names', async () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
+      try {
+        const w = world();
+        const h = host(w);
+        const root = path.resolve(ROOT, 'İ', 'ws');
+        const wt = path.join(root, '.claude-worktrees', 'x');
+        const gitdir = path.join(root, '.git', 'worktrees', 'x');
+        w.metadata.set(S, { workspaceId: root, workingDirectory: root });
+        w.files.set(path.join(wt, '.git'), `gitdir: ${gitdir}`);
+        w.files.set(path.join(gitdir, 'HEAD'), 'ref: refs/heads/feature/x');
+        addTask(w, A, wt);
+        w.tools.fire({ toolName: 'Write', toolInput: { file_path: path.join(wt, '.ptah', 'specs', A, 'task.md') }, toolOutput: {}, exitCode: 0, success: true, sessionId: S, workspaceRoot: root, timestamp: 1 });
+        await flush();
+        expect(h.store.getOrganization(root, S)?.worktreePath).toBe(wt);
+        expect(h.store.getOrganization(root, S)?.tasks.map((item) => item.taskId)).toContain(A);
+      } finally {
+        if (platform) Object.defineProperty(process, 'platform', platform);
+      }
+    });
+
+    it('records NotebookEdit notebook_path', async () => {
+      const { w, h, wt } = setup();
+      tool(w, 'NotebookEdit', { notebook_path: path.join(wt, 'study.ipynb') });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(wt);
+    });
+
+    it('replays a task write after the store opens', async () => {
+      const { w, h, wt } = setup();
+      addTask(w, A, wt);
+      w.connection.close();
+      tool(w, 'Write', { file_path: path.join(wt, '.ptah', 'specs', A, 'task.md') });
+      await flush();
+      w.connection.open();
+      await flush();
+      expect(links(h, S)).toEqual([[A, 'primary', 'worktree']]);
+    });
+
+    it('retries a failed R8 commit on resolve', async () => {
+      const { w, h, wt } = setup();
+      addTask(w, A, wt);
+      const apply = jest.spyOn(h.store, 'applyAutoLinkPlan').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      tool(w, 'Write', { file_path: path.join(wt, '.ptah', 'specs', A, 'task.md') });
+      await flush();
+      expect(links(h, S)).toEqual([]);
+      apply.mockRestore();
+      resolve(w, S);
+      await flush();
+      expect(links(h, S)).toEqual([[A, 'primary', 'worktree']]);
+    });
+
+    it('records Ptah worktree and task tool responses', async () => {
+      const { w, h, wt } = setup();
+      addTask(w, A);
+      tool(w, 'mcp__ptah__ptah_git_worktree_add', { branch: 'feature/x', path: wt }, undefined,
+        { content: [{ type: 'text', text: `## Worktree Created\n\n**Path:** ${wt}  \n**Status:** Success` }] });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(wt);
+      tool(w, 'mcp__ptah__ptah_task_create', {}, undefined,
+        { content: [{ type: 'text', text: JSON.stringify({ ok: true, task: { id: A } }) }] });
+      await flush();
+      expect(links(h, S)).toEqual([[A, 'primary', 'worktree']]);
+    });
+    it('prefers a worktree argument path containing two spaces', async () => {
+      const { w, h } = setup();
+      const spaced = path.join(ROOT, '.claude-worktrees', 'my  task');
+      const gitdir = path.join(ROOT, '.git', 'worktrees', 'spaced');
+      w.files.set(path.join(spaced, '.git'), `gitdir: ${gitdir}`);
+      w.files.set(path.join(gitdir, 'HEAD'), 'ref: refs/heads/feature/spaced');
+      tool(w, 'mcp__ptah__ptah_git_worktree_add', { branch: 'feature/spaced', path: ` ${spaced} ` }, undefined,
+        { content: [{ type: 'text', text: `**Path:** ${spaced}  \n**Status:** Success` }] });
+      await flush();
+      expect(h.store.getOrganization(ROOT, S)?.worktreePath).toBe(spaced);
+    });
+    it('links a task id from truncated JSON and logs a missing id once', async () => {
+      const { w, h } = setup();
+      addTask(w, A);
+      tool(w, 'mcp__ptah__ptah_task_create', {}, undefined,
+        { content: [{ type: 'text', text: `{"ok":true,"task":{"id":"${A}","title":"unfinished` }] });
+      await flush();
+      expect(links(h, S).some(([id]) => id === A)).toBe(true);
+      tool(w, 'mcp__ptah__ptah_task_create', {}, undefined,
+        { content: [{ type: 'text', text: '{"ok":true,"task":{"title":"unfinished' }] });
+      await flush();
+      expect(w.lines.filter((line) => line.includes(`task-create id unavailable for ${S}`))).toHaveLength(1);
+    });
+    it('bounds deferred R8 by tasks and sessions', () => {
+      const { w, h } = setup();
+      const request = (id: string) => ({ r3: new Set<string>(), r8: new Set([id]), cascade: true, attempt: 0 });
+      for (let i = 0; i < 17; i++) h.autoLink['keepR8'](S, request(`TASK_2026_${100 + i}`));
+      expect(h.autoLink['deferredR8'].get(S)?.size).toBe(16);
+      expect(h.autoLink['deferredR8'].get(S)?.has('TASK_2026_100')).toBe(false);
+      for (let i = 0; i < 256; i++) h.autoLink['keepR8'](`other-${i}`, request(A));
+      expect(h.autoLink['deferredR8'].size).toBe(256);
+      expect(h.autoLink['deferredR8'].has(S)).toBe(false);
+      expect(w.lines.filter((line) => line.includes('R8 deferred evidence evicted'))).toHaveLength(2);
+    });
+  });
   describe('R3 /orchestrate', () => {
     it('links when everything is ready', async () => {
       const w = world();

@@ -8,6 +8,7 @@
  * | R1   | `user`        | 0    | protected, never written here              |
  * | R2   | `agent`       | 1    | protected (also legacy `board-start`)      |
  * | R3   | `orchestrate` | 2    | `/orchestrate <TASK id>` prompt (kept)     |
+ * | R8   | `worktree`    | 2.5  | tool writes in a task specification folder |
  * | R4   | `worktree`    | 3    | the worktree folder or branch names it     |
  * | R5   | `worktree`    | 4    | worktree peers' explicit/R3 primary        |
  * | R7   | `inherited`   | 5    | every link of the fork source              |
@@ -30,7 +31,7 @@ import {
 } from '@ptah-extension/shared/schemas';
 
 /** Rules that write automatic links, in stored form (`auto_rule`). */
-export const AUTO_RULES = ['R3', 'R4', 'R5', 'R6', 'R7'] as const;
+export const AUTO_RULES = ['R3', 'R8', 'R4', 'R5', 'R6', 'R7'] as const;
 export type AutoRule = (typeof AUTO_RULES)[number];
 
 /** Sources only an explicit write produces; automatic rules never touch them. */
@@ -42,6 +43,7 @@ const PROTECTED_SOURCES: ReadonlySet<SessionTaskLinkSource> = new Set([
 
 const RULE_RANK: Readonly<Record<AutoRule, number>> = {
   R3: 2,
+  R8: 2.5,
   R4: 3,
   R5: 4,
   R7: 5,
@@ -50,6 +52,7 @@ const RULE_RANK: Readonly<Record<AutoRule, number>> = {
 
 const RULE_SOURCE: Readonly<Record<AutoRule, SessionTaskLinkSource>> = {
   R3: 'orchestrate',
+  R8: 'worktree',
   R4: 'worktree',
   R5: 'worktree',
   R6: 'inherited',
@@ -167,10 +170,10 @@ export function planAutoLinks(
 
   const pool: RankedCandidate[] = [];
   for (const link of current) {
-    if (link.autoRule === 'R3') {
+    if (link.autoRule === 'R3' || link.autoRule === 'R8') {
       pool.push({
         taskId: link.taskId,
-        rule: 'R3',
+        rule: link.autoRule,
         role: 'primary',
         evidence: link.autoEvidence,
         order: link.createdAt,
