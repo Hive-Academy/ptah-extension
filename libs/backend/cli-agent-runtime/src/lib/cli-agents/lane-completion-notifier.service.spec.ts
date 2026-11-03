@@ -714,7 +714,9 @@ describe('LaneCompletionNotifier.signal', () => {
       const h = createHarness({ sessionActive: false });
       const tabId = '33333333-3333-4333-8333-333333333333';
 
-      const result = await h.notifier.signal(createInfo({ parentSessionId: tabId }));
+      const result = await h.notifier.signal(
+        createInfo({ parentSessionId: tabId }),
+      );
 
       expect(result.reason).toBe('parent-session-not-active');
       expect(h.recordLaneCompletion).toHaveBeenCalledWith(
@@ -979,16 +981,17 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       });
     });
 
-    it('falls back to the parent SDK id when the parent tab is not live', async () => {
+    it('does not reroute to a second session when the recorded parent is not live', async () => {
       const h = createHarness();
       h.isSessionActive.mockImplementation((id: unknown) => id === PARENT_SDK);
 
       const result = await h.notifier.signalSessionChild(subject(), settle());
 
       expect(result).toMatchObject({
-        delivered: true,
-        parentSessionId: PARENT_SDK,
+        delivered: false,
+        reason: 'parent-session-not-active',
       });
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
     });
 
     it('returns the refusal WITH the built envelope when no parent is live', async () => {

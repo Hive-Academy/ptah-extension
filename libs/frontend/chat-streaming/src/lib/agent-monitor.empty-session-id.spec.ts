@@ -88,51 +88,34 @@ describe('AgentMonitorStore — empty-string session ids', () => {
   });
 
   describe('steering an interrupted subagent (the reported symptom)', () => {
-    it('sendMessageToAgent falls back to the active tab when the record carries an empty owner', async () => {
-      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
-
-      // Callers hand us `SubagentRecord.parentSessionId` verbatim. `''` used to
-      // survive the `??` and then fail the `!sid` guard, so the user saw
-      // "No active session — cannot send message to subagent".
+    // Callers hand us `SubagentRecord.parentSessionId` verbatim. An empty
+    // owner is no owner: the action is refused with a recorded error and is
+    // never routed to the focused tab (ACTIVE_SESSION is live in every case).
+    it('sendMessageToAgent refuses an empty owner instead of using the active tab', async () => {
       const sent = await store.sendMessageToAgent(
         PARENT_TOOL_USE,
         'keep going',
         '',
       );
 
-      expect(sent).toBe(true);
-      expect(store.subagentRpcError()).toBeNull();
-      expect(rpcMock.call).toHaveBeenCalledWith('subagent:send-message', {
-        sessionId: ACTIVE_SESSION,
-        parentToolUseId: PARENT_TOOL_USE,
-        text: 'keep going',
-      });
+      expect(sent).toBe(false);
+      expect(store.subagentRpcError()?.method).toBe('subagent:send-message');
+      expect(rpcMock.call).not.toHaveBeenCalled();
     });
 
-    it('stopAgent falls back to the active tab when the record carries an empty owner', async () => {
-      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
-
+    it('stopAgent refuses an empty owner instead of using the active tab', async () => {
       await store.stopAgent('task-9', '');
 
-      expect(store.subagentRpcError()).toBeNull();
-      expect(rpcMock.call).toHaveBeenCalledWith('subagent:stop', {
-        sessionId: ACTIVE_SESSION,
-        taskId: 'task-9',
-      });
+      expect(store.subagentRpcError()?.method).toBe('subagent:stop');
+      expect(rpcMock.call).not.toHaveBeenCalled();
     });
 
-    it('backgroundAgent falls back to the active tab when the record carries an empty owner', async () => {
-      rpcMock.call.mockResolvedValueOnce(
-        rpcSuccess({ backgrounded: true } as const),
-      );
-
+    it('backgroundAgent refuses an empty owner instead of using the active tab', async () => {
       const ok = await store.backgroundAgent('', PARENT_TOOL_USE);
 
-      expect(ok).toBe(true);
-      expect(rpcMock.call).toHaveBeenCalledWith('subagent:background', {
-        sessionId: ACTIVE_SESSION,
-        toolUseId: PARENT_TOOL_USE,
-      });
+      expect(ok).toBe(false);
+      expect(store.subagentRpcError()?.method).toBe('subagent:background');
+      expect(rpcMock.call).not.toHaveBeenCalled();
     });
 
     it('still refuses when there is genuinely no session anywhere', async () => {
@@ -293,21 +276,19 @@ describe('AgentMonitorStore — empty-string session ids', () => {
       );
     });
 
-    it('shows an unattributed agent in BOTH the active-tab view and the per-session view', () => {
+    it('keeps an unattributed agent out of both session views', () => {
       expect(
         store
           .activeTabAgents()
           .map((a) => a.agentId)
           .sort(),
-      ).toEqual(['mine', 'ownerless']);
-      // Used to be strict `===`, so the same agent rendered in every tab by one
-      // view and in no tab by the other.
+      ).toEqual(['mine']);
       expect(
         store
           .agentsForSession(ACTIVE_SESSION)
           .map((a) => a.agentId)
           .sort(),
-      ).toEqual(['mine', 'ownerless']);
+      ).toEqual(['mine']);
     });
 
     it('hides a foreign-session agent from both views', () => {
@@ -340,7 +321,7 @@ describe('AgentMonitorStore — empty-string session ids', () => {
         .map((r) => r.parentToolUseId)
         .sort();
 
-      expect(activeIds).toEqual(['toolu_mine', 'toolu_ownerless']);
+      expect(activeIds).toEqual(['toolu_mine']);
       expect(scopedIds).toEqual(activeIds);
     });
   });
@@ -350,14 +331,17 @@ describe('AgentMonitorStore — empty-string session ids', () => {
       store.agentsOwnedBySession(sessionId).map((a) => a.agentId);
 
     it('lists an unresolved lane in no session, then only in the one it resolves to', () => {
-      store.onAgentSpawned(processInfo({ agentId: 'lane', parentSessionId: '' }));
+      store.onAgentSpawned(
+        processInfo({ agentId: 'lane', parentSessionId: '' }),
+      );
 
       expect(ids(ACTIVE_SESSION)).toEqual([]);
       expect(ids(OTHER_SESSION)).toEqual([]);
-      // The monitor UI keeps showing it everywhere until it resolves.
+      // An unresolved lane remains in the unscoped list until it resolves.
       expect(
         store.agentsForSession(OTHER_SESSION).map((a) => a.agentId),
-      ).toEqual(['lane']);
+      ).toEqual([]);
+      expect(store.agents().map((a) => a.agentId)).toEqual(['lane']);
 
       store.onAgentExited(
         processInfo({
@@ -372,7 +356,9 @@ describe('AgentMonitorStore — empty-string session ids', () => {
     });
 
     it('returns nothing for an unresolved session id', () => {
-      store.onAgentSpawned(processInfo({ agentId: 'lane', parentSessionId: '' }));
+      store.onAgentSpawned(
+        processInfo({ agentId: 'lane', parentSessionId: '' }),
+      );
       expect(store.agentsOwnedBySession('')).toEqual([]);
     });
   });

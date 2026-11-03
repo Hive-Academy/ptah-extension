@@ -1,20 +1,4 @@
-/**
- * buildTrayContexts — scope handling for an unresolved session
- * (TASK_2026_295). Moved from the deleted background-agent tray component's
- * scope spec (TASK_2026_677 R2); same cases, now against the pure builder.
- *
- * The tray's filter was `if (scope && rec.parentSessionId !== scope) continue;`.
- * A tile whose session had not resolved passed `''`, which is falsy, so the
- * filter switched itself off and the tile listed EVERY session's agents.
- *
- * Wave 2 folded the second axis into `agentVisibleInSession` as well: a view
- * scoped to a session that has not resolved shows NOTHING. The tray used to be
- * the odd one out here — it showed unattributed agents in an unresolved tile
- * while `agent-monitor-panel` and `chat-view` showed none — purely because
- * `agentVisibleInSession(undefined, '')` happened to be true. No agent becomes
- * unreachable: every RESOLVED view still shows unattributed agents (see the
- * third case below), and the unscoped tray shows everything.
- */
+/** Session-scoped tiles require exact ownership; the null-scoped builder lists ownerless records. */
 
 import type { SubagentRecord } from '@ptah-extension/chat-streaming';
 import { buildTrayContexts } from './session-agent-tray';
@@ -64,13 +48,16 @@ describe('buildTrayContexts — unresolved session scope', () => {
     expect(ids.sort()).toEqual(['mine', 'theirs']);
   });
 
-  it('shows an unattributed agent inside a resolved tile', () => {
+  it('shows an unattributed agent only in the unscoped tray', () => {
     const ids = entryIds(TILE_SESSION, [
       record('unattributed', undefined),
       record('mine', TILE_SESSION),
       record('theirs', OTHER_SESSION),
     ]);
 
-    expect(ids.sort()).toEqual(['mine', 'unattributed']);
+    expect(ids).toEqual(['mine']);
+    expect(entryIds(null, [record('unattributed', undefined)])).toEqual([
+      'unattributed',
+    ]);
   });
 });

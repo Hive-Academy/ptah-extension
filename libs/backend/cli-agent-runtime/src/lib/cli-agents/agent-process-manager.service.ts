@@ -787,21 +787,38 @@ export class AgentProcessManager {
     requested: string | undefined,
     previous: AgentProcessInfo | undefined,
     cli: CliType,
+    agentId: AgentId,
   ): string | undefined {
-    const parent = this.resolvedParentSessions.get(requested ?? '') ?? requested;
-    if (parent && previous?.parentSessionId && parent !== previous.parentSessionId) {
-      this.logger.warn('[AgentProcessManager] Explicit resume owner differs from prior owner', {
-        cli, previousAgentId: previous.agentId,
-        previousParentSessionId: previous.parentSessionId,
-        requestedParentSessionId: parent,
-      });
+    const parent =
+      this.resolvedParentSessions.get(requested ?? '') ?? requested;
+    if (previous) {
+      this.logger.info(
+        '[AgentProcessManager] Current caller sets resume owner',
+        {
+          agentId,
+          cli,
+          previousAgentId: previous.agentId,
+          parentSessionId: parent,
+        },
+      );
     }
-    if (requested !== undefined) return parent;
-    if (!previous) return undefined;
-    const priorRecord = this.agents.get(String(previous.agentId));
-    return priorRecord && !priorRecord.restored
-      ? previous.parentSessionId
-      : undefined;
+    if (
+      parent &&
+      previous?.parentSessionId &&
+      parent !== previous.parentSessionId
+    ) {
+      this.logger.warn(
+        '[AgentProcessManager] Explicit resume owner differs from prior owner',
+        {
+          cli,
+          previousAgentId: previous.agentId,
+          previousParentSessionId: previous.parentSessionId,
+          requestedParentSessionId: parent,
+        },
+      );
+    }
+    // A resumed run belongs only to its current caller, never the old run.
+    return parent;
   }
 
   /**
@@ -856,7 +873,12 @@ export class AgentProcessManager {
       status: 'running',
       startedAt,
       turnSeq: 1,
-      parentSessionId: this.resumedOwner(request.parentSessionId, previous, cli),
+      parentSessionId: this.resumedOwner(
+        request.parentSessionId,
+        previous,
+        cli,
+        agentId,
+      ),
       ...(previous ? { resumedFromAgentId: previous.agentId } : {}),
       displayName,
       model: resolvedModel,
@@ -1057,7 +1079,10 @@ export class AgentProcessManager {
 
       const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
-      const previous = this.previousResumeRecord(meta.cli, meta.resumeSessionId);
+      const previous = this.previousResumeRecord(
+        meta.cli,
+        meta.resumeSessionId,
+      );
 
       const info: AgentProcessInfo = {
         ...meta.accountReference,
@@ -1070,7 +1095,12 @@ export class AgentProcessManager {
         status: 'running',
         startedAt,
         turnSeq: 1,
-        parentSessionId: this.resumedOwner(meta.parentSessionId, previous, meta.cli),
+        parentSessionId: this.resumedOwner(
+          meta.parentSessionId,
+          previous,
+          meta.cli,
+          agentId,
+        ),
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
@@ -1215,9 +1245,15 @@ export class AgentProcessManager {
       // Only a Codex lane abandons its first thread (bundled fallback before
       // any turn). For other CLIs a different resolved id is not a
       // replacement: the pre-set resume id must keep its own reference.
-      const replaced = previous && tracked.info.cli === 'codex'
-        ? [...new Set([...(tracked.info.replacesCliSessionIds ?? []), previous])]
-        : tracked.info.replacesCliSessionIds;
+      const replaced =
+        previous && tracked.info.cli === 'codex'
+          ? [
+              ...new Set([
+                ...(tracked.info.replacesCliSessionIds ?? []),
+                previous,
+              ]),
+            ]
+          : tracked.info.replacesCliSessionIds;
       tracked.info = {
         ...tracked.info,
         cliSessionId: sessionId,

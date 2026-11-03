@@ -86,29 +86,44 @@ describe('AgentMonitorStore', () => {
 
   it('includes the owning session in a child cache query', async () => {
     store.onAgentStart({
-      id: 'native-child', eventType: 'agent_start', messageId: 'parent',
-      timestamp: 1, sessionId: 'parent-session', toolCallId: 'spawn-native',
-      agentId: 'child-session', agentType: 'codex',
+      id: 'native-child',
+      eventType: 'agent_start',
+      messageId: 'parent',
+      timestamp: 1,
+      sessionId: 'parent-session',
+      toolCallId: 'spawn-native',
+      agentId: 'child-session',
+      agentType: 'codex',
     });
     rpcMock.call.mockResolvedValueOnce(rpcSuccess({ subagents: [] }));
     await store.loadSubagentCacheInfo('spawn-native');
     expect(rpcMock.call).toHaveBeenCalledWith('chat:subagent-query', {
-      toolCallId: 'spawn-native', sessionId: 'parent-session',
+      toolCallId: 'spawn-native',
+      sessionId: 'parent-session',
     });
   });
 
   describe('CLI turn and resume lifecycle', () => {
-    const info = (agentId: string, status: AgentProcessInfo['status'] = 'running'): AgentProcessInfo => ({
+    const info = (
+      agentId: string,
+      status: AgentProcessInfo['status'] = 'running',
+    ): AgentProcessInfo => ({
       agentId: agentId as AgentId,
-      cli: 'codex', task: 'Follow up', workingDirectory: '/workspace/root',
-      startedAt: '2026-10-01T10:00:00.000Z', status,
+      cli: 'codex',
+      task: 'Follow up',
+      workingDirectory: '/workspace/root',
+      startedAt: '2026-10-01T10:00:00.000Z',
+      status,
     });
 
     it('ignores a turn-one exit and spawn after turn two starts', () => {
       store.onAgentSpawned({ ...info('lane'), turnSeq: 1 });
       store.onAgentSpawned({ ...info('lane'), turnSeq: 2 });
       store.onAgentExited({ ...info('lane', 'completed'), turnSeq: 1 });
-      expect(store.agents()[0]).toMatchObject({ status: 'running', turnSeq: 2 });
+      expect(store.agents()[0]).toMatchObject({
+        status: 'running',
+        turnSeq: 2,
+      });
       store.onAgentSpawned({ ...info('lane', 'completed'), turnSeq: 1 });
       store.onAgentExited(info('lane', 'completed'));
       expect(store.agents()[0].status).toBe('running');
@@ -123,11 +138,22 @@ describe('AgentMonitorStore', () => {
     });
 
     it('links a unique terminal predecessor and carries its owner', () => {
-      store.onAgentSpawned({ ...info('old'), cliSessionId: 'thread', parentSessionId: 'owner' });
-      store.onAgentExited({ ...info('old', 'completed'), cliSessionId: 'thread', parentSessionId: 'owner' });
+      store.onAgentSpawned({
+        ...info('old'),
+        cliSessionId: 'thread',
+        parentSessionId: 'owner',
+      });
+      store.onAgentExited({
+        ...info('old', 'completed'),
+        cliSessionId: 'thread',
+        parentSessionId: 'owner',
+      });
       store.onAgentSpawned({ ...info('new'), cliSessionId: 'thread' });
       expect(store.agents()).toHaveLength(1);
-      expect(store.agents()[0]).toMatchObject({ agentId: 'new', parentSessionId: 'owner' });
+      expect(store.agents()[0]).toMatchObject({
+        agentId: 'new',
+        parentSessionId: 'owner',
+      });
     });
 
     it('replaces the latest card when a twice-resumed lane lacks a predecessor id', () => {
@@ -135,15 +161,28 @@ describe('AgentMonitorStore', () => {
         ['old-one', '2026-10-01T10:00:00.000Z'],
         ['old-two', '2026-10-01T11:00:00.000Z'],
       ]) {
-        store.onAgentSpawned({ ...info(agentId), cliSessionId: 'thread', startedAt });
+        store.onAgentSpawned({
+          ...info(agentId),
+          cliSessionId: 'thread',
+          startedAt,
+        });
       }
       for (const agentId of ['old-one', 'old-two']) {
-        store.onAgentExited({ ...info(agentId, 'completed'), cliSessionId: 'thread' });
+        store.onAgentExited({
+          ...info(agentId, 'completed'),
+          cliSessionId: 'thread',
+        });
       }
-      store.onAgentSpawned({ ...info('new'), cliSessionId: 'thread',
-        startedAt: '2026-10-01T12:00:00.000Z' });
+      store.onAgentSpawned({
+        ...info('new'),
+        cliSessionId: 'thread',
+        startedAt: '2026-10-01T12:00:00.000Z',
+      });
       expect(store.agents()).toHaveLength(2);
-      expect(store.agents().map((agent) => agent.agentId)).toEqual(['new', 'old-one']);
+      expect(store.agents().map((agent) => agent.agentId)).toEqual([
+        'new',
+        'old-one',
+      ]);
     });
   });
 
@@ -1032,14 +1071,15 @@ describe('AgentMonitorStore', () => {
       );
     });
 
-    it('should include agents with no parentSessionId in all tabs', () => {
+    it('keeps agents with no parentSessionId out of session tabs', () => {
       spawnAgent('agent-1', 'session-a');
       spawnAgent('agent-orphan', undefined);
 
       mockActiveTab.set({ claudeSessionId: 'session-a' });
 
       const filtered = store.activeTabAgents();
-      expect(filtered.length).toBe(2);
+      expect(filtered.length).toBe(1);
+      expect(filtered[0].agentId).toBe('agent-1');
     });
 
     it('should update when parentSessionId is resolved from tab ID to UUID', () => {
@@ -1612,7 +1652,7 @@ describe('AgentMonitorStore', () => {
       expect(workflow.map((r) => r.parentToolUseId)).toEqual(['toolu_wf_a']);
     });
 
-    it('activeWorkflowSubagents scopes by active session (records w/o session shown)', () => {
+    it('activeWorkflowSubagents scopes by exact parent session', () => {
       startWorkflowSubagent('toolu_owned', 'run-1', 'sess-A');
       startWorkflowSubagent('toolu_other', 'run-2', 'sess-B');
       startWorkflowSubagent('toolu_global', 'run-3'); // no session → shown in all
@@ -1622,7 +1662,7 @@ describe('AgentMonitorStore', () => {
         .activeWorkflowSubagents()
         .map((r) => r.parentToolUseId)
         .sort();
-      expect(ids).toEqual(['toolu_global', 'toolu_owned']);
+      expect(ids).toEqual(['toolu_owned']);
     });
 
     it('workflowSubagentsForSession filters by exact parentSessionId', () => {
@@ -1755,7 +1795,7 @@ describe('AgentMonitorStore', () => {
         expect(store.sessionSubagentsForSession('sess-A')).toEqual([]);
       });
 
-      it('scopes by active session and shows unowned subagents in all sessions', () => {
+      it('scopes by active session and leaves unowned subagents unscoped', () => {
         startPlainSubagent('toolu_sess_a', 'running', 'sess-A');
         startPlainSubagent('toolu_sess_b', 'running', 'sess-B');
         startPlainSubagent('toolu_unowned', 'running');
@@ -1768,7 +1808,7 @@ describe('AgentMonitorStore', () => {
           .activeSessionSubagents()
           .map((r) => r.parentToolUseId)
           .sort();
-        expect(ids).toEqual(['toolu_sess_a', 'toolu_unowned']);
+        expect(ids).toEqual(['toolu_sess_a']);
       });
 
       it('sessionSubagentsForSession filters by exact sessionId and handles unresolved scope', () => {
@@ -1811,9 +1851,9 @@ describe('AgentMonitorStore', () => {
       } as any);
     });
 
-    it('sendMessageToAgent dispatches subagent:send-message RPC with active session', async () => {
+    it('sendMessageToAgent dispatches subagent:send-message RPC to the owning session', async () => {
       rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
-      await store.sendMessageToAgent(PARENT, 'hello');
+      await store.sendMessageToAgent(PARENT, 'hello', SESSION);
       expect(rpcMock.call).toHaveBeenCalledWith('subagent:send-message', {
         sessionId: SESSION,
         parentToolUseId: PARENT,
@@ -1822,21 +1862,40 @@ describe('AgentMonitorStore', () => {
       expect(store.subagentRpcError()).toBeNull();
     });
 
+    it('sendMessageToAgent never substitutes the focused tab for a missing owner', async () => {
+      const sent = await store.sendMessageToAgent(PARENT, 'hello');
+      expect(sent).toBe(false);
+      expect(rpcMock.call).not.toHaveBeenCalledWith(
+        'subagent:send-message',
+        expect.anything(),
+      );
+      expect(store.subagentRpcError()?.method).toBe('subagent:send-message');
+    });
+
     it('sendMessageToAgent surfaces error on RPC failure', async () => {
       rpcMock.call.mockResolvedValueOnce(rpcError('nope'));
-      await store.sendMessageToAgent(PARENT, 'hello');
+      await store.sendMessageToAgent(PARENT, 'hello', SESSION);
       const err = store.subagentRpcError();
       expect(err?.method).toBe('subagent:send-message');
       expect(err?.message).toBe('nope');
     });
 
-    it('stopAgent dispatches subagent:stop with the supplied taskId', async () => {
+    it('stopAgent dispatches subagent:stop with the supplied taskId and owner', async () => {
       rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
-      await store.stopAgent(TASK);
+      await store.stopAgent(TASK, SESSION);
       expect(rpcMock.call).toHaveBeenCalledWith('subagent:stop', {
         sessionId: SESSION,
         taskId: TASK,
       });
+    });
+
+    it('stopAgent never substitutes the focused tab for a missing owner', async () => {
+      await store.stopAgent(TASK);
+      expect(rpcMock.call).not.toHaveBeenCalledWith(
+        'subagent:stop',
+        expect.anything(),
+      );
+      expect(store.subagentRpcError()?.method).toBe('subagent:stop');
     });
 
     it('sendMessageToAgent targets an explicit owning session over the active tab', async () => {

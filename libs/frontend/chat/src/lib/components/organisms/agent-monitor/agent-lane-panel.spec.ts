@@ -56,6 +56,7 @@ class SubagentLaneStub {
 function agent(id: string, startedAt = 1): MonitoredAgent {
   return {
     agentId: id,
+    parentSessionId: 'session',
     cli: 'ptah-cli',
     task: id,
     status: 'running',
@@ -123,6 +124,7 @@ describe('agent panel lanes', () => {
             workflowSubagentsForSession: jest.fn(() => [
               {
                 parentToolUseId: 'sub',
+                parentSessionId: 'session',
                 workflowRunId: 'run',
                 status: 'running',
                 description: 'Workflow child',

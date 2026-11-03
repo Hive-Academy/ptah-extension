@@ -128,15 +128,12 @@ describe('BackgroundAgentStore — entries whose session never resolved', () => 
     expect(store.agents()[0].sessionId).toBeUndefined();
   });
 
-  it('keeps an ownerless entry visible from every session', () => {
+  it('keeps an ownerless entry in the unscoped list only', () => {
     started('a1', '');
     started('a2', OTHER_SESSION);
 
-    // Filed as `''` these were invisible to every `agentsForSession` call, so
-    // the tray could neither show nor steer them.
-    expect(store.agentsForSession(REAL_SESSION).map((a) => a.agentId)).toEqual([
-      'a1',
-    ]);
+    expect(store.agentsForSession(REAL_SESSION)).toEqual([]);
+    expect(store.agents().map((a) => a.agentId)).toEqual(['a1', 'a2']);
   });
 
   it('clears an ownerless entry through the completed sweep', () => {

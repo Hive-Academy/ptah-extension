@@ -119,7 +119,6 @@ function makeDeps(
     detection: DetectionMock;
     registry: RegistryMock | undefined;
     getWorkspaceRoot: () => string;
-    getActiveSessionId: () => string | undefined;
     getProjectGuidance: () => Promise<string | undefined>;
     getPluginPaths: () => Promise<string[] | undefined>;
     getDisabledClis: () => string[];
@@ -147,7 +146,6 @@ function makeDeps(
     agentProcessManager: processManager as unknown as AgentProcessManager,
     cliDetectionService: detection as unknown as CliDetectionService,
     getWorkspaceRoot: overrides.getWorkspaceRoot ?? (() => 'D:/ws'),
-    getActiveSessionId: overrides.getActiveSessionId,
     getProjectGuidance: overrides.getProjectGuidance,
     getPluginPaths: overrides.getPluginPaths,
     getPtahCliRegistry: registry ? () => registry as never : undefined,
@@ -252,7 +250,6 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 
   it('delegates to agentProcessManager.spawn and enriches with session/guidance', async () => {
     const { deps, mocks } = makeDeps({
-      getActiveSessionId: () => 'tab-1',
       resolveSessionId: (s) => (s === 'tab-1' ? 'session-uuid-1' : s),
       getProjectGuidance: async () => 'project rules',
       getPluginPaths: async () => undefined,
@@ -264,6 +261,7 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     const req: SpawnAgentRequest = {
       task: 'do thing',
       cli: 'codex',
+      parentSessionId: 'tab-1',
     } as SpawnAgentRequest;
     const out = await buildAgentNamespace(deps).spawn(req);
 
@@ -277,9 +275,8 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     expect(enriched.pluginPaths).toBeUndefined();
   });
 
-  it('prefers request.parentSessionId over getActiveSessionId()', async () => {
+  it('uses the caller session identity supplied by the transport', async () => {
     const { deps, mocks } = makeDeps({
-      getActiveSessionId: () => 'global',
       resolveSessionId: (s) => s,
     });
     mocks.processManager.spawn.mockResolvedValue({
@@ -300,9 +297,8 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
   // `request.parentSessionId ?? getActiveSessionId?.()` does NOT fall through
   // on '', so the empty id both suppressed the fallback AND was then discarded
   // by the truthiness check — the spawn proceeded with no parent at all.
-  it('treats an empty request.parentSessionId as absent and falls back to getActiveSessionId()', async () => {
+  it('treats an empty caller identity as parentless', async () => {
     const { deps, mocks } = makeDeps({
-      getActiveSessionId: () => 'tab-1',
       resolveSessionId: (s) => (s === 'tab-1' ? 'session-uuid-1' : s),
     });
     mocks.processManager.spawn.mockResolvedValue({
@@ -314,9 +310,9 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
       parentSessionId: '',
     } as SpawnAgentRequest);
 
-    expect(mocks.processManager.spawn.mock.calls[0][0].parentSessionId).toBe(
-      'session-uuid-1',
-    );
+    expect(
+      mocks.processManager.spawn.mock.calls[0][0].parentSessionId,
+    ).toBeUndefined();
   });
 
   it('leaves parentSessionId undefined when it is empty and there is no active session', async () => {

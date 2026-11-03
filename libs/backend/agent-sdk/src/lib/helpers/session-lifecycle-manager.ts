@@ -658,9 +658,8 @@ export class SessionLifecycleManager {
   /**
    * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
-   * The ordering ensures that getActiveSessionIds()[0] returns the session
-   * the user most recently interacted with, which is critical for MCP tools
-   * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
+   * This ordering serves user-facing active-session selection. MCP tools
+   * must use the caller identity from their request instead.
    *
    * Delegates directly to the registry — single storage means the registry
    * owns all ordering and resolution logic.

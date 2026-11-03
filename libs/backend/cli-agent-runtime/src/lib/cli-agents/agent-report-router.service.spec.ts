@@ -624,6 +624,24 @@ describe('AgentReportRouter.deliver — session child', () => {
     expect(h.sendMessageToSession).not.toHaveBeenCalled();
   });
 
+  it('does not reroute a session-child report to a live SDK id when its recorded parent is dead', async () => {
+    const h = createSessionHarness({ activeIds: [PARENT_SDK] });
+
+    const result = await h.router.deliver({
+      childSessionId: CHILD,
+      message: 'finished',
+    });
+
+    expect(result).toEqual({
+      delivered: false,
+      reason: 'parent-session-not-active',
+    });
+    expect(h.isSessionActive).toHaveBeenCalledWith(PARENT);
+    expect(h.isSessionActive).not.toHaveBeenCalledWith(PARENT_SDK);
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    expect(h.registry.get(CHILD)?.lastRefusedReport).toBe('finished');
+  });
+
   it('records the given summary as the last refused report', async () => {
     const h = createSessionHarness({ activeIds: [] });
 
@@ -636,7 +654,7 @@ describe('AgentReportRouter.deliver — session child', () => {
     expect(h.registry.get(CHILD)?.lastRefusedReport).toBe('blocked on creds');
   });
 
-  it('delivers to the parent SDK id when the recorded parent tab is gone', async () => {
+  it('refuses when the recorded parent tab is gone despite a live SDK id', async () => {
     const h = createSessionHarness({ activeIds: [PARENT_SDK] });
 
     const result = await h.router.deliver({
@@ -644,8 +662,11 @@ describe('AgentReportRouter.deliver — session child', () => {
       message: 'hi',
     });
 
-    expect(result).toEqual({ delivered: true, parentSessionId: PARENT_SDK });
-    expect(h.sendMessageToSession.mock.calls[0][0]).toBe(PARENT_SDK);
+    expect(result).toEqual({
+      delivered: false,
+      reason: 'parent-session-not-active',
+    });
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
   });
 
   it('applies the shared burst limit under its own session key', async () => {

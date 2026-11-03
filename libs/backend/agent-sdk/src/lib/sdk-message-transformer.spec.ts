@@ -20,7 +20,10 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import type { AuthEnv, BackgroundTasksSnapshotEvent } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  BackgroundTasksSnapshotEvent,
+} from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
@@ -138,20 +141,18 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
     );
   }
 
-  it('A1 — resolves sessionId from active lifecycle ids when SDK omits session_id and no caller id is provided', () => {
+  it('A1 — does not claim an active session when SDK and caller omit session id', () => {
     transformer = build(['active-sess-7']);
 
     const events = transformer.transform(
       makeCompactBoundary({ trigger: 'auto', preTokens: 50000 }) as never,
-      // No caller-provided sessionId — must fall back to lifecycle.
+      // An active lifecycle session does not identify this caller.
       undefined,
     );
 
-    expect(events).toHaveLength(1);
-    const evt = events[0] as { eventType: string; sessionId: string };
-    expect(evt.eventType).toBe('compaction_complete');
-    expect(evt.sessionId).toBe('active-sess-7');
-    expect(lifecycle.getActiveSessionIds).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([]);
+    expect(registry.pruneSession).not.toHaveBeenCalled();
+    expect(lifecycle.getActiveSessionIds).not.toHaveBeenCalled();
   });
 
   it('A4 — calls SubagentRegistry.pruneSession with the resolved id and clears the live token snapshot', () => {
@@ -185,7 +186,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
     // Now drive compact_boundary.
     transformer.transform(
       makeCompactBoundary({ trigger: 'auto', preTokens: 100000 }) as never,
-      undefined,
+      'active-sess-9' as never,
     );
 
     expect(registry.pruneSession).toHaveBeenCalledWith('active-sess-9');
@@ -229,7 +230,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
 
     const events = localTransformer.transform(
       makeCompactBoundary({ trigger: 'manual', preTokens: 1000 }) as never,
-      undefined,
+      'resolved-sess' as never,
     );
 
     expect(events).toHaveLength(1);
@@ -316,7 +317,11 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
       uuid: '00000000-0000-0000-0000-000000000001',
       session_id: 'session-1',
       tasks: [
-        { task_id: 'bash-task', task_type: 'local_bash', description: 'Compile' },
+        {
+          task_id: 'bash-task',
+          task_type: 'local_bash',
+          description: 'Compile',
+        },
       ],
     };
   }
@@ -341,7 +346,9 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
     });
   }
 
-  function snapshotsOf(events: ReturnType<SdkMessageTransformer['transform']>): BackgroundTasksSnapshotEvent[] {
+  function snapshotsOf(
+    events: ReturnType<SdkMessageTransformer['transform']>,
+  ): BackgroundTasksSnapshotEvent[] {
     return events.filter(
       (event): event is BackgroundTasksSnapshotEvent =>
         event.eventType === 'background_tasks_snapshot',
@@ -351,8 +358,13 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
   it('refreshes a snapshot when task_started links an earlier Bash tool use', () => {
     transformer = build();
     transformer.transform(bashToolUse() as never, 'session-1' as never);
-    expect(snapshotsOf(transformer.transform(snapshot(), 'session-1' as never))[0].tasks[0].command).toBeUndefined();
-    const refreshed = snapshotsOf(transformer.transform(taskStarted() as never, 'session-1' as never));
+    expect(
+      snapshotsOf(transformer.transform(snapshot(), 'session-1' as never))[0]
+        .tasks[0].command,
+    ).toBeUndefined();
+    const refreshed = snapshotsOf(
+      transformer.transform(taskStarted() as never, 'session-1' as never),
+    );
     expect(refreshed).toHaveLength(1);
     expect(refreshed[0].tasks[0].command).toBe('npm test -- --watch');
   });
@@ -361,33 +373,51 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
     transformer = build();
     transformer.transform(snapshot(), 'session-1' as never);
     transformer.transform(taskStarted() as never, 'session-1' as never);
-    const refreshed = snapshotsOf(transformer.transform(bashToolUse() as never, 'session-1' as never));
+    const refreshed = snapshotsOf(
+      transformer.transform(bashToolUse() as never, 'session-1' as never),
+    );
     expect(refreshed).toHaveLength(1);
     expect(refreshed[0].tasks[0].command).toBe('npm test -- --watch');
   });
 
   for (const { name, messages } of [
-    { name: 'task_started then tool_use', messages: [taskStarted, bashToolUse] },
-    { name: 'tool_use then task_started', messages: [bashToolUse, taskStarted] },
+    {
+      name: 'task_started then tool_use',
+      messages: [taskStarted, bashToolUse],
+    },
+    {
+      name: 'tool_use then task_started',
+      messages: [bashToolUse, taskStarted],
+    },
   ]) {
     it(`includes the command when ${name} precedes the snapshot`, () => {
       transformer = build();
       for (const message of messages)
         transformer.transform(message() as never, 'session-1' as never);
-      const emitted = snapshotsOf(transformer.transform(snapshot(), 'session-1' as never));
+      const emitted = snapshotsOf(
+        transformer.transform(snapshot(), 'session-1' as never),
+      );
       expect(emitted[0].tasks[0].command).toBe('npm test -- --watch');
     });
   }
 
   it('truncates long commands and clears command state on an empty snapshot', () => {
     transformer = build();
-    transformer.recordBackgroundBashCommand('session-1', 'bash-tool', 'x'.repeat(2_100));
+    transformer.recordBackgroundBashCommand(
+      'session-1',
+      'bash-tool',
+      'x'.repeat(2_100),
+    );
     transformer.markNonAgentTask('bash-task', 'bash-tool', 'session-1');
-    const command = snapshotsOf(transformer.transform(snapshot(), 'session-1' as never))[0].tasks[0].command;
+    const command = snapshotsOf(
+      transformer.transform(snapshot(), 'session-1' as never),
+    )[0].tasks[0].command;
     expect(command).toHaveLength(2_000);
     expect(command?.endsWith('…')).toBe(true);
     transformer.transform({ ...snapshot(), tasks: [] }, 'session-1' as never);
-    expect(transformer.getBackgroundTaskCommand('session-1', 'bash-task')).toBeUndefined();
+    expect(
+      transformer.getBackgroundTaskCommand('session-1', 'bash-task'),
+    ).toBeUndefined();
   });
 
   it('Fix 1 — calls setTaskId(toolUseId, taskId) when task_started carries a tool_use_id', () => {
@@ -1292,19 +1322,25 @@ describe('SdkMessageTransformer — task_notification after compact_boundary', (
     const transformer = build();
     const first = completionsOf(
       transformer.transform(
-        notification('task-new-parent', { tool_use_id: 'toolu_original' }) as never,
+        notification('task-new-parent', {
+          tool_use_id: 'toolu_original',
+        }) as never,
         SESSION as never,
       ),
     );
     const second = completionsOf(
       transformer.transform(
-        notification('task-new-parent', { tool_use_id: 'toolu_resumed' }) as never,
+        notification('task-new-parent', {
+          tool_use_id: 'toolu_resumed',
+        }) as never,
         SESSION as never,
       ),
     );
     const duplicate = completionsOf(
       transformer.transform(
-        notification('task-new-parent', { tool_use_id: 'toolu_resumed' }) as never,
+        notification('task-new-parent', {
+          tool_use_id: 'toolu_resumed',
+        }) as never,
         SESSION as never,
       ),
     );

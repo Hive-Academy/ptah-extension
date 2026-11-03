@@ -112,8 +112,6 @@ export interface AgentNamespaceDependencies {
   cliDetectionService: CliDetectionService;
   /** Lazy getter for workspace root path. Called at spawn time to get the current workspace root. */
   getWorkspaceRoot: () => string;
-  /** Function that returns the currently active SDK session ID. Called at spawn time to link CLI agents to their parent session. */
-  getActiveSessionId?: () => string | undefined;
   /**
    * Returns the capped project guidance from enhanced prompts (async). Called
    * at spawn time for system-CLI lanes, which receive this and never the full
@@ -261,7 +259,6 @@ export function buildAgentNamespace(
     agentProcessManager,
     cliDetectionService,
     getWorkspaceRoot,
-    getActiveSessionId,
     getProjectGuidance,
     getPluginPaths,
     getPtahCliRegistry,
@@ -296,10 +293,7 @@ export function buildAgentNamespace(
       // which BOTH suppressed the active-session fallback AND was then
       // discarded by the truthiness check below — so the spawn was attributed
       // to no parent at all.
-      const requestedSessionId = request.parentSessionId
-        ? request.parentSessionId
-        : undefined;
-      const rawSessionId = requestedSessionId ?? getActiveSessionId?.();
+      const rawSessionId = request.parentSessionId?.trim() || undefined;
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;

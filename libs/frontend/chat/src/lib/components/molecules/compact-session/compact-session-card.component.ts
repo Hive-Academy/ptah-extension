@@ -122,7 +122,11 @@ function sameLaneSummary(
 @Component({
   selector: 'ptah-compact-session-card',
   standalone: true,
-  imports: [CompactSessionActivityComponent, CompactSessionStatsComponent, CompactRailCardComponent],
+  imports: [
+    CompactSessionActivityComponent,
+    CompactSessionStatsComponent,
+    CompactRailCardComponent,
+  ],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
     'data-ptah-file-links': '',
@@ -164,25 +168,50 @@ function sameLaneSummary(
         data-testid="compact-session-card"
       >
         @if (!canvasHost || needsYouCount() > 0) {
-        <div
-          class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
-        >
-          @if (!canvasHost) {
-            <span class="min-w-0 truncate text-sm font-semibold text-base-content" data-testid="compact-session-title">{{ tab().title || 'New Chat' }}</span>
-          }
-          @if (needsYouCount() > 0) {
-            <span class="shrink-0 text-xs font-semibold" style="color: var(--state-ink-need)">{{ needsYouCount() }} needs you</span>
-          }
-          @if (!canvasHost) {
-            <button type="button" class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" (click)="openFullView()">Full view</button>
-          }
-        </div>
+          <div
+            class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
+          >
+            @if (!canvasHost) {
+              <span
+                class="min-w-0 truncate text-sm font-semibold text-base-content"
+                data-testid="compact-session-title"
+                >{{ tab().title || 'New Chat' }}</span
+              >
+            }
+            @if (needsYouCount() > 0) {
+              <span
+                class="shrink-0 text-xs font-semibold"
+                style="color: var(--state-ink-need)"
+                >{{ needsYouCount() }} needs you</span
+              >
+            }
+            @if (!canvasHost) {
+              <button
+                type="button"
+                class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+                (click)="openFullView()"
+              >
+                Full view
+              </button>
+            }
+          </div>
         }
-        @if (tab().viewMode === 'compact' && activityLanes() === null && summary().marks.length === 0) {
-          <div class="flex min-h-0 flex-1 flex-col justify-between" data-testid="compact-session-empty">
+        @if (
+          tab().viewMode === 'compact' &&
+          activityLanes() === null &&
+          summary().marks.length === 0
+        ) {
+          <div
+            class="flex min-h-0 flex-1 flex-col justify-between"
+            data-testid="compact-session-empty"
+          >
             <div class="px-3 py-3">
-              <div class="text-xs font-semibold text-base-content">{{ summary().status.text }}</div>
-              <p class="mt-2 text-sm text-base-content-muted">{{ summary().content.text }}</p>
+              <div class="text-xs font-semibold text-base-content">
+                {{ summary().status.text }}
+              </div>
+              <p class="mt-2 text-sm text-base-content-muted">
+                {{ summary().content.text }}
+              </p>
             </div>
             <ptah-compact-session-stats [metrics]="summary().metrics" />
           </div>
@@ -232,7 +261,8 @@ export class CompactSessionCardComponent {
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
   // Canvas is the only production binder of retainRailTranscript (canvas-detail-transcript.component.ts:29).
   // SESSION_EMBED_CHROME cannot replace it: Canvas focus gets 'full' like any embed, the Rail card none.
-  protected readonly canvasHost = inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
+  protected readonly canvasHost =
+    inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
 
   readonly tab = input.required<TabState>();
   readonly needsYouCount = input(0);
@@ -293,14 +323,25 @@ export class CompactSessionCardComponent {
   private readonly sessionAgents = computed(() =>
     this.cardActions || this.sessionContext
       ? this.agentStore.agentsOwnedBySession(this.sessionIdentity())
-      : this.agentStore.agentsForSession(this.sessionIdentity()),
+      : this.agentStore
+          .agents()
+          .filter(
+            (agent) =>
+              !agent.parentSessionId ||
+              agent.parentSessionId === this.sessionIdentity(),
+          ),
   );
   readonly laneSummary = computed(
     () =>
       buildLaneSummary(
         this.sessionAgents(),
-        [...this.agentStore.subagents().values()].filter(
-          (agent) => agent.parentSessionId === this.sessionIdentity(),
+        // Strict tiles need an exact owner. The main-panel card also lists
+        // ownerless subagents, as it does for CLI lanes above.
+        [...this.agentStore.subagents().values()].filter((agent) =>
+          this.cardActions || this.sessionContext
+            ? agent.parentSessionId === this.sessionIdentity()
+            : !agent.parentSessionId ||
+              agent.parentSessionId === this.sessionIdentity(),
         ),
         this.sessionIdentity(),
         3,
@@ -543,7 +584,10 @@ export class CompactSessionCardComponent {
       : summarizeFinalized(this.messages(), context);
     if (live || summary.status.text !== 'Idle') return summary;
     if (summary.status.text === 'Idle' && this.messages().length > 0) {
-      return { ...summary, status: { ...summary.status, text: 'Done', icon: '✓', tone: 'success' } };
+      return {
+        ...summary,
+        status: { ...summary.status, text: 'Done', icon: '✓', tone: 'success' },
+      };
     }
     if (summary.status.text === 'Idle') {
       return { ...summary, status: { ...summary.status, text: 'Waiting' } };
@@ -578,7 +622,11 @@ export class CompactSessionCardComponent {
     });
   }
 
-  respond(callout: CompactPermissionCallout, decision: CompactPermissionDecision['decision'], reason?: string): void {
+  respond(
+    callout: CompactPermissionCallout,
+    decision: CompactPermissionDecision['decision'],
+    reason?: string,
+  ): void {
     if (this.callout()?.requestId !== callout.requestId) {
       this.staleAction.emit();
       return;
