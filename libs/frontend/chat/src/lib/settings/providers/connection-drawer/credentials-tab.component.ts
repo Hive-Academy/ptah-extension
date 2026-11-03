@@ -6,6 +6,7 @@ import { AlertTriangle, Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-an
 import {
   CLAUDE_CODE_NPM_INSTALL_COMMAND,
   CLAUDE_CODE_SIGN_IN_COMMAND,
+  CodexSignInService,
   type ProvidersConnection,
   type ProvidersConnectionDraft,
 } from '@ptah-extension/core';
@@ -16,6 +17,7 @@ import {
   type ProbeFailureReason,
 } from '@ptah-extension/shared';
 import { KimiCodeLoginProgressComponent } from './kimi-code-login-progress.component';
+import { CodexSignInBlockComponent } from './codex-sign-in-block.component';
 import type { ConnectionKind } from './connection-kind';
 import type { DrawerWriteOutcome } from './drawer-write';
 import { KEY_UNREADABLE_TEXT } from '../provider-connection-card.state';
@@ -122,7 +124,7 @@ function probeResultText(result: AuthVerifyDraftConnectionResult): string {
   selector: 'ptah-connection-credentials-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NgTemplateOutlet, KimiCodeLoginProgressComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NgTemplateOutlet, KimiCodeLoginProgressComponent, CodexSignInBlockComponent],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-credentials">
       @switch (view()) {
@@ -187,8 +189,14 @@ function probeResultText(result: AuthVerifyDraftConnectionResult): string {
                 ? 'The token in ~/.codex/auth.json has expired. Open login to sign in again.'
                 : 'Ptah uses the Codex login stored in ~/.codex/auth.json. Open login to switch or refresh the account.' }}
             </p>
-            <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
-              data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
+            <ptah-codex-sign-in-block layout="compact" role="chosen" />
+            @if (codexRunning()) {
+              <button type="button" class="btn btn-outline btn-sm" (click)="externalActionRequested.emit('sign-in-cancel')"
+                data-testid="credentials-codex-cancel">Cancel sign-in</button>
+            } @else {
+              <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
+                data-testid="credentials-open-login">Sign in with Codex</button>
+            }
           </div>
         }
         @case ('kimi-code') {
@@ -428,6 +436,11 @@ export class CredentialsTabComponent {
   protected readonly probeState = signal<ProbeState>('idle');
   protected readonly probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
   private readonly feedback = inject(SettingsSaveFeedbackService);
+  private readonly codexSignIn = inject(CodexSignInService);
+  protected readonly codexRunning = computed(() => {
+    const status = this.codexSignIn.state()?.status;
+    return status === 'starting' || status === 'running' || status === 'awaiting-user';
+  });
   /** The outcome already said, so a re-render of the same one is not announced twice. */
   private announcedCommit: CredentialsCommit | null = null;
   /** The write this tab started, so its outcome is read from `commit` (D15: never "Saved" after a failure). */

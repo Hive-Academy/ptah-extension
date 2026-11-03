@@ -1,4 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import { CodexSignInService } from '@ptah-extension/core';
+import type { CodexLoginState } from '@ptah-extension/shared';
 import {
   CLAUDE_CODE_NPM_INSTALL_COMMAND,
   CLAUDE_CODE_SIGN_IN_COMMAND,
@@ -70,13 +73,18 @@ describe('CredentialsTabComponent', () => {
   let announce: jest.Mock<void, [string, 'status' | 'alert']>;
   const announced = () => announce.mock.calls.map(([message, tone]) => `${tone}: ${message}`);
 
+  const codexState = signal<CodexLoginState | null>(null);
   beforeEach(() => {
+    codexState.set(null);
     probe = new ProbeHost();
     announce = jest.fn();
     rendered = false;
     TestBed.configureTestingModule({
       imports: [CredentialsTabComponent],
-      providers: [{ provide: SettingsSaveFeedbackService, useValue: { announce } }],
+      providers: [
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
+        { provide: CodexSignInService, useValue: { state: codexState, nothingSeen: signal(false), start: jest.fn(), restart: jest.fn(), cancel: jest.fn() } },
+      ],
     });
     fixture = TestBed.createComponent(CredentialsTabComponent);
     element = fixture.nativeElement as HTMLElement;
@@ -350,11 +358,12 @@ describe('CredentialsTabComponent', () => {
     expect(signOut).toHaveBeenCalledTimes(1);
   });
 
-  it('OpenAI Codex shows token-expired copy and Open login (#13)', () => {
+  it('OpenAI Codex shows token-expired copy and in-app sign-in (#13)', () => {
     const action = jest.fn();
     fixture.componentInstance.externalActionRequested.subscribe(action);
     render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false, tokenStale: true }), kind: 'oauth' });
     expect(query('credentials-codex-copy')?.textContent).toContain('~/.codex/auth.json has expired');
+    expect(query('codex-sign-in-block')).not.toBeNull();
     query('credentials-open-login')?.click();
     expect(action).toHaveBeenCalledWith('sign-in');
     render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false, tokenStale: false }) });
@@ -392,11 +401,21 @@ describe('CredentialsTabComponent', () => {
   describe('external sign-in feedback (Batch 21 review M1)', () => {
     const codex = connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false });
 
-    it('while the sign-in runs, Open login is disabled and says it is waiting', () => {
+    it('while the sign-in starts, the button is disabled', () => {
       render({ connection: codex, kind: 'oauth', externalAuth: { status: 'loading', message: null } });
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-open-login'))).toBe(true);
-      expect(query('credentials-open-login')?.textContent?.trim()).toBe('Waiting for sign-in…');
+      expect(query('credentials-open-login')?.textContent?.trim()).toBe('Sign in with Codex');
       expect(query('credentials-external-busy')?.getAttribute('role')).toBe('status');
+    });
+
+    it('offers cancel while Codex sign-in is running', () => {
+      const action = jest.fn();
+      fixture.componentInstance.externalActionRequested.subscribe(action);
+      codexState.set({ attemptId: 'one', mode: 'browser', status: 'running' });
+      render({ connection: codex, kind: 'oauth' });
+      expect(query('credentials-open-login')).toBeNull();
+      query('credentials-codex-cancel')?.click();
+      expect(action).toHaveBeenCalledWith('sign-in-cancel');
     });
 
     it('a failed sign-in shows a fixed alert instead of a stale message, and Open login is available again', () => {
