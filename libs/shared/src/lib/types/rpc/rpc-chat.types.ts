@@ -505,12 +505,15 @@ export interface ChatCarryOverParams {
 export const CARRY_OVER_RESOLUTION_DEADLINE_MS = 90_000;
 
 /**
- * How long the host keeps a launch's request ID for its tab's next
- * resolution, and the renderer remembers an expired request ID: the
- * longest the renderer can wait on the RPC plus the post-acceptance deadline.
+ * How long after a launch's wait ended its late resolution is still
+ * recognised as that launch's. The renderer skips and aborts such a
+ * resolution for this long after it released the tab. The host refuses a
+ * new carry-over launch on the tab for this long after the launch's tag
+ * lapsed unclaimed (the tag itself lapses before the renderer's release;
+ * see `ChatCarryOverService`), so a late init of the old launch can never
+ * take a retry's request ID. The tab's next resolution ends both early.
  */
-export const CARRY_OVER_REQUEST_ID_TTL_MS =
-  CHAT_ADMISSION_RPC_TIMEOUT_MS + CARRY_OVER_RESOLUTION_DEADLINE_MS;
+export const CARRY_OVER_LATE_RESOLUTION_MS = CHAT_ADMISSION_RPC_TIMEOUT_MS;
 
 /**
  * Host port read by the `SESSION_ID_RESOLVED` broadcaster: the request ID of

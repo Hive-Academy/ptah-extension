@@ -186,10 +186,22 @@ describe('provider carry-over relink (real tab manager, router, handler, lifecyc
     expect(carryOver.isPending(tabId)).toBe(true);
   }
 
+  /**
+   * The host's resolution of the tab, stamped with the latest launch's
+   * request ID as the host stamps a carry-over (R1); untagged with no launch.
+   */
   function resolveSession(tabId: string, realSessionId: string): void {
+    const launches = callsOf('chat:carry-over');
+    const requestId = (
+      launches[launches.length - 1]?.[1] as { requestId?: string } | undefined
+    )?.requestId;
     handler.handleMessage({
       type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
-      payload: { tabId, realSessionId },
+      payload: {
+        tabId,
+        realSessionId,
+        ...(requestId ? { carryOverRequestId: requestId } : {}),
+      },
     });
   }
 

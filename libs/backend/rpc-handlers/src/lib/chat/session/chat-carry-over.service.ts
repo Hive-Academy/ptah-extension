@@ -24,7 +24,9 @@ import {
 } from '@ptah-extension/auth-providers';
 import { SETTINGS_TOKENS, type ModelSettings } from '@ptah-extension/settings-core';
 import {
-  CARRY_OVER_REQUEST_ID_TTL_MS,
+  CARRY_OVER_LATE_RESOLUTION_MS,
+  CARRY_OVER_RESOLUTION_DEADLINE_MS,
+  CHAT_ADMISSION_RPC_TIMEOUT_MS,
   getAnthropicProvider,
   loggableErrorName,
   type CarryOverResolutionTags,
@@ -72,11 +74,28 @@ interface EligibleCarryOver {
 
 type CarryOverFailure = Extract<ChatCarryOverResult, { success: false }>;
 
-/** A launch's request ID, waiting for its tab's next session resolution. */
+/**
+ * A launch's request ID, waiting for its tab's next session resolution.
+ *
+ * `tagUntil` never passes the renderer's release of the tab. The renderer
+ * holds an accepted launch for `CARRY_OVER_RESOLUTION_DEADLINE_MS` after the
+ * accepted result arrives, which is after admission, and an indeterminate
+ * one until `CHAT_ADMISSION_RPC_TIMEOUT_MS + CARRY_OVER_RECOVERY_MS` after
+ * it sent the RPC, which is before the host received it. So the tag ends at
+ * the earlier of admission + `CARRY_OVER_RESOLUTION_DEADLINE_MS` and receipt
+ * + `CHAT_ADMISSION_RPC_TIMEOUT_MS`: no later than the renderer's release
+ * on either path, by the IPC latency on the first and by at least
+ * `CARRY_OVER_RECOVERY_MS` on the second.
+ */
 interface ResolutionTicket {
   readonly requestId: string;
-  /** `Date.now()` after which the ticket is dropped unclaimed. */
-  readonly until: number;
+  /** `Date.now()` up to which the tab's next resolution carries `requestId`. */
+  readonly tagUntil: number;
+  /**
+   * `Date.now()` up to which a new launch on the tab is refused: the launch
+   * may still resolve late, and it must not claim a retry's request ID.
+   */
+  readonly blockUntil: number;
 }
 
 /** `'offer'`: the eligibility check, with no lasting side effect. `'launch'`: the click. */
@@ -119,8 +138,9 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
   private readonly inFlight = new Set<string>();
   /**
    * Per tab: the request ID of the latest launch the adapter was asked to
-   * start, until the tab's next resolution claims it (R1). Bounded by the
-   * tabs with a carry-over and pruned by {@link CARRY_OVER_REQUEST_ID_TTL_MS}.
+   * start, until the tab's next resolution claims it (R1). While it is held,
+   * a new launch on the tab is refused. Bounded by the tabs with a carry-over
+   * and pruned once `blockUntil` passes.
    */
   private readonly resolutionTickets = new Map<string, ResolutionTicket>();
 
@@ -181,29 +201,39 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
 
   /**
    * Called by the `SESSION_ID_RESOLVED` broadcaster: the request ID of the
-   * launch that last started a session on `tabId`, once. An expired ticket
-   * is dropped and the resolution goes out untagged.
+   * launch that last started a session on `tabId`, once. Any claim retires
+   * the ticket, so the tab takes a new launch again; past `tagUntil` the
+   * resolution goes out untagged.
    */
   claimResolutionRequestId(tabId: string): string | undefined {
     const ticket = this.resolutionTickets.get(tabId);
     if (!ticket) return undefined;
     this.resolutionTickets.delete(tabId);
-    return Date.now() > ticket.until ? undefined : ticket.requestId;
+    return Date.now() > ticket.tagUntil ? undefined : ticket.requestId;
   }
 
-  /** Start the carry-over chat on the active provider. Never throws. */
+  /**
+   * Start the carry-over chat on the active provider. Never throws. A tab
+   * whose previous launch is not retired yet is refused with `IN_FLIGHT`.
+   */
   async carryOver(params: ChatCarryOverParams): Promise<ChatCarryOverResult> {
+    const receivedAt = Date.now();
     const { sessionId } = params;
-    if (this.inFlight.has(sessionId)) return failure('IN_FLIGHT');
+    if (this.inFlight.has(sessionId) || this.holdsTicket(params.tabId, receivedAt)) {
+      return failure('IN_FLIGHT');
+    }
     this.inFlight.add(sessionId);
     try {
-      return await this.runCarryOver(params);
+      return await this.runCarryOver(params, receivedAt);
     } finally {
       this.inFlight.delete(sessionId);
     }
   }
 
-  private async runCarryOver(params: ChatCarryOverParams): Promise<ChatCarryOverResult> {
+  private async runCarryOver(
+    params: ChatCarryOverParams,
+    receivedAt: number,
+  ): Promise<ChatCarryOverResult> {
     const { sessionId, tabId } = params;
     const eligible = await this.evaluate(sessionId, params.workspacePath, tabId, 'launch');
     if (!eligible) return failure('NOT_ELIGIBLE');
@@ -248,7 +278,7 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
 
     const { requestId } = params;
     const admitted = requestId
-      ? (): void => this.issueTicket(tabId, requestId)
+      ? (): void => this.issueTicket(tabId, requestId, receivedAt)
       : undefined;
     let start: Awaited<ReturnType<ChatSessionService['startSession']>>;
     try {
@@ -399,15 +429,27 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
     return this.codexAuth ? (await this.codexAuth.isAuthenticated()) === true : false;
   }
 
-  /** The adapter is about to start `tabId`'s session for `requestId`. */
-  private issueTicket(tabId: string, requestId: string): void {
-    const now = Date.now();
+  /** Whether `tabId` still holds an unretired ticket; prunes lapsed ones. */
+  private holdsTicket(tabId: string, now: number): boolean {
     for (const [tab, ticket] of this.resolutionTickets) {
-      if (now > ticket.until) this.resolutionTickets.delete(tab);
+      if (now > ticket.blockUntil) this.resolutionTickets.delete(tab);
     }
+    return this.resolutionTickets.has(tabId);
+  }
+
+  /**
+   * The adapter is about to start `tabId`'s session for `requestId`, which
+   * the host received at `receivedAt`. See {@link ResolutionTicket}.
+   */
+  private issueTicket(tabId: string, requestId: string, receivedAt: number): void {
+    const tagUntil = Math.min(
+      Date.now() + CARRY_OVER_RESOLUTION_DEADLINE_MS,
+      receivedAt + CHAT_ADMISSION_RPC_TIMEOUT_MS,
+    );
     this.resolutionTickets.set(tabId, {
       requestId,
-      until: now + CARRY_OVER_REQUEST_ID_TTL_MS,
+      tagUntil,
+      blockUntil: tagUntil + CARRY_OVER_LATE_RESOLUTION_MS,
     });
   }
 

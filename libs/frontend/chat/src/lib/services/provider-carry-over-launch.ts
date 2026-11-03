@@ -9,7 +9,7 @@
  * statically from eager code.
  */
 import {
-  CARRY_OVER_REQUEST_ID_TTL_MS,
+  CARRY_OVER_LATE_RESOLUTION_MS,
   CARRY_OVER_RESOLUTION_DEADLINE_MS,
   CHAT_ADMISSION_RPC_TIMEOUT_MS,
 } from '@ptah-extension/shared';
@@ -18,7 +18,7 @@ import {
   CARRY_OVER_BUSY_TEXT,
   CARRY_OVER_CHECK_TIMEOUT_MS,
   CARRY_OVER_EXPIRED_TEXT,
-  CARRY_OVER_LATE_RESOLUTION_MS,
+  CARRY_OVER_IN_FLIGHT_TEXT,
   CARRY_OVER_NOTICE_MS,
   CARRY_OVER_RECOVERY_MS,
   CARRY_OVER_START_FAILED_TEXT,
@@ -249,6 +249,15 @@ function mapFailure(
       }
       return { success: false, errorAlreadyShown: true };
     case 'IN_FLIGHT':
+      // The host still holds an earlier launch of this tab (or session) that
+      // may yet start. The offer stays; the button gets a short notice.
+      if (!compact && owns) {
+        ctx.actionBanner.showInfo(
+          CARRY_OVER_IN_FLIGHT_TEXT,
+          tabId,
+          CARRY_OVER_NOTICE_MS,
+        );
+      }
       return { success: false, error: CARRY_OVER_BUSY_TEXT };
     case 'HISTORY_UNREADABLE':
       if (owns && entry.generation !== null) {
@@ -350,12 +359,10 @@ function expire(
   ctx.recoveryTimers.delete(tabId);
   if (ctx.pending().get(tabId) !== entry) return;
   ctx.deletePending(tabId, entry);
-  const now = Date.now();
   ctx.expired.set(entry.requestId, {
     tabId,
     sessionId: entry.sessionId,
-    until: now + CARRY_OVER_LATE_RESOLUTION_MS,
-    requestIdUntil: now + CARRY_OVER_REQUEST_ID_TTL_MS,
+    until: Date.now() + CARRY_OVER_LATE_RESOLUTION_MS,
   });
   const lookup = ctx.tabs.findTabByIdAcrossWorkspaces(tabId);
   if (lookup?.tab.claudeSessionId === entry.sessionId) {
@@ -381,7 +388,7 @@ function pruneClosedTabs(ctx: CarryOverLaunchContext): void {
   const now = Date.now();
   for (const [requestId, marker] of ctx.expired) {
     if (
-      now > marker.requestIdUntil ||
+      now > marker.until ||
       !ctx.tabs.findTabByIdAcrossWorkspaces(marker.tabId)
     ) {
       ctx.expired.delete(requestId);

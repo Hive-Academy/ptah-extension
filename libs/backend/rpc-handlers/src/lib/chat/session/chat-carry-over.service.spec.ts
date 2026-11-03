@@ -41,7 +41,9 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
-  CARRY_OVER_REQUEST_ID_TTL_MS,
+  CARRY_OVER_LATE_RESOLUTION_MS,
+  CARRY_OVER_RESOLUTION_DEADLINE_MS,
+  CHAT_ADMISSION_RPC_TIMEOUT_MS,
   type ChatStartResult,
   type SessionId,
 } from '@ptah-extension/shared';
@@ -578,22 +580,123 @@ describe('ChatCarryOverService', () => {
         expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
       });
 
-      it('an unclaimed tag lapses after CARRY_OVER_REQUEST_ID_TTL_MS', async () => {
-        const h = makeHarness({ execution: codexExecution() });
-        h.startSession.mockImplementationOnce(
-          async (_params: unknown, launch: { onAdmitted?: () => void }) => {
-            launch.onAdmitted?.();
-            return { success: true };
-          },
-        );
-        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
-        try {
-          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
-          now.mockReturnValue(1_000 + CARRY_OVER_REQUEST_ID_TTL_MS + 1);
-          expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
-        } finally {
-          now.mockRestore();
+      describe('ticket lifetime and the retry block', () => {
+        const RETRY_ID = '9b2d6c1e-4f3a-4e8b-9c7d-2a1b3c4d5e6f';
+        let now: jest.SpyInstance<number, []>;
+
+        beforeEach(() => {
+          now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+        });
+        afterEach(() => now.mockRestore());
+
+        /** Every start admits; `admittedAt` moves the clock first. */
+        function admitting(h: Harness, admittedAt?: number): void {
+          h.startSession.mockImplementation(
+            async (_params: unknown, launch: { onAdmitted?: () => void }) => {
+              if (admittedAt !== undefined) now.mockReturnValue(admittedAt);
+              launch.onAdmitted?.();
+              return { success: true };
+            },
+          );
         }
+
+        it('the tag lasts CARRY_OVER_RESOLUTION_DEADLINE_MS from admission', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          now.mockReturnValue(1_000 + CARRY_OVER_RESOLUTION_DEADLINE_MS);
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBe(REQUEST_ID);
+
+          const late = makeHarness({ execution: codexExecution() });
+          admitting(late, 1_000);
+          await late.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          now.mockReturnValue(1_000 + CARRY_OVER_RESOLUTION_DEADLINE_MS + 1);
+          expect(late.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+        });
+
+        it('a late admission ends the tag CHAT_ADMISSION_RPC_TIMEOUT_MS after receipt', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h, 1_000 + 50_000);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          now.mockReturnValue(1_000 + CHAT_ADMISSION_RPC_TIMEOUT_MS + 1);
+          // Before admission + deadline, but past the renderer's RPC wait.
+          expect(1_000 + CHAT_ADMISSION_RPC_TIMEOUT_MS + 1).toBeLessThan(
+            1_000 + 50_000 + CARRY_OVER_RESOLUTION_DEADLINE_MS,
+          );
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+        });
+
+        it('refuses a retry on the tab with IN_FLIGHT while the ticket is held', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+
+          const retry = await h.service.carryOver({ ...carryParams(), requestId: RETRY_ID });
+          expect(retry).toEqual({
+            success: false,
+            reason: 'IN_FLIGHT',
+            error: 'This conversation is already being continued.',
+          });
+          // A launch without a request ID is refused the same way.
+          await expect(h.service.carryOver(carryParams())).resolves.toMatchObject({
+            reason: 'IN_FLIGHT',
+          });
+          expect(h.startSession).toHaveBeenCalledTimes(1);
+          // The old launch keeps its own tag.
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBe(REQUEST_ID);
+        });
+
+        it('old init after an expiry: the retry stays refused, the late init goes untagged, then the retry gets its own ID', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          // The renderer has released the tab (tag lapsed); the user retries.
+          now.mockReturnValue(1_000 + CARRY_OVER_RESOLUTION_DEADLINE_MS + 1);
+          await expect(
+            h.service.carryOver({ ...carryParams(), requestId: RETRY_ID }),
+          ).resolves.toMatchObject({ success: false, reason: 'IN_FLIGHT' });
+          expect(h.startSession).toHaveBeenCalledTimes(1);
+
+          // The old launch's process inits late: no tag, and it retires the ticket.
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+
+          await expect(
+            h.service.carryOver({ ...carryParams(), requestId: RETRY_ID }),
+          ).resolves.toMatchObject({ success: true });
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBe(RETRY_ID);
+        });
+
+        it('an unclaimed ticket stops blocking CARRY_OVER_LATE_RESOLUTION_MS after its tag lapsed', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          const tagEnd = 1_000 + CARRY_OVER_RESOLUTION_DEADLINE_MS;
+
+          now.mockReturnValue(tagEnd + CARRY_OVER_LATE_RESOLUTION_MS);
+          await expect(
+            h.service.carryOver({ ...carryParams(), requestId: RETRY_ID }),
+          ).resolves.toMatchObject({ reason: 'IN_FLIGHT' });
+
+          now.mockReturnValue(tagEnd + CARRY_OVER_LATE_RESOLUTION_MS + 1);
+          await expect(
+            h.service.carryOver({ ...carryParams(), requestId: RETRY_ID }),
+          ).resolves.toMatchObject({ success: true });
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBe(RETRY_ID);
+        });
+
+        it('a ticket on one tab does not block another tab', async () => {
+          const h = makeHarness({ execution: codexExecution() });
+          admitting(h);
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          await expect(
+            h.service.carryOver({
+              ...carryParams(),
+              tabId: 'another-tab',
+              requestId: RETRY_ID,
+            }),
+          ).resolves.toMatchObject({ success: true });
+          expect(h.service.claimResolutionRequestId('another-tab')).toBe(RETRY_ID);
+        });
       });
 
       it('a launch without a request ID passes no admission hook', async () => {

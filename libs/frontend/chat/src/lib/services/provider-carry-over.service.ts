@@ -29,8 +29,13 @@
  * Each launch carries a request ID (`requestId`, a UUID) that the host
  * stamps on its tab's next `SESSION_ID_RESOLVED` as `carryOverRequestId`.
  * A tagged resolution binds only the pending launch with the same ID; one
- * from an expired or replaced launch is aborted (R1). An untagged resolution
- * (a host that does not stamp) keeps the tab-based rules above.
+ * from an expired or replaced launch is aborted (R1). The host's tag lapses
+ * before this tab's release, and until the old launch is retired the host
+ * refuses a retry on the tab (`IN_FLIGHT`, shown as a short notice). So an
+ * untagged resolution never binds a pending launch: it is aborted as an
+ * expired launch's late result. After the release, an untagged resolution
+ * for a tab still on the refused session is the expired launch's and is
+ * aborted; one for a tab that started a new chat binds as usual.
  *
  * The renderer never holds transcript text: the host reads and renders it.
  * The launch path (offer check, both triggers, the launch RPC) lives in
@@ -39,12 +44,13 @@
  * the synchronous API sends and resolutions read.
  * Timers: one deadline timer per pending tab (the recovery deadline of an
  * indeterminate launch or the resolution deadline of an accepted one),
- * cleared whenever its entry leaves `pending`; the notice's
+ * cleared whenever its entry leaves `pending` and on destroy; the notice's
  * `ActionBannerService` auto-clear.
  */
 import {
   Injectable,
   computed,
+  type OnDestroy,
   inject,
   signal,
   type Signal,
@@ -57,7 +63,7 @@ import {
   type AuthRequiredBannerOrigin,
 } from '@ptah-extension/core';
 import {
-  CHAT_ADMISSION_RPC_TIMEOUT_MS,
+  CARRY_OVER_LATE_RESOLUTION_MS,
   type SessionId,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -84,18 +90,16 @@ export const CARRY_OVER_UNREADABLE_TEXT =
  */
 export const CARRY_OVER_RECOVERY_MS = 30_000;
 
-/**
- * How long after a recovery expiry a late `SESSION_ID_RESOLVED` of the expired
- * launch is still recognised as one, and skipped and aborted.
- */
-export const CARRY_OVER_LATE_RESOLUTION_MS = CHAT_ADMISSION_RPC_TIMEOUT_MS;
-
 /** Fixed text when the host answered the launch with an error envelope. */
 export const CARRY_OVER_START_FAILED_TEXT =
   "Couldn't start the new chat. Try again.";
 
 /** Notice when an indeterminate launch was released after the deadline. */
 export const CARRY_OVER_EXPIRED_TEXT = "The new chat didn't start. Try again.";
+
+/** Notice when the host refused the launch while an earlier one may start. */
+export const CARRY_OVER_IN_FLIGHT_TEXT =
+  'The previous new chat may still be starting. Try again in a moment.';
 
 /** The one-line notice shown after the new chat is bound (AC 4.3, 8.4). */
 export function carryOverNotice(providerName: string): string {
@@ -171,15 +175,10 @@ export interface ExpiredCarryOver {
   readonly tabId: string;
   readonly sessionId: SessionId;
   /**
-   * `Date.now()` after which an untagged resolution of the tab is no longer
-   * attributed to it.
+   * `Date.now()` after which a resolution of the tab, tagged with the
+   * launch's request ID or untagged, is no longer attributed to it.
    */
   readonly until: number;
-  /**
-   * `Date.now()` after which a resolution tagged with its request ID is no
-   * longer recognised; the host keeps the ID no longer than this.
-   */
-  readonly requestIdUntil: number;
 }
 
 /**
@@ -226,7 +225,7 @@ function loadLaunchModule(): Promise<LaunchModule> {
 }
 
 @Injectable({ providedIn: 'root' })
-export class ProviderCarryOverService {
+export class ProviderCarryOverService implements OnDestroy {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly vscode = inject(VSCodeService);
   private readonly authState = inject(AuthStateService);
@@ -361,7 +360,36 @@ export class ProviderCarryOverService {
       return this.claimTagged(tabId, realSessionId, requestId, entry);
     }
     if (!entry) return this.claimExpired(tabId, realSessionId);
-    return this.claimPending(tabId, realSessionId, entry);
+    return this.claimUntaggedPending(tabId, realSessionId, entry);
+  }
+
+  /** Releases the deadline timers when the injector is destroyed. */
+  ngOnDestroy(): void {
+    for (const timer of this.recoveryTimers.values()) clearTimeout(timer);
+    this.recoveryTimers.clear();
+  }
+
+  /**
+   * An untagged resolution while a launch holds the tab. The launch is
+   * tagged and the host stamps its resolution until after the tab's
+   * release, so this is not it: an older launch's late result, or one the
+   * host could not stamp. Never bind it; abort it, unless it is the old
+   * session or the session the tab is already bound to. The pending launch
+   * keeps waiting for its own resolution unless its tab is gone or rebound.
+   */
+  private claimUntaggedPending(
+    tabId: string,
+    realSessionId: string,
+    entry: PendingCarryOver,
+  ): CarryOverClaim {
+    if (realSessionId === entry.sessionId) return 'none';
+    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
+    if (lookup?.tab.claudeSessionId === realSessionId) return 'none';
+    if (!lookup || lookup.tab.claudeSessionId !== entry.sessionId) {
+      this.deletePending(tabId, entry);
+    }
+    this.abortSession(realSessionId as SessionId);
+    return 'skip';
   }
 
   /** Whether a carry-over binds `realSessionId` to `entry`'s tab. */
@@ -428,8 +456,7 @@ export class ProviderCarryOverService {
     }
     const marker = this.expired.get(requestId);
     if (marker) this.expired.delete(requestId);
-    const expiredLaunch =
-      marker !== undefined && Date.now() <= marker.requestIdUntil;
+    const expiredLaunch = marker !== undefined && Date.now() <= marker.until;
     if (!expiredLaunch && !entry) return 'none';
     // Never abort the session the tab is already bound to.
     const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
@@ -440,10 +467,11 @@ export class ProviderCarryOverService {
 
   /**
    * An untagged resolution for a tab with no pending entry. Within the late
-   * window of the tab's latest expired launch, a new session id that the tab
-   * is not already bound to is that launch's late result (or a duplicate of
-   * a retry that already bound): skip it and abort it, once. Anything else
-   * is `'none'`.
+   * window of the tab's latest expired launch, a new session id is that
+   * launch's late result (or a duplicate of a retry that already bound):
+   * skip it and abort it, once. It is `'none'` when the tab is already bound
+   * to it, or when the tab holds no session: a new chat started in the
+   * released tab is waiting for exactly this resolution (Finding 2).
    */
   private claimExpired(tabId: string, realSessionId: string): CarryOverClaim {
     const now = Date.now();
@@ -458,6 +486,7 @@ export class ProviderCarryOverService {
     if (realSessionId === marker.sessionId) return 'none';
     const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
     if (lookup?.tab.claudeSessionId === realSessionId) return 'none';
+    if (lookup && !lookup.tab.claudeSessionId) return 'none';
     this.expired.delete(requestId);
     this.abortSession(realSessionId as SessionId);
     return 'skip';

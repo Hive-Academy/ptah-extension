@@ -23,7 +23,7 @@ import {
   type MockRpcService,
 } from '@ptah-extension/core/testing';
 import {
-  CARRY_OVER_REQUEST_ID_TTL_MS,
+  CARRY_OVER_LATE_RESOLUTION_MS,
   CARRY_OVER_RESOLUTION_DEADLINE_MS,
   CHAT_ADMISSION_RPC_TIMEOUT_MS,
   type ChatCarryOverCheckResult,
@@ -36,7 +36,7 @@ import {
   CARRY_OVER_BUSY_TEXT,
   CARRY_OVER_CHECK_TIMEOUT_MS,
   CARRY_OVER_EXPIRED_TEXT,
-  CARRY_OVER_LATE_RESOLUTION_MS,
+  CARRY_OVER_IN_FLIGHT_TEXT,
   CARRY_OVER_NOTICE_MS,
   CARRY_OVER_RECOVERY_MS,
   CARRY_OVER_START_FAILED_TEXT,
@@ -97,6 +97,15 @@ describe('ProviderCarryOverService', () => {
 
   function callsOf(method: string): RecordedCall[] {
     return calls.filter((c) => c.method === method);
+  }
+
+  /** The request ID launch `index` sent; the host stamps it on its resolution. */
+  function requestIdOf(index = 0): string {
+    const params = callsOf('chat:carry-over')[index]?.params as
+      | { requestId?: string }
+      | undefined;
+    if (!params?.requestId) throw new Error(`no request ID on launch ${index}`);
+    return params.requestId;
   }
 
   /** Let pending microtasks (awaited RPCs) run. */
@@ -331,7 +340,7 @@ describe('ProviderCarryOverService', () => {
       expect(showInfo).not.toHaveBeenCalled();
       expect(auth.authRequiredBanner()).not.toBeNull();
 
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       expect(service.isPending(TAB)).toBe(true);
       service.completeBinding(TAB);
 
@@ -380,7 +389,7 @@ describe('ProviderCarryOverService', () => {
       launch.resolve(SUCCESS);
       await started;
       expect(service.claimSessionResolution(TAB_B, NEW)).toBe('none');
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       service.completeBinding(TAB);
       expect(showInfo).toHaveBeenCalledWith(expect.any(String), TAB, CARRY_OVER_NOTICE_MS);
     });
@@ -397,7 +406,7 @@ describe('ProviderCarryOverService', () => {
       });
       launch.resolve(SUCCESS);
       await started;
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       service.completeBinding(TAB);
       expect(auth.authRequiredBanner()).toEqual(
         expect.objectContaining({ generation: newer, message: 'newer refusal' }),
@@ -414,7 +423,7 @@ describe('ProviderCarryOverService', () => {
       tabs.delete(TAB);
       launch.resolve(SUCCESS);
       await started;
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('skip');
       expect(service.isPending(TAB)).toBe(false);
       expect(callsOf('chat:abort')).toHaveLength(0);
       service.completeBinding(TAB);
@@ -429,7 +438,7 @@ describe('ProviderCarryOverService', () => {
       tabs.set(TAB, { id: TAB, claudeSessionId: OTHER, name: 'x' });
       launch.resolve(SUCCESS);
       await started;
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('skip');
       expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
       expect(service.isPending(TAB)).toBe(false);
       expect(showInfo).not.toHaveBeenCalled();
@@ -440,7 +449,7 @@ describe('ProviderCarryOverService', () => {
       const launch = expectCall<ChatCarryOverResult>('chat:carry-over');
       const started = service.start(offer);
       await flush();
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       service.completeBinding(TAB);
       launch.resolve(SUCCESS);
       await started;
@@ -498,11 +507,17 @@ describe('ProviderCarryOverService', () => {
       expect(service.isPending(TAB)).toBe(false);
     });
 
-    it('IN_FLIGHT changes no UI and releases the tab', async () => {
+    it('IN_FLIGHT (host still holds an earlier launch) shows the retry notice, keeps the offer and releases the tab', async () => {
       const offer = await failWith(failure('IN_FLIGHT'));
       expect(service.offer()).toEqual(offer);
       expect(auth.authRequiredBanner()?.generation).toBe(offer.generation);
       expect(service.isPending(TAB)).toBe(false);
+      expect(showInfo).toHaveBeenCalledTimes(1);
+      expect(showInfo).toHaveBeenCalledWith(
+        CARRY_OVER_IN_FLIGHT_TEXT,
+        TAB,
+        CARRY_OVER_NOTICE_MS,
+      );
     });
 
     it.each(['HISTORY_UNREADABLE', 'START_FAILED'] as const)(
@@ -584,7 +599,7 @@ describe('ProviderCarryOverService', () => {
       launch.resolve(SUCCESS);
       expect(await started).toEqual({ success: true });
       expect(showInfo).not.toHaveBeenCalled();
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       service.completeBinding(TAB);
       expect(showInfo).toHaveBeenCalledWith(carryOverNotice('Codex'), TAB, CARRY_OVER_NOTICE_MS);
       expect(clear).not.toHaveBeenCalled();
@@ -831,7 +846,7 @@ describe('ProviderCarryOverService', () => {
 
     it('a resolution within the window binds as usual and cancels the deadline', async () => {
       await launchWith(TIMEOUT);
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, NEW, requestIdOf())).toBe('bind');
       service.completeBinding(TAB);
       expect(showInfo).toHaveBeenCalledTimes(1);
       jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
@@ -858,7 +873,7 @@ describe('ProviderCarryOverService', () => {
       const offer = await expireLaunch();
       expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
       await service.start(offer);
-      expect(service.claimSessionResolution(TAB, RETRY)).toBe('bind');
+      expect(service.claimSessionResolution(TAB, RETRY, requestIdOf(1))).toBe('bind');
       service.completeBinding(TAB);
       tabs.set(TAB, { id: TAB, claudeSessionId: RETRY, name: 'Refused chat' });
 
@@ -890,14 +905,6 @@ describe('ProviderCarryOverService', () => {
     afterEach(() => jest.useRealTimers());
 
     const TIMEOUT = rpcError<ChatCarryOverResult>('RPC timeout: chat:carry-over');
-
-    function requestIdOf(index: number): string {
-      const params = callsOf('chat:carry-over')[index]?.params as
-        | { requestId?: string }
-        | undefined;
-      if (!params?.requestId) throw new Error(`no request ID on launch ${index}`);
-      return params.requestId;
-    }
 
     it('each launch sends its own UUID request ID', async () => {
       const offer = await offerReady();
@@ -964,7 +971,7 @@ describe('ProviderCarryOverService', () => {
       expect(callsOf('chat:abort')).toHaveLength(0);
     });
 
-    it('a resolution without a request ID keeps the current behaviour', async () => {
+    it('an untagged resolution during a tagged pending launch is not bound', async () => {
       const offer = await offerReady();
       expectCall<ChatCarryOverResult>('chat:carry-over').resolve(TIMEOUT);
       await service.start(offer);
@@ -973,37 +980,109 @@ describe('ProviderCarryOverService', () => {
       const retried = service.start(offer);
       await flush();
 
-      // Untagged: the pending retry binds the first new session, as before.
-      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
-      expect(callsOf('chat:abort')).toHaveLength(0);
+      // The old launch's late init, untagged: aborted, the retry keeps the tab.
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
+      expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
+      expect(service.isPending(TAB)).toBe(true);
+      // The old session and an already-bound session are never aborted.
+      expect(service.claimSessionResolution(TAB, OLD)).toBe('none');
+      expect(callsOf('chat:abort')).toHaveLength(1);
+
+      expect(service.claimSessionResolution(TAB, RETRY, requestIdOf(1))).toBe('bind');
+      service.completeBinding(TAB);
       retry.resolve(SUCCESS);
       await retried;
     });
 
-    it('an expired request ID is recognised for CARRY_OVER_REQUEST_ID_TTL_MS', async () => {
+    it('old init after a retry: the host refuses the retry, the late untagged init is aborted, never bound as the retry', async () => {
       const offer = await offerReady();
-      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(TIMEOUT);
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
       await service.start(offer);
-      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
-      const expiredId = requestIdOf(0);
+      jest.advanceTimersByTime(CARRY_OVER_RESOLUTION_DEADLINE_MS);
+      expect(service.isPending(TAB)).toBe(false);
 
-      // Past the untagged window, the tag still identifies the launch.
-      jest.advanceTimersByTime(CARRY_OVER_LATE_RESOLUTION_MS + 1);
-      expect(service.claimSessionResolution(TAB, OTHER)).toBe('none');
-      expect(service.claimSessionResolution(TAB, NEW, expiredId)).toBe('skip');
+      // The host still holds launch A's ticket: the retry is refused.
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(failure('IN_FLIGHT'));
+      await service.start(offer);
+      expect(service.isPending(TAB)).toBe(false);
+      expect(service.offer()).toEqual(offer);
+      expect(showInfo).toHaveBeenLastCalledWith(
+        CARRY_OVER_IN_FLIGHT_TEXT,
+        TAB,
+        CARRY_OVER_NOTICE_MS,
+      );
+
+      // A's process inits late; its tag has lapsed, so it arrives untagged.
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
       expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
-      expect(CARRY_OVER_REQUEST_ID_TTL_MS).toBeGreaterThan(CARRY_OVER_LATE_RESOLUTION_MS);
+      expect(tabs.get(TAB)?.claudeSessionId).toBe(OLD);
+
+      // The retry now goes through and binds only its own session.
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
+      await service.start(offer);
+      expect(service.claimSessionResolution(TAB, RETRY, requestIdOf(2))).toBe('bind');
     });
 
-    it('an expired request ID lapses after its TTL', async () => {
+    it('an ordinary new chat in the released tab is not aborted', async () => {
+      const offer = await offerReady();
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
+      await service.start(offer);
+      jest.advanceTimersByTime(CARRY_OVER_RESOLUTION_DEADLINE_MS);
+      expect(service.isPending(TAB)).toBe(false);
+
+      // The user starts a fresh chat in the tab within the late window.
+      tabs.set(TAB, { id: TAB, claudeSessionId: null, name: 'New chat' });
+      expect(service.claimSessionResolution(TAB, OTHER)).toBe('none');
+      expect(callsOf('chat:abort')).toHaveLength(0);
+    });
+
+    it('an expired request ID is recognised for CARRY_OVER_LATE_RESOLUTION_MS', async () => {
       const offer = await offerReady();
       expectCall<ChatCarryOverResult>('chat:carry-over').resolve(TIMEOUT);
       await service.start(offer);
       jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
       const expiredId = requestIdOf(0);
-      jest.advanceTimersByTime(CARRY_OVER_REQUEST_ID_TTL_MS + 1);
+
+      jest.advanceTimersByTime(CARRY_OVER_LATE_RESOLUTION_MS);
+      expect(service.claimSessionResolution(TAB, NEW, expiredId)).toBe('skip');
+      expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
+    });
+
+    it('an expired request ID lapses after CARRY_OVER_LATE_RESOLUTION_MS', async () => {
+      const offer = await offerReady();
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(TIMEOUT);
+      await service.start(offer);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
+      const expiredId = requestIdOf(0);
+      jest.advanceTimersByTime(CARRY_OVER_LATE_RESOLUTION_MS + 1);
       expect(service.claimSessionResolution(TAB, NEW, expiredId)).toBe('none');
       expect(callsOf('chat:abort')).toHaveLength(0);
+    });
+
+    it("the host's tag and retry block end no later than the renderer's own windows", () => {
+      // Host tag: until min(admission + DEADLINE, receipt + RPC timeout).
+      // Accepted path: the renderer releases DEADLINE after acceptance,
+      // which follows admission.
+      const hostTagAfterAdmission = CARRY_OVER_RESOLUTION_DEADLINE_MS;
+      const rendererHoldAfterAcceptance = CARRY_OVER_RESOLUTION_DEADLINE_MS;
+      expect(hostTagAfterAdmission).toBeLessThanOrEqual(rendererHoldAfterAcceptance);
+      // Indeterminate path: the renderer releases RPC timeout + recovery
+      // after it sent the RPC, which precedes the host's receipt.
+      const hostTagAfterReceipt = CHAT_ADMISSION_RPC_TIMEOUT_MS;
+      const rendererHoldAfterSend = CHAT_ADMISSION_RPC_TIMEOUT_MS + CARRY_OVER_RECOVERY_MS;
+      expect(hostTagAfterReceipt).toBeLessThan(rendererHoldAfterSend);
+      // The host's retry block lasts LATE after its tag; the renderer's late
+      // window lasts LATE after its release, so it covers the whole block.
+      expect(CARRY_OVER_LATE_RESOLUTION_MS).toBe(CHAT_ADMISSION_RPC_TIMEOUT_MS);
+    });
+
+    it('destroying the service clears an armed deadline', async () => {
+      const offer = await offerReady();
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
+      await service.start(offer);
+      expect(jest.getTimerCount()).toBe(1);
+      service.ngOnDestroy();
+      expect(jest.getTimerCount()).toBe(0);
     });
   });
 
