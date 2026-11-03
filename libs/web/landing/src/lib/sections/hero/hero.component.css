@@ -110,7 +110,7 @@
   :host.is-in-story .title-frame { pointer-events: none; }
   :host.is-cinematic .story-layout { position: absolute; inset: 4rem 1.5rem 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: .5rem; min-width: 0; }
   :host.is-cinematic:not(.is-in-story) .story-layout { visibility: hidden; }
-  :host.is-cinematic .story-window { position: relative; width: 100%; aspect-ratio: 8 / 5; overflow: hidden; border-radius: .5rem; background: #08090c; box-shadow: 0 2rem 6rem rgb(0 0 0 / 65%), 0 0 4rem rgb(245 165 36 / 10%); }
+  :host.is-cinematic .story-window { position: relative; width: min(100%, calc((100svh - 64px - 8rem) * 1.6)); justify-self: center; aspect-ratio: 8 / 5; overflow: hidden; border-radius: .5rem; background: #08090c; box-shadow: 0 2rem 6rem rgb(0 0 0 / 65%), 0 0 4rem rgb(245 165 36 / 10%); }
   :host.is-cinematic .scene-track { position: absolute; z-index: 1; inset: 0 auto 0 0; display: flex; width: 400%; height: 100%; padding: 0; opacity: 0; will-change: transform; }
   :host.is-cinematic .story-scene { flex: 0 0 25%; width: 25%; height: 100%; margin: 0; overflow: hidden; }
   :host.is-cinematic .scene-frame { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border: 0; border-radius: 0; }

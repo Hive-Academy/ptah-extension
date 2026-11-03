@@ -417,7 +417,11 @@ export class HeroComponent {
         if (video !== active) this.pauseVideo(video);
         else if (video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !this.manualPaused.has(video)) {
           // Keep the poster visible until enough of the clip is ready to play.
-          void video.play().catch(() => this.manualPaused.add(video));
+          void video.play().catch((error: unknown) => {
+            // An AbortError means this component paused the clip while play() was pending,
+            // so the clip must keep autoplay. Other rejections block autoplay for that clip.
+            if (!(error instanceof DOMException && error.name === 'AbortError')) this.manualPaused.add(video);
+          });
         }
       } else if (this.document.hidden || (this.visibleRatios.get(video) ?? 0) < 0.15) {
         this.pauseVideo(video);

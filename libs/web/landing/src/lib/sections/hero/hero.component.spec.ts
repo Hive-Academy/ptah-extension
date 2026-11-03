@@ -252,6 +252,36 @@ describe('HeroComponent', () => {
     destroy();
   });
 
+  it('keeps autoplay after an aborted play() but stops it after a refused play()', async () => {
+    installBrowserMocks(true);
+    const { component, root, destroy } = mount('browser');
+    component['initialize']();
+    const videos = Array.from(root.querySelectorAll('video'));
+    const media = videos.map(mockMedia);
+    component['reducedMotion'] = false;
+    component.cinematic.set(true);
+    ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
+    component.activeChapter.set(0);
+
+    media[0].play.mockImplementationOnce(() => Promise.reject(new DOMException('paused', 'AbortError')));
+    component['syncPlayback']();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(component['manualPaused'].has(videos[0])).toBe(false);
+    component['syncPlayback']();
+    expect(media[0].play).toHaveBeenCalledTimes(2);
+
+    component['pauseVideo'](videos[0]); // A code pause, so the clip stays eligible for autoplay.
+    media[0].play.mockImplementationOnce(() => Promise.reject(new DOMException('blocked', 'NotAllowedError')));
+    component['syncPlayback']();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(component['manualPaused'].has(videos[0])).toBe(true);
+    component['syncPlayback']();
+    expect(media[0].play).toHaveBeenCalledTimes(3);
+    destroy();
+  });
+
   it('uses a custom play button in cinematic mode and waits for canplay', () => {
     installBrowserMocks(true);
     const { component, root, detectChanges, destroy } = mount('browser');
