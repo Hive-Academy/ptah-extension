@@ -90,6 +90,7 @@ import { sql as sql0061ProviderAccountLeaseHost } from './0061_provider_account_
 import { sql as sql0062ProviderAccountOperationHost } from './0062_provider_account_operation_host';
 import { sql as sql0063SessionAutoLinks } from './0063_session_auto_links';
 import { sql as sql0064LaneOutcomeTaskKindSource } from './0064_lane_outcome_task_kind_source';
+import { sql as sql0065PtahReview } from './0065_ptah_review';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -455,5 +456,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 64,
     name: '0064_lane_outcome_task_kind_source',
     sql: sql0064LaneOutcomeTaskKindSource,
+  },
+  {
+    version: 65,
+    name: '0065_ptah_review',
+    sql: sql0065PtahReview,
   },
 ];
