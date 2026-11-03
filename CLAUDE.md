@@ -42,6 +42,7 @@ main agent, every subagent and every CLI lane. Repeat them in any task prompt yo
 
 ## Git: start every task in its own worktree
 
+- Prefer `ptah_git_worktree_add` when listed; it links the worktree to the chat session. Otherwise use `git worktree add`.
 - Before you change any file for a new task, create a worktree on a new branch from `main`:
   `git worktree add -b <type>/<short-name> .claude-worktrees/<short-name> main`.
   `.claude-worktrees/` is git-ignored. Keep `<type>` to the commit type (`fix`, `feat`, ...).
