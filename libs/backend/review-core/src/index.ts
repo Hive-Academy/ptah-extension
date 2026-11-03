@@ -6,3 +6,7 @@ export { ReviewQueueService } from './lib/review-queue.service';
 export type { IReviewQueueRepository, IReviewClock, ReviewQueueHead, ReviewQueueAttempt, ReviewQueueClaim, ReviewQueueLease } from './lib/review-queue.service';
 export { SqliteReviewRepository } from './lib/persistence/sqlite-review.repository';
 export type { IReviewRepository, ReviewAttemptRecord, ReviewStageRecord } from './lib/persistence/review-repository.interface';
+export * from './lib/lanes/review-lane-selector';
+export * from './lib/lanes/review-lane-admission.service';
+export * from './lib/lanes/review-lane.runner';
+export * from './lib/lanes/review-output.parser';
