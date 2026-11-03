@@ -13,7 +13,7 @@ import {
 
 /** Column template shared by the AGENTS header row and every agent row. */
 export const AGENT_ROW_COLUMNS =
-  'grid-cols-[minmax(0,1fr)_3rem_3.5rem_3rem] gap-x-1.5';
+  'grid-cols-[minmax(0,1fr)_3rem_3rem_3.5rem_3rem] gap-x-1.5';
 
 /**
  * One AGENTS row: the provider avatar with its status badge, name and model,
@@ -74,15 +74,26 @@ export const AGENT_ROW_COLUMNS =
         >{{ r.cost }}</span
       >
       <span
+        class="truncate text-right text-[10.5px] tabular-nums"
+        data-testid="agent-row-time">{{ r.time }}</span>
+      <span
         class="truncate text-right text-[10.5px] font-medium {{ r.statusInk }}"
         >{{ r.statusText }}</span
       >
     </button>
+    @if (expandable()) {
+      <button type="button" class="ml-2 text-xs underline" [attr.aria-expanded]="expanded()"
+        [attr.aria-label]="(expanded() ? 'Collapse ' : 'Expand ') + r.name + ' details'"
+        (click)="expansionToggled.emit()">{{ expanded() ? 'Less' : 'Details' }}</button>
+    }
   `,
 })
 export class InspectorAgentRowComponent {
   readonly row = input.required<AgentListRow>();
   readonly selected = output<void>();
+  readonly expanded = input(false);
+  readonly expandable = input(false);
+  readonly expansionToggled = output<void>();
 
   protected readonly columns = AGENT_ROW_COLUMNS;
   protected readonly dash = NOT_REPORTED_VALUE;

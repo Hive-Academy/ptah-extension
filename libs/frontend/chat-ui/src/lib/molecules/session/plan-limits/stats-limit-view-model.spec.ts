@@ -433,12 +433,17 @@ describe('buildStatsLimitViewModel', () => {
   describe('F59 lane usage stays out of the session totals', () => {
     it('produces no session token or cost field', () => {
       const vm = buildStatsLimitViewModel(input({ laneRuns: [run()] }));
+      // Exact key list: a new session token or cost field must fail here.
       expect(Object.keys(vm).sort()).toEqual([
+        'inspectorRuns',
         'laneTiles',
         'lanesCount',
         'planTiles',
+        'providerLimits',
         'subtotal',
       ]);
+      expect(vm.inspectorRuns).toHaveLength(1);
+      expect(vm.providerLimits).toHaveLength(1);
     });
 
     it.each([
@@ -1079,5 +1084,42 @@ describe('buildStatsLimitViewModel', () => {
         'Refresh failed — showing last observed data',
       );
     });
+  });
+});
+
+describe('inspector provider grouping', () => {
+  it('deduplicates roles and keeps the shared strip output', () => {
+    const vm = buildStatsLimitViewModel(input({ laneRuns: [
+      run({ role: 'frontend' }), run({ role: 'backend' }), run({ role: 'docs' }),
+    ] }));
+    expect(vm.providerLimits).toHaveLength(1);
+    expect(vm.providerLimits[0].id).toBe('provider:ptah-cli');
+    expect(vm.inspectorRuns).toHaveLength(3);
+    expect(vm.laneTiles).toHaveLength(3);
+    expect(vm.subtotal).toBeDefined();
+  });
+
+  it('does not combine different recorded accounts into one percentage', () => {
+    const vm = buildStatsLimitViewModel(input({ laneRuns: [
+      run({ quotaOwner: CLAUDE_A }), run({ quotaOwner: CLAUDE_B }),
+    ] }));
+    expect(vm.providerLimits[0].ownerState).toBe('multiple');
+    expect(vm.providerLimits[0].windows).toHaveLength(0);
+    expect(vm.providerLimits[0].message).toBe('Multiple accounts');
+  });
+  it('does not attribute an unowned run to the only known account', () => {
+    const vm = buildStatsLimitViewModel(input({ laneRuns: [
+      run({ quotaOwner: CLAUDE_A }), run({ quotaOwner: null }),
+    ] }));
+    expect(vm.providerLimits[0]).toMatchObject({ ownerState: 'multiple', windows: [], message: 'Multiple accounts' });
+    expect(vm.providerLimits[0].ownerDetails).toContain('Unknown owner · Limits not tracked');
+  });
+
+  it('does not present a model-specific window as the whole provider when scopes differ', () => {
+    const vm = buildStatsLimitViewModel(input({
+      owners: [snapshot(CLAUDE_A, { windows: [weeklyOpusExhausted()] })],
+      laneRuns: [run({ modelScope: 'opus' }), run({ modelScope: 'sonnet' })],
+    }));
+    expect(vm.providerLimits[0]).toMatchObject({ windows: [], message: 'Multiple scopes · Usage unknown' });
   });
 });
