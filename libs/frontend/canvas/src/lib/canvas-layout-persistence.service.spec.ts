@@ -201,8 +201,8 @@ describe('CanvasLayoutPersistenceService', () => {
   });
 
   it('defaults invalid board fields while preserving valid tiles', () => {
-    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 3, tiles: intent, board: { mode: 'unknown', railCollapsed: true, railDensity: 'unknown', railScrollTop: -2 } }));
-    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'comfortable', railScrollTop: 0 } });
+    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 3, tiles: intent, board: { mode: 'unknown', railCollapsed: true, railDensity: 'unknown', railSort: 'unknown', railScrollTop: -2 } }));
+    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'comfortable', railSort: 'recent', railScrollTop: 0 } });
   });
 
   it('clears read-only paths when removed', () => {

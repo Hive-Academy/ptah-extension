@@ -96,6 +96,14 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       :host([data-state='running']) {
         --rail-state-ink: var(--state-ink-run, oklch(var(--in)));
       }
+      /* Between running and done: the turn ended, its background work runs on. */
+      :host([data-state='background']) {
+        --rail-state-ink: color-mix(
+          in oklch,
+          var(--state-ink-run, oklch(var(--in))) 55%,
+          var(--state-ink-done, oklch(var(--su)))
+        );
+      }
       :host([data-state='needs']) {
         --rail-state-ink: var(--state-ink-need, oklch(var(--wa)));
       }
@@ -337,33 +345,35 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
                 @if (!sessionId()) { <span [id]="'rail-organize-reason-' + tabId()" aria-hidden="true" class="text-xs text-base-content-muted">{{ draftReason }}</span> }
               </button>
             }
-            <div role="separator" class="my-1 border-t border-base-content/10"></div>
-            <button
-              type="button"
-              role="menuitem"
-              data-action="move-up"
-              class="btn btn-ghost btn-sm justify-start font-normal"
-              [class.opacity-60]="!canMoveUp()"
-              [attr.aria-disabled]="canMoveUp() ? null : 'true'"
-              [attr.aria-label]="canMoveUp() ? 'Move up' : 'Move up, first in group'"
-              [attr.title]="canMoveUp() ? null : 'First in group'"
-              (click)="moveUp()"
-            >
-              Move up
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              data-action="move-down"
-              class="btn btn-ghost btn-sm justify-start font-normal"
-              [class.opacity-60]="!canMoveDown()"
-              [attr.aria-disabled]="canMoveDown() ? null : 'true'"
-              [attr.aria-label]="canMoveDown() ? 'Move down' : 'Move down, last in group'"
-              [attr.title]="canMoveDown() ? null : 'Last in group'"
-              (click)="moveDown()"
-            >
-              Move down
-            </button>
+            @if (reorderable()) {
+              <div role="separator" class="my-1 border-t border-base-content/10"></div>
+              <button
+                type="button"
+                role="menuitem"
+                data-action="move-up"
+                class="btn btn-ghost btn-sm justify-start font-normal"
+                [class.opacity-60]="!canMoveUp()"
+                [attr.aria-disabled]="canMoveUp() ? null : 'true'"
+                [attr.aria-label]="canMoveUp() ? 'Move up' : 'Move up, first in group'"
+                [attr.title]="canMoveUp() ? null : 'First in group'"
+                (click)="moveUp()"
+              >
+                Move up
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-action="move-down"
+                class="btn btn-ghost btn-sm justify-start font-normal"
+                [class.opacity-60]="!canMoveDown()"
+                [attr.aria-disabled]="canMoveDown() ? null : 'true'"
+                [attr.aria-label]="canMoveDown() ? 'Move down' : 'Move down, last in group'"
+                [attr.title]="canMoveDown() ? null : 'Last in group'"
+                (click)="moveDown()"
+              >
+                Move down
+              </button>
+            }
             <div role="separator" class="my-1 border-t border-base-content/10"></div>
             <button
               type="button"
@@ -460,6 +470,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly index = input(1);
   readonly holdText = input(false);
   readonly state = input<CompactRailState>('idle');
+  /** False while the rail sorts by recent activity: a manual move would not show. */
+  readonly reorderable = input(true);
   readonly canMoveUp = input(false);
   readonly canMoveDown = input(false);
   /** Why Open beside is unavailable for this card; null when it is available. */
@@ -568,6 +580,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
         target.matches('.rc-select, .rail-collapsed'));
     const move = railMoveKey(event);
     if (move && onSelect) {
+      if (!this.reorderable()) return;
       if (move === 'up' && this.canMoveUp()) {
         this.moveUpRequested.emit(this.tabId());
         event.preventDefault();
@@ -627,12 +640,12 @@ export class CanvasRailCardComponent implements SessionCardActions {
     this.menuOpen.set(!this.menuOpen());
   }
   moveUp(): void {
-    if (!this.canMoveUp()) return;
+    if (!this.reorderable() || !this.canMoveUp()) return;
     this.closeMenu();
     this.moveUpRequested.emit(this.tabId());
   }
   moveDown(): void {
-    if (!this.canMoveDown()) return;
+    if (!this.reorderable() || !this.canMoveDown()) return;
     this.closeMenu();
     this.moveDownRequested.emit(this.tabId());
   }

@@ -622,6 +622,23 @@ describe('CanvasRailCardComponent', () => {
     expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down', 'toggle-view', 'hand-off', 'close-session']);
   });
 
+  it('drops Move up and Move down, and their keys, while the rail is not in manual order', async () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('reorderable', false);
+    fixture.componentRef.setInput('canMoveUp', true);
+    fixture.componentRef.setInput('canMoveDown', true);
+    fixture.detectChanges();
+    const up = jest.fn();
+    fixture.componentInstance.moveUpRequested.subscribe(up);
+    const select = (fixture.nativeElement as HTMLElement).querySelector('.rc-select') as HTMLElement;
+    expect(keydown(select, 'ArrowUp', { altKey: true, shiftKey: true }).defaultPrevented).toBe(false);
+    fixture.componentInstance.moveUp();
+    expect(up).not.toHaveBeenCalled();
+    const host = await openMenu(fixture);
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action')))
+      .toEqual(['open-beside', 'rename', 'toggle-view', 'hand-off', 'close-session']);
+  });
+
   it('keeps draft Rename and Organize focusable with the save reason', async () => {
     persisted = false;
     available.set(true);

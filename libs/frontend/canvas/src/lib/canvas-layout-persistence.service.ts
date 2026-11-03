@@ -47,6 +47,8 @@ const boardSchema = z.strictObject({
   mode: z.enum(['rail', 'grid']).catch('rail').transform(() => 'rail' as const),
   railCollapsed: z.boolean().catch(false),
   railDensity: z.enum(['comfortable', 'dense']).catch('comfortable'),
+  // Absent in boards saved before the sort choice existed.
+  railSort: z.enum(['recent', 'manual']).catch('recent'),
   railScrollTop: z.number().int().nonnegative().max(1_000_000).catch(0),
 });
 

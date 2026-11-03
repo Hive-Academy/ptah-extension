@@ -29,6 +29,7 @@ import {
   DEFAULT_BOARD_STATE,
   type CanvasBoardState,
   type CanvasRailDensity,
+  type CanvasRailSort,
 } from './canvas-board-mode';
 
 /**
@@ -254,6 +255,10 @@ export class CanvasStore {
 
   setRailDensity(path: string, density: CanvasRailDensity): void {
     this.updateBoard(path, { railDensity: density });
+  }
+
+  setRailSort(path: string, sort: CanvasRailSort): void {
+    this.updateBoard(path, { railSort: sort });
   }
 
   setRailScrollTop(path: string, px: number): void {
