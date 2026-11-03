@@ -1,13 +1,15 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { ReviewStateSchema } from '@ptah-extension/review-contracts';
 import { ReviewRunsStore } from '../review-runs.store';
 import { ReviewRepositoriesComponent } from './review-repositories.component';
 import { ReviewRunsListComponent } from './review-runs-list.component';
+import { ReviewRunDetailComponent } from './review-run-detail.component';
+import { ReviewSettingsDrawerComponent } from './review-settings-drawer.component';
 
 @Component({
   selector: 'ptah-review-runs-page',
   standalone: true,
-  imports: [ReviewRepositoriesComponent, ReviewRunsListComponent],
+  imports: [ReviewRepositoriesComponent, ReviewRunsListComponent, ReviewRunDetailComponent, ReviewSettingsDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="p-4 md:p-6">
@@ -17,7 +19,7 @@ import { ReviewRunsListComponent } from './review-runs-list.component';
             @if (store.lastRefreshedAt(); as refreshed) { <p class="mt-1 text-xs text-base-content-muted">Last refreshed {{ refreshed.toLocaleString() }}</p> }
           </div>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" [disabled]="store.isRefreshing()" (click)="store.load()">Refresh</button>
+        <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" [disabled]="store.isRefreshing()" (click)="store.load()">Refresh</button></div>
       </header>
       @if (store.state() === 'offline') {
         <div class="alert alert-warning mt-4" role="alert"><span>Review service is unavailable. Showing cached runs from {{ store.lastRefreshedAt()?.toLocaleString() }}. Live publication status is unavailable.</span><button class="btn btn-ghost btn-sm" (click)="store.load()">Retry connection</button></div>
@@ -52,12 +54,16 @@ import { ReviewRunsListComponent } from './review-runs-list.component';
           }
         </section>
       </div>
+      @if (store.selectedRun(); as run) { <ptah-review-run-detail [run]="run" [loadState]="store.detailState()" (retry)="store.loadRun(run.attemptId)" (closed)="store.closeRun()" /> }
+      @if (settingsOpen()) { <ptah-review-settings-drawer [repository]="store.repositories()[0] ?? null" [settings]="store.settings()" [loadState]="store.settingsState()" (retry)="store.loadSettings()" (closed)="settingsOpen.set(false)" /> }
     </main>
   `,
 })
 export class ReviewRunsPageComponent implements OnInit {
   readonly store = inject(ReviewRunsStore);
+  readonly settingsOpen = signal(false);
   readonly statuses = ReviewStateSchema.options;
+  openSettings(): void { this.settingsOpen.set(true); void this.store.loadSettings(); }
   ngOnInit(): void { void this.store.load(); }
   setRepo(event: Event): void { const target = event.target; if (target instanceof HTMLSelectElement) this.store.setRepoFilter(target.value); }
   setState(event: Event): void {

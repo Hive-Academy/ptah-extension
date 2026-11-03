@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { ReviewRpcSchemas, ReviewStateSchema, type RepositorySettings, type ReviewRun } from '@ptah-extension/review-contracts';
+import { ReviewRpcSchemas, ReviewStateSchema, type OperatorSettings, type RepositorySettings, type ReviewRun } from '@ptah-extension/review-contracts';
 import type { z } from 'zod';
 
 export type ReviewListState = 'loading' | 'ready' | 'offline' | 'error' | 'no-lanes';
@@ -16,6 +16,10 @@ export class ReviewRunsStore {
   readonly stateFilter = signal<ReviewStateFilter>('all');
   readonly lastRefreshedAt = signal<Date | null>(null);
   readonly selectedAttemptId = signal<string | null>(null);
+  readonly selectedRun = signal<ReviewRun | null>(null);
+  readonly detailState = signal<'loading' | 'ready' | 'error'>('ready');
+  readonly settings = signal<OperatorSettings | null>(null);
+  readonly settingsState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly isRefreshing = signal(false);
   readonly hasCache = computed(() => this.lastRefreshedAt() !== null);
   readonly filteredRuns = computed(() => this.runs().filter((run) =>
@@ -46,11 +50,32 @@ export class ReviewRunsStore {
   setRepoFilter(repo: string): void { this.repoFilter.set(repo); }
   setStateFilter(state: ReviewStateFilter): void { this.stateFilter.set(state); }
   clearFilters(): void { this.repoFilter.set('all'); this.stateFilter.set('all'); }
-  selectRun(attemptId: string): void { this.selectedAttemptId.set(attemptId); }
+  selectRun(attemptId: string): void {
+    this.selectedAttemptId.set(attemptId);
+    this.selectedRun.set(this.runs().find(run => run.attemptId === attemptId) ?? null);
+    void this.loadRun(attemptId);
+  }
+  closeRun(): void { this.selectedAttemptId.set(null); this.selectedRun.set(null); }
+  async loadRun(attemptId: string): Promise<void> {
+    this.detailState.set('loading');
+    try {
+      const run = await this.request('review:getRun', ReviewRpcSchemas['review:getRun'].params.parse({ attemptId }), ReviewRpcSchemas['review:getRun'].result);
+      if (this.selectedAttemptId() !== attemptId) return;
+      if (run === null) { this.detailState.set('error'); return; }
+      this.selectedRun.set(run); this.detailState.set('ready');
+    } catch { if (this.selectedAttemptId() === attemptId) this.detailState.set('error'); }
+  }
+  async loadSettings(): Promise<void> {
+    this.settingsState.set('loading');
+    try {
+      this.settings.set(await this.request('review:getSettings', ReviewRpcSchemas['review:getSettings'].params.parse({}), ReviewRpcSchemas['review:getSettings'].result));
+      this.settingsState.set('ready');
+    } catch { this.settingsState.set('error'); }
+  }
   /** Integration may report lane availability independently of the list RPC. */
   setNoLanesAvailable(): void { this.state.set('no-lanes'); }
 
-  private async request<T>(method: 'review:listRepositories' | 'review:listRuns', params: object, schema: z.ZodType<T>): Promise<T> {
+  private async request<T>(method: 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings', params: object, schema: z.ZodType<T>): Promise<T> {
     // P1-16 adds review methods to the shared RPC method union. Parse results meanwhile.
     const call = this.rpc.call as (method: string, params: object, options: { timeout: number }) => Promise<{ isSuccess(): boolean; data: unknown }>;
     const response = await call.call(this.rpc, method, params, { timeout: 5_000 });
