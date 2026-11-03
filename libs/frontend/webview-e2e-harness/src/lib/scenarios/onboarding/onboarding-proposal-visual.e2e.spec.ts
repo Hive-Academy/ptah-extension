@@ -153,6 +153,7 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         await shoot(page, {
           view: `${size.prefix}workspace-first-revision`,
           theme,
+          busyExempt: '[data-testid="details-log-body"]',
         });
       });
 
@@ -181,6 +182,7 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         await shoot(page, {
           view: `${size.prefix}workspace-second-revision`,
           theme,
+          busyExempt: '[data-testid="details-log-body"]',
         });
       });
 
