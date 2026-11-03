@@ -133,6 +133,31 @@ describe('inspector CLI lane usage', () => {
     });
   });
 
+  it('shows a restored Codex lane estimate in the AGENTS row', () => {
+    const restored: MonitoredAgent = {
+      ...codexDone,
+      restored: true,
+      usageTotals: null,
+      segments: [{ type: 'info', content: 'usage', usage: {
+        inputTokens: 900, outputTokens: 100, cacheReadTokens: 800,
+      } }],
+    };
+    const result = laneUsage(roster, { ...sources, cli: restored }, 2_000);
+    const row = agentListRow({
+      agent: roster,
+      secondary: 'CLI lane',
+      secondaryTitle: null,
+      usage: result.usage,
+      durationMs: null,
+      requests: [],
+      tray: null,
+      hasActions: false,
+    });
+    expect(result.usage.cost).toBeCloseTo(0.00136);
+    expect(result.usage.costPartial).toBe(true);
+    expect(row.cost).toContain('~');
+  });
+
   it('keeps a reported lane cost over the estimate', () => {
     const reported = {
       ...codexDone,

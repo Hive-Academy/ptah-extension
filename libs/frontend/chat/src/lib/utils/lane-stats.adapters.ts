@@ -23,6 +23,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   NOT_REPORTED,
+  extractCliAgentStats,
   usageTotalsFromSegments,
 } from '../components/molecules/agent-card/stats-bar.utils';
 
@@ -152,8 +153,12 @@ export function estimateCliLaneCost(
 export function cliLaneStats(agent: MonitoredAgent): AgentLaneStatsView {
   const { usage, structured, partial, tokens, tokensExact } =
     resolveCliLaneUsage(agent);
+  // Restored cards have no structured totals. Their retained usage segments
+  // still carry the cache split needed to price a Codex lane.
+  const costUsage = structured ?? (agent.restored ? extractCliAgentStats(agent.segments) : usage);
+  const cost = usage?.costUsd ?? estimateCliLaneCost(agent, costUsage);
   return {
-    model: agent.model ?? null,
+    model: agent.model ?? costUsage?.model ?? null,
     contextTokens: structured?.contextTokens ?? null,
     tokens,
     // Only a host-reported total is safe to display as exact. Split counts
@@ -167,8 +172,8 @@ export function cliLaneStats(agent: MonitoredAgent): AgentLaneStatsView {
           ['cache write', structured?.cacheWriteTokens],
         ])
       : null,
-    cost: usage?.costUsd,
-    costPartial: partial && usage?.costUsd !== undefined,
+    cost: cost ?? undefined,
+    costPartial: partial && cost != null,
     cache: null,
     cacheTitle: null,
   };

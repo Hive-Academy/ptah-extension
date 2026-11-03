@@ -2363,6 +2363,26 @@ describe('AgentMonitorStore', () => {
       expect(card('restored-legacy')?.quotaOwner).toBeUndefined();
     });
 
+    it('restores a Codex model so retained usage can be priced', () => {
+      const codexId = AgentId.create();
+      store.loadCliSessions([{
+        cliSessionId: 'codex-session',
+        agentId: codexId,
+        cli: 'codex',
+        model: 'gpt-6-sol',
+        task: 'Priced task',
+        startedAt: '2026-09-01T00:00:00.000Z',
+        status: 'completed',
+        segments: [{ type: 'info', content: 'usage', usage: {
+          inputTokens: 900, outputTokens: 100, cacheReadTokens: 800,
+        } }],
+      }], 'sess-restore');
+      const restored = card(codexId);
+      expect(restored?.model).toBe('gpt-6-sol');
+      expect(restored?.usageTotals).toBeNull();
+      expect(restored?.restored).toBe(true);
+    });
+
     it('lets a backend null modelScope clear a known scope, while an absent value keeps it', () => {
       spawnLane('lane-scope', { modelScope: 'sonnet' });
 

@@ -2000,6 +2000,7 @@ export class AgentMonitorStore implements OnDestroy {
         next = insertAgentSorted(next, {
           agentId: ref.agentId,
           cli: ref.cli,
+          model: ref.model,
           task: ref.task,
           status: ref.status,
           startedAt: Number.isNaN(ts) ? Date.now() : ts,

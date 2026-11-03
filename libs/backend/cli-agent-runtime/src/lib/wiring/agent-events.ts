@@ -457,6 +457,7 @@ export function persistCliSessionReference(
         ? { replacesCliSessionIds: info.replacesCliSessionIds }
         : {}),
       cli: info.cli,
+      ...(info.model ? { model: info.model } : {}),
       agentId: info.agentId,
       task: info.task,
       startedAt: info.startedAt,
