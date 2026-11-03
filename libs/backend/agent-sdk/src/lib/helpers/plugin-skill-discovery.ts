@@ -61,7 +61,16 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
 
       const skillMdPath = join(entryPath, 'SKILL.md');
 
-      const content = readFileSync(skillMdPath, 'utf-8');
+      // A skill directory without a readable SKILL.md is not a skill — for
+      // example a folder the content sync emptied when a skill was removed
+      // upstream. Skip it: one bad entry must not abort every caller (the
+      // workspace analysis failed with ENOENT on exactly this).
+      let content: string;
+      try {
+        content = readFileSync(skillMdPath, 'utf-8');
+      } catch {
+        continue;
+      }
       const { name, description } = parseFrontmatter(content);
       if (name) {
         skills.push({

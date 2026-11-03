@@ -661,6 +661,34 @@ describe('ContentDownloadService', () => {
       expect(fs.existsSync(stale)).toBe(false);
     });
 
+    it('removes the directories a pruned skill leaves empty', async () => {
+      // A skill removed upstream used to stay behind as an empty
+      // `skills/<id>/references/` tree. Skill discovery reads SKILL.md from
+      // every folder under `skills/`, so the workspace analysis failed with
+      // ENOENT until the folder was deleted by hand.
+      const skillDir = path.join(PLUGINS_DIR, 'ptah-core', 'skills', 'gone');
+      seedFile(path.join(skillDir, 'SKILL.md'), '# removed upstream');
+      seedFile(path.join(skillDir, 'references', 'a.md'), '# ref');
+      // Empty folders outside manifest-owned roots are not ours to remove.
+      const foreignEmpty = path.join(PLUGINS_DIR, 'my-own-plugin', 'empty');
+      fs.mkdirSync(foreignEmpty, { recursive: true });
+      // ...and neither are empty folders under the reserved `external` root.
+      const externalEmpty = path.join(PLUGINS_DIR, 'external', 'x', 'empty');
+      fs.mkdirSync(externalEmpty, { recursive: true });
+      routeManifestOwningPtahCore();
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(skillDir)).toBe(false);
+      expect(fs.existsSync(foreignEmpty)).toBe(true);
+      expect(fs.existsSync(externalEmpty)).toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(PLUGINS_DIR, 'ptah-core', '.claude-plugin', 'plugin.json'),
+        ),
+      ).toBe(true);
+    });
+
     it('announces the prune on STDERR and writes nothing to stdout', async () => {
       // `ptah`'s stdout is the JSON-RPC NDJSON channel and nothing else, and
       // `ensureContent()` runs fire-and-forget on every
