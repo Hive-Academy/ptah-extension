@@ -59,7 +59,7 @@ import {
   registerSdkServices,
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
-import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { PERSISTENCE_TOKENS, SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
@@ -346,6 +346,11 @@ function buildMinimalContainer(): DependencyContainer {
   c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(
     SessionStatsReaderService,
     { useValue: { scanDatedUsage: jest.fn() } },
+  );
+  // Production binds this class token in registerSessionStoreServices during phase 1.
+  c.register<Pick<SessionStatsRepository, 'getWorkspaceCoverage'>>(
+    SessionStatsRepository,
+    { useValue: { getWorkspaceCoverage: jest.fn() } },
   );
   registerUsageAnalytics(c);
   registerSharedRpcHandlers(c);

@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import {
   AnalyticsRpcHandlers,
@@ -38,6 +39,7 @@ export const EXPECTED_RESOLVABLE = [
 
 /** Lib-owned tokens composed by Electron in addition to handler classes. */
 export const EXPECTED_RESOLVABLE_TOKENS = [
+  ['SESSION_USAGE_SINK', PLATFORM_TOKENS.SESSION_USAGE_SINK],
   ['HOST_ROUTING_COORDINATOR', CHAT_TOKENS.HOST_ROUTING_COORDINATOR],
   ['HOST_ROUTING_SETTING', LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING],
   ['LANE_TASK_KIND_CLASSIFIER', LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER],

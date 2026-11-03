@@ -98,6 +98,27 @@ export type {
   SessionStatsScopeSelection,
 } from './lib/session-stats';
 
+// Durable live usage capture (TASK_2026_870 Phase 1). The sink is an
+// optional host binding under `SESSION_USAGE_SINK`, implemented by
+// `persistence-sqlite` and bound in `registerSessionStoreServices`; every
+// producer hook is a no-op without it.
+export {
+  sessionUsageContributionSchema,
+  parseSessionUsageContribution,
+  usdToMicroUsd,
+  SESSION_USAGE_SINK,
+  SESSION_USAGE_PRODUCERS,
+  SESSION_USAGE_COST_AUTHORITIES,
+  MAX_USAGE_MODELS_PER_CONTRIBUTION,
+} from './lib/session-stats/session-usage-sink';
+export type {
+  SessionUsageContribution,
+  SessionUsageModelDelta,
+  SessionUsageProducer,
+  SessionUsageCostAuthority,
+  SessionUsageSink,
+} from './lib/session-stats/session-usage-sink';
+
 // Session budget (TASK_2026_597 N7): resolved by rpc-handlers through
 // `SDK_TOKENS.SDK_SESSION_BUDGET` to publish the advisory state on load.
 export { SessionBudgetService } from './lib/helpers/session-budget/session-budget.service';
