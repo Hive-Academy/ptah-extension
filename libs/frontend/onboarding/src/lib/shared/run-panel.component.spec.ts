@@ -92,4 +92,22 @@ describe('RunPanelComponent', () => {
     expect(alert?.textContent).not.toContain('/private/workspace');
     expect(alert?.textContent).not.toContain('token=abc123');
   });
+
+  it('uses one polite message region and updates it on a state change', () => {
+    const { fixture, el } = render('running');
+    fixture.componentRef.setInput('message', 'Reading the workspace.');
+    fixture.detectChanges();
+    const live = el.querySelector('[role="status"]') as HTMLElement;
+    expect(el.querySelector('section')?.getAttribute('data-tone')).toBe('run');
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent).toContain('Reading the workspace.');
+    fixture.detectChanges();
+    expect(el.querySelector('[role="status"]')).toBe(live);
+    fixture.componentRef.setInput('state', 'done');
+    fixture.componentRef.setInput('message', 'Workspace analysis complete.');
+    fixture.detectChanges();
+    expect(el.querySelector('section')?.getAttribute('data-tone')).toBe('done');
+    expect(el.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(live.textContent).toContain('Workspace analysis complete.');
+  });
 });
