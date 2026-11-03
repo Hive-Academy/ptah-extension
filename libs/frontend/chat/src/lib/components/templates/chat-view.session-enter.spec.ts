@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, NgModule, NgZone, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, NgModule, NgZone, input, output, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { encapsulateStyle } from '@angular/compiler';
@@ -42,7 +42,7 @@ import { TranscriptMotionDirective } from '../organisms/transcript/transcript-mo
   standalone: true,
   imports: [TranscriptMotionDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div [ptahTranscriptMotion]="messages()" [active]="active()"
+  template: `<div [ptahTranscriptMotion]="messages()" [active]="active()" [paneSwitching]="paneSwitching()"
       [class.ptah-pane-switch-pending]="paneSwitching() && !entering()">
       @for (message of messages(); track message.id) {
         <div class="chat-msg-item" [attr.data-ptah-msg-item]="message.id"></div>
@@ -51,6 +51,7 @@ import { TranscriptMotionDirective } from '../organisms/transcript/transcript-mo
 })
 class TranscriptStubComponent {
   readonly tabId = input.required<string>();
+  readonly entranceScrollRestored = output<void>();
   readonly entering = input(false);
   readonly leaving = input(false);
   readonly overlapping = input(false);
@@ -141,6 +142,7 @@ function mount(): {
       imports: [TranscriptStubComponent],
       template: `@for (tabId of ['A', 'B']; track tabId) {
         <ptah-chat-transcript [tabId]="tabId" [entering]="tabId === enteringTabId()"
+          (entranceScrollRestored)="onEntranceScrollRestored(tabId)"
           [paneSwitching]="tabId === pendingEntranceTabId() || tabId === enteringTabId()"
           [active]="tabId === resolvedTabId()"
           [messages]="resolvedMessages()"
@@ -189,7 +191,7 @@ describe('ChatView session entrance', () => {
 
   it('does not replay for a view-mode change or first session id on the same tab', () => {
     const h = mount(); fixture = h.fixture;
-    jest.advanceTimersByTime(640); fixture.detectChanges();
+    jest.advanceTimersByTime(180); fixture.detectChanges();
     h.viewMode.set('compact'); h.sessionId.set('session-A'); fixture.detectChanges();
     expect(transcripts().every((item) => !item.entering())).toBe(true);
     expect(fixture.nativeElement.classList.contains('is-entering')).toBe(false);
@@ -198,16 +200,16 @@ describe('ChatView session entrance', () => {
   it('does not rearm the pane entrance timer when a streamed message arrives', () => {
     const h = mount(); fixture = h.fixture;
     h.activeTabId.set('B'); fixture.detectChanges();
-    jest.advanceTimersByTime(200);
+    jest.advanceTimersByTime(100);
     h.messages.set([{ id: 'streamed' }]); fixture.detectChanges();
     expect(transcripts()[1].entering()).toBe(true);
-    jest.advanceTimersByTime(440); fixture.detectChanges();
+    jest.advanceTimersByTime(80); fixture.detectChanges();
     expect(transcripts().every((item) => !item.entering())).toBe(true);
   });
 
-  it('clears at 640 ms', () => {
+  it('clears at 180 ms', () => {
     const h = mount(); fixture = h.fixture;
-    jest.advanceTimersByTime(639); fixture.detectChanges();
+    jest.advanceTimersByTime(179); fixture.detectChanges();
     expect(transcripts()[0].entering()).toBe(true);
     jest.advanceTimersByTime(1); fixture.detectChanges();
     expect(transcripts()[0].entering()).toBe(false);
@@ -220,12 +222,12 @@ describe('ChatView session entrance', () => {
     const component = fixture.componentInstance as unknown as { enteringTabId(): string | null };
     expect(component.enteringTabId()).toBe('B');
     const call = setSpy.mock.calls.map((args, i) => ({ args, id: setSpy.mock.results[i].value }))
-      .filter((c) => c.args[1] === 640).at(-1);
+      .filter((c) => c.args[1] === 180).at(-1);
     expect(call).toBeDefined();
     const clearSpy = jest.spyOn(global, 'clearTimeout');
     fixture.destroy(); fixture = undefined;
     expect(clearSpy).toHaveBeenCalledWith(call!.id);
-    jest.advanceTimersByTime(640);
+    jest.advanceTimersByTime(180);
     expect(component.enteringTabId()).toBe('B');
     setSpy.mockRestore(); clearSpy.mockRestore();
   });
@@ -242,7 +244,7 @@ describe('ChatView session entrance', () => {
       try { return fn(); } finally { outsideDepth--; }
     }));
     const setSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((...args: Parameters<typeof setTimeout>) => {
-      if (args[1] === 640) timerOutside = outsideDepth > 0;
+      if (args[1] === 180) timerOutside = outsideDepth > 0;
       return originalSetTimeout(...args);
     }) as typeof setTimeout);
     h.activeTabId.set('B'); fixture.detectChanges();
@@ -253,41 +255,55 @@ describe('ChatView session entrance', () => {
   it('restarts one timer for rapid A to B to A', () => {
     const h = mount(); fixture = h.fixture;
     h.activeTabId.set('B'); fixture.detectChanges();
-    jest.advanceTimersByTime(200);
+    jest.advanceTimersByTime(100);
     h.activeTabId.set('A'); fixture.detectChanges();
-    jest.advanceTimersByTime(200); fixture.detectChanges();
+    jest.advanceTimersByTime(100); fixture.detectChanges();
     expect(transcripts().map((item) => item.entering())).toEqual([true, false]);
-    jest.advanceTimersByTime(440); fixture.detectChanges();
+    jest.advanceTimersByTime(80); fixture.detectChanges();
     expect(transcripts().every((item) => !item.entering())).toBe(true);
   });
 
-  it('keeps the previous tab through one leave window', () => {
+  it('keeps the previous tab until the entering scroller restores its offset', () => {
     const h = mount(); fixture = h.fixture;
     const component = fixture.componentInstance as unknown as { leavingTabId(): string | null };
     expect(component.leavingTabId()).toBeNull();
     h.activeTabId.set('B'); fixture.detectChanges();
     expect(component.leavingTabId()).toBe('A');
-    jest.advanceTimersByTime(220); fixture.detectChanges();
+    transcripts()[1].entranceScrollRestored.emit(); fixture.detectChanges();
+    expect(component.leavingTabId()).toBeNull();
+    jest.advanceTimersByTime(180); fixture.detectChanges();
     expect(component.leavingTabId()).toBeNull();
   });
 
-  it('reads updated motion tokens for entrance and leave windows', () => {
+  it('cuts the old pane as the new pane enters for one short window', () => {
     const h = mount(); fixture = h.fixture;
+    const styleSpy = jest.spyOn(global, 'getComputedStyle');
     const host: HTMLElement = fixture.nativeElement;
     host.style.setProperty('--ptah-stagger-step', '40ms');
     host.style.setProperty('--ptah-motion-in', '400ms');
     host.style.setProperty('--ptah-motion-switch', '700ms');
     host.style.setProperty('--ptah-motion-out', '300ms');
     h.activeTabId.set('B'); fixture.detectChanges();
-    expect(transcripts().map((item) => item.overlapping())).toEqual([true, false]);
-    jest.advanceTimersByTime(339); fixture.detectChanges();
+    expect(styleSpy).not.toHaveBeenCalled();
     expect(transcripts()[0].leaving()).toBe(true);
-    jest.advanceTimersByTime(1); fixture.detectChanges();
-    expect(transcripts()[0].leaving()).toBe(false);
-    jest.advanceTimersByTime(403); fixture.detectChanges();
+    transcripts()[1].entranceScrollRestored.emit(); fixture.detectChanges();
+    expect(transcripts().every((item) => !item.leaving())).toBe(true);
+    jest.advanceTimersByTime(179); fixture.detectChanges();
     expect(transcripts()[1].entering()).toBe(true);
     jest.advanceTimersByTime(1); fixture.detectChanges();
     expect(transcripts()[1].entering()).toBe(false);
+    styleSpy.mockRestore();
+  });
+
+  it('retains the last painted pane across two empty destinations', () => {
+    const h = mount(); fixture = h.fixture;
+    const view = fixture.componentInstance as unknown as { leavingTabId(): string | null };
+    h.activeTab.set({ id: 'B', messages: [], status: 'resuming' });
+    h.activeTabId.set('B'); fixture.detectChanges();
+    expect(view.leavingTabId()).toBe('A');
+    h.activeTab.set({ id: 'C', messages: [], status: 'resuming' });
+    h.activeTabId.set('C'); fixture.detectChanges();
+    expect(view.leavingTabId()).toBe('A');
   });
 
   it('waits for history before the entrance of an empty resuming tab', () => {
@@ -301,10 +317,26 @@ describe('ChatView session entrance', () => {
     expect(transcripts()[0].overlapping()).toBe(false);
     h.activeTab.set({ id: 'B', messages: [{}], status: 'resuming' }); fixture.detectChanges();
     expect(transcripts().map((item) => item.entering())).toEqual([false, true]);
-    expect(transcripts()[0].overlapping()).toBe(true);
+    expect(transcripts()[0].leaving()).toBe(true);
+    transcripts()[1].entranceScrollRestored.emit(); fixture.detectChanges();
+    expect(transcripts()[0].leaving()).toBe(false);
   });
 
-  it('plans the first open batch during a pending pane switch', () => {
+  it('drops the cover after the entrance window when no scroll restore arrives', () => {
+    const h = mount(); fixture = h.fixture;
+    jest.advanceTimersByTime(640); fixture.detectChanges();
+    h.activeTab.set({ id: 'B', messages: [], status: 'resuming' });
+    h.activeTabId.set('B'); fixture.detectChanges();
+    expect(transcripts()[0].leaving()).toBe(true);
+    h.activeTab.set({ id: 'B', messages: [{}], status: 'resuming' }); fixture.detectChanges();
+    expect(transcripts()[1].entering()).toBe(true);
+    jest.advanceTimersByTime(179); fixture.detectChanges();
+    expect(transcripts()[0].leaving()).toBe(true);
+    jest.advanceTimersByTime(1); fixture.detectChanges();
+    expect(transcripts()[0].leaving()).toBe(false);
+  });
+
+  it('keeps the first history batch still during a pending pane switch', () => {
     const h = mount(); fixture = h.fixture;
     jest.advanceTimersByTime(640); fixture.detectChanges();
     h.activeTab.set({ id: 'B', messages: [], status: 'resuming' });
@@ -318,8 +350,8 @@ describe('ChatView session entrance', () => {
     const directive = fixture.debugElement.queryAll(By.directive(TranscriptMotionDirective))
       .map((element) => element.injector.get(TranscriptMotionDirective))[1];
     expect(transcripts()[1].paneSwitching()).toBe(true);
-    expect(directive.index('first')).toBe(0);
-    expect(directive.index('second')).toBe(1);
+    expect(directive.index('first')).toBeNull();
+    expect(directive.index('second')).toBeNull();
   });
 
   it('does not stagger a switch to an already loaded tab', () => {
@@ -366,26 +398,31 @@ describe('ChatView session entrance', () => {
   it('uses the selected preset keyframes and cuts glass exits', () => {
     const css = readFileSync(join(__dirname, '../organisms/transcript/chat-transcript.component.css'), 'utf8');
     const compiled = encapsulateStyle(css, 'test');
-    expect(css).toContain('animation: ptahPaneCrossfade var(--ptah-motion-switch)');
-    expect(css).toMatch(/@keyframes ptahPaneCrossfade\s*\{\s*from \{ opacity: 0; \}\s*to \{ opacity: 1; \}/);
+    expect(css).toContain('animation: ptahPaneCrossfade 180ms');
+    expect(css).toMatch(/@keyframes ptahPaneCrossfade\s*\{\s*from \{ opacity: 0\.65; transform: translateY\(5px\); \}\s*to \{ opacity: 1; transform: translateY\(0\); \}/);
     expect(css).toContain('.ptah-pane-switch-pending .chat-msg-item.ptah-msg-enter');
     expect(css).toContain('animation-play-state: paused;');
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ptah-pane-switch-enter\s*\{\s*animation-duration: 0\.01ms/);
     expect(css).toContain('animation: ptahMotionLeave var(--ptah-motion-out)');
     expect(css).toContain('animation-name: ptahMotionEnterGlass');
-    expect(css).toMatch(/:host-context\(\[data-glass='on'\]\) :host\(\.ptah-pane-switch-overlap\):has\([^{]+\)\s*\{\s*animation: none;\s*display: none;/);
+    // The previous pane no longer fades out over the new one: it is cut once
+    // the incoming pane has its scroll offset, so no overlap rule remains.
+    expect(css).not.toContain('.ptah-pane-switch-overlap');
     expect(css).toContain(":host-context([data-glass='on'][data-motion-style='fade'])");
     expect(css).toContain(":host-context([data-glass='on'][data-motion-style='scale'])");
     expect(css).not.toMatch(/^\.ptah-pane-switch-enter:has\(/m);
     expect(css).not.toMatch(/@keyframes ptahPaneSwitch(Enter|Leave)/);
-    expect(compiled).toMatch(/\[data-glass='on'\]\s+\.ptah-pane-switch-overlap\[_nghost-test\]/);
     expect(compiled).toContain('.ptah-pane-switch-enter');
   });
 
   it('keeps the production transcript binding', () => {
     const template = readFileSync(join(__dirname, 'chat-view.component.html'), 'utf8');
+    const transcriptTemplate = readFileSync(join(__dirname, '../organisms/transcript/chat-transcript.component.html'), 'utf8');
     expect(template).toContain('[entering]="tabId === enteringTabId()"');
     expect(template).toContain('[paneSwitching]="tabId === pendingEntranceTabId() || tabId === enteringTabId()"');
     expect(template).toContain('[leaving]="tabId === leavingTabId() && tabId !== resolvedTabId()"');
     expect(template).toContain('[overlapping]="tabId === leavingTabId() && enteringTabId() === resolvedTabId()"');
+    expect(transcriptTemplate).toContain('[suppressed]="replayMotionHold() || isFinalizingTransition()"');
+    expect(transcriptTemplate).toContain('[paneSwitching]="paneSwitching()"');
   });
 });

@@ -1,11 +1,10 @@
 .ptah-pane-switch-enter {
-  animation: ptahPaneCrossfade var(--ptah-motion-switch) var(--ptah-ease-soft)
-    backwards;
+  animation: ptahPaneCrossfade 180ms var(--ptah-ease-soft) both;
 }
 
 @keyframes ptahPaneCrossfade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0.65; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .chat-msg-item {
@@ -74,25 +73,12 @@
   pointer-events: none;
 }
 
-:host(.ptah-pane-switch-overlap) {
-  animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
-}
-
-:host-context([data-glass='on']) :host(.ptah-pane-switch-overlap):has([data-glass-surface], [class*='backdrop-blur']) {
-  animation: none;
-  display: none;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .ptah-pane-switch-enter,
-  :host(.ptah-pane-switch-overlap) {
+  .ptah-pane-switch-enter {
     animation-duration: 0.01ms;
     animation-delay: 0s;
   }
 
-  :host(.ptah-pane-switch-leave) {
-    display: none;
-  }
 }
 
 /* The column width below reads this container. */
