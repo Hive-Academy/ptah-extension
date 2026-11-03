@@ -248,7 +248,8 @@
         "libs/web/landing/**/*",
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
-        "tools/mcp-bench/**/*"
+        "tools/mcp-bench/**/*",
+        "tools/review-eval/**/*"
       ]
     },
     {
@@ -326,7 +327,8 @@
         "libs/web/landing/**/*",
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
-        "tools/mcp-bench/**/*"
+        "tools/mcp-bench/**/*",
+        "tools/review-eval/**/*"
       ]
     }
   ],
