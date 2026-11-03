@@ -61,8 +61,9 @@ describe('ReviewLaneRunner', () => {
     expect(files.sourceChecksum).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects same-family verification', async () => {
+  it('labels same-family verification weaker', async () => {
+    gateway.spawn = async () => JSON.stringify({ schemaVersion: 1, candidateId: 'candidate', headSha: sha, verdict: 'inconclusive', checkedEvidence: [{ path: 'a.ts', line: 1, observation: 'checked' }], reason: 'no disproof', confidence: 0.5, verifierFamily: 'family-a' });
     expect(await runner.run({ ...request, kind: 'verifier', lensAuthorFamily: 'family-a' }))
-      .toEqual({ status: 'partial', reason: 'no-confirmed-room' });
+      .toMatchObject({ status: 'completed', evidenceStrength: 'weaker' });
   });
 });

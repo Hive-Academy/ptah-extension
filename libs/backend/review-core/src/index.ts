@@ -24,3 +24,10 @@ export { buildSecurityPrivacyPrompt } from './lib/lanes/prompts/security-privacy
 export { buildHostDiConfigPrompt } from './lib/lanes/prompts/host-di-config.prompt';
 export { ReviewArtifactWriter } from './lib/lanes/review-artifact.writer';
 export type { ReviewArtifactFileSystem, ReviewPreviewInput } from './lib/lanes/review-artifact.writer';
+export { ReviewOrchestratorService } from './lib/review-orchestrator.service';
+export { DiscoveryStageRunner } from './lib/stages/discovery-stage.runner';
+export { ContextStageRunner } from './lib/stages/context-stage.runner';
+export type { ReviewStageEnvironment, ContextStageResult } from './lib/stages/context-stage.runner';
+export { TriageStageRunner } from './lib/stages/triage-stage.runner';
+export { LensStageRunner } from './lib/stages/lens-stage.runner';
+export { VerificationStageRunner } from './lib/stages/verification-stage.runner';

@@ -9,8 +9,9 @@ describe('ReviewLaneSelector', () => {
     ])).toEqual({ selected: [], unavailable: ['triage', 'security-privacy'] });
   });
 
-  it('requires a different family for verifier and enforces six-lane budget', () => {
-    expect(selector.select(['verifier'], [{ id: 'a', family: 'a', limitState: 'confirmed-room' }], 'a').unavailable).toEqual(['verifier']);
+  it('prefers another verifier family and falls back when needed', () => {
+    expect(selector.select(['verifier'], [{ id: 'a', family: 'a', limitState: 'confirmed-room' }], 'a').selected[0].lane.family).toBe('a');
+    expect(selector.select(['verifier'], [{ id: 'a', family: 'a', limitState: 'confirmed-room' }, { id: 'b', family: 'b', limitState: 'confirmed-room' }], 'a').selected[0].lane.family).toBe('b');
     const kinds = Array(7).fill('triage') as 'triage'[];
     const result = selector.select(kinds, [{ id: 'a', family: 'a', limitState: 'confirmed-room' }]);
     expect(result.selected).toHaveLength(6);

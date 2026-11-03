@@ -29,7 +29,7 @@ export interface ReviewLaneRequest {
 }
 
 export type ReviewLaneResult =
-  | { status: 'completed'; family: string; output: ReturnType<ReviewOutputParser['parseLens']> | ReturnType<ReviewOutputParser['parseVerdict']> }
+  | { status: 'completed'; family: string; evidenceStrength?: 'strong' | 'weaker'; output: ReturnType<ReviewOutputParser['parseLens']> | ReturnType<ReviewOutputParser['parseVerdict']> }
   | { status: 'partial'; reason: string };
 
 @injectable()
@@ -80,7 +80,8 @@ export class ReviewLaneRunner {
       const output = request.kind === 'verifier'
         ? this.parser.parseVerdict(raw, request.headSha, choice.lane.family)
         : this.parser.parseLens(raw, request.headSha, request.kind === 'triage' ? undefined : request.kind as Lens);
-      return { status: 'completed', family: choice.lane.family, output };
+      return { status: 'completed', family: choice.lane.family,
+        ...(request.kind === 'verifier' ? { evidenceStrength: choice.lane.family === request.lensAuthorFamily ? 'weaker' as const : 'strong' as const } : {}), output };
     } catch (error: unknown) {
       const failure = error instanceof Error ? error : new Error('Review lane failed');
       this.logger.error(new Error(failure.message === 'Lane mutated source' ? 'Lane mutated source' : 'Review lane failed'));

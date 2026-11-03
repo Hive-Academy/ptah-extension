@@ -4,4 +4,7 @@ export const REVIEW_CORE_TOKENS = {
   CLOCK: Symbol.for('ReviewClock'),
   POLICY_SERVICE: Symbol.for('ReviewPolicyService'),
   QUEUE_SERVICE: Symbol.for('ReviewQueueService'),
+  GITHUB: Symbol.for('ReviewGithubPort'),
+  ENVIRONMENT: Symbol.for('ReviewStageEnvironment'),
+  ORCHESTRATOR: Symbol.for('ReviewOrchestratorService'),
 } as const;

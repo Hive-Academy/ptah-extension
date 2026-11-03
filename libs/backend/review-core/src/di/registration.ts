@@ -9,6 +9,12 @@ import { ReviewContextService } from '../lib/context/review-context.service';
 import { ReviewDependenciesService } from '../lib/context/review-dependencies.service';
 import { ReviewChecksService } from '../lib/context/review-checks.service';
 import { REVIEW_CORE_TOKENS } from './tokens';
+import { DiscoveryStageRunner } from '../lib/stages/discovery-stage.runner';
+import { ContextStageRunner } from '../lib/stages/context-stage.runner';
+import { TriageStageRunner } from '../lib/stages/triage-stage.runner';
+import { LensStageRunner } from '../lib/stages/lens-stage.runner';
+import { VerificationStageRunner } from '../lib/stages/verification-stage.runner';
+import { ReviewOrchestratorService } from '../lib/review-orchestrator.service';
 
 /**
  * The host registers REVIEW_LANE_TOKENS.GATEWAY, REVIEW_LANE_TOKENS.FILES,
@@ -38,4 +44,11 @@ export function registerReviewCore(container: DependencyContainer): void {
   container.registerSingleton(ReviewContextService);
   container.registerSingleton(ReviewDependenciesService);
   container.registerSingleton(ReviewChecksService);
+  container.registerSingleton(DiscoveryStageRunner);
+  container.registerSingleton(ContextStageRunner);
+  container.registerSingleton(TriageStageRunner);
+  container.registerSingleton(LensStageRunner);
+  container.registerSingleton(VerificationStageRunner);
+  container.registerSingleton(ReviewOrchestratorService);
+  container.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useToken: ReviewOrchestratorService });
 }
