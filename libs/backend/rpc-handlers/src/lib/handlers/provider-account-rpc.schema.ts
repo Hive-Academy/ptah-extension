@@ -125,7 +125,11 @@ export const ProviderSetAccountDefaultSchema = z
 
 /** Host-wide read: no workspace root, profile or environment is accepted. */
 export const ProviderGetAmbientClaudeStatusSchema = z
-  .object({ provider: ProviderSchema, refresh: z.boolean().optional() })
+  .object({
+    provider: ProviderSchema,
+    refresh: z.boolean().optional(),
+    trigger: z.enum(['mount', 'follow-up', 'recheck']).optional(),
+  })
   .strict();
 
 /**
