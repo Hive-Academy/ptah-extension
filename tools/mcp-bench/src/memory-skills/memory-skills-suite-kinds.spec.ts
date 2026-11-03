@@ -223,7 +223,7 @@ function scorecardWith(suite: SuiteView<unknown>): object {
     },
     product: { version: '0.0.0', commit: 'd716e0e8f' },
     corpus: {
-      repo: 'ptah-extension',
+      repo: 'PtahCode',
       commit: 'd716e0e8f',
       eligibleFiles: 1,
       tsVersion: '6.0.3',

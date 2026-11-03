@@ -113,7 +113,7 @@ export function readCorpus(
     throw new MemorySkillsRunError('package.json declares no typescript');
   }
   return {
-    repo: 'ptah-extension',
+    repo: 'PtahCode',
     commit: head,
     eligibleFiles: [...committedFiles].filter((path) =>
       path.startsWith(`${COMMITTED_FIXTURES_DIR}/`),
