@@ -274,6 +274,9 @@
       "@ptah-web/landing": ["./libs/web/landing/src/index.ts"],
       "@ptah-extension/tool-output-reducers": [
         "./libs/backend/tool-output-reducers/src/index.ts"
+      ],
+      "@ptah-extension/review-contracts": [
+        "./libs/backend/review-contracts/src/index.ts"
       ]
     },
     "strict": false,
