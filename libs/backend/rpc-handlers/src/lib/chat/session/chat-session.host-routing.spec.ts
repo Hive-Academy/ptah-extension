@@ -83,6 +83,8 @@ interface HarnessOptions {
   routeFollowUpSlashCommand?: jest.Mock;
   ptahCliStart?: jest.Mock;
   ptahCliContinue?: jest.Mock;
+  /** The active-provider resolver a carry-over launch pins against. */
+  activeProvider?: { resolveActiveAuthForPath: jest.Mock };
 }
 
 interface Harness {
@@ -199,7 +201,7 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     undefined,
     undefined,
     undefined,
-    undefined,
+    opts.activeProvider,
     undefined,
     undefined,
     hostRouting,
@@ -473,6 +475,35 @@ describe('ChatSessionService host routing admission', () => {
       for (const method of ['debug', 'info', 'warn', 'error'] as const) {
         expect(loggedText(h.logger[method].mock.calls)).not.toContain(secret);
       }
+    });
+
+    it('does not admit a carry-over launch, and still admits chat:start without one (AC 8.1)', async () => {
+      const admitUserTurn: AdmitMock = jest.fn();
+      const activeProvider = {
+        resolveActiveAuthForPath: jest
+          .fn()
+          .mockReturnValue({ authMethod: 'claudeCli', providerId: 'anthropic' }),
+      };
+      const h = makeHarness({ admitUserTurn, activeProvider });
+
+      await expect(
+        h.service.startSession(startParams(PROMPT), {
+          expectedProviderId: 'anthropic',
+        }),
+      ).resolves.toEqual({ success: true });
+      expect(h.startChatSession).toHaveBeenCalledTimes(1);
+      expect(admitUserTurn).not.toHaveBeenCalled();
+
+      await expect(
+        h.service.startSession(startParams(PROMPT)),
+      ).resolves.toEqual({ success: true });
+      expect(h.startChatSession).toHaveBeenCalledTimes(2);
+      expect(admitUserTurn).toHaveBeenCalledTimes(1);
+      expect(admitUserTurn).toHaveBeenCalledWith({
+        tabId: TAB_ID,
+        sessionId: null,
+        prompt: PROMPT,
+      });
     });
 
     it('is a no-op when the host did not bind a coordinator', async () => {

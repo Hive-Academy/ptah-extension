@@ -106,6 +106,7 @@ import {
   resolveClaudeExecution,
   storedChatRuntimeIdentity,
   type ChatRuntimeProfileService,
+  type ResolvedChatExecution,
 } from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
@@ -245,6 +246,36 @@ interface SdkSessionLaunch {
   readonly accountSelection?: ResolvedMainAccountSelection;
   /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
   readonly admissionDeadline?: number;
+  /**
+   * Set by a provider carry-over: the provider it checked. Re-checked after
+   * `prepare`, before any adapter call; a different provider launches nothing.
+   */
+  readonly expectedProviderId?: string;
+}
+
+/**
+ * The second argument of {@link ChatSessionService.startSession} for a
+ * provider carry-over (TASK_2026_865). Its first turn holds the old
+ * conversation's text, so it is not admitted to host routing, the launch is
+ * pinned to `expectedProviderId`, and a failure logs only fixed text.
+ */
+export interface CarryOverLaunch {
+  readonly expectedProviderId: string;
+}
+
+/** A carry-over start refused because the active provider is not the checked one. */
+export const CARRY_OVER_PROVIDER_CHANGED =
+  'The active provider changed before the new chat could start.';
+
+/** A carry-over start that failed for any other reason. Fixed text, never the cause. */
+export const CARRY_OVER_START_FAILED = "Couldn't start the new chat.";
+
+/** Thrown by the provider pin; it never leaves {@link ChatSessionService.startSession}. */
+class CarryOverProviderChangedError extends Error {
+  constructor() {
+    super(CARRY_OVER_PROVIDER_CHANGED);
+    this.name = 'CarryOverProviderChangedError';
+  }
 }
 
 /**
@@ -983,8 +1014,69 @@ export class ChatSessionService {
     }
   }
 
+  /**
+   * The carry-over half of the `startSession` catch. The error may quote the
+   * transcript, so its message and stack reach no logger, Sentry or result:
+   * only its loggable class name does.
+   */
+  private carryOverStartFailure(error: unknown, tabId: string): ChatStartResult {
+    if (error instanceof CarryOverProviderChangedError) {
+      this.logger.debug('[carry-over] start refused: active provider changed', {
+        tabId,
+      });
+      return { success: false, error: CARRY_OVER_PROVIDER_CHANGED };
+    }
+    const codexFailure = this.codexFailure(error);
+    if (codexFailure) return codexFailure;
+    const refusal = mainSessionAccountFailure(error);
+    if (refusal) return refusal;
+    const safeError = new Error(
+      `carry-over start threw ${loggableErrorName(error)}`,
+    );
+    this.logger.warn('[carry-over] start failed', safeError, { tabId });
+    this.sentryService.captureException(safeError, {
+      errorSource: 'ChatSessionService.carryOverStart',
+    });
+    return {
+      success: false,
+      error: CARRY_OVER_START_FAILED,
+      ...this.authErrorFields(error),
+    };
+  }
+
+  /**
+   * The carry-over provider pin (F1). Runs after `prepare` returned and before
+   * any lineage entry or adapter call, on every runtime branch. The active
+   * provider is re-read here because it can change while `prepare` awaits; a
+   * host without the resolver cannot prove the provider, so it refuses.
+   */
+  private assertCarryOverProvider(
+    execution: ResolvedChatExecution,
+    workspaceId: string,
+    expectedProviderId: string,
+  ): void {
+    const activeNow =
+      this.activeProvider?.resolveActiveAuthForPath(workspaceId).providerId;
+    if (activeNow === undefined || activeNow !== expectedProviderId) {
+      throw new CarryOverProviderChangedError();
+    }
+    // An unset Claude profile means the shared env serves the active provider.
+    const served =
+      execution.runtime === 'codex-app-server'
+        ? execution.seed.providerId
+        : (execution.providerProfile?.providerId ?? activeNow);
+    if (served !== expectedProviderId) {
+      throw new CarryOverProviderChangedError();
+    }
+  }
+
+  /**
+   * `launch` is set only by the provider carry-over (`ChatCarryOverService`);
+   * `chat:start` passes nothing and keeps its behaviour.
+   */
   async startSession(
     params: ChatStartParams & MainSessionAccountSelection,
+    launch?: CarryOverLaunch,
   ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
@@ -1108,15 +1200,18 @@ export class ChatSessionService {
         ptahUiFence: params.ptahUiFence,
         accountSelection,
         admissionDeadline,
+        ...(launch ? { expectedProviderId: launch.expectedProviderId } : {}),
       });
       // Only a plain prompt: a slash command that starts a new query is not
-      // an interactive turn to route.
-      if (prompt && interceptResult.action === 'passthrough') {
+      // an interactive turn to route. A carry-over turn holds the old
+      // transcript, which must not reach the routing model (AC 8.1).
+      if (!launch && prompt && interceptResult.action === 'passthrough') {
         this.admitHostRoutingTurn({ tabId, sessionId: null, prompt });
       }
 
       return { success: true };
     } catch (error) {
+      if (launch) return this.carryOverStartFailure(error, params.tabId);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1470,6 +1565,14 @@ export class ChatSessionService {
         return { config, execution };
       },
     );
+    // No await between this pin and the adapter call below.
+    if (input.expectedProviderId !== undefined) {
+      this.assertCarryOverProvider(
+        execution,
+        workspaceId,
+        input.expectedProviderId,
+      );
+    }
     this.pendingLineage.set(tabId, {
       executionRoot: this.canonicalRoot(projectPath),
       roots: input.pluginConfigAncestorRoots ?? [],
