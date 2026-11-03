@@ -48,3 +48,16 @@ Part B:
 - Displaced-agent cleanup: output deletion happens after `flush()`, as before, and is limited to agents that no longer have a reference. OK.
 - The lane reports the new id immediately: `sessionResolved.emit` runs at the end of `openContext`, used by both the fallback open (line 510) and the first open. The buffered emitter replays to a late subscriber. See finding 2 for persistence timing.
 - No `any`, `as unknown as`, `!` or `console.*` in the changed source.
+
+## Cross-family review (codex)
+
+Verdict: APPROVED — 7/10; 0 Blocking, 0 Serious. Both requested fixes work by inspection. The score stays below 8 because the existing session-persistence timing gap remains; it stays above 6 because neither change introduces a demonstrated failure.
+
+| Part | Logic and spec assessment |
+| --- | --- |
+| A: executable mark | `unsupportedKey` uses canonical path plus raw reported version (`select-codex-executable.ts:129-130`); selection and marking use that same key (`:133-155`). The mutable `versions` map and installed-path array in the new spec (`select-codex-executable.spec.ts:115-137`) exercise prerelease → stable at one path and stable at another path. Both assertions should pass. |
+| B: session replacement | `updateCliSessionId` records the prior ID only for Codex (`agent-process-manager.service.ts:1212-1225`). The mock registers `onSessionResolved` before `spawnFromSdkHandle` returns (`account-binding.spec.ts:109-121`; service `:1340-1344`), so both callback assertions (`account-binding.spec.ts:373-398`) should pass. The non-Codex case leaves `replacesCliSessionIds` unset, preserving the old reference when persistence later processes the new ID. |
+
+Five logic checks: (1) Silent failure: no new silent failure in these changes; the existing delayed persistence window is at `agent-process-manager.service.ts:1212-1225` and `agent-events.ts:187-189,218-220`. (2) User action: upgrading prerelease to stable at the same path selects the installed binary (`select-codex-executable.spec.ts:128-131`). (3) Input: an equal version at another path gets a distinct key (`:133-137`). (4) Dependency failure: absent bundle retains installed selection on later opens, while `activateFallback` rejects (`select-codex-executable.ts:139-150,163-169`). (5) Unspecified case: a host crash after ID resolution and before exit can retain the old persisted ID; this predates commit `53d117af7` and remains Moderate.
+
+Checks: scoped `ptah_get_diagnostics` returned 0 errors for the four reviewed files. Jest was not run as instructed; the pass assessment is from tracing `probes`, `harness`, `lane`, and callback order. The tests do not cover persistence after callback delivery. No skill loader was available in this lane.
