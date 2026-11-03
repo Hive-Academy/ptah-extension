@@ -31,7 +31,7 @@ export const onboardingFirstRunGuard: CanActivateFn = () => {
   if (navigationId === undefined) return true;
   inject(OnboardingFirstRunTracker).recordRedirect(navigationId);
   const ready = flags.flag().ready;
-  return ready?.claudeAt || ready?.skippedAt
+  return ready?.claudeAt || ready?.connectionAt || ready?.skippedAt
     ? router.createUrlTree(['/onboarding'])
     : router.createUrlTree(['/onboarding', 'ready']);
 };
