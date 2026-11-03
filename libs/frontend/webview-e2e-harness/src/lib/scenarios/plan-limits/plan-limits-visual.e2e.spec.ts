@@ -178,7 +178,8 @@ test.describe('plan limits > session inspector', () => {
 
         const reviewRow = agents.locator('[data-agent-key]').filter({ hasText: 'Codex · review' });
         await expect(reviewRow.locator('[data-testid="agent-row-tokens"]')).toContainText('10.1k');
-        await reviewRow.getByRole('button', { name: /Expand Codex.*review details/ }).click();
+        // The Details toggle is a sibling of the row button, not inside it.
+        await agents.getByRole('button', { name: /Expand Codex.*review details/ }).click();
         await expect(agents.locator('[data-testid="agent-run-detail"]')).toContainText('Different owner');
 
         await fitViewportHeight(page, limits, width);
