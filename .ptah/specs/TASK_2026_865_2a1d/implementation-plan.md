@@ -975,12 +975,21 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
     - (F1, legacy) The same 2,000-turn fixture with `historyMode: 'legacy'`, and again with
       `historyMode` absent, gives the same assertions. It also proves zero `thread/read` calls
       with `includeTurns`.
-    - (F1, byte bound) A thread of 60 turns whose `full` turn pages carry about 1 MiB each, so
-      the stored history is more than 10x `TAIL_READ_MAX_BYTES` in total: the sum of the
-      recorded page bytes is at most `TAIL_READ_MAX_BYTES` plus the largest single page.
-      Requests stop after the page that crosses the constant. The result holds the newest
-      turns ascending with `coversWholeHistory === false` and does not throw ("succeeds for size
-      alone").
+    - (F1, byte bound; Rev 3.1, row 41) A `paginated` thread of 1,500 `full` turns. Each turn
+      holds one `agentMessage` item whose text is 60,000 ASCII characters, so one serialized
+      turn is about 60 KB, and one 25-turn page is about 1.5 MB (about 1.43 MiB). That is far
+      under the 16 MiB frame limit (`codex-app-server-process.ts:24`). The fixture has 60 pages
+      and about 90 MB (about 85.8 MiB) in total, which is more than 10x `TAIL_READ_MAX_BYTES`
+      (80 MiB = 83,886,080 bytes). Running total against 8 MiB (8,388,608 bytes): after page 5
+      it is about 7.5 MB, under the constant; after page 6 it is about 9.0 MB, over it. So the
+      read stops after 6 `thread/turns/list` requests (fewer than `maxTurnPages` 8), with 7
+      requests in total (fewer than 25). It accepts 150 turns (fewer than `maxTurns` 200). The
+      byte constant alone stops the read. Asserts: the fixture's sanity checks (every recorded
+      page < 16 MiB; fixture total > 10x the constant); exactly 6 `thread/turns/list` calls
+      and no request after the sixth; the sum of the recorded page bytes is at most
+      `TAIL_READ_MAX_BYTES` plus the largest single page; the result holds the newest 150 turns
+      in ascending order (the last fixture turn is last) with `coversWholeHistory === false`;
+      the read does not throw ("succeeds for size alone").
     - (F1 (a)) A `legacy` thread whose fake rejects `thread/turns/list` throws `requestRejected`,
       with zero `includeTurns` calls and no other read method attempted.
     - (F3) The newest turn has `itemsView: 'summary'` and needs 17 item pages. Exactly 16
@@ -1501,6 +1510,7 @@ edited. The line numbers below refer to this file after the revision.
 | F1 (Serious): the `legacy` branch read the whole thread with `includeTurns: true`; the frame limit is not a bound | Source-side bounded mechanism: every thread, whatever its `historyMode`, is read with newest-first `thread/turns/list` / `thread/items/list` pages. The pinned schema puts no history-mode restriction on these calls (`schema.json:25644-25692`, `:23277-23325`). `includeTurns` is never sent. Bound: 200 turns, 25 requests, `TAIL_READ_MAX_BYTES` (8 MiB) of page data plus one page. The frame limit only caps a single response. If the server refuses to page, the read fails closed to `HISTORY_UNREADABLE` (option (a) as fallback). Rollout-file tail (b) and refuse-all-legacy (a) alone are rejected, with reasons. Assumption A10 is added. The ten-times fixtures cover the turn bound (`paginated`, `legacy`, absent mode), the byte bound, and refusal. | Component 11: 838-842 (heading, purpose), 843-882 (source mechanism, options, A10), 883-895 (bound), 897-935 (steps 1-5), 948-966 (contracts, failure, quality), 967-1004 (specs), 1006-1014 (files); requirement change 5: 1235-1246; E39 implication: 83; Risks: 1458; K16: 1482; verification point A10: 1417-1418 |
 | F2 (Serious): `functionCallOutput` and `dynamicToolCall` were dropped | Each item gives one content-free `[tool: <name>]` line. `output`, `arguments`, `contentItems` and `namespace` are never read. One single-line name rule covers every name placeholder. The fixtures put secret sentinels in both `output` variants, in `arguments` and in `contentItems`. | Component 12: 1016 (heading), 1043-1054 (mappings, name rule), 1077-1091 (specs, router pass-through case); requirement change 9: 1254-1256 |
 | F3 (Moderate): incomplete current turn at the item-page cap | When the item-page budget or the byte budget runs out inside a turn, that turn is dropped, the read stops (the tail stays contiguous), and `coversWholeHistory = false`. If no complete turn remains, the read throws `pageLimitExceeded`, which Component 4 turns into the fixed `HISTORY_UNREADABLE` result. Specs cover: a newest turn needing 17 item pages, a second-newest turn over budget, and the byte variant. | Component 11: 913-916, 924-931, 986-993; requirement change 5: 1235-1246 |
+| Rev 3.1 (row 41): Gate 2 round 4, the byte-bound fixture (60 turns) could not exceed 80 MiB | Fixture is now 1,500 turns of about 60 KB (25-turn pages of about 1.43 MiB, about 85.8 MiB in total). The 8 MiB total is crossed on turn page 6, so the read makes 6 turn-page requests (< 8) and accepts 150 turns (< 200). | Component 11: "(F1, byte bound)" bullet in the verification seam |
 | F4 (Minor): Component 13 message-sender span | The span is set to `:692-903`. The review gave `:691-902`, but the source has the signature at `:692` and the closing brace at `:903` (`message-sender.service.ts`, same on `ff97e436a` and `5336ba7e1`). The difference is recorded in place rather than copying an off-by-one anchor. `:806-829` is unchanged. | Component 13: 1131-1133 |
 | User answers, rows 30-32 | K2 is built now in its own batch. U1 = (A): native plain resume is unchanged. U2 = (A): the disclosure for `/compact` is in the notice. The section is now a table of answered items; requirement changes 2 and 8 are settled; the Inputs line no longer lists open items. | Header: 6-9; Inputs: 31-32; `## User-reserved items`: 1187-1203; requirement changes 2 and 8: 1226-1228, 1251-1253 |
 | K2 file list and footprint (row 33 size check) | 6 production files + 1 conditional, equal to the user-approved 6 + 1. F1-F3 add 0 files; no report to the parent is needed. The overall production count stays 4 new / 22 modified (+1 conditional). | Team-leader handoff: 1404-1415 |

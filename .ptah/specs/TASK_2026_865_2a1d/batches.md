@@ -191,7 +191,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 | T8 | One code-logic review covers Phase 1, plus a style review for the two new public RPC methods. Phase 2 has its own code-logic review. | Separate backend and frontend reviews. | context.md sequence (one codex code-logic review); risk-based review rule; row 24 puts F1/F3 into the phase review. | Yes |
 | T9 | Executors: a CLI lane of any family other than the phase reviewer's for the bounded batches (1, 2, 3, 5, 8, 9, 11). Subagents for 4, 6, 7 and 10 (reasons are on each batch). | All lanes; all subagents. | Row 4 makes the codex lane the reviewer, so implementers must be another family. The other live lanes are at 84% weekly or unknown (context.md). | Yes |
 
-## Batch 1: Shared RPC contract — IN_PROGRESS
+## Batch 1: Shared RPC contract — COMPLETE
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -204,7 +204,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: none
 - Phase: 1 "Carry-over core" | Phase review: covered by the Phase 1 code-logic and style review
 
-### Task 1.1: Carry-over params and result types — IN_PROGRESS
+### Task 1.1: Carry-over params and result types — COMPLETE
 
 - File: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/shared/src/lib/types/rpc/rpc-chat.types.ts` (MODIFY)
 - Plan reference: implementation-plan.md:221-245 (Component 1)
@@ -218,7 +218,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Implementation details: import `SessionId` and `RpcUserErrorCode` as the file already does. Use
   discriminated unions on `eligible` and on `success`.
 
-### Task 1.2: Registry entries — IN_PROGRESS
+### Task 1.2: Registry entries — COMPLETE
 
 - Depends on: Task 1.1
 - File: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/shared/src/lib/types/rpc.types.ts` (MODIFY)
@@ -239,7 +239,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   typecheck, and `host-source-registry.contract.spec.ts` unchanged.
 - No per-batch review. The phase review covers this batch.
 
-## Batch 2: Bounded Claude JSONL carry-over read (agent-sdk) — PENDING
+## Batch 2: Bounded Claude JSONL carry-over read (agent-sdk) — COMPLETE
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -253,7 +253,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 3 | Depends on: none (it can run beside Batch 1)
 - Phase: 1 | Phase review: Phase 1 code-logic
 
-### Task 2.1: Shared transcript type — PENDING
+### Task 2.1: Shared transcript type — COMPLETE
 
 - File: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/helpers/history/history.types.ts` (MODIFY)
 - Plan reference: implementation-plan.md:252-255
@@ -265,7 +265,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   it unchanged.
 - Implementation details: type-only edit.
 
-### Task 2.2: `extractContentForCarryOver` — PENDING
+### Task 2.2: `extractContentForCarryOver` — COMPLETE
 
 - Depends on: Task 2.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/helpers/history/history-event-factory.ts` (MODIFY),
@@ -283,7 +283,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   `[tool result]`; a content sentinel and `is_error: true` are absent (AC 3.5); image gives
   `[image omitted]`; thinking and `redacted_thinking` give `''`.
 
-### Task 2.3: `readCarryOverTranscript` — PENDING
+### Task 2.3: `readCarryOverTranscript` — COMPLETE
 
 - Depends on: Task 2.2
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/session-history-reader.service.ts` (MODIFY),
@@ -819,7 +819,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Then the Phase 1 review (`NEEDS REVIEW`: code-logic plus style), then the visual-reviewer
   "after" screenshots in Electron, dark and light.
 
-## Batch 9: Bounded native Codex tail read (codex-runtime) — HELD (user decision, decisions.md row 27)
+## Batch 9: Bounded native Codex tail read (codex-runtime) — PENDING
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -834,7 +834,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   mark Batches 9-11 cancelled in this file, then go to Mode 3.
 - Phase: 2 "K2 native Codex read" (HELD) | Phase review: Phase 2 code-logic
 
-### Task 9.1: `readCodexSessionTail` — HELD
+### Task 9.1: `readCodexSessionTail` — PENDING
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/codex-runtime/src/lib/codex-session-history.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/codex-runtime/src/lib/codex-session-history.spec.ts` (MODIFY)
@@ -854,7 +854,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   read and keeps the newest `maxTurns`; a repeated cursor gives `stalledCursor`; only read
   methods are requested (A7, AC 6.1).
 
-### Task 9.2: `CodexRuntime.readHistoryTail` and reader type — HELD
+### Task 9.2: `CodexRuntime.readHistoryTail` and reader type — PENDING
 
 - Depends on: Task 9.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/codex-runtime/src/lib/codex-runtime.types.ts` (MODIFY),
@@ -874,7 +874,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 
 - `npm run verify -- -p @ptah-extension/codex-runtime` passes (header: 1 project).
 
-## Batch 10: Native route, projector and Electron port — HELD (user decision, decisions.md row 27)
+## Batch 10: Native route, projector and Electron port — PENDING
 
 - Recommended executor: subagent (backend-developer)
 - Execution mode: sequential
@@ -892,7 +892,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: Batch 9
 - Phase: 2 (HELD) | Phase review: Phase 2 code-logic
 
-### Task 10.1: Native carry-over route and projector — HELD
+### Task 10.1: Native carry-over route and projector — PENDING
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.spec.ts` (MODIFY),
@@ -916,7 +916,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
     arguments and reasoning is absent (AC 3.5, 3.6, 3.9); image and mention placeholders
     (AC 3.7); `contextCompaction` gives `startsAtCompactionSummary === false` (AC 3.8).
 
-### Task 10.2: Electron history port `readHistoryTail` — HELD
+### Task 10.2: Electron history port `readHistoryTail` — PENDING
 
 - Depends on: Task 10.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/apps/ptah-electron/src/di/codex-runtime-composition.ts` (MODIFY),
@@ -935,7 +935,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 
 - `npm run verify -- -p @ptah-extension/agent-sdk,ptah-electron` passes (header: 2 projects).
 
-## Batch 11: Enable native sources in the carry-over service — HELD (user decision, decisions.md row 27)
+## Batch 11: Enable native sources in the carry-over service — PENDING
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -949,7 +949,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 1 | Depends on: Batch 10
 - Phase: 2 (HELD, last batch) | Phase review: Phase 2 code-logic
 
-### Task 11.1: Native source kind, native bound and constants — HELD
+### Task 11.1: Native source kind, native bound and constants — PENDING
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-carry-over.service.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-carry-over.service.spec.ts` (MODIFY),

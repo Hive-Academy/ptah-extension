@@ -422,3 +422,62 @@ Gate 1 cross-side review (`task-description-review.md`, codex, REVISE, 5 finding
   `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts` and
   `libs/frontend/chat/src/lib/components/templates/chat-view.component.{html,ts}`; the banner
   component path is given in full.
+
+## Revision 2 (plan requirement changes, decisions.md rows 36 and 38)
+
+Copied from `implementation-plan.md` "## Proposed requirement changes" (Revision 3). These
+items amend the requirements and ACs above. Where they differ, these items win. Row 38 (P4 = A)
+amends item 1, 9.3.
+
+1. New Requirement 9, "`/compact` after a provider switch":
+   - 9.1 When the user sends `/compact` (the command name exactly `compact`, with or without
+     arguments) in a tab bound to a session whose stored provider differs from the workspace's
+     active provider, and the active provider is ready, the renderer shall run the carry-over of
+     Requirement 2 for that session and tab instead of sending `chat:continue`; arguments are not
+     forwarded.
+   - 9.2 This applies to Claude SDK sessions (today refused) and to native Codex sessions (today
+     compacted natively on Codex).
+   - 9.3 When the session is not eligible, or the eligibility check fails or takes longer than
+     5 s, `/compact` shall behave exactly as today, including the byte-identical AUTH_REQUIRED
+     refusal of AC 1.5.
+   - 9.4 The carry-over started by `/compact` shall follow Requirements 2-8 (bounded read,
+     rendering, notice after binding, failure paths, identity rules, transfer policy); on failure
+     with no banner owning the tab, the fixed failure text appears as the tab's send failure.
+   - 9.5 No `/compact` user bubble and no `chat:continue` call shall remain after a redirected
+     `/compact`.
+   - 9.6 A queued `/compact` delivered by the queue flush shall be handled the same way.
+2. Scope "Both directions of mismatch" and D9: add "Codex -> Claude is reached through `/compact`
+   (Requirement 9); the banner button appears only where a refusal exists (Claude SDK
+   sessions). A plain resume of a native Codex session after a switch keeps running on Codex."
+   (Rev 3: U1 answered (A), decisions.md row 31.)
+3. AC 1.1: append "The `/compact` trigger of Requirement 9 starts the carry-over without the
+   button."
+4. AC 2.3: append "Reading a native Codex session's stored thread through the read-only Codex
+   history process (thread read methods only, as the history view does) is a local read, not a
+   call to the old provider; no turn, resume or compaction request is made."
+5. (Rev 3, F1 and F3) AC 3.4 and AC 3.10, native half: "For a native Codex session, `legacy`
+   or `paginated`, the read takes the newest turns from the source in newest-first pages.
+   It is bounded in turns (at most 200 complete turns), requests (at most 25: one
+   metadata read, 8 turn pages of 25 and 16 item pages of 25) and bytes (at most
+   `TAIL_READ_MAX_BYTES`, 8 MiB, of page data plus one page). Full-thread hydration
+   (`thread/read` with `includeTurns`) is never used. A turn that cannot be read completely
+   inside the bound is dropped, never shortened, and the window is then marked as not covering
+   the whole history. When no complete turn remains, or the source refuses to page the
+   thread, the carry-over fails with the unreadable-history result of AC 5.1. The spec asserts
+   the request methods, parameters, counts and page bytes passed from the source on a fixture
+   at least ten times the turn bound and at least ten times the byte bound." The inbound frame
+   limit is not part of the bound.
+6. AC 3.8: append "A native Codex session keeps no compaction summary text, so its rendering
+   never starts at a summary."
+7. AC 5.1: append "For a `/compact`-triggered carry-over with no banner for that tab, the
+   message appears as the tab's send failure instead of on the banner."
+8. AC 8.4: append "For the `/compact` trigger, the disclosure is carried by the notice shown
+   after the new chat is bound; there is no pre-send disclosure for this trigger." (Rev 3: U2
+   answered (A), decisions.md row 32.)
+9. (Rev 3, F2) AC 3.5: append "For a native Codex session, every tool call or tool result item,
+   including a named function-call output and a dynamic tool call, gives exactly one
+   `[tool: <name>]` line. Its output, arguments and content items are never copied."
+10. (Row 38, P4 = A) Amend 9.3: when the eligibility check fails or times out, and the renderer
+    knows that the tab's session provider differs from the active provider, `/compact` shall
+    fail closed. The tab shows "Couldn't check this conversation. Try /compact again." and
+    nothing is sent. In all other cases of 9.3, `/compact` behaves exactly as today.
