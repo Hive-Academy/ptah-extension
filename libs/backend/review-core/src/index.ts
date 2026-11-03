@@ -10,3 +10,8 @@ export * from './lib/lanes/review-lane-selector';
 export * from './lib/lanes/review-lane-admission.service';
 export * from './lib/lanes/review-lane.runner';
 export * from './lib/lanes/review-output.parser';
+export * from './lib/context/review-context.ports';
+export * from './lib/context/review-worktree.service';
+export * from './lib/context/review-context.service';
+export * from './lib/context/review-dependencies.service';
+export * from './lib/context/review-checks.service';
