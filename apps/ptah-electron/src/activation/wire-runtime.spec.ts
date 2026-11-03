@@ -50,14 +50,16 @@ describe('shutdown handle capture', () => {
     const failure = new Error('adapter unavailable');
     const logger = { warn: jest.fn() };
     const disposer = { dispose: jest.fn() };
-    const container = {
-      isRegistered: jest.fn((token: symbol) => token === SDK_TOKENS.SDK_AGENT_ADAPTER),
-      resolve: jest.fn((token: symbol) => {
-        if (token === SDK_TOKENS.SDK_AGENT_ADAPTER) throw failure;
-        if (token === TOKENS.LOGGER) return logger;
-        return disposer;
-      }),
-    } as DependencyContainer;
+    const container = rootContainer.createChildContainer();
+    container.register(SDK_TOKENS.SDK_AGENT_ADAPTER, {
+      useFactory: () => {
+        throw failure;
+      },
+    });
+    // Same global key as CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY. Importing
+    // that lib here loads `marked`, which this Jest config does not map.
+    container.register(Symbol.for('SdkPtahCliRegistry'), { useValue: disposer });
+    container.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: disposer });
     const coordinator = new BootCoordinator();
     captureShutdownHandles(container, coordinator, logger);
     expect(coordinator.refs.sdkAdapter).toBeNull();
