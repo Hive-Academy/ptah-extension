@@ -788,9 +788,6 @@ export class ChatTranscriptComponent {
     new Map(),
   );
 
-  /** Shared empty `agents` binding (one identity for every bubble). */
-  protected readonly noAgents = NO_SESSION_AGENTS;
-
   private get subagentExecutions(): SubagentExecutionStore {
     return this.injector.get(SubagentExecutionStore);
   }
@@ -1004,16 +1001,6 @@ export class ChatTranscriptComponent {
     this.turnLogOpen.update((open) =>
       new Map(open).set(toggle.turnId, toggle.open),
     );
-  }
-
-  /**
-   * An agent chip asked for its lane. Routed like the sub-agent tiles,
-   * through `SESSION_CARD_ACTIONS`: a host that provides it (the Rail) wins,
-   * otherwise `openSubagentLane` opens the agent in place. Resolved at click
-   * time because this component provides the token itself.
-   */
-  protected onLaneRequested(key: string): void {
-    this.injector.get(SESSION_CARD_ACTIONS).openLane(key);
   }
 
   private openSubagentLane(key: string): void {
