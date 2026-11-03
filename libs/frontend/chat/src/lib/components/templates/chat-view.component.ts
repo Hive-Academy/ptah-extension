@@ -279,6 +279,8 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _authState = inject(AuthStateService);
   protected readonly codexSignIn = inject(CodexSignInService);
   protected readonly codexReauthStarted = signal(false);
+  protected readonly codexReauthFailure = signal<string | null>(null);
+  private codexReauthBanner: { providerId: string | null; message: string } | null = null;
   protected readonly codexReauthRunning = computed(() => {
     if (!this.codexReauthStarted()) return false;
     const status = this.codexSignIn.state()?.status;
@@ -287,9 +289,22 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
-  private async completeCodexReauth(): Promise<void> {
-    if (await this._authState.refreshAuthStatus()) {
+  private completeCodexReauth(): void {
+    if (!this.codexReauthStarted() || this.authRequiredBanner() !== this.codexReauthBanner) return;
+    const confirmation = this.codexSignIn.confirmation();
+    if (confirmation === 'idle' || confirmation === 'checking') {
+      this.codexReauthFailure.set(null);
+      return;
+    }
+    if (confirmation === 'confirmed' && this._authState.codexAuthenticated() && !this._authState.codexTokenStale()) {
+      this.codexReauthStarted.set(false);
+      this.codexReauthFailure.set(null);
+      this.codexReauthBanner = null;
       this._authState.clearAuthRequiredBanner();
+    } else {
+      this.codexReauthFailure.set(confirmation === 'confirmed'
+        ? 'Codex is still not ready. Check your sign-in and try again.'
+        : 'Ptah could not check your Codex sign-in. Try again.');
     }
   }
 
@@ -356,6 +371,8 @@ export class ChatViewComponent implements OnDestroy {
   protected async onAuthReauth(): Promise<void> {
     const banner = this.authRequiredBanner();
     if (banner?.providerId === 'openai-codex') {
+      this.codexReauthBanner = banner;
+      this.codexReauthFailure.set(null);
       this.codexReauthStarted.set(true);
       await this.codexSignIn.start();
       return;
@@ -367,6 +384,8 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this.codexReauthStarted.set(false);
+    this.codexReauthFailure.set(null);
+    this.codexReauthBanner = null;
     this._authState.clearAuthRequiredBanner();
   }
 
@@ -1361,9 +1380,8 @@ export class ChatViewComponent implements OnDestroy {
     effect(() => {
       if (!this.codexReauthStarted()) return;
       if (this.codexSignIn.state()?.status !== 'succeeded') return;
-      if (this.authRequiredBanner()?.providerId !== 'openai-codex') return;
-      this.codexReauthStarted.set(false);
-      void this.completeCodexReauth();
+      if (this.authRequiredBanner() !== this.codexReauthBanner) return;
+      this.completeCodexReauth();
     });
     this._budgetActions.connect({
       activeTab: this.resolvedActiveTab,

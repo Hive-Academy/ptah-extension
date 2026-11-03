@@ -85,4 +85,17 @@ describe('CodexSignInService', () => {
     await outside.service.cancel();
     expect(outside.rpc.call).not.toHaveBeenCalled();
   });
+
+  it('exposes a failed confirmation and retries the auth read', async () => {
+    const { service, auth } = setup();
+    auth.refreshAuthStatus.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    service.handleMessage({ type: MESSAGE_TYPES.AUTH_CODEX_LOGIN_STATUS, payload: { ...running, status: 'succeeded' } });
+    await Promise.resolve();
+    expect(service.refreshFailed()).toBe(true);
+    expect(service.confirmation()).toBe('failed');
+    await service.checkAuthStatus();
+    expect(service.refreshFailed()).toBe(false);
+    expect(service.confirmation()).toBe('confirmed');
+    expect(auth.refreshAuthStatus).toHaveBeenCalledTimes(2);
+  });
 });

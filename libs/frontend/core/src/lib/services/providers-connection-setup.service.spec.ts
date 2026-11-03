@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type {
   AuthVerifyDraftConnectionResult,
+  CodexLoginState,
   ConfigGetScopesResult,
   RpcMethodName,
   SettingScope,
@@ -79,6 +80,7 @@ describe('ProvidersConnectionSetupService', () => {
   let refreshSharedAuth: jest.Mock<Promise<void>, []>;
   const codexStart = jest.fn<Promise<void>, []>(async () => undefined);
   const codexCancel = jest.fn<Promise<void>, []>(async () => undefined);
+  const codexState = signal<CodexLoginState | null>(null);
 
   const methods = () => call.mock.calls.map(([method]) => method);
   const draft = (
@@ -127,11 +129,12 @@ describe('ProvidersConnectionSetupService', () => {
     refreshSharedAuth = jest.fn(async () => void events.push('refreshAuthStatus'));
     codexStart.mockClear();
     codexCancel.mockClear();
+    codexState.set(null);
     TestBed.configureTestingModule({
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
-        { provide: CodexSignInService, useValue: { start: codexStart, cancel: codexCancel, state: () => null } },
+        { provide: CodexSignInService, useValue: { start: codexStart, cancel: codexCancel, state: codexState.asReadonly() } },
         {
           provide: AuthStateService,
           useValue: { refreshAuthStatus: refreshSharedAuth },
@@ -417,10 +420,35 @@ describe('ProvidersConnectionSetupService', () => {
       handlers.set('auth:getAuthStatus', async () => success({ codexAuthenticated: false }));
       await service.performExternalAuth('openai-codex', 'sign-in', hooks);
       expect(codexStart).toHaveBeenCalledTimes(1);
-      expect(methods()).toEqual(['auth:getAuthStatus']);
+      expect(methods()).toEqual([]);
+      expect(service.externalAuth().data?.signInState).toBe('in-flight');
       await service.performExternalAuth('openai-codex', 'sign-in-cancel', hooks);
       expect(codexCancel).toHaveBeenCalledTimes(1);
-      expect(methods()).toEqual(['auth:getAuthStatus']);
+      expect(service.externalAuth().data?.signInState).toBe('idle');
+      expect(methods()).toEqual([]);
+    });
+    it.each([
+      ['succeeded', 'signed-in'],
+      ['failed', 'failed'],
+      ['cancelled', 'idle'],
+    ] as const)('settles Codex %s and rereads after the final state', async (status, expected) => {
+      await service.performExternalAuth('openai-codex', 'sign-in', hooks);
+      expect(events).toEqual([]);
+      codexState.set({ attemptId: 'one', mode: 'browser', status });
+      TestBed.tick();
+      expect(service.externalAuth().data?.signInState).toBe(expected);
+      expect(events).toContain('refreshConnections');
+      expect(events).toContain('refreshRoute');
+    });
+    it('maps Codex timeout to failed and ignores a late final after cancel', async () => {
+      await service.performExternalAuth('openai-codex', 'sign-in', hooks);
+      codexState.set({ attemptId: 'one', mode: 'browser', status: 'failed', errorCode: 'timeout' });
+      TestBed.tick();
+      expect(service.externalAuth().data?.signInState).toBe('failed');
+      await service.performExternalAuth('openai-codex', 'sign-in-cancel', hooks);
+      codexState.set({ attemptId: 'two', mode: 'browser', status: 'succeeded' });
+      TestBed.tick();
+      expect(service.externalAuth().data?.signInState).toBe('idle');
     });
     it('explains unsupported actions without calling the host', async () => {
       await service.performExternalAuth(

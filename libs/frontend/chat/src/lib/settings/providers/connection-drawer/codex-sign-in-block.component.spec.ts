@@ -9,6 +9,8 @@ const base: CodexLoginState = { attemptId: 'one', mode: 'browser', status: 'runn
 describe('CodexSignInBlockComponent', () => {
   const state = signal<CodexLoginState | null>(null);
   const nothingSeen = signal(false);
+  const refreshFailed = signal(false);
+  const checkAuthStatus = jest.fn(async () => undefined);
   const start = jest.fn(async () => undefined);
   const restart = jest.fn(async (_mode?: 'browser' | 'device') => undefined);
   const cancel = jest.fn(async () => undefined);
@@ -24,10 +26,11 @@ describe('CodexSignInBlockComponent', () => {
   beforeEach(() => {
     state.set(null);
     nothingSeen.set(false);
+    refreshFailed.set(false);
     jest.clearAllMocks();
     TestBed.configureTestingModule({
       imports: [CodexSignInBlockComponent],
-      providers: [{ provide: CodexSignInService, useValue: { state, nothingSeen, start, restart, cancel } }],
+      providers: [{ provide: CodexSignInService, useValue: { state, nothingSeen, refreshFailed, checkAuthStatus, start, restart, cancel } }],
     });
     fixture = TestBed.createComponent(CodexSignInBlockComponent);
     element = fixture.nativeElement as HTMLElement;
@@ -89,5 +92,14 @@ describe('CodexSignInBlockComponent', () => {
     render({ ...base, status: 'cancelled' }, role);
     expect(element.textContent).toContain('Nothing was changed');
     expect(element.querySelector('[data-testid="codex-sign-in-block"]')?.getAttribute('role')).toBe('status');
+  });
+
+  it('shows a confirmation failure with a retry action', () => {
+    refreshFailed.set(true);
+    render({ ...base, status: 'succeeded' });
+    expect(element.textContent).toContain('Signed in, but Ptah could not confirm it.');
+    expect(element.querySelector('[data-testid="codex-sign-in-block"]')?.getAttribute('role')).toBe('alert');
+    button('Check again')?.click();
+    expect(checkAuthStatus).toHaveBeenCalledTimes(1);
   });
 });

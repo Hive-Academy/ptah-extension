@@ -526,13 +526,25 @@ function makeHarness(
   } as unknown as TabSessionBinding;
 
   const authRequiredBannerSig = signal<{ providerId: string | null; message: string } | null>(null);
+  const codexAuthenticatedSig = signal(false);
+  const codexTokenStaleSig = signal(false);
   const codexStateSig = signal<{ attemptId: string; mode: 'browser'; status: 'starting' | 'running' | 'awaiting-user' | 'succeeded' } | null>(null);
+  const codexConfirmationSig = signal<'idle' | 'checking' | 'confirmed' | 'failed'>('idle');
+  const codexRefreshFailedSig = signal(false);
   const codexStartMock = jest.fn<Promise<void>, []>(async () => undefined);
   const codexCancelMock = jest.fn<Promise<void>, []>(async () => undefined);
   const refreshAuthStatusMock = jest.fn<Promise<boolean>, []>(async () => true);
+  const codexCheckAuthStatusMock = jest.fn<Promise<void>, []>(async () => {
+    codexConfirmationSig.set('checking');
+    const confirmed = await refreshAuthStatusMock();
+    codexRefreshFailedSig.set(!confirmed);
+    codexConfirmationSig.set(confirmed ? 'confirmed' : 'failed');
+  });
   const clearAuthRequiredBannerMock = jest.fn(() => authRequiredBannerSig.set(null));
   const authStateStub = {
     authRequiredBanner: authRequiredBannerSig.asReadonly(),
+    codexAuthenticated: codexAuthenticatedSig.asReadonly(),
+    codexTokenStale: codexTokenStaleSig.asReadonly(),
     authMethodLabel: signal<string | null>(null).asReadonly(),
     loadAuthStatus: jest.fn(async (): Promise<void> => undefined),
     refreshAuthStatus: refreshAuthStatusMock,
@@ -540,6 +552,9 @@ function makeHarness(
   } as unknown as AuthStateService;
   const codexSignInStub = {
     state: codexStateSig.asReadonly(),
+    confirmation: codexConfirmationSig.asReadonly(),
+    refreshFailed: codexRefreshFailedSig.asReadonly(),
+    checkAuthStatus: codexCheckAuthStatusMock,
     start: codexStartMock,
     cancel: codexCancelMock,
   } as unknown as CodexSignInService;
@@ -684,7 +699,12 @@ function makeHarness(
     component,
     fixture,
     authRequiredBannerSig,
+    codexAuthenticatedSig,
+    codexTokenStaleSig,
     codexStateSig,
+    codexConfirmationSig,
+    codexRefreshFailedSig,
+    codexCheckAuthStatusMock,
     codexStartMock,
     codexCancelMock,
     refreshAuthStatusMock,
@@ -790,19 +810,23 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('refreshes auth before clearing the banner after sign-in succeeds', async () => {
     const h = makeHarness();
+    h.codexAuthenticatedSig.set(true);
     h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
     let resolveRefresh!: (value: boolean) => void;
     h.refreshAuthStatusMock.mockReturnValue(new Promise<boolean>((resolve) => { resolveRefresh = resolve; }));
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
 
     h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'succeeded' });
+    const pending = h.codexCheckAuthStatusMock();
     h.fixture.detectChanges();
     expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(1);
     expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
 
     resolveRefresh(true);
-    await Promise.resolve();
+    await pending;
+    h.fixture.detectChanges();
     expect(h.clearAuthRequiredBannerMock).toHaveBeenCalledTimes(1);
+    expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the banner when the post-sign-in auth refresh fails', async () => {
@@ -812,11 +836,55 @@ describe('ChatViewComponent — Codex re-auth', () => {
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
 
     h.codexStateSig.set({ attemptId: 'attempt-2', mode: 'browser', status: 'succeeded' });
+    await h.codexCheckAuthStatusMock();
     h.fixture.detectChanges();
-    await Promise.resolve();
 
     expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(1);
     expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+    expect((h.component as unknown as { codexReauthFailure(): string | null }).codexReauthFailure()).toContain('could not check');
+  });
+
+  it('keeps the banner when the refreshed Codex token is stale', async () => {
+    const h = makeHarness();
+    h.codexAuthenticatedSig.set(true);
+    h.codexTokenStaleSig.set(true);
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.codexStateSig.set({ attemptId: 'attempt-3', mode: 'browser', status: 'succeeded' });
+    await h.codexCheckAuthStatusMock();
+    h.fixture.detectChanges();
+    expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+    expect((h.component as unknown as { codexReauthFailure(): string | null }).codexReauthFailure()).toContain('still not ready');
+  });
+
+  it('clears the banner and failure after Check again confirms sign-in', async () => {
+    const h = makeHarness();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.refreshAuthStatusMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.codexStateSig.set({ attemptId: 'attempt-4', mode: 'browser', status: 'succeeded' });
+    await h.codexCheckAuthStatusMock();
+    h.fixture.detectChanges();
+    expect((h.component as unknown as { codexReauthFailure(): string | null }).codexReauthFailure()).toContain('could not check');
+    h.codexAuthenticatedSig.set(true);
+    await h.codexCheckAuthStatusMock();
+    h.fixture.detectChanges();
+    expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(2);
+    expect(h.clearAuthRequiredBannerMock).toHaveBeenCalledTimes(1);
+    expect((h.component as unknown as { codexReauthFailure(): string | null }).codexReauthFailure()).toBeNull();
+  });
+
+  it('does not clear a later unrelated banner when Codex confirms', async () => {
+    const h = makeHarness();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.codexStateSig.set({ attemptId: 'attempt-5', mode: 'browser', status: 'succeeded' });
+    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again' });
+    h.codexAuthenticatedSig.set(true);
+    await h.codexCheckAuthStatusMock();
+    h.fixture.detectChanges();
+    expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+    expect(h.authRequiredBannerSig()?.providerId).toBe('anthropic');
   });
 });
 

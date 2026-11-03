@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, type EffectRef, DestroyRef, Injector } from '@angular/core';
 import {
   CustomProviderEntryChangesSchema,
   CustomProviderEntryInputSchema,
@@ -146,6 +146,12 @@ export class ProvidersConnectionSetupService implements MessageHandler {
   private readonly workspace = inject(WorkspaceScopeService);
   private readonly authState = inject(AuthStateService);
   private readonly codexSignIn = inject(CodexSignInService);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private codexAttemptEffect: EffectRef | null = null;
+  constructor() {
+    this.destroyRef.onDestroy(() => this.codexAttemptEffect?.destroy());
+  }
   private readonly probeStore =
     createSectionStore<AuthVerifyDraftConnectionResult>();
   private readonly externalAuthStore =
@@ -233,6 +239,11 @@ export class ProvidersConnectionSetupService implements MessageHandler {
     };
     if (providerId === 'openai-codex' && action === 'sign-in-cancel') {
       await this.codexSignIn.cancel();
+      this.codexAttemptEffect?.destroy();
+      this.codexAttemptEffect = null;
+      this.externalAuthStore.value.set({
+        status: 'ready', error: null, data: empty,
+      });
       return;
     }
     if (providerId === KIMI_CODE_ID && action !== 'cli-check') {
@@ -274,23 +285,44 @@ export class ProvidersConnectionSetupService implements MessageHandler {
       error: null,
       data: { ...empty, signInState: 'in-flight' },
     });
+    if (providerId === 'openai-codex' && action === 'sign-in') {
+      this.codexAttemptEffect?.destroy();
+      this.codexAttemptEffect = null;
+      await this.codexSignIn.start();
+      if (generation !== this.externalAuthGeneration) return;
+      this.externalAuthStore.value.set({
+        status: 'ready', error: null, data: { ...empty, signInState: 'in-flight' },
+      });
+      this.codexAttemptEffect = effect(() => {
+        const status = this.codexSignIn.state()?.status;
+        if (status !== 'succeeded' && status !== 'failed' && status !== 'cancelled') return;
+        this.codexAttemptEffect?.destroy();
+        this.codexAttemptEffect = null;
+        if (generation !== this.externalAuthGeneration) return;
+        const signInState = status === 'succeeded' ? 'signed-in' : status === 'failed' ? 'failed' : 'idle';
+        this.externalAuthStore.value.set({
+          status: 'ready', error: null, data: { ...empty, signInState },
+        });
+        void Promise.all([hooks.refreshConnections(), hooks.refreshRoute()]).catch(() => {
+          if (generation !== this.externalAuthGeneration) return;
+          this.externalAuthStore.value.set({
+            status: 'ready', error: null,
+            data: { ...empty, signInState, message: 'Ptah could not refresh connections. Check again.' },
+          });
+        });
+      }, { injector: this.injector });
+      return;
+    }
     await this.read(
       this.externalAuthStore,
       async (): Promise<ProvidersExternalAuth> => {
         if (action !== 'cli-check') {
-          if (providerId === 'openai-codex') {
-            await this.codexSignIn.start();
-          } else {
-            const result = await this.require('auth:copilotLogin', {}, 310000);
-            if (!result.success) throw new Error('Sign-in unavailable');
-          }
+          const result = await this.require('auth:copilotLogin', {}, 310000);
+          if (!result.success) throw new Error('Sign-in unavailable');
         }
         const result = await this.require('auth:getAuthStatus', { providerId });
         if (generation !== this.externalAuthGeneration)
           throw new Error('Superseded sign-in');
-        const codexStatus = providerId === 'openai-codex' && action === 'sign-in'
-          ? this.codexSignIn.state()?.status
-          : null;
         const signedIn =
           providerId === 'github-copilot'
             ? result.copilotAuthenticated === true
@@ -301,10 +333,7 @@ export class ProvidersConnectionSetupService implements MessageHandler {
                 : false;
         return {
           ...empty,
-          signInState: codexStatus === 'failed' ? 'failed'
-            : codexStatus === 'starting' || codexStatus === 'running' || codexStatus === 'awaiting-user' ? 'in-flight'
-            : codexStatus === 'cancelled' ? 'idle'
-            : signedIn ? 'signed-in' : 'idle',
+          signInState: signedIn ? 'signed-in' : 'idle',
           cliInstalled:
             providerId === 'claude-cli'
               ? (result.claudeCliInstalled ?? null)

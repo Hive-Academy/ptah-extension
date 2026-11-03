@@ -79,6 +79,11 @@ const isRunning = (state: CodexLoginState | null): boolean =>
           <p class="font-semibold">Signed in to Codex.</p>
           <p class="text-base-content-muted">Ptah is checking your sign-in now...</p>
         }
+        @case ('confirmation-failed') {
+          <p class="font-semibold">Signed in to Codex.</p>
+          <p class="text-base-content-muted">Signed in, but Ptah could not confirm it.</p>
+          <button type="button" class="btn btn-outline btn-sm mt-2" (click)="checkAgain()">Check again</button>
+        }
         @case ('failed') {
           <p class="font-semibold">Codex sign-in did not finish.</p>
           <p class="text-base-content-muted">{{ failureCopy() }}@if (role() === 'information') { Your main connection is not affected. }</p>
@@ -125,14 +130,14 @@ export class CodexSignInBlockComponent {
   readonly phase = computed(() => {
     const state = this.state();
     if (!state) return 'ready';
-    if (state.status === 'succeeded') return 'checking';
+    if (state.status === 'succeeded') return this.service.refreshFailed?.() ? 'confirmation-failed' : 'checking';
     if (state.status === 'cancelled') return 'cancelled';
     if (state.status === 'failed') return state.errorCode === 'timeout' ? 'timed-out' : 'failed';
     if (state.status === 'starting') return 'starting';
     if (this.url() || this.code()) return 'waiting';
     return this.service.nothingSeen() ? 'waiting-late' : 'waiting-empty';
   });
-  readonly failure = computed(() => this.phase() === 'failed' || this.phase() === 'timed-out');
+  readonly failure = computed(() => this.phase() === 'failed' || this.phase() === 'timed-out' || this.phase() === 'confirmation-failed');
   readonly failureCopy = computed(() => {
     const state = this.state();
     if (state?.errorCode === 'spawn-failed') return this.executablePath()
@@ -151,6 +156,7 @@ export class CodexSignInBlockComponent {
   restart(): void { void this.service.restart(); }
   restartDevice(): void { void this.service.restart('device'); }
   cancel(): void { void this.service.cancel(); }
+  checkAgain(): void { void this.service.checkAuthStatus(); }
   async copy(value: string, kind: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(value);

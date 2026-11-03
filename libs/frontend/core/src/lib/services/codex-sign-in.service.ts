@@ -20,6 +20,12 @@ export class CodexSignInService implements MessageHandler {
   readonly state = this.stateValue.asReadonly();
   private readonly nothingSeenValue = signal(false);
   readonly nothingSeen = this.nothingSeenValue.asReadonly();
+  private readonly refreshFailedValue = signal(false);
+  readonly refreshFailed = this.refreshFailedValue.asReadonly();
+  private readonly refreshingValue = signal(false);
+  readonly refreshing = this.refreshingValue.asReadonly();
+  private readonly confirmationValue = signal<'idle' | 'checking' | 'confirmed' | 'failed'>('idle');
+  readonly confirmation = this.confirmationValue.asReadonly();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
   private previousAttemptId: string | null = null;
@@ -50,6 +56,9 @@ export class CodexSignInService implements MessageHandler {
   private async launch(mode: CodexLoginMode, restart: boolean): Promise<void> {
     if (!this.vscode.isElectron || this.disposed) return;
     const generation = ++this.generation;
+    this.refreshFailedValue.set(false);
+    this.refreshingValue.set(false);
+    this.confirmationValue.set('idle');
     if (restart || isFinalCodexLogin(this.stateValue())) {
       this.previousAttemptId = this.stateValue()?.attemptId ?? null;
       this.stateValue.set(null);
@@ -102,6 +111,11 @@ export class CodexSignInService implements MessageHandler {
     this.previousAttemptId = null;
     const previous = this.stateValue();
     this.stateValue.set(next);
+    if (next.status !== 'succeeded') {
+      this.refreshFailedValue.set(false);
+      this.refreshingValue.set(false);
+      this.confirmationValue.set('idle');
+    }
     this.nothingSeenValue.set(false);
     this.clearTimer();
     if ((next.status === 'starting' || next.status === 'running') && !next.verificationUrl && !next.userCode) {
@@ -111,8 +125,26 @@ export class CodexSignInService implements MessageHandler {
       }, NOTHING_SEEN_MS);
     }
     if (next.status === 'succeeded' && previous?.status !== 'succeeded') {
-      void this.authState.refreshAuthStatus();
+      void this.checkAuthStatus();
     }
+  }
+
+  async checkAuthStatus(): Promise<void> {
+    if (this.disposed || this.stateValue()?.status !== 'succeeded' || this.refreshingValue()) return;
+    const generation = this.generation;
+    this.refreshingValue.set(true);
+    this.refreshFailedValue.set(false);
+    this.confirmationValue.set('checking');
+    let confirmed = false;
+    try {
+      confirmed = await this.authState.refreshAuthStatus();
+    } catch {
+      confirmed = false;
+    }
+    if (this.disposed || generation !== this.generation) return;
+    this.refreshingValue.set(false);
+    this.refreshFailedValue.set(!confirmed);
+    this.confirmationValue.set(confirmed ? 'confirmed' : 'failed');
   }
 
   private clearTimer(): void {
