@@ -47,6 +47,19 @@ describe('codexModelRejectionMessage', () => {
       'Codex rejected its own default model. Set `agentOrchestration.codexModel` to a model your account offers. Codex said: "model_not_found"',
     );
   });
+
+  it('no longer names a Ptah lane default, whatever the source', () => {
+    const message = codexModelRejectionMessage(
+      'model_not_found',
+      'gpt-6-sol',
+      'ptah-default',
+      [],
+    );
+    expect(message).toContain(
+      'chosen by the `agentOrchestration.codexModel` setting or the spawn request',
+    );
+    expect(message).not.toContain("Ptah's lane default");
+  });
 });
 
 describe('codexTextExcerpt', () => {

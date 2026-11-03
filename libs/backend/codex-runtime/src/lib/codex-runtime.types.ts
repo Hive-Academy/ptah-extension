@@ -75,7 +75,7 @@ export interface CodexExecutionProfile {
   readonly providerId: string;
   readonly workspaceId: string;
   readonly cwd: string;
-  readonly model: string;
+    readonly model?: string;
   readonly effort?: string;
   readonly permissionLevel: CodexPermissionLevel;
   readonly approvalPolicy: CodexApprovalPolicy;

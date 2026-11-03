@@ -9,6 +9,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CODEX_INITIALIZE_TIMEOUT_MS,
   normalizeCodexHomeKey,
+  type CodexSelectionSnapshotPort,
   type CodexAccountUsageClient,
 } from '@ptah-extension/codex-runtime';
 import {
@@ -152,6 +153,7 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
   private readonly liveReads = new Map<string, Promise<CodexLiveUsageUpdate | null>>();
   private readonly lastLiveReads = new Map<string, number>();
   private liveClosed = false;
+  private selectionSnapshot?: CodexSelectionSnapshotPort;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -168,6 +170,12 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
     events.onAuthFileChanged((event) => {
       if (event.providerId === 'openai-codex') this.clearCache();
     });
+  }
+
+  /** Electron shares the same executable selection as chat and lanes. */
+  setSelectionSnapshot(snapshot: CodexSelectionSnapshotPort): void {
+    this.selectionSnapshot = snapshot;
+    this.clearCache();
   }
 
   /** Electron attaches its host-owned reader; other hosts retain the fallback. */
@@ -468,7 +476,7 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
   ): Promise<AppServerRead> {
     let child: SpawnedProcessHandle;
     try {
-      child = this.spawn(['app-server']);
+      child = await this.spawn(['app-server']);
     } catch {
       throw new AppServerError('cli');
     }
@@ -563,11 +571,14 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
     }
   }
 
-  private spawn(args: readonly string[]): SpawnedProcessHandle {
+  private async spawn(args: readonly string[]): Promise<SpawnedProcessHandle> {
     // The native binary, not the `codex.js` launcher: on Electron
     // `process.execPath` is the Ptah app, so launching the script with it
     // opened a second app instance (Plane PTAH-20).
-    const binary = resolveCodexNativeBinaryPath();
+    const selected = this.selectionSnapshot
+      ? (await this.selectionSnapshot.selectForOpen()).selected
+      : undefined;
+    const binary = selected?.path ?? (this.selectionSnapshot ? undefined : resolveCodexNativeBinaryPath());
     if (binary === undefined) throw new AppServerError('cli');
     const child = this.spawner.spawnProcess({
       command: binary,

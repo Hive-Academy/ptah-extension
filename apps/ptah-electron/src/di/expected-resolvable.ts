@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import {
   AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
@@ -121,6 +122,7 @@ export const EXPECTED_RUNTIME_TOKENS = [
 ] as const;
 
 export const ELECTRON_CODEX_BOUND_TOKENS = [
+  CODEX_RUNTIME_TOKENS.SelectionSnapshot,
   SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
   SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
   SDK_TOKENS.RUNTIME_ADMISSION_PORT,

@@ -739,6 +739,21 @@ describe('CodexAccountUsageService', () => {
     expect(h.requests[0].args).toEqual(['app-server']);
   });
 
+  it('uses the Electron selection snapshot while retaining the selected auth home', async () => {
+    const h = harness();
+    mockResolveCodexNativeBinaryPath.mockClear();
+    const selected = { path: '/installed/codex', version: '0.166.0',
+      source: 'installed' as const, reason: 'Supported installed Codex' };
+    const selectForOpen = jest.fn(async () => ({ selected }));
+    h.service.setSelectionSnapshot({ selectForOpen, current: () => selected,
+      activateFallback: async () => { throw new Error('Unexpected fallback'); } });
+    await h.service.getAccountUsage();
+    expect(selectForOpen).toHaveBeenCalledTimes(1);
+    expect(h.requests[0].command).toBe(selected.path);
+    expect(h.requests[0].env?.['CODEX_HOME']).toBe(h.syntheticHome);
+    expect(mockResolveCodexNativeBinaryPath).not.toHaveBeenCalled();
+  });
+
   it('refuses an explicit home instead of returning default-home usage', async () => {
     const h = harness();
     await expect(

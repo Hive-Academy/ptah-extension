@@ -213,8 +213,8 @@ describe('AgentSpawnEnvironment — agentOrchestration settings routing (D8)', (
     const { environment } = makeRoutingEnvironment();
 
     expect(environment.resolveModel('codex', undefined)).toEqual({
-      model: 'gpt-6-sol',
-      source: 'ptah-default',
+      model: undefined,
+      source: 'cli-default',
     });
     expect(environment.resolveAutoApprove('copilot')).toBe(true);
     expect(environment.resolveReasoningEffort('pi').effort).toBeUndefined();
@@ -238,7 +238,7 @@ describe('AgentSpawnEnvironment — agentOrchestration settings routing (D8)', (
     });
 
     expect(environment.resolveModel('codex', undefined).source).toBe(
-      'ptah-default',
+      'cli-default',
     );
     expect(environment.resolveAutoApprove('copilot')).toBe(true);
   });

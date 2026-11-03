@@ -442,6 +442,13 @@ export interface SessionStatsEntry {
    */
   readonly pricingCoverage?: SessionStatsPricingCoverage;
   /**
+   * Why `totalCost` is null, when the backend knows one narrow cause. Absent
+   * on priced snapshots and on legacy ones. `rate-missing` means a model ran
+   * with no published rate ("not priced"), never an unknown billing mode or
+   * usage that cannot be valued.
+   */
+  readonly costUnavailableReason?: SessionCostUnavailableReason;
+  /**
    * Which records were counted: the whole session lifetime (`'session'`, the
    * resume and live snapshots), the current context, or a time range.
    */
@@ -492,6 +499,17 @@ export type SessionCostBasis =
   | 'estimated'
   | 'covered-by-subscription'
   | 'unknown';
+
+/**
+ * Narrow cause of a null cost. `rate-missing` labels a model that ran with
+ * no published rate at all ("not priced"); `billing-unknown` labels a session
+ * whose billing mode is unresolved; `usage-incomplete` labels usage that
+ * cannot be valued (invalid or missing counters, ambiguous cache semantics).
+ */
+export type SessionCostUnavailableReason =
+  | 'billing-unknown'
+  | 'rate-missing'
+  | 'usage-incomplete';
 
 /**
  * Non-secret evidence for the model rate used in a cost calculation.

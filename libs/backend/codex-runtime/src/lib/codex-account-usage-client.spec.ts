@@ -160,24 +160,12 @@ describe('CodexAccountUsageClient', () => {
         };
         return new CodexAppServerProcess(
           { spawnProcess: jest.fn(() => child) },
-          {
-            resolvedPath: '/codex',
-            expectedManifestRow: {
-              platform: process.platform,
-              arch: process.arch,
-              pinnedVersion: '0.165.0',
-              version: 'codex-cli 0.165.0',
-              binarySha256: 'a'.repeat(64),
-              schemaSha256: 'b'.repeat(64),
-            },
-          },
-          {
-            executablePath: '/codex',
-            platform: process.platform,
-            arch: process.arch,
-            versionOutput: 'codex-cli 0.165.0',
-            sha256: 'a'.repeat(64),
-          },
+          async () => ({
+            path: '/codex',
+            version: '0.165.0',
+            source: 'bundled',
+            reason: 'Bundled Codex selected',
+          }),
           profile,
           handlers,
         );

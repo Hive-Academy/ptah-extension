@@ -110,6 +110,19 @@ describe('cliMatrixRows', () => {
     expect(cliMatrixRows(EMPTY)).toEqual({ installed: [], uninstalled: [] });
   });
 
+  it('shows the selected Codex executable and safe bundled reason', () => {
+    const rows = cliMatrixRows({
+      ...EMPTY,
+      orchestration: orchestration({ detectedClis: [detected('codex', true, {
+        version: '0.165.0', codexSource: 'bundled',
+        codexReason: 'Installed Codex 0.160.0 is below the supported minimum 0.165.0; using bundled Codex 0.165.0.',
+      })] }),
+    });
+    expect(system(rows.installed[0]).codexStatusLine).toBe(
+      'Bundled Codex 0.165.0 — Installed Codex 0.160.0 is below the supported minimum 0.165.0',
+    );
+  });
+
   describe('order and grouping (#71)', () => {
     it('reproduces the prototype: ranked installed rows, then the uninstalled group', () => {
       const rows = cliMatrixRows(PROTOTYPE);
@@ -215,6 +228,7 @@ describe('cliMatrixRows', () => {
         interactive: true,
         version: '1.4',
         versionLabel: 'v1.4',
+        codexStatusLine: null,
         provider: 'OpenAI Codex',
         model: { key: 'codexModel', value: 'gpt-5.5-codex' },
         effort: { key: 'codexReasoningEffort', value: 'medium' },
@@ -544,6 +558,7 @@ describe('Batch 52: live CLI values', () => {
     expect(rows.installed[0]).toMatchObject({
       version: 'codex-cli 0.155.1',
       versionLabel: 'v0.155.1',
+      codexStatusLine: null,
     });
   });
 

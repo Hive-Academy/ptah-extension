@@ -543,6 +543,18 @@ describe('CliOrchestrationMatrixComponent', () => {
       ).toBe('default');
     });
 
+    it('shows one readable Codex executable status line', () => {
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [
+        detected('codex', true, {
+          version: '0.165.0', codexSource: 'bundled',
+          codexReason: 'Installed Codex 0.160.0 is below the supported minimum 0.165.0; using bundled Codex 0.165.0.',
+        }),
+      ] }));
+      render();
+      expect(row('codex')?.querySelector('[data-testid="cli-matrix-codex-source"]')?.textContent)
+        .toBe('Bundled Codex 0.165.0 — Installed Codex 0.160.0 is below the supported minimum 0.165.0');
+    });
+
     it('makes model and effort cells buttons only on enabled, installed rows', () => {
       expect(q('[data-testid="cli-matrix-model-codex"]')?.tagName).toBe(
         'BUTTON',

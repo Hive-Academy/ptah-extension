@@ -1,4 +1,5 @@
 import type { IDisposable } from '@ptah-extension/platform-core';
+import type { CodexExecutableSelection } from './select-codex-executable';
 import type {
   CodexApprovalOutcome,
   CodexApprovalRequest,
@@ -6,20 +7,8 @@ import type {
 } from './codex-runtime.types';
 // Reuse the platform boundary; do not introduce a competing spawner interface.
 export type { IProcessSpawner } from '@ptah-extension/platform-core';
-/** Portable pin identity. Diagnostic developer paths are deliberately excluded. */
-export interface CodexExecutableManifestRow {
-  readonly platform: string;
-  readonly arch: string;
-  readonly pinnedVersion: string;
-  readonly version: string;
-  readonly binarySha256: string;
-  readonly schemaSha256: string;
-}
-/** Composition supplies the bundled executable and the reviewed expected pin. */
-export interface CodexExecutableSource {
-  readonly resolvedPath: string;
-  readonly expectedManifestRow: CodexExecutableManifestRow;
-}
+/** Active selection supplied by the host-scoped snapshot. */
+export type CodexExecutableSource = CodexExecutableSelection;
 export interface ApprovalSink {
   /** Abort removes the presentation; it must never imply authorization. */
   request(

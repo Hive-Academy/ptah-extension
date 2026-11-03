@@ -130,7 +130,6 @@ describe('Codex chat host ports', () => {
       webviewManager: { broadcastMessage },
       hostAttention: { resolve: resolveAttention },
       logger,
-      platform: { platform: process.platform, arch: process.arch },
       info: {
         id: 'codex-app-server',
         name: 'Codex',

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { realpathSync } from 'node:fs';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import {
@@ -137,6 +138,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   failMethod?: string;
+  failCode = -1;
   failMessage?: string;
   holdMethod?: string;
   steerResultTurnId?: string;
@@ -219,7 +221,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
     if (method === this.failMethod) {
       this.send({
         id: frame['id'],
-        error: { code: -1, message: this.failMessage ?? 'secret raw error' },
+        error: { code: this.failCode, message: this.failMessage ?? 'secret raw error' },
       });
       return;
     }
@@ -324,23 +326,13 @@ describe('CodexRuntime', () => {
           return child;
         }),
       },
-      executable: {
-        resolvedPath: '/bin/codex',
-        expectedManifestRow: {
-          platform: 'test',
-          arch: 'test',
-          pinnedVersion: '0.165.0',
-          version: 'codex-cli 0.165.0',
-          binarySha256: 'a'.repeat(64),
-          schemaSha256: 'b'.repeat(64),
-        },
-      },
-      binary: {
-        executablePath: '/bin/codex',
-        platform: 'test',
-        arch: 'test',
-        versionOutput: 'codex-cli 0.165.0',
-        sha256: 'a'.repeat(64),
+      selectionSnapshot: {
+        selectForOpen: jest.fn(async () => ({
+          selected: { path: realpathSync(process.execPath), version: '0.165.0',
+            source: 'installed' as const, reason: 'Using installed Codex 0.165.0.' },
+        })),
+        current: jest.fn(() => undefined),
+        activateFallback: jest.fn(async () => { throw new Error('No fallback'); }),
       },
       store: { persist, markInactive: inactive, read: async () => undefined },
       sink: { request: jest.fn(async () => 'decline' as const) },
@@ -370,6 +362,124 @@ describe('CodexRuntime', () => {
       expect(child.stdout.listenerCount('data')).toBe(0);
       expect(child.stdin.listenerCount('finish')).toBe(0);
     }
+  });
+
+  it('switches to the bundled executable once for a missing required catalog method', async () => {
+    const installed = { path: realpathSync(process.execPath), version: '0.165.0',
+      source: 'installed' as const, reason: 'Using installed Codex 0.165.0.' };
+    const bundled = { ...installed, source: 'bundled' as const,
+      reason: 'Installed Codex 0.165.0 lacks required method model/list; using bundled Codex 0.165.0.' };
+    const activateFallback = jest.fn(async () => bundled);
+    options = { ...options, selectionSnapshot: {
+      selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
+      current: () => bundled,
+      activateFallback,
+    } };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(`thread-${children.length + 1}`);
+      if (children.length === 0) { child.failMethod = 'model/list'; child.failCode = -32601; }
+      children.push(child);
+      return child;
+    });
+    runtime = new CodexRuntime(options);
+    const context = await runtime.open(profile);
+    expect(context.identity.threadId).toBe('thread-2');
+    expect(children).toHaveLength(2);
+    expect(activateFallback).toHaveBeenCalledTimes(1);
+    expect(activateFallback).toHaveBeenCalledWith(installed, 'model/list');
+  });
+
+  it('keeps bundled identity after installed model/list fallback and reports bundled turn/start failure', async () => {
+    const installed = { path: realpathSync(process.execPath), version: '0.166.0',
+      source: 'installed' as const, reason: 'Using installed Codex 0.166.0.' };
+    const bundled = { ...installed, version: '0.165.0', source: 'bundled' as const,
+      reason: 'Using bundled Codex 0.165.0.' };
+    const activateFallback = jest.fn(async () => bundled);
+    options = { ...options, selectionSnapshot: {
+      selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
+      current: () => bundled,
+      activateFallback,
+    }, spawner: { spawnProcess: jest.fn(() => {
+      const child = new FakeChild(`thread-${children.length + 1}`);
+      child.failMethod = children.length === 0 ? 'model/list' : 'turn/start';
+      child.failCode = -32601;
+      children.push(child);
+      return child;
+    }) } };
+    runtime = new CodexRuntime(options);
+    const context = await runtime.open(laneProfile);
+    await expect(context.startTurn({ text: 'go' })).rejects.toMatchObject({
+      code: 'codexUnsupportedMethod', method: 'turn/start', source: 'bundled',
+    });
+    await expect(runtime.retryFirstTurnOnBundle(context, laneProfile, undefined, 'turn/start'))
+      .rejects.toThrow('Codex bundled retry is unavailable');
+    expect(activateFallback).toHaveBeenCalledTimes(1);
+    expect(children).toHaveLength(2);
+  });
+
+  it('opens two lanes while their executable probes complete out of order', async () => {
+    let firstStarted: (() => void) | undefined;
+    let releaseFirst: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const selected = { path: realpathSync(process.execPath), version: '0.166.0',
+      source: 'installed' as const, reason: 'Using installed Codex 0.166.0.' };
+    let probes = 0;
+    options = { ...options, selectionSnapshot: {
+      selectForOpen: async () => {
+        if (++probes === 1) { firstStarted?.(); await blocked; }
+        return { selected: { ...selected } };
+      },
+      current: () => undefined,
+      activateFallback: async () => { throw new Error('No fallback'); },
+    } };
+    runtime = new CodexRuntime(options);
+    const firstOpen = runtime.open({ ...laneProfile, contextId: 'lane-one' });
+    await started;
+    const second = await runtime.open({ ...laneProfile, contextId: 'lane-two' });
+    releaseFirst?.();
+    const first = await firstOpen;
+    expect(first.identity.contextId).toBe('lane-one');
+    expect(second.identity.contextId).toBe('lane-two');
+    expect(children).toHaveLength(2);
+  });
+
+  it('opens a lane while a concurrent history read resolves another executable probe', async () => {
+    let laneProbeStarted: (() => void) | undefined;
+    let releaseLaneProbe: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { laneProbeStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseLaneProbe = resolve; });
+    const selected = { path: realpathSync(process.execPath), version: '0.166.0',
+      source: 'installed' as const, reason: 'Using installed Codex 0.166.0.' };
+    let probes = 0;
+    options = { ...options, selectionSnapshot: {
+      selectForOpen: async () => {
+        if (++probes === 1) { laneProbeStarted?.(); await blocked; }
+        return { selected: { ...selected } };
+      },
+      current: () => undefined,
+      activateFallback: async () => { throw new Error('No fallback'); },
+    }, spawner: { spawnProcess: jest.fn(() => {
+      const child = new FakeChild(children.length === 0 ? 'saved-thread' : 'lane-thread');
+      children.push(child);
+      return child;
+    }) } };
+    runtime = new CodexRuntime(options);
+    const laneOpen = runtime.open(laneProfile);
+    await started;
+    const historyIdentity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: laneProfile.contextId,
+      processGeneration: 1, normalizedHome: laneProfile.normalizedHome,
+      providerId: laneProfile.providerId, workspaceId: laneProfile.workspaceId,
+      profileFingerprint: laneProfile.profileFingerprint,
+    };
+    await expect(runtime.readHistory(laneProfile, historyIdentity))
+      .resolves.toMatchObject({ rootThreadId: 'saved-thread' });
+    releaseLaneProbe?.();
+    await expect(laneOpen).resolves.toMatchObject({
+      identity: expect.objectContaining({ contextId: laneProfile.contextId }),
+    });
+    expect(children).toHaveLength(2);
   });
 
   it('reads saved history while the chat context is open without resuming or persisting', async () => {
@@ -485,7 +595,11 @@ describe('CodexRuntime', () => {
     const identity = context.identity;
     await context.close();
     runtime = new CodexRuntime({ ...options,
-      binary: { ...options.binary, sha256: 'b'.repeat(64) },
+      selectionSnapshot: { ...options.selectionSnapshot,
+        selectForOpen: async () => ({ selected: {
+          path: '/missing/codex', version: '0.165.0', source: 'installed', reason: 'unavailable',
+        } }),
+      },
     });
     await expect(runtime.readHistory(profile, identity))
       .rejects.toMatchObject({ code: 'processFailure' });
@@ -765,7 +879,16 @@ describe('CodexRuntime', () => {
       children[0].frames
         .filter((frame) => frame['method'] === 'model/list')
         .map((frame) => frame['params']),
-    ).toEqual([{ limit: 100 }, { limit: 100, cursor: '' }]);
+    ).toEqual([{ limit: 100 }, { limit: 100 }, { limit: 100, cursor: '' }]);
+  });
+
+  it('normalizes missing optional model metadata', async () => {
+    const context = await runtime.open(profile);
+    children[0].modelPages = [{ data: [{ id: 'future', model: 'future-model' }] }];
+    await expect(context.listModels()).resolves.toEqual([{
+      id: 'future', model: 'future-model', displayName: 'future-model',
+      description: undefined, isDefault: false, supportedEfforts: [],
+    }]);
   });
 
   // TASK_2026_714 8j: codex-cli 0.155.1 additive protocol strips unknown keys;
@@ -1734,6 +1857,28 @@ describe('CodexRuntime', () => {
       children[0].complete();
     await expect(context.startTurn({ text: 'again' })).resolves.toBeDefined();
   });
+  it.each(['turn/steer', 'turn/interrupt', 'thread/compact/start'] as const)(
+    'keeps basic turns available when optional %s is unsupported', async (method) => {
+      const context = await runtime.open(profile);
+      if (method !== 'thread/compact/start') await context.startTurn({ text: 'go' });
+      children[0].failMethod = method;
+      children[0].failCode = -32601;
+      if (method === 'turn/steer')
+        await expect(context.steer({ text: 'edit' })).rejects.toMatchObject({
+          method, code: 'codexUnsupportedMethod',
+        });
+      else if (method === 'turn/interrupt')
+        await expect(context.interrupt('turn-1')).resolves.toBe(false);
+      else
+        await expect(context.compact()).rejects.toMatchObject({
+          method, code: 'codexUnsupportedMethod',
+        });
+      expect(children[0].stdin.writableEnded).toBe(false);
+      children[0].failMethod = undefined;
+      if (method !== 'thread/compact/start') children[0].complete();
+      await expect(context.startTurn({ text: 'again' })).resolves.toBeDefined();
+    },
+  );
   it('cancels approvals arriving while interrupting', async () => {
     const context = await runtime.open(profile);
     await context.startTurn({ text: 'go' });

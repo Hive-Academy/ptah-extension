@@ -24,7 +24,7 @@ const settings = z.strictObject({
   providerId: text,
   workspaceId: text,
   cwd: text,
-  model: text,
+  model: text.optional(),
   effort: text.optional(),
   permissionLevel: z.enum(['ask', 'plan', 'auto-edit', 'yolo']),
   enhancedPrompt: z.string().optional(),

@@ -1,10 +1,14 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CodexContext,
+  CodexExecutionProfile,
+  CodexMcpSecrets,
   CodexReportedUsage,
   CodexRuntimeEvent,
   CodexTurnInput,
+  CodexTurnReceipt,
 } from '@ptah-extension/codex-runtime';
+import { CodexUnsupportedMethodError } from '@ptah-extension/codex-runtime';
 import type {
   FlatStreamEventUnion,
   IAgentAdapter,
@@ -37,7 +41,9 @@ export interface CodexChatSession {
   readonly id: SessionId;
   readonly token: string;
   readonly consumer?: 'chat' | 'gateway';
-  readonly context: CodexContext;
+  context: CodexContext;
+  readonly profile: CodexExecutionProfile;
+  readonly secrets?: CodexMcpSecrets;
   readonly usageOwner: CodexSessionUsageOwner;
   readonly billingMode: 'subscription' | 'api-key' | 'unknown';
   messageCount: number;
@@ -57,12 +63,14 @@ export interface CodexChatSession {
   pendingInterrupt?: boolean;
   stopRequested?: boolean;
   closing?: Promise<void>;
+  bundledRetryUsed?: boolean;
   compacting?: Promise<void>;
 }
 
 function failureNotice(
   session: CodexChatSession,
   turnId: string | undefined,
+  notice = CODEX_FAILURE_NOTICE,
 ): FlatStreamEventUnion[] {
   if (session.consumer === 'gateway') return [];
   const messageId = `codex-error:${session.id}:${turnId ?? 'start'}`;
@@ -83,7 +91,7 @@ function failureNotice(
       ...base,
       id: `${messageId}:text`,
       eventType: 'text_delta',
-      delta: CODEX_FAILURE_NOTICE,
+      delta: notice,
       blockIndex: 0,
     },
   ];
@@ -101,6 +109,7 @@ interface CodexChatTurnDependencies {
   persistUsage(id: SessionId, checkpoint: CodexUsageCheckpoint): Promise<void>;
   interrupt(id: SessionId): Promise<boolean>;
   close(session: CodexChatSession): Promise<void>;
+  retryFirstTurn(session: CodexChatSession): Promise<void>;
   notifyCompaction(session: CodexChatSession, trigger: 'auto'): void;
   error(
     code: CodexChatAdapterError['code'],
@@ -133,7 +142,7 @@ export async function* streamCodexChatTurn(
   if (session.busy) throw deps.error('busy', 'turn');
   if (session.blocked || session.closing) throw deps.error('unavailable', 'turn');
   session.busy = true;
-  const subscription = new AbortController();
+  let subscription = new AbortController();
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
@@ -177,10 +186,21 @@ export async function* streamCodexChatTurn(
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     const eventStream = session.context.events(subscription.signal);
     events = eventStream[Symbol.asyncIterator]();
-    const receipt = await session.context.startTurn({
-      ...input,
-      signal: subscription.signal,
-    });
+    let receipt: CodexTurnReceipt;
+    try {
+      receipt = await session.context.startTurn({ ...input, signal: subscription.signal });
+    } catch (error: unknown) {
+      if (!(error instanceof CodexUnsupportedMethodError) ||
+          error.method !== 'turn/start' || error.source !== 'installed' ||
+          session.turnId !== undefined || session.bundledRetryUsed) throw error;
+      session.bundledRetryUsed = true;
+      subscription.abort();
+      await events.return?.();
+      await deps.retryFirstTurn(session);
+      subscription = new AbortController();
+      events = session.context.events(subscription.signal)[Symbol.asyncIterator]();
+      receipt = await session.context.startTurn({ ...input, signal: subscription.signal });
+    }
     session.turnId = receipt.turnId;
     admitted = true;
     deps.admission?.accepted();
@@ -265,6 +285,16 @@ export async function* streamCodexChatTurn(
           pricingCoverage: lifetimePrice.pricingCoverage,
           ...(lifetimePrice.priceProvenance
             ? { priceProvenance: lifetimePrice.priceProvenance } : {}),
+          // The session reason is published only when nothing in the session
+          // was priced AND this turn's own unpriced cause is a missing rate,
+          // so "not priced" never mislabels an unknown billing mode or
+          // unusable usage. Any other null-cost cause omits the field and the
+          // UI keeps "cost unavailable".
+          ...(lifetimePrice.totalCost === null &&
+              lifetimePrice.pricingCoverage === 'none' &&
+              turnPrice.totalCost === null &&
+              turnPrice.costUnavailableReason === 'rate-missing'
+            ? { costUnavailableReason: 'rate-missing' as const } : {}),
         },
         tokens,
         duration: Date.now() - started,
@@ -493,12 +523,15 @@ export async function* streamCodexChatTurn(
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
+    const notice = error instanceof CodexUnsupportedMethodError &&
+      error.source === 'bundled' && error.method === 'turn/start'
+      ? error.message : CODEX_FAILURE_NOTICE;
     const interrupted = session.abort.signal.aborted || session.stopRequested ||
       (isCodexChatAdapterError(error) && error.code === 'cancelled');
     const failure = interrupted ? deps.error('cancelled', 'turn') : deps.failure(error, 'turn');
     if (!interrupted && !failureNoticeEmitted) {
       failureNoticeEmitted = true;
-      yield* failureNotice(session, session.turnId);
+      yield* failureNotice(session, session.turnId, notice);
     }
     if (!terminalStateEmitted) {
       terminalStatus = interrupted ? 'interrupted' : 'failed';
@@ -512,7 +545,7 @@ export async function* streamCodexChatTurn(
       if (!errorPresented) {
         void Promise.resolve()
           .then(() => deps.callbacks(session.id, undefined).error(
-            CODEX_FAILURE_NOTICE, session.context.identity.workspaceId,
+            notice, session.context.identity.workspaceId,
           ))
           .catch((publicationError: unknown) => {
             deps.logger.error(

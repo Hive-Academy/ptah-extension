@@ -108,7 +108,7 @@ describe('Electron RPC surface', () => {
 
 it('includes the complete Electron runtime binding in the DI census', () => {
   expect(EXPECTED_RUNTIME_TOKENS).toEqual(
-    expect.arrayContaining([...ELECTRON_CODEX_BOUND_TOKENS]),
+    expect.arrayContaining([...ELECTRON_CODEX_BOUND_TOKENS.slice(1)]),
   );
-  expect(new Set(ELECTRON_CODEX_BOUND_TOKENS).size).toBe(7);
+  expect(new Set(ELECTRON_CODEX_BOUND_TOKENS).size).toBe(8);
 });

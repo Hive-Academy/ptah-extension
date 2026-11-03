@@ -531,6 +531,21 @@ describe('SessionStatsSummaryComponent', () => {
       expect(root.querySelector('[data-testid="stats-cost"]')?.closest('[title]')?.getAttribute('title'))
         .toContain('Cost unavailable');
     });
+
+    it('exposes the backend null-cost reason for the badge to label', () => {
+      // The [costUnavailableReason] template binding lives in another batch's
+      // file; this test pins the component wiring that binding will consume.
+      render({
+        ...SNAPSHOT,
+        totalCost: null,
+        knownCost: null,
+        pricingCoverage: 'none',
+        costUnavailableReason: 'rate-missing',
+      });
+      expect(fixture.componentInstance.costUnavailableReason()).toBe(
+        'rate-missing',
+      );
+    });
   });
 
   describe('in-turn estimate (TASK_2026_626 C9)', () => {

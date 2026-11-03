@@ -211,7 +211,6 @@ describe('chat native session preparation', () => {
       hostCapabilities: { nativeCodex: true },
       webviewManager: { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
       logger: Logger.prototype,
-      platform: { platform: process.platform, arch: process.arch },
       info: {
         id: 'codex-app-server', name: 'Codex', version: '1.0.0',
         description: 'Native Codex chat test provider', vendor: 'OpenAI',

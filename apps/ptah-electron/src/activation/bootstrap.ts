@@ -33,6 +33,8 @@ import {
   type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
+import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
+import { AUTH_PROVIDERS_TOKENS, CodexAccountUsageService } from '@ptah-extension/auth-providers';
 import {
   activateSessionLifecycleNotifier,
   runCursorApiKeyMigration,
@@ -40,7 +42,7 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import {
   bindElectronCodexChat,
-  createElectronCodexRouting,
+  createElectronCodexSelectionSnapshot,
   resolveElectronCodexBundledRoot,
 } from '../di/codex-runtime-composition';
 import { ElectronDIContainer } from '../di/container';
@@ -590,28 +592,37 @@ async function runBootstrap(
     env: process.env,
     platform: { platform: process.platform, arch: process.arch },
   };
-  if (createElectronCodexRouting(codexRoutingInput).capabilities.nativeCodex) {
-    try {
-      await bindElectronCodexChat(container, {
+  try {
+    const bundledRoot = resolveElectronCodexBundledRoot({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+    });
+    const selectionSnapshot = createElectronCodexSelectionSnapshot(
+      bundledRoot, container.resolve<Logger>(TOKENS.LOGGER),
+    );
+    container.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot, {
+      useValue: selectionSnapshot,
+    });
+    container.resolve<CodexAccountUsageService>(
+      AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE,
+    ).setSelectionSnapshot(selectionSnapshot);
+    await bindElectronCodexChat(container, {
         ...codexRoutingInput,
-        bundledRoot: resolveElectronCodexBundledRoot({
-          isPackaged: app.isPackaged,
-          resourcesPath: process.resourcesPath,
-          appPath: app.getAppPath(),
-        }),
+        bundledRoot,
+        selectionSnapshot,
         scopeResolver: container.resolve<WorkspaceScopeResolver>(
           SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER,
         ),
         settingsStore: container.resolve<NativeSessionControlsDeps['store']>(
           SETTINGS_TOKENS.SETTINGS_STORE,
         ),
-      });
-    } catch (error) {
-      container.resolve<Logger>(TOKENS.LOGGER).error(
-        '[Ptah Electron] Codex chat binding failed; continuing startup',
-        error instanceof Error ? error : new Error('Codex chat binding failed'),
-      );
-    }
+    });
+  } catch (error) {
+    container.resolve<Logger>(TOKENS.LOGGER).error(
+      '[Ptah Electron] Codex chat binding failed; continuing startup',
+      error instanceof Error ? error : new Error('Codex chat binding failed'),
+    );
   }
   // Detached Display window (TASK_2026_853_3401). Bound here, beside
   // WEBVIEW_MANAGER, because it needs the bridge; `DisplayWindowRpcHandlers`

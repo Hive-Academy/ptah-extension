@@ -6,10 +6,8 @@ import {
   CODEX_RUNTIME_TOKENS,
   CodexContextStateError,
   CodexResumeProfileChangedError,
-  CodexParityGate,
   type ApprovalSink,
   type CodexContext,
-  type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexRuntimeEvent,
   type CodexRuntime,
@@ -63,10 +61,7 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup(
-  override: boolean | 'gateway' = true,
-  resolveRuntime?: CodexChatAdapterPorts['resolveRuntime'],
-) {
+function setup(resolveRuntime?: CodexChatAdapterPorts['resolveRuntime']) {
   const logger = mockLogger();
   const context: jest.Mocked<CodexContext> = {
     listModels: jest.fn(async () => [
@@ -119,17 +114,6 @@ function setup(
   const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
-  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
-    useValue: new CodexParityGate(),
-  });
-  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-    useFactory: (): CodexDevRouteOverride | null => (
-      override ? {
-        consumers: override === 'gateway' ? ['gateway'] : ['chat', 'gateway'],
-        source: 'PTAH_CODEX_RUNTIME_DEV',
-      } : null
-    ),
-  });
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },
   });
@@ -146,7 +130,6 @@ function setup(
   const ports: CodexChatAdapterPorts = {
     checkOptions: jest.fn(),
     logger,
-    platform: { platform: 'win32', arch: 'x64' },
     resolveApprovalPath: async (value) => value,
     info: {
       id: 'ptah-cli',
@@ -238,23 +221,20 @@ describe('CodexChatAdapter', () => {
     h.adapter.dispose();
   });
 
-  it('keeps the shared chat gate when the host omits runtime resolution', async () => {
-    const h = setup('gateway');
+  it('resolves the runtime token directly when the host omits runtime resolution', async () => {
+    const h = setup();
     try {
-      await expect(h.adapter.startChatSession({ tabId })).rejects.toMatchObject({
-        code: 'runtime-failed',
-        cause: expect.objectContaining({ message: expect.stringContaining('parity gate') }),
-      });
-      expect(h.open).not.toHaveBeenCalled();
+      await h.adapter.startChatSession({ tabId });
+      expect(h.open).toHaveBeenCalledTimes(1);
     } finally {
       h.adapter.dispose();
     }
   });
 
-  it('uses the host runtime port in place of the shared chat gate', async () => {
+  it('prefers the host runtime port over the runtime token', async () => {
     const resolveRuntime = jest.fn((scope: DependencyContainer, _consumer: 'chat' | 'gateway') =>
       scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime));
-    const h = setup(false, resolveRuntime);
+    const h = setup(resolveRuntime);
     try {
       await h.adapter.startChatSession({ tabId });
       expect(resolveRuntime).toHaveBeenCalledWith(expect.anything(), 'chat');
@@ -949,7 +929,7 @@ describe('CodexChatAdapter', () => {
   });
 
   it('refuses a closed gate without opening a context', async () => {
-    const { adapter, open, dispose, lifecycle } = setup(false);
+    const { adapter, open, dispose, lifecycle } = setup();
     await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
       code: 'runtime-failed',
     });
@@ -960,7 +940,7 @@ describe('CodexChatAdapter', () => {
   });
 
   it('opens a gateway start with read auto-accept disabled and presents read approvals', async () => {
-    const { adapter, ports, open, sink } = setup('gateway');
+    const { adapter, ports, open, sink } = setup();
     jest.mocked(ports.profile).mockImplementation(async (_config, resumeId) => ({
       profile: { ...profile, consumer: 'gateway' },
       ...(resumeId ? { resume: identity } : {}),
@@ -982,8 +962,8 @@ describe('CodexChatAdapter', () => {
     await expect(pending).resolves.toBe('decline');
   });
 
-  it('reopens a gateway resume through the gateway gate', async () => {
-    const { adapter, ports, open } = setup('gateway');
+  it('reopens a gateway resume through the gateway runtime', async () => {
+    const { adapter, ports, open } = setup();
     jest.mocked(ports.profile).mockImplementation(async (_config, resumeId) => ({
       profile: { ...profile, consumer: 'gateway' },
       ...(resumeId ? { resume: identity } : {}),

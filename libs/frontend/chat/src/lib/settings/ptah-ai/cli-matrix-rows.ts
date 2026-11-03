@@ -79,6 +79,8 @@ export interface SystemCliMatrixRow extends CliMatrixRowBase {
   readonly version: string | null;
   /** `version` for display (`cliVersionLabel`): "v0.155.1", never the CLI name again (Batch 52.1). */
   readonly versionLabel: string | null;
+  /** Safe executable selection summary from Codex detection. */
+  readonly codexStatusLine: string | null;
   /**
    * The account the CLI uses. Each system CLI signs in on its own; opencode and Pi take the provider
    * from the `provider/model` id, so theirs is null until a model is saved. Null for uninstalled rows.
@@ -385,6 +387,11 @@ function systemRows(
         ? READY
         : DISABLED;
     const version = detected.version?.trim();
+    const codexStatusLine = cli === 'codex' && installed && version && detected.codexSource
+      ? `${detected.codexSource === 'installed' ? 'Installed' : 'Bundled'} Codex ${version}` +
+        (detected.codexSource === 'bundled' && detected.codexReason
+          ? ` — ${detected.codexReason.split('; using bundled Codex')[0]}` : '')
+      : null;
     rows.push({
       kind: 'system',
       id: cli,
@@ -400,6 +407,7 @@ function systemRows(
         version && !(cli === 'cursor' && version === 'sdk')
           ? cliVersionLabel(version)
           : null,
+      codexStatusLine,
       provider: installed
         ? (spec.provider ?? providerFromModelId(model))
         : null,

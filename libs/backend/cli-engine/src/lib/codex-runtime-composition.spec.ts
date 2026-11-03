@@ -90,7 +90,7 @@ describe('CLI legacy Codex composition (Batch 8e)', () => {
     },
   );
 
-  it('pins the CLI call sites and excludes native bindings and dev routes, including lanes/gateways', () => {
+  it('keeps chat alias wiring and registers native Codex only in the lane composition', () => {
     const source = readFileSync(join(__dirname, 'container.ts'), 'utf8');
     expect(source).toContain('registerSdkServices(container, logger)');
     expect(source).toContain('wireAgentAdapterAliases(container)');
@@ -98,11 +98,11 @@ describe('CLI legacy Codex composition (Batch 8e)', () => {
       source.indexOf('registerSdkServices(container, logger)'),
     ).toBeLessThan(source.indexOf('wireAgentAdapterAliases(container)'));
     for (const { path, source: production } of productionSources(__dirname)) {
-      expect(production).not.toMatch(
-        path === join(__dirname, 'codex-lane-runtime-composition.ts')
-          ? /readCodexDevRouteOverride|\bdevRoute\s*:/
-          : /readCodexDevRouteOverride|registerCodexRuntime|CODEX_RUNTIME_TOKENS|\bdevRoute\s*:/,
-      );
+      expect(production).not.toMatch(/readCodexDevRouteOverride|\bdevRoute\s*:/);
+      if (path === join(__dirname, 'codex-lane-runtime-composition.ts')) {
+        expect(production).toContain('CODEX_RUNTIME_TOKENS.SelectionSnapshot');
+        expect(production).toContain('registerCodexRuntime(scope, ports)');
+      }
       expect(production).not.toMatch(
         /SDK_TOKENS\.(SESSION_RUNTIME_IDENTITY_LOOKUP|CODEX_CHAT_ADAPTER_PORTS|RUNTIME_ADMISSION_PORT|RUNTIME_HOST_CAPABILITIES|LEGACY_SESSION_CONTROL_PORTS|NATIVE_SESSION_CONTROLS|NATIVE_SESSION_HISTORY_PORT)\b/,
       );

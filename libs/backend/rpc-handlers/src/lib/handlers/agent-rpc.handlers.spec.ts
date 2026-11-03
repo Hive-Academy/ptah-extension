@@ -87,6 +87,7 @@ import type {
   AgentGetClaudeBuiltinsResult,
   AgentSetClaudeBuiltinResult,
   AgentResumeOutcome,
+  CliDetectionResult,
   EffectiveCapabilitySet,
   ICapabilityResolver,
 } from '@ptah-extension/shared';
@@ -131,6 +132,7 @@ interface Harness {
 }
 
 interface HarnessOptions {
+  readonly detectedClis?: CliDetectionResult[];
   /** Registers a fake account service whose lookup is this mock. */
   readonly accountLookup?: jest.Mock;
   /** Registers a capability resolver (TASK_2026_853 policy status). */
@@ -236,7 +238,8 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     rpcHandler as unknown as RpcHandler,
     {
       getAdapter: jest.fn().mockReturnValue(undefined),
-      detectAll: jest.fn().mockResolvedValue([]),
+      invalidateCache: jest.fn(),
+      detectAll: jest.fn().mockResolvedValue(options.detectedClis ?? []),
     } as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,
@@ -311,6 +314,20 @@ async function call<T>(
   });
   return response.data as T;
 }
+
+describe('AgentRpcHandlers — Codex detection', () => {
+  it('forwards the selected executable provenance and version', async () => {
+    const selection: CliDetectionResult = {
+      cli: 'codex', installed: true, path: '/bin/codex', version: '0.165.0',
+      codexSource: 'bundled', codexReason: 'Installed Codex 0.160.0 is below the supported minimum 0.165.0',
+      messagingMode: 'none',
+    };
+    const h = makeHarness({ detectedClis: [selection] });
+
+    expect(await call<{ clis: CliDetectionResult[] }>(h, 'agent:detectClis', {}))
+      .toEqual({ clis: [selection] });
+  });
+});
 
 type ResumeResult = {
   success: boolean;

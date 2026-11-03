@@ -108,7 +108,6 @@ describe('Codex host resume permission persistence', () => {
       hostCapabilities: { nativeCodex: true },
       webviewManager: { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
       logger: Logger.prototype,
-      platform: { platform: process.platform, arch: process.arch },
       info: {
         id: 'codex-app-server',
         name: 'Codex',

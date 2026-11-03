@@ -7,7 +7,7 @@ import axios from 'axios';
 import { z } from 'zod';
 import { Logger } from '@ptah-extension/vscode-core';
 import type { IDisposable } from '@ptah-extension/platform-core';
-import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
+import { normalizeCodexHomeKey, CODEX_MIN_SUPPORTED_VERSION } from '@ptah-extension/codex-runtime';
 import type {
   CodexHomeAuthReader,
   CodexHomeAuthEvent,
@@ -225,12 +225,13 @@ const DEFAULT_API_ENDPOINT_OAUTH = 'https://chatgpt.com/backend-api/codex';
 
 /**
  * The Codex `/models` endpoint hides each model from clients older than that
- * model's minimum version: on 2026-10-07 `0.0.0` returned 4 of the 7 listed
- * models and `0.162.0` returned all 7. The request sends the newer of this
- * floor and the `client_version` the local Codex app or CLI last wrote to
- * `models_cache.json`, so a newer local Codex lifts the floor without a release.
+ * model's minimum version. The request sends the newer of the shared
+ * `CODEX_MIN_SUPPORTED_VERSION` (the same floor the runtime selector enforces,
+ * select-codex-executable.ts) and the `client_version` the local Codex app or
+ * CLI last wrote to `models_cache.json`, so a newer local Codex lifts the
+ * request version without a Ptah release.
  */
-const CODEX_MODELS_CLIENT_VERSION_FLOOR = '0.162.0';
+const CODEX_MODELS_CLIENT_VERSION_FLOOR = CODEX_MIN_SUPPORTED_VERSION;
 
 /** Numeric `major.minor.patch` compare; a missing or non-numeric part counts as 0. */
 function compareClientVersions(left: string, right: string): number {
@@ -493,15 +494,15 @@ class HomeAuthState implements ICodexAuthService {
           }));
       }
 
-      return (data.data ?? [])
-        .filter((m) => /codex|gpt-5/i.test(m.id))
-        .map((m) => ({
-          id: m.id,
-          name: m.id,
-          description: '',
-          contextLength: 0,
-          supportsToolUse: true,
-        }));
+      // Every visible entry is returned; no name pattern discards a future
+      // model ID the account API already lists.
+      return (data.data ?? []).map((m) => ({
+        id: m.id,
+        name: m.id,
+        description: '',
+        contextLength: 0,
+        supportsToolUse: true,
+      }));
     } catch {
       // degradation-audit: optional-capability - live model discovery is optional;
       // an unavailable endpoint returns no discovered models, not an auth failure.

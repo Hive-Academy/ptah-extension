@@ -38,7 +38,6 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import {
-  CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,
   type AuthEnv,
   type ProviderProfile,
@@ -336,19 +335,20 @@ export class WorkspaceProviderProfileResolver {
     if (tier === 'opus' || tier === 'sonnet' || tier === 'haiku') {
       return { model: CODEX_DEFAULT_TIERS[tier] };
     }
-    const catalog = CODEX_PROVIDER_ENTRY.staticModels;
-    const exactMatch = catalog?.find((model) => model.id === requested);
-    if (exactMatch) return { model: exactMatch.id };
-    const caseMatch = catalog?.find((model) => model.id.toLowerCase() === tier);
-    const model = caseMatch?.id ?? catalog?.[0]?.id ?? CODEX_DEFAULT_TIERS.opus;
-    return {
-      model,
-      modelSubstitution: {
-        requested: requestedModel,
-        used: model,
-        reason: caseMatch ? 'case-mismatch' : 'not-in-catalog',
-      },
-    };
+    if (!requested || tier === 'default') {
+      const model = CODEX_DEFAULT_TIERS.opus;
+      return {
+        model,
+        modelSubstitution: {
+          requested: requestedModel,
+          used: model,
+          reason: 'not-in-catalog',
+        },
+      };
+    }
+    // Dynamic catalogs can contain IDs unknown to this Ptah release. Codex is
+    // the authority on a requested ID; never substitute from a static list.
+    return { model: requested };
   }
 
   /**

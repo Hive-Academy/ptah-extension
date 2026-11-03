@@ -361,36 +361,38 @@ export class ProviderRpcHandlers {
   /**
    * Register a dynamic fetcher for OpenAI Codex models.
    *
-   * Cascade:
-   * 1. VS Code LM API (selectChatModels) — Codex models may not appear here,
-   *    but we check for consistency with the Copilot fetcher pattern.
-   * 2. Static fallback list from CODEX_PROVIDER_ENTRY (primary source).
+   * Dynamic sources only, in order:
+   * 1. The selected Codex app-server's own `model/list` catalog, read through
+   *    the CLI detector's codex adapter. Nothing filters the IDs: the selected
+   *    Codex version decides what is visible, so a future model appears
+   *    without a Ptah release.
+   * 2. The account API (`CodexAuthService.listModels`), a separate dynamic
+   *    source for when no app-server catalog is available.
+   *
+   * When both sources fail or return nothing, the list is empty: there is no
+   * static fallback, because a hardcoded ID list would hide every model that
+   * shipped after it.
    */
   private registerCodexDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('openai-codex', async () => {
       try {
-        // This platform API lists all vendors. A matching model ID alone
-        // cannot establish capacity evidence for the Codex provider.
-        const platformModels = await this.modelDiscovery.getCodexModels();
-        const codexModelIds = new Set(
-          (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
-        );
-        const matched = platformModels.filter((m) => codexModelIds.has(m.id));
-        if (matched.length > 0) {
+        const adapter = this.cliDetection.getAdapter('codex');
+        const catalog = adapter?.listModels ? await adapter.listModels() : undefined;
+        if (catalog && catalog.length > 0) {
           this.logger.info(
-            `[ProviderRpc] Fetched ${matched.length} Codex models from platform discovery`,
+            `[ProviderRpc] Fetched ${catalog.length} Codex models from the selected app-server catalog`,
           );
-          return matched.map((m) => ({
+          return catalog.map((m) => ({
             id: m.id,
-            name: this.formatCopilotModelName(m.id),
+            name: m.name,
             description: '',
-            contextLength: m.contextLength,
+            contextLength: 0,
             supportsToolUse: true,
           }));
         }
       } catch (error) {
         this.logger.debug(
-          `[ProviderRpc] Platform model discovery unavailable for Codex: ${
+          `[ProviderRpc] Codex app-server model catalog unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -410,14 +412,8 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-      this.logger.info('[ProviderRpc] Using static Codex model list');
-      return (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
-        id: m.id,
-        name: m.name,
-        description: m.description ?? '',
-        contextLength: m.contextLength ?? 0,
-        supportsToolUse: m.supportsToolUse ?? false,
-      }));
+      this.logger.info('[ProviderRpc] No dynamic Codex model source available');
+      return [];
     });
   }
 

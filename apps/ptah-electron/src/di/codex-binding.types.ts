@@ -9,8 +9,7 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import type {
   CodexExecutionProfile,
-  CodexParityPlatform,
-  CodexRuntimeRegistrationPorts,
+  CodexSelectionSnapshotPort,
   CodexThreadIdentity,
   CodexThreadIdentityStore,
 } from '@ptah-extension/codex-runtime';
@@ -24,11 +23,10 @@ import type {
 export interface ElectronCodexRoutingInput {
   readonly isPackaged: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly platform: CodexParityPlatform;
+  readonly platform: { readonly platform: string; readonly arch: string };
 }
 
 export interface ElectronCodexRouting {
-  readonly devRoute: CodexRuntimeRegistrationPorts['devRoute'];
   readonly capabilities: Readonly<{
     nativeCodex: boolean;
     nativeCodexGateway: boolean;
@@ -37,6 +35,7 @@ export interface ElectronCodexRouting {
 
 export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {
   readonly bundledRoot: string;
+  readonly selectionSnapshot: CodexSelectionSnapshotPort;
   readonly scopeResolver: LegacyCodexSessionSettingsDeps['scopeResolver'];
   readonly settingsStore: NativeSessionControlsDeps['store'];
 }

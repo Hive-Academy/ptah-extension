@@ -8,14 +8,13 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
-  resolveGatedCodexRuntime,
+  CODEX_RUNTIME_TOKENS,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
   type CodexModelInfo,
   type CodexMcpSecrets,
-  type CodexParityPlatform,
   type CodexRuntime,
   type CodexThreadIdentity,
   type CodexTurnInput,
@@ -80,7 +79,6 @@ export interface CodexChatScope {
 
 export interface CodexChatAdapterPorts {
   readonly logger: Logger;
-  readonly platform: CodexParityPlatform;
   /** Injectable filesystem lookup for approval containment. Defaults to node realpath. */
   readonly resolveApprovalPath?: (value: string) => Promise<string>;
   readonly info: ProviderInfo;
@@ -100,7 +98,7 @@ export interface CodexChatAdapterPorts {
     readonly secrets?: CodexMcpSecrets;
   }>;
   createScope(sink: ApprovalSink): CodexChatScope;
-  /** Host-owned resolution for a session scope; absent hosts keep shared gate policy. */
+  /** Host-owned resolution for a session scope; absent hosts resolve the runtime token. */
   readonly resolveRuntime?: (
     scope: DependencyContainer,
     consumer: 'chat' | 'gateway',
@@ -337,6 +335,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       session = this.publishSession(
         id, context, sink, scope, prepared.profile, usageOwner,
         prepared.billingMode ?? 'unknown', savedUsage?.messageCount ?? 0,
+        prepared.secrets,
       );
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
@@ -401,7 +400,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   ): Promise<CodexContext> {
     const runtime = this.ports.resolveRuntime
       ? this.ports.resolveRuntime(scope.container, consumer)
-      : resolveGatedCodexRuntime(scope.container, consumer, this.ports.platform);
+      : scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
     return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
   }
 
@@ -431,6 +430,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     usageOwner: CodexSessionUsageOwner,
     billingMode: 'subscription' | 'api-key' | 'unknown',
     messageCount: number,
+      secrets?: CodexMcpSecrets,
   ): TrackedSession {
     const session: TrackedSession = {
       settings: {
@@ -442,6 +442,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
       token: randomUUID(),
       consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
+        profile,
+        secrets,
       usageOwner,
       billingMode,
       messageCount,
@@ -527,8 +529,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
       },
       this.ports.logger,
-      () => context.turnPermissionLevel,
-      this.ports.platform.platform,
+      () => getSession()?.context.turnPermissionLevel ?? context.turnPermissionLevel,
+      process.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
       { autoAcceptReadOnly: consumer === 'chat' },
@@ -616,6 +618,14 @@ export class CodexChatAdapter implements NativeChatAdapter {
       },
       interrupt: (id) => this.interruptCurrentTurn(id),
       close: (active) => this.close(active),
+      retryFirstTurn: async (active) => {
+        const runtime = this.ports.resolveRuntime
+          ? this.ports.resolveRuntime(active.scope.container, active.consumer ?? 'chat')
+          : active.scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
+        active.context = await runtime.retryFirstTurnOnBundle(
+          active.context, active.profile, active.secrets, 'turn/start',
+        );
+      },
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),

@@ -5,6 +5,7 @@ import {
   CodexAppServerProcess,
   CodexHomeMismatchError,
   CodexRequestRejectedError,
+  CodexUnsupportedMethodError,
   type CodexAppServerHandlers,
 } from './codex-app-server-process';
 import {
@@ -20,7 +21,7 @@ import type {
   CodexPermissionRuleStore,
   CodexPermissionRuleTarget,
 } from './codex-permission-rule-store';
-import type { CodexBinaryIdentity } from './codex-protocol-manifest';
+import type { CodexSelectionSnapshotPort } from './select-codex-executable';
 import {
   codexNotificationSchemas,
   codexRequestSchemas,
@@ -51,13 +52,16 @@ import type {
 
 export interface CodexRuntimeOptions {
   readonly spawner: IProcessSpawner;
-  readonly executable: CodexExecutableSource;
-  readonly binary: CodexBinaryIdentity;
+  readonly selectionSnapshot: CodexSelectionSnapshotPort;
   readonly store: CodexThreadIdentityStore;
   readonly sink: ApprovalSink;
   readonly clock: Clock;
   readonly logger: CodexRuntimeLogger;
   readonly requestUserInput?: CodexApprovalBridgeOptions['requestUserInput'];
+}
+
+export interface CodexContextProcessOptions extends CodexRuntimeOptions {
+  readonly executable: CodexExecutableSource;
 }
 
 interface Subscriber {
@@ -123,7 +127,7 @@ class RuntimeContext implements CodexContext {
   private readonly asyncQuestionItems = new Set<string>();
 
   constructor(
-    private readonly options: CodexRuntimeOptions,
+    private readonly options: CodexContextProcessOptions,
     private readonly rules: CodexPermissionRuleStore,
     private readonly profile: CodexExecutionProfile,
     private readonly generation: number,
@@ -157,7 +161,6 @@ class RuntimeContext implements CodexContext {
     this.process = new CodexAppServerProcess(
       spawner,
       options.executable,
-      options.binary,
       profile,
       {
         onNotification: (frame) => this.onNotification(frame),
@@ -256,7 +259,7 @@ class RuntimeContext implements CodexContext {
     const threadConfig = this.threadConfig;
     const params = codexRequestSchemas['thread/start'].params.parse({
       cwd: this.profile.cwd,
-      model: this.profile.model,
+      ...(this.profile.model === undefined ? {} : { model: this.profile.model }),
       approvalPolicy: this.profile.approvalPolicy,
       approvalsReviewer: 'user',
       sandbox: this.profile.sandboxPolicy.mode,
@@ -422,12 +425,12 @@ class RuntimeContext implements CodexContext {
         if (this.childTools.has(parsed.threadId))
           this.childTurns.set(parsed.threadId, parsed.turnId);
         const item = parsed.item;
-        if (item.type === 'fileChange')
+        if (item.type === 'fileChange' && 'changes' in item)
           this.targets.set(item.id, {
             kind: 'fileChange',
             paths: item.changes.map((change) => change.path),
           });
-        if (item.type === 'mcpToolCall')
+        if (item.type === 'mcpToolCall' && 'server' in item && 'tool' in item)
           this.targets.set(item.id, {
             kind: 'mcpElicitation',
             server: item.server,
@@ -656,7 +659,7 @@ class RuntimeContext implements CodexContext {
     const params = codexRequestSchemas['turn/start'].params.parse({
       threadId: this.identity.threadId,
       input: this.wireInput(input, !this.sentInitialInput),
-      model: this.settings.model,
+      ...(this.settings.model === undefined ? {} : { model: this.settings.model }),
       effort: this.settings.effort ?? null,
       approvalPolicy: levelPolicy.approvalPolicy,
       approvalsReviewer: 'user',
@@ -701,7 +704,8 @@ class RuntimeContext implements CodexContext {
         revision: this.turnRevision,
       };
     } catch (error) {
-      if (error instanceof CodexRequestRejectedError) {
+      if (error instanceof CodexRequestRejectedError ||
+          error instanceof CodexUnsupportedMethodError) {
         if (!this.activeTurn) {
           // The rejected turn never ran, so later usage must not use its model.
           if (params.model)
@@ -883,7 +887,8 @@ class RuntimeContext implements CodexContext {
           revision: this.turnRevision,
         };
       } catch (error) {
-        if (error instanceof CodexRequestRejectedError) throw error;
+        if (error instanceof CodexRequestRejectedError ||
+            error instanceof CodexUnsupportedMethodError) throw error;
         this.onFailure();
         throw new Error('Codex steer failed');
       }
@@ -897,7 +902,8 @@ class RuntimeContext implements CodexContext {
     if (!signal) return;
     const abort = () => {
       void this.interrupt(turnId).catch((error: unknown) => {
-        if (!(error instanceof CodexRequestRejectedError)) this.onFailure();
+        if (!(error instanceof CodexRequestRejectedError ||
+              error instanceof CodexUnsupportedMethodError)) this.onFailure();
       });
     };
     signal.addEventListener('abort', abort, { once: true });
@@ -921,13 +927,15 @@ class RuntimeContext implements CodexContext {
         // An RPC acknowledgement is not proof of terminal state. Admission remains blocked.
         return true;
       } catch (error) {
-        if (error instanceof CodexRequestRejectedError) {
+        if (error instanceof CodexRequestRejectedError ||
+            error instanceof CodexUnsupportedMethodError) {
           clearTimeout(this.interruptTimer);
           this.interruptTimer = undefined;
           if (this.activeTurn === turnId) {
             this.state = 'running';
             this.turnController = new AbortController();
           }
+          if (error instanceof CodexUnsupportedMethodError) return false;
           throw error;
         }
         this.onFailure();
@@ -1014,16 +1022,15 @@ class RuntimeContext implements CodexContext {
             ...(cursor !== undefined ? { cursor } : {}),
           });
           this.assertOpen();
-          // Catalog id, displayName, description and isDefault pass through;
-          // supportedReasoningEfforts[].reasoningEffort becomes supportedEfforts.
+          // Keep the public catalog shape stable as newer servers omit metadata.
           models.push(
             ...result.data.map((model) => ({
               id: model.id,
               model: model.model,
-              displayName: model.displayName,
+              displayName: model.displayName || model.model,
               description: model.description,
-              isDefault: model.isDefault,
-              supportedEfforts: model.supportedReasoningEfforts.map(
+              isDefault: model.isDefault ?? false,
+              supportedEfforts: (model.supportedReasoningEfforts ?? []).map(
                 (effort) => effort.reasoningEffort,
               ),
             })),
@@ -1034,8 +1041,9 @@ class RuntimeContext implements CodexContext {
           cursor = result.nextCursor;
         }
         throw new Error('Codex model pagination limit reached');
-      } catch {
-        throw new Error('Codex model listing failed');
+      } catch (error: unknown) {
+        if (error instanceof CodexUnsupportedMethodError) throw error;
+        throw new Error('Codex model listing failed', { cause: error });
       }
     });
   }
@@ -1062,7 +1070,8 @@ class RuntimeContext implements CodexContext {
         await completed;
         this.assertOpen();
       } catch (error) {
-        if (error instanceof CodexRequestRejectedError) throw error;
+        if (error instanceof CodexRequestRejectedError ||
+            error instanceof CodexUnsupportedMethodError) throw error;
         this.onFailure();
         throw new Error('Codex compaction failed');
       } finally {

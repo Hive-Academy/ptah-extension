@@ -295,7 +295,7 @@ const SAVE_SCOPE = 'global';
                       <span class="shrink-0 whitespace-nowrap">{{
                         row.name
                       }}</span>
-                      @if (row.versionLabel) {
+                      @if (row.versionLabel && !row.codexStatusLine) {
                         <span
                           class="min-w-0 max-w-[8rem] truncate whitespace-nowrap text-xs font-normal text-base-content-muted"
                           [title]="versionTitle(row)"
@@ -304,6 +304,9 @@ const SAVE_SCOPE = 'global';
                         >
                       }
                     </div>
+                    @if (row.codexStatusLine) {
+                      <div class="text-xs text-base-content-muted" data-testid="cli-matrix-codex-source">{{ row.codexStatusLine }}</div>
+                    }
                     <!-- P6: the Claude lane's account, under its name (wraps there, so long names never push the model/effort cells). -->
                     @if (
                       row.cli === 'claude' &&

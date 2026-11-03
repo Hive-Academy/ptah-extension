@@ -418,6 +418,8 @@ export interface CliDetectionResult {
   readonly installed: boolean;
   readonly path?: string;
   readonly version?: string;
+  readonly codexSource?: 'installed' | 'bundled';
+  readonly codexReason?: string;
   /** Best messaging mechanism this CLI offers for a message sent to a live agent. */
   readonly messagingMode: AgentMessagingCapability;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli') */

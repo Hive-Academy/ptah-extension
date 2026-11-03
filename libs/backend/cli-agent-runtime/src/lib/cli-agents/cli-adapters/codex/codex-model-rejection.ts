@@ -61,8 +61,6 @@ function modelAdvice(
     return 'Codex rejected its own default model. Set `agentOrchestration.codexModel` to a model your account offers.';
   }
   switch (source) {
-    case 'ptah-default':
-      return `Codex rejected \`${model}\`, Ptah's lane default. Set \`agentOrchestration.codexModel\` to a model your account offers.`;
     case 'setting':
       return `Codex rejected \`${model}\`, set in \`agentOrchestration.codexModel\`. Set it to a model your account offers.`;
     case 'request':

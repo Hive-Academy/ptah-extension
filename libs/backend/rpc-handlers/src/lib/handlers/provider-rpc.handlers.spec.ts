@@ -81,7 +81,10 @@ import type {
   CopilotAuthService,
   CodexAuthService,
 } from '@ptah-extension/auth-providers';
-import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
+import type {
+  CliAdapter,
+  CliDetectionService,
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   DiscoveredPlanOwner,
   PlanOwnerDiscoveryRequest,
@@ -234,6 +237,17 @@ function createMockSdkAdapter(): MockSdkAdapter {
 }
 
 type MockCliDetection = jest.Mocked<Pick<CliDetectionService, 'getAdapter'>>;
+
+/** Only the members ProviderRpcHandlers reads from a Codex adapter. */
+function codexCatalogAdapter(
+  listModels: NonNullable<CliAdapter['listModels']>,
+): CliAdapter {
+  const adapter: Pick<CliAdapter, 'name' | 'listModels'> = {
+    name: 'codex',
+    listModels,
+  };
+  return adapter as CliAdapter;
+}
 
 function createMockCliDetection(): MockCliDetection {
   return { getAdapter: jest.fn().mockReturnValue(undefined) };
@@ -1048,21 +1062,96 @@ describe('ProviderRpcHandlers', () => {
         expect(model).not.toHaveProperty('contextLengthSource');
     });
 
-    it('does not certify Codex platform matches without provider identity', async () => {
+    it('lists the selected app-server catalog for Codex, including a future ID', async () => {
       const h = makeHarness();
+      h.cliDetection.getAdapter.mockReturnValue(
+        codexCatalogAdapter(
+          jest.fn().mockResolvedValue([
+            { id: 'gpt-7-future', name: 'GPT 7 Future (Codex default)' },
+            { id: 'gpt-6-sol', name: 'GPT 6 Sol' },
+          ]),
+        ),
+      );
       h.handlers.register();
       const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
         ([id]) => id === 'openai-codex',
       );
       if (!entry) throw new Error('Missing Codex fetcher');
-      const fallback = await entry[1]();
-      expect(fallback.length).toBeGreaterThan(0);
-      h.modelDiscovery.getCodexModels.mockResolvedValue([
-        { id: fallback[0].id, name: 'Shared slug', contextLength: 200000 },
+
+      const result = await entry[1]();
+
+      expect(result).toEqual([
+        {
+          id: 'gpt-7-future',
+          name: 'GPT 7 Future (Codex default)',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+        {
+          id: 'gpt-6-sol',
+          name: 'GPT 6 Sol',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
       ]);
-      const [model] = await entry[1]();
-      expect(model.contextLength).toBe(200000);
-      expect(model).not.toHaveProperty('contextLengthSource');
+      expect(h.modelDiscovery.getCodexModels).not.toHaveBeenCalled();
+      expect(h.codexAuthService.listModels).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the account API when the app-server catalog is missing or empty', async () => {
+      const h = makeHarness();
+      h.cliDetection.getAdapter.mockReturnValue(
+        codexCatalogAdapter(jest.fn().mockResolvedValue([])),
+      );
+      h.codexAuthService.listModels.mockResolvedValue([
+        {
+          id: 'gpt-7-future',
+          name: 'gpt-7-future',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+      ]);
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'openai-codex',
+      );
+      if (!entry) throw new Error('Missing Codex fetcher');
+
+      await expect(entry[1]()).resolves.toEqual([
+        {
+          id: 'gpt-7-future',
+          name: 'gpt-7-future',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+      ]);
+    });
+
+    it('returns an empty list when both dynamic sources fail, never a static fallback', async () => {
+      const h = makeHarness();
+      h.cliDetection.getAdapter.mockReturnValue(
+        codexCatalogAdapter(
+          jest.fn().mockRejectedValue(new Error('unavailable')),
+        ),
+      );
+      h.codexAuthService.listModels.mockRejectedValue(new Error('unavailable'));
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'openai-codex',
+      );
+      if (!entry) throw new Error('Missing Codex fetcher');
+
+      await expect(entry[1]()).resolves.toEqual([]);
+      expect(h.logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Codex app-server model catalog unavailable'),
+      );
+      expect(h.logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Codex auth service model listing unavailable'),
+      );
     });
 
     /**

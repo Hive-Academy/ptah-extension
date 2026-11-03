@@ -225,6 +225,15 @@ export class SessionStatsSummaryComponent {
   readonly costBasis = computed(() => this.snapshot()?.costBasis);
 
   /**
+   * Backend's narrow cause of a null session cost. Bound to the cost badge so
+   * a session whose model has no published rate reads "not priced"; every
+   * other cause keeps "cost unavailable".
+   */
+  readonly costUnavailableReason = computed(
+    () => this.snapshot()?.costUnavailableReason,
+  );
+
+  /**
    * The priced part of a partially priced session, shown only as an
    * explicitly labeled subtotal next to the unavailable total. Wrapped so a
    * genuine `0` survives the template's truthiness check.

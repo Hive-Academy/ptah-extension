@@ -10,7 +10,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
-  CODEX_LANE_DEFAULT_MODEL,
   CodexAppServerLaneAdapter,
   type CodexAdapterFactory,
   type CodexLaneBinaryProbe,
@@ -21,38 +20,31 @@ import {
 import {
   CODEX_RUNTIME_TOKENS,
   CodexRuntime,
-  CodexParityGate,
   buildCodexExecutionProfile,
-  findCodexExecutablePin,
-  resolveGatedCodexRuntime,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
   type CodexExecutionProfileInput,
-  type CodexParityPlatform,
+  type CodexSelection,
+  type CodexSelectionSnapshotPort,
   type CodexRuntimeRegistrationPorts,
   type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
 import type { Logger } from '@ptah-extension/vscode-core';
-import {
-  createElectronCodexExecutable, createElectronCodexScopeFactory,
-  inspectElectronCodexBinary, resolveElectronCodexBundledRoot,
-} from './codex-runtime-composition';
-import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
+import { createElectronCodexScopeFactory } from './codex-runtime-composition';
 
 export interface ElectronCodexLaneInput {
   readonly isPackaged: boolean;
   readonly resourcesPath: string;
   readonly appPath: string;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly platform: CodexParityPlatform;
+  readonly platform: { readonly platform: string; readonly arch: string };
 }
 
-/** p10-lane-parity-proof.md Signature (user 2026-11-01, Electron scope); D29. */
 export function isElectronCodexLaneAdmitted(
-  input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
+  _input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
 ): boolean {
-  return isElectronCodexConsumerAdmitted(input, 'lane');
+  return true;
 }
 
 function canonical(path: string): string {
@@ -114,6 +106,8 @@ export function registerElectronCodexLaneFactory(
   let store: ReturnType<typeof createCodexThreadIdentityStore> | undefined;
   const getStore = (): ReturnType<typeof createCodexThreadIdentityStore> => store ??=
     createCodexThreadIdentityStore(getMetadata(), getMetadata(), 'lane');
+  const selectionSnapshot = (): CodexSelectionSnapshotPort =>
+    container.resolve<CodexSelectionSnapshotPort>(CODEX_RUNTIME_TOKENS.SelectionSnapshot);
   const home = async (): Promise<string> => {
     if (input.env['CODEX_HOME'] === '') throw new Error('Codex home is empty');
     return canonical(input.env['CODEX_HOME'] ?? join(
@@ -143,7 +137,8 @@ export function registerElectronCodexLaneFactory(
           permissionLevel: 'ask',
           identity: {
             contextId: prior?.contextId ?? randomUUID(), normalizedHome: selectedHome,
-            providerId: 'codex', workspaceId: cwd, model: options.model || '',
+            providerId: 'codex', workspaceId: cwd,
+            ...(options.model ? { model: options.model } : {}),
           },
           config: {
             variant, workingDirectory: cwd,
@@ -158,35 +153,46 @@ export function registerElectronCodexLaneFactory(
   };
   const binary: CodexLaneBinaryProbe = {
     resolve: async (explicitPath) => {
-      const pin = findCodexExecutablePin(input.platform.platform, input.platform.arch);
-      if (!pin) throw new Error('Reviewed Codex executable pin unavailable');
-      const bundledRoot = resolveElectronCodexBundledRoot(input);
-      const executable = createElectronCodexExecutable(pin, bundledRoot);
-      if (explicitPath && canonical(explicitPath) !== executable.resolvedPath)
-        throw new Error('Codex executable does not match the host bundle');
-      await inspectElectronCodexBinary(executable.resolvedPath, undefined, input.platform);
-      return { path: executable.resolvedPath, version: pin.pinnedVersion };
+      const selection = await selectionSnapshot().selectForOpen();
+      const selected = selection.selected;
+      if (explicitPath && canonical(explicitPath) !== selected.path)
+        throw new Error('Codex executable does not match the selected executable');
+      return { ...selected, selection };
     },
   };
   const runtime: CodexLaneRuntimeProvider = {
-    open: async (profile, resume, approvals, binaryPath) => {
+    open: async (profile, resume, approvals, binaryPath, selection) => {
       if (profile.consumer !== 'lane') throw new Error('Codex lane consumer required');
-      return open(profile, resume, approvals, binaryPath);
+      return open(profile, resume, approvals, binaryPath, selection);
     },
-    openCatalog: async (binaryPath, selectedHome) => {
+    openCatalog: async (binaryPath, selectedHome, selection) => {
       const accountHome = selectedHome ?? await home();
       const catalogCwd = canonical(tmpdir());
       const profile = buildCodexExecutionProfile({
         session: {
           contextId: randomUUID(), consumer: 'lane', normalizedHome: accountHome,
           providerId: 'codex', workspaceId: catalogCwd, cwd: catalogCwd,
-          model: CODEX_LANE_DEFAULT_MODEL, permissionLevel: 'ask',
+          model: undefined, permissionLevel: 'ask',
           lane: { suppressedTools: [], explicitFullAccess: false },
         },
         paths: paths(accountHome, catalogCwd),
       });
       const decline: ApprovalSink = { request: async () => 'decline' };
-      return open(profile, undefined, decline, binaryPath);
+      return open(profile, undefined, decline, binaryPath, selection);
+    },
+    openFallback: async (profile, resume, approvals, binaryPath, method, selection) => {
+      const snapshot = selectionSnapshot();
+      const failed = selection?.selected;
+      if (!failed || failed.path !== binaryPath || failed.source !== 'installed')
+        throw new Error('Codex installed executable is not active');
+      const fallback = await snapshot.activateFallback(failed, method);
+      const selectedFallback: CodexSelectionSnapshotPort = {
+        selectForOpen: async () => ({ selected: fallback }),
+        current: () => fallback,
+        activateFallback: (selected, missingMethod) =>
+          snapshot.activateFallback(selected, missingMethod),
+      };
+      return open(profile, resume, approvals, fallback.path, { selected: fallback }, selectedFallback);
     },
   };
   async function open(
@@ -194,16 +200,19 @@ export function registerElectronCodexLaneFactory(
     resume: CodexThreadIdentity | undefined,
     approvals: ApprovalSink,
     binaryPath: string,
+    selection?: CodexSelection,
+    runtimeSnapshot: CodexSelectionSnapshotPort = selectionSnapshot(),
   ): Promise<CodexContext> {
-    const pin = findCodexExecutablePin(input.platform.platform, input.platform.arch);
-    if (!pin) throw new Error('Reviewed Codex executable pin unavailable');
-    const bundledRoot = resolveElectronCodexBundledRoot(input);
-    const executable = createElectronCodexExecutable(pin, bundledRoot);
-    if (binaryPath !== executable.resolvedPath)
-      throw new Error('Codex executable does not match the host bundle');
-    const inspected = await inspectElectronCodexBinary(binaryPath, undefined, input.platform);
-    const ports: Omit<CodexRuntimeRegistrationPorts, 'sink' | 'executable' | 'devRoute'> = {
-      binary: { ...input.platform, ...inspected },
+    const openedSelection = selection ?? await runtimeSnapshot.selectForOpen();
+    if (openedSelection.selected.path !== binaryPath)
+      throw new Error('Codex executable does not match the selected executable');
+    const boundSnapshot: CodexSelectionSnapshotPort = {
+      selectForOpen: async () => openedSelection,
+      current: () => openedSelection.selected,
+      activateFallback: (failed, method) => runtimeSnapshot.activateFallback(failed, method),
+    };
+    const ports: Omit<CodexRuntimeRegistrationPorts, 'sink'> = {
+      selectionSnapshot: boundSnapshot,
       store: getStore(),
       spawner: container.resolve<CodexRuntimeRegistrationPorts['spawner']>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
       clock: {
@@ -226,7 +235,7 @@ export function registerElectronCodexLaneFactory(
       },
     };
     const scope = createElectronCodexScopeFactory({
-      ...input, parent: container, bundledRoot, expectedManifestRow: pin, ports,
+      ...input, parent: container, ports,
     }, 'lane')(approvals);
     try {
       const context = await resolveElectronCodexLaneRuntime(scope.container, input)
@@ -242,22 +251,12 @@ export function registerElectronCodexLaneFactory(
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
       binary, undefined, home, writers),
   };
-  if (isElectronCodexLaneAdmitted(input)) {
-    container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
-    if (input.isPackaged && !new CodexParityGate().isEnabled('lane', input.platform))
-      logger.info('Codex lanes admitted for packaged Electron win32/x64 by signed lane proof (D29)');
-  }
+  container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
 }
 
-/** Electron's single lane routing boundary (D27, D29). */
 export function resolveElectronCodexLaneRuntime(
   scope: DependencyContainer,
-  input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
+  _input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
 ): CodexRuntime {
-  if (!isElectronCodexLaneAdmitted(input))
-    throw new Error('Codex lane production routing disabled by parity gate');
-  // Unreachable while the shared gate is closed; P14 can open it without changing this route.
-  if (new CodexParityGate().isEnabled('lane', input.platform))
-    return resolveGatedCodexRuntime(scope, 'lane', input.platform);
   return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
 }

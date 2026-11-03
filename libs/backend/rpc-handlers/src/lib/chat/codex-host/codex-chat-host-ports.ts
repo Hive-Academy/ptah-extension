@@ -58,7 +58,6 @@ export interface CodexChatHostPortsDeps
     Pick<
       CodexChatAdapterPorts,
       | 'logger'
-      | 'platform'
       | 'info'
       | 'createScope'
       | 'metadata'
@@ -124,7 +123,7 @@ export class CodexChatMcpServerUrlError extends Error {
   }
 }
 
-/** `consumer` selects the gate. It is not a Codex thread option, so classification must not reject it. */
+/** `consumer` selects the runtime route. It is not a Codex thread option, so classification must not reject it. */
 function withoutRuntimeConsumer<T extends { readonly consumer?: 'chat' | 'gateway' }>(
   config: T,
 ): Omit<T, 'consumer'> {
@@ -278,7 +277,6 @@ export function createCodexChatHostPorts(
   });
   return {
     logger: deps.logger,
-    platform: deps.platform,
     info: deps.info,
     createScope: deps.createScope,
     metadata: deps.metadata,

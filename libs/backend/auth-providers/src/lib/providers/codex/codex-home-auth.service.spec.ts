@@ -146,6 +146,107 @@ describe('CodexHomeAuthService', () => {
     },
   );
 
+  it('requests the shared minimum client version; a newer cache lifts it, an older one does not', async () => {
+    await seed(a, { OPENAI_API_KEY: 'private-test-key' });
+    const fetchMock = jest.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+    try {
+      await service.forHome(a).listModels();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        expect.stringContaining('client_version=0.165.0'),
+        expect.anything(),
+      );
+
+      await writeFile(
+        join(a, 'models_cache.json'),
+        JSON.stringify({ client_version: '0.170.0' }),
+      );
+      await service.forHome(a).listModels();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        expect.stringContaining('client_version=0.170.0'),
+        expect.anything(),
+      );
+
+      await writeFile(
+        join(a, 'models_cache.json'),
+        JSON.stringify({ client_version: '0.160.0' }),
+      );
+      await service.forHome(a).listModels();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        expect.stringContaining('client_version=0.165.0'),
+        expect.anything(),
+      );
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('returns every account model, including a future ID no pattern knows', async () => {
+    await seed(a, { OPENAI_API_KEY: 'private-test-key' });
+    const fetchMock = jest.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: [{ id: 'gpt-7-future' }, { id: 'other' }] }),
+        { status: 200 },
+      ),
+    );
+    try {
+      expect(await service.forHome(a).listModels()).toEqual([
+        {
+          id: 'gpt-7-future',
+          name: 'gpt-7-future',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+        {
+          id: 'other',
+          name: 'other',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('keeps a future visible ID in the chat-catalog response shape', async () => {
+    await seed(a, { OPENAI_API_KEY: 'private-test-key' });
+    const fetchMock = jest.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          models: [
+            {
+              slug: 'gpt-7-future',
+              visibility: 'list',
+              display_name: 'GPT 7 Future',
+            },
+            { slug: 'hidden-model', visibility: 'hidden' },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    try {
+      expect(await service.forHome(a).listModels()).toEqual([
+        {
+          id: 'gpt-7-future',
+          name: 'GPT 7 Future',
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        },
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('implements the credential-free port and isolates invalid auth and cache by home', async () => {
     const reader: CodexHomeAuthReader = service;
     await seed(a, { OPENAI_API_KEY: 'synthetic-key' });

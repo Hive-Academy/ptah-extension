@@ -589,14 +589,44 @@ describe('pricing.utils', () => {
       expect(result.totalCost).toBeGreaterThan(0);
     });
 
-    it('makes an unknown model unavailable with no pricing coverage', () => {
+    it('makes an unknown model unavailable with no pricing coverage, naming the missing rate', () => {
       const result = calculateExactMessageCost(
         'gpt-unknown-codex', { input: 1000, output: 500 },
         { billingMode: 'api-key' },
       );
       expect(result).toEqual({
         totalCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+        costUnavailableReason: 'rate-missing',
       });
+    });
+
+    it('labels each null cost with one narrow cause, never a guess', () => {
+      updatePricingMap({ 'cause-fixture': rates });
+      // A model that ran with no published rate: "not priced".
+      expect(calculateExactMessageCost(
+        'gpt-future-unpriced', { input: 1000, output: 500 },
+        { billingMode: 'subscription' },
+      ).costUnavailableReason).toBe('rate-missing');
+      // An unresolved billing mode is not "not priced".
+      expect(calculateExactMessageCost(
+        'cause-fixture', { input: 1000, output: 500 },
+        { billingMode: 'unknown' },
+      ).costUnavailableReason).toBe('billing-unknown');
+      // Unusable usage counts are not "not priced".
+      expect(calculateExactMessageCost(
+        'cause-fixture', { input: -1, output: 500 },
+        { billingMode: 'subscription' },
+      ).costUnavailableReason).toBe('usage-incomplete');
+      // Ambiguous cache semantics are not "not priced".
+      expect(calculateExactMessageCost(
+        'cause-fixture', { input: 100, output: 50, cacheHit: 10 },
+        { billingMode: 'subscription' },
+      ).costUnavailableReason).toBe('usage-incomplete');
+      // A priced result carries no reason at all.
+      expect(calculateExactMessageCost(
+        'cause-fixture', { input: 100, output: 50 },
+        { billingMode: 'subscription' },
+      ).costUnavailableReason).toBeUndefined();
     });
 
     it('rejects missing used cache rates with partial coverage', () => {

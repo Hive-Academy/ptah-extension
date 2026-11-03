@@ -250,7 +250,7 @@ describe('will-quit ? Codex bindings', () => {
     let releaseClose: () => void = () => undefined;
     const pendingClose = new Promise<void>((resolve) => { releaseClose = resolve; });
     const binding = createElectronCodexBindingHandle({
-      routing: { devRoute: undefined, capabilities: { nativeCodex: true, nativeCodexGateway: false } },
+      routing: { capabilities: { nativeCodex: true, nativeCodexGateway: true } },
       scopes: new Set([{
         container: parent,
         dispose: async () => {

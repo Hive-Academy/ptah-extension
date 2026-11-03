@@ -12,16 +12,29 @@ import {
   validateCodexResult,
 } from './codex-protocol-validator';
 
-const pinnedNotificationMethods = z
-  .object({ methods: z.object({ serverNotifications: z.array(z.string()) }) })
-  .parse(
-    JSON.parse(
-      readFileSync(
-        join(__dirname, 'protocol/codex-app-server-protocol.manifest.json'),
-        'utf8',
-      ),
-    ),
-  ).methods.serverNotifications;
+const frozenSchemaText = readFileSync(
+  join(__dirname, 'protocol/codex-app-server-protocol.schema.json'),
+  'utf8',
+);
+const frozenMethodVariants = z.array(
+  z.object({
+    properties: z.object({
+      method: z.object({ enum: z.array(z.string()) }),
+    }),
+  }),
+);
+const frozenProtocol = z
+  .object({
+    definitions: z.object({
+      ClientRequest: z.object({ oneOf: frozenMethodVariants }),
+      ServerNotification: z.object({ oneOf: frozenMethodVariants }),
+    }),
+  })
+  .parse(JSON.parse(frozenSchemaText));
+const frozenNotificationMethods =
+  frozenProtocol.definitions.ServerNotification.oneOf.flatMap(
+    (variant) => variant.properties.method.enum,
+  );
 
 const ids = { threadId: 'thread', turnId: 'turn', itemId: 'item' };
 const approval = { ...ids, startedAtMs: 1 };
@@ -165,13 +178,13 @@ const requests: [string, unknown, unknown][] = [
   ],
 ];
 
-describe('pinned history methods', () => {
-  it('admits all four methods in the pinned manifest', () => {
-    const manifest = z.object({ methods: z.object({ requests: z.array(z.string()) }) }).parse(
-      JSON.parse(readFileSync(join(__dirname, 'protocol/codex-app-server-protocol.manifest.json'), 'utf8')),
+describe('frozen schema history methods', () => {
+  it('lists all four methods in the frozen schema', () => {
+    const methods = frozenProtocol.definitions.ClientRequest.oneOf.flatMap(
+      (variant) => variant.properties.method.enum,
     );
     for (const method of ['thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list'])
-      expect(manifest.methods.requests).toContain(method);
+      expect(methods).toContain(method);
   });
 
   it('validates includeTurns and full versus summary views', () => {
@@ -180,8 +193,14 @@ describe('pinned history methods', () => {
     expect(validateCodexResult('thread/turns/list', { data: [{ ...historyTurn, itemsView: 'full' }] })).toMatchObject({ data: [{ itemsView: 'full' }] });
   });
 
-  it('rejects unknown item types and malformed cursors', () => {
-    expect(() => validateCodexResult('thread/items/list', { data: [{ turnId: 'turn', item: { type: 'futureType', id: 'x' } }] })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+  it('accepts unknown item types and rejects malformed known items and cursors', () => {
+    const result = validateCodexResult('thread/items/list', {
+      data: [{ turnId: 'turn', item: { type: 'futureType', id: 'x', private: 'omitted' } }],
+    });
+    expect(result.data[0].item).toEqual({ type: 'futureType', id: 'x' });
+    expect(() => validateCodexResult('thread/items/list', {
+      data: [{ turnId: 'turn', item: { type: 'agentMessage', id: 'x' } }],
+    })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
     expect(() => validateCodexResult('thread/turns/list', { data: [], nextCursor: 7 })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
     expect(() => validateCodexParams('thread/items/list', { threadId: 'thread', cursor: { type: 'item' } })).toThrow(expect.objectContaining({ code: 'invalidParams' }));
   });
@@ -381,13 +400,12 @@ describe('server extensions and strict client contracts', () => {
         futureField: true,
       }),
     ).toThrow(expect.objectContaining({ code: 'invalidResult' }));
-    expect(() =>
-      validateCodexParams(method, {
-        ...approval,
-        kind: 'futureKind',
-        futureField: true,
-      }),
-    ).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+    const tolerant = validateCodexParams(method, {
+      ...approval,
+      kind: 'futureKind',
+      futureField: true,
+    });
+    expect(tolerant.kind).toBeUndefined();
   });
 
   it('keeps nested permission replies strict and server permissions tolerant', () => {
@@ -528,7 +546,217 @@ describe('server extensions and strict client contracts', () => {
   });
 });
 
-describe('Codex protocol validation', () => {
+describe('tolerant model catalog parsing', () => {
+  it('keeps a partial future model and skips its malformed sibling', () => {
+    const result = validateCodexResult('model/list', {
+      data: [
+        {
+          id: 'future-model-id',
+          model: 'future-model-id',
+          inputModalities: ['text', 'hologram'],
+          multiAgentVersion: 'v99',
+          futureField: { private: 'omitted' },
+        },
+        { model: 'missing-required-id' },
+        { id: '', model: 'empty-id' },
+        { id: 'empty-model', model: '' },
+        { id: 'second-model', model: 'second-model', displayName: 'Second' },
+      ],
+      nextCursor: null,
+      futureField: true,
+    });
+    expect(result.data).toHaveLength(2);
+    expect(result.skippedCount).toBe(3);
+    expect(result.data[0]).toMatchObject({
+      id: 'future-model-id',
+      model: 'future-model-id',
+      inputModalities: ['text'],
+    });
+    expect(result.data[0].multiAgentVersion).toBeUndefined();
+    expect(result.data[0]).not.toHaveProperty('futureField');
+    expect(result.data[1]).toMatchObject({
+      id: 'second-model',
+      model: 'second-model',
+      displayName: 'Second',
+    });
+  });
+
+  it('distinguishes a valid empty catalog from an all-invalid page', () => {
+    expect(validateCodexResult('model/list', {
+      data: [],
+      nextCursor: null,
+    })).toEqual({ data: [], nextCursor: null, skippedCount: 0 });
+    expect(() => validateCodexResult('model/list', {
+      data: [{ model: 'missing-required-id' }, null],
+      nextCursor: null,
+    })).toThrow(expect.objectContaining({
+      code: 'invalidResult',
+      method: 'model/list',
+    }));
+  });
+
+  it('ignores unknown optional item enums but keeps required item fields strict', () => {
+    const params = validateCodexParams('item/completed', {
+      threadId: 'thread',
+      turnId: 'turn',
+      completedAtMs: 1,
+      item: {
+        type: 'agentMessage',
+        id: 'item',
+        text: 'done',
+        phase: 'futurePhase',
+        delivery: 'futureDelivery',
+      },
+    });
+    expect(params.item).toMatchObject({ type: 'agentMessage', text: 'done' });
+    expect(params.item).not.toHaveProperty('phase');
+    expect(params.item).not.toHaveProperty('delivery');
+    expect(() => validateCodexParams('item/completed', {
+      threadId: 'thread',
+      turnId: 'turn',
+      completedAtMs: 1,
+      item: { type: 'agentMessage', id: 'item' },
+    })).toThrow(expect.objectContaining({
+      code: 'invalidParams',
+      message: 'Codex protocol validation failed: invalidParams',
+    }));
+  });
+
+  it('omits unknown optional notification enums and filters unknown active flags', () => {
+    const limits = validateCodexParams('account/rateLimits/updated', {
+      rateLimits: {
+        planType: 'futurePlan',
+        rateLimitReachedType: 'futureLimit',
+      },
+    });
+    expect(limits.rateLimits.planType).toBeUndefined();
+    expect(limits.rateLimits.rateLimitReachedType).toBeUndefined();
+    const startup = validateCodexParams('mcpServer/startupStatus/updated', {
+      name: 'server',
+      status: 'failed',
+      failureReason: 'futureReason',
+    });
+    expect(startup.failureReason).toBeUndefined();
+    const status = validateCodexParams('thread/status/changed', {
+      threadId: 'thread',
+      status: {
+        type: 'active',
+        activeFlags: ['waitingOnApproval', 'futureFlag'],
+      },
+    });
+    expect(status.status).toEqual({
+      type: 'active',
+      activeFlags: ['waitingOnApproval'],
+    });
+  });
+});
+
+describe('tolerant nested command actions', () => {
+  const params = {
+    threadId: 'thread',
+    turnId: 'turn',
+    startedAtMs: 1,
+    item: {
+      type: 'commandExecution',
+      id: 'item',
+      command: 'echo test',
+      cwd: '/work',
+      status: 'inProgress',
+      commandActions: [
+        { type: 'futureAction', command: 'future', privateValue: 'omitted' },
+        {
+          type: 'read',
+          command: 'cat file',
+          name: 'file',
+          path: '/work/file',
+          futureField: true,
+        },
+      ],
+    },
+  };
+
+  it('drops a future action through the validator and translator reader path', () => {
+    const parsed = validateCodexParams('item/started', params);
+    expect(parsed.item).toMatchObject({
+      type: 'commandExecution',
+      commandActions: [
+        { type: 'read', command: 'cat file', name: 'file', path: '/work/file' },
+      ],
+    });
+    const frame = validateCodexFrame({ method: 'item/started', params });
+    if (!('method' in frame)) throw new Error('Expected a notification frame');
+    expect(new CodexEventTranslator('context', 1).translate(frame))
+      .toMatchObject([{ type: 'toolStarted', toolId: 'item' }]);
+
+    const approvalParams = validateCodexParams(
+      'item/commandExecution/requestApproval',
+      { ...approval, commandActions: [{ type: 'futureAction' }] },
+    );
+    expect(approvalParams.commandActions).toEqual([]);
+  });
+
+  it('still rejects a malformed known action', () => {
+    expect(() => validateCodexFrame({
+      method: 'item/started',
+      params: {
+        ...params,
+        item: {
+          ...params.item,
+          commandActions: [{ type: 'read', command: 'cat file' }],
+        },
+      },
+    })).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+  });
+
+  it('drops future input, output, tool content and file change variants', () => {
+    const completed = (item: object) => validateCodexParams('item/completed', {
+      threadId: 'thread',
+      turnId: 'turn',
+      completedAtMs: 1,
+      item,
+    });
+    expect(completed({
+      type: 'userMessage',
+      id: 'item',
+      content: [{ type: 'futureInput' }, { type: 'text', text: 'safe' }],
+    }).item).toMatchObject({ content: [{ type: 'text', text: 'safe' }] });
+    expect(completed({
+      type: 'functionCallOutput',
+      id: 'item',
+      name: 'tool',
+      output: [{ type: 'futureOutput' }, { type: 'input_text', text: 'safe' }],
+    }).item).toMatchObject({
+      output: [{ type: 'input_text', text: 'safe' }],
+    });
+    expect(completed({
+      type: 'dynamicToolCall',
+      id: 'item',
+      arguments: {},
+      tool: 'tool',
+      status: 'completed',
+      contentItems: [{ type: 'futureContent' }, { type: 'inputText', text: 'safe' }],
+    }).item).toMatchObject({
+      contentItems: [{ type: 'inputText', text: 'safe' }],
+    });
+    expect(completed({
+      type: 'fileChange',
+      id: 'item',
+      status: 'completed',
+      changes: [
+        { path: '/work/future', diff: 'future', kind: { type: 'futureKind' } },
+        { path: '/work/file', diff: '+safe', kind: { type: 'add' } },
+      ],
+    }).item).toMatchObject({
+      changes: [{ path: '/work/file', diff: '+safe', kind: { type: 'add' } }],
+    });
+    expect(() => completed({
+      type: 'userMessage',
+      id: 'item',
+      content: [{ type: 'text' }],
+    })).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+  });
+});
+
   it('keeps only bounded paths and codes for a rejected result', () => {
     const value = {
       data: Array.from({ length: 20 }, (_, index) => `PRIVATE_REPLY_${index}`),
@@ -627,32 +855,28 @@ describe('Codex protocol validation', () => {
   });
 
   it.each(
-    pinnedNotificationMethods.filter(
+    frozenNotificationMethods.filter(
       (method) => !Object.hasOwn(codexNotificationSchemas, method),
     ),
-  )('accepts pinned unmodeled %s only as a notification', (method) => {
+  )('routes unmodeled %s to unknown-notification handling', (method) => {
     const params = {
       threadId: 'thread',
       turnId: 'turn',
       opaque: { values: [null, 1] },
     };
-    const frame = validateCodexFrame({ method, params });
-    expect(frame).toEqual({ method, params, modeled: false });
-    if (!('method' in frame)) throw new Error('Expected notification');
-    expect(new CodexEventTranslator('context', 1).translate(frame)).toEqual([]);
+    expect(() => validateCodexFrame({ method, params })).toThrow(
+      expect.objectContaining({ code: 'unknownMethod' }),
+    );
+    expect(new CodexEventTranslator('context', 1).translate({ method, params })).toEqual([]);
     expect(() => validateCodexFrame({ id: 1, method, params })).toThrow(
-      CodexProtocolError,
+      expect.objectContaining({ code: 'unknownMethod' }),
     );
     expect(() => validateCodexFrame({ id: 1, result: {} }, method)).toThrow(
       CodexProtocolError,
     );
-    for (const invalid of [undefined, null, [], 1, 'text'])
-      expect(() => validateCodexFrame({ method, params: invalid })).toThrow(
-        CodexProtocolError,
-      );
   });
 
-  it('rejects a notification outside the pinned manifest', () => {
+  it('rejects an unknown future notification at the validator boundary', () => {
     expect(() =>
       validateCodexFrame({ method: 'future/notification', params: {} }),
     ).toThrow(expect.objectContaining({ code: 'unknownMethod' }));
@@ -709,12 +933,7 @@ describe('Codex protocol validation', () => {
       'account/rateLimits/updated',
       { rateLimits: { credits: { hasCredits: true } } },
     ],
-    ['account/rateLimits/updated', { rateLimits: { planType: 'invalid' } }],
     ['mcpServer/startupStatus/updated', { name: 'mcp', status: 'invalid' }],
-    [
-      'mcpServer/startupStatus/updated',
-      { name: 'mcp', status: 'failed', failureReason: 'invalid' },
-    ],
     [
       'remoteControl/status/changed',
       { installationId: 'i', serverName: 's', status: 'invalid' },
@@ -725,10 +944,6 @@ describe('Codex protocol validation', () => {
       { thread: { ...threadResult.thread, projectId: undefined } },
     ],
     ['thread/status/changed', { threadId: 't', status: { type: 'active' } }],
-    [
-      'thread/status/changed',
-      { threadId: 't', status: { type: 'active', activeFlags: ['invalid'] } },
-    ],
     ['turn/moderationMetadata', { threadId: 't', turnId: 1, metadata: null }],
   ])('rejects malformed new %s payload', (method, params) => {
     expect(() => validateCodexFrame({ method, params })).toThrow(
@@ -1008,17 +1223,9 @@ describe('Codex protocol validation', () => {
       expect(JSON.stringify(error)).not.toContain('private-token');
     }
   });
-});
 
 const record = z.record(z.string(), z.unknown());
-const schema = record.parse(
-  JSON.parse(
-    readFileSync(
-      join(__dirname, 'protocol/codex-app-server-protocol.schema.json'),
-      'utf8',
-    ),
-  ),
-);
+const schema = record.parse(JSON.parse(frozenSchemaText));
 function resolveRef(value: unknown): Record<string, unknown> {
   const node = record.parse(value);
   if (typeof node['$ref'] !== 'string') return node;
@@ -1036,21 +1243,8 @@ function fields(value: unknown): Record<string, unknown> {
   return own;
 }
 
-describe('pinned schema contract', () => {
+describe('frozen schema contract', () => {
   const definitions = record.parse(schema['definitions']);
-  it('has exactly the same server notification methods as the pinned manifest', () => {
-    const variants = z
-      .array(record)
-      .parse(record.parse(definitions['ServerNotification'])['oneOf']);
-    const methods = variants.flatMap((variant) =>
-      z
-        .array(z.string())
-        .parse(
-          record.parse(record.parse(variant['properties'])['method'])['enum'],
-        ),
-    );
-    expect(methods.sort()).toEqual([...pinnedNotificationMethods].sort());
-  });
   const groups = [
     ['ClientRequest', codexRequestSchemas],
     ['ServerRequest', codexServerRequestSchemas],

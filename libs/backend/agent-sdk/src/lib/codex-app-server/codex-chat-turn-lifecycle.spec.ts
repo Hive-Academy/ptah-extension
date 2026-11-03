@@ -4,11 +4,10 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
-  CodexParityGate,
+  CodexUnsupportedMethodError,
   CodexEventTranslator,
   type ApprovalSink,
   type CodexContext,
-  type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexReportedUsage,
   type CodexRuntimeEvent,
@@ -64,7 +63,6 @@ function mockLogger(): Logger {
 }
 
 function setup(
-  override = true,
   consumer: 'chat' | 'gateway' = 'chat',
   billingMode: 'api-key' | 'subscription' | 'unknown' = 'unknown',
   model = 'gpt',
@@ -126,18 +124,22 @@ function setup(
   const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
-  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
-    useValue: new CodexParityGate(),
-  });
-  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-    useFactory: (): CodexDevRouteOverride | null => (
-      override ? { consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV' } : null
-    ),
+  const bundledContext: jest.Mocked<CodexContext> = {
+    ...context,
+    startTurn: jest.fn<ReturnType<CodexContext['startTurn']>,
+      Parameters<CodexContext['startTurn']>>(async () => ({
+        threadId: id, turnId: 'turn', revision: 1,
+      })),
+    close: jest.fn(async () => undefined),
+  };
+  const retryFirstTurnOnBundle = jest.fn(async () => {
+    await context.close();
+    return bundledContext;
   });
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },
   });
-  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open } });
+  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open, retryFirstTurnOnBundle } });
   const dispose = jest.fn(async () => {
     await scope.dispose();
   });
@@ -150,7 +152,6 @@ function setup(
   const ports: CodexChatAdapterPorts = {
     checkOptions: jest.fn(),
     logger,
-    platform: { platform: 'win32', arch: 'x64' },
     info: {
       id: 'ptah-cli',
       name: 'Codex',
@@ -200,6 +201,8 @@ function setup(
     turnState,
     ports,
     context,
+    bundledContext,
+    retryFirstTurnOnBundle,
     open,
     dispose,
     callbacks,
@@ -246,7 +249,7 @@ describe('Codex chat turn lifecycle', () => {
     ];
     translator.setThreadModel(id, 'gpt-4o');
     translator.setTurnModel(id, 'turn', 'gpt-4o');
-    const first = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const first = setup('chat', 'api-key', 'gpt-4o');
     first.context.events.mockImplementation(() => (async function* () {
       yield* nativeEvents('turn', 100, 20);
     })());
@@ -257,7 +260,7 @@ describe('Codex chat turn lifecycle', () => {
 
     translator.setThreadModel(id, 'gpt-4o-mini');
     translator.setTurnModel(id, 'turn-2', 'gpt-4o-mini');
-    const second = setup(true, 'chat', 'subscription', 'gpt-4o-mini', checkpoint);
+    const second = setup('chat', 'subscription', 'gpt-4o-mini', checkpoint);
     second.context.startTurn.mockResolvedValue({ threadId: id, turnId: 'turn-2', revision: 2 });
     const stats = jest.fn();
     second.adapter.setResultStatsCallback(stats);
@@ -286,7 +289,7 @@ describe('Codex chat turn lifecycle', () => {
 
   it.each(['in-turn', 'detached'] as const)(
     'records the %s terminal price once through the real stream', async (path) => {
-      const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+      const h = setup('chat', 'api-key', 'gpt-4o');
       const stats = jest.fn();
       h.adapter.setResultStatsCallback(stats);
       const recordPrice = jest.spyOn(CodexSessionUsageOwner.prototype, 'recordTurnPrice');
@@ -360,7 +363,7 @@ describe('Codex chat turn lifecycle', () => {
     ['api-key', 'estimated'],
     ['subscription', 'covered-by-subscription'],
   ] as const)('prices %s native usage as %s', async (mode, basis) => {
-    const h = setup(true, 'chat', mode, 'gpt-4o');
+    const h = setup('chat', mode, 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -383,7 +386,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('retains unknown prices and emits lifetime stats on a failed terminal', async () => {
-    const h = setup(true, 'chat', 'api-key', 'unpriced-native-model');
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -405,7 +408,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('keeps a known rate unavailable when auth mode is unknown', async () => {
-    const h = setup(true, 'chat', 'unknown', 'gpt-4o');
+    const h = setup('chat', 'unknown', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -424,7 +427,7 @@ describe('Codex chat turn lifecycle', () => {
     owner.accept({ ...evidence, turnId: 'prior', total: {
       ...counters, uncachedInputTokens: 50, totalTokens: 70,
     } });
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const h = setup('chat', 'api-key', 'gpt-4o', owner.serialize());
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -450,7 +453,7 @@ describe('Codex chat turn lifecycle', () => {
     }, { billingMode: 'api-key', usageObserved: true });
     if (priorPrice.totalCost === null) throw new Error('Expected a catalog rate');
     owner.recordTurnPrice(priorPrice);
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const h = setup('chat', 'api-key', 'gpt-4o', owner.serialize());
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -472,7 +475,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('does not price usage from a configured alias when evidence omits the model', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -487,7 +490,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('reports a checkpoint read failure and continues with partial coverage', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     h.ports.metadata.readUsage = jest.fn().mockRejectedValue(new Error('disk read failed'));
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
@@ -508,7 +511,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('logs a checkpoint write failure without losing the terminal result', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.persistUsage.mockRejectedValueOnce(new Error('storage unavailable'));
@@ -525,7 +528,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('reports an unavailable host usage store on the terminal path', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     h.ports.metadata.persistUsage = undefined;
     h.context.events.mockImplementation(() => (async function* () {
       yield { ...terminal, evidence };
@@ -981,6 +984,53 @@ describe('Codex chat turn lifecycle', () => {
     },
   );
 
+  it('retries a rejected first turn on the bundled executable', async () => {
+    const h = setup();
+    h.context.startTurn.mockRejectedValueOnce(
+      new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed'),
+    );
+    const output = await collect(await h.adapter.startChatSession({ tabId }));
+    expect(h.retryFirstTurnOnBundle).toHaveBeenCalledTimes(1);
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.bundledContext.startTurn).toHaveBeenCalledTimes(1);
+    expect(output.some((event) => event.eventType === 'turn_state' && event.phase === 'failed'))
+      .toBe(false);
+    await h.adapter.dispose();
+  });
+
+  it('reports a safe terminal error when bundled turn/start is also unsupported', async () => {
+    const h = setup();
+    h.context.startTurn.mockRejectedValueOnce(
+      new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed'),
+    );
+    h.bundledContext.startTurn.mockRejectedValueOnce(
+      new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
+    );
+    const output: FlatStreamEventUnion[] = [];
+    await expect((async () => {
+      for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+    })()).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).toHaveBeenCalledTimes(1);
+    expect(h.bundledContext.startTurn).toHaveBeenCalledTimes(1);
+    expect(output.find((event) => event.eventType === 'text_delta' && event.source === 'complete'))
+      .toMatchObject({ delta: 'Codex 0.165.0 does not support required method turn/start. Update Codex or Ptah.' });
+    await h.adapter.dispose();
+  });
+
+  it('does not replay turn/start after a receipt', async () => {
+    const h = setup();
+    const unsupported = new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed');
+    h.context.events.mockImplementation(() => ({
+      [Symbol.asyncIterator]: () => ({ next: async () => { throw unsupported; } }),
+    }));
+    await expect(collect(await h.adapter.startChatSession({ tabId })))
+      .rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    await h.adapter.dispose();
+  });
+
   it.each(['before receipt', 'after receipt'] as const)(
     'retires a failed turn %s when error publication never settles',
     async (point) => {
@@ -1008,7 +1058,7 @@ describe('Codex chat turn lifecycle', () => {
   );
 
   it('keeps the gateway failure notice out of reply text', async () => {
-    const h = setup(true, 'gateway');
+    const h = setup('gateway');
     h.context.events.mockImplementation(() => (async function* () {
       yield { ...terminal, status: 'failed' as const };
     })());

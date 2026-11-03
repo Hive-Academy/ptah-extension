@@ -15,6 +15,7 @@
 import type {
   PriceProvenance,
   SessionCostBasis,
+  SessionCostUnavailableReason,
   SessionStatsPricingCoverage,
 } from '../types/rpc/rpc-session.types';
 
@@ -498,6 +499,13 @@ export interface ExactCostResult {
   readonly costBasis: SessionCostBasis;
   readonly pricingCoverage: SessionStatsPricingCoverage;
   readonly priceProvenance?: PriceProvenance;
+  /**
+   * Present only when `totalCost` is null, naming the one narrow cause. A
+   * `rate-missing` result is a model that ran with no published rate, so the
+   * UI can say "not priced" without mislabeling unknown billing or unusable
+   * usage. Absent on every priced result.
+   */
+  readonly costUnavailableReason?: SessionCostUnavailableReason;
 }
 
 function validRate(rate: number | undefined): rate is number {
@@ -507,23 +515,31 @@ function validRate(rate: number | undefined): rate is number {
 /**
  * Opt-in strict valuation. The four token classes are disjoint; reasoning
  * output is already part of `output` and has no fifth charge. A missing or
- * ambiguous used class makes the entire total unavailable.
+ * ambiguous used class makes the entire total unavailable, and each null
+ * result names its narrow cause in `costUnavailableReason`.
  */
 export function calculateExactMessageCost(
   modelId: string,
   tokens: TokenBreakdown,
   options: ExactCostOptions,
 ): ExactCostResult {
-  const unknown: ExactCostResult = {
+  const unavailable = (
+    costUnavailableReason: SessionCostUnavailableReason,
+  ): ExactCostResult => ({
     totalCost: null,
     costBasis: 'unknown',
     pricingCoverage: 'none',
-  };
-  if (options.billingMode === 'unknown') return unknown;
+    costUnavailableReason,
+  });
+  if (options.billingMode === 'unknown') return unavailable('billing-unknown');
   const found = findExactModelPricing(modelId);
-  if (!found) return unknown;
-  // A base Claude rate does not establish the price of a [1m] request.
-  if (found.modelIdUsed !== modelId.toLowerCase()) return unknown;
+  // No catalog entry (or only a base Claude entry for a `[1m]` request) means
+  // the model ran without a published rate: "not priced", never a fabricated
+  // substitute rate or zero.
+  if (!found) return unavailable('rate-missing');
+  if (found.modelIdUsed !== modelId.toLowerCase()) {
+    return unavailable('rate-missing');
+  }
 
   const { pricing } = found;
   const provenance: PriceProvenance = {
@@ -548,6 +564,7 @@ export function calculateExactMessageCost(
       costBasis: 'unknown',
       pricingCoverage: 'none',
       priceProvenance: provenance,
+      costUnavailableReason: 'usage-incomplete',
     };
   }
   if (counts.every((count) => count === 0) && !options.usageObserved) {
@@ -556,6 +573,7 @@ export function calculateExactMessageCost(
       costBasis: 'unknown',
       pricingCoverage: 'none',
       priceProvenance: provenance,
+      costUnavailableReason: 'usage-incomplete',
     };
   }
   const inputPriced = validRate(pricing.inputCostPerToken);
@@ -567,14 +585,13 @@ export function calculateExactMessageCost(
   const cacheUnverified =
     ((tokens.cacheHit ?? 0) > 0 || (tokens.cacheCreation ?? 0) > 0) &&
     options.cacheSemantics !== 'disjoint';
-  if (
+  const rateMissing =
     !inputPriced ||
     !outputPriced ||
     !pricesCacheTokens(pricing, tokens) ||
     !readPriced ||
-    !writePriced ||
-    cacheUnverified
-  ) {
+    !writePriced;
+  if (rateMissing || cacheUnverified) {
     const someUsedRate =
       (tokens.input > 0 && inputPriced) ||
       (tokens.output > 0 && outputPriced) ||
@@ -585,6 +602,11 @@ export function calculateExactMessageCost(
       costBasis: 'unknown',
       pricingCoverage: someUsedRate ? 'partial' : 'none',
       priceProvenance: provenance,
+      // A missing used rate is an absent published rate; only ambiguous cache
+      // semantics alone keeps the cause on the usage side.
+      costUnavailableReason: rateMissing
+        ? 'rate-missing'
+        : 'usage-incomplete',
     };
   }
   const rounded = calculateMessageCost(modelId, tokens, pricing) ?? 0;

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { DependencyContainer } from 'tsyringe';
 import {
   createCodexThreadIdentityStore,
@@ -11,7 +11,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
-  CODEX_LANE_DEFAULT_MODEL,
   CodexAppServerLaneAdapter,
   type CodexAdapterFactory,
   type CodexLaneBinaryProbe,
@@ -22,18 +21,17 @@ import {
 import {
   CODEX_RUNTIME_TOKENS,
   CodexAccountUsageClient,
-  CodexParityGate,
+  CodexSelectionSnapshot,
+  createNodeCodexExecutableProbes,
   CodexRuntime,
   buildCodexExecutionProfile,
-  findCodexExecutablePin,
-  inspectCodexExecutable,
   registerCodexRuntime,
-  resolveGatedCodexRuntime,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
   type CodexExecutionProfileInput,
-  type CodexParityPlatform,
+  type CodexSelection,
+  type CodexSelectionSnapshotPort,
   type CodexRuntimeRegistrationPorts,
   type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
@@ -41,7 +39,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 
 export interface CliCodexLaneInput {
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly platform: CodexParityPlatform;
+  readonly platform: { readonly platform: string; readonly arch: string };
 }
 
 function canonical(path: string): string {
@@ -88,12 +86,12 @@ function ownedContext(context: CodexContext, dispose: () => Promise<void>): Code
   };
 }
 
-/** The CLI and TUI share this gate-only lane routing boundary. */
+/** The CLI and TUI share this lane routing boundary. */
 export function resolveCliCodexLaneRuntime(
   scope: DependencyContainer,
-  platform: CodexParityPlatform,
+  _platform: { readonly platform: string; readonly arch: string },
 ): CodexRuntime {
-  return resolveGatedCodexRuntime(scope, 'lane', platform);
+  return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
 }
 
 /** Bind before CliDetectionService can be resolved; create() performs no I/O. */
@@ -102,7 +100,14 @@ export function registerCliCodexLaneFactory(
   logger: Logger,
   input: CliCodexLaneInput = { env: process.env, platform: process },
 ): void {
-  if (!new CodexParityGate().isEnabled('lane', input.platform)) return;
+  if (!container.isRegistered(CODEX_RUNTIME_TOKENS.SelectionSnapshot, true)) {
+    const snapshot = new CodexSelectionSnapshot(createNodeCodexExecutableProbes(
+      async () => resolveCodexNativeBinaryPath(),
+    ));
+    container.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot, { useValue: snapshot });
+  }
+  const selectionSnapshot = (): CodexSelectionSnapshotPort =>
+    container.resolve<CodexSelectionSnapshotPort>(CODEX_RUNTIME_TOKENS.SelectionSnapshot);
 
   let metadata: SessionMetadataStore | undefined;
   const getMetadata = (): SessionMetadataStore => metadata ??= container.resolve<SessionMetadataStore>(
@@ -143,7 +148,8 @@ export function registerCliCodexLaneFactory(
           permissionLevel: 'ask',
           identity: {
             contextId: prior?.contextId ?? randomUUID(), normalizedHome: selectedHome,
-            providerId: 'codex', workspaceId: cwd, model: options.model || '',
+            providerId: 'codex', workspaceId: cwd,
+            ...(options.model ? { model: options.model } : {}),
           },
           config: {
             variant, workingDirectory: cwd,
@@ -158,39 +164,46 @@ export function registerCliCodexLaneFactory(
   };
   const binary: CodexLaneBinaryProbe = {
     resolve: async (explicitPath) => {
-      const nativePath = resolveCodexNativeBinaryPath();
-      if (explicitPath && (!nativePath || canonical(explicitPath) !== canonical(nativePath)))
-        throw new Error('Codex executable does not match the host binary');
-      const candidate = explicitPath ?? nativePath;
-      if (!candidate) return undefined;
-      const inspection = await inspectCodexExecutable(candidate, input.platform);
-      if (basename(inspection.executablePath) !==
-        (input.platform.platform === 'win32' ? 'codex.exe' : 'codex'))
-        throw new Error('Codex executable path is not a native binary');
-      const pin = findCodexExecutablePin(input.platform.platform, input.platform.arch);
-      if (!pin) throw new Error('Reviewed Codex executable pin unavailable');
-      return { path: inspection.executablePath, version: pin.pinnedVersion };
+      const selection = await selectionSnapshot().selectForOpen();
+      const selected = selection.selected;
+      if (explicitPath && canonical(explicitPath) !== selected.path)
+        throw new Error('Codex executable does not match the selected executable');
+      return { ...selected, selection };
     },
   };
   const runtime: CodexLaneRuntimeProvider = {
-    open: async (profile, resume, approvals, binaryPath) => {
+    open: async (profile, resume, approvals, binaryPath, selection) => {
       if (profile.consumer !== 'lane') throw new Error('Codex lane consumer required');
-      return open(profile, resume, approvals, binaryPath);
+      return open(profile, resume, approvals, binaryPath, selection);
     },
-    openCatalog: async (binaryPath, selectedHome) => {
+    openCatalog: async (binaryPath, selectedHome, selection) => {
       const accountHome = selectedHome ?? await home();
       const cwd = canonical(tmpdir());
       const profile = buildCodexExecutionProfile({
         session: {
           contextId: randomUUID(), consumer: 'lane', normalizedHome: accountHome,
           providerId: 'codex', workspaceId: cwd, cwd,
-          model: CODEX_LANE_DEFAULT_MODEL, permissionLevel: 'ask',
+          model: undefined, permissionLevel: 'ask',
           lane: { suppressedTools: [], explicitFullAccess: false },
         },
         paths: paths(accountHome, cwd),
       });
       const decline: ApprovalSink = { request: async () => 'decline' };
-      return open(profile, undefined, decline, binaryPath);
+      return open(profile, undefined, decline, binaryPath, selection);
+    },
+    openFallback: async (profile, resume, approvals, binaryPath, method, selection) => {
+      const snapshot = selectionSnapshot();
+      const failed = selection?.selected;
+      if (!failed || failed.path !== binaryPath || failed.source !== 'installed')
+        throw new Error('Codex installed executable is not active');
+      const fallback = await snapshot.activateFallback(failed, method);
+      const selectedFallback: CodexSelectionSnapshotPort = {
+        selectForOpen: async () => ({ selected: fallback }),
+        current: () => fallback,
+        activateFallback: (selected, missingMethod) =>
+          snapshot.activateFallback(selected, missingMethod),
+      };
+      return open(profile, resume, approvals, fallback.path, { selected: fallback }, selectedFallback);
     },
   };
   async function open(
@@ -198,13 +211,17 @@ export function registerCliCodexLaneFactory(
     resume: CodexThreadIdentity | undefined,
     approvals: ApprovalSink,
     binaryPath: string,
+    selection?: CodexSelection,
+    runtimeSnapshot: CodexSelectionSnapshotPort = selectionSnapshot(),
   ): Promise<CodexContext> {
-    const candidate = resolveCodexNativeBinaryPath();
-    if (!candidate || canonical(candidate) !== canonical(binaryPath))
-      throw new Error('Codex executable does not match the host binary');
-    const inspection = await inspectCodexExecutable(binaryPath, input.platform);
-    const pin = findCodexExecutablePin(input.platform.platform, input.platform.arch);
-    if (!pin) throw new Error('Reviewed Codex executable pin unavailable');
+    const openedSelection = selection ?? await runtimeSnapshot.selectForOpen();
+    if (openedSelection.selected.path !== binaryPath)
+      throw new Error('Codex executable does not match the selected executable');
+    const boundSnapshot: CodexSelectionSnapshotPort = {
+      selectForOpen: async () => openedSelection,
+      current: () => openedSelection.selected,
+      activateFallback: (failed, method) => runtimeSnapshot.activateFallback(failed, method),
+    };
     if (container.isRegistered(CODEX_RUNTIME_TOKENS.Runtime, true))
       throw new Error('Codex runtime must be owned by a lane scope');
     const scope = container.createChildContainer();
@@ -225,11 +242,7 @@ export function registerCliCodexLaneFactory(
     })();
     try {
       const ports: CodexRuntimeRegistrationPorts = {
-        executable: { resolvedPath: inspection.executablePath, expectedManifestRow: pin },
-        binary: {
-          ...input.platform, executablePath: inspection.executablePath,
-          sha256: inspection.sha256, versionOutput: inspection.versionOutput,
-        },
+        selectionSnapshot: boundSnapshot,
         store: getStore(),
         spawner: container.resolve<CodexRuntimeRegistrationPorts['spawner']>(
           SDK_TOKENS.SDK_PROCESS_SPAWNER,

@@ -8,18 +8,33 @@ import {
   codexRequestSchemas,
   validateCodexFrame,
 } from './codex-protocol-validator';
-const pinnedNotificationMethods = z
-  .object({ methods: z.object({ serverNotifications: z.array(z.string()) }) })
+const frozenNotificationMethods = z
+  .object({
+    definitions: z.object({
+      ServerNotification: z.object({
+        oneOf: z.array(
+          z.object({
+            properties: z.object({
+              method: z.object({ enum: z.array(z.string()) }),
+            }),
+          }),
+        ),
+      }),
+    }),
+  })
   .parse(
     JSON.parse(
       readFileSync(
-        resolve(__dirname, 'protocol/codex-app-server-protocol.manifest.json'),
+        resolve(__dirname, 'protocol/codex-app-server-protocol.schema.json'),
         'utf8',
       ),
     ),
-  ).methods.serverNotifications;
+  )
+  .definitions.ServerNotification.oneOf.flatMap(
+    (variant) => variant.properties.method.enum,
+  );
 
-describe('ignored pinned notifications', () => {
+describe('ignored unknown notifications', () => {
   it.each([
     'account/rateLimits/updated',
     'serverRequest/resolved',
@@ -28,7 +43,7 @@ describe('ignored pinned notifications', () => {
     'turn/moderationMetadata',
     'mcpServer/startupStatus/updated',
     'remoteControl/status/changed',
-    ...pinnedNotificationMethods.filter(
+    ...frozenNotificationMethods.filter(
       (method) => !Object.hasOwn(codexNotificationSchemas, method),
     ),
   ])('ignores %s without changing event sequence or usage', (method) => {
@@ -46,7 +61,7 @@ describe('ignored pinned notifications', () => {
     expect(events[0]).not.toHaveProperty('usage');
   });
 
-  it('keeps the unknown-method boundary and existing translator fallback', () => {
+  it('keeps the validator boundary and ignores an unknown notification in the translator', () => {
     const frame = {
       method: 'future/notification',
       params: { threadId: 'thread', turnId: 'turn' },
@@ -54,11 +69,7 @@ describe('ignored pinned notifications', () => {
     expect(() => validateCodexFrame(frame)).toThrow(
       expect.objectContaining({ code: 'unknownMethod' }),
     );
-    expect(
-      new CodexEventTranslator('context', 1).translate(frame),
-    ).toMatchObject([
-      { type: 'error', error: { code: 'unsupportedNotification' } },
-    ]);
+    expect(new CodexEventTranslator('context', 1).translate(frame)).toEqual([]);
   });
 });
 
@@ -1032,17 +1043,33 @@ describe('CodexEventTranslator', () => {
     ]);
   });
 
-  it('surfaces unknown and unrepresentable items without echoing payloads or throwing', () => {
-    for (const item of [
-      { type: '/home/secret', id: 'future', token: 'sk-secret' },
-      { type: 'imageView', id: 'image', path: '/home/secret' },
-    ]) {
-      const events = translator.translate(itemFrame(item));
-      expect(events).toMatchObject([
-        { type: 'error', error: { code: 'unsupportedItem' } },
-      ]);
-      expect(JSON.stringify(events)).not.toMatch(/secret|token/);
-    }
+  it('ignores an unknown optional item enum and still emits the known item', () => {
+    expect(translator.translate(itemFrame({
+      type: 'agentMessage', id: 'future-phase', text: 'Done', phase: 'futurePhase',
+    }, true))).toMatchObject([
+      { type: 'textFinal', itemId: 'future-phase', text: 'Done' },
+    ]);
+  });
+
+  it('ignores unknown item types without echoing payloads and still completes the turn', () => {
+    const events = translator.translate(
+      itemFrame({ type: '/home/secret', id: 'future', token: 'sk-secret' }),
+    );
+    expect(events).toEqual([]);
+    expect(JSON.stringify(events)).not.toMatch(/secret|token/);
+    expect(translator.translate(terminal())).toMatchObject([
+      { type: 'terminal', status: 'completed', sequence: 1 },
+    ]);
+  });
+
+  it('surfaces known but unrepresentable items without echoing payloads or throwing', () => {
+    const events = translator.translate(
+      itemFrame({ type: 'imageView', id: 'image', path: '/home/secret' }),
+    );
+    expect(events).toMatchObject([
+      { type: 'error', error: { code: 'unsupportedItem' } },
+    ]);
+    expect(JSON.stringify(events)).not.toMatch(/secret|token/);
   });
 
   it('handles malformed notifications safely and does not fabricate usage or a terminal', () => {

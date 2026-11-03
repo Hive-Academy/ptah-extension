@@ -1146,6 +1146,10 @@ describe('resolveExecutionProfile', () => {
   it.each([
     ['gpt-6-sol', 'gpt-6-sol'],
     [' gpt-6-sol ', 'gpt-6-sol'],
+    ['gpt-7-nova', 'gpt-7-nova'],
+    [' unknown-model ', 'unknown-model'],
+    ['GPT-6-SOL', 'GPT-6-SOL'],
+    ['claude-sonnet-4.5', 'claude-sonnet-4.5'],
     ['opus', CODEX_DEFAULT_TIERS.opus],
     ['sonnet', CODEX_DEFAULT_TIERS.sonnet],
     ['haiku', CODEX_DEFAULT_TIERS.haiku],
@@ -1165,17 +1169,11 @@ describe('resolveExecutionProfile', () => {
     },
   );
 
-  it.each([
-    ['default', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
-    ['', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
-    ['claude-sonnet-4.5', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
-    [' unknown-model ', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
-    ['GPT-6-SOL', 'gpt-6-sol', 'case-mismatch'],
-    [' GpT-6-SoL ', 'gpt-6-sol', 'case-mismatch'],
-  ])(
-    'reports the substitution for %s as %s (%s) on start and resume',
-    async (requestedModel, used, reason) => {
+  it.each(['default', ''])(
+    'uses the opus tier for %p on start and resume',
+    async (requestedModel) => {
       const { resolver } = nativeHarness();
+      const used = CODEX_DEFAULT_TIERS.opus;
       for (const existingIdentity of [undefined, identity]) {
         await expect(
           resolver.resolveExecutionProfile({
@@ -1185,7 +1183,11 @@ describe('resolveExecutionProfile', () => {
           }),
         ).resolves.toMatchObject({
           seed: { model: used },
-          modelSubstitution: { requested: requestedModel, used, reason },
+          modelSubstitution: {
+            requested: requestedModel,
+            used,
+            reason: 'not-in-catalog',
+          },
         });
       }
     },

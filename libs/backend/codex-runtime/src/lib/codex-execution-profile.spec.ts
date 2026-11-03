@@ -33,6 +33,16 @@ function input(): CodexExecutionProfileInput {
 }
 
 describe('buildCodexExecutionProfile', () => {
+  it('allows a lane to omit its model and keeps the model absent', () => {
+    const source = input();
+    const profile = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, consumer: 'lane', model: undefined },
+    });
+    expect(profile.model).toBeUndefined();
+    expect(Object.hasOwn(profile, 'model')).toBe(false);
+  });
+
   it.each(['chat', 'gateway'] as const)(
     'keeps the pre-change %s fingerprint for the same ask inputs',
     (consumer) => {

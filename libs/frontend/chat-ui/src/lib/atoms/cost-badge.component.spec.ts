@@ -87,4 +87,28 @@ describe('CostBadgeComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('$0.0000');
     expect(fixture.nativeElement.textContent).not.toContain('unavailable');
   });
+
+  it('says "not priced" when the backend names a missing rate', () => {
+    fixture.componentRef.setInput('cost', null);
+    fixture.componentRef.setInput('costUnavailableReason', 'rate-missing');
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector('[data-testid="cost-not-priced"]');
+    expect(badge.textContent).toContain('not priced');
+    expect(badge.getAttribute('title')).toContain('no published rate');
+    expect(fixture.nativeElement.querySelector('[data-testid="cost-unavailable"]')).toBeNull();
+  });
+
+  it.each([
+    ['billing-unknown'],
+    ['usage-incomplete'],
+    [undefined],
+  ] as const)('keeps "cost unavailable" for a %s null cost', (reason) => {
+    fixture.componentRef.setInput('cost', null);
+    fixture.componentRef.setInput('costUnavailableReason', reason);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('cost unavailable');
+    expect(fixture.nativeElement.textContent).not.toContain('not priced');
+  });
 });

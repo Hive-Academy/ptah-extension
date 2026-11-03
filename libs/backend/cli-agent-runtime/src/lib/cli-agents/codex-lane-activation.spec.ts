@@ -264,7 +264,8 @@ function nativeAdapter(home: string, workDirectory: string) {
     openCatalog: jest.fn(async () => { throw new Error('No catalog in activation fixture'); }),
   };
   const binary: CodexLaneBinaryProbe = {
-    resolve: jest.fn(async () => ({ path: resolve(home, 'codex-test'), version: '0.165.0' })),
+    resolve: jest.fn(async () => ({ path: resolve(home, 'codex-test'), version: '0.165.0',
+      source: 'bundled' as const, reason: 'Test fixture' })),
   };
   const credentials: CodexLaneCredentialProbe = { check: jest.fn(async () => 'fresh' as const) };
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;

@@ -12,13 +12,6 @@ import {
 import type { CliType } from '@ptah-extension/shared';
 import type { LaneModelSource } from './cli-adapters/cli-adapter.interface';
 
-/**
- * Ptah's own model for a Codex lane when neither the spawn request nor
- * `agentOrchestration.codexModel` names one (R2.1). Codex only; every other
- * CLI keeps its own default.
- */
-export const CODEX_LANE_DEFAULT_MODEL = 'gpt-6-sol';
-
 /** Models known to loop when run as a lane; a spawn naming one is refused. */
 export const BLOCKED_LANE_MODELS: readonly string[] = ['mimo-v2.6-flash-free'];
 
@@ -47,8 +40,10 @@ export interface LaneModelResolution {
 }
 
 /**
- * The model a lane runs on: the spawn request, then the per-CLI setting, then
- * Ptah's Codex default, then the CLI's own default.
+ * The model a lane runs on: the spawn request, then the per-CLI setting. With
+ * neither, `model` is `undefined` and the CLI picks its own current default,
+ * so a new model works without a Ptah release. `cli` stays in the signature
+ * for the callers' contract; the policy itself is CLI-independent now.
  */
 export function resolveLaneModel(
   cli: CliType,
@@ -57,9 +52,6 @@ export function resolveLaneModel(
 ): LaneModelResolution {
   if (requestModel) return { model: requestModel, source: 'request' };
   if (settingModel) return { model: settingModel, source: 'setting' };
-  if (cli === 'codex') {
-    return { model: CODEX_LANE_DEFAULT_MODEL, source: 'ptah-default' };
-  }
   return { model: undefined, source: 'cli-default' };
 }
 

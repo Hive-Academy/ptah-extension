@@ -100,6 +100,30 @@ describe('compactSessionMetrics', () => {
     expect(costDetailsText(unavailable, null)).toContain('Cost unavailable');
     expect(costDetailsText(unavailable, null)).not.toContain('estimated');
   });
+  it('says "Not priced" only when the snapshot names a missing rate', () => {
+    const unpriced = {
+      ...snapshot,
+      totalCost: null,
+      pricingCoverage: 'none' as const,
+      costUnavailableReason: 'rate-missing' as const,
+    };
+    const cost = compactSessionMetrics({ ...empty, snapshot: unpriced })[2];
+    expect(cost).toMatchObject({ unavailable: true, ariaLabel: 'Not priced' });
+    expect(costDetailsText(unpriced, null)).toContain('Not priced');
+    expect(costDetailsText(unpriced, null)).not.toContain('Cost unavailable');
+  });
+  it('keeps "Cost unavailable" when the null cause is not a missing rate', () => {
+    const incomplete = {
+      ...snapshot,
+      totalCost: null,
+      pricingCoverage: 'none' as const,
+      costUnavailableReason: 'usage-incomplete' as const,
+    };
+    const cost = compactSessionMetrics({ ...empty, snapshot: incomplete })[2];
+    expect(cost).toMatchObject({ unavailable: true, ariaLabel: 'Cost unavailable' });
+    expect(costDetailsText(incomplete, null)).toContain('Cost unavailable');
+    expect(costDetailsText(incomplete, null)).not.toContain('Not priced');
+  });
   it('formats existing totals with partial/estimate markers and full accessible values', () => {
     const metrics = compactSessionMetrics({ ...empty, snapshot: {
       ...snapshot, tokenCount: 12345, coverage: 'partial', provisional: true,
