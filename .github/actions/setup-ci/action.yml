@@ -46,11 +46,10 @@ runs:
     # Cache key is keyed on package-lock.json only. When the runner Node
     # ABI changes (or when the cache was populated by a different OS), the
     # better-sqlite3 prebuilt binary fails to self-register at require()
-    # time. node-pty has no Linux optional-dependency binary package either.
-    # The install skips lifecycle scripts, so rebuild both explicitly.
+    # time. The install skips lifecycle scripts, so rebuild it explicitly.
     - name: Rebuild native modules for runner Node ABI
       shell: bash
-      run: npm rebuild better-sqlite3 node-pty
+      run: npm rebuild better-sqlite3
 
     # Nx task cache. `affected` only picks the task LIST; the cache decides
     # which of those tasks actually execute. Without this, every run starts
