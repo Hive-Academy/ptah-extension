@@ -56,15 +56,15 @@ import { AnalysisStepStore } from './analysis-step.store';
   host: { class: 'block' },
   template: `
     <section
-      class="mx-auto max-w-[760px] space-y-5 p-4"
+      class="mx-auto max-w-[760px] space-y-4 p-4"
       aria-labelledby="choose-agents-title"
       data-testid="choose-agents"
     >
-      <header class="flex items-center gap-3">
+      <header class="flex items-center gap-3 pb-1">
         <span
-          class="rounded-xl border border-base-300 p-2"
+          class="flex size-11 shrink-0 items-center justify-center rounded-xl border border-base-300 text-state-need"
           data-glass-surface="tile"
-          ><lucide-angular [img]="icons.bot" class="size-6" aria-hidden="true"
+          ><lucide-angular [img]="icons.bot" class="size-5" aria-hidden="true"
         /></span>
         <div>
           <h1
@@ -88,7 +88,7 @@ import { AnalysisStepStore } from './analysis-step.store';
       } @else {
         @if (source() === 'catalog') {
           <section
-            class="rounded-[14px] border border-state-need/70 p-4 text-sm"
+            class="rounded-[14px] border border-state-need bg-base-200 p-4 text-sm"
             data-glass-surface="chrome"
             data-testid="agent-only-banner"
           >
@@ -103,7 +103,7 @@ import { AnalysisStepStore } from './analysis-step.store';
             </button>
           </section>
         }
-        <div data-testid="context-source">
+        <div class="rounded-[14px] border border-base-300 p-4" data-glass-surface="tile" data-testid="context-source">
           @if (generation.run(); as activeRun) {
             <ptah-generation-source-status
               [source]="activeRun.source"
@@ -122,7 +122,7 @@ import { AnalysisStepStore } from './analysis-step.store';
         </div>
         @if (loadError()) {
           <section
-            class="rounded-[14px] border border-state-err/70 p-4"
+            class="rounded-[14px] border border-state-err bg-base-200 p-4"
             data-glass-surface="content"
             role="alert"
           >
@@ -134,7 +134,7 @@ import { AnalysisStepStore } from './analysis-step.store';
         } @else if (loading()) {
           <p role="status">Loading recommendations…</p>
         } @else {
-          <div data-testid="choose-agents-list">
+          <div class="rounded-[22px] border border-base-300 p-4" data-glass-surface="content" data-testid="choose-agents-list">
             <div data-testid="choose-agents-toolbar">
               <ptah-agent-recommendation-list
                 [recommendations]="store.recommendations()"
@@ -149,7 +149,7 @@ import { AnalysisStepStore } from './analysis-step.store';
           </div>
           @if (binding(); as bound) {
             <section
-              class="rounded-[22px] border border-base-300 p-5"
+              class="rounded-[22px] border border-base-300 p-4"
               data-glass-surface="content"
             >
               <ptah-generation-model-picker
@@ -160,7 +160,7 @@ import { AnalysisStepStore } from './analysis-step.store';
               />
             </section>
             <section
-              class="rounded-[22px] border border-base-300 p-5"
+              class="rounded-[22px] border border-base-300 p-4"
               data-glass-surface="content"
             >
               <ptah-community-packs-panel />
@@ -184,7 +184,7 @@ import { AnalysisStepStore } from './analysis-step.store';
               </p>
             }
             <div
-              class="flex flex-wrap items-center gap-2"
+              class="flex flex-wrap items-center justify-end gap-2"
               data-testid="choose-agents-actions"
             >
               <button
