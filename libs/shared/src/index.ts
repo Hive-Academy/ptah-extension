@@ -99,3 +99,4 @@ export type {
   ConfigClearScopeOverrideResult,
 } from './lib/types/rpc/rpc-auth.types';
 export { SCOPED_SETTING_KEYS } from './lib/types/rpc/rpc-auth.types';
+export * from './lib/cli-version-label';

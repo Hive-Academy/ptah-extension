@@ -52,6 +52,7 @@ describe('plain surface contract modules stay zod-free', () => {
     'mcp-apps-contracts/surface.types.ts',
     'mcp-apps-contracts/surface-catalog.ts',
     'lib/types/session-runtime.types.ts',
+    'lib/cli-version-label.ts',
   ])(
     'walks every relative import and re-export from %s',
     (entry) => {
