@@ -49,6 +49,7 @@ import {
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
 import { CanvasStore, type CanvasTile } from '../canvas.store';
+import type { CanvasRailSort } from '../canvas-board-mode';
 import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
@@ -99,6 +100,8 @@ class RailStub {
   });
   readonly focusedTabId = input<string | null>(null);
   readonly density = input<CompactRailDensity>('comfortable');
+  readonly sort = input<CanvasRailSort>('manual');
+  readonly sortToggled = output<void>();
   readonly collapsed = input(false);
   readonly autoCollapsed = input(false);
   readonly band = input('lg');
@@ -464,13 +467,17 @@ describe('CanvasRailBoardComponent rendering', () => {
       mode: 'rail';
       railCollapsed: boolean;
       railDensity: CompactRailDensity;
+      railSort: CanvasRailSort;
       railScrollTop: number;
     }>({
       mode: 'rail' as const,
       railCollapsed: false,
       railDensity: 'comfortable' as const,
+      // Most specs pin the stored order; the sort-mode specs switch to recent.
+      railSort: 'manual',
       railScrollTop: 0,
     });
+    const activity = signal<ReadonlyMap<string, number>>(new Map());
     const width = signal(1400);
     const writeFailed = signal(false);
     const dialogOpen = signal(false);
@@ -493,6 +500,9 @@ describe('CanvasRailBoardComponent rendering', () => {
       (_: string, density: 'comfortable' | 'dense') =>
         board.update((b) => ({ ...b, railDensity: density })),
     );
+    const setRailSort = jest.fn((_: string, sort: CanvasRailSort) =>
+      board.update((b) => ({ ...b, railSort: sort })),
+    );
     const removeTile = jest.fn(async (id: string) => {
       tiles.update((current) => current.filter((tile) => tile.tabId !== id));
     });
@@ -506,6 +516,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       focusTile: jest.fn((id: string) => focused.set(id)),
       setRailCollapsed,
       setRailDensity,
+      setRailSort,
       removeTile,
       reorderTiles: jest.fn(),
       setRailScrollTop: jest.fn(),
@@ -575,7 +586,11 @@ describe('CanvasRailBoardComponent rendering', () => {
             onTabClosed: () => () => undefined,
             activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
-              tab: { title: id, claudeSessionId: 'owner' },
+              tab: {
+                title: id,
+                claudeSessionId: 'owner',
+                lastActivityAt: activity().get(id) ?? 0,
+              },
             }),
           },
         },
@@ -629,6 +644,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       focused,
       needsYou,
       board,
+      activity,
       width,
       laneKeys,
       recent,
@@ -2632,6 +2648,57 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.reorderTiles).toHaveBeenCalledTimes(calls);
     expect(instance.announcement()).toContain('cannot move');
   });
+  describe('sort mode', () => {
+    const displayed = (fixture: ReturnType<typeof mount>['fixture']) =>
+      [...fixture.nativeElement.querySelectorAll('[data-rail-card]')]
+        .map((node: Element) => node.getAttribute('data-tab-id'));
+
+    it('orders each group by recent activity, tie-broken by stored order, and follows new activity', () => {
+      // `a` stays first before grouping: the stub re-emits its source state for the first tile.
+      const { fixture, board, activity } = mount(true, 5);
+      activity.set(new Map([['a', 100], ['b', 10], ['c', 20], ['d', 30], ['e', 40]]));
+      board.update((value) => ({ ...value, railSort: 'recent' }));
+      const instance = fixture.componentInstance;
+      instance.railStates.set(new Map([
+        ['a', 'idle'], ['b', 'done'], ['c', 'background'], ['d', 'background'], ['e', 'done'],
+      ]));
+      fixture.detectChanges();
+      expect(displayed(fixture)).toEqual(['d', 'c', 'a', 'e', 'b']);
+      activity.update((current) => new Map(current).set('b', 50));
+      fixture.detectChanges();
+      expect(displayed(fixture)).toEqual(['d', 'c', 'a', 'b', 'e']);
+      board.update((value) => ({ ...value, railSort: 'manual' }));
+      fixture.detectChanges();
+      expect(displayed(fixture)).toEqual(['c', 'd', 'a', 'b', 'e']);
+      activity.update((current) => new Map(current).set('c', 99).set('e', 120));
+      fixture.detectChanges();
+      expect(displayed(fixture)).toEqual(['c', 'd', 'a', 'b', 'e']);
+    });
+
+    it('refuses manual moves in recent mode', () => {
+      const { fixture, board, store } = mount(true, 3);
+      board.update((value) => ({ ...value, railSort: 'recent' }));
+      fixture.detectChanges();
+      fixture.componentInstance.move('b', -1);
+      expect(store.reorderTiles).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.announcement()).toContain('manual order');
+    });
+
+    it('toggles and persists the sort through the store', () => {
+      const { fixture, store } = mount();
+      const rail = fixture.debugElement.query(By.directive(RailStub))
+        .componentInstance as RailStub;
+      expect(rail.sort()).toBe('manual');
+      rail.sortToggled.emit();
+      fixture.detectChanges();
+      expect(store.setRailSort).toHaveBeenCalledWith('workspace', 'recent');
+      expect(rail.sort()).toBe('recent');
+      expect(fixture.componentInstance.announcement()).toBe('Sessions sorted by recent activity.');
+      rail.sortToggled.emit();
+      expect(store.setRailSort).toHaveBeenLastCalledWith('workspace', 'manual');
+    });
+  });
+
   it('jumps through status matches in grouped display order', () => {
     const { fixture, store } = mount(true, 4, 'b');
     const instance = fixture.componentInstance;

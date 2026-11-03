@@ -7,12 +7,12 @@ import {
   logicalRows,
   type TileIntent,
 } from './canvas-layout-intent';
-import { type CanvasBoardState } from './canvas-board-mode';
+import { DEFAULT_BOARD_STATE, type CanvasBoardState } from './canvas-board-mode';
 
 /** Delay that coalesces a burst of intent mutations into one storage write. */
 export const CANVAS_LAYOUT_SAVE_DEBOUNCE_MS = 250;
 
-const LATEST_VERSION = 3;
+const LATEST_VERSION = 4;
 
 const tabIdSchema = z.string().min(1);
 const orderSchema = z.number().int().nonnegative();
@@ -43,15 +43,34 @@ const v2Schema = z.strictObject({
   tiles: tilesSchema,
 });
 
-const boardSchema = z.strictObject({
+const boardFields = {
   mode: z.enum(['rail', 'grid']).catch('rail').transform(() => 'rail' as const),
   railCollapsed: z.boolean().catch(false),
   railDensity: z.enum(['comfortable', 'dense']).catch('comfortable'),
   railScrollTop: z.number().int().nonnegative().max(1_000_000).catch(0),
+};
+
+/** The v3 board, before the Rail sort choice existed. */
+const boardV3Schema = z.strictObject(boardFields);
+
+const boardSchema = z.strictObject({
+  ...boardFields,
+  railSort: z.enum(['recent', 'manual']).catch('recent'),
 });
 
 const v3Schema = z.strictObject({
   version: z.literal(3),
+  tiles: tilesSchema,
+  board: boardV3Schema,
+});
+
+/**
+ * v4 adds `board.railSort`. It is a new version, not a v3 field: an older
+ * client rejects unknown v3 keys and could then overwrite the record, but it
+ * keeps a newer-version record read-only.
+ */
+const v4Schema = z.strictObject({
+  version: z.literal(4),
   tiles: tilesSchema,
   board: boardSchema,
 });
@@ -80,6 +99,7 @@ const v1Schema = z.strictObject({
 export type CanvasWorkspaceIntentV1 = z.infer<typeof v1Schema>;
 export type CanvasWorkspaceIntentV2 = z.infer<typeof v2Schema>;
 export type CanvasWorkspaceIntentV3 = z.infer<typeof v3Schema>;
+export type CanvasWorkspaceIntentV4 = z.infer<typeof v4Schema>;
 
 export interface CanvasWorkspaceRecord {
   readonly tiles: readonly TileIntent[];
@@ -219,10 +239,22 @@ export class CanvasLayoutPersistenceService {
       return { tiles: null, board: null, writable: false, needsWrite: false, readOnlyReason: 'newer-version' };
     }
 
+    const v4 = v4Schema.safeParse(parsed);
+    if (v4.success) {
+      this.lastWritten.set(workspacePath, raw);
+      return { tiles: normalize(v4.data.tiles), board: v4.data.board, writable: true, needsWrite: false, readOnlyReason: null };
+    }
+
     const v3 = v3Schema.safeParse(parsed);
     if (v3.success) {
-      this.lastWritten.set(workspacePath, raw);
-      return { tiles: normalize(v3.data.tiles), board: v3.data.board, writable: true, needsWrite: false, readOnlyReason: null };
+      // Lossless: v3 tiles and board settings carry over; the sort takes its default.
+      return {
+        tiles: normalize(v3.data.tiles),
+        board: { ...v3.data.board, railSort: DEFAULT_BOARD_STATE.railSort },
+        writable: true,
+        needsWrite: false,
+        readOnlyReason: null,
+      };
     }
 
     const v2 = v2Schema.safeParse(parsed);
@@ -245,7 +277,7 @@ export class CanvasLayoutPersistenceService {
         readOnlyReason: null,
       };
     }
-    this.warn('parse', v3.error);
+    this.warn('parse', v4.error);
     return { tiles: null, board: null, writable: true, needsWrite: false, readOnlyReason: null };
   }
 
@@ -310,8 +342,8 @@ export class CanvasLayoutPersistenceService {
 
   private write(workspacePath: string, snapshot: CanvasWorkspaceRecord): void {
     if (!this.writable.has(workspacePath)) return;
-    const record: CanvasWorkspaceIntentV3 = {
-      version: 3,
+    const record: CanvasWorkspaceIntentV4 = {
+      version: 4,
       tiles: snapshot.tiles.map((tile) => ({
         tabId: tile.tabId,
         order: tile.order,

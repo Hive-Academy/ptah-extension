@@ -72,7 +72,17 @@ export type CompactCallout =
   | CompactErrorCallout
   | null;
 
-export type CompactRailState = 'running' | 'needs' | 'error' | 'done' | 'idle';
+/**
+ * `running`: the main turn is live. `background`: the turn ended, but a lane
+ * or a background command of the session still runs.
+ */
+export type CompactRailState =
+  | 'running'
+  | 'background'
+  | 'needs'
+  | 'error'
+  | 'done'
+  | 'idle';
 export type CompactRailDensity = 'comfortable' | 'dense';
 export const COMPACT_RAIL_CARD_HEIGHT: Readonly<
   Record<CompactRailDensity, number>

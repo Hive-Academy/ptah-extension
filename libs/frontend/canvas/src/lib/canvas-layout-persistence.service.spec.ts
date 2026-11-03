@@ -33,7 +33,7 @@ describe('CanvasLayoutPersistenceService', () => {
     jest.restoreAllMocks();
   });
 
-  it('round-trips v3 per encoded workspace and panel', () => {
+  it('round-trips v4 per encoded workspace and panel', () => {
     service.markHydrated(path, true);
     service.schedule(path, () => ({ tiles: intent, board }));
     jest.advanceTimersByTime(CANVAS_LAYOUT_SAVE_DEBOUNCE_MS);
@@ -45,6 +45,7 @@ describe('CanvasLayoutPersistenceService', () => {
       needsWrite: false,
       readOnlyReason: null,
     });
+    expect(JSON.parse(localStorage.getItem(service.storageKey(path))!).version).toBe(4);
   });
 
   it('opens a stored v3 Grid board as Rail without changing tiles or Rail options', () => {
@@ -65,8 +66,25 @@ describe('CanvasLayoutPersistenceService', () => {
     service.flush();
 
     const stored = JSON.parse(localStorage.getItem(service.storageKey(path))!);
+    expect(stored.version).toBe(4);
     expect(stored.board).toEqual({ ...board, railScrollTop: 456 });
     expect(stored.tiles).toEqual(intent);
+  });
+
+  it('migrates a v3 board to the default sort and keeps its manual tile order', () => {
+    const manual = { ...board, railSort: 'manual' as const };
+    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 3, tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'dense', railScrollTop: 123 } }));
+    expect(service.load(path)).toMatchObject({ tiles: intent, board: { ...board, railSort: 'recent' }, writable: true });
+
+    service.markHydrated(path, true);
+    service.schedule(path, () => ({ tiles: intent, board: manual }));
+    service.flush();
+    expect(JSON.parse(localStorage.getItem(service.storageKey(path))!)).toMatchObject({ version: 4, tiles: intent, board: manual });
+  });
+
+  it('rejects a v3 record that carries the v4-only railSort field', () => {
+    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 3, tiles: intent, board }));
+    expect(service.load(path).tiles).toBeNull();
   });
 
   it.each(['auto', 1, 2, 3] as const)('migrates v1 %s losslessly into durable rows', (columnsPreference) => {
@@ -86,8 +104,8 @@ describe('CanvasLayoutPersistenceService', () => {
   });
 
   it.each([
-    { version: 3, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'quarter' }, rowBreakBefore: false }], board },
-    { version: 3, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'full' } }], board },
+    { version: 4, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'quarter' }, rowBreakBefore: false }], board },
+    { version: 4, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'full' } }], board },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'quarter' }, rowBreakBefore: false }] },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'auto', weight: 0 }, rowBreakBefore: false }] },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'full' }, rowBreakBefore: false, x: 0 }] },
@@ -100,7 +118,7 @@ describe('CanvasLayoutPersistenceService', () => {
     expect(service.load(path).tiles).toBeNull();
   });
 
-  it.each([99, 2.5, 3.5])('preserves future-version %s bytes and disables writes', (version) => {
+  it.each([99, 4.5, 5])('preserves future-version %s bytes and disables writes', (version) => {
     const raw = `{"version":${version},"future":true}`;
     localStorage.setItem(service.storageKey(path), raw);
     const loaded = service.load(path);
@@ -201,8 +219,8 @@ describe('CanvasLayoutPersistenceService', () => {
   });
 
   it('defaults invalid board fields while preserving valid tiles', () => {
-    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 3, tiles: intent, board: { mode: 'unknown', railCollapsed: true, railDensity: 'unknown', railScrollTop: -2 } }));
-    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'comfortable', railScrollTop: 0 } });
+    localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 4, tiles: intent, board: { mode: 'unknown', railCollapsed: true, railDensity: 'unknown', railSort: 'unknown', railScrollTop: -2 } }));
+    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'comfortable', railSort: 'recent', railScrollTop: 0 } });
   });
 
   it('clears read-only paths when removed', () => {
