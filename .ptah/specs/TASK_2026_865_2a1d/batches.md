@@ -509,7 +509,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   pins still pass.
 - The A3 note is in the report.
 
-## Batch 5: Registration and RPC wiring — PENDING
+## Batch 5: Registration and RPC wiring — COMPLETE (CI pending)
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -523,7 +523,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: Batch 4
 - Phase: 1 | Phase review: Phase 1 code-logic and style (new public RPC methods)
 
-### Task 5.1: Token and DI registration — PENDING
+### Task 5.1: Token and DI registration — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/tokens.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/di.ts` (MODIFY),
@@ -539,7 +539,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   report.
 - Tests that prove the ACs: `di.spec.ts` resolves `CHAT_TOKENS.CARRY_OVER` as a singleton.
 
-### Task 5.2: Schemas and handler wiring — PENDING
+### Task 5.2: Schemas and handler wiring — COMPLETE (CI pending)
 
 - Depends on: Task 5.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.ts` (MODIFY),
@@ -762,7 +762,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - `npm run verify -- -p @ptah-extension/chat` passes (header: 1 project). A2, A4, A5 and A9 are
   recorded in the report.
 
-## Batch 8: Banner button and view wiring — PENDING
+## Batch 8: Banner button and view wiring — COMPLETE (CI pending)
 
 - Recommended executor: CLI lane, Angular frontend capability, any family other than the phase
   reviewer's
@@ -775,7 +775,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: Batch 6 (Batch 7 is not required, but runs first by phase order)
 - Phase: 1 (last batch) | Phase review: Phase 1 code-logic and style; visual review after commit
 
-### Task 8.1: `AuthRequiredBannerComponent` button — PENDING
+### Task 8.1: `AuthRequiredBannerComponent` button — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/components/molecules/notifications/auth-required-banner.component.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/components/molecules/notifications/auth-required-banner.component.spec.ts` (CREATE)
@@ -791,7 +791,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   the `aria-describedby` text; disabled when busy; the click emits once; existing buttons are
   unchanged.
 
-### Task 8.2: `ChatViewComponent` offer binding — PENDING
+### Task 8.2: `ChatViewComponent` offer binding — COMPLETE (CI pending)
 
 - Depends on: Task 8.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/components/templates/chat-view.component.ts` (MODIFY),
