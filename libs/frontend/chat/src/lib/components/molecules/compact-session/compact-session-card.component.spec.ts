@@ -10,6 +10,7 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   PermissionHandlerService,
   agentVisibleInSession,
   type MonitoredAgent,
@@ -655,6 +656,46 @@ describe(CompactSessionCardComponent.name, () => {
     permissions.set([permission()]);
     fixture.detectChanges();
     expect(states).toContain('needs');
+  });
+
+  describe('rail state', () => {
+    function backgroundTask(taskType: string): void {
+      TestBed.inject(BackgroundTaskStore).replace({
+        eventType: 'background_tasks_snapshot',
+        sessionId: 'session-1',
+        tasks: [{ taskId: 'bg-1', taskType, description: 'npm test', status: 'running' }],
+      } as Parameters<BackgroundTaskStore['replace']>[0]);
+    }
+
+    it('is running only while the main turn is live, even with running lanes', () => {
+      agents.set([lane()]);
+      expect(render(tab({ status: 'streaming' })).componentInstance.railStateValue()).toBe('running');
+      expect(render(tab({ id: 'tab-2', status: 'resuming' })).componentInstance.railStateValue()).toBe('running');
+    });
+
+    it('is background when the turn ended but a lane still runs', () => {
+      agents.set([lane()]);
+      expect(render().componentInstance.railStateValue()).toBe('background');
+    });
+
+    it('is background when the turn ended but a background command still runs', () => {
+      backgroundTask('local_bash');
+      const fixture = render();
+      expect(fixture.componentInstance.railStateValue()).toBe('background');
+      TestBed.inject(BackgroundTaskStore).clearSession('session-1');
+      expect(fixture.componentInstance.railStateValue()).toBe('idle');
+    });
+
+    it('ignores agent task snapshots, which already count as lanes', () => {
+      backgroundTask('local_agent');
+      expect(render().componentInstance.railStateValue()).toBe('idle');
+    });
+
+    it('keeps needs ahead of background work', () => {
+      backgroundTask('local_bash');
+      permissions.set([permission()]);
+      expect(render().componentInstance.railStateValue()).toBe('needs');
+    });
   });
 
   it('routes the shown question to the orchestrator and rejects a replaced id', () => {

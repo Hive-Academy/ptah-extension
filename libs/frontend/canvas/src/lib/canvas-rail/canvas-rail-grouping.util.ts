@@ -1,6 +1,7 @@
 import type { CompactRailState } from '@ptah-extension/chat-ui';
+import type { CanvasRailSort } from '../canvas-board-mode';
 
-export type RailGroupKey = 'running' | 'waiting' | 'finished';
+export type RailGroupKey = 'running' | 'background' | 'waiting' | 'finished';
 
 export interface RailGroup<T extends { readonly tabId: string }> {
   readonly key: RailGroupKey;
@@ -10,20 +11,58 @@ export interface RailGroup<T extends { readonly tabId: string }> {
 
 const GROUPS: readonly { key: RailGroupKey; label: string }[] = [
   { key: 'running', label: 'Running' },
+  { key: 'background', label: 'Background work' },
   { key: 'waiting', label: 'Waiting / Needs input / Error / Idle' },
   { key: 'finished', label: 'Finished' },
 ];
 
 export function railGroupFor(state: CompactRailState | undefined): RailGroupKey {
-  return state === 'running' ? 'running' : state === 'done' ? 'finished' : 'waiting';
+  switch (state) {
+    case 'running': return 'running';
+    case 'background': return 'background';
+    case 'done': return 'finished';
+    default: return 'waiting';
+  }
+}
+
+/**
+ * Display order of the rail before grouping. `manual` keeps the stored tile
+ * order. `recent` puts the newest tab activity first and breaks ties by the
+ * stored order. A live turn bumps its tab's activity on every stream flush,
+ * so live (`running`) tiles rank as equally recent: two streaming sessions
+ * would otherwise swap places many times a second.
+ */
+export function sortRailTiles<T extends { readonly tabId: string; readonly order: number }>(
+  tiles: readonly T[],
+  sort: CanvasRailSort,
+  states: ReadonlyMap<string, CompactRailState>,
+  lastActivityAt: (tabId: string) => number | undefined,
+): T[] {
+  if (sort === 'manual') return [...tiles].sort((a, b) => a.order - b.order);
+  const activity = new Map(tiles.map(tile => [
+    tile.tabId,
+    states.get(tile.tabId) === 'running' ? Number.POSITIVE_INFINITY : (lastActivityAt(tile.tabId) ?? 0),
+  ]));
+  return [...tiles].sort((a, b) => {
+    const left = activity.get(a.tabId) ?? 0;
+    const right = activity.get(b.tabId) ?? 0;
+    return left === right ? a.order - b.order : right > left ? 1 : -1;
+  });
+}
+
+/** Equality for a computed tile order: same tile objects in the same order. */
+export function sameTileOrder<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((tile, index) => tile === b[index]);
 }
 
 export function groupRailTiles<T extends { readonly tabId: string }>(
   orderedTiles: readonly T[],
   states: ReadonlyMap<string, CompactRailState>,
 ): { groups: readonly RailGroup<T>[]; displayedIds: readonly string[]; counts: Readonly<Record<CompactRailState, number>> } {
-  const buckets: Record<RailGroupKey, T[]> = { running: [], waiting: [], finished: [] };
-  const counts: Record<CompactRailState, number> = { running: 0, needs: 0, error: 0, idle: 0, done: 0 };
+  const buckets: Record<RailGroupKey, T[]> = { running: [], background: [], waiting: [], finished: [] };
+  const counts: Record<CompactRailState, number> = {
+    running: 0, background: 0, needs: 0, error: 0, idle: 0, done: 0,
+  };
   for (const tile of orderedTiles) {
     const state = states.get(tile.tabId) ?? 'idle';
     buckets[railGroupFor(state)].push(tile);

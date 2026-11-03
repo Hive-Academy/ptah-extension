@@ -27,7 +27,6 @@ import {
   type TurnLogToggle,
 } from '../../message-bubble.component';
 import type { TurnContext } from '../../../../utils/turn-facts.utils';
-import type { SessionAgent } from '../../../../services/session-agents/session-agent-roster';
 import { SessionAgentRosterService } from '../../../../services/session-agents/session-agent-roster.service';
 import { SessionInspectorStore } from '../../../../services/session-inspector/session-inspector.store';
 import { SESSION_CONTEXT } from '../../../../tokens/session-context.token';
@@ -56,11 +55,9 @@ export class TranscriptMessageBubbleStub {
   @Input() turnLive = false;
   @Input() now = 0;
   @Input() needsYouCount = 0;
-  @Input() agents: readonly SessionAgent[] = [];
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
   @Output() logToggled = new EventEmitter<TurnLogToggle>();
-  @Output() laneRequested = new EventEmitter<string>();
   // The lane transcript's extra bindings, so the work-log parity spec can
   // stub the bubble under both hosts.
   @Input() permissionLookup: unknown = undefined;

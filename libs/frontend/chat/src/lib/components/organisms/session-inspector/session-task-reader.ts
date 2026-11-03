@@ -26,6 +26,7 @@ import {
   orderTaskDocuments,
 } from '@ptah-extension/tasks-ui/presentation';
 import { ChatStore } from '../../../services/chat.store';
+import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import type {
   SectionState,
   TaskSectionData,
@@ -96,6 +97,7 @@ function documentsOf(task: TaskSpecDetail): readonly string[] {
 @Injectable()
 export class SessionTaskReader {
   private readonly chatStore = inject(ChatStore);
+  private readonly organizationCache = inject(SessionOrganizationCache);
   private readonly tabs = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
   private readonly vscode = inject(VSCodeService);
@@ -127,10 +129,11 @@ export class SessionTaskReader {
       const found = this.tabs.findTabByIdAcrossWorkspaces(tabId);
       const sessionId = found?.tab.claudeSessionId;
       if (!sessionId) return null;
-      const session = this.chatStore
-        .sessions()
-        .find((candidate) => candidate.id === sessionId);
-      const tasks = session?.organization?.tasks;
+      // The cache serves the loaded `session:list` row and, for a session
+      // outside it (paging, filters), one `session:getOrganization` read that
+      // `session:organizationChanged` refreshes — so the link also resolves
+      // for tabs whose session row is not loaded (TASK_2026_854).
+      const tasks = this.organizationCache.organizationFor(sessionId)()?.tasks;
       if (!tasks) return null;
       return resolveLink(
         tasks,

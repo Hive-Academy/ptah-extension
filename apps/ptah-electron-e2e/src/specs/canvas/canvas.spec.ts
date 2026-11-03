@@ -295,6 +295,8 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await ui.goto('canvas');
     const page = ui.page;
     await addRailSessions(page, 2);
+    // Move up/down exists only in the manual sort order.
+    await ui.setRailSort('manual');
     const order = () => railCards(page).evaluateAll((cards) => cards.map((card) => card.getAttribute('data-tab-id')));
     const before = await order();
 

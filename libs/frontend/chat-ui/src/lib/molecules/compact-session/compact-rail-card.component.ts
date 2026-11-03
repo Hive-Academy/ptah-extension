@@ -74,6 +74,14 @@ const EMPTY_LANES: CompactLaneSummary = {
       :host([data-state='running']) {
         --rail-state-ink: var(--state-ink-run, oklch(var(--in)));
       }
+      /* Between running and done: the turn ended, its background work runs on. */
+      :host([data-state='background']) {
+        --rail-state-ink: color-mix(
+          in oklch,
+          var(--state-ink-run, oklch(var(--in))) 55%,
+          var(--state-ink-done, oklch(var(--su)))
+        );
+      }
       :host([data-state='needs']) {
         --rail-state-ink: var(--state-ink-need, oklch(var(--wa)));
       }

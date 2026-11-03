@@ -42,7 +42,13 @@ import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.compo
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasInspectorDockComponent, injectCanvasInspectorDockState, isCanvasInspectorTabbable } from './canvas-inspector-dock.component';
 import { CanvasRailComponent } from './canvas-rail.component';
-import { groupRailTiles, neighbouringVisibleId, sameGroupMoveIds } from './canvas-rail-grouping.util';
+import {
+  groupRailTiles,
+  neighbouringVisibleId,
+  sameGroupMoveIds,
+  sameTileOrder,
+  sortRailTiles,
+} from './canvas-rail-grouping.util';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 import { focusNeighbourCard, restoreBoardFocus } from './canvas-board-focus';
 import { LucideAngularModule, RotateCw, TriangleAlert, X } from 'lucide-angular';
@@ -133,7 +139,7 @@ export interface CanvasBoardNotice {
           [style.display]="railHidden() ? 'none' : null"
           [attr.inert]="compactSheetOpen() ? '' : null" [tiles]="orderedTiles()"
           [workspacePath]="workspacePath()" [states]="railStates()"
-          [focusedTabId]="focusedId()" [density]="board().railDensity"
+          [focusedTabId]="focusedId()" [density]="board().railDensity" [sort]="board().railSort"
           [collapsed]="effectiveCollapsed()" [autoCollapsed]="autoCollapsed()"
           [band]="band()" [runningCount]="store.runningSessionCount()"
           [canStart]="store.canStartRunningSession()" [canAdd]="store.canAddTile()"
@@ -141,7 +147,7 @@ export interface CanvasBoardNotice {
           [previousSessionsOpen]="previousSessions.isOpen()"
           [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)" (collapseToggled)="toggleCollapse()"
-          (densityToggled)="toggleDensity()" (jumpTo)="jumpTo($event)"
+          (densityToggled)="toggleDensity()" (sortToggled)="toggleSort()" (jumpTo)="jumpTo($event)"
           (newSession)="newSession($event)" (previousSessionsRequested)="previousSessions.open()"
           (scrolled)="store.setRailScrollTop(workspacePath(), $event)"
           (railState)="onRailState($event)"
@@ -369,10 +375,16 @@ export class CanvasRailBoardComponent {
     return this.metrics.snapshot().railShifts;
   });
   readonly board = computed(() => this.store.boardFor(this.workspacePath()));
-  readonly orderedTiles = computed(() =>
-    [...this.store.tilesFor(this.workspacePath())()].sort(
-      (a, b) => a.order - b.order,
-    ),
+  /** Display order before grouping; the same order the rail renders. */
+  readonly orderedTiles = computed(
+    () =>
+      sortRailTiles(
+        this.store.tilesFor(this.workspacePath())(),
+        this.board().railSort,
+        this.railStates(),
+        (tabId) => this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.lastActivityAt,
+      ),
+    { equal: sameTileOrder },
   );
   readonly isEmptyBoard = computed(() => this.orderedTiles().length === 0);
   /**
@@ -852,6 +864,10 @@ export class CanvasRailBoardComponent {
   }
 
   move(id: string, direction: -1 | 1): void {
+    if (this.board().railSort !== 'manual') {
+      this.announce('Switch the rail to manual order to move sessions.');
+      return;
+    }
     const tiles = this.orderedTiles();
     const storedIds = tiles.map(tile => tile.tabId);
     const ids = sameGroupMoveIds(storedIds, this.railStates(), id, direction);
@@ -912,6 +928,17 @@ export class CanvasRailBoardComponent {
     this.store.setRailDensity(
       this.workspacePath(),
       this.board().railDensity === 'dense' ? 'comfortable' : 'dense',
+    );
+    this.anchor();
+  }
+  toggleSort(): void {
+    const sort = this.board().railSort === 'recent' ? 'manual' : 'recent';
+    this.geometryBaseline = null;
+    this.store.setRailSort(this.workspacePath(), sort);
+    this.announce(
+      sort === 'recent'
+        ? 'Sessions sorted by recent activity.'
+        : 'Sessions in manual order.',
     );
     this.anchor();
   }

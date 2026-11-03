@@ -228,8 +228,14 @@ describe('SessionStatsOwnerService', () => {
     const owner = new SessionStatsOwnerService({ recordUsage: (value) => { contributions.push(value); } });
     const { generation } = owner.startNew(SESSION);
     owner.beginRun(SESSION, generation, 'run-reprice', null);
-    expect(owner.replaceRun(SESSION, generation, 'run-reprice', run(2, [{ input: 10, costUSD: 2 }])).outcome).toBe('accepted');
-    expect(owner.replaceRun(SESSION, generation, 'run-reprice', run(1, [{ input: 20, costUSD: 1 }])).outcome).toBe('accepted');
+    const first = run(2, [{ input: 10, output: 0, costUSD: 2,
+      pricing: { inputCostPerToken: 0.2, outputCostPerToken: 0 } }], { unreported: true });
+    const repriced = run(1, [{ input: 20, output: 0, costUSD: 1,
+      pricing: { inputCostPerToken: 0.05, outputCostPerToken: 0 } }], { unreported: true });
+    expect(owner.replaceRun(SESSION, generation, 'run-reprice', first).outcome).toBe('accepted');
+    expect(owner.replaceRun(SESSION, generation, 'run-reprice', repriced)).toMatchObject({
+      outcome: 'accepted', runCostDecreased: true, turnCost: null,
+    });
     expect(contributions).toMatchObject([
       { totalCostMicroUsd: 2_000_000 },
       { runCostSnapshot: true, totalCostMicroUsd: 1_000_000,
