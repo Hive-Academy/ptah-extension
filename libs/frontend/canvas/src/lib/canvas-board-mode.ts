@@ -14,7 +14,7 @@ export interface CanvasBoardState {
 export const DEFAULT_BOARD_STATE: CanvasBoardState = {
   mode: 'rail',
   railCollapsed: false,
-  railDensity: 'comfortable',
+  railDensity: 'dense',
   railSort: 'recent',
   railScrollTop: 0,
 };

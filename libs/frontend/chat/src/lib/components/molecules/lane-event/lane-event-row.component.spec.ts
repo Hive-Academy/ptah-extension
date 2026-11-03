@@ -62,7 +62,8 @@ describe('LaneEventRowComponent', () => {
     const card = element.querySelector('article')!;
     expect(card.classList.contains('mx-auto')).toBe(false);
     expect(card.classList.contains('ml-auto')).toBe(true);
-    expect(card.classList.contains('w-4/5')).toBe(true);
+    expect(card.classList.contains('w-3/5')).toBe(true);
+    expect(card.classList.contains('max-w-[36rem]')).toBe(true);
     expect(card.classList.contains('min-w-[min(100%,20rem)]')).toBe(true);
     expect(card.classList.contains('w-full')).toBe(false);
     expect(card.className).not.toContain('max-w-[min(640px');

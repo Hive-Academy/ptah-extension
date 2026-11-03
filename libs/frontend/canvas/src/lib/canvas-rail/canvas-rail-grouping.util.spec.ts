@@ -13,6 +13,13 @@ const states = new Map<string, CompactRailState>([
 ]);
 
 describe('canvas rail grouping', () => {
+  it('moves a completed background tile into Finished as soon as its state emits done', () => {
+    const updated = new Map(states);
+    updated.set('c', 'done');
+    const grouped = groupRailTiles(tiles, updated);
+    expect(grouped.groups.find(group => group.key === 'finished')?.tiles.map(tile => tile.tabId)).toEqual(['a', 'c']);
+    expect(grouped.groups.find(group => group.key === 'running')?.tiles.map(tile => tile.tabId)).toEqual(['e']);
+  });
   it('groups in display order without changing the stored tiles', () => {
     const result = groupRailTiles(tiles, states);
     expect(result.groups.map(group => [group.label, group.tiles.map(tile => tile.tabId)]))

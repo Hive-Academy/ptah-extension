@@ -4,7 +4,6 @@ import {
   ElementRef,
   afterNextRender,
   computed,
-  effect,
   inject,
   Injector,
   input,
@@ -43,7 +42,8 @@ const EMPTY_LANES: CompactLaneSummary = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class:
-      'rc-card block relative overflow-hidden rounded-lg border border-base-content/10 bg-base-200 text-base-content',
+      'rc-card block relative overflow-hidden rounded-lg border border-base-content/10 text-base-content',
+    '[class]': "focused() ? 'bg-primary/25' : 'bg-base-200'",
     '[style.height.px]': 'cardHeight()',
     '[class.rc-dense]': 'density() === "dense"',
     '[class.rc-corner-reserved]': 'reserveActionCorner()',
@@ -97,11 +97,11 @@ const EMPTY_LANES: CompactLaneSummary = {
       .rc-body {
         height: 100%;
         display: grid;
-        grid-template-rows: 26px 16px 20px 70px 22px;
+        grid-template-rows: 26px 16px 70px 22px;
         min-width: 0;
       }
       :host(.rc-dense) .rc-body {
-        grid-template-rows: 26px 20px 22px 18px;
+        grid-template-rows: 26px 22px 18px;
       }
       .rc-line {
         min-width: 0;
@@ -179,13 +179,12 @@ const EMPTY_LANES: CompactLaneSummary = {
       }
       /* The active session: a focus frame (the 1 px border plus a 1 px
          inset ring, so no size change and nothing for the parent's overflow
-         to clip) over a primary-tinted surface, in both themes. After
+         to clip) over the theme's primary-tinted background. After
          :host(:hover) so hover never repaints the active frame; the left
          state stripe paints over the ring's left edge. */
       :host(.rc-focused) {
         border-color: var(--rc-focus-frame);
         box-shadow: inset 0 0 0 1px var(--rc-focus-frame);
-        background-color: color-mix(in oklch, oklch(var(--p)) 14%, oklch(var(--b2)));
       }
       .rc-action:hover {
         box-shadow: inset 0 0 0 1px currentColor;
@@ -254,10 +253,6 @@ const EMPTY_LANES: CompactLaneSummary = {
           >
         </div>
       }
-      <div class="rc-line text-base-content-muted">
-        <span class="shrink-0">Now</span
-        ><span class="rc-ellipsis" [title]="shownNow()">{{ shownNow() }}</span>
-      </div>
       <div class="rc-lanes">
         @if (callout(); as current) {
           @for (c of [current]; track c.requestId) {
@@ -432,7 +427,6 @@ export class CompactRailCardComponent implements DoCheck {
   readonly focused = input(false);
   readonly tabStop = input(false);
   readonly innerTabbable = input(false);
-  readonly holdText = input(false);
   /** The host overlays a control on the top-right corner; keep the title clear of it. */
   readonly reserveActionCorner = input(false);
   readonly selectRequested = output<void>();
@@ -445,13 +439,6 @@ export class CompactRailCardComponent implements DoCheck {
   readonly moreLanes = output<void>();
   readonly cardHeight = computed(
     () => COMPACT_RAIL_CARD_HEIGHT[this.density()],
-  );
-  // The hold freezes only the live-changing summary under a press
-  // or text selection. The title is never latched: it changes only by an
-  // explicit rename, which must show at once even while a selection holds.
-  private readonly latched = signal('');
-  readonly shownNow = computed(() =>
-    this.holdText() ? this.latched() : this.summary().content.text,
   );
   readonly selectName = computed(
     () =>
@@ -473,13 +460,6 @@ export class CompactRailCardComponent implements DoCheck {
     return g.kind === 'known' ? `+${g.additions} −${g.deletions}` : '—';
   });
   private seenRequestId: string | null = null;
-
-  constructor() {
-    effect(() => {
-      if (!this.holdText())
-        this.latched.set(this.summary().content.text);
-    });
-  }
 
   ngDoCheck(): void {
     const id = this.callout()?.requestId ?? null;
