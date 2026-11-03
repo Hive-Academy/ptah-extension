@@ -137,11 +137,6 @@ export const PROMPT_CATALOGUE: readonly PromptCategory[] = [
         description: 'Background implementation worker',
       },
       {
-        label: 'Run headless Ptah',
-        text: '/ptah-cli-usage Run a headless Ptah CLI session over JSON-RPC to [execute task/serve MCP]',
-        description: 'JSON-RPC CI pipeline',
-      },
-      {
         label: 'Run tribunal skill in chat',
         text: '/tribunal Convene a multi-vendor panel for [topic] and render a cited verdict',
         description: 'Council, Forge, or Crucible',

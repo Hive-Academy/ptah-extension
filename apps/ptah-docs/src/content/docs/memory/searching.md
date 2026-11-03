@@ -48,7 +48,7 @@ Expand **Indexed code** to see the symbol list. Each row shows the symbol name, 
 Type into the **Search indexed symbols** box to filter the list. The search is debounced and matches against indexed symbols for the current workspace. Results are paginated — use **Prev** / **Next** to move through pages, and the footer shows the current range (`X–Y of total`). **Re-load** refreshes the list on demand.
 
 :::note
-The **Code index** stat, the **Indexed code** panel, and symbol search are part of the Electron desktop app's **Memory** tab. They are not available in the VS Code extension or the CLI.
+The **Code index** stat, the **Indexed code** panel, and symbol search are part of the Electron desktop app's **Memory** tab.
 :::
 
 ### Workspace scope

@@ -78,6 +78,7 @@ const REGISTRATION_GLOBS = [
   'libs/**/phase-*.ts',
   'libs/**/di.ts',
   'libs/**/di/*.ts',
+  'libs/backend/cli-engine/src/lib/container.ts',
   'apps/**/{register,registration}*.ts',
   'apps/**/*-registration.ts',
   'apps/**/phase-*.ts',

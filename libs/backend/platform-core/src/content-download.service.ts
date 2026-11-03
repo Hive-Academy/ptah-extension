@@ -468,7 +468,7 @@ export class ContentDownloadService {
    *
    * @param files - Relative file paths (e.g., "ptah-core/.claude-plugin/plugin.json")
    * @param baseUrl - GitHub raw base URL
-   * @param basePath - Source path in the repo (e.g., "apps/ptah-extension-vscode/assets/plugins")
+   * @param basePath - Source path in the repo (e.g., "plugins")
    * @param localDir - Local destination directory (e.g., ~/.ptah/plugins/)
    * @param onFileComplete - Callback with count of completed files
    */

@@ -207,9 +207,7 @@ ptah-settings-export.json
 .zencoder/
 .codex/**
 skills/
-!apps/ptah-extension-vscode/assets/plugins/**/skills/
-!apps/ptah-cli/src/skills/
-!apps/ptah-cli/src/skills/**
+!plugins/**/skills/
 !libs/frontend/marketplace/src/lib/pages/skills/
 !libs/frontend/marketplace/src/lib/pages/skills/**
 !tools/mcp-bench/src/memory-skills/suites/skills/

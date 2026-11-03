@@ -13,7 +13,7 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT = findRepoRoot();
-const PLUGINS_ROOT = 'apps/ptah-extension-vscode/assets/plugins';
+const PLUGINS_ROOT = 'plugins';
 const MAX_DESCRIPTION_CHARS = 400;
 const MAX_QUOTED_PHRASES = 4;
 
@@ -165,7 +165,6 @@ describe('revised skill descriptions keep their static routing contract', () => 
     { plugin: 'ptah-angular', slug: 'angular-gsap-animation-crafter' },
     { plugin: 'ptah-core', slug: 'agent-lanes' },
     { plugin: 'ptah-core', slug: 'ddd-architecture' },
-    { plugin: 'ptah-core', slug: 'ptah-cli-usage' },
     { plugin: 'ptah-core', slug: 'ptah-surface-authoring' },
     { plugin: 'ptah-nx-saas', slug: 'resilient-nestjs-patterns' },
   ];
@@ -180,7 +179,7 @@ describe('revised skill descriptions keep their static routing contract', () => 
     expect(offenders).toEqual([]);
   });
 
-  it('the eight revised skills are the ones this contract names', () => {
+  it('the seven revised skills are the ones this contract names', () => {
     const files = skillFiles();
     for (const { plugin, slug } of edited) {
       expect(files).toContain(skillFile(plugin, slug));
@@ -274,28 +273,6 @@ describe('revised skill descriptions keep their static routing contract', () => 
     expect(surface).toContain('technical-content-writer');
     expect(surface).toContain('ui-ux-designer');
     expect(surface).toContain('may still apply');
-  });
-
-  it('ptah-cli-usage keeps a headless trigger and the operating facts in the body', () => {
-    const cli = descriptionOf('ptah-core', 'ptah-cli-usage').value;
-    expect(cli).toMatch(/headless/i);
-    expect(cli).toMatch(/\bCI\b/);
-    expect(cli).toContain('no clickable UI');
-    expect(cli).not.toMatch(/mention/i);
-
-    const text = skillText('ptah-core', 'ptah-cli-usage');
-    const headings = atxHeadings(text).map(normaliseHeading);
-    expect(headings).not.toContain('when to use this skill');
-    const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-    expect(body).toContain('session ends when stdin closes');
-    expect(body).toContain(
-      '## Hard rule: NDJSON on stdout, human text on stderr',
-    );
-    const commandMap =
-      text.split('### Top-level command map')[1]?.split(/^## /m)[0] ?? '';
-    expect(commandMap).toMatch(/^\| Command\b/m);
-    expect(commandMap).toContain('`init`');
-    expect(commandMap).toContain('`session`');
   });
 
   it('session-handoff stays limited to the /session-handoff command', () => {

@@ -30,7 +30,7 @@ function findRepoRoot(): string {
 }
 
 const CATALOG_MD =
-  'apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/' +
+  'plugins/ptah-core/skills/' +
   'ptah-surface-authoring/references/catalog.md';
 
 interface CatalogExample {

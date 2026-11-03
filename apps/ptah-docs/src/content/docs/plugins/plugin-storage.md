@@ -48,7 +48,7 @@ At the root of the [Ptah repository](https://github.com/Hive-Academy/PtahCode) l
   "contentHash": "sha256:016322ac9c...",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main",
   "plugins": {
-    "basePath": "apps/ptah-extension-vscode/assets/plugins",
+    "basePath": "plugins",
     "files": ["ptah-core/.claude-plugin/plugin.json", "ptah-core/commands/orchestrate.md", "ptah-angular/skills/angular-frontend-patterns/SKILL.md"]
   },
   "templates": {

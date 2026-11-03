@@ -10,20 +10,18 @@
  * input is Electron-only code:
  *   - `libs/frontend/git-ui/src/lib/<dir>/**` for every git-ui surface dir that
  *     only the Electron shell mounts (everything except `services`, `types` and
- *     `renderer`: services are eager on both hosts, `renderer` is the Pierre
- *     diff host the VS Code skills drawer uses via
- *     `@ptah-extension/git-ui/diff-renderer`), or
+ *     `renderer`: services and the Pierre diff host are eager), or
  *   - the CodeMirror dependency closure under `node_modules`.
  * A chunk mixing in any other input (Pierre, shared libs, services) is kept, as
  * is a chunk with no inputs (nothing proves it Electron-only).
  *
- * `scripts/copy-webview.js` (VSIX) skips the listed files; the Electron
- * renderer copy (`apps/ptah-electron/scripts/copy-renderer.js`) keeps all.
+ * The Electron renderer copy (`apps/ptah-electron/scripts/copy-renderer.js`)
+ * keeps all built files.
  *
  * `generate` refuses a stats file that does not describe the `browser/` folder
  * beside it (a JS file one has and the other lacks), and a list whose dropped
  * chunks are reachable from `main.js` through static imports, so a stale or
- * mismatched build fails loudly instead of shipping a wrong VSIX.
+ * mismatched build fails loudly.
  *
  * Usage: node scripts/electron-only-chunks.js [--dist <dir>]
  */
@@ -33,7 +31,7 @@ const path = require('path');
 const byName = (a, b) => a.localeCompare(b, 'en');
 
 const GIT_UI_LIB = 'libs/frontend/git-ui/src/lib/';
-// git-ui dirs that stay in the VSIX: eager services/types and the Pierre host.
+// Eager git-ui services/types and the Pierre host.
 const GIT_UI_SHARED_DIRS = new Set(['services', 'types', 'renderer']);
 // CodeMirror and its closure; none of these is imported by Pierre or by shared code.
 const CODEMIRROR_PACKAGES = [

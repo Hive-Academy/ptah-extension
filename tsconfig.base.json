@@ -187,9 +187,6 @@
       "@ptah-extension/thoth-runtime": [
         "./libs/backend/thoth-runtime/src/index.ts"
       ],
-      "@ptah-extension/platform-vscode": [
-        "./libs/backend/platform-vscode/src/index.ts"
-      ],
       "@ptah-extension/rpc-handlers": [
         "./libs/backend/rpc-handlers/src/index.ts"
       ],

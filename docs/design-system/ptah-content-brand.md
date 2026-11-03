@@ -19,7 +19,7 @@ below moved here from the shipped skill's bundled `DESIGN-SYSTEM.md`
 ### Name & Positioning
 
 - **Name**: Ptah (Egyptian god of craftsmen and creation)
-- **Tagline**: "VS Code AI Development, Powered by Claude Agent SDK"
+- **Tagline**: "An AI dev team that learns your architecture and keeps shipping."
 - **Personality**: Ancient wisdom meets modern technology
 
 ### Visual Theme
@@ -516,7 +516,7 @@ When generating content, always reference:
 ```yaml
 hero:
   headline:
-    text: 'VS Code AI, Enlightened'
+    text: 'The Coding Orchestra'
     style: display-lg (mobile) → display-xl (desktop)
     color: gradient-gold-text
     animation: reveal-up, delay 900ms

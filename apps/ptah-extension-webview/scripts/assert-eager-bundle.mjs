@@ -13,7 +13,7 @@
  *
  * It also fails when a marker occurs in NO built chunk (a stale marker would
  * make the guard vacuous), and writes `electron-only-chunks.json` next to
- * stats.json via scripts/electron-only-chunks.js (consumed by copy-webview.js).
+ * stats.json via scripts/electron-only-chunks.js.
  *
  * --report-only prints sizes and offenders but always exits 0.
  */

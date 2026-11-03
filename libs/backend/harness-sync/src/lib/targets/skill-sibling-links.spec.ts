@@ -19,13 +19,7 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT = findRepoRoot();
-const PLUGINS_ROOT = join(
-  REPO_ROOT,
-  'apps',
-  'ptah-extension-vscode',
-  'assets',
-  'plugins',
-);
+const PLUGINS_ROOT = join(REPO_ROOT, 'plugins');
 const GUARDED_PLUGINS = listDirs(PLUGINS_ROOT);
 
 interface SkillDir {

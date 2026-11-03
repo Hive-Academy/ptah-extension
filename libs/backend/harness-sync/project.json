@@ -22,7 +22,7 @@
         "default",
         "^production",
         "jestRuntime",
-        "{workspaceRoot}/apps/ptah-extension-vscode/assets/plugins/**/*"
+        "{workspaceRoot}/plugins/**/*"
       ],
       "options": {
         "passWithNoTests": true

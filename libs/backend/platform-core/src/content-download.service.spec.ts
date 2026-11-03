@@ -237,14 +237,14 @@ function buildManifest(
       overrides?.baseUrl ??
       'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main',
     plugins: {
-      basePath: 'apps/ptah-extension-vscode/assets/plugins',
+      basePath: 'plugins',
       files: overrides?.pluginFiles ?? [
         'ptah-core/.claude-plugin/plugin.json',
         'ptah-core/agents/architect.md',
       ],
     },
     templates: {
-      basePath: 'apps/ptah-extension-vscode/templates/agents',
+      basePath: 'libs/backend/agent-generation/templates/agents',
       files: overrides?.templateFiles ?? ['frontend.md'],
     },
   });

@@ -22,7 +22,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const PLUGINS_BASE_PATH = 'apps/ptah-extension-vscode/assets/plugins';
+const PLUGINS_BASE_PATH = 'plugins';
 const TEMPLATES_BASE_PATH = 'libs/backend/agent-generation/templates/agents';
 const MANIFEST_PATH = path.join(REPO_ROOT, 'content-manifest.json');
 
