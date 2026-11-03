@@ -5,7 +5,14 @@ import {
   type CodexRequestResult,
 } from './codex-protocol-validator';
 import type { CodexRuntimeLogger } from './codex-runtime-ports';
-import type { CodexHistoryThread, CodexHistoryTurn, CodexSessionHistory } from './codex-runtime.types';
+import type {
+  CodexHistoryItemEntry,
+  CodexHistoryTail,
+  CodexHistoryTailBound,
+  CodexHistoryThread,
+  CodexHistoryTurn,
+  CodexSessionHistory,
+} from './codex-runtime.types';
 
 type HistoryMethod = 'thread/read' | 'thread/list' | 'thread/turns/list' | 'thread/items/list';
 export type CodexHistoryRequest = <M extends HistoryMethod>(
@@ -59,14 +66,12 @@ const SOURCE_KINDS = [
   'subAgentCompact', 'subAgentThreadSpawn', 'subAgentOther', 'unknown',
 ] as const;
 
-/** Read the root and any native descendants from the pinned app-server. */
-export async function readCodexSessionHistory(
-  rootThreadId: string,
-  request: CodexHistoryRequest,
-  assertOpen: () => void,
-  logger: Pick<CodexRuntimeLogger, 'warn'>,
-): Promise<CodexSessionHistory> {
-  async function call<M extends HistoryMethod>(method: M, params: CodexRequestParams<M>): Promise<CodexRequestResult<M>> {
+/** Wrap a history request so every call checks the read is still open and maps failures. */
+function guardedHistoryRequest(request: CodexHistoryRequest, assertOpen: () => void): CodexHistoryRequest {
+  return async <M extends HistoryMethod>(
+    method: M,
+    params: CodexRequestParams<M>,
+  ): Promise<CodexRequestResult<M>> => {
     assertOpen();
     let result: CodexRequestResult<M>;
     try {
@@ -76,7 +81,39 @@ export async function readCodexSessionHistory(
     }
     assertOpen();
     return result;
+  };
+}
+
+/** Paged items must belong to the turn, be unique, and agree with any embedded items. */
+function assertItemEntriesMatchTurn(
+  turn: CodexRequestResult<'thread/turns/list'>['data'][number],
+  entries: readonly CodexHistoryItemEntry[],
+): void {
+  if (entries.some((entry) => entry.turnId !== turn.id))
+    throw new CodexSessionHistoryError('malformedPage');
+  const itemIds = new Map<string, CodexHistoryItemEntry['item']>();
+  for (const entry of entries) {
+    if (itemIds.has(entry.item.id)) throw new CodexSessionHistoryError('malformedPage');
+    itemIds.set(entry.item.id, entry.item);
   }
+  const embeddedIds = new Set<string>();
+  for (const item of turn.items) {
+    if (embeddedIds.has(item.id)) throw new CodexSessionHistoryError('malformedPage');
+    embeddedIds.add(item.id);
+    const paged = itemIds.get(item.id);
+    if (!paged || JSON.stringify(paged) !== JSON.stringify(item))
+      throw new CodexSessionHistoryError('malformedPage');
+  }
+}
+
+/** Read the root and any native descendants from the pinned app-server. */
+export async function readCodexSessionHistory(
+  rootThreadId: string,
+  request: CodexHistoryRequest,
+  assertOpen: () => void,
+  logger: Pick<CodexRuntimeLogger, 'warn'>,
+): Promise<CodexSessionHistory> {
+  const call = guardedHistoryRequest(request, assertOpen);
 
   async function pages<T>(
     fetch: (cursor?: string) => Promise<{ data: T[]; nextCursor?: string | null }>,
@@ -133,21 +170,7 @@ export async function readCodexSessionHistory(
         threadId: base.id, turnId: turn.id, sortDirection: 'asc', limit: HISTORY_PAGE_LIMIT,
         ...(cursor !== undefined ? { cursor } : {}),
       }));
-      if (entries.some((entry) => entry.turnId !== turn.id))
-        throw new CodexSessionHistoryError('malformedPage');
-      const itemIds = new Map<string, (typeof entries)[number]['item']>();
-      for (const entry of entries) {
-        if (itemIds.has(entry.item.id)) throw new CodexSessionHistoryError('malformedPage');
-        itemIds.set(entry.item.id, entry.item);
-      }
-      const embeddedIds = new Set<string>();
-      for (const item of turn.items) {
-        if (embeddedIds.has(item.id)) throw new CodexSessionHistoryError('malformedPage');
-        embeddedIds.add(item.id);
-        const paged = itemIds.get(item.id);
-        if (!paged || JSON.stringify(paged) !== JSON.stringify(item))
-          throw new CodexSessionHistoryError('malformedPage');
-      }
+      assertItemEntriesMatchTurn(turn, entries);
       hydrated.push({ ...turn, items: entries.map((entry) => entry.item), itemsView: 'full', itemEntries: entries });
     }
     return { ...base, turns: hydrated };
@@ -255,4 +278,162 @@ export async function readCodexSessionHistory(
       failedLists,
     });
   return { rootThreadId, threads };
+}
+
+/**
+ * Running total of tail page data (`JSON.stringify(result.data)` bytes) after which no
+ * further page is requested. The page that crosses it is still used, so a tail read receives
+ * at most this much plus one response, plus the metadata-only root read.
+ */
+const TAIL_READ_MAX_BYTES = 8 * 1024 * 1024;
+/** JSON-RPC "invalid params": how a server without `desc` turn paging refuses the request. */
+const INVALID_PARAMS_RPC_CODE = -32602;
+
+type HistoryPageTurn = CodexRequestResult<'thread/turns/list'>['data'][number];
+
+function isRejectedDescTurnList(error: unknown): boolean {
+  let cause: unknown = error;
+  const seen = new Set<unknown>();
+  while (cause instanceof Error && !seen.has(cause)) {
+    seen.add(cause);
+    if (cause instanceof CodexRequestRejectedError)
+      return cause.method === 'thread/turns/list' && cause.rpcCode === INVALID_PARAMS_RPC_CODE;
+    cause = cause.cause;
+  }
+  return false;
+}
+
+/**
+ * Read the newest complete turns of the root thread only, whatever its `historyMode`.
+ * Requests: one metadata `thread/read`, at most `maxTurnPages` newest-first `thread/turns/list`
+ * pages and `maxItemPages` `thread/items/list` pages shared by all turns, and no page after the
+ * byte total reaches `TAIL_READ_MAX_BYTES`. Never sends `includeTurns`, never lists descendants.
+ * A turn that cannot complete inside the bound is dropped with everything older, so the result
+ * is always a contiguous newest tail; when nothing usable remains it throws `pageLimitExceeded`.
+ */
+export async function readCodexSessionTail(
+  rootThreadId: string,
+  request: CodexHistoryRequest,
+  assertOpen: () => void,
+  bound: CodexHistoryTailBound,
+): Promise<CodexHistoryTail> {
+  const call = guardedHistoryRequest(request, assertOpen);
+  const root = (await call('thread/read', { threadId: rootThreadId })).thread;
+  if (root.id !== rootThreadId) throw new CodexSessionHistoryError('malformedPage');
+
+  let bytes = 0;
+  let itemPages = 0;
+  const seenTurns = new Set<string>();
+  const newestFirst: CodexHistoryTurn[] = [];
+  const budgetLeft = () => bytes < TAIL_READ_MAX_BYTES;
+
+  function pageData<T>(result: { data: T[] }): T[] {
+    if (!Array.isArray(result.data)) throw new CodexSessionHistoryError('malformedPage');
+    bytes += Buffer.byteLength(JSON.stringify(result.data), 'utf8');
+    return result.data;
+  }
+
+  function nextCursor(result: { nextCursor?: string | null }, cursors: Set<string>): string | undefined {
+    if (result.nextCursor == null) return undefined;
+    if (!result.nextCursor.trim() || cursors.has(result.nextCursor))
+      throw new CodexSessionHistoryError('stalledCursor');
+    cursors.add(result.nextCursor);
+    return result.nextCursor;
+  }
+
+  function listTurns(sortDirection: 'asc' | 'desc', cursor: string | undefined) {
+    return call('thread/turns/list', {
+      threadId: root.id, sortDirection, itemsView: 'full', limit: HISTORY_PAGE_LIMIT,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+  }
+
+  /** Accept a turn once complete; false when the budget ran out before its items did. */
+  async function accept(turn: HistoryPageTurn): Promise<boolean> {
+    if (seenTurns.has(turn.id)) throw new CodexSessionHistoryError('malformedPage');
+    seenTurns.add(turn.id);
+    if (turn.itemsView === 'full' || (turn.itemsView === undefined && turn.items.length > 0)) {
+      newestFirst.push(turn);
+      return true;
+    }
+    const newestEntries: CodexHistoryItemEntry[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      if (itemPages >= bound.maxItemPages || !budgetLeft()) return false;
+      itemPages++;
+      const page = await call('thread/items/list', {
+        threadId: root.id, turnId: turn.id, sortDirection: 'desc', limit: HISTORY_PAGE_LIMIT,
+        ...(cursor !== undefined ? { cursor } : {}),
+      });
+      newestEntries.push(...pageData(page));
+      cursor = nextCursor(page, cursors);
+    } while (cursor !== undefined);
+    const entries = newestEntries.reverse();
+    assertItemEntriesMatchTurn(turn, entries);
+    newestFirst.push({ ...turn, items: entries.map((entry) => entry.item), itemsView: 'full', itemEntries: entries });
+    return true;
+  }
+
+  /** Walk turns newest first; false once a turn was dropped or `maxTurns` left one unread. */
+  async function walk(turns: readonly HistoryPageTurn[]): Promise<boolean> {
+    for (const turn of turns) {
+      if (newestFirst.length >= bound.maxTurns || !(await accept(turn))) return false;
+    }
+    return true;
+  }
+
+  function result(coversWholeHistory: boolean): CodexHistoryTail {
+    return { thread: { ...root, turns: [...newestFirst].reverse() }, coversWholeHistory };
+  }
+
+  /**
+   * A8 fallback when the server refuses `desc`: page `asc` from the start inside the same
+   * page and byte caps (the refused request counts as one turn page). Only a read that
+   * reaches the end holds the newest turns; one that would need more pages fails closed.
+   */
+  async function readAscending(): Promise<CodexHistoryTail> {
+    const ascending: HistoryPageTurn[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    let turnPages = 1;
+    do {
+      if (turnPages >= bound.maxTurnPages || !budgetLeft())
+        throw new CodexSessionHistoryError('pageLimitExceeded');
+      turnPages++;
+      const page = await listTurns('asc', cursor);
+      ascending.push(...pageData(page));
+      cursor = nextCursor(page, cursors);
+    } while (cursor !== undefined);
+    await walk(ascending.reverse());
+    if (newestFirst.length === 0 && ascending.length > 0)
+      throw new CodexSessionHistoryError('pageLimitExceeded');
+    // The sort order the newest-first read relies on is unverified here; stay conservative.
+    return result(false);
+  }
+
+  let coversWholeHistory = false;
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let turnPages = 0; ; ) {
+    if (turnPages >= bound.maxTurnPages || !budgetLeft() || newestFirst.length >= bound.maxTurns)
+      break;
+    turnPages++;
+    let page: CodexRequestResult<'thread/turns/list'>;
+    try {
+      page = await listTurns('desc', cursor);
+    } catch (error) {
+      if (turnPages === 1 && isRejectedDescTurnList(error)) return readAscending();
+      throw error;
+    }
+    if (!(await walk(pageData(page)))) break;
+    cursor = nextCursor(page, cursors);
+    if (cursor === undefined) {
+      coversWholeHistory = true;
+      break;
+    }
+  }
+  if (newestFirst.length === 0 && !coversWholeHistory)
+    throw new CodexSessionHistoryError('pageLimitExceeded');
+  return result(coversWholeHistory);
 }
