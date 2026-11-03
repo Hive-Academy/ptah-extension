@@ -189,6 +189,11 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     const { dialog, cancel, confirm } = await openRevertDialog(ui, electronApp);
 
+    // Startup auth can finish while the Git dialog opens and route an
+    // unconfigured CI home to Settings. Restore the canvas underneath the
+    // already-open native dialog before checking the actual overlap.
+    await ui.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
+
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
     // would stop guarding anything. The Rail empty-board hero fills the

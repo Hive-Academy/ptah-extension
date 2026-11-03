@@ -168,46 +168,47 @@ export class CliDetectionService {
    */
   private async doDetectAll(): Promise<CliDetectionResult[]> {
     this.logger.info('[CliDetection] Detecting installed CLI agents...');
-    const results = new Map<CliType, CliDetectionResult>();
-
-    for (const [name, adapter] of this.adapters) {
-      try {
-        const result: CliDetectionResult = {
-          ...(await adapter.detect()),
-          roleDelivery: 'preamble',
-          roleChannel: adapter.roleChannel,
-        };
-        results.set(name, result);
-        if (result.installed) {
-          this.logger.info(`[CliDetection] ${adapter.displayName} detected`, {
-            path: result.path,
-            version: result.version,
+    const entries = await Promise.all(
+      [...this.adapters].map(async ([name, adapter]): Promise<[CliType, CliDetectionResult]> => {
+        try {
+          const result: CliDetectionResult = {
+            ...(await adapter.detect()),
+            roleDelivery: 'preamble',
+            roleChannel: adapter.roleChannel,
+          };
+          if (result.installed) {
+            this.logger.info(`[CliDetection] ${adapter.displayName} detected`, {
+              path: result.path,
+              version: result.version,
+            });
+          } else {
+            this.logger.debug(
+              `[CliDetection] ${adapter.displayName} not installed`,
+            );
+          }
+          return [name, result];
+        } catch (error: unknown) {
+          // degradation-audit: reported - failed adapter detection is captured and shown as unavailable.
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.sentryService.captureException(err, {
+            errorSource: 'CliDetectionService.doDetectAll',
           });
-        } else {
-          this.logger.debug(
-            `[CliDetection] ${adapter.displayName} not installed`,
+          this.logger.error(
+            `[CliDetection] Error detecting ${adapter.displayName}`,
+            err,
           );
+          return [name, {
+            cli: name,
+            installed: false,
+            messagingMode: bestMessagingCapability(adapter.capabilities()),
+            roleDelivery: 'preamble',
+            roleChannel: adapter.roleChannel,
+          }];
         }
-      } catch (error) {
-        // degradation-audit: reported - failed adapter detection is captured and shown as unavailable.
-        const err = error instanceof Error ? error : new Error(String(error));
-        this.sentryService.captureException(err, {
-          errorSource: 'CliDetectionService.doDetectAll',
-        });
-        this.logger.error(
-          `[CliDetection] Error detecting ${adapter.displayName}`,
-          err,
-        );
-        results.set(name, {
-          cli: name,
-          installed: false,
-          messagingMode: bestMessagingCapability(adapter.capabilities()),
-          roleDelivery: 'preamble',
-          roleChannel: adapter.roleChannel,
-        });
-      }
-    }
+      }),
+    );
 
+    const results = new Map(entries);
     this.detectionCache = results;
     return Array.from(results.values());
   }
