@@ -310,7 +310,10 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
 
       @if (detailOpen()) {
         <div class="flex min-h-0 flex-1">
+          <!-- The host is the flex item: without flex-1 it shrinks to its
+               content width and the full page does not fill the surface. -->
           <ptah-task-detail
+            class="flex min-h-0 min-w-0 flex-1"
             [detail]="store.taskDetail()"
             [folderHint]="store.selectedTaskId() ?? ''"
             [graph]="store.graph()"
