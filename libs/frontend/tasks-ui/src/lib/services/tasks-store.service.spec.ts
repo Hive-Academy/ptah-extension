@@ -1821,6 +1821,61 @@ describe('TasksStore — workspace awareness', () => {
     expect(store.selectedTaskId()).toBeNull();
   });
 
+  // Review finding 3 — a rejected `tasks:get` for B must not leave A's detail
+  // rendered under B's selection.
+  it('clears the previous detail and shows an error when the next open rejects', async () => {
+    configure();
+    rpcCall.mockImplementation((method: string, params: { taskId?: string }) => {
+      if (method === 'tasks:get' && params.taskId === 'A') {
+        return Promise.resolve(
+          ok({ task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] } }),
+        );
+      }
+      if (method === 'tasks:get' && params.taskId === 'B') {
+        return Promise.reject(new Error('transport down'));
+      }
+      return Promise.resolve(ok(makeBoard({})));
+    });
+
+    await store.openTask('A');
+    expect(store.taskDetail()?.body).toBe('BA');
+
+    await expect(store.openTask('B')).resolves.toBeUndefined();
+    expect(store.selectedTaskId()).toBe('B');
+    expect(store.taskDetail()).toBeNull();
+    expect(store.detailLoading()).toBe(false);
+    expect(store.error()).toContain('transport down');
+  });
+
+  it('ignores a late A response after B was selected and B rejected', async () => {
+    configure();
+    let resolveA: (v: unknown) => void = () => undefined;
+    rpcCall.mockImplementation((method: string, params: { taskId?: string }) => {
+      if (method === 'tasks:get' && params.taskId === 'A') {
+        return new Promise((r) => {
+          resolveA = r;
+        });
+      }
+      if (method === 'tasks:get' && params.taskId === 'B') {
+        return Promise.reject(new Error('transport down'));
+      }
+      return Promise.resolve(ok(makeBoard({})));
+    });
+
+    const pA = store.openTask('A');
+    await store.openTask('B');
+    expect(store.taskDetail()).toBeNull();
+
+    resolveA(
+      ok({ task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] } }),
+    );
+    await pA;
+    expect(store.selectedTaskId()).toBe('B');
+    expect(store.taskDetail()).toBeNull();
+    expect(store.detailLoading()).toBe(false);
+    expect(store.error()).toContain('transport down');
+  });
+
   // Issue 7 — baseline-mismatch-at-first-flush: a switch that lands between
   // construction and the effect's first flush is a real switch, not a silent
   // baseline recording.

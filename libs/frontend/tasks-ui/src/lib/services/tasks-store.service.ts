@@ -1236,6 +1236,25 @@ export class TasksStore implements MessageHandler {
    * detail (Issue 2).
    */
   public async openTask(taskId: string): Promise<void> {
+    const seq = this.detailReqSeq + 1;
+    try {
+      await this.loadTaskDetail(taskId);
+    } catch (error: unknown) {
+      // A transport failure is an outcome like any other: surface it on the
+      // store-level error instead of rejecting into a template handler. A
+      // request superseded by a newer open (or a close) stays silent.
+      if (seq !== this.detailReqSeq) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      this._error.set(`Failed to load task detail (${detail})`);
+    }
+  }
+
+  /**
+   * The body of {@link openTask} without its transport catch: a rejected
+   * `tasks:get` propagates. Post-write refreshes call this directly so their
+   * own catch can say the write itself succeeded.
+   */
+  private async loadTaskDetail(taskId: string): Promise<void> {
     const seq = ++this.detailReqSeq;
     // Opening a different task must not leave the previous one's plan expanded
     // underneath the new task's heading. Cleared unconditionally: re-opening
@@ -1243,6 +1262,10 @@ export class TasksStore implements MessageHandler {
     // to reason about when the old content is still the right content.
     this.folder.selectTask(taskId, this.workspaceParam().workspaceRoot);
     this._selectedTaskId.set(taskId);
+    // Drop the previous task's detail before awaiting, so no outcome of this
+    // request (including a rejected RPC) can leave task A's detail rendered
+    // under task B's selection.
+    this._taskDetail.set(null);
     this._detailLoading.set(true);
     try {
       const result = await this.rpc.call('tasks:get', {
@@ -1254,7 +1277,6 @@ export class TasksStore implements MessageHandler {
         this._taskDetail.set(result.data.task);
         this.folder.setDetail(result.data.task);
       } else {
-        this._taskDetail.set(null);
         this._error.set(result.error ?? 'Failed to load task detail');
       }
     } finally {
@@ -2129,7 +2151,7 @@ export class TasksStore implements MessageHandler {
     if (selected === null) return;
     if (!missed && !ids.includes(selected)) return;
     try {
-      await this.openTask(selected);
+      await this.loadTaskDetail(selected);
     } catch (error: unknown) {
       this._error.set(TasksStore.refreshFailedMessage(error));
     }
@@ -2291,7 +2313,7 @@ export class TasksStore implements MessageHandler {
         await this.loadBoard();
         if (this._selectedTaskId() === taskId && data.task) {
           // Refresh the open detail with the authoritative row (not a guess).
-          await this.openTask(taskId);
+          await this.loadTaskDetail(taskId);
         }
       } catch (error: unknown) {
         this._error.set(TasksStore.refreshFailedMessage(error));
