@@ -18,6 +18,8 @@
  *   — the `chat:resume` transcript (events only; TASK_2026_437 C15)
  * - readHistoryForCuration(sessionId, workspacePath, options?): Promise<{id, role, content, timestamp}[]>
  *   — the memory curator's tool-aware text projection
+ * - readCarryOverTranscript(sessionId, workspacePath, { tailBytes, signal? }): Promise<CarryOverTranscript>
+ *   — the bounded, content-free projection a provider carry-over renders
  *
  */
 
@@ -81,6 +83,8 @@ import type {
   SessionHistoryMessage,
   AgentSessionData,
   UnreadableAgentMember,
+  CarryOverTranscript,
+  CarryOverTurn,
 } from './helpers/history/history.types';
 
 const MAX_COMPACTION_RETRIES = 5;
@@ -111,6 +115,14 @@ export const MESSAGE_ID_NOT_FOUND_PHRASE =
 export interface TranscriptWindowOptions {
   /** Read only the last N bytes of the JSONL. Omit to read everything. */
   readonly tailBytes?: number;
+  /** Aborts the read between parse batches. */
+  readonly signal?: AbortSignal;
+}
+
+/** The read bound of {@link SessionHistoryReaderService.readCarryOverTranscript}. */
+export interface CarryOverReadOptions {
+  /** Read at most the last N bytes of the JSONL. Must be a positive number. */
+  readonly tailBytes: number;
   /** Aborts the read between parse batches. */
   readonly signal?: AbortSignal;
 }
@@ -382,21 +394,32 @@ export class SessionHistoryReaderService {
       let nativeSnapshot: SessionStatsEntry | null = null;
       try {
         const metadata = await this.metadataStore?.get(sessionId);
-        if (metadata?.codexExecution?.runtime === 'codex-app-server' &&
-          metadata.codexUsageCheckpoint !== undefined) {
+        if (
+          metadata?.codexExecution?.runtime === 'codex-app-server' &&
+          metadata.codexUsageCheckpoint !== undefined
+        ) {
           const raw = metadata.codexUsageCheckpoint;
-          const owner = CodexSessionUsageOwner.restore(sessionId, raw.rootThreadId, raw);
+          const owner = CodexSessionUsageOwner.restore(
+            sessionId,
+            raw.rootThreadId,
+            raw,
+          );
           if (owner.getDiagnostics().length) {
             // Use the same legacy totals as the sidebar.
-            this.logger.warn('[SessionHistoryReader] Native usage checkpoint rejected', {
-              sessionId, diagnostics: owner.getDiagnostics(),
-            });
+            this.logger.warn(
+              '[SessionHistoryReader] Native usage checkpoint rejected',
+              {
+                sessionId,
+                diagnostics: owner.getDiagnostics(),
+              },
+            );
             const input = metadata.totalTokens.input;
             const output = metadata.totalTokens.output;
             nativeSnapshot = {
               ...owner.snapshot(metadata.codexMessageCount ?? 0),
               tokens: { input, output, cacheRead: 0, cacheCreation: 0 },
-              tokenCount: input + output, coverage: 'partial',
+              tokenCount: input + output,
+              coverage: 'partial',
               status: input + output > 0 ? 'ok' : 'empty',
             };
           } else {
@@ -405,9 +428,13 @@ export class SessionHistoryReaderService {
         }
       } catch (error: unknown) {
         // degradation-audit: reported — history remains readable when metadata storage fails.
-        this.logger.warn('[SessionHistoryReader] Native usage metadata read failed', {
-          sessionId, reason: error instanceof Error ? error.name : 'unknown',
-        });
+        this.logger.warn(
+          '[SessionHistoryReader] Native usage metadata read failed',
+          {
+            sessionId,
+            reason: error instanceof Error ? error.name : 'unknown',
+          },
+        );
       }
       if (checkCompactionBoundary) {
         expectation =
@@ -453,12 +480,14 @@ export class SessionHistoryReaderService {
         await this.hydrateMissingPricing(mainMessages, agentSessions);
       }
       timing.begin('project');
-      const stats = nativeSnapshot ?? this.publishHistoryStats(
-        sessionId,
-        mainMessages,
-        agentSessions,
-        unreadableAgents,
-      );
+      const stats =
+        nativeSnapshot ??
+        this.publishHistoryStats(
+          sessionId,
+          mainMessages,
+          agentSessions,
+          unreadableAgents,
+        );
       this.seedLiveUsageBaseline(sessionId, mainMessages);
       timing.finish(false);
 
@@ -920,6 +949,137 @@ export class SessionHistoryReaderService {
       (content) => this.eventFactory.extractContentForCuration(content),
       options,
     );
+  }
+
+  /**
+   * Read the newest part of a Claude session for a provider carry-over and
+   * project it to plain turns (tool calls, attachments and system content
+   * already reduced by {@link HistoryEventFactory.extractContentForCarryOver}).
+   *
+   * Bounded: only the last `tailBytes` of the JSONL are read, through
+   * `readJsonlTail`; the whole transcript is never loaded. Unlike the curation
+   * read this throws on every failure (invalid id, missing directory or file,
+   * read error, abort) instead of returning an empty result, and it logs no
+   * transcript content.
+   */
+  async readCarryOverTranscript(
+    sessionId: string,
+    workspacePath: string,
+    options: CarryOverReadOptions,
+  ): Promise<CarryOverTranscript> {
+    this.validateSessionId(sessionId);
+    const tailBytes = Math.floor(options.tailBytes);
+    if (!Number.isFinite(tailBytes) || tailBytes <= 0) {
+      // readJsonlTail answers a non-positive bound with [], which here would
+      // look like an empty conversation rather than a caller error.
+      throw new SdkError('Carry-over read bound must be a positive byte count');
+    }
+    options.signal?.throwIfAborted();
+
+    const sessionsDir =
+      await this.jsonlReader.findSessionsDirectory(workspacePath);
+    if (!sessionsDir) {
+      throw new SdkError('Sessions directory not found for carry-over read');
+    }
+    const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+    const records = await this.jsonlReader.readJsonlTail(sessionFile, {
+      maxBytes: tailBytes,
+      signal: options.signal,
+    });
+    options.signal?.throwIfAborted();
+    // Measured after the read: the transcript is append-only, so a size that
+    // still fits the bound now also fitted it when the read chose its window.
+    // A stat taken before the read could report "whole history" for a file
+    // that grew past the bound in between.
+    const { size } = await fs.stat(sessionFile);
+    const transcript = this.projectCarryOverTranscript(
+      records,
+      size <= tailBytes,
+    );
+    this.logger.debug('[SessionHistoryReader] Carry-over transcript read', {
+      sessionId,
+      records: records.length,
+      turns: transcript.turns.length,
+      windowCoversWholeHistory: transcript.windowCoversWholeHistory,
+      startsAtCompactionSummary: transcript.startsAtCompactionSummary,
+    });
+    return transcript;
+  }
+
+  /**
+   * Project a tail window to carry-over turns.
+   *
+   * The only start boundary is the latest non-sidechain compaction summary
+   * (`isCompactSummary`) inside the window that has text: the transcript
+   * starts at it. It is kept even when it is marked hidden (`isMeta`). A
+   * `compact_boundary` system record never cuts anything, because without its
+   * summary in the window the turns before it are the only context there is.
+   */
+  private projectCarryOverTranscript(
+    records: readonly SessionHistoryMessage[],
+    windowCoversWholeHistory: boolean,
+  ): CarryOverTranscript {
+    const main = records.filter((r) => r.isSidechain !== true);
+
+    // Alive only for this call: names a tool_result without reading it.
+    const toolNamesById = new Map<string, string>();
+    for (const record of main) {
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (
+          block.type === 'tool_use' &&
+          typeof block.id === 'string' &&
+          typeof block.name === 'string'
+        ) {
+          toolNamesById.set(block.id, block.name);
+        }
+      }
+    }
+
+    const projected: CarryOverTurn[] = [];
+    let startIndex = 0;
+    for (const record of main) {
+      if (record.type === 'system') continue;
+      const compactionSummary = record.isCompactSummary === true;
+      if (!compactionSummary && isHiddenTranscriptRecord(record)) continue;
+      const role = record.message?.role;
+      if (role !== 'user' && role !== 'assistant') continue;
+      const text = this.eventFactory.extractContentForCarryOver(
+        record.message?.content,
+        toolNamesById,
+      );
+      if (!text) continue;
+      if (text.trimStart().startsWith('<task-notification>')) continue;
+      // A summary that projects to no text carries nothing and cuts nothing.
+      if (compactionSummary) startIndex = projected.length;
+      projected.push({ role, text, compactionSummary });
+    }
+
+    const turns: CarryOverTurn[] = [];
+    for (const turn of projected.slice(startIndex)) {
+      const previous = turns[turns.length - 1];
+      // Merge same-role neighbours; a summary always stays its own turn.
+      if (
+        previous &&
+        previous.role === turn.role &&
+        !previous.compactionSummary &&
+        !turn.compactionSummary
+      ) {
+        turns[turns.length - 1] = {
+          ...previous,
+          text: `${previous.text}\n\n${turn.text}`,
+        };
+      } else {
+        turns.push(turn);
+      }
+    }
+
+    return {
+      turns,
+      windowCoversWholeHistory,
+      startsAtCompactionSummary: turns[0]?.compactionSummary === true,
+    };
   }
 
   /**
