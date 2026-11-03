@@ -251,6 +251,8 @@ interface SdkSessionLaunch {
    * `prepare`, before any adapter call; a different provider launches nothing.
    */
   readonly expectedProviderId?: string;
+  /** Set by a provider carry-over: {@link CarryOverLaunch.onAdmitted}. */
+  readonly onCarryOverAdmitted?: () => void;
 }
 
 /**
@@ -261,6 +263,12 @@ interface SdkSessionLaunch {
  */
 export interface CarryOverLaunch {
   readonly expectedProviderId: string;
+  /**
+   * Called synchronously once the provider pin passed, right before the
+   * adapter starts the session, so the next resolution of the tab can be
+   * attributed to this launch. Not called when the start is refused first.
+   */
+  readonly onAdmitted?: () => void;
 }
 
 /** A carry-over start refused because the active provider is not the checked one. */
@@ -1200,7 +1208,14 @@ export class ChatSessionService {
         ptahUiFence: params.ptahUiFence,
         accountSelection,
         admissionDeadline,
-        ...(launch ? { expectedProviderId: launch.expectedProviderId } : {}),
+        ...(launch
+          ? {
+              expectedProviderId: launch.expectedProviderId,
+              ...(launch.onAdmitted
+                ? { onCarryOverAdmitted: launch.onAdmitted }
+                : {}),
+            }
+          : {}),
       });
       // Only a plain prompt: a slash command that starts a new query is not
       // an interactive turn to route. A carry-over turn holds the old
@@ -1573,6 +1588,7 @@ export class ChatSessionService {
         input.expectedProviderId,
       );
     }
+    input.onCarryOverAdmitted?.();
     this.pendingLineage.set(tabId, {
       executionRoot: this.canonicalRoot(projectPath),
       roots: input.pluginConfigAncestorRoots ?? [],

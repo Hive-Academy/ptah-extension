@@ -486,6 +486,39 @@ export interface ChatCarryOverParams {
   workspacePath: string;
   name?: string;
   ptahUiFence?: boolean;
+  /**
+   * UUID the renderer mints per launch. The host stamps it on the first
+   * `SESSION_ID_RESOLVED` of this tab after the launch's start, as
+   * `carryOverRequestId`, so only the matching launch binds the tab.
+   * Optional: a launch without it keeps the untagged resolution.
+   */
+  requestId?: string;
+}
+
+/**
+ * How long a launch the host accepted keeps its tab while it waits for the
+ * new session's `SESSION_ID_RESOLVED`. The accepted RPC means the adapter
+ * already started the query, so the SDK `init` normally follows in seconds;
+ * the bound is the host's own admission budget, which covers a cold CLI
+ * spawn with slow MCP servers. Past it the tab is released for a retry.
+ */
+export const CARRY_OVER_RESOLUTION_DEADLINE_MS = 90_000;
+
+/**
+ * How long the host keeps a launch's request ID for its tab's next
+ * resolution, and the renderer remembers an expired request ID: the
+ * longest the renderer can wait on the RPC plus the post-acceptance deadline.
+ */
+export const CARRY_OVER_REQUEST_ID_TTL_MS =
+  CHAT_ADMISSION_RPC_TIMEOUT_MS + CARRY_OVER_RESOLUTION_DEADLINE_MS;
+
+/**
+ * Host port read by the `SESSION_ID_RESOLVED` broadcaster: the request ID of
+ * the carry-over launch that started a session on `tabId`, claimed once.
+ * `undefined` when no carry-over launch is waiting on the tab.
+ */
+export interface CarryOverResolutionTags {
+  claimResolutionRequestId(tabId: string): string | undefined;
 }
 
 /** Reason a chat:carry-over RPC request did not start a session. */

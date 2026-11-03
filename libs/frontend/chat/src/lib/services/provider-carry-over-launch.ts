@@ -8,7 +8,11 @@
  * it, so it stays out of the webview's initial bundle. Never import it
  * statically from eager code.
  */
-import { CHAT_ADMISSION_RPC_TIMEOUT_MS } from '@ptah-extension/shared';
+import {
+  CARRY_OVER_REQUEST_ID_TTL_MS,
+  CARRY_OVER_RESOLUTION_DEADLINE_MS,
+  CHAT_ADMISSION_RPC_TIMEOUT_MS,
+} from '@ptah-extension/shared';
 import type { ChatCarryOverResult } from '@ptah-extension/shared';
 import {
   CARRY_OVER_BUSY_TEXT,
@@ -89,6 +93,7 @@ export async function start(
   if (ctx.isPending(offer.tabId) || ctx.isBusy(offer.sessionId)) return;
 
   const entry: PendingCarryOver = {
+    requestId: crypto.randomUUID(),
     sessionId: offer.sessionId,
     generation: offer.generation,
     origin: {
@@ -154,6 +159,7 @@ export async function startFromCompact(
     banner?.origin?.sessionId === request.sessionId &&
     banner.origin.tabId === request.tabId;
   const entry: PendingCarryOver = {
+    requestId: crypto.randomUUID(),
     sessionId: request.sessionId,
     generation: ownsBanner ? banner.generation : null,
     origin: {
@@ -186,6 +192,7 @@ async function launch(
         workspacePath: entry.origin.workspacePath,
         ...(name ? { name } : {}),
         ...(ctx.vscode.isElectron ? { ptahUiFence: true } : {}),
+        requestId: entry.requestId,
       },
       { timeout: CHAT_ADMISSION_RPC_TIMEOUT_MS },
     );
@@ -213,7 +220,11 @@ async function launch(
   const data = result.data;
   if (data.success) {
     if (ctx.pending().get(tabId) === entry) {
-      ctx.setPending(tabId, { ...entry, rpcSettled: true });
+      // The host started the session; its resolution should follow in
+      // seconds. A lost one must not hold the tab forever (R2).
+      const accepted: PendingCarryOver = { ...entry, rpcSettled: true };
+      ctx.setPending(tabId, accepted);
+      armDeadline(ctx, tabId, accepted, CARRY_OVER_RESOLUTION_DEADLINE_MS);
     }
     return { success: true };
   }
@@ -304,17 +315,33 @@ function indeterminate(
   tabId: string,
   entry: PendingCarryOver,
 ): CarryOverLaunchOutcome {
-  if (ctx.pending().get(tabId) === entry) {
-    ctx.clearRecoveryTimer(tabId);
-    ctx.recoveryTimers.set(
-      tabId,
-      setTimeout(() => expire(ctx, tabId, entry), CARRY_OVER_RECOVERY_MS),
-    );
-  }
+  armDeadline(ctx, tabId, entry, CARRY_OVER_RECOVERY_MS);
   return { success: false, error: CARRY_OVER_BUSY_TEXT };
 }
 
-/** Release an indeterminate launch at its deadline, leaving a marker. */
+/**
+ * Expire `entry` after `ms` unless it leaves `pending` first. One timer per
+ * tab: `deletePending` clears it, and a newer deadline replaces it.
+ */
+function armDeadline(
+  ctx: CarryOverLaunchContext,
+  tabId: string,
+  entry: PendingCarryOver,
+  ms: number,
+): void {
+  if (ctx.pending().get(tabId) !== entry) return;
+  ctx.clearRecoveryTimer(tabId);
+  ctx.recoveryTimers.set(
+    tabId,
+    setTimeout(() => expire(ctx, tabId, entry), ms),
+  );
+}
+
+/**
+ * Release an unresolved launch at its deadline: the tab is free for a retry,
+ * the offer stays, and the launch's request ID is marked expired so a
+ * resolution it produces late is aborted, not bound.
+ */
 function expire(
   ctx: CarryOverLaunchContext,
   tabId: string,
@@ -323,9 +350,12 @@ function expire(
   ctx.recoveryTimers.delete(tabId);
   if (ctx.pending().get(tabId) !== entry) return;
   ctx.deletePending(tabId, entry);
-  ctx.expired.set(tabId, {
+  const now = Date.now();
+  ctx.expired.set(entry.requestId, {
+    tabId,
     sessionId: entry.sessionId,
-    until: Date.now() + CARRY_OVER_LATE_RESOLUTION_MS,
+    until: now + CARRY_OVER_LATE_RESOLUTION_MS,
+    requestIdUntil: now + CARRY_OVER_REQUEST_ID_TTL_MS,
   });
   const lookup = ctx.tabs.findTabByIdAcrossWorkspaces(tabId);
   if (lookup?.tab.claudeSessionId === entry.sessionId) {
@@ -349,9 +379,12 @@ function pruneClosedTabs(ctx: CarryOverLaunchContext): void {
     }
   }
   const now = Date.now();
-  for (const [tabId, marker] of ctx.expired) {
-    if (now > marker.until || !ctx.tabs.findTabByIdAcrossWorkspaces(tabId)) {
-      ctx.expired.delete(tabId);
+  for (const [requestId, marker] of ctx.expired) {
+    if (
+      now > marker.requestIdUntil ||
+      !ctx.tabs.findTabByIdAcrossWorkspaces(marker.tabId)
+    ) {
+      ctx.expired.delete(requestId);
     }
   }
 }

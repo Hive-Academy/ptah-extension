@@ -825,11 +825,15 @@ export class ChatMessageHandler implements MessageHandler {
     this.chatStore.handleSessionStatsLive(parsed);
   }
   private handleSessionIdResolved(payload: unknown): void {
-    const { tabId, realSessionId } =
+    const { tabId, realSessionId, carryOverRequestId } =
       (payload as {
         tabId?: string;
         realSessionId?: string;
+        /** Stamped by the host on a provider carry-over's resolution (R1). */
+        carryOverRequestId?: unknown;
       }) ?? {};
+    const requestId =
+      typeof carryOverRequestId === 'string' ? carryOverRequestId : undefined;
 
     if (realSessionId) {
       const claimedSurface = this.renderedSurfaceFor(tabId);
@@ -839,7 +843,7 @@ export class ChatMessageHandler implements MessageHandler {
       // The lifecycle branch below claims for unclaimed tabs itself.
       const claim =
         claimedSurface && tabId
-          ? this.claimCarryOver(tabId, realSessionId)
+          ? this.claimCarryOver(tabId, realSessionId, requestId)
           : 'none';
       if (claim === 'skip') {
         // Nothing binds; only the session list learns of the new session
@@ -875,13 +879,20 @@ export class ChatMessageHandler implements MessageHandler {
         if (claim === 'bind' && tabId) {
           // Attach the owning tab and finish the carry-over through the one
           // binding path (Decision K20); its claim is pure for 'bind'.
-          this.chatStore.handleSessionIdResolved({ tabId, realSessionId });
+          this.chatStore.handleSessionIdResolved({
+            tabId,
+            realSessionId,
+            ...(requestId !== undefined
+              ? { carryOverRequestId: requestId }
+              : {}),
+          });
         }
         return;
       }
       this.chatStore.handleSessionIdResolved({
         tabId: tabId as string,
         realSessionId: realSessionId as string,
+        ...(requestId !== undefined ? { carryOverRequestId: requestId } : {}),
       });
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
@@ -900,9 +911,17 @@ export class ChatMessageHandler implements MessageHandler {
    * The carry-over claim for a surface-claimed tab. A throw counts as
    * `'none'`, so a guard bug can never break session resolution.
    */
-  private claimCarryOver(tabId: string, realSessionId: string): CarryOverClaim {
+  private claimCarryOver(
+    tabId: string,
+    realSessionId: string,
+    requestId: string | undefined,
+  ): CarryOverClaim {
     try {
-      return this.carryOver.claimSessionResolution(tabId, realSessionId);
+      return this.carryOver.claimSessionResolution(
+        tabId,
+        realSessionId,
+        requestId,
+      );
     } catch (error) {
       // degradation-audit: reported — a claim bug is logged and resolution continues as 'none'.
       console.warn(

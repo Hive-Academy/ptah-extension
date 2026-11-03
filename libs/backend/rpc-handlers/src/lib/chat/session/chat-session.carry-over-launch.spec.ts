@@ -327,6 +327,42 @@ describe('ChatSessionService carry-over launch', () => {
     });
   });
 
+  describe('R1: the admission hook', () => {
+    it('runs once after the pin, before the adapter starts the session', async () => {
+      const h = makeHarness({ active: 'openrouter', execution: claude('openrouter') });
+      const onAdmitted = jest.fn();
+
+      await expect(
+        h.service.startSession(params(), {
+          expectedProviderId: 'openrouter',
+          onAdmitted,
+        }),
+      ).resolves.toEqual({ success: true });
+      expect(onAdmitted).toHaveBeenCalledTimes(1);
+      expect(onAdmitted.mock.invocationCallOrder[0]).toBeLessThan(
+        h.startChatSession.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('does not run when the pin refuses the launch', async () => {
+      const h = makeHarness({
+        active: 'openrouter',
+        switchTo: 'anthropic',
+        execution: claude('openrouter'),
+      });
+      const onAdmitted = jest.fn();
+
+      await expect(
+        h.service.startSession(params(), {
+          expectedProviderId: 'openrouter',
+          onAdmitted,
+        }),
+      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      expect(onAdmitted).not.toHaveBeenCalled();
+      expectNothingLaunched(h);
+    });
+  });
+
   describe('F1: the active provider switches back during prepare', () => {
     it.each([
       ['Claude with a matching profile', 'openrouter', claude('openrouter')],

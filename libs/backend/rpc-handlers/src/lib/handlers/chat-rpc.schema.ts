@@ -183,6 +183,8 @@ export const ChatCarryOverParamsSchema = z
     workspacePath: z.string().min(1).max(CARRY_OVER_WORKSPACE_PATH_MAX_LENGTH),
     name: z.string().max(CARRY_OVER_NAME_MAX_LENGTH).optional(),
     ptahUiFence: z.boolean().optional(),
+    /** Per-launch id stamped on this launch's session resolution (R1). */
+    requestId: uuidString('requestId').optional(),
   })
   .strict();
 

@@ -35,6 +35,7 @@ import { AgentProcessManager } from '../cli-agents/agent-process-manager.service
 import { AgentMessageRouter } from '../cli-agents/agent-message-router.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { wireSdkCallbacks } from './sdk-callbacks';
 
 const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
@@ -51,11 +52,14 @@ interface Harness {
   fireSessionIdResolved: SessionIdResolvedCallback;
   agentProcessManagerRemap: jest.Mock;
   subagentRegistryRemap: jest.Mock;
+  broadcastMessage: jest.Mock;
 }
 
 function buildHarness(options: {
   withAgentProcessManager: boolean;
   withSubagentRegistry: boolean;
+  /** Bound under `CARRY_OVER_RESOLUTION_TAGS` when set. */
+  carryOverTags?: { claimResolutionRequestId: jest.Mock };
 }): Harness {
   const logger = createMockLogger();
   let captured: SessionIdResolvedCallback | undefined;
@@ -93,6 +97,12 @@ function buildHarness(options: {
   if (options.withSubagentRegistry) {
     registry.set(TOKENS.SUBAGENT_REGISTRY_SERVICE, subagentRegistry);
   }
+  if (options.carryOverTags) {
+    registry.set(
+      CLI_AGENT_RUNTIME_TOKENS.CARRY_OVER_RESOLUTION_TAGS,
+      options.carryOverTags,
+    );
+  }
 
   const container = {
     isRegistered: (token: symbol) => registry.has(token),
@@ -114,8 +124,82 @@ function buildHarness(options: {
     fireSessionIdResolved: captured,
     agentProcessManagerRemap,
     subagentRegistryRemap,
+    broadcastMessage: webviewManager.broadcastMessage,
   };
 }
+
+describe('wireSdkCallbacks — carry-over request ID tag (TASK_2026_865 R1)', () => {
+  const REQUEST_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const resolvedPayloads = (h: Harness): unknown[] =>
+    h.broadcastMessage.mock.calls
+      .filter(([type]) => type === MESSAGE_TYPES.SESSION_ID_RESOLVED)
+      .map(([, payload]) => payload);
+
+  it('stamps the claimed request ID on the resolution of its tab', () => {
+    const claimResolutionRequestId = jest.fn().mockReturnValue(REQUEST_ID);
+    const h = buildHarness({
+      withAgentProcessManager: false,
+      withSubagentRegistry: false,
+      carryOverTags: { claimResolutionRequestId },
+    });
+
+    h.fireSessionIdResolved(TAB_ID, REAL_SESSION_ID);
+
+    expect(claimResolutionRequestId).toHaveBeenCalledWith(TAB_ID);
+    expect(resolvedPayloads(h)).toEqual([
+      { tabId: TAB_ID, realSessionId: REAL_SESSION_ID, carryOverRequestId: REQUEST_ID },
+    ]);
+  });
+
+  it('broadcasts untagged when no launch is waiting on the tab', () => {
+    const h = buildHarness({
+      withAgentProcessManager: false,
+      withSubagentRegistry: false,
+      carryOverTags: { claimResolutionRequestId: jest.fn().mockReturnValue(undefined) },
+    });
+
+    h.fireSessionIdResolved(TAB_ID, REAL_SESSION_ID);
+
+    expect(resolvedPayloads(h)).toEqual([
+      { tabId: TAB_ID, realSessionId: REAL_SESSION_ID },
+    ]);
+  });
+
+  it('broadcasts untagged on a host without the tag source', () => {
+    const h = buildHarness({
+      withAgentProcessManager: false,
+      withSubagentRegistry: false,
+    });
+
+    h.fireSessionIdResolved(TAB_ID, REAL_SESSION_ID);
+
+    expect(resolvedPayloads(h)).toEqual([
+      { tabId: TAB_ID, realSessionId: REAL_SESSION_ID },
+    ]);
+  });
+
+  it('broadcasts untagged and warns when the tag source throws', () => {
+    const h = buildHarness({
+      withAgentProcessManager: false,
+      withSubagentRegistry: false,
+      carryOverTags: {
+        claimResolutionRequestId: jest.fn(() => {
+          throw new Error('boom');
+        }),
+      },
+    });
+
+    h.fireSessionIdResolved(TAB_ID, REAL_SESSION_ID);
+
+    expect(resolvedPayloads(h)).toEqual([
+      { tabId: TAB_ID, realSessionId: REAL_SESSION_ID },
+    ]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Carry-over request id lookup failed'),
+      expect.any(Error),
+    );
+  });
+});
 
 describe('wireSdkCallbacks — session id resolution', () => {
   it('remaps subagent records even when AGENT_PROCESS_MANAGER is absent', () => {

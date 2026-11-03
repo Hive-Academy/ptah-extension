@@ -461,7 +461,7 @@ describe('ChatLifecycleService', () => {
           realSessionId: 'new-uuid',
         });
 
-        expect(claimMock).toHaveBeenCalledWith('tab-gone', 'new-uuid');
+        expect(claimMock).toHaveBeenCalledWith('tab-gone', 'new-uuid', undefined);
         expect(attachSessionMock).not.toHaveBeenCalled();
         expect(completeBindingMock).not.toHaveBeenCalled();
         expect(loadSessionsMock).toHaveBeenCalledTimes(1);

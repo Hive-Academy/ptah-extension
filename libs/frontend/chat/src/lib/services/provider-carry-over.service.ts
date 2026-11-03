@@ -23,15 +23,24 @@
  * marker for `CARRY_OVER_LATE_RESOLUTION_MS`: a resolution it produces late is
  * skipped and aborted, so it can neither bind the tab nor clobber a retry. An
  * error envelope from the host is definite: the tab is released at once.
+ * A launch the host accepted waits for its resolution only
+ * `CARRY_OVER_RESOLUTION_DEADLINE_MS`, then expires the same way (R2).
+ *
+ * Each launch carries a request ID (`requestId`, a UUID) that the host
+ * stamps on its tab's next `SESSION_ID_RESOLVED` as `carryOverRequestId`.
+ * A tagged resolution binds only the pending launch with the same ID; one
+ * from an expired or replaced launch is aborted (R1). An untagged resolution
+ * (a host that does not stamp) keeps the tab-based rules above.
  *
  * The renderer never holds transcript text: the host reads and renders it.
  * The launch path (offer check, both triggers, the launch RPC) lives in
  * `provider-carry-over-launch.ts`, loaded with a dynamic `import()` on first
  * use so it stays out of the initial bundle; this file keeps the state and
  * the synchronous API sends and resolutions read.
- * Timers: one recovery timer per tab with an indeterminate launch, cleared
- * whenever its entry leaves `pending`; the notice's `ActionBannerService`
- * auto-clear.
+ * Timers: one deadline timer per pending tab (the recovery deadline of an
+ * indeterminate launch or the resolution deadline of an accepted one),
+ * cleared whenever its entry leaves `pending`; the notice's
+ * `ActionBannerService` auto-clear.
  */
 import {
   Injectable,
@@ -138,6 +147,8 @@ export type CarryOverCompactResult =
 export type CarryOverClaim = 'none' | 'bind' | 'skip';
 
 export interface PendingCarryOver {
+  /** UUID of this launch, sent as `requestId` and echoed on its resolution. */
+  readonly requestId: string;
   readonly sessionId: SessionId;
   /** Banner generation this launch owns, or null when no banner owns it. */
   readonly generation: number | null;
@@ -145,15 +156,30 @@ export interface PendingCarryOver {
   readonly bannerProviderId: string | null;
   readonly providerName: string;
   readonly trigger: 'button' | 'compact';
-  /** True once the host accepted the start; the entry waits for the bind. */
+  /**
+   * True once the host accepted the start; the entry waits for the bind,
+   * at most `CARRY_OVER_RESOLUTION_DEADLINE_MS`.
+   */
   readonly rpcSettled: boolean;
 }
 
-/** An indeterminate launch released after `CARRY_OVER_RECOVERY_MS`. */
+/**
+ * A launch released at its deadline without a resolution, keyed by its
+ * request ID in `expired`.
+ */
 export interface ExpiredCarryOver {
+  readonly tabId: string;
   readonly sessionId: SessionId;
-  /** `Date.now()` after which a resolution is no longer attributed to it. */
+  /**
+   * `Date.now()` after which an untagged resolution of the tab is no longer
+   * attributed to it.
+   */
   readonly until: number;
+  /**
+   * `Date.now()` after which a resolution tagged with its request ID is no
+   * longer recognised; the host keeps the ID no longer than this.
+   */
+  readonly requestIdUntil: number;
 }
 
 /**
@@ -211,12 +237,12 @@ export class ProviderCarryOverService {
   private readonly _pending = signal<ReadonlyMap<string, PendingCarryOver>>(
     new Map(),
   );
-  /** Recovery deadline of a tab's indeterminate launch (Finding 2). */
+  /** Deadline of a tab's unresolved launch (Finding 2, R2). */
   private readonly recoveryTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
-  /** Per tab: the last expired launch, until its late-resolution window ends. */
+  /** Expired launches by request ID, until their late windows end. */
   private readonly expired = new Map<string, ExpiredCarryOver>();
 
   private readonly launchContext: CarryOverLaunchContext = {
@@ -321,11 +347,29 @@ export class ProviderCarryOverService {
   /**
    * Called on `SESSION_ID_RESOLVED` for `tabId` before any attach. Pure for
    * `'none'` and `'bind'`; `'skip'` drops the entry, and for a rebound tab
-   * aborts the new session (AC 7.6, 7.7).
+   * aborts the new session (AC 7.6, 7.7). `requestId` is the resolution's
+   * `carryOverRequestId`: when present, only the launch with that ID binds
+   * (R1); when absent, the tab-based rules apply.
    */
-  claimSessionResolution(tabId: string, realSessionId: string): CarryOverClaim {
+  claimSessionResolution(
+    tabId: string,
+    realSessionId: string,
+    requestId?: string,
+  ): CarryOverClaim {
     const entry = this._pending().get(tabId);
+    if (requestId !== undefined) {
+      return this.claimTagged(tabId, realSessionId, requestId, entry);
+    }
     if (!entry) return this.claimExpired(tabId, realSessionId);
+    return this.claimPending(tabId, realSessionId, entry);
+  }
+
+  /** Whether a carry-over binds `realSessionId` to `entry`'s tab. */
+  private claimPending(
+    tabId: string,
+    realSessionId: string,
+    entry: PendingCarryOver,
+  ): CarryOverClaim {
     if (realSessionId === entry.sessionId) return 'none';
     const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
     if (!lookup) {
@@ -366,22 +410,55 @@ export class ProviderCarryOverService {
   }
 
   /**
-   * A resolution for a tab with no pending entry. Within the late window of
-   * an expired launch, a new session id that the tab is not already bound to
-   * is that launch's late result (or a duplicate of a retry that already
-   * bound): skip it and abort it, once. Anything else is `'none'`.
+   * A resolution the host tagged with a launch's request ID. The pending
+   * launch with that ID claims it as usual. Otherwise it belongs to a launch
+   * this tab no longer waits for: an expired one, or one replaced by the
+   * pending retry. Skip and abort it, so it can neither bind the tab nor
+   * complete the retry. With nothing pending and no live marker it is
+   * `'none'`, as an untagged resolution would be.
+   */
+  private claimTagged(
+    tabId: string,
+    realSessionId: string,
+    requestId: string,
+    entry: PendingCarryOver | undefined,
+  ): CarryOverClaim {
+    if (entry?.requestId === requestId) {
+      return this.claimPending(tabId, realSessionId, entry);
+    }
+    const marker = this.expired.get(requestId);
+    if (marker) this.expired.delete(requestId);
+    const expiredLaunch =
+      marker !== undefined && Date.now() <= marker.requestIdUntil;
+    if (!expiredLaunch && !entry) return 'none';
+    // Never abort the session the tab is already bound to.
+    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
+    if (lookup?.tab.claudeSessionId === realSessionId) return 'none';
+    this.abortSession(realSessionId as SessionId);
+    return 'skip';
+  }
+
+  /**
+   * An untagged resolution for a tab with no pending entry. Within the late
+   * window of the tab's latest expired launch, a new session id that the tab
+   * is not already bound to is that launch's late result (or a duplicate of
+   * a retry that already bound): skip it and abort it, once. Anything else
+   * is `'none'`.
    */
   private claimExpired(tabId: string, realSessionId: string): CarryOverClaim {
-    const marker = this.expired.get(tabId);
-    if (!marker) return 'none';
-    if (Date.now() > marker.until) {
-      this.expired.delete(tabId);
-      return 'none';
+    const now = Date.now();
+    let latest: [string, ExpiredCarryOver] | undefined;
+    for (const [requestId, marker] of this.expired) {
+      if (marker.tabId === tabId && now <= marker.until) {
+        latest = [requestId, marker];
+      }
     }
+    if (!latest) return 'none';
+    const [requestId, marker] = latest;
     if (realSessionId === marker.sessionId) return 'none';
     const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
     if (lookup?.tab.claudeSessionId === realSessionId) return 'none';
-    this.expired.delete(tabId);
+    this.expired.delete(requestId);
     this.abortSession(realSessionId as SessionId);
     return 'skip';
   }

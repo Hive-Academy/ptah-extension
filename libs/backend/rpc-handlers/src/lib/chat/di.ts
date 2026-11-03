@@ -102,6 +102,12 @@ export function registerChatServices(container: DependencyContainer): void {
   // already calls — binds it under `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`.
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
   container.registerSingleton(CHAT_TOKENS.CARRY_OVER, ChatCarryOverService);
+  // The carry-over's request-ID tags for `SESSION_ID_RESOLVED` (TASK_2026_865).
+  // Bound under the `cli-agent-runtime` token because the broadcaster lives
+  // there and cannot import this lib; the same singleton as `CARRY_OVER`.
+  container.register(CLI_AGENT_RUNTIME_TOKENS.CARRY_OVER_RESOLUTION_TAGS, {
+    useToken: CHAT_TOKENS.CARRY_OVER,
+  });
   const surfaceSubmitTurnOptions: SurfaceSubmitTurnOptions = {
     dispatchDeadlineMs: SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
   };

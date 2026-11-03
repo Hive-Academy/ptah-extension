@@ -24,8 +24,10 @@ import {
 } from '@ptah-extension/auth-providers';
 import { SETTINGS_TOKENS, type ModelSettings } from '@ptah-extension/settings-core';
 import {
+  CARRY_OVER_REQUEST_ID_TTL_MS,
   getAnthropicProvider,
   loggableErrorName,
+  type CarryOverResolutionTags,
   type ChatCarryOverCheckParams,
   type ChatCarryOverCheckResult,
   type ChatCarryOverFailureReason,
@@ -70,6 +72,13 @@ interface EligibleCarryOver {
 
 type CarryOverFailure = Extract<ChatCarryOverResult, { success: false }>;
 
+/** A launch's request ID, waiting for its tab's next session resolution. */
+interface ResolutionTicket {
+  readonly requestId: string;
+  /** `Date.now()` after which the ticket is dropped unclaimed. */
+  readonly until: number;
+}
+
 /** `'offer'`: the eligibility check, with no lasting side effect. `'launch'`: the click. */
 type ProbePurpose = 'offer' | 'launch';
 
@@ -105,9 +114,15 @@ function providerDisplayName(providerId: string): string {
 }
 
 @injectable()
-export class ChatCarryOverService {
+export class ChatCarryOverService implements CarryOverResolutionTags {
   /** Session ids with a carry-over running; one at a time per session (AC 5.4). */
   private readonly inFlight = new Set<string>();
+  /**
+   * Per tab: the request ID of the latest launch the adapter was asked to
+   * start, until the tab's next resolution claims it (R1). Bounded by the
+   * tabs with a carry-over and pruned by {@link CARRY_OVER_REQUEST_ID_TTL_MS}.
+   */
+  private readonly resolutionTickets = new Map<string, ResolutionTicket>();
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -137,7 +152,10 @@ export class ChatCarryOverService {
     >,
     /** Absent: the readiness probe takes the Claude-only branch, as `chat:start` does. */
     @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
-    private readonly runtimeProfile?: Pick<ChatRuntimeProfileService, 'prepare'>,
+    private readonly runtimeProfile?: Pick<
+      ChatRuntimeProfileService,
+      'prepare' | 'assertAuthorizedFolder'
+    >,
     /** Absent: a Codex target cannot be proved signed in, so it is not eligible. */
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { isOptional: true })
     private readonly codexAuth?: Pick<ICodexAuthService, 'isAuthenticated'>,
@@ -159,6 +177,18 @@ export class ChatCarryOverService {
     return eligible
       ? { eligible: true, providerId: eligible.activeId, providerName: eligible.providerName }
       : { eligible: false };
+  }
+
+  /**
+   * Called by the `SESSION_ID_RESOLVED` broadcaster: the request ID of the
+   * launch that last started a session on `tabId`, once. An expired ticket
+   * is dropped and the resolution goes out untagged.
+   */
+  claimResolutionRequestId(tabId: string): string | undefined {
+    const ticket = this.resolutionTickets.get(tabId);
+    if (!ticket) return undefined;
+    this.resolutionTickets.delete(tabId);
+    return Date.now() > ticket.until ? undefined : ticket.requestId;
   }
 
   /** Start the carry-over chat on the active provider. Never throws. */
@@ -216,6 +246,10 @@ export class ChatCarryOverService {
       ...(start?.providerId ? { providerId: start.providerId } : {}),
     });
 
+    const { requestId } = params;
+    const admitted = requestId
+      ? (): void => this.issueTicket(tabId, requestId)
+      : undefined;
     let start: Awaited<ReturnType<ChatSessionService['startSession']>>;
     try {
       start = await this.session.startSession(
@@ -228,14 +262,19 @@ export class ChatCarryOverService {
             ? { ptahUiFence: params.ptahUiFence }
             : {}),
         },
-        { expectedProviderId: pinnedProviderId },
+        {
+          expectedProviderId: pinnedProviderId,
+          ...(admitted ? { onAdmitted: admitted } : {}),
+        },
       );
     } catch (error: unknown) {
       // startSession result-shapes its own failures; this is a backstop.
       this.warnStep('start', sessionId, error);
+      if (requestId) this.dropTicket(tabId, requestId);
       return startFailed();
     }
     if (!start.success) {
+      if (requestId) this.dropTicket(tabId, requestId);
       if (start.error === CARRY_OVER_PROVIDER_CHANGED) return failure('NOT_ELIGIBLE');
       this.logger.warn('[carry-over] start failed', {
         sessionId,
@@ -340,7 +379,14 @@ export class ChatCarryOverService {
     activeId: string,
     purpose: ProbePurpose,
   ): Promise<boolean> {
-    if (purpose === 'offer' && acquiresProxyOnProbe(activeId)) return true;
+    if (purpose === 'offer' && acquiresProxyOnProbe(activeId)) {
+      // `prepare`'s own open-folder check, without the profile build: a
+      // folder the launch would refuse gets no offer (R3). Without the
+      // service the check cannot run, so the offer fails closed.
+      if (!this.runtimeProfile) return false;
+      this.runtimeProfile.assertAuthorizedFolder(folder);
+      return true;
+    }
     const model = this.modelSettings.selectedModel.get() || 'default';
     const execution = this.runtimeProfile
       ? await this.runtimeProfile.prepare(
@@ -351,6 +397,25 @@ export class ChatCarryOverService {
       : await resolveClaudeExecution(this.profileResolver, folder, model, true);
     if (execution.runtime !== 'codex-app-server') return true;
     return this.codexAuth ? (await this.codexAuth.isAuthenticated()) === true : false;
+  }
+
+  /** The adapter is about to start `tabId`'s session for `requestId`. */
+  private issueTicket(tabId: string, requestId: string): void {
+    const now = Date.now();
+    for (const [tab, ticket] of this.resolutionTickets) {
+      if (now > ticket.until) this.resolutionTickets.delete(tab);
+    }
+    this.resolutionTickets.set(tabId, {
+      requestId,
+      until: now + CARRY_OVER_REQUEST_ID_TTL_MS,
+    });
+  }
+
+  /** A refused start announces nothing: drop its ticket, never a newer one. */
+  private dropTicket(tabId: string, requestId: string): void {
+    if (this.resolutionTickets.get(tabId)?.requestId === requestId) {
+      this.resolutionTickets.delete(tabId);
+    }
   }
 
   private warnStep(step: string, sessionId: string, error: unknown): void {

@@ -40,7 +40,11 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 }));
 
 import { RpcUserError } from '@ptah-extension/vscode-core';
-import type { ChatStartResult, SessionId } from '@ptah-extension/shared';
+import {
+  CARRY_OVER_REQUEST_ID_TTL_MS,
+  type ChatStartResult,
+  type SessionId,
+} from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
@@ -104,6 +108,8 @@ interface HarnessOptions {
   folderError?: Error;
   read?: () => Promise<CarryOverTranscript>;
   start?: ChatStartResult;
+  /** `assertAuthorizedFolder` refuses the folder, as `prepare` would. */
+  folderUnauthorized?: boolean;
 }
 
 function makeHarness(opts: HarnessOptions = {}) {
@@ -151,6 +157,13 @@ function makeHarness(opts: HarnessOptions = {}) {
     if (opts.prepareError) throw opts.prepareError;
     return opts.execution as Execution;
   });
+  const assertAuthorizedFolder = jest.fn((_folder: string) => {
+    if (opts.folderUnauthorized) {
+      throw new Error(
+        'Access denied: session workspace must be an absolute path inside an open folder.',
+      );
+    }
+  });
   const resolveProviderProfileForWorkspace = jest.fn(async () => {
     if (opts.claudeProfileError) throw opts.claudeProfileError;
     return undefined;
@@ -182,7 +195,9 @@ function makeHarness(opts: HarnessOptions = {}) {
     profileResolver as never,
     createMockModelSettings() as never,
     activeProvider as never,
-    (opts.execution || opts.prepareError ? { prepare } : undefined) as never,
+    (opts.execution || opts.prepareError
+      ? { prepare, assertAuthorizedFolder }
+      : undefined) as never,
     codexAuth as never,
   );
   return {
@@ -195,6 +210,7 @@ function makeHarness(opts: HarnessOptions = {}) {
     metadataWrites,
     readCarryOverTranscript,
     prepare,
+    assertAuthorizedFolder,
     resolveProviderProfileForWorkspace,
     isAuthenticated,
   };
@@ -403,12 +419,44 @@ describe('ChatCarryOverService', () => {
       },
     );
 
-    it('acquires no proxy without a runtime profile either', async () => {
+    it('acquires no proxy and makes no offer without a runtime profile (R3: fail closed)', async () => {
       const h = makeHarness({ active: 'openrouter' });
 
-      await expect(h.service.check(checkParams())).resolves.toMatchObject({ eligible: true });
+      // The open-folder check lives on the runtime profile service; without
+      // it the folder cannot be proved authorized, so there is no offer.
+      await expect(h.service.check(checkParams())).resolves.toEqual({ eligible: false });
       expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
     });
+
+    it('a proxy-backed offer runs the open-folder check first (R3)', async () => {
+      const h = makeHarness({ active: 'openrouter', execution: claudeExecution('openrouter') });
+
+      await expect(h.service.check(checkParams())).resolves.toMatchObject({ eligible: true });
+      expect(h.assertAuthorizedFolder).toHaveBeenCalledWith(FOLDER);
+      expect(h.prepare).not.toHaveBeenCalled();
+    });
+
+    it.each(['openrouter', 'github-copilot'])(
+      'an unauthorized folder gets no offer for %s and acquires no proxy (R3)',
+      async (active) => {
+        const h = makeHarness({
+          active,
+          execution: claudeExecution(active),
+          folderUnauthorized: true,
+        });
+
+        await expect(h.service.check(checkParams())).resolves.toEqual({ eligible: false });
+        expect(h.assertAuthorizedFolder).toHaveBeenCalledWith(FOLDER);
+        expect(h.prepare).not.toHaveBeenCalled();
+        expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
+        expect(h.startSession).not.toHaveBeenCalled();
+        // Logged by class name only.
+        expect(h.logger.warn).toHaveBeenCalledWith('[carry-over] readiness probe failed', {
+          sessionId: SESSION_ID,
+          error: 'Error',
+        });
+      },
+    );
 
     it('a provider switch after a check leaves no retained probe proxy', async () => {
       const h = makeHarness({ active: 'openrouter', execution: claudeExecution('openrouter') });
@@ -485,6 +533,78 @@ describe('ChatCarryOverService', () => {
         omittedTurns: 0,
       });
       expectAbsent(h, result, SENTINEL);
+    });
+
+    describe('request ID tags (R1)', () => {
+      const REQUEST_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+
+      it('tags the tab\'s next resolution once, only after the start was admitted', async () => {
+        const h = makeHarness({ execution: codexExecution() });
+        h.startSession.mockImplementationOnce(
+          async (_params: unknown, launch: { onAdmitted?: () => void }) => {
+            // Before the pin passed, nothing is attributed to the launch.
+            expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+            launch.onAdmitted?.();
+            return { success: true };
+          },
+        );
+
+        await expect(
+          h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID }),
+        ).resolves.toMatchObject({ success: true });
+        expect(h.startSession).toHaveBeenCalledWith(expect.anything(), {
+          expectedProviderId: 'openai-codex',
+          onAdmitted: expect.any(Function),
+        });
+        expect(h.service.claimResolutionRequestId('another-tab')).toBeUndefined();
+        expect(h.service.claimResolutionRequestId(TAB_ID)).toBe(REQUEST_ID);
+        // Claimed once: a later resolution of the tab goes out untagged.
+        expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+      });
+
+      it('a refused start leaves no tag behind', async () => {
+        const h = makeHarness({
+          execution: codexExecution(),
+          start: { success: false, error: 'boom' },
+        });
+        h.startSession.mockImplementationOnce(
+          async (_params: unknown, launch: { onAdmitted?: () => void }) => {
+            launch.onAdmitted?.();
+            return { success: false, error: 'boom' };
+          },
+        );
+
+        await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+        expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+      });
+
+      it('an unclaimed tag lapses after CARRY_OVER_REQUEST_ID_TTL_MS', async () => {
+        const h = makeHarness({ execution: codexExecution() });
+        h.startSession.mockImplementationOnce(
+          async (_params: unknown, launch: { onAdmitted?: () => void }) => {
+            launch.onAdmitted?.();
+            return { success: true };
+          },
+        );
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+        try {
+          await h.service.carryOver({ ...carryParams(), requestId: REQUEST_ID });
+          now.mockReturnValue(1_000 + CARRY_OVER_REQUEST_ID_TTL_MS + 1);
+          expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+        } finally {
+          now.mockRestore();
+        }
+      });
+
+      it('a launch without a request ID passes no admission hook', async () => {
+        const h = makeHarness({ execution: codexExecution() });
+
+        await h.service.carryOver(carryParams());
+        expect(h.startSession.mock.calls[0][1]).toEqual({
+          expectedProviderId: 'openai-codex',
+        });
+        expect(h.service.claimResolutionRequestId(TAB_ID)).toBeUndefined();
+      });
     });
 
     it('reads the Claude JSONL tail with the bound and a timeout signal (AC 3.10)', async () => {

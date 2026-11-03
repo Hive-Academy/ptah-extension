@@ -144,12 +144,18 @@ export class ChatLifecycleService {
   handleSessionIdResolved(data: {
     tabId: string;
     realSessionId: string;
+    /** A provider carry-over's request ID, when the host stamped one (R1). */
+    carryOverRequestId?: string;
   }): void {
-    const { tabId, realSessionId } = data;
+    const { tabId, realSessionId, carryOverRequestId } = data;
 
     // A carry-over pending on this tab decides first (AC 7.6, 7.7): a skipped
     // resolution binds nothing, not even through the active-tab fallback.
-    const claim = this.claimCarryOver(tabId, realSessionId);
+    const claim = this.claimCarryOver(
+      tabId,
+      realSessionId,
+      carryOverRequestId,
+    );
     if (claim === 'skip') {
       this.refreshSessionsAfterResolution();
       return;
@@ -193,9 +199,17 @@ export class ChatLifecycleService {
    * The carry-over claim for a resolution. A throw counts as `'none'`, so a
    * guard bug can never break normal session resolution.
    */
-  private claimCarryOver(tabId: string, realSessionId: string): CarryOverClaim {
+  private claimCarryOver(
+    tabId: string,
+    realSessionId: string,
+    requestId: string | undefined,
+  ): CarryOverClaim {
     try {
-      return this.carryOver.claimSessionResolution(tabId, realSessionId);
+      return this.carryOver.claimSessionResolution(
+        tabId,
+        realSessionId,
+        requestId,
+      );
     } catch (error) {
       // degradation-audit: reported — a claim bug is logged and resolution continues as 'none'.
       console.warn('[ChatStore] Carry-over claim failed; resolving as usual', {

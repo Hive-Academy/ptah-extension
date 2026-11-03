@@ -534,6 +534,7 @@ describe('provider carry-over relink (real tab manager, router, handler, lifecyc
       workspacePath: WS,
       name: 'Old chat',
       ptahUiFence: true,
+      requestId: expect.any(String),
     });
 
     resolveSession(tabId, NEW);
@@ -551,5 +552,37 @@ describe('provider carry-over relink (real tab manager, router, handler, lifecyc
       'old-assistant',
     ]);
     expect(callsOf('chat:continue')).toHaveLength(0);
+  });
+
+  it('case 4 (R1): a resolution tagged with another launch is aborted; the tagged launch binds', async () => {
+    const tabId = openRefusedTab();
+    const sender = TestBed.inject(MessageSenderService);
+    await sender.send('/compact', { tabId });
+    const { requestId } = callsOf('chat:carry-over')[0][1] as {
+      requestId: string;
+    };
+    const STRAY = '55555555-5555-4555-8555-555555555555';
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+      payload: {
+        tabId,
+        realSessionId: STRAY,
+        carryOverRequestId: '66666666-6666-4666-8666-666666666666',
+      },
+    });
+    expect(tabOf(tabId)?.claudeSessionId).toBe(OLD);
+    expect(carryOver.isPending(tabId)).toBe(true);
+    expect(callsOf('chat:abort').map((c) => c[1])).toEqual([
+      { sessionId: STRAY },
+    ]);
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+      payload: { tabId, realSessionId: NEW, carryOverRequestId: requestId },
+    });
+    expect(tabOf(tabId)?.claudeSessionId).toBe(NEW);
+    expect(carryOver.isPending(tabId)).toBe(false);
+    expect(showInfo).toHaveBeenCalledTimes(1);
   });
 });
