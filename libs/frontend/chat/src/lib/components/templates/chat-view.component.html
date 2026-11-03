@@ -154,9 +154,7 @@
           />
           @if (authBanner.providerId === 'openai-codex' && codexReauthStarted()) {
             <div class="mt-2">
-              @defer (on immediate) {
-                <ptah-codex-sign-in-block layout="compact" role="chosen" />
-              }
+              <ptah-codex-sign-in-block layout="compact" role="chosen" />
               @if (codexReauthFailure(); as failure) {
                 <p role="alert" class="mt-2 text-sm text-error">{{ failure }}</p>
                 <button type="button" class="btn btn-outline btn-sm mt-2" (click)="onAuthReauth()">Try again</button>
