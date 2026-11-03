@@ -68,3 +68,35 @@ The stopped subagent had written all 12 files, and they typechecked, linted and 
 - `npm run verify -- -t test -p @ptah-extension/tasks-ui -- --testPathPatterns="tasks-store"` → exit 0; `Tests: 139 passed, 139 total`. (A first run before the `loadTaskDetail` split failed 1 test, the applyMetadata detail-refresh message; fixed by the split, not by changing the test.)
 - `npm run verify -- -t typecheck,lint -p @ptah-extension/tasks-ui` → `2 tasks: 2 succeeded`, exit 0.
 - `tasks-view.component.ts` not touched.
+
+## Fix round 2 — sticky error
+
+Finding: New Serious 3 (`code-logic-review-fix-round-1.md`). A detail-load error was never
+cleared on a later successful detail load, and the two post-write detail refreshes set the
+"saved, but could not be reloaded" message without a `detailReqSeq` check.
+
+Change (`libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts`):
+
+- :685 `detailErrorMessage` marks which `_error` value a detail load wrote (the store has one
+  error slot). :1261 `setDetailError`, :1270 `clearDetailError` (clears `_error` only when it
+  still equals that message, so a later board or write error stays).
+- :1289 `loadTaskDetail` calls `clearDetailError()` right after it takes its `detailReqSeq`.
+- :1256 (`openTask` catch) and :1311 (`isSuccess() === false`) now use `setDetailError`.
+- :2191 `reconcileAfterBulk` detail catch: captures `seq` before the call and returns
+  silently when `seq !== detailReqSeq`.
+- :2361 `applyMetadata` reload catch: a board-reload failure still sets the message; a detail
+  refresh failure sets it only when its stamp is still current.
+
+Tests (`tasks-store.service.spec.ts`):
+
+- "clears task A's detail error once task B's detail loads"
+- "keeps a board error raised after a detail error when a detail loads"
+- "stays silent when task A's detail refresh fails after task B was opened"
+  (applyMetadata on A, A's `tasks:get` held, B opened, then A rejected: error stays null)
+
+Verification:
+
+- `npm run verify -- -t test -p @ptah-extension/tasks-ui -- --testPathPatterns="tasks-store"`
+  → NX 1 task succeeded; Test Suites 1 passed; Tests 142 passed, 142 total; exit code 0.
+- `npm run verify -- -t typecheck,lint -p @ptah-extension/tasks-ui` → NX 2 tasks succeeded,
+  exit code 0.

@@ -677,6 +677,14 @@ export class TasksStore implements MessageHandler {
   private detailReqSeq = 0;
 
   /**
+   * The message a detail load last wrote into {@link _error}, or `null`. The
+   * store has one error slot; this marks whether its current content belongs
+   * to a detail load, so the next detail request can clear its own stale
+   * message without wiping a board or write error set since.
+   */
+  private detailErrorMessage: string | null = null;
+
+  /**
    * Workspace key the switch effect last observed. Seeded synchronously at
    * construction with the same key the component's initial `loadBoard()` uses,
    * so a switch that lands between construction and the effect's first flush is
@@ -1245,8 +1253,28 @@ export class TasksStore implements MessageHandler {
       // request superseded by a newer open (or a close) stays silent.
       if (seq !== this.detailReqSeq) return;
       const detail = error instanceof Error ? error.message : String(error);
-      this._error.set(`Failed to load task detail (${detail})`);
+      this.setDetailError(`Failed to load task detail (${detail})`);
     }
+  }
+
+  /** Set {@link _error} and mark it as owned by a detail load. */
+  private setDetailError(message: string): void {
+    this.detailErrorMessage = message;
+    this._error.set(message);
+  }
+
+  /**
+   * Clear {@link _error} only when it still holds the message a detail load
+   * set; a board or write error raised since is left alone.
+   */
+  private clearDetailError(): void {
+    if (
+      this.detailErrorMessage !== null &&
+      this._error() === this.detailErrorMessage
+    ) {
+      this._error.set(null);
+    }
+    this.detailErrorMessage = null;
   }
 
   /**
@@ -1256,6 +1284,9 @@ export class TasksStore implements MessageHandler {
    */
   private async loadTaskDetail(taskId: string): Promise<void> {
     const seq = ++this.detailReqSeq;
+    // This request now owns the detail error: a previous detail failure (for
+    // this task or another) must not stay on screen once a newer load starts.
+    this.clearDetailError();
     // Opening a different task must not leave the previous one's plan expanded
     // underneath the new task's heading. Cleared unconditionally: re-opening
     // the SAME task is a re-read, and it is cheaper to reopen a document than
@@ -1277,7 +1308,7 @@ export class TasksStore implements MessageHandler {
         this._taskDetail.set(result.data.task);
         this.folder.setDetail(result.data.task);
       } else {
-        this._error.set(result.error ?? 'Failed to load task detail');
+        this.setDetailError(result.error ?? 'Failed to load task detail');
       }
     } finally {
       if (seq === this.detailReqSeq) this._detailLoading.set(false);
@@ -2150,10 +2181,14 @@ export class TasksStore implements MessageHandler {
     const selected = this._selectedTaskId();
     if (selected === null) return;
     if (!missed && !ids.includes(selected)) return;
+    const seq = this.detailReqSeq + 1;
     try {
       await this.loadTaskDetail(selected);
     } catch (error: unknown) {
-      this._error.set(TasksStore.refreshFailedMessage(error));
+      // Superseded by a newer open (or a close): the user is looking at
+      // another task, so this refresh's failure is not theirs to see.
+      if (seq !== this.detailReqSeq) return;
+      this.setDetailError(TasksStore.refreshFailedMessage(error));
     }
   }
 
@@ -2309,14 +2344,22 @@ export class TasksStore implements MessageHandler {
       // all — leaving the user looking at stale state with no signal that it is
       // stale. That is precisely the state this batch newly makes reachable, so
       // it is caught and named here rather than left to the caller.
+      // `null` while the board reload runs; the detail request's stamp once
+      // the detail refresh fires, so a superseded refresh stays silent.
+      let detailSeq: number | null = null;
       try {
         await this.loadBoard();
         if (this._selectedTaskId() === taskId && data.task) {
           // Refresh the open detail with the authoritative row (not a guess).
+          detailSeq = this.detailReqSeq + 1;
           await this.loadTaskDetail(taskId);
         }
       } catch (error: unknown) {
-        this._error.set(TasksStore.refreshFailedMessage(error));
+        if (detailSeq === null) {
+          this._error.set(TasksStore.refreshFailedMessage(error));
+        } else if (detailSeq === this.detailReqSeq) {
+          this.setDetailError(TasksStore.refreshFailedMessage(error));
+        }
       }
     }
     return data;

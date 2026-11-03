@@ -206,6 +206,37 @@ describe('TasksStore', () => {
     expect(store.error()).toBe('scan-failed');
   });
 
+  it("clears task A's detail error once task B's detail loads", async () => {
+    rpcCall.mockResolvedValueOnce(err('detail read failed'));
+    await store.openTask('TASK_2026_200');
+    expect(store.error()).toBe('detail read failed');
+
+    rpcCall.mockResolvedValueOnce(
+      ok({
+        task: { ...makeTask('TASK_2026_201', 'backlog'), body: '', artifacts: [] },
+      }),
+    );
+    await store.openTask('TASK_2026_201');
+
+    expect(store.error()).toBeNull();
+  });
+
+  it('keeps a board error raised after a detail error when a detail loads', async () => {
+    rpcCall.mockResolvedValueOnce(err('detail read failed'));
+    await store.openTask('TASK_2026_200');
+    rpcCall.mockResolvedValueOnce(err('scan-failed'));
+    await store.loadBoard();
+
+    rpcCall.mockResolvedValueOnce(
+      ok({
+        task: { ...makeTask('TASK_2026_201', 'backlog'), body: '', artifacts: [] },
+      }),
+    );
+    await store.openTask('TASK_2026_201');
+
+    expect(store.error()).toBe('scan-failed');
+  });
+
   it('handleMessage refreshes the board on a tasks:changed push', async () => {
     rpcCall.mockResolvedValue(ok(makeBoard({})));
 
@@ -1238,6 +1269,47 @@ describe('TasksStore', () => {
         expect(result.success).toBe(true);
         expect(store.error()).toContain(SAVED);
         expect(store.error()).toContain('detail transport down');
+      });
+
+      it("stays silent when task A's detail refresh fails after task B was opened", async () => {
+        const OTHER = 'TASK_2026_299';
+        const detailOf = (id: string) =>
+          ok({ task: { ...makeTask(id, 'backlog'), body: '', artifacts: [] } });
+        rpcCall.mockImplementation((method: string) =>
+          Promise.resolve(
+            method === 'tasks:get' ? detailOf(TASK) : ok(makeBoard({})),
+          ),
+        );
+        await store.openTask(TASK);
+
+        let rejectA: (error: Error) => void = () => undefined;
+        let markARequested: () => void = () => undefined;
+        const aRequested = new Promise<void>((r) => (markARequested = r));
+        rpcCall.mockReset();
+        rpcCall.mockImplementation(
+          (method: string, params: { taskId?: string }) => {
+            if (method === 'tasks:updateMetadata') {
+              return Promise.resolve(
+                ok({ success: true, task: makeTask(TASK, 'backlog') }),
+              );
+            }
+            if (method === 'tasks:get' && params.taskId === TASK) {
+              markARequested();
+              return new Promise((_, reject) => (rejectA = reject));
+            }
+            if (method === 'tasks:get') return Promise.resolve(detailOf(OTHER));
+            return Promise.resolve(ok(makeBoard({})));
+          },
+        );
+
+        const write = store.applyMetadata(TASK, { estimate: 'S' });
+        await aRequested;
+        await store.openTask(OTHER);
+        rejectA(new Error('detail transport down'));
+        await write;
+
+        expect(store.selectedTaskId()).toBe(OTHER);
+        expect(store.error()).toBeNull();
       });
 
       it('leaves a genuine WRITE failure reading as a write failure', async () => {
