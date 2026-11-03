@@ -1229,8 +1229,9 @@ describe('ConfigRpcHandlers', () => {
           'gpt-5.6-luna',
           'gpt-6-sol',
         ]);
+        // No static Codex display names: a cached-only ID is shown as itself.
         expect(result.models.filter((model) => model.isSelected)).toEqual([
-          expect.objectContaining({ id: 'gpt-6-sol', name: 'GPT 6 Sol' }),
+          expect.objectContaining({ id: 'gpt-6-sol', name: 'gpt-6-sol' }),
         ]);
         expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
       });

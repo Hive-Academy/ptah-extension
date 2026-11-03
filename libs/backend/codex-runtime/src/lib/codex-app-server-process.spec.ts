@@ -115,19 +115,31 @@ describe('CodexAppServerProcess', () => {
   let onRequest: jest.Mock<Promise<unknown>, [unknown, AbortSignal]>;
   let windowsExecutableFixture: { dir: string; file: string } | undefined;
 
+  // The home check normalizes with the (mocked) win32 platform, which needs a drive-rooted home.
+  const windowsProfile: CodexExecutionProfile = {
+    ...profile,
+    normalizedHome: 'C:\\isolated\\home',
+  };
+  let activeProfile: CodexExecutionProfile = profile;
+
   function useWindowsExecutableFixture(): void {
-    if (process.platform === 'win32') return;
-    const dir = mkdtempSync(join(tmpdir(), 'codex-process-spec-'));
-    const file = join(dir, 'codex.exe');
-    writeFileSync(file, 'fixture');
-    chmodSync(file, 0o755);
-    windowsExecutableFixture = { dir, file };
-    runtime = new CodexAppServerProcess(spawner, { ...executable, path: realpathSync(file) }, profile,
+    activeProfile = windowsProfile;
+    let path = executable.path;
+    if (process.platform !== 'win32') {
+      const dir = mkdtempSync(join(tmpdir(), 'codex-process-spec-'));
+      const file = join(dir, 'codex.exe');
+      writeFileSync(file, 'fixture');
+      chmodSync(file, 0o755);
+      windowsExecutableFixture = { dir, file };
+      path = realpathSync(file);
+    }
+    runtime = new CodexAppServerProcess(spawner, { ...executable, path }, windowsProfile,
       { onNotification, onRequest }, logger);
   }
 
   beforeEach(() => {
     windowsExecutableFixture = undefined;
+    activeProfile = profile;
     jest.useFakeTimers();
     jest.clearAllMocks();
     child = new FakeChild();
@@ -163,7 +175,10 @@ describe('CodexAppServerProcess', () => {
   });
   async function start(): Promise<void> {
     const starting = runtime.start();
-    child.send({ id: 1, result: initializeResult });
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: activeProfile.normalizedHome },
+    });
     await starting;
   }
   async function flush(): Promise<void> {
@@ -534,7 +549,7 @@ describe('CodexAppServerProcess', () => {
       await start();
       expect(spawner.spawnProcess).toHaveBeenCalledWith(
         expect.objectContaining({
-          env: { ...allowed, CODEX_HOME: profile.normalizedHome },
+          env: { ...allowed, CODEX_HOME: activeProfile.normalizedHome },
         }),
       );
       expect(process.env).toBe(hostEnv);
@@ -570,7 +585,7 @@ describe('CodexAppServerProcess', () => {
           COMSPEC: 'cmd.exe',
           TEMP: 'C:\\Temp',
           LC_ALL: 'C',
-          CODEX_HOME: profile.normalizedHome,
+          CODEX_HOME: activeProfile.normalizedHome,
         },
       }),
     );
