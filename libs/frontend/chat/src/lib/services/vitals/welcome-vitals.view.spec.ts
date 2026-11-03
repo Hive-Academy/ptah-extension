@@ -133,7 +133,7 @@ describe('welcome-vitals.view', () => {
   });
 
   describe('toSpendCell', () => {
-    it('formats a priced week', () => {
+    it('formats a fully priced week exactly', () => {
       const spend: SpendVitals = {
         days: [1, null, 2],
         totals: { tokens: 1, costUsd: 12.4 },
@@ -142,15 +142,48 @@ describe('welcome-vitals.view', () => {
         state: 'ready',
         text: '$12.40',
         bars: [1, null, 2],
+        note: null,
       });
     });
 
-    it('shows an unpriced week as a dash', () => {
+    it('marks a known cost, including zero, as a lower bound', () => {
       const spend: SpendVitals = {
+        days: [2.5, null],
+        totals: { tokens: 1, costUsd: 2.5, unpriced: true },
+      };
+      expect(toSpendCell(vitalsReady(spend))).toEqual({
+        state: 'ready',
+        text: '≥ $2.50',
+        bars: [2.5, null],
+        note: 'Some usage has no price',
+      });
+      expect(
+        toSpendCell(
+          vitalsReady({
+            days: [0],
+            totals: { tokens: 1, costUsd: 0, unpriced: true },
+          }),
+        ).text,
+      ).toBe('≥ $0.00');
+    });
+
+    it('shows a dash when no known cost exists and never coerces null to zero', () => {
+      const unpriced: SpendVitals = {
+        days: [null],
+        totals: { tokens: 1, costUsd: null, unpriced: true },
+      };
+      const missing: SpendVitals = {
         days: [null],
         totals: { tokens: 1, costUsd: null },
       };
-      expect(toSpendCell(vitalsReady(spend)).state).toBe('empty');
+      for (const spend of [unpriced, missing]) {
+        expect(toSpendCell(vitalsReady(spend))).toEqual({
+          state: 'empty',
+          text: '',
+          bars: [],
+          note: null,
+        });
+      }
     });
 
     it('shows no spend as $0.00 with seven flat bars', () => {
@@ -158,6 +191,7 @@ describe('welcome-vitals.view', () => {
         state: 'ready',
         text: '$0.00',
         bars: [0, 0, 0, 0, 0, 0, 0],
+        note: null,
       });
     });
 

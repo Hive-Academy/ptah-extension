@@ -210,7 +210,12 @@ const LOG_CONTEXT = 'ElectronWelcome';
                   [state]="spend().state"
                   caption="last 7 days"
                 >
-                  <ptah-stat-value [text]="spend().text">
+                  <ptah-stat-value
+                    [text]="spend().text"
+                    [attr.title]="spend().note"
+                    [attr.aria-label]="spend().note"
+                    [attr.role]="spend().note ? 'group' : null"
+                  >
                     <ptah-spend-bars
                       [values]="spend().bars"
                       ariaLabel="Spend per day, last 7 days"

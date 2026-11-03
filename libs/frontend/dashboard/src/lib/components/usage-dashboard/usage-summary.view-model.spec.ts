@@ -248,6 +248,30 @@ describe('buildUsageViewModel', () => {
     expect(vm.sources).toHaveLength(2);
   });
 
+  it('keeps the SQL known-cost lower bound when a grouped fact also has unpriced turns', () => {
+    const vm = buildUsageViewModel(usageSummary([
+      usageFact({
+        costUsd: null,
+        knownCostUsd: 2.5,
+        costSource: 'unpriced',
+        inputUncachedTokens: 100,
+      }),
+    ], {
+      sources: [{ sourceId: 'claude-ledger', status: 'partial', coverageStart: '2026-10-18', reason: 'Historical sessions were not backfilled' }],
+    }))!;
+
+    expect(vm.totalCostUsd).toBe(2.5);
+    expect(vm.totalCostUnpricedFactCount).toBe(1);
+    expect(vm.providers[0]!.costUsd).toBe(2.5);
+    expect(vm.providers[0]!.hasUnpricedFacts).toBe(true);
+    expect(vm.providerSeries[0]!.costUnknownByDay).toEqual([true, false, false]);
+    expect(vm.dayRows[0]!.costUsd).toBe(2.5);
+    expect(vm.dayRows[0]!.unpricedFactCount).toBe(1);
+    expect(vm.kpis.savingsMultiple).toBeNull();
+    expect(vm.coverageStartDay).toBe('2026-10-18');
+    expect(vm.isPartial).toBe(true);
+  });
+
   it('keeps a known zero total distinct from an unknown total', () => {
     const vm = buildUsageViewModel(
       usageSummary([

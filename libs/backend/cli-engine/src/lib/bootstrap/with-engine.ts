@@ -344,8 +344,8 @@ export async function withEngine<T>(
       // open socket. This path throws BEFORE the `try/finally` below, so
       // without an explicit call here the sole dispose site never runs and the
       // handle outlives the command that created it.
-      await shutdownHostRuntime(ctx.container);
       await disposeSdkAdapter(ctx);
+      await shutdownHostRuntime(ctx.container);
       await runDispose(opts, ctx);
       throw new SdkInitFailedError(message);
     }
@@ -430,7 +430,10 @@ export async function withEngine<T>(
         );
       }
     }
-    // Before the SDK adapter, because a spawned CLI agent is a child of this
+    // The SDK adapter may enqueue session finalization as it disposes. Settle
+    // that work before shutdownHostRuntime drains the usage sink.
+    await disposeSdkAdapter(ctx);
+    // Reap spawned CLI agents because each is a child of this
     // process and `process.exit` orphans anything still live. A completed
     // continuation-capable agent holds its subprocess open on purpose, so
     // nothing else in this chain ends it (TASK_2026_323 B11). The same call
@@ -459,7 +462,6 @@ export async function withEngine<T>(
     // Covers adapters initialized eagerly (requireSdk !== false) AND ones
     // initialized late by the host via `ctx.initializeSdk()` — both paths
     // record the instance on the context, so there is a single dispose site.
-    await disposeSdkAdapter(ctx);
     await runDispose(opts, ctx);
   }
 }

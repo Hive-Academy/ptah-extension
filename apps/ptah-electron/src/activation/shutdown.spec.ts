@@ -353,6 +353,58 @@ describe('will-quit — main-chat sessions release leases before SQLite close', 
     expect(handleWillQuit(quitDeps(refs))).toBe(false);
   });
 
+  it('waits for SDK teardown before draining usage and closing SQLite', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.sdkAdapter = {
+      dispose: () => new Promise<void>((resolve) => {
+        order.push('sdk dispose');
+        finish = resolve;
+      }),
+    };
+    refs.sessionUsageSink = {
+      flush: async () => { order.push('usage flush'); },
+    };
+    const deps = quitDeps(refs);
+
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['sdk dispose']);
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual(['sdk dispose', 'usage flush', 'sqliteConnection', 'diagnostics']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues live session ids before a slow chat disposal and before the usage drain', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.sdkAdapter = {
+      getLiveSessionUsageIds: () => ['session-a'],
+      dispose: async () => { order.push('sdk dispose'); },
+    };
+    refs.chatSessions = {
+      disposeAllSessionsForShutdown: () => new Promise<void>((resolve) => {
+        order.push('chat dispose');
+        finish = resolve;
+      }),
+    };
+    refs.sessionUsageSink = {
+      requestFinalization: async (id) => { order.push(`finalize ${id}`); },
+      flush: async () => { order.push('usage flush'); },
+    };
+    const deps = quitDeps(refs);
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['finalize session-a', 'chat dispose']);
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual(['finalize session-a', 'chat dispose', 'sdk dispose',
+      'usage flush', 'sqliteConnection', 'diagnostics']);
+  });
+
   it('closes SQLite only after the session dispose has settled', async () => {
     const order: string[] = [];
     let finish!: () => void;

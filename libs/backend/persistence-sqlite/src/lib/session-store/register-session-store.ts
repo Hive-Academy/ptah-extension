@@ -40,7 +40,7 @@ export function registerSessionStoreServices(
     options.dbPath ?? resolveSessionStoreDbPath({ isDev: options.isDev });
   const database = new SessionStoreDatabase(dbPath, logger);
   const repository = new SqliteSessionRecordRepository(database, options.host);
-  const stats = new SessionStatsRepository(database);
+  const stats = new SessionStatsRepository(database, logger);
   const usageSink = new SqliteSessionUsageSink(stats, logger);
   const blobs = new FileSessionBlobStore(resolveSessionBlobRoot(dbPath));
   const gate = new SessionStoreGate(logger);
@@ -53,6 +53,7 @@ export function registerSessionStoreServices(
   container.register(PLATFORM_TOKENS.SESSION_USAGE_SINK, {
     useValue: usageSink,
   });
+  usageSink.startFinalizer();
   logger.info('[persistence-sqlite] session store registered', {
     dbPath,
     host: options.host,

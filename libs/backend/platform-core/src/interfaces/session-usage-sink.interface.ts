@@ -35,6 +35,12 @@ export interface SessionUsageContribution {
 /** Host-neutral write boundary; callers handle rejection without interrupting a stream. */
 export interface SessionUsageSink {
   recordUsage(contribution: SessionUsageContribution): Promise<void> | void;
+  /** Queue a true session end after accepted usage writes. */
+  requestFinalization?(sessionId: string): Promise<void> | void;
+  /** Reopen a ledger row when a session is deliberately resumed. */
+  resumeSession?(sessionId: string): Promise<void> | void;
+  /** Supply live ids before the one-time startup idle scan. */
+  setLiveSessionIdsProvider?(provider: () => readonly string[]): void;
   /** Wait for contributions already accepted by this sink before shutdown. */
   flush?(): Promise<void>;
 }

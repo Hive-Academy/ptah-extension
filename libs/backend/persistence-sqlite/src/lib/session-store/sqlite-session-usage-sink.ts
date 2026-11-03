@@ -54,6 +54,13 @@ export class SqliteSessionUsageSink implements SessionUsageSink {
   private tail: Promise<void> = Promise.resolve();
   private failedWrites = 0;
   private pendingWrites = 0;
+  private finalizerTimer: ReturnType<typeof setInterval> | null = null;
+  private startupPass: ReturnType<typeof setTimeout> | null = null;
+  private finalizerPass: Promise<void> = Promise.resolve();
+  private finalizerRunning = false;
+  private liveSessionIdsProvider: (() => readonly string[]) | null = null;
+  private startupScanPending = true;
+  private providerChangedDuringPass = false;
 
   constructor(
     private readonly repository: SessionStatsRepository,
@@ -87,9 +94,84 @@ export class SqliteSessionUsageSink implements SessionUsageSink {
     return write;
   }
 
+  requestFinalization(sessionId: string): Promise<void> {
+    const write = this.tail.then(() => this.repository.requestFinalization(sessionId));
+    this.tail = write.catch((error: unknown) => {
+      this.failedWrites += 1;
+      this.logger.error('[persistence-sqlite] session finalization request failed',
+        error instanceof Error ? error : new Error(String(error)));
+    });
+    return write;
+  }
+
+  resumeSession(sessionId: string): Promise<void> {
+    const write = this.tail.then(() => this.repository.resumeSession(sessionId));
+    this.tail = write.catch((error: unknown) => {
+      this.failedWrites += 1;
+      this.logger.error('[persistence-sqlite] session resume failed',
+        error instanceof Error ? error : new Error(String(error)));
+    });
+    return write;
+  }
+
+  setLiveSessionIdsProvider(provider: () => readonly string[]): void {
+    this.liveSessionIdsProvider = provider;
+    if (this.finalizerTimer !== null) {
+      if (this.finalizerRunning) this.providerChangedDuringPass = true;
+      else this.runFinalizerPass();
+    }
+  }
+
+  /** One unref'd timer per store, with one bounded pass in flight. */
+  startFinalizer(): void {
+    if (this.finalizerTimer !== null) return;
+    this.startupPass = setTimeout(() => {
+      this.startupPass = null;
+      this.runFinalizerPass();
+    }, 0);
+    this.startupPass.unref?.();
+    this.finalizerTimer = setInterval(() => this.runFinalizerPass(), 60_000);
+    this.finalizerTimer.unref?.();
+  }
+
+  private runFinalizerPass(): void {
+    if (this.finalizerRunning) return;
+    this.finalizerRunning = true;
+    this.finalizerPass = (async () => {
+      await this.tail;
+      const provider = this.liveSessionIdsProvider;
+      const startup = this.startupScanPending && provider !== null;
+      await this.repository.reconcileFinalizations(Date.now(), 30 * 60_000,
+        startup, provider?.() ?? []);
+      if (startup) this.startupScanPending = false;
+    })().catch((error: unknown) => {
+      this.logger.error('[persistence-sqlite] session finalization pass failed',
+        error instanceof Error ? error : new Error(String(error)));
+    }).finally(() => {
+      this.finalizerRunning = false;
+      const providerChanged = this.providerChangedDuringPass;
+      this.providerChangedDuringPass = false;
+      if (providerChanged && this.finalizerTimer !== null && this.startupScanPending &&
+        this.liveSessionIdsProvider !== null) this.runFinalizerPass();
+    });
+  }
+
   /** Waits for all writes accepted before this call, including failed writes. */
   async flush(): Promise<void> {
+    if (this.startupPass !== null) {
+      clearTimeout(this.startupPass);
+      this.startupPass = null;
+    }
+    if (this.finalizerTimer !== null) {
+      clearInterval(this.finalizerTimer);
+      this.finalizerTimer = null;
+    }
     await this.tail;
+    await this.finalizerPass;
+    if (this.startupScanPending && this.liveSessionIdsProvider !== null) {
+      this.runFinalizerPass();
+      await this.finalizerPass;
+    }
     if (this.failedWrites > 0) {
       const count = this.failedWrites;
       this.failedWrites = 0;

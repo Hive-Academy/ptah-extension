@@ -553,8 +553,13 @@ function captureShutdownHandles(
   container: DependencyContainer,
   coordinator: BootCoordinator,
 ): void {
+  if (container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)) {
+    coordinator.refs.sdkAdapter = container.resolve<{ dispose: () => Promise<void>; getLiveSessionUsageIds?: () => string[] }>(
+      SDK_TOKENS.SDK_AGENT_ADAPTER,
+    );
+  }
   if (container.isRegistered(PLATFORM_TOKENS.SESSION_USAGE_SINK)) {
-    coordinator.refs.sessionUsageSink = container.resolve<{ flush: () => Promise<void> }>(
+    coordinator.refs.sessionUsageSink = container.resolve<{ flush: () => Promise<void>; requestFinalization?: (id: string) => Promise<void> | void }>(
       PLATFORM_TOKENS.SESSION_USAGE_SINK,
     );
   }

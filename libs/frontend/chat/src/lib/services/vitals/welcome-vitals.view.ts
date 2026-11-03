@@ -7,7 +7,7 @@ import {
   type StatCellState,
 } from '@ptah-extension/chat-ui/vitals';
 import type { RecentWorkspace } from '@ptah-extension/shared';
-import { formatUsd } from './usage-vitals.model';
+import { formatSpendAmount, formatUsd } from './usage-vitals.model';
 import type { ActivityVitals, SpendVitals } from './usage-vitals.view';
 import type { VitalsLoad } from './vitals-load';
 
@@ -40,6 +40,11 @@ export interface SpendCellView {
   readonly state: StatCellState;
   readonly text: string;
   readonly bars: readonly (number | null)[];
+  /**
+   * "Some usage has no price" when `text` is a lower bound; otherwise null.
+   * Bind it as the tooltip and the aria-label.
+   */
+  readonly note: string | null;
 }
 
 export interface GridView {
@@ -114,22 +119,34 @@ export function toPlanCell(load: VitalsLoad<PlanRingData>): PlanCellView {
   };
 }
 
-/** No spend at all reads "$0.00" with flat bars; unpriced spend is "—". */
+/**
+ * No spend at all reads "$0.00" with flat bars. A full price is "$2.50".
+ * A known cost with unpriced usage is "≥ $2.50" and sets `note`. No known
+ * cost is an empty cell (the dash). Null is never shown as $0.00.
+ */
 export function toSpendCell(load: VitalsLoad<SpendVitals>): SpendCellView {
   switch (load.status) {
     case 'ready': {
-      const cost = load.value.totals.costUsd;
-      if (cost === null) return { state: 'empty', text: '', bars: [] };
-      return { state: 'ready', text: formatUsd(cost), bars: load.value.days };
+      const amount = formatSpendAmount(load.value.totals);
+      if (amount.text === null) {
+        return { state: 'empty', text: '', bars: [], note: null };
+      }
+      return {
+        state: 'ready',
+        text: amount.text,
+        bars: load.value.days,
+        note: amount.note,
+      };
     }
     case 'empty':
       return {
         state: 'ready',
         text: formatUsd(0),
         bars: new Array<number>(SPEND_BAR_COUNT).fill(0),
+        note: null,
       };
     default:
-      return { state: load.status, text: '', bars: [] };
+      return { state: load.status, text: '', bars: [], note: null };
   }
 }
 

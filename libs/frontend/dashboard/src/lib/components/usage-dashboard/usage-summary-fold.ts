@@ -100,7 +100,10 @@ export function foldUsageSummary(summary: UsageSummary, days: readonly string[])
       fact.cacheReadTokens +
       fact.cacheWriteTokens +
       fact.outputTokens;
-    const cost = fact.costUsd;
+    // SQL groups can contain priced and unpriced turns. Preserve their known
+    // priced sum while retaining the unknown-cost marker for the rest.
+    const cost = fact.costUsd ?? fact.knownCostUsd ?? null;
+    const hasUnpriced = fact.costUsd === null;
     const savings = fact.cacheSavingsUsd;
 
     if (tokens > 0 || (cost ?? 0) > 0) hasUsage = true;
@@ -116,7 +119,8 @@ export function foldUsageSummary(summary: UsageSummary, days: readonly string[])
     if (cost !== null) {
       totalCost += cost;
       totalCostKnown = true;
-    } else {
+    }
+    if (hasUnpriced) {
       totalUnpricedFactCount++;
       totalUnpricedTokens += tokens;
       dayUnpricedCount.set(
@@ -150,7 +154,8 @@ export function foldUsageSummary(summary: UsageSummary, days: readonly string[])
       provider.cost += cost;
       provider.costKnown = true;
       provider.costByDay[index] += cost;
-    } else {
+    }
+    if (hasUnpriced) {
       provider.hasUnpriced = true;
       provider.unpricedCount++;
       provider.unpricedTokens += tokens;
@@ -176,7 +181,8 @@ export function foldUsageSummary(summary: UsageSummary, days: readonly string[])
     if (cost !== null) {
       model.cost += cost;
       model.costKnown = true;
-    } else {
+    }
+    if (hasUnpriced) {
       model.unpriced = true;
     }
     addSavings(model, savings);

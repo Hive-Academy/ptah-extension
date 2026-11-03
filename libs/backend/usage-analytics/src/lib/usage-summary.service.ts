@@ -67,6 +67,7 @@ export class UsageAnalyticsService {
             inputUncachedTokens: row.input_tokens, outputTokens: row.output_tokens,
             cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens,
             costUsd: costSource === 'unpriced' ? null : (row.known_cost_micro_usd ?? 0) / 1_000_000,
+            ...(row.known_cost_micro_usd !== null ? { knownCostUsd: row.known_cost_micro_usd / 1_000_000 } : {}),
             cacheSavingsUsd: null,
           };
           groups.set(JSON.stringify([fact.day, fact.providerId, fact.modelId, fact.sourceId, fact.costSource, row.source]), fact);
@@ -80,7 +81,7 @@ export class UsageAnalyticsService {
             title: (row.title.trim() || `Session ${row.session_id.slice(0, 8)}`).slice(0, 500),
             providerId: row.provider_id,
             modelId: row.model_id,
-            costUsd: row.has_unpriced === 1 ? null : (row.known_cost_micro_usd ?? 0) / 1_000_000,
+            costUsd: row.known_cost_micro_usd === null ? null : row.known_cost_micro_usd / 1_000_000,
             unpriced: row.has_unpriced === 1,
             tokens: row.input_tokens + row.output_tokens + row.cache_read_tokens + row.cache_write_tokens,
             messageCount: row.message_count,
@@ -88,7 +89,7 @@ export class UsageAnalyticsService {
             lastActive: new Date(row.last_active_ms).toISOString(),
           }));
         }
-        statuses.push({ sourceId: 'claude-ledger', status: 'partial', reason: ledgerGroups.length > MAX_FACTS
+        statuses.push({ sourceId: 'claude-ledger', status: 'partial', ...(coverage ? { coverageStart: new Date(coverage.first_captured_at_ms).toISOString().slice(0, 10) } : {}), reason: ledgerGroups.length > MAX_FACTS
           ? 'fact-limit' : coverage
             ? `Historical sessions were not backfilled; data starts ${new Date(coverage.first_captured_at_ms).toISOString()}; subagent counts unavailable`
             : 'Historical sessions were not backfilled; no live usage captured yet' });

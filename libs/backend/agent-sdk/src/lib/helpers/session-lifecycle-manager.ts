@@ -796,6 +796,10 @@ export class SessionLifecycleManager {
     return this._control.getSessionIdsForWorkspace(workspacePath);
   }
 
+  getLiveSessionIds(): string[] {
+    return this._control.getLiveSessionIds();
+  }
+
   /** End only the sessions of one workspace; other workspaces keep running. */
   async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
     return this._control.disposeSessionsForWorkspace(workspacePath);

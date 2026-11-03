@@ -211,6 +211,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeQuery'
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
+    | 'getLiveSessionIds'
     | 'getSessionIdsForWorkspace'
     | 'getLiveWorkspaceRoots'
     | 'disposeSessionsForWorkspace'
@@ -234,6 +235,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
+    getLiveSessionIds: jest.fn().mockReturnValue([]),
     getSessionIdsForWorkspace: jest.fn().mockReturnValue([]),
     getLiveWorkspaceRoots: jest.fn().mockReturnValue([]),
     disposeSessionsForWorkspace: jest.fn().mockResolvedValue(undefined),
@@ -1209,6 +1211,8 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter({ workspaceRoot: '/ws/a' });
       await h.adapter.initialize();
       h.sessionLifecycle.getSessionIdsForWorkspace.mockReturnValue(['tab_a']);
+      h.sessionLifecycle.getLiveSessionIds.mockReturnValue(['tab_a']);
+      const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
       const disposed = jest.fn();
       h.events.onDisposed(disposed);
       const write = jest.fn().mockResolvedValue(undefined);
@@ -1223,6 +1227,7 @@ describe('SdkAgentAdapter', () => {
       expect(disposed).not.toHaveBeenCalled();
       expect(h.authManager.clearAuthentication).not.toHaveBeenCalled();
       expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_a');
+      expect(finalize).not.toHaveBeenCalled();
       // A fresh pass picks up the new auth for the active workspace.
       expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
       expect(h.adapter.getHealth().status).toBe('available');
@@ -1283,6 +1288,7 @@ describe('SdkAgentAdapter', () => {
 
     it('re-initializes when the key of the active provider changes', async () => {
       const h = makeAdapter();
+      const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
       h.authManager.resolveActiveAuth.mockReturnValue({
         authMethod: 'thirdParty',
         providerId: 'openrouter',
@@ -1296,6 +1302,7 @@ describe('SdkAgentAdapter', () => {
       await flush();
 
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
+      expect(finalize).not.toHaveBeenCalled();
     });
 
     it('re-initializes for the direct API key regardless of provider', async () => {
@@ -3176,6 +3183,7 @@ describe('SdkAgentAdapter', () => {
 
     it('keeps the budget of an interrupted session (Stop is not a session end)', async () => {
       const h = makeAdapter();
+      const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
       h.sessionLifecycle.find.mockReturnValue({
         tabId: 'tab_1',
         realSessionId: REAL_ID,
@@ -3184,12 +3192,14 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.interruptSession('tab_1' as unknown as SessionId);
 
       expect(h.sessionLifecycle.endSession).toHaveBeenCalled();
+      expect(finalize).not.toHaveBeenCalled();
       expect(h.sessionBudget.release).not.toHaveBeenCalled();
       expect(h.sessionBudget.clearAll).not.toHaveBeenCalled();
     });
 
     it('releases the budget under every key when endSession ends the session', async () => {
       const h = makeAdapter();
+      const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
       h.sessionLifecycle.find.mockReturnValue({
         tabId: 'tab_1',
         realSessionId: REAL_ID,
@@ -3201,6 +3211,7 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_1');
       expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+      expect(finalize).toHaveBeenCalledWith('tab_1');
     });
 
     it('releases the budget when a token-matched end succeeds, not when it loses', async () => {
@@ -3256,6 +3267,22 @@ describe('SdkAgentAdapter', () => {
   });
 
   describe('dispose()', () => {
+    it('settles only after session teardown queues finalization', async () => {
+      const h = makeAdapter();
+      let finish!: () => void;
+      h.sessionLifecycle.getLiveSessionIds.mockReturnValue([REAL_ID]);
+      h.sessionLifecycle.disposeAllSessions.mockImplementation(() =>
+        new Promise<void>((resolve) => { finish = resolve; }),
+      );
+      const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
+
+      const disposal = h.adapter.dispose();
+      expect(finalize).not.toHaveBeenCalled();
+      finish();
+      await disposal;
+      expect(finalize).toHaveBeenCalledWith(REAL_ID);
+      expect(h.sessionLifecycle.dispose).toHaveBeenCalled();
+    });
     it('emits disposed on the events bus, clears auth, and clears the model cache', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();

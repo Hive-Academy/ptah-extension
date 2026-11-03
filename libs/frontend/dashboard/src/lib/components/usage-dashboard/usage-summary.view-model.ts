@@ -136,6 +136,8 @@ export interface UsageViewModel {
   readonly dayCostUnknown: readonly boolean[];
   /** True when any source did not report complete coverage. */
   readonly isPartial: boolean;
+  /** First day with live ledger capture, when known. */
+  readonly coverageStartDay: string | null;
   readonly sources: readonly UsageSourceStatus[];
   readonly providers: readonly ProviderUsageRow[];
   readonly kpis: UsageKpis;
@@ -292,6 +294,7 @@ export function buildUsageViewModel(
     totalCostUnpricedTokens: totalUnpricedTokens,
     dayCostUnknown: days.map((day) => (dayUnpricedCount.get(day) ?? 0) > 0),
     isPartial: summary.sources.some((source) => source.status !== 'complete'),
+    coverageStartDay: summary.sources.find((source) => source.sourceId === 'claude-ledger')?.coverageStart ?? null,
     sources: summary.sources,
     providers: providerRows,
     kpis,

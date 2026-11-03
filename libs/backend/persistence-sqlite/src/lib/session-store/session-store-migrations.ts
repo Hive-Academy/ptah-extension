@@ -96,7 +96,15 @@ CREATE TABLE session_usage_coverage (
 );
 `;
 
+const S0003_SESSION_FINALIZATION = `
+ALTER TABLE session_stats ADD COLUMN finalize_revision INTEGER;
+ALTER TABLE session_stats ADD COLUMN finalize_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE session_stats ADD COLUMN finalize_retry_at_ms INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_session_stats_finalization ON session_stats (status, finalize_retry_at_ms, last_usage_at_ms);
+`;
+
 export const SESSION_STORE_MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'S0001_sessions', sql: S0001_SESSIONS },
   { version: 2, name: 'S0002_session_stats', sql: S0002_SESSION_STATS },
+  { version: 3, name: 'S0003_session_finalization', sql: S0003_SESSION_FINALIZATION },
 ];

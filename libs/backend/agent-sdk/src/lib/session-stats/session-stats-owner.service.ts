@@ -457,12 +457,38 @@ export class SessionStatsOwnerService {
     private readonly logger?: Logger,
   ) {}
 
+  requestFinalization(sessionId: string): void {
+    if (!this.usageSink?.requestFinalization) return;
+    try {
+      void Promise.resolve(this.usageSink.requestFinalization(sessionId)).catch((error: unknown) => {
+        this.logger?.error('[SessionStatsOwner] Finalization request failed',
+          error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (error: unknown) {
+      this.logger?.error('[SessionStatsOwner] Finalization request failed',
+        error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  setLiveSessionIdsProvider(provider: () => readonly string[]): void {
+    this.usageSink?.setLiveSessionIdsProvider?.(provider);
+  }
+
+  private resumeSession(sessionId: string): void {
+    if (!this.usageSink?.resumeSession) return;
+    void Promise.resolve(this.usageSink.resumeSession(sessionId)).catch((error: unknown) => {
+      this.logger?.error('[SessionStatsOwner] Session resume failed',
+        error instanceof Error ? error : new Error(String(error)));
+    });
+  }
+
   /**
    * Begin a brand-new session under `sessionKey` (a provisional tab id until
    * {@link rebind}): known-empty prefix. Replaces any owner held under that
    * key, because a new session on that key is new.
    */
   startNew(sessionKey: string): OwnerLease {
+    this.resumeSession(sessionKey);
     const state = this.createState(emptySessionStats(sessionKey), 0);
     this.states.set(sessionKey, state);
     this.touch(state);
@@ -483,6 +509,7 @@ export class SessionStatsOwnerService {
     sessionId: string,
     loaders: RunPreparationLoaders,
   ): Promise<RunPreparation> {
+    this.resumeSession(sessionId);
     let state = this.states.get(sessionId);
     if (!state) {
       state = this.createState(null, null);

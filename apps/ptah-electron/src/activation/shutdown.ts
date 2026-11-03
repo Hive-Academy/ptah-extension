@@ -300,13 +300,22 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   // connection once its child exits. The guard is inline for the reason given
   // just below.
   const chatSessions = refs.chatSessions;
+  const endingUsageIds = refs.sdkAdapter?.getLiveSessionUsageIds?.() ?? [];
+  // Queue the snapshot before an interrupt can exhaust the chat-dispose budget.
+  // The sink serializes these requests behind already accepted usage writes.
+  if (endingUsageIds.length > 0) {
+    await withBudget('Session finalization requests',
+      async () => {
+        await Promise.allSettled(endingUsageIds.map((id) =>
+          Promise.resolve(refs.sessionUsageSink?.requestFinalization?.(id))));
+      }, 2000, 'usage finalization remains pending.');
+  }
   if (chatSessions !== null) {
     await disposeChatSessions(
       chatSessions,
       deps.chatSessionDisposeBudgetMs ?? CHAT_SESSION_DISPOSE_BUDGET_MS,
     );
   }
-
   // The guard is HERE rather than inside `reapAgents`, and that placement is
   // the whole reason the undeferred path still works. `await f()` suspends even
   // when `f` returns immediately, so hiding the null check inside an async
@@ -324,6 +333,15 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const laneOutcomes = refs.laneOutcomesDisposer;
   if (laneOutcomes !== null) {
     await laneOutcomes.dispose();
+  }
+
+  if (refs.sdkAdapter !== null) {
+    await withBudget(
+      'SDK adapter dispose',
+      () => refs.sdkAdapter?.dispose() ?? Promise.resolve(),
+      deps.chatSessionDisposeBudgetMs ?? CHAT_SESSION_DISPOSE_BUDGET_MS,
+      'continuing shutdown.',
+    );
   }
 
   if (hasElectronCodexBindings()) {
@@ -509,6 +527,7 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
     hasElectronCodexBindings() ||
     refs.laneOutcomesDisposer !== null ||
     refs.sessionUsageSink !== null ||
+    refs.sdkAdapter !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     refs.chatSessions !== null ||
