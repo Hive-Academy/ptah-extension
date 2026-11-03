@@ -4,3 +4,5 @@ export { ReviewPolicyService } from './lib/review-policy.service';
 export type { EligibilityInput, EligibilityDecision, EligibilityReason, PublicationDecision, EffectiveReviewSettings } from './lib/review-policy.service';
 export { ReviewQueueService } from './lib/review-queue.service';
 export type { IReviewQueueRepository, IReviewClock, ReviewQueueHead, ReviewQueueAttempt, ReviewQueueClaim, ReviewQueueLease } from './lib/review-queue.service';
+export { SqliteReviewRepository } from './lib/persistence/sqlite-review.repository';
+export type { IReviewRepository, ReviewAttemptRecord, ReviewStageRecord } from './lib/persistence/review-repository.interface';
