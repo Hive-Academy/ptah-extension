@@ -44,7 +44,16 @@ How to resume Revision 2:
 4. After the codex review: Gate 2 is past the cap, so its result goes to the user (Q1), with the
    recommendation to pass it if the review is APPROVED.
 
-## The two open user questions (Q2 answered above; Q1 still open)
+## The two user questions - BOTH ANSWERED
+
+- Q1 ANSWERED (row 24): "Fix F1+F3, then build". One bounded architect correction of F1/F3 as the
+  reviewer stated; no further codex plan re-check; Gate 2 passes by user decision; the phase
+  code-logic review covers F1/F3.
+- Q2/K2 ANSWERED (rows 20, 25): rejected; both directions; `/compact` is a second trigger next to the
+  banner button. If K2 + /compact add more than about 5 files, report size and options to the parent
+  before building that part; build the rest meanwhile.
+
+The original question text is kept below for the record.
 
 ### Q1 - Gate 2 at the revise cap (decisions.md row 19)
 
@@ -81,8 +90,9 @@ Options:
 
 ## Next steps after the answers
 
-1. Record the Q1 answer in `decisions.md` (next row is 24).
-2. Finish plan Revision 2 and its codex review as described in "How to resume Revision 2".
+1. Both answers are recorded (rows 20-25; next row is 26).
+2. Finish plan Revision 2 (architect correction). No codex plan re-check (row 24). Check the K2 +
+   /compact size against the 5-file threshold (row 25).
 3. Team-leader Mode 1 -> batches.md (backend and frontend batches, file-disjoint).
 4. Before batch 1: visual-reviewer takes Electron "before" screenshots of the re-auth banner (dark + light).
 5. Implement batches; scoped `npm run verify -- -p <changed projects>` per batch; final verify adds
