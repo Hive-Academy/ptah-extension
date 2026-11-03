@@ -56,7 +56,7 @@
     }
     @if (viewModel()?.coverageStartDay; as coverageStartDay) {
       <span class="text-xs text-base-content-muted" data-testid="usage-coverage-start">
-        Captured since {{ coverageStartDay }}
+        Ledger captured since {{ coverageStartDay }}
       </span>
     }
   </div>
@@ -113,7 +113,7 @@
       >
         <p class="text-xs">
           @if (vm.isPartial) {
-            No recorded usage in this range. Earlier usage may be incomplete.
+            No recorded usage in this range. {{ vm.emptyPartialMessage }}
           } @else {
             No usage in this range. Start a chat to see provider usage, tokens and cost.
           }

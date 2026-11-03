@@ -534,7 +534,7 @@ export async function wireRuntimePreWindow(
     if (startupWorkspaceRoot) {
       await booter.startOrJoin(startupWorkspaceRoot);
     }
-    captureShutdownHandles(container, coordinator);
+    captureShutdownHandles(container, coordinator, rpcLogger);
   };
 
   return { resolvedStateStorage, postWindow };
@@ -549,14 +549,22 @@ export async function wireRuntimePreWindow(
  * the auto-updater e2e: production build, blocked network). Non-fatal: a null
  * ref simply means `will-quit` has nothing to dispose.
  */
-function captureShutdownHandles(
+export function captureShutdownHandles(
   container: DependencyContainer,
   coordinator: BootCoordinator,
+  logger: Pick<Logger, 'warn'>,
 ): void {
-  if (container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)) {
-    coordinator.refs.sdkAdapter = container.resolve<{ dispose: () => Promise<void>; getLiveSessionUsageIds?: () => string[] }>(
-      SDK_TOKENS.SDK_AGENT_ADAPTER,
+  try {
+    coordinator.refs.sdkAdapter = container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)
+      ? container.resolve<{ dispose: () => Promise<void>; getLiveSessionUsageIds?: () => string[] }>(SDK_TOKENS.SDK_AGENT_ADAPTER)
+      : null;
+  } catch (error: unknown) {
+    // degradation-audit: reported - shutdown can continue without an adapter.
+    logger.warn(
+      '[Ptah Electron] SDK adapter eager resolve failed (non-fatal)',
+      error instanceof Error ? error : new Error(String(error)),
     );
+    coordinator.refs.sdkAdapter = null;
   }
   if (container.isRegistered(PLATFORM_TOKENS.SESSION_USAGE_SINK)) {
     coordinator.refs.sessionUsageSink = container.resolve<{ flush: () => Promise<void>; requestFinalization?: (id: string) => Promise<void> | void }>(

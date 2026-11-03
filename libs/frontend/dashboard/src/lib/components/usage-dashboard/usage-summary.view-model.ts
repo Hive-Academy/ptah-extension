@@ -138,6 +138,7 @@ export interface UsageViewModel {
   readonly isPartial: boolean;
   /** First day with live ledger capture, when known. */
   readonly coverageStartDay: string | null;
+  readonly emptyPartialMessage: string;
   readonly sources: readonly UsageSourceStatus[];
   readonly providers: readonly ProviderUsageRow[];
   readonly kpis: UsageKpis;
@@ -295,6 +296,16 @@ export function buildUsageViewModel(
     dayCostUnknown: days.map((day) => (dayUnpricedCount.get(day) ?? 0) > 0),
     isPartial: summary.sources.some((source) => source.status !== 'complete'),
     coverageStartDay: summary.sources.find((source) => source.sourceId === 'claude-ledger')?.coverageStart ?? null,
+    emptyPartialMessage: [
+      ...summary.sources.filter((source) => source.sourceId === 'claude-ledger' &&
+        source.coverageStart !== undefined && source.coverageStart > summary.fromDay)
+        .map((source) => `Usage before ${source.coverageStart} was not captured`),
+      ...(summary.sources.some((source) => source.status !== 'complete' &&
+        !(source.sourceId === 'claude-ledger' && source.coverageStart !== undefined &&
+          source.coverageStart > summary.fromDay &&
+          source.reason?.startsWith('Historical sessions were not backfilled')))
+        ? ['Some usage sources are unavailable for this range, so totals may be incomplete'] : []),
+    ].join('. ') + '.',
     sources: summary.sources,
     providers: providerRows,
     kpis,

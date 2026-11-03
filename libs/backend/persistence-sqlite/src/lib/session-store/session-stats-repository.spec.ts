@@ -114,7 +114,7 @@ describe('SessionStatsRepository', () => {
     }
   });
 
-  it('keeps a higher late revision sealed until an explicit resume', async () => {
+  it('re-seals a higher late revision without resuming and ignores older revisions', async () => {
     const store = openTestStore();
     try {
       const repository = new SessionStatsRepository(store);
@@ -125,14 +125,45 @@ describe('SessionStatsRepository', () => {
       expect((await repository.getSessionStats('session-a', '/work/a'))?.finalized_at_ms).toBe(90_000_001);
       await repository.recordUsage({ ...contribution, workspaceKey: '/work/a', eventKey: 'resumed', revision: 2 });
       const late = await repository.getSessionStats('session-a', '/work/a');
-      expect(late?.status).toBe('finalized');
-      expect(late?.finalized_at_ms).toBe(90_000_001);
+      expect(late?.status).toBe('finalize_pending');
+      expect(late?.finalized_at_ms).toBeNull();
       expect(late?.revision).toBe(2);
+      expect(late?.finalize_revision).toBe(2);
+      expect(await repository.reconcileFinalizations(Date.now() + 1)).toBe(1);
+      const resealed = await repository.getSessionStats('session-a', '/work/a');
+      expect(resealed?.status).toBe('finalized');
+      expect(resealed?.finalize_revision).toBe(2);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a',
+        eventKey: 'older', revision: 1 });
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a',
+        eventKey: 'equal', revision: 2 });
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
       await repository.resumeSession('session-a');
       expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('active');
       await repository.requestFinalization('session-a', 90_000_002);
       expect(await repository.reconcileFinalizations(90_000_003)).toBe(1);
       expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('seals queued finalization during flush and isolates reconcile failure', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      const logger = { error: jest.fn() };
+      const sink = new SqliteSessionUsageSink(repository, logger);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await sink.requestFinalization('session-a');
+      await sink.flush();
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+      const failed = new SqliteSessionUsageSink(
+        new SessionStatsRepository({ ready: async () => { throw new Error('SQLITE_BUSY'); } }), logger);
+      await expect(failed.flush()).resolves.toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith(
+        '[persistence-sqlite] shutdown finalization pass failed', expect.any(Error));
     } finally {
       store.close();
     }

@@ -191,6 +191,15 @@ export class SqliteSessionUsageSink implements SessionUsageSink {
       this.runFinalizerPass();
       await this.finalizerPass;
     }
+    try {
+      // One pending-only batch after queued quit-time finalization requests.
+      await this.repository.reconcileFinalizations(Date.now(), 30 * 60_000,
+        false, this.liveSessionIdsProvider?.() ?? [], Date.now() + 500);
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failed finalizer pass cannot block shutdown.
+      this.logger.error('[persistence-sqlite] shutdown finalization pass failed',
+        error instanceof Error ? error : new Error(String(error)));
+    }
     if (this.failedWrites > 0) {
       const count = this.failedWrites;
       this.failedWrites = 0;

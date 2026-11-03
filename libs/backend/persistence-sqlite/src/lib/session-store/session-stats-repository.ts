@@ -202,11 +202,14 @@ export class SessionStatsRepository {
         host = excluded.host, workspace_key = excluded.workspace_key,
         provider_id = excluded.provider_id, started_at_ms = excluded.started_at_ms,
         last_usage_at_ms = excluded.last_usage_at_ms,
-        finalized_at_ms = CASE WHEN session_stats.finalize_revision IS NULL THEN NULL
+        finalized_at_ms = CASE WHEN session_stats.finalize_revision IS NULL
+          OR (session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision) THEN NULL
           ELSE session_stats.finalized_at_ms END,
         status = CASE WHEN session_stats.finalize_revision IS NULL THEN 'active'
+          WHEN session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision THEN 'finalize_pending'
           ELSE session_stats.status END,
         finalize_revision = CASE WHEN session_stats.finalize_revision IS NULL THEN NULL
+          WHEN session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision THEN excluded.revision
           ELSE session_stats.finalize_revision END, finalize_attempts = 0,
         finalize_retry_at_ms = 0, input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens, cache_read_tokens = excluded.cache_read_tokens,
@@ -257,8 +260,8 @@ export class SessionStatsRepository {
 
   /** A fixed pending batch. An idle scan is allowed only on the startup pass. */
   async reconcileFinalizations(nowMs = Date.now(), idleMs = 30 * 60_000,
-    startup = false, liveSessionIds: readonly string[] = []): Promise<number> {
-    return (await this.reconcilePage(nowMs, idleMs, startup, liveSessionIds, null)).changed;
+    startup = false, liveSessionIds: readonly string[] = [], deadlineMs = Number.POSITIVE_INFINITY): Promise<number> {
+    return (await this.reconcilePage(nowMs, idleMs, startup, liveSessionIds, null, deadlineMs)).changed;
   }
 
   async reconcileStartupPage(cursor: { updatedAtMs: number; sessionId: string } | null,
@@ -271,7 +274,8 @@ export class SessionStatsRepository {
   }
 
   private async reconcilePage(nowMs: number, idleMs: number, startup: boolean,
-    liveSessionIds: readonly string[], cursor: { updatedAtMs: number; sessionId: string } | null) {
+    liveSessionIds: readonly string[], cursor: { updatedAtMs: number; sessionId: string } | null,
+    deadlineMs = Number.POSITIVE_INFINITY) {
     const now = safeInteger.parse(nowMs);
     const idleBefore = safeInteger.parse(Math.max(0, now - idleMs));
     const db = await this.store.ready();
@@ -289,6 +293,7 @@ export class SessionStatsRepository {
         cursor?.updatedAtMs ?? 0, cursor?.updatedAtMs ?? 0, cursor?.sessionId ?? ''));
     let changed = 0;
     for (const row of candidates) {
+      if (Date.now() >= deadlineMs) break;
       if (liveSessionIds.includes(row.session_id)) continue;
       try {
         const result = db.prepare(`UPDATE session_stats SET status = 'finalized', finalized_at_ms = ?,

@@ -246,6 +246,19 @@ describe('buildUsageViewModel', () => {
     )!;
     expect(vm.isPartial).toBe(true);
     expect(vm.sources).toHaveLength(2);
+    expect(vm.emptyPartialMessage).toBe('Some usage sources are unavailable for this range, so totals may be incomplete.');
+  });
+
+  it('explains ledger gaps and unavailable sources separately', () => {
+    const sources = [
+      { sourceId: 'claude-ledger', status: 'partial' as const,
+        coverageStart: '2026-10-19', reason: 'Historical sessions were not backfilled' },
+      { sourceId: 'codex', status: 'unavailable' as const },
+    ];
+    expect(buildUsageViewModel(usageSummary([], { sources: [sources[0]!] }))?.emptyPartialMessage)
+      .toBe('Usage before 2026-10-19 was not captured.');
+    expect(buildUsageViewModel(usageSummary([], { sources }))?.emptyPartialMessage)
+      .toBe('Usage before 2026-10-19 was not captured. Some usage sources are unavailable for this range, so totals may be incomplete.');
   });
 
   it('keeps the SQL known-cost lower bound when a grouped fact also has unpriced turns', () => {

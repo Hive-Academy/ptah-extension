@@ -37,11 +37,36 @@ import {
 } from '@ptah-extension/skill-synthesis';
 
 import {
+  captureShutdownHandles,
   isBackgroundLearningPaused,
   logBootDegradationSummary,
   reportStartupBootFailure,
   runEmbedderWarmup,
 } from './wire-runtime';
+import { BootCoordinator } from './boot-coordinator';
+
+describe('shutdown handle capture', () => {
+  it('continues capturing after SDK adapter resolution fails', () => {
+    const failure = new Error('adapter unavailable');
+    const logger = { warn: jest.fn() };
+    const disposer = { dispose: jest.fn() };
+    const container = {
+      isRegistered: jest.fn((token: symbol) => token === SDK_TOKENS.SDK_AGENT_ADAPTER),
+      resolve: jest.fn((token: symbol) => {
+        if (token === SDK_TOKENS.SDK_AGENT_ADAPTER) throw failure;
+        if (token === TOKENS.LOGGER) return logger;
+        return disposer;
+      }),
+    } as DependencyContainer;
+    const coordinator = new BootCoordinator();
+    captureShutdownHandles(container, coordinator, logger);
+    expect(coordinator.refs.sdkAdapter).toBeNull();
+    expect(coordinator.refs.cliRegistry).toBe(disposer);
+    expect(coordinator.refs.agentProcessManager).toBe(disposer);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[Ptah Electron] SDK adapter eager resolve failed (non-fatal)', failure);
+  });
+});
 
 function buildTestContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
