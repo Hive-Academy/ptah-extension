@@ -433,7 +433,6 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
       'libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter.ts',
       'apps/ptah-electron/src/di/codex-lane-composition.ts',
       'libs/backend/cli-engine/src/lib/codex-lane-runtime-composition.ts',
-      'apps/ptah-extension-vscode/src/di/codex-lane-runtime-composition.ts',
     ];
     for (const file of files) {
       const source = readFileSync(resolve(root, file), 'utf8');

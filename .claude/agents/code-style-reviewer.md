@@ -144,10 +144,10 @@ higher one.
 
 - Check module boundaries first. Every new or moved project must carry both a `scope:*` tag and a `type:*` tag, and `@nx/enforce-module-boundaries` in `eslint.config.mjs` decides what may import what. Treat any `eslint-disable` of that rule in production code as a blocker.
 - Cross-lib imports go through the `@ptah-extension/<lib>` barrel or a declared secondary entry point mapped in `tsconfig.base.json`. Flag deep relative paths into another lib's `src/`.
-- The backend is hexagonal. Runtime-agnostic libs depend on the ports in `libs/backend/platform-core/src/interfaces/` and the tokens in `libs/backend/platform-core/src/di/tokens.ts`, never on an adapter. Only composition roots may import `platform-vscode`, `platform-electron` or `platform-cli`.
-- A new port needs a binding in each of `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`, plus a contract runner in `libs/backend/platform-core/src/testing/contracts/`. A port bound in only one adapter is incomplete.
+- The backend is hexagonal. Runtime-agnostic libs depend on the ports in `libs/backend/platform-core/src/interfaces/` and the tokens in `libs/backend/platform-core/src/di/tokens.ts`, never on an adapter. Composition roots import `platform-electron` or the retained benchmark's `platform-cli`.
+- A new Electron port needs a binding in `libs/backend/platform-electron/src/registration.ts` and a contract runner in `libs/backend/platform-core/src/testing/contracts/`. Check `platform-cli` when the benchmark consumes the port.
 - Do not let the `vscode` leak spread. A new import of `libs/backend/vscode-core/src/di/tokens.ts` or other `vscode-core` code from an agnostic lib is a finding. So is growing `apps/ptah-electron/src/shims/vscode-shim.ts` to paper over such an import.
-- VS Code host DI follows the phase files in `apps/ptah-extension-vscode/src/di/`, from `phase-0-platform.ts` through `phase-4-app.ts`. Check that each registration sits in the right phase. When the resolvable surface changes, `expected-resolvable.ts` and `expected-absent.ts` must be updated too. `tools/di-lint/check-injects.ts` runs on every push.
+- Electron host DI follows the phase files in `apps/ptah-electron/src/di/`, from `phase-0-platform.ts` through `phase-4-handlers.ts`. When the resolvable surface changes, update `expected-resolvable.ts`. `tools/di-lint/check-injects.ts` runs on every push.
 - Naming rules:
   - Tokens are `Symbol.for(...)` constants grouped in a token object.
   - Ports are `I*`-prefixed and exported with `export type`.

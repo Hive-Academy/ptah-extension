@@ -55,7 +55,6 @@ const SCAN_ROOTS = [
   'libs/backend/vscode-lm-tools/src',
   'libs/backend/agent-sdk/src',
   'libs/backend/rpc-handlers/src',
-  'apps/ptah-cli/src',
 ];
 
 /**

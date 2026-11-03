@@ -129,16 +129,6 @@ const VSCODE_PROCESS_NAMES = new Set([
   'code - insiders.exe',
   'vscodium.exe',
 ]);
-const NODE_PROCESS_NAMES = new Set(['node.exe', 'node']);
-
-/**
- * Matches a Node command line that is a Ptah CLI or TUI entry point. Copied in
- * spirit from `apps/ptah-electron/scripts/backup-local-production-data.js`,
- * which solves the same "is a Ptah writer alive" problem.
- */
-const PTAH_CLI_ENTRY =
-  /[\\/](@hive-academy[\\/]ptah-cli|dist[\\/]apps[\\/]ptah-(cli|tui)|apps[\\/]ptah-(cli|tui)[\\/]src)[\\/](main|tui)\.(mjs|js|tsx?)(?:["'\s]|$)/i;
-
 /**
  * Non-mutating exclusive-access probe, copied from
  * `apps/ptah-electron/scripts/backup-local-production-data.js:87`. Opens each
@@ -348,16 +338,6 @@ export function findPtahProcesses(
     if (name === 'ptah.exe' || VSCODE_PROCESS_NAMES.has(name)) {
       writers.push(record);
       continue;
-    }
-    if (NODE_PROCESS_NAMES.has(name)) {
-      if (record.CommandLine === null) {
-        // An unreadable command line means we cannot rule this process out.
-        // Refusing is the only safe reading.
-        throw new Error(
-          `Cannot verify whether Node process ${record.ProcessId} is a Ptah writer`,
-        );
-      }
-      if (PTAH_CLI_ENTRY.test(record.CommandLine)) writers.push(record);
     }
   }
   return writers;

@@ -14,7 +14,7 @@ function findRepoRoot(): string {
 
 const REPO_ROOT = findRepoRoot();
 const SKILLS_ROOT =
-  'apps/ptah-extension-vscode/assets/plugins/ptah-core/skills';
+  'plugins/ptah-core/skills';
 const HOME = `${SKILLS_ROOT}/agent-lanes/SKILL.md`;
 const SCANNED_SKILLS = ['agent-lanes', 'orchestration', 'tribunal'] as const;
 

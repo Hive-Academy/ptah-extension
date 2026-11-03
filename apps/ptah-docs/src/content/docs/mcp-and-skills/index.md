@@ -23,7 +23,7 @@ Without MCP and Skills, a model depends on whatever its provider gave it — Cla
 
 - **One tool catalog** across all providers via the built-in MCP server.
 - **One skill catalog** across all AI clients via manifest-owned copies in detected harness directories.
-- **One extension mechanism** — plugins contribute both.
+- **One plugin mechanism** — plugins contribute both.
 
 ## Explore the docs
 

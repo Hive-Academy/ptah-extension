@@ -40,7 +40,7 @@ The opus tier is what Ptah selects when a high-capability Kimi agent is requeste
 ## What you need
 
 - A Kimi Code subscription and an API key from the Kimi Code console at [kimi.com/code](https://www.kimi.com/code).
-- The Ptah Electron desktop app, or `ptah-cli` for headless use.
+- The Ptah Electron desktop app.
 
 :::note
 Kimi Code is available overseas only. Ptah connects to `https://api.kimi.ai/coding/`.

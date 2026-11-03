@@ -16,9 +16,7 @@ module.exports = {
   // peak working set of the run's process tree): 2 workers 5.3 GB, 3 workers
   // 6.2 GB. With two runs active the 28 GB host had 4.6 GB free, so 3 workers
   // per run would not leave room for the Electron app. CI passes its own
-  // `--maxWorkers`, which beats this default. The two `apps/ptah-cli` configs
-  // that pin `maxWorkers: 1` (pty and e2e, which bind a real console) set it
-  // explicitly and so are unaffected by this default.
+  // `--maxWorkers`, which beats this default.
   maxWorkers: 2,
   // `marked` 18 publishes ESM-only ("exports": { ".": "./lib/marked.esm.js" },
   // "type": "module") but still ships a CommonJS UMD build at
@@ -32,8 +30,6 @@ module.exports = {
   // `moduleNameMapper` with the preset's (object union, project entries take
   // precedence on key collisions) rather than replacing it, so this applies
   // even to projects that already declare their own mapper — verified against
-  // apps/ptah-extension-vscode, which has its own `vscode`/`wasm-bundle-dir`
-  // mappers and no `marked` entry of its own.
   moduleNameMapper: {
     '^marked$': path.resolve(
       __dirname,

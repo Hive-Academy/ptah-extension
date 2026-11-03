@@ -432,7 +432,6 @@
         "default",
         "^production",
         "jestRuntime",
-        "{workspaceRoot}/scripts/copy-webview.js",
         "{workspaceRoot}/scripts/electron-only-chunks.js",
         "{workspaceRoot}/scripts/eager-closure-gate.js",
         "{workspaceRoot}/.github/workflows/publish-electron.yml",

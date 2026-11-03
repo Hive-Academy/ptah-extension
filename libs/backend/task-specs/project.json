@@ -34,7 +34,7 @@
         "{workspaceRoot}/libs/**/*.ts",
         "{workspaceRoot}/libs/**/*.tsx",
         "{workspaceRoot}/libs/backend/agent-generation/templates/agents/**/*.md",
-        "{workspaceRoot}/apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/**/*.md"
+        "{workspaceRoot}/plugins/ptah-core/skills/orchestration/**/*.md"
       ],
       "options": {
         "passWithNoTests": true

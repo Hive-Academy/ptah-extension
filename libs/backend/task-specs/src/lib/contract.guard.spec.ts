@@ -178,10 +178,6 @@ const LITERAL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     file: 'libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts',
     why: 'Maps orchestration stages to required artifacts, including the permanent batches.md/tasks.md pair.',
   },
-  {
-    file: 'apps/ptah-cli/src/cli/commands/execute-spec.ts',
-    why: 'CLI spec-execution reads two fixed documents; Phase 2 moves it onto the contract.',
-  },
 ];
 
 const ALLOWLISTED_FILES = new Set(LITERAL_ALLOWLIST.map((e) => e.file));
@@ -229,7 +225,7 @@ describe('contract guard — per-task filename literals', () => {
 
 const AGENT_TEMPLATE_DIR = 'libs/backend/agent-generation/templates/agents';
 const ORCHESTRATION_SKILL_DIR =
-  'apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration';
+  'plugins/ptah-core/skills/orchestration';
 
 function assetFiles(): string[] {
   return [
@@ -303,7 +299,7 @@ describe('contract guard — asset document names', () => {
 // ---------------------------------------------------------------------------
 
 const SKILL_ASSET_ROOTS = [
-  'apps/ptah-extension-vscode/assets/plugins',
+  'plugins',
   AGENT_TEMPLATE_DIR,
 ];
 

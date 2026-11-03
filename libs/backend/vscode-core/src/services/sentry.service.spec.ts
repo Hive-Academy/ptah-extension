@@ -95,9 +95,9 @@ describe('SentryService noise filter (beforeSend logic)', () => {
   });
 
   describe('should KEEP (return event)', () => {
-    it('(c) dist/apps/ptah-extension-vscode/main.mjs frame', () => {
+    it('(c) dist/apps/ptah-electron/main.mjs frame', () => {
       const event = makeEvent([
-        'D:/projects/ptah-extension/dist/apps/ptah-extension-vscode/main.mjs',
+        'D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs',
       ]);
       expect(applyFilter(event)).toBe(event);
     });
@@ -151,9 +151,9 @@ describe('SentryService noise filter (beforeSend logic)', () => {
       expect(applyFilter(event)).toBe(event);
     });
 
-    it('keeps apps/ptah-cli frame', () => {
+    it('keeps apps/ptah-electron source frame', () => {
       const event = makeEvent([
-        '/home/user/projects/ptah-extension/apps/ptah-cli/src/main.ts',
+        '/home/user/projects/ptah-extension/apps/ptah-electron/src/main.ts',
       ]);
       expect(applyFilter(event)).toBe(event);
     });

@@ -50,7 +50,6 @@ const PUBLISH_WORKFLOW_PATH = join(
 );
 
 const ROOT_MANIFEST_PATH = join(REPO_ROOT, 'package.json');
-const COPY_WEBVIEW_PATH = join(REPO_ROOT, 'scripts', 'copy-webview.js');
 const WEBVIEW_PROJECT_JSON_PATH = join(
   REPO_ROOT,
   'apps',
@@ -205,16 +204,9 @@ describe('packaged electron dependency set', () => {
     );
   });
 
-  // Requirement 5.8 (R12): the VSIX copy skips the Electron-only chunks; the
-  // Electron renderer copy (copy-renderer.js) copies the whole browser folder.
+  // The Electron renderer copy (copy-renderer.js) copies the whole browser folder.
   describe('electron-only chunk rule', () => {
     const { isElectronOnlyInput } = electronOnlyChunks;
-
-    it('copy-webview.js filters the VSIX copy by the generated list', () => {
-      const script = readFileSync(COPY_WEBVIEW_PATH, 'utf8');
-      expect(script).toContain("require('./electron-only-chunks')");
-      expect(script).toMatch(/cpSync\([^)]*filter/s);
-    });
 
     it('treats CodeMirror and the review/editor surfaces as Electron-only', () => {
       expect(
@@ -317,10 +309,6 @@ describe('packaged electron dependency set', () => {
         ).not.toThrow();
       });
 
-      it('copy-webview.js compares skipped paths case-sensitively off Windows', () => {
-        const script = readFileSync(COPY_WEBVIEW_PATH, 'utf8');
-        expect(script).toMatch(/process\.platform === 'win32'/);
-      });
     });
   });
 });

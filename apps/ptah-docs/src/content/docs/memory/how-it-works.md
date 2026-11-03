@@ -80,5 +80,5 @@ Alongside curated memory, Ptah keeps a separate **code-symbol index** for the cu
 Indexing runs on your machine; nothing is uploaded. When the workspace changes, you can re-index from the **Memory** tab. Each indexed symbol records its name, `kind` (e.g. function, class, method), the file it lives in, and a token count.
 
 :::note
-The code-symbol index is workspace-scoped and lives in the same `~/.ptah/ptah.db`. It is part of the Electron desktop app's **Memory** tab and is not available in the VS Code extension or the CLI.
+The code-symbol index is workspace-scoped and lives in the same `~/.ptah/ptah.db`. Find it in the Electron desktop app's **Memory** tab.
 :::

@@ -30,7 +30,7 @@ describe('PromptLaunchersComponent', () => {
 
   afterEach(() => fixture.destroy());
 
-  it('builds launchers from the full catalogue (6 categories, 27 prompts)', () => {
+  it('builds launchers from the full catalogue (6 categories, 26 prompts)', () => {
     expect(PROMPT_CATALOGUE.map((c) => c.id)).toEqual([
       'build',
       'fix',
@@ -39,7 +39,7 @@ describe('PromptLaunchersComponent', () => {
       'explore',
       'creative',
     ]);
-    expect(PROMPT_CATALOGUE.flatMap((c) => c.prompts)).toHaveLength(27);
+    expect(PROMPT_CATALOGUE.flatMap((c) => c.prompts)).toHaveLength(26);
     expect(LAUNCHERS.map((l) => [l.id, l.label, l.icon, l.text])).toEqual(
       ['build', 'fix', 'review', 'explore'].map((id) => {
         const category = PROMPT_CATALOGUE.find((c) => c.id === id);

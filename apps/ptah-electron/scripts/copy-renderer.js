@@ -29,9 +29,7 @@ const DEST = path.resolve(
   '../../../dist/apps/ptah-electron/renderer',
 );
 
-// The renderer keeps EVERY chunk, including the Electron-only ones listed in
-// dist/apps/ptah-extension-webview/electron-only-chunks.json (scripts/copy-webview.js
-// skips those for the VSIX only).
+// The renderer keeps every built chunk.
 // Walk SOURCE manually so broken symlinks (occasionally produced by npm's
 // _cacache on Linux runners) are
 // skipped rather than aborting the whole copy with a C++ filesystem_error.

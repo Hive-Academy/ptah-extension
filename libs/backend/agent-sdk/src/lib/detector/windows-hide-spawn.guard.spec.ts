@@ -43,10 +43,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../../..');
  */
 const SCAN_ROOTS = [
   'libs/backend',
-  'apps/ptah-cli/src',
-  'apps/ptah-extension-vscode/src',
   'apps/ptah-electron/src',
-  'apps/ptah-tui/src',
 ];
 
 /**
