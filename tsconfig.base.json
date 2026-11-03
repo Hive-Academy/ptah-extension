@@ -283,6 +283,9 @@
       ],
       "@ptah-extension/review-github": [
         "./libs/backend/review-github/src/index.ts"
+      ],
+      "@ptah-extension/review-runs-ui": [
+        "./libs/frontend/review-runs-ui/src/index.ts"
       ]
     },
     "strict": false,
