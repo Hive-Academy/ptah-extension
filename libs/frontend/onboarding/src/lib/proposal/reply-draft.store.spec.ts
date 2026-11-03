@@ -57,6 +57,31 @@ describe('ReplyDraftStore', () => {
     expect(store.announcement()).toBe('Reply sent');
   });
 
+  it('keeps text typed while a send is in flight', async () => {
+    let resolve!: (value: boolean) => void;
+    send.mockImplementation(() => new Promise<boolean>((done) => { resolve = done; }));
+    store.setReply('First reply');
+    const pending = store.send();
+    store.setReply('Second reply');
+    resolve(true);
+    expect(await pending).toBe(true);
+    expect(send).toHaveBeenCalledWith('First reply', { files: undefined, images: undefined });
+    expect(store.reply()).toBe('Second reply');
+    expect(store.announcement()).toBe('Reply sent');
+  });
+
+  it('resets sending and announces failure when the attachment snapshot throws', async () => {
+    jest.spyOn(attachments, 'snapshotForSend').mockImplementation(() => {
+      throw new Error('snapshot failed');
+    });
+    store.setReply('Keep this reply');
+    expect(await store.send()).toBe(false);
+    expect(store.sending()).toBe(false);
+    expect(store.reply()).toBe('Keep this reply');
+    expect(store.announcement()).toBe('Reply could not be sent. Try again.');
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('keeps the reply and attachments after a rejected send', async () => {
     send.mockRejectedValue(new Error('private provider error'));
     attachments.addFile(file('/ws/brief.md'));

@@ -24,24 +24,25 @@ export class ReplyDraftStore implements OnDestroy {
     if (this.destroyed || !this.canSend()) return false;
     const text = this.reply().trim();
     this.sending.set(true);
-    this.announcement.set('');
-    const snapshot = this.attachments.snapshotForSend();
-    let sent = false;
     try {
-      sent = await this.flow.session.send(text, snapshot.options);
+      this.announcement.set('');
+      const snapshot = this.attachments.snapshotForSend();
+      const sent = await this.flow.session.send(text, snapshot.options);
+      if (this.destroyed) return false;
+      if (sent) {
+        snapshot.removeSent();
+        if (this.reply().trim() === text) this.reply.set('');
+        this.announcement.set('Reply sent');
+        return true;
+      }
+      this.announcement.set('Reply could not be sent. Try again.');
+      return false;
     } catch {
-      sent = false;
+      if (!this.destroyed) this.announcement.set('Reply could not be sent. Try again.');
+      return false;
+    } finally {
+      this.sending.set(false);
     }
-    if (this.destroyed) return false;
-    this.sending.set(false);
-    if (sent) {
-      snapshot.removeSent();
-      this.reply.set('');
-      this.announcement.set('Reply sent');
-      return true;
-    }
-    this.announcement.set('Reply could not be sent. Try again.');
-    return false;
   }
 
   ngOnDestroy(): void {
