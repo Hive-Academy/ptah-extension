@@ -13,19 +13,43 @@ const finiteNumber = z.union([
   z.string().trim().min(1).transform(Number).pipe(z.number().finite()),
 ]);
 const ratio = finiteNumber.refine((value) => value >= 0 && value <= 1);
-const window = z.object({
-  used_ratio: ratio,
-  reset_time: z.union([z.literal(''), z.string().datetime({ offset: true })]).optional(),
-});
-const usage = z.object({
-  usages: z.object({
-    limit_5h: window,
-    limit_7d: window,
+const resetTime = z.union([z.literal(''), z.string().datetime({ offset: true })]).optional();
+/** One window arrives snake_case from one region and camelCase from another. */
+const window = z.union([
+  z.object({ used_ratio: ratio, reset_time: resetTime }),
+  z.object({ usedRatio: ratio, resetAt: resetTime }).transform((value) => ({
+    used_ratio: value.usedRatio,
+    ...(value.resetAt !== undefined && { reset_time: value.resetAt }),
+  })),
+]);
+/** Every window is optional: the regions report different window sets. */
+const usages = z
+  .object({
+    limit_5h: window.optional(),
+    limit5h: window.optional(),
+    limit_7d: window.optional(),
+    limit7d: window.optional(),
     limit_month_total: window.optional(),
+    limitMonthTotal: window.optional(),
     limit_month_code: window.optional(),
-  }),
+    limitMonthCode: window.optional(),
+  })
+  .transform((value) => ({
+    limit_5h: value.limit_5h ?? value.limit5h,
+    limit_7d: value.limit_7d ?? value.limit7d,
+    limit_month_total: value.limit_month_total ?? value.limitMonthTotal,
+    limit_month_code: value.limit_month_code ?? value.limitMonthCode,
+  }));
+const usage = z.object({
+  usages,
   usage: z.object({ used: finiteNumber.refine((value) => value >= 0) }).optional(),
 });
+/** One region wraps the same content in a `data` or `data.quota` envelope. */
+const payload = z.union([
+  usage,
+  z.object({ data: usage }).transform((value) => value.data),
+  z.object({ data: z.object({ quota: usage }) }).transform((value) => value.data.quota),
+]);
 
 const reading = (status: PlanUsageReading['status']): PlanUsageReading => ({
   status,
@@ -122,17 +146,19 @@ export function createKimiCodePlanUsageReader(
       }
       if (response.status === 401 || response.status === 403) return reading('unsupported-auth');
       if (!response.ok) return reading('service-unavailable');
-      const parsed = usage.safeParse(await response.json());
+      const parsed = payload.safeParse(await response.json());
       if (!parsed.success) return reading('service-unavailable');
-      if (parsed.data.usage?.used && parsed.data.usages.limit_7d.used_ratio === 0) {
+      if (parsed.data.usage?.used && parsed.data.usages.limit_7d?.used_ratio === 0) {
         return reading('service-unavailable');
       }
       const observedAt = now();
+      const windows = windowsFrom(parsed.data, observedAt);
+      if (windows.length === 0) return reading('service-unavailable');
       return {
         status: 'available',
         fetchedAt: observedAt,
         windowSetEstablished: true,
-        windows: windowsFrom(parsed.data, observedAt),
+        windows,
       };
     } catch {
       return reading('service-unavailable');

@@ -81,6 +81,69 @@ describe('Kimi Code plan usage reader', () => {
     expect(result.windows[0].resetsAt).toBeUndefined();
   });
 
+  it('reads the mainland top-level usages payload without a weekly window', async () => {
+    const payload = {
+      usages: {
+        limit_5h: { used_ratio: 0.5, reset_time: '2026-11-01T05:00:00Z' },
+        limit_month_total: { used_ratio: 0.4 },
+        limit_month_code: { used_ratio: 0.25 },
+      },
+      limits: [],
+    };
+    const result = await harness({ payload }).reader({ target: main(), refresh: false });
+    expect(result.status).toBe('available');
+    expect(result.windows.map((value) => [value.key, value.kind, value.label])).toEqual([
+      ['five_hour', 'five_hour', 'Kimi Code · 5-hour'],
+      ['monthly', 'monthly', 'Kimi Code · Monthly total'],
+      ['other:monthly-code', 'monthly', 'Kimi Code · Monthly code'],
+    ]);
+    expect(result.windows.map((value) => (value.used?.kind === 'percent' ? value.used.percent : undefined)))
+      .toEqual([50, 40, 25]);
+  });
+
+  it('unwraps the data.quota envelope and reads camelCase windows', async () => {
+    const payload = {
+      code: 0,
+      data: {
+        kind: 'ok',
+        quota: {
+          extraUsage: null,
+          usages: {
+            limit5h: { usedRatio: 0.3, resetAt: '2026-11-01T05:00:00+00:00' },
+            limit7d: { usedRatio: '0.2', resetAt: '2026-11-07T00:00:00+00:00' },
+          },
+        },
+      },
+    };
+    const result = await harness({ payload }).reader({ target: main(), refresh: false });
+    expect(result.status).toBe('available');
+    expect(result.windows.map((value) => [
+      value.key,
+      value.used?.kind === 'percent' ? value.used.percent : undefined,
+      value.resetsAt,
+    ])).toEqual([
+      ['five_hour', 30, Date.parse('2026-11-01T05:00:00+00:00')],
+      ['weekly', 20, Date.parse('2026-11-07T00:00:00+00:00')],
+    ]);
+  });
+
+  it('unwraps a bare data envelope', async () => {
+    const payload = { code: 0, data: { usages: { limit5h: { usedRatio: 0.3 } } } };
+    const result = await harness({ payload }).reader({ target: main(), refresh: false });
+    expect(result.status).toBe('available');
+    expect(result.windows.map((value) => value.key)).toEqual(['five_hour']);
+  });
+
+  it.each([
+    {},
+    { code: 0, data: { kind: 'ok' } },
+    { code: 0, data: { kind: 'ok', quota: { extraUsage: null } } },
+    { limits: [], usage: { used: 100, limit: 100 } },
+  ])('stays service-unavailable for a payload with no parseable window: %j', async (payload) => {
+    const result = await harness({ payload }).reader({ target: main(), refresh: false });
+    expect(result).toMatchObject({ status: 'service-unavailable', windowSetEstablished: false, windows: [] });
+  });
+
   it.each([
     { usages: { limit_5h: { used_ratio: -1 }, limit_7d: body.usages.limit_7d } },
     { usages: { limit_5h: { used_ratio: 'NaN' }, limit_7d: body.usages.limit_7d } },
