@@ -36,6 +36,7 @@ import { createBootReadinessBroadcaster } from './activation/boot-readiness-broa
 import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import { handleWillQuit } from './activation/shutdown';
+import { codexSignInQuitHandle } from './di/codex-login-composition';
 import {
   ProcessLifecycleRecorder,
   pruneCrashDumps,
@@ -458,6 +459,7 @@ if (!gotLock) {
     if (quitSequenceStarted) return;
     quitSequenceStarted = true;
     handleWillQuit({
+      codexSignIn: codexSignInQuitHandle,
       refs: coordinator.refs,
       abortBoot: () => coordinator.abort(),
       isBootRunning: () => coordinator.isRunning,
