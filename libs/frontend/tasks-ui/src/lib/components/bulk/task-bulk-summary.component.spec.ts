@@ -658,31 +658,24 @@ describe('TaskBulkBarComponent', () => {
   });
 
   /**
-   * The commit button does not use the known-failing primary pair.
+   * The commit button is the region's one primary action.
    *
-   * `bg-primary` + `text-primary-content` is 4.144:1 on anubis, the app
-   * default, against a 4.5:1 gate — recorded by Batch 7, refused by Batch 9,
-   * and moved off by Batch 10 for the palette's active row. This is the button
-   * that commits N irreversible carrier writes, so it is the last control in
-   * the feature that should carry it.
-   *
-   * Pinned as CONSTRUCT ABSENCE rather than as a ratio: jsdom computes no
-   * colours, so a computed-style assertion here would be vacuous. The measured
-   * ratios for the replacement live in the component's own docblock.
+   * The approved design spec (TASK_2026_871) measured primary-content on
+   * primary at 4.82:1 on anubis and 6.81:1 on anubis-light, so the earlier
+   * base-pair workaround is retired. Pinned as the construct; jsdom computes no
+   * colours, so the ratio belongs to the visual pass.
    */
-  it('does not commit the bulk write through a btn-primary control', async () => {
+  it('commits the bulk write through the primary button', async () => {
     const fixture = await renderBar({ count: 42, requested: moveTo('done') });
 
     const confirm = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="task-bulk-confirm-run"]',
     );
     expect(confirm).not.toBeNull();
-    expect(confirm?.className).not.toContain('btn-primary');
+    expect(confirm?.className).toContain('btn-primary');
+    expect(confirm?.className).toContain('btn-sm');
     expect(confirm?.className).not.toContain('btn-secondary');
     expect(confirm?.className).not.toContain('btn-accent');
-    // …and it is carried by the base pair instead.
-    expect(confirm?.className).toContain('text-base-content');
-    expect(confirm?.className).toContain('border-base-content');
   });
 
   /**

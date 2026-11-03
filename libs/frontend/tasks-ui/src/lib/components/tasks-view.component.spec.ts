@@ -166,7 +166,9 @@ describe('TasksViewComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('New Task');
     expect(text).toContain('Reindex');
-    expect(text).toContain('Registry');
+    expect(text).toContain('Generate registry');
+    expect(text).toContain('Tidy finished');
+    expect(text).toContain('Commands');
   });
 
   // -------------------------------------------------------------------------
@@ -395,7 +397,7 @@ describe('TasksViewComponent', () => {
       expect(panel).not.toBeNull();
       expect(panel?.textContent).toContain('No folder is open');
       // The refusal is not a failure, so nothing red is on screen.
-      expect(host.querySelector('.alert-error')).toBeNull();
+      expect(host.querySelector('[data-testid="tasks-error"]')).toBeNull();
     });
 
     it('offers no create affordance anywhere on the screen', async () => {
@@ -1788,6 +1790,147 @@ describe('TasksViewComponent', () => {
         ),
       ).toEqual([]);
       expect(bar(fixture)?.textContent).toContain('Move 11 task(s) to Done?');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_871 B4 — the split shell keeps every board capability
+  // -------------------------------------------------------------------------
+  describe('board shell composition', () => {
+    const q = (fixture: ComponentFixture<TasksViewComponent>, id: string) =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+        `[data-testid="${id}"]`,
+      );
+
+    it('creates a task in the status the dialog was opened with', async () => {
+      const fixture = await render(board({}, { specsDirExists: true }));
+      rpcCall.mockImplementation(async (method: string) => {
+        if (method === 'tasks:create')
+          return ok({ success: true, taskId: 'TASK_2026_900' });
+        if (method === 'tasks:getViews')
+          return ok({ views: [], activeViewId: null, skipped: 0 });
+        return ok(board({}, { specsDirExists: true }));
+      });
+
+      q(fixture, 'tasks-create-trigger')?.click();
+      fixture.detectChanges();
+      // NgForm registers its controls on a resolved promise.
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(q(fixture, 'tasks-create-dialog')).not.toBeNull();
+
+      // Submitting an empty title shows the inline validation, writes nothing.
+      q(fixture, 'tasks-create-submit')
+        ?.closest('form')
+        ?.dispatchEvent(new Event('submit'));
+      fixture.detectChanges();
+      expect(q(fixture, 'tasks-create-title-error')?.textContent).toContain(
+        'needs a title',
+      );
+      expect(
+        rpcCall.mock.calls.some(([method]) => method === 'tasks:create'),
+      ).toBe(false);
+
+      const title = q(fixture, 'tasks-create-title') as HTMLInputElement;
+      title.value = 'Ship the board';
+      title.dispatchEvent(new Event('input'));
+      const status = q(fixture, 'tasks-create-status') as HTMLSelectElement;
+      status.value = 'in_review';
+      status.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      q(fixture, 'tasks-create-submit')
+        ?.closest('form')
+        ?.dispatchEvent(new Event('submit'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'tasks:create',
+        expect.objectContaining({
+          title: 'Ship the board',
+          type: 'FEATURE',
+          status: 'in_review',
+        }),
+      );
+      expect(q(fixture, 'tasks-create-dialog')).toBeNull();
+    });
+
+    it('switches between board and list from the header switch', async () => {
+      const fixture = await render(board({ backlog: [task('TASK_2026_200')] }));
+      const host = fixture.nativeElement as HTMLElement;
+
+      q(fixture, 'tasks-view-mode-list')?.click();
+      fixture.detectChanges();
+      expect(
+        q(fixture, 'tasks-view-mode-list')?.getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(host.querySelector('ptah-task-list')).not.toBeNull();
+      expect(host.querySelector('ptah-task-board')).toBeNull();
+
+      q(fixture, 'tasks-view-mode-kanban')?.click();
+      fixture.detectChanges();
+      expect(host.querySelector('ptah-task-board')).not.toBeNull();
+    });
+
+    it('renders all six statuses and collapses only an empty Cancelled lane', async () => {
+      const fixture = await render(board({ backlog: [task('TASK_2026_200')] }));
+      const host = fixture.nativeElement as HTMLElement;
+
+      const lanes = Array.from(host.querySelectorAll('ptah-task-column'));
+      expect(lanes).toHaveLength(6);
+      expect(
+        host.querySelectorAll('[data-testid="task-column-rail"]'),
+      ).toHaveLength(1);
+      expect(
+        host.querySelector('[data-testid="task-column-rail"]')?.textContent,
+      ).toContain('Cancelled');
+    });
+
+    it('states the disk source and refresh state in the status rail', async () => {
+      const fixture = await render(
+        board(
+          { backlog: [task('TASK_2026_200')] },
+          { excluded: TWELVE_EXCLUDED.slice(0, 2) },
+        ),
+      );
+      const rail = q(fixture, 'tasks-status-rail');
+
+      expect(rail?.textContent).toContain('From disk');
+      expect(rail?.textContent).toContain('.ptah/specs');
+      expect(q(fixture, 'tasks-excluded-trigger')?.textContent).toContain(
+        '2 excluded folder(s)',
+      );
+      expect(q(fixture, 'tasks-refresh-state')?.textContent).toContain(
+        'Updated just now',
+      );
+    });
+
+    it('opens the excluded folders from the Manage menu as well', async () => {
+      const fixture = await render(
+        board({}, { excluded: TWELVE_EXCLUDED.slice(0, 1) }),
+      );
+
+      q(fixture, 'tasks-maintenance-excluded')?.click();
+      fixture.detectChanges();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[data-testid="tasks-excluded-row"]',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('reindexes from the Manage menu', async () => {
+      const fixture = await render(board({ backlog: [task('TASK_2026_200')] }));
+      rpcCall.mockClear();
+
+      q(fixture, 'tasks-reindex')?.click();
+      await fixture.whenStable();
+
+      expect(
+        rpcCall.mock.calls.some(([method]) => method === 'tasks:reindex'),
+      ).toBe(true);
     });
   });
 });

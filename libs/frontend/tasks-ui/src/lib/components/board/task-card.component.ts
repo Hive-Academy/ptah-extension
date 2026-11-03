@@ -146,22 +146,31 @@ const HTTP_URL = /^https?:\/\//i;
          indistinguishable at a glance, on a board where only the second is
          destructive. The checkbox carries the state redundantly, so the
          surface is never the only visual signal (WCAG 1.4.1). -->
-    <div
-      class="card card-compact bg-base-100 border transition-colors cursor-pointer hover:border-primary/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
-      [class.border-base-content]="selected()"
-      [class.border-opacity-20]="!selected()"
-      [class.ring-1]="selected()"
+    <!-- The card surface is NOT a control. The title button is the keyboard
+         open target and the roving focus root; the checkbox, status menu,
+         rollup, crumb, PR link and Start are its SIBLINGS, never nested
+         interactive descendants of a button. The title's ::after overlay
+         stretches over the card, so a pointer click anywhere on the surface
+         still opens (or, with Ctrl/Cmd/Shift, selects) the task; the sibling
+         controls are raised above that overlay.
+         The open task wears ring-2 ring-primary plus a base-content outline,
+         because the primary ring alone is 1.25:1 on anubis-light. -->
+    <article
+      class="relative rounded-box border border-surface-border bg-surface-2 p-3 text-base-content shadow-[var(--elev-shadow)] transition-colors hover:bg-surface-3"
+      [class.ring-2]="selected()"
       [class.ring-primary]="selected()"
-      [class.bg-base-200]="checked()"
-      role="button"
-      [attr.tabindex]="rovingTabIndex()"
-      [attr.data-task-id]="task().id"
-      [attr.aria-label]="'Open task ' + task().id"
-      (click)="onCardClick($event)"
-      (keydown.enter)="onCardEnter($event)"
-      (keydown.space)="onCardSpace($event)"
+      [class.outline]="selected()"
+      [class.outline-2]="selected()"
+      [class.outline-offset-2]="selected()"
+      [class.outline-base-content]="selected()"
+      [class.bg-surface-3]="checked()"
+      [attr.aria-label]="task().title"
+      data-testid="task-card"
     >
-      <div class="card-body gap-1.5">
+      <div
+        class="flex flex-col gap-2 [&_.dropdown]:z-20 [&_a]:relative [&_a]:z-10 [&_button]:relative [&_button]:z-10 [&_input]:relative [&_input]:z-10 [&_label]:relative [&_label]:z-10"
+        data-testid="task-card-body"
+      >
         <!-- Header row: checkbox + id + warning + status menu -->
         <div class="flex items-start justify-between gap-1">
           <!-- The multi-select checkbox (FR-C4.1). It is the DISCOVERABLE half
@@ -196,11 +205,7 @@ const HTTP_URL = /^https?:\/\//i;
             [title]="selectAriaLabel()"
             (click)="onCheckboxClick($event)"
           />
-          <span
-            class="text-[10px] font-mono text-base-content-muted truncate flex-1"
-          >
-            {{ task().id }}
-          </span>
+          <span class="flex-1"></span>
           <!-- A write for THIS card is in flight (FR-C4.11). Per-card rather
                than a board-wide busy state: a 120-task run takes several
                seconds, and "the whole board is busy" tells the user nothing
@@ -257,16 +262,20 @@ const HTTP_URL = /^https?:\/\//i;
               <button
                 type="button"
                 [attr.tabindex]="rovingTabIndex()"
-                class="btn btn-ghost btn-xs btn-square min-h-0 h-5 w-5 p-0"
+                class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 aria-label="Change status"
                 title="Change status"
                 (click)="$event.stopPropagation()"
               >
-                <lucide-angular [img]="MoreVerticalIcon" class="w-3 h-3" />
+                <lucide-angular
+                  [img]="MoreVerticalIcon"
+                  class="h-4 w-4"
+                  aria-hidden="true"
+                />
               </button>
               <ul
                 [attr.tabindex]="rovingTabIndex()"
-                class="dropdown-content menu menu-xs z-20 bg-base-200 rounded-box shadow border border-base-content/10 w-36 p-1"
+                class="dropdown-content menu menu-xs z-20 w-40 rounded-box border border-surface-border bg-surface-2 p-1 shadow-[var(--elev-shadow-raised)]"
               >
                 @for (option of statusOptions(); track option) {
                   <li>
@@ -330,10 +339,29 @@ const HTTP_URL = /^https?:\/\//i;
           </div>
         }
 
-        <!-- Title -->
-        <p class="text-sm font-medium leading-snug line-clamp-2">
-          {{ task().title }}
-        </p>
+        <!-- Title: the card's keyboard open target (Enter opens, Space
+             toggles selection) and its roving focus root. -->
+        <div class="flex min-w-0 flex-col gap-1">
+          <button
+            type="button"
+            class="!static line-clamp-2 rounded-btn text-left text-sm font-semibold leading-snug text-base-content after:absolute after:inset-0 after:rounded-box focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            [attr.tabindex]="rovingTabIndex()"
+            [attr.data-task-id]="task().id"
+            [attr.aria-label]="'Open task ' + task().id + ': ' + task().title"
+            data-testid="task-card-open"
+            (click)="onCardClick($event)"
+            (keydown.enter)="onCardEnter($event)"
+            (keydown.space)="onCardSpace($event)"
+          >
+            {{ task().title }}
+          </button>
+          <span
+            class="truncate font-mono text-[11px] text-base-content-muted"
+            [title]="task().folderName"
+          >
+            {{ task().folderName }}/
+          </span>
+        </div>
 
         <!-- Meta row: type + estimate + executor + depends_on + rollup + dup -->
         <div class="flex items-center flex-wrap gap-1">
@@ -543,7 +571,7 @@ const HTTP_URL = /^https?:\/\//i;
                  reads as a link by shape and passes contrast on every theme. -->
             @if (firstPr(); as pr) {
               <a
-                class="link inline-flex items-center justify-center gap-0.5 min-h-6 min-w-6 px-1 shrink-0 rounded text-base-content tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[oklch(var(--s))]"
+                class="link inline-flex items-center justify-center gap-0.5 min-h-6 min-w-6 px-1 shrink-0 rounded text-base-content tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content"
                 [href]="pr.url"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -569,7 +597,7 @@ const HTTP_URL = /^https?:\/\//i;
              shows a status footer instead of the launch controls. -->
         @if (canStart()) {
           <div
-            class="flex items-center justify-between pt-1 mt-0.5 border-t border-base-content/10"
+            class="flex items-center justify-between gap-2 border-t border-surface-border pt-2"
           >
             <label
               class="label cursor-pointer gap-1 p-0"
@@ -612,7 +640,7 @@ const HTTP_URL = /^https?:\/\//i;
                 </button>
                 <ul
                   [attr.tabindex]="rovingTabIndex()"
-                  class="dropdown-content menu menu-xs z-30 mt-1 w-64 rounded-box border border-base-content/10 bg-base-200 p-1 shadow"
+                  class="dropdown-content menu menu-xs z-30 mt-1 w-64 rounded-box border border-surface-border bg-surface-2 p-1 shadow-[var(--elev-shadow-raised)]"
                   aria-label="Available task agents"
                 >
                   @if (orchestratorAgents().length > 0) {
@@ -679,17 +707,16 @@ const HTTP_URL = /^https?:\/\//i;
           }
         } @else {
           <div
-            class="flex items-center gap-1 pt-1 mt-0.5 border-t border-base-content/10 text-[10px]"
-            [class.text-success]="task().status === 'done'"
-            [class.text-base-content]="task().status !== 'done'"
-            [class.text-opacity-50]="task().status !== 'done'"
+            class="flex items-center gap-1 border-t border-surface-border pt-2 text-[11px]"
+            [class.text-state-done]="task().status === 'done'"
+            [class.text-base-content-muted]="task().status !== 'done'"
           >
             <lucide-angular [img]="statusFooterIcon()" class="w-3 h-3" />
             {{ statusLabel(task().status) }}
           </div>
         }
       </div>
-    </div>
+    </article>
   `,
 })
 export class TaskCardComponent {

@@ -20,7 +20,8 @@ import {
   type TaskSelectionToggle,
   type TaskStatusChange,
 } from './task-card.component';
-import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
+import { TASK_STATUS_LABELS } from '../../task-presentation';
+import { TASK_STATUS_INK } from '../../task-stage';
 
 /**
  * Presentational board column for a single status. Renders its task cards and
@@ -32,75 +33,103 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
   imports: [TaskCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section
-      class="surface-1 flex flex-col w-64 flex-shrink-0 min-h-0 rounded-lg"
-      [attr.aria-label]="label() + ' column'"
-    >
-      <header
-        class="flex items-center justify-between gap-2 px-2 py-1.5 sticky top-0"
+    <!-- Lane widths from the design spec: 242px lanes that scroll inside the
+         board, narrowing to 220px from 1100px so all six statuses fit at
+         1280. An EMPTY Cancelled lane collapses to a 58px rail that still
+         names the status and its count; it expands to a normal lane as soon
+         as it holds (or the filter hides) a task. -->
+    @if (collapsed()) {
+      <section
+        class="flex h-full w-[58px] flex-shrink-0 flex-col items-center gap-2 rounded-box border border-surface-border bg-surface-1 px-1 py-3"
+        [attr.aria-label]="label() + ' column, empty'"
+        data-testid="task-column-rail"
       >
-        <div class="flex items-center gap-1.5">
-          <span class="badge badge-xs" [class]="badgeClass()">{{
-            label()
-          }}</span>
-        </div>
-        <!-- Filtered over indexed. The second number appears ONLY while a
-             filter is hiding something: a bare 3 beside a header that also
-             said 12 at all times would read as a count that had stopped
-             updating, and "3 of 3" is noise. -->
         <span
-          class="text-xs text-base-content font-mono tabular-nums"
+          class="h-2 w-2 shrink-0 rounded-full bg-current"
+          [class]="inkClass()"
+          aria-hidden="true"
+        ></span>
+        <h2
+          class="text-sm font-semibold text-base-content [writing-mode:vertical-rl]"
+        >
+          {{ label() }}
+        </h2>
+        <span
+          class="font-mono text-xs tabular-nums text-base-content-muted"
           data-testid="task-column-count"
           [title]="countTitle()"
+          >0</span
         >
-          @if (hidden() > 0) {
-            {{ tasks().length }} of {{ total() }}
-          } @else {
-            {{ tasks().length }}
-          }
-        </span>
-      </header>
-
-      <div class="flex flex-col gap-2 px-2 pb-2 overflow-y-auto flex-1 min-h-0">
-        @for (task of tasks(); track task.id) {
-          <ptah-task-card
-            [task]="task"
-            [graph]="graph()"
-            [selected]="task.id === selectedTaskId()"
-            [checked]="selection().has(task.id)"
-            [pending]="pending().has(task.id)"
-            [bulkOutcome]="outcomes().get(task.id) ?? null"
-            [focused]="task.id === focusedTaskId()"
-            [agentTargets]="agentTargets()"
-            (selectTask)="taskSelect.emit($event)"
-            (toggleTask)="taskToggle.emit($event)"
-            (selectionToggle)="selectionToggle.emit($event)"
-            (statusChange)="statusChange.emit($event)"
-            (startTask)="startTask.emit($event)"
-            (filterChildren)="filterChildren.emit($event)"
-          />
-        } @empty {
-          <!-- An empty column says WHY it is empty. "No tasks" under an active
-               filter is a false statement about the workspace.
-
-               Full-opacity base-content, not /30: this sentence IS the
-               explanation, and at /30 it computed to 1.85:1 on daisyUI
-               light — a fix nobody can read is not a fix. Over this column's
-               own bg-base-200/60 surface it is now 7.27:1 at worst
-               (daisyUI dark) and 14.88:1 at best. -->
-          <p
-            class="text-[11px] text-base-content px-1 py-3 text-center"
-            data-testid="task-column-empty"
+        <p class="sr-only" data-testid="task-column-empty">No tasks</p>
+      </section>
+    } @else {
+      <section
+        class="flex h-full w-[242px] flex-shrink-0 flex-col min-h-0 rounded-box border border-surface-border bg-surface-1 p-3 min-[1100px]:w-[220px]"
+        [attr.aria-label]="label() + ' column'"
+      >
+        <header class="flex items-center gap-2 px-0.5 pb-3">
+          <span
+            class="h-2 w-2 shrink-0 rounded-full bg-current"
+            [class]="inkClass()"
+            aria-hidden="true"
+          ></span>
+          <h2
+            class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content"
+          >
+            {{ label() }}
+          </h2>
+          <!-- Filtered over indexed; the second number appears ONLY while a
+               filter is hiding something. -->
+          <span
+            class="font-mono text-xs tabular-nums text-base-content-muted"
+            data-testid="task-column-count"
+            [title]="countTitle()"
           >
             @if (hidden() > 0) {
-              {{ hidden() }} hidden by the filter
+              {{ tasks().length }} of {{ total() }}
             } @else {
-              No tasks
+              {{ tasks().length }}
             }
-          </p>
-        }
-      </div>
-    </section>
+          </span>
+        </header>
+
+        <div
+          class="-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-1 pb-1 pt-1"
+        >
+          @for (task of tasks(); track task.id) {
+            <ptah-task-card
+              [task]="task"
+              [graph]="graph()"
+              [selected]="task.id === selectedTaskId()"
+              [checked]="selection().has(task.id)"
+              [pending]="pending().has(task.id)"
+              [bulkOutcome]="outcomes().get(task.id) ?? null"
+              [focused]="task.id === focusedTaskId()"
+              [agentTargets]="agentTargets()"
+              (selectTask)="taskSelect.emit($event)"
+              (toggleTask)="taskToggle.emit($event)"
+              (selectionToggle)="selectionToggle.emit($event)"
+              (statusChange)="statusChange.emit($event)"
+              (startTask)="startTask.emit($event)"
+              (filterChildren)="filterChildren.emit($event)"
+            />
+          } @empty {
+            <!-- An empty lane says WHY it is empty: "No tasks" under an
+                 active filter is a false statement about the workspace. -->
+            <p
+              class="px-1 py-3 text-center text-xs text-base-content"
+              data-testid="task-column-empty"
+            >
+              @if (hidden() > 0) {
+                {{ hidden() }} hidden by the filter
+              } @else {
+                No tasks
+              }
+            </p>
+          }
+        </div>
+      </section>
+    }
   `,
 })
 export class TaskColumnComponent {
@@ -169,8 +198,15 @@ export class TaskColumnComponent {
   public readonly filterChildren = output<string>();
 
   protected readonly label = computed(() => TASK_STATUS_LABELS[this.status()]);
-  protected readonly badgeClass = computed(
-    () => TASK_STATUS_BADGE[this.status()],
+  /** Status ink for the lane dot; the lane name carries the meaning. */
+  protected readonly inkClass = computed(() => TASK_STATUS_INK[this.status()]);
+
+  /** Only an empty, unfiltered Cancelled lane collapses to the rail. */
+  protected readonly collapsed = computed(
+    () =>
+      this.status() === 'cancelled' &&
+      this.tasks().length === 0 &&
+      this.hidden() === 0,
   );
 
   /**

@@ -71,14 +71,6 @@ const DECORATIVE_EXCEPTIONS: ReadonlyMap<
   ReadonlyMap<string, number>
 > = new Map([
   [
-    // Two large empty-state glyphs, BOTH `aria-hidden="true"`, each redundant
-    // with the sentence directly beneath it. Held to that premise by the
-    // dedicated test at the bottom of this file — see it for why the premise
-    // needed a test rather than a comment.
-    'tasks-ui/src/lib/components/tasks-view.component.ts',
-    new Map([['text-base-content/20', 2]]),
-  ],
-  [
     // Empty-state glyphs in the previous-sessions modal, moved here from
     // app-shell.component.html with the session list. Search sits above
     // "No matching sessions", MessageSquare above "No sessions yet", and
@@ -150,9 +142,13 @@ function elementAround(source: string, at: number): string {
  * assertion with the justification that was actually written down is the same
  * discipline the exception map itself uses.
  */
-const ARIA_HIDDEN_PREMISE: ReadonlyMap<string, number> = new Map([
-  ['tasks-ui/src/lib/components/tasks-view.component.ts', 2],
-]);
+// Empty since TASK_2026_871_0d04: the Tasks revamp moved the two tasks-view
+// empty-state glyphs to full-opacity tokens, so their exception was removed.
+// The walk below stays so a future attribute-premised exception is checked.
+const ARIA_HIDDEN_PREMISE: ReadonlyMap<string, number> = new Map<
+  string,
+  number
+>();
 
 const relativeTo = (root: string, file: string): string =>
   file
@@ -254,15 +250,17 @@ describe('libs/frontend does not use opacity-modified base-content for text', ()
 
   it('treats surplus over a recorded exception as an offender', () => {
     // The exception is a CEILING, not a licence. A third `/20` glyph in a file
-    // recorded as holding two is a new decision and has to be written down.
-    const relative = 'tasks-ui/src/lib/components/tasks-view.component.ts';
-    const three = '<i class="text-base-content/20"></i>'.repeat(3);
+    // recorded as holding three is a new decision and has to be written down.
+    const relative =
+      'chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.html';
+    const four = '<i class="text-base-content/20"></i>'.repeat(4);
 
-    expect(offendersIn(relative, three)).toEqual(['text-base-content/20 x1']);
+    expect(offendersIn(relative, four)).toEqual(['text-base-content/20 x1']);
   });
 
   it('does not let an exception cover a DIFFERENT alpha in the same file', () => {
-    const relative = 'tasks-ui/src/lib/components/tasks-view.component.ts';
+    const relative =
+      'chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.html';
     const sample =
       '<i class="text-base-content/20"></i><p class="text-base-content/40">t</p>';
 
