@@ -13,10 +13,11 @@ import type {
   CopilotAuthService,
   CopilotDeviceLoginInfo,
   ICodexAuthService,
+  ICodexLoginService,
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import type { AuthDeviceCodePayload } from '@ptah-extension/shared';
+import type { AuthDeviceCodePayload, AuthCodexLoginParams, AuthCodexLoginResponse, AuthCodexLoginCancelParams, AuthCodexLoginCancelResponse, CodexLoginState } from '@ptah-extension/shared';
 import { asAuthCommandRunner } from '../auth-command-runner';
 import { CODEX_PROVIDER_ID, COPILOT_PROVIDER_ID } from './auth-provider-ids';
 import { getGitHubUsername } from './github-username';
@@ -34,6 +35,7 @@ export interface InteractiveLoginMethodsDeps {
   readonly platformAuth: IPlatformAuthProvider;
   readonly invalidateAuthStatusCache: () => void;
   readonly webviewManager?: WebviewManager;
+  readonly codexLogin?: ICodexLoginService;
 }
 
 /**
@@ -186,32 +188,37 @@ export class InteractiveLoginMethods {
   }
 
   /**
-   * auth:codexLogin - Start the external `codex login --device-auth` flow.
+   * auth:codexLogin - Start an in-app login where available, or use the CLI runner.
    *
-   * Two paths, selected by platform capability (see `auth-command-runner.ts`):
-   *
-   * 1. The platform can run the command itself (`IAuthCommandRunner`, i.e. the
-   *    CLI/TUI runtime). The command is spawned, its output is streamed to the
-   *    UI as `auth:loginOutput` / `auth:deviceCode` push events, and `success`
-   *    reflects the real exit code.
-   * 2. The platform has a terminal (VS Code). Unchanged historical behaviour:
-   *    hand the command to `openTerminal` and report success — the user drives
-   *    it from there and the outcome is not observable here.
+   * The runner branch remains the existing CLI/TUI behaviour.
    */
   registerCodexLogin(): void {
     const { logger, sentryService, sdkAdapter, codexAuth, platformCommands } =
       this.deps;
-    this.deps.rpcHandler.registerMethod<
-      void,
-      { success: boolean; error?: string }
-    >('auth:codexLogin', async () => {
+    this.deps.rpcHandler.registerMethod<AuthCodexLoginParams, AuthCodexLoginResponse>('auth:codexLogin', async (raw: unknown) => {
+      if (this.deps.codexLogin) {
+        const params = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+          ? raw as Record<string, unknown> : {};
+        try {
+          const state = await this.deps.codexLogin.start({
+            mode: params['mode'] === 'device' ? 'device' : 'browser',
+            restart: params['restart'] === true,
+          }, (next) => this.onCodexStateChange(next));
+          if (state.status === 'failed') return { success: false, error: this.codexErrorCopy(state), state };
+          if (state.status === 'cancelled') return { success: false, state };
+          return { success: true, state };
+        } catch (error) {
+          logger.error('RPC: auth:codexLogin failed', error instanceof Error ? new Error(error.name) : new Error('unknown'));
+          sentryService.captureException(error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerCodexLogin' });
+          return { success: false, error: 'Failed to start Codex login.' };
+        }
+      }
       const command = 'codex login --device-auth';
       const runner = asAuthCommandRunner(platformCommands);
 
       if (!runner) {
-        logger.info('RPC: auth:codexLogin - opening terminal');
-        platformCommands.openTerminal('Codex Login', command);
-        return { success: true };
+        return { success: false, error: 'Codex sign-in cannot run here. Run codex login in a terminal, then check again.' };
       }
 
       logger.info('RPC: auth:codexLogin - running command in-process');
@@ -246,6 +253,39 @@ export class InteractiveLoginMethods {
         return { success: false, error: 'Failed to start Codex login.' };
       }
     });
+  }
+
+  registerCodexLoginCancel(): void {
+    this.deps.rpcHandler.registerMethod<AuthCodexLoginCancelParams, AuthCodexLoginCancelResponse>(
+      'auth:codexLoginCancel', async () => ({ cancelled: this.deps.codexLogin?.cancel() ?? false }),
+    );
+  }
+
+  private onCodexStateChange(state: CodexLoginState): void {
+    if (state.status === 'succeeded') {
+      try {
+        this.deps.codexAuth.clearCache();
+        void this.deps.sdkAdapter.reset().catch(() => {
+          this.deps.logger.error('RPC: auth:codexLogin adapter reset failed');
+        });
+        this.deps.invalidateAuthStatusCache();
+      } catch {
+        this.deps.logger.error('RPC: auth:codexLogin cache refresh failed');
+      }
+    }
+    void this.deps.webviewManager?.broadcastMessage(MESSAGE_TYPES.AUTH_CODEX_LOGIN_STATUS, state)
+      .catch(() => this.deps.logger.warn('RPC: auth:codexLogin status broadcast failed'));
+  }
+
+  private codexErrorCopy(state: CodexLoginState): string {
+    switch (state.errorCode) {
+      case 'unavailable': return 'The Codex CLI is unavailable. Try again.';
+      case 'spawn-failed': return 'Codex sign-in could not be started. Try again.';
+      case 'exited': return 'Codex sign-in did not complete. Try again.';
+      case 'timeout': return 'Codex sign-in timed out. Try again.';
+      case 'no-credentials': return 'Codex sign-in finished, but no login was found. Try again.';
+      default: return 'Failed to start Codex login.';
+    }
   }
 
   /**
