@@ -63,6 +63,10 @@ import {
   type ActionBannerState,
 } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
+import {
+  ProviderCarryOverService,
+  type CarryOverOffer,
+} from '../../services/provider-carry-over.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -277,6 +281,31 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+  private readonly _carryOver = inject(ProviderCarryOverService);
+
+  /**
+   * The carry-over offer for the banner on screen, shown only in the refused
+   * tab's view: null when the banner generation moved on or this view shows
+   * another tab (TASK_2026_865 AC 7.3).
+   */
+  protected readonly carryOverOffer = computed<CarryOverOffer | null>(() => {
+    const offer = this._carryOver.offer();
+    if (!offer) return null;
+    if (this.authRequiredBanner()?.generation !== offer.generation) return null;
+    return offer.tabId === this.resolvedTabId() ? offer : null;
+  });
+
+  /**
+   * A carry-over holds the refused tab, or one for the refused session runs
+   * elsewhere (a second view, or a `/compact` carry-over): the button waits.
+   */
+  protected readonly carryOverBusy = computed(() => {
+    const offer = this.carryOverOffer();
+    return offer
+      ? this._carryOver.isPending(offer.tabId) ||
+          this._carryOver.isBusy(offer.sessionId)
+      : false;
+  });
 
   private readonly staleOlderHistory = signal<{
     tabId: string;
@@ -353,6 +382,12 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this._authState.clearAuthRequiredBanner();
+  }
+
+  /** Continue the refused conversation in a new chat on the active provider. */
+  protected onCarryOver(): void {
+    const offer = this.carryOverOffer();
+    if (offer) void this._carryOver.start(offer);
   }
 
   /**

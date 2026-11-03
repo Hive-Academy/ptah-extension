@@ -7,6 +7,8 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, KeyRound, X } from 'lucide-angular';
 
+let nextId = 0;
+
 /**
  * AuthRequiredBannerComponent - inline banner shown in the chat surface when a
  * send fails because the active provider needs (re-)authentication.
@@ -17,6 +19,12 @@ import { LucideAngularModule, KeyRound, X } from 'lucide-angular';
  *
  * Presentational only — receives message/provider via inputs and emits
  * `reauth` / `dismiss`. The container (chat-view) owns the RPC + state wiring.
+ *
+ * When the container binds a carry-over provider (stored-provider mismatch
+ * with a ready active provider), a "Continue with <provider>" button comes
+ * first and emits `carryOver`. Its accessible description discloses that this
+ * conversation's text is sent to that provider (TASK_2026_865 AC 8.4).
+ * Without a provider the banner renders exactly as before (AC 1.2, 1.3).
  */
 @Component({
   selector: 'ptah-auth-required-banner',
@@ -39,6 +47,29 @@ import { LucideAngularModule, KeyRound, X } from 'lucide-angular';
             Authentication required
           </span>
           <span class="flex-1"></span>
+          @if (carryOverProvider(); as provider) {
+            <button
+              type="button"
+              class="btn btn-xs btn-outline btn-primary gap-0.5 px-2"
+              [disabled]="carryOverBusy()"
+              [attr.aria-busy]="carryOverBusy()"
+              [attr.aria-describedby]="disclosureId"
+              (click)="carryOver.emit()"
+            >
+              @if (carryOverBusy()) {
+                <span
+                  class="loading loading-spinner loading-xs"
+                  aria-hidden="true"
+                ></span>
+              }
+              Continue with {{ provider }}
+            </button>
+            <span class="sr-only" [id]="disclosureId">
+              Sends this conversation's text to {{ provider }} to start a new
+              chat from a summary. Tool input, tool output and attachments are
+              not sent, and known secrets are redacted.
+            </span>
+          }
           <button
             type="button"
             class="btn btn-xs btn-primary gap-0.5 px-2"
@@ -69,10 +100,24 @@ export class AuthRequiredBannerComponent {
   /** Provider id, used to tailor the action label. */
   readonly providerId = input<string | null>(null);
 
+  /**
+   * Display name of the active provider a carry-over can continue with, or
+   * null for no carry-over button.
+   */
+  readonly carryOverProvider = input<string | null>(null);
+  /** A carry-over for this banner's tab or session is starting. */
+  readonly carryOverBusy = input<boolean>(false);
+
   /** User asked to re-authenticate. */
   readonly reauth = output<void>();
   /** User dismissed the banner. */
   readonly dismiss = output<void>();
+  /** User asked to continue in a new chat on the active provider. */
+  readonly carryOver = output<void>();
+
+  /** Unique per instance: several chat views can show the banner at once. */
+  protected readonly disclosureId =
+    `auth-required-carry-over-disclosure-${nextId++}`;
 
   protected readonly reauthLabel = computed(() =>
     this.providerId() === 'openai-codex'

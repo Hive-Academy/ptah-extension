@@ -149,8 +149,11 @@
           <ptah-auth-required-banner
             [message]="authBanner.message"
             [providerId]="authBanner.providerId"
+            [carryOverProvider]="carryOverOffer()?.providerName ?? null"
+            [carryOverBusy]="carryOverBusy()"
             (reauth)="onAuthReauth()"
             (dismiss)="onAuthBannerDismiss()"
+            (carryOver)="onCarryOver()"
           />
         </div>
       }
