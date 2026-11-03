@@ -15,12 +15,11 @@ export interface ProposalSectionItem {
   imports: [ProposalItemComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<section
-    class="space-y-3 rounded-[14px] border border-base-300 p-4"
-    data-glass-surface="content"
+    class="proposal-section min-w-0"
     [attr.aria-label]="title()"
   >
-    <h3 class="font-semibold">{{ title() }}</h3>
-    <div class="grid gap-3 min-[720px]:grid-cols-2">
+    <h3 class="sr-only">{{ title() }}</h3>
+    <div class="proposal-fields grid min-w-0 gap-x-4">
       @for (item of items(); track item.key) {
         <ptah-proposal-item
           [label]="item.label"
@@ -31,6 +30,12 @@ export interface ProposalSectionItem {
       }
     </div>
   </section>`,
+  styles: [`
+    .proposal-section { container-type: inline-size; }
+    @container (min-width: 560px) {
+      .proposal-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  `],
 })
 export class ProposalSectionComponent {
   readonly title = input.required<string>();
