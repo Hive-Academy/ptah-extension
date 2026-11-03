@@ -1904,6 +1904,7 @@ describe('MessageSenderService', () => {
           ).resolves.toEqual({
             success: false,
             error: CARRY_OVER_CHECK_FAILED_TEXT,
+            errorIsFullText: true,
           });
 
           expect(callsOf('chat:continue')).toHaveLength(0);

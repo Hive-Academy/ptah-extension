@@ -16,8 +16,18 @@
  * is definitively over. Every UI effect of a late result runs only while the
  * original tab, session and banner generation still own the UI (`ownsUi`).
  *
+ * A launch whose RPC result is indeterminate (a throw, a renderer timeout or
+ * abort, a success envelope without data) may or may not have started a
+ * session, so it keeps the tab only for `CARRY_OVER_RECOVERY_MS`. Then the tab
+ * is released for a retry with a short notice, and the expired launch leaves a
+ * marker for `CARRY_OVER_LATE_RESOLUTION_MS`: a resolution it produces late is
+ * skipped and aborted, so it can neither bind the tab nor clobber a retry. An
+ * error envelope from the host is definite: the tab is released at once.
+ *
  * The renderer never holds transcript text: the host reads and renders it.
- * No timers besides the notice's `ActionBannerService` auto-clear.
+ * Timers: one recovery timer per tab with an indeterminate launch, cleared
+ * whenever its entry leaves `pending`; the notice's `ActionBannerService`
+ * auto-clear.
  */
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
@@ -46,6 +56,33 @@ export const CARRY_OVER_BUSY_TEXT = 'A new chat is starting in this tab.';
 /** Fixed text when the old conversation could not be read (AC 5.1). */
 export const CARRY_OVER_UNREADABLE_TEXT =
   "Couldn't read this conversation to continue it.";
+
+/**
+ * How long a launch with an indeterminate RPC result keeps the tab before it
+ * is released for a retry. It starts after the RPC gave up, which is already
+ * `CHAT_ADMISSION_RPC_TIMEOUT_MS` past the host's admission budget, so a live
+ * host has had its chance to resolve the session (Finding 2).
+ */
+export const CARRY_OVER_RECOVERY_MS = 30_000;
+
+/**
+ * How long after a recovery expiry a late `SESSION_ID_RESOLVED` of the expired
+ * launch is still recognised as one, and skipped and aborted.
+ */
+export const CARRY_OVER_LATE_RESOLUTION_MS = CHAT_ADMISSION_RPC_TIMEOUT_MS;
+
+/** Fixed text when the host answered the launch with an error envelope. */
+export const CARRY_OVER_START_FAILED_TEXT =
+  "Couldn't start the new chat. Try again.";
+
+/** Notice when an indeterminate launch was released after the deadline. */
+export const CARRY_OVER_EXPIRED_TEXT = "The new chat didn't start. Try again.";
+
+/**
+ * `ClaudeRpcService.call` reports its own give-up (timeout, abort) as a failed
+ * result with these error prefixes; nothing else tells it from a host answer.
+ */
+const RENDERER_GIVE_UP_PREFIXES = ['RPC timeout', 'RPC aborted'] as const;
 
 /** The one-line notice shown after the new chat is bound (AC 4.3, 8.4). */
 export function carryOverNotice(providerName: string): string {
@@ -111,6 +148,13 @@ interface PendingCarryOver {
   readonly rpcSettled: boolean;
 }
 
+/** An indeterminate launch released after `CARRY_OVER_RECOVERY_MS`. */
+interface ExpiredCarryOver {
+  readonly sessionId: SessionId;
+  /** `Date.now()` after which a resolution is no longer attributed to it. */
+  readonly until: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProviderCarryOverService {
   private readonly rpc = inject(ClaudeRpcService);
@@ -123,6 +167,13 @@ export class ProviderCarryOverService {
   private readonly _pending = signal<ReadonlyMap<string, PendingCarryOver>>(
     new Map(),
   );
+  /** Recovery deadline of a tab's indeterminate launch (Finding 2). */
+  private readonly recoveryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  /** Per tab: the last expired launch, until its late-resolution window ends. */
+  private readonly expired = new Map<string, ExpiredCarryOver>();
 
   /**
    * The current offer, shown only while its banner generation is the one on
@@ -290,7 +341,8 @@ export class ProviderCarryOverService {
     realSessionId: string,
   ): CarryOverClaim {
     const entry = this._pending().get(tabId);
-    if (!entry || realSessionId === entry.sessionId) return 'none';
+    if (!entry) return this.claimExpired(tabId, realSessionId);
+    if (realSessionId === entry.sessionId) return 'none';
     const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
     if (!lookup) {
       this.deletePending(tabId, entry);
@@ -348,12 +400,25 @@ export class ProviderCarryOverService {
         { timeout: CHAT_ADMISSION_RPC_TIMEOUT_MS },
       );
     } catch {
-      return this.transportFailure();
+      // degradation-audit: reported — an indeterminate launch: the tab stays busy until the recovery deadline, then a notice offers a retry.
+      return this.indeterminate(tabId, entry);
     }
-    // A transport failure or timeout is not definitive: the host may still
-    // start the session. The entry stays until the resolution, a chat error
-    // for the tab, or the tab's removal.
-    if (!result.isSuccess()) return this.transportFailure();
+    if (!result.isSuccess()) {
+      // The renderer giving up (or a success envelope without data) is not
+      // definitive: the host may still start the session.
+      if (result.success || this.isRendererGiveUp(result.error)) {
+        return this.indeterminate(tabId, entry);
+      }
+      // The host answered with an error envelope: it refused the request
+      // before any start (schema rejection or a handler throw).
+      this.deletePending(tabId, entry);
+      return this.mapFailure(tabId, entry, {
+        success: false,
+        reason: 'START_FAILED',
+        error: CARRY_OVER_START_FAILED_TEXT,
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+      });
+    }
 
     const data = result.data;
     if (data.success) {
@@ -433,8 +498,76 @@ export class ProviderCarryOverService {
     );
   }
 
-  private transportFailure(): CarryOverLaunchOutcome {
+  private isRendererGiveUp(error: string | undefined): boolean {
+    return RENDERER_GIVE_UP_PREFIXES.some(
+      (prefix) => error?.startsWith(prefix) === true,
+    );
+  }
+
+  /**
+   * The host may or may not have started the session: keep the tab busy for
+   * `CARRY_OVER_RECOVERY_MS` (a resolution or chat error ends it sooner),
+   * then release it. The outcome is the busy text, as the tab is still held.
+   */
+  private indeterminate(
+    tabId: string,
+    entry: PendingCarryOver,
+  ): CarryOverLaunchOutcome {
+    if (this._pending().get(tabId) === entry) {
+      this.clearRecoveryTimer(tabId);
+      this.recoveryTimers.set(
+        tabId,
+        setTimeout(() => this.expire(tabId, entry), CARRY_OVER_RECOVERY_MS),
+      );
+    }
     return { success: false, error: CARRY_OVER_BUSY_TEXT };
+  }
+
+  /** Release an indeterminate launch at its deadline, leaving a marker. */
+  private expire(tabId: string, entry: PendingCarryOver): void {
+    this.recoveryTimers.delete(tabId);
+    if (this._pending().get(tabId) !== entry) return;
+    this.deletePending(tabId, entry);
+    this.expired.set(tabId, {
+      sessionId: entry.sessionId,
+      until: Date.now() + CARRY_OVER_LATE_RESOLUTION_MS,
+    });
+    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
+    if (lookup?.tab.claudeSessionId === entry.sessionId) {
+      this.actionBanner.showInfo(
+        CARRY_OVER_EXPIRED_TEXT,
+        tabId,
+        CARRY_OVER_NOTICE_MS,
+      );
+    }
+  }
+
+  /**
+   * A resolution for a tab with no pending entry. Within the late window of
+   * an expired launch, a new session id that the tab is not already bound to
+   * is that launch's late result (or a duplicate of a retry that already
+   * bound): skip it and abort it, once. Anything else is `'none'`.
+   */
+  private claimExpired(tabId: string, realSessionId: string): CarryOverClaim {
+    const marker = this.expired.get(tabId);
+    if (!marker) return 'none';
+    if (Date.now() > marker.until) {
+      this.expired.delete(tabId);
+      return 'none';
+    }
+    if (realSessionId === marker.sessionId) return 'none';
+    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
+    if (lookup?.tab.claudeSessionId === realSessionId) return 'none';
+    this.expired.delete(tabId);
+    this.abortSession(realSessionId as SessionId);
+    return 'skip';
+  }
+
+  private clearRecoveryTimer(tabId: string): void {
+    const timer = this.recoveryTimers.get(tabId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.recoveryTimers.delete(tabId);
   }
 
   /**
@@ -446,6 +579,12 @@ export class ProviderCarryOverService {
     for (const [tabId, entry] of this._pending()) {
       if (!this.tabs.findTabByIdAcrossWorkspaces(tabId)) {
         this.deletePending(tabId, entry);
+      }
+    }
+    const now = Date.now();
+    for (const [tabId, marker] of this.expired) {
+      if (now > marker.until || !this.tabs.findTabByIdAcrossWorkspaces(tabId)) {
+        this.expired.delete(tabId);
       }
     }
   }
@@ -461,6 +600,7 @@ export class ProviderCarryOverService {
   /** Delete only this entry, never a newer one for the same tab. */
   private deletePending(tabId: string, entry: PendingCarryOver): void {
     if (this._pending().get(tabId) !== entry) return;
+    this.clearRecoveryTimer(tabId);
     this._pending.update((pending) => {
       const next = new Map(pending);
       next.delete(tabId);

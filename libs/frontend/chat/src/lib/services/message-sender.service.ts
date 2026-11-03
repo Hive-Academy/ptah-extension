@@ -101,6 +101,11 @@ export interface SendOutcome {
   /** The backend already broadcast CHAT_ERROR; preserve its terminal state. */
   errorAlreadyShown?: boolean;
   /**
+   * `error` is complete user-facing copy: show it as is, without the generic
+   * delivery-failure prefix (the `/compact` check failure, P4).
+   */
+  errorIsFullText?: boolean;
+  /**
    * Set when a slash command was queued behind earlier queued text and waits
    * as its own turn (TASK_2026_655): resolves `true` when it becomes the
    * tab's queued message, `false` when it is dropped (Stop, failed turn).
@@ -261,7 +266,11 @@ export class MessageSenderService {
     }
     if (result === 'check-failed') {
       return this.sessionProviderDiffers(tabId, tab)
-        ? { success: false, error: CARRY_OVER_CHECK_FAILED_TEXT }
+        ? {
+            success: false,
+            error: CARRY_OVER_CHECK_FAILED_TEXT,
+            errorIsFullText: true,
+          }
         : null;
     }
     return { ...result };

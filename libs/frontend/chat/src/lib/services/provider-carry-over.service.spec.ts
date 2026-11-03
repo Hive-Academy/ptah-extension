@@ -33,7 +33,11 @@ import { ActionBannerService } from './action-banner.service';
 import {
   CARRY_OVER_BUSY_TEXT,
   CARRY_OVER_CHECK_TIMEOUT_MS,
+  CARRY_OVER_EXPIRED_TEXT,
+  CARRY_OVER_LATE_RESOLUTION_MS,
   CARRY_OVER_NOTICE_MS,
+  CARRY_OVER_RECOVERY_MS,
+  CARRY_OVER_START_FAILED_TEXT,
   CARRY_OVER_UNREADABLE_TEXT,
   ProviderCarryOverService,
   carryOverNotice,
@@ -43,6 +47,7 @@ import {
 const OLD = '11111111-1111-4111-8111-111111111111' as SessionId;
 const NEW = '22222222-2222-4222-8222-222222222222' as SessionId;
 const OTHER = '33333333-3333-4333-8333-333333333333' as SessionId;
+const RETRY = '44444444-4444-4444-8444-444444444444' as SessionId;
 const TAB = 'tab-refused';
 const TAB_B = 'tab-other';
 const WS = '/work/project';
@@ -729,6 +734,148 @@ describe('ProviderCarryOverService', () => {
         expect(callsOf('chat:carry-over')).toHaveLength(0);
         expect(service.isPending(TAB)).toBe(false);
       });
+    });
+  });
+
+  describe('launch recovery (Finding 2)', () => {
+    const COMPACT = {
+      sessionId: OLD,
+      tabId: TAB,
+      workspacePath: WS,
+      providerId: 'openai-codex',
+      providerName: 'Codex',
+    };
+    const TIMEOUT = rpcError<ChatCarryOverResult>('RPC timeout: chat:carry-over');
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    /** Click the offer and let the launch end with `result`. */
+    async function launchWith(
+      result: RpcResult<ChatCarryOverResult>,
+    ): Promise<CarryOverOffer> {
+      const offer = await offerReady();
+      const launch = expectCall<ChatCarryOverResult>('chat:carry-over');
+      const started = service.start(offer);
+      launch.resolve(result);
+      await started;
+      return offer;
+    }
+
+    async function expireLaunch(): Promise<CarryOverOffer> {
+      const offer = await launchWith(TIMEOUT);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
+      return offer;
+    }
+
+    it('a host error envelope releases the tab at once and shows the failure (button)', async () => {
+      await launchWith(rpcError('Invalid carry-over request', 'INVALID_PARAMS'));
+      expect(service.isPending(TAB)).toBe(false);
+      expect(service.isBusy(OLD)).toBe(false);
+      expect(auth.authRequiredBanner()?.message).toBe(CARRY_OVER_START_FAILED_TEXT);
+      expect(auth.authRequiredBanner()?.origin).toEqual(ORIGIN);
+    });
+
+    it('a host error envelope releases the tab at once and gives the failure text (/compact)', async () => {
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(
+        rpcError('Internal error'),
+      );
+      expect(await service.startFromCompact(COMPACT)).toEqual({
+        success: false,
+        error: CARRY_OVER_START_FAILED_TEXT,
+      });
+      expect(service.isPending(TAB)).toBe(false);
+    });
+
+    it('a renderer timeout holds the tab until the deadline, then releases it with a notice', async () => {
+      const offer = await launchWith(TIMEOUT);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS - 1);
+      expect(service.isPending(TAB)).toBe(true);
+      expect(showInfo).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+      expect(service.isPending(TAB)).toBe(false);
+      expect(service.isBusy(OLD)).toBe(false);
+      expect(showInfo).toHaveBeenCalledWith(
+        CARRY_OVER_EXPIRED_TEXT,
+        TAB,
+        CARRY_OVER_NOTICE_MS,
+      );
+      // The offer is still on screen, so the user can retry.
+      expect(service.offer()).toEqual(offer);
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
+      await service.start(offer);
+      expect(callsOf('chat:carry-over')).toHaveLength(2);
+      expect(service.isPending(TAB)).toBe(true);
+    });
+
+    it('a thrown RPC is indeterminate and is released at the deadline', async () => {
+      const offer = await offerReady();
+      rpc.call.mockRejectedValueOnce(new Error('post failed'));
+      await service.start(offer);
+      expect(service.isPending(TAB)).toBe(true);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
+      expect(service.isPending(TAB)).toBe(false);
+      expect(showInfo).toHaveBeenCalledWith(
+        CARRY_OVER_EXPIRED_TEXT,
+        TAB,
+        CARRY_OVER_NOTICE_MS,
+      );
+    });
+
+    it('a resolution within the window binds as usual and cancels the deadline', async () => {
+      await launchWith(TIMEOUT);
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('bind');
+      service.completeBinding(TAB);
+      expect(showInfo).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
+      expect(showInfo).toHaveBeenCalledTimes(1);
+      expect(showInfo).toHaveBeenCalledWith(
+        carryOverNotice('Codex'),
+        TAB,
+        CARRY_OVER_NOTICE_MS,
+      );
+    });
+
+    it('a late resolution after expiry does not bind and its session is aborted', async () => {
+      await expireLaunch();
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
+      expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
+      expect(service.isPending(TAB)).toBe(false);
+      service.completeBinding(TAB);
+      expect(showInfo).toHaveBeenCalledTimes(1);
+      // The marker is used once; a resolution of the old session is none.
+      expect(service.claimSessionResolution(TAB, OLD)).toBe('none');
+    });
+
+    it('a late resolution cannot clobber a retry that already bound', async () => {
+      const offer = await expireLaunch();
+      expectCall<ChatCarryOverResult>('chat:carry-over').resolve(SUCCESS);
+      await service.start(offer);
+      expect(service.claimSessionResolution(TAB, RETRY)).toBe('bind');
+      service.completeBinding(TAB);
+      tabs.set(TAB, { id: TAB, claudeSessionId: RETRY, name: 'Refused chat' });
+
+      // A repeat of the retry's own resolution is not touched.
+      expect(service.claimSessionResolution(TAB, RETRY)).toBe('none');
+      // The expired launch's late session is skipped and aborted.
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('skip');
+      expect(callsOf('chat:abort').map((c) => c.params)).toEqual([{ sessionId: NEW }]);
+    });
+
+    it('the late-resolution marker lapses after its window', async () => {
+      await expireLaunch();
+      jest.advanceTimersByTime(CARRY_OVER_LATE_RESOLUTION_MS + 1);
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('none');
+      expect(callsOf('chat:abort')).toHaveLength(0);
+    });
+
+    it('a launch released by a chat error before the deadline shows no expiry notice', async () => {
+      await launchWith(TIMEOUT);
+      service.onChatError(TAB);
+      jest.advanceTimersByTime(CARRY_OVER_RECOVERY_MS);
+      expect(showInfo).not.toHaveBeenCalled();
+      expect(service.claimSessionResolution(TAB, NEW)).toBe('none');
     });
   });
 });

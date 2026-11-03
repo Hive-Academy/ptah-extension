@@ -248,7 +248,11 @@ export class MessageDispatchService {
     }
     if (outcome?.errorAlreadyShown === true) return outcome;
     if (outcome && !outcome.success && resolvedTabId) {
-      this.showSendFailure(resolvedTabId, outcome.error);
+      this.showSendFailure(
+        resolvedTabId,
+        outcome.error,
+        outcome.errorIsFullText === true,
+      );
     }
     return outcome;
   }
@@ -317,7 +321,11 @@ export class MessageDispatchService {
       }
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        this.showSendFailure(tabId, outcome.error);
+        this.showSendFailure(
+          tabId,
+          outcome.error,
+          outcome.errorIsFullText === true,
+        );
       } else {
         delivered = true;
       }
@@ -415,7 +423,15 @@ export class MessageDispatchService {
     return tabId === this.tabManager.activeTabId();
   }
 
-  private showSendFailure(tabId: string, error?: string): void {
+  /**
+   * Append the send-failure bubble. `fullText` shows `error` verbatim, for an
+   * outcome whose text is complete copy (`SendOutcome.errorIsFullText`).
+   */
+  private showSendFailure(
+    tabId: string,
+    error?: string,
+    fullText = false,
+  ): void {
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab) return;
     // Existing transcript channel; rendered through the normal markdown path.
@@ -424,7 +440,10 @@ export class MessageDispatchService {
       createExecutionChatMessage({
         id: MessageId.create(),
         role: 'assistant',
-        rawContent: `Message delivery failed. ${error ?? 'Please retry.'}`,
+        rawContent:
+          fullText && error
+            ? error
+            : `Message delivery failed. ${error ?? 'Please retry.'}`,
       }),
     ]);
   }
