@@ -95,6 +95,7 @@ export interface SessionBudgetState {
   readonly rotation?: SessionBudgetRotation;
   /** True when `sessionBudget.autoHandoffAtLimit` is on (opt-in). */
   readonly autoHandoff: boolean;
+  readonly closeSourceAfterAutoHandoff: boolean;
 }
 
 /** The validated settings the backend reader returns. */
@@ -117,6 +118,7 @@ export interface SessionBudgetConfig {
   readonly tightenWindowTokens: number | null;
   /** Queue `/session-handoff` once when the session reaches `limit`. */
   readonly autoHandoffAtLimit: boolean;
+  readonly closeSourceAfterAutoHandoff: boolean;
 }
 
 /** A numeric setting; `integer` settings reject fractions. */
@@ -227,6 +229,11 @@ export const SESSION_BUDGET_SETTINGS = {
   },
   autoHandoffAtLimit: {
     key: 'sessionBudget.autoHandoffAtLimit',
+    kind: 'boolean',
+    default: false,
+  },
+  closeSourceAfterAutoHandoff: {
+    key: 'sessionBudget.closeSourceAfterAutoHandoff',
     kind: 'boolean',
     default: false,
   },

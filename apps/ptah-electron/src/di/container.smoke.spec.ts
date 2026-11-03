@@ -545,7 +545,7 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     const bind = source.indexOf(
       'registerClaudeNamedAccountBindings(container)',
     );
-    const sdk = source.indexOf('registerSdkServices(container, logger);');
+    const sdk = source.indexOf('registerSdkServices(container, logger, {');
     expect(sqlite).toBeGreaterThan(-1);
     expect(sdk).toBeGreaterThan(-1);
     expect(bind).toBeGreaterThan(sqlite);
@@ -1191,7 +1191,7 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     );
     expect(phase2.match(/startSessionOrganization\(/g)).toHaveLength(1);
     const register = at('registerSessionOrganizationServices(container);');
-    expect(at('registerSdkServices(container, logger);')).toBeLessThan(
+    expect(at('registerSdkServices(container, logger, {')).toBeLessThan(
       register,
     );
     expect(

@@ -15,6 +15,7 @@ import {
 
 export interface IdleReduceContext {
   readonly now: number;
+  readonly cacheTtlMs?: number;
   readonly settings: {
     readonly enabled: boolean;
     readonly autoCompactEnabled: boolean;
@@ -65,7 +66,7 @@ function noArmReason(
   if (state.lastTurn.request?.ttl !== '1h') return 'not-1h';
   if (signal.totalTokens === null) return 'no-reading';
   if (
-    state.lastTurn.request.anchorAt + IDLE_CACHE_TTL_MS * IDLE_FIRE_FRACTION <=
+    state.lastTurn.request.anchorAt + (ctx.cacheTtlMs ?? IDLE_CACHE_TTL_MS) * IDLE_FIRE_FRACTION <=
     ctx.now
   ) {
     return 'fire-time-passed';
@@ -187,7 +188,7 @@ export function reduceIdleSession(
         } else {
           const request = state.lastTurn!.request!;
           const fireAt =
-            request.anchorAt + IDLE_CACHE_TTL_MS * IDLE_FIRE_FRACTION;
+            request.anchorAt + (ctx.cacheTtlMs ?? IDLE_CACHE_TTL_MS) * IDLE_FIRE_FRACTION;
           const attemptId = `${state.runToken}:${signal.turnId}:${ctx.now}:${attempt?.attemptId ?? ''}`;
           next = {
             ...state,
@@ -201,7 +202,7 @@ export function reduceIdleSession(
               turnId: signal.turnId,
               anchorAt: request.anchorAt,
               fireAt,
-              expiresAt: request.anchorAt + IDLE_CACHE_TTL_MS,
+              expiresAt: request.anchorAt + (ctx.cacheTtlMs ?? IDLE_CACHE_TTL_MS),
               armedAt: ctx.now,
               contextTokens: signal.totalTokens!,
             },

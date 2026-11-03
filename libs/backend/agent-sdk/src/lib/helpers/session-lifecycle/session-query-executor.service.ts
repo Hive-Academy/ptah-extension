@@ -421,7 +421,7 @@ class CompactionSessionTap {
    * (every stream teardown, normal end included — TASK_2026_614 D.2) both
    * call it.
    */
-  release(): void {
+  release(reason: 'abort' | 'stream-end' = 'stream-end'): void {
     if (this.released) return;
     this.released = true;
     // Resolve before releasing: the monitor drops its aliases on release.
@@ -432,6 +432,11 @@ class CompactionSessionTap {
     }
     this.trackedIds.clear();
     this.subagentIds.clear();
+    this.logger.debug('[SessionQueryExecutor] Releasing idle query ownership', {
+      reason,
+      sessionIds: [...ids],
+      runToken: this.runToken,
+    });
     for (const id of ids) {
       const owner = this.runOwners.get(id);
       if (owner !== undefined && owner !== this.runOrder) continue;
@@ -1626,7 +1631,7 @@ export class SessionQueryExecutor {
     );
     abortController.signal.addEventListener(
       'abort',
-      () => compactionTap.release(),
+      () => compactionTap.release('abort'),
       { once: true },
     );
     const activityWatchdog = new NoActivityWatchdog(
@@ -1888,8 +1893,8 @@ export class SessionQueryExecutor {
         // listener above stays for a run whose stream never reached the
         // transformer; release() is idempotent, so both paths are safe.
         onMessage: (message: SDKMessage) => compactionTap.observe(message),
-        beforeLiveStatsDispose: () => compactionTap.release(),
-        onStreamEnd: () => compactionTap.release(),
+        beforeLiveStatsDispose: () => compactionTap.release('stream-end'),
+        onStreamEnd: () => compactionTap.release('stream-end'),
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,
         accountingAuthEnv: rec.accountingAuthEnv,

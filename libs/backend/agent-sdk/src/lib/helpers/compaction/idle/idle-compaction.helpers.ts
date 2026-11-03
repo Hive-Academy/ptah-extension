@@ -11,9 +11,15 @@ export function safeWarn(
   reason: string,
   sessionId?: string,
   toId?: string,
+  error?: unknown,
 ): void {
   try {
-    logger.warn('[IdleCompactionService] failure', { reason, sessionId, toId });
+    // Error messages can contain prompts or settings. A bounded error class name
+    // identifies the failing dependency without exposing those values.
+    const errorName = error instanceof Error
+      ? error.name.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 64)
+      : undefined;
+    logger.warn('[IdleCompactionService] failure', { reason, sessionId, toId, errorName });
   } catch {
     // Logging must not terminate the signal pipeline.
   }

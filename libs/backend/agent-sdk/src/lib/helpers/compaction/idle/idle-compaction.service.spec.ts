@@ -24,7 +24,7 @@ import { IdleCompactionService } from './idle-compaction.service';
 const DUE = IDLE_CACHE_TTL_MS * 0.9;
 const request = { requestKey: 'request-1', anchorAt: 0, ttl: '1h' as const };
 
-function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionStatsOwnerService) {
+function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionStatsOwnerService, cacheTtlMs?: number) {
   let now = 0;
   const scheduler = new VirtualTimeScheduler();
   scheduler.maxFrames = 0;
@@ -101,7 +101,7 @@ function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionSta
     callbacks,
     events,
     workspace,
-    { scheduler, now: () => now },
+    { scheduler, now: () => now, cacheTtlMs },
     owner,
   );
   const arm = (id = 's') => {
@@ -159,6 +159,59 @@ const settle = async () => {
 };
 
 describe('IdleCompactionService', () => {
+  it('uses an injected short cache window for arm, fire, and expiry', async () => {
+    const h = harness(undefined, undefined, 10_000);
+    h.arm();
+    expect(h.info).toHaveBeenCalledWith('[IdleCompactionService] armed', expect.objectContaining({ fireAt: 9_000 }));
+    h.advance(8_999);
+    expect(h.sender.sendIdleCompact).not.toHaveBeenCalled();
+    h.advance(9_000);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledTimes(1);
+    h.service.dispose();
+    h.coordinator.dispose();
+
+    const expired = harness(undefined, undefined, 10_000);
+    expired.arm();
+    expired.advance(9_000, 10_001);
+    expect(expired.sender.sendIdleCompact).not.toHaveBeenCalled();
+    expired.service.dispose();
+    expired.coordinator.dispose();
+  });
+
+  it('fires for a background session while its query remains bound', async () => {
+    const h = harness();
+    h.arm();
+    h.advance(DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledWith('s', expect.any(Function));
+    expect(h.info).toHaveBeenCalledWith('[IdleCompactionService] armed', expect.objectContaining({ sessionId: 's' }));
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('cancels the background timer on session release', () => {
+    const h = harness();
+    h.arm();
+    h.service.sessionReleased('s');
+    h.advance(DUE);
+    expect(h.sender.sendIdleCompact).not.toHaveBeenCalled();
+    expect(h.info).toHaveBeenCalledWith('[IdleCompactionService] released', { sessionId: 's' });
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('does not arm when the context reading arrives after the fire time', () => {
+    const h = harness();
+    h.service.sessionBound('s', 'run');
+    h.service.turnEnded('s', 'turn', request);
+    h.advance(DUE + 1);
+    h.service.turnContext('s', 'turn', 250_000);
+    expect(h.sender.sendIdleCompact).not.toHaveBeenCalled();
+    expect(h.debug).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ reason: 'fire-time-passed' }));
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
   it('projects confirmed writes, retained reads and the pending attempt, then clears the attempt on release', () => {
     const owner = new SessionStatsOwnerService();
     const lease = owner.startNew('s');

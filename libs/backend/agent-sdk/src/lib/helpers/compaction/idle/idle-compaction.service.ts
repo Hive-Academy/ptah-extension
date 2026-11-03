@@ -156,17 +156,17 @@ export class IdleCompactionService implements IdleCompactionSignals {
           try {
             const step = reduceIdleSession(previous.state, item.signal, {
               now: this.timing.now(),
+              cacheTtlMs: this.timing.cacheTtlMs,
               settings: readIdleSettings(this.config),
             });
             return step;
-          } catch {
+          } catch (error: unknown) {
             releaseSignalFailed = item.signal.type === 'session-released';
+            safeWarn(this.logger, 'signal-failed', item.signal.sessionId, undefined, error);
             return {
               signal: item.signal,
               state: previous.state,
-              effects: [
-                { type: 'log', level: 'warn', reason: 'signal-failed' },
-              ],
+              effects: [],
             };
           }
         },
@@ -187,6 +187,16 @@ export class IdleCompactionService implements IdleCompactionSignals {
         }
         if (latest.attempt?.kind === 'pending') pending = latest.attempt;
         this.projectCache(step, nativeAnthropic);
+        if (step.state.attempt?.kind === 'pending' && step.signal.type === 'turn-context') {
+          this.logger.info('[IdleCompactionService] armed', {
+            sessionId: step.state.sessionId,
+            attemptId: step.state.attempt.attemptId,
+            fireAt: step.state.attempt.fireAt,
+          });
+        }
+        if (step.signal.type === 'session-released') {
+          this.logger.info('[IdleCompactionService] released', { sessionId: step.state.sessionId });
+        }
         this.runEffects(step);
       }),
       share(),
@@ -322,9 +332,9 @@ export class IdleCompactionService implements IdleCompactionSignals {
     if (!this.statsOwner || !state.runToken) return;
     try {
       this.statsOwner.setIdleCompactAt(state.sessionId, state.runToken, null);
-    } catch {
+    } catch (error: unknown) {
       // degradation-audit: optional-capability - release still completes when stats projection fails.
-      safeWarn(this.logger, 'signal-failed', state.sessionId);
+      safeWarn(this.logger, 'signal-failed', state.sessionId, undefined, error);
     }
   }
 
@@ -353,8 +363,8 @@ export class IdleCompactionService implements IdleCompactionSignals {
             }
             break;
         }
-      } catch {
-        safeWarn(this.logger, 'signal-failed', step.state.sessionId);
+      } catch (error: unknown) {
+        safeWarn(this.logger, 'signal-failed', step.state.sessionId, undefined, error);
       }
     }
   }
@@ -383,10 +393,12 @@ export class IdleCompactionService implements IdleCompactionSignals {
               coordinatorClaim: (id) => this.coordinator.getIdleClaim(id),
               turnPhase: (id) => this.turns.get(id)?.phase,
             });
-    } catch {
+    } catch (error: unknown) {
       refusal = 'lookup-failed';
+      safeWarn(this.logger, 'lookup-failed', current.sessionId, undefined, error);
     }
     if (refusal) {
+      this.logger.info('[IdleCompactionService] fire skipped', { sessionId: current.sessionId, reason: refusal });
       this.enqueue({
         type: 'fire-skipped',
         sessionId: current.sessionId,
@@ -396,6 +408,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
       return EMPTY;
     }
     const sessionId = current.sessionId;
+    this.logger.info('[IdleCompactionService] firing', { sessionId, attemptId: effect.attemptId });
     const beforeEnqueue = (): void => {
       const attempt = state().attempt;
       if (
@@ -493,8 +506,8 @@ export class IdleCompactionService implements IdleCompactionSignals {
           ) {
             safeWarn(this.logger, 'rekey-collision', next.sessionId, next.toId);
           }
-        } catch {
-          safeWarn(this.logger, 'signal-failed', next.sessionId);
+        } catch (error: unknown) {
+          safeWarn(this.logger, 'signal-failed', next.sessionId, undefined, error);
         }
       }
     } finally {

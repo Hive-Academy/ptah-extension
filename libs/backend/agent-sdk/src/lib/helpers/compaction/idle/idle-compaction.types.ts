@@ -268,5 +268,6 @@ export interface IdleBoundaryNotice {
 
 export interface IdleCompactionTiming {
   readonly scheduler: SchedulerLike;
+  readonly cacheTtlMs?: number;
   now(): number;
 }

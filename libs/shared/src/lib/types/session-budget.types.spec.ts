@@ -32,6 +32,7 @@ describe('SESSION_BUDGET_SETTINGS', () => {
       'handoffAfterCompactions',
       'tightenWindowTokens',
       'autoHandoffAtLimit',
+      'closeSourceAfterAutoHandoff',
     ];
     expect(Object.keys(SESSION_BUDGET_SETTINGS).sort()).toEqual(
       [...fields].sort(),
@@ -99,6 +100,7 @@ describe('SessionBudgetState.rotation', () => {
     revision: null,
     compactions: 0,
     autoHandoff: false,
+    closeSourceAfterAutoHandoff: false,
   };
 
   it('is optional: a state without the advisory is complete', () => {
