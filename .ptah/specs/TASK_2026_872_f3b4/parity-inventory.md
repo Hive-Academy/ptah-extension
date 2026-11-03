@@ -1,0 +1,44 @@
+# Session inspector parity inventory
+
+Scope: Electron's session inspector. The shared expanded stats strip also consumes `laneTiles`; preserve that consumer until an explicit strip redesign. Paths below are workspace relative. `session-stats-source.ts` supplies `PlanLimitsStore.snapshot()` and session-owned `AgentMonitorStore` runs to the view model (lines 162-165, 212-227). The limit snapshot already contains per-owner windows; no new RPC is required.
+
+## Current capabilities
+
+| Capability | Where today (file:line) | Backing RPC/signal | Decision | New location | Test that proves it |
+| --- | --- | --- | --- | --- | --- |
+| AGENTS heading and running/total count | `inspector-agents-section.component.ts:89-103` | `agents()`; `runningCount()` | Keep | AGENTS header | `inspector-agents-section.component.spec.ts`: counts with CLI runs |
+| Loading skeleton and empty state | `inspector-agents-section.component.ts:104-124` | `SectionState<InspectorAgentsData>` | Keep | AGENTS | Same component spec: loading/empty |
+| Orchestrator plus subagent, background and CLI rows | `session-agent-roster.ts:153-212`; `inspector-agents-section.component.ts:260-285` | session-scoped roster, `AgentMonitorStore` | Keep | AGENTS | `inspector-agents-section.component.spec.ts`: all kinds and one CLI row per run |
+| Agent name, provider avatar and model secondary line | `inspector-agent-row.component.ts:40-60`; `inspector-agents-section.component.ts:461-466` | roster, model state, monitor | Keep; show CLI role alongside provider | AGENTS row | component spec: `Glm · backend-developer` and model |
+| Orchestrator tokens/cost and input/output tooltip | `inspector-agents-section.component.ts:410-430`; `inspector-agent-row.component.ts:62-74` | `stats().snapshot.tokens`, orchestrator card | Keep | AGENTS row | component spec: values and tooltip |
+| CLI/subagent tokens, cost, lower-bound `≥` and estimated `~` markers | `inspector-agent-usage.ts:35-83`; `inspector-agent-list.ts:76-84`; `inspector-agent-row.component.ts:62-74` | monitor `usageTotals`, retained segments, exact Codex price card | Keep; reconcile with LANES run source before showing unknown | AGENTS row | `inspector-agent-usage.spec.ts`: structured/partial/unknown/Codex estimate; component spec: rendered markers |
+| Status word and color | `inspector-agent-list.ts:115-132`; `inspector-agent-row.component.ts:76-79` | roster status | Keep; preserve run status badge semantics | AGENTS row | component spec: running, failure, completed |
+| Elapsed duration | `inspector-agents-section.component.ts:273-285,468-476`; `inspector-agent-list.ts:115-132` | `startedAt`, `endedAt`, tray duration, shared wall clock | Show visibly; currently present in model but absent from table columns | AGENTS Time column | component spec: running tick and completed duration |
+| Row selection, keyboard open-thread, selected border | `inspector-agents-section.component.ts:137-156,292-354`; `inspector-agent-row.component.ts:30-39` | `selectedAgentKey`, `agentSelected`, `laneRequested` | Keep; expansion gets separate button | AGENTS row | component spec: selection and independent expansion |
+| Stop, steer, background actions | `inspector-agent-actions-menu.component.ts:26-45`; `inspector-agents-section.component.ts:157-165,361-375` | tray context; `SessionAgentTrayService` | Keep; make Stop reachable on same per-run row | AGENTS action menu/button | component spec: stoppable CLI emits stop; nonstoppable hides action |
+| Permission/question request lines and steering input/error | `inspector-agents-section.component.ts:169-200` | roster requests, tray | Keep | AGENTS row beneath summary | component spec: request/steer lifecycle |
+| First six rows, selected row pin and “Show N more” | `inspector-agents-section.component.ts:49-50,303-314,204-213` | `visibleRows`, `showAll` | Keep; subtotal follows complete roster | AGENTS | component spec: hidden count, selected pin, toggle |
+| LANES heading, “N · M runs” and info tooltip/caption | `inspector-limits-lanes.component.ts:48-73,111-117` | `limits().laneTiles`, `lanesCount`, `sharedLaneCaption` | Move run count and `lane · not in totals` explanation; LANES heading now counts providers | AGENTS subtotal/header; LANES provider count | `inspector-limits-lanes.component.spec.ts` and AGENTS component spec |
+| Per-role run group label (`Glm · backend-developer`) | `lane-tiles.ts:72-86,153-155` | `StatsLimitLaneRun.cliLabel/role` | Move role identity; provider limit key ignores role | AGENTS CLI row; LANES `Glm` only | view-model spec: two roles yield one provider row; AGENTS spec: role label |
+| LANES group token/cost summary, run count and status chip | `lane-tiles.ts:124-179`; `lane-usage-tile.component.ts:87-175` | `laneRuns`, `usageTotals`, run statuses | Move per-run values and status to AGENTS; retain group aggregate only as subtotal | AGENTS rows/subtotal | view-model and AGENTS specs: known/unknown/partial totals |
+| LANES expandable per-run table: index, model, tokens, cost, status, started | `lane-usage-tile.component.ts:212-310`; `lane-tiles.ts:698-715` | `StatsLimitLaneRun` from `session-stats-source.ts:82-96` | Move per-run detail; retain started timestamp and status | AGENTS row expansion | AGENTS component spec: per-run details and keyboard toggle |
+| LANES owner/scope subgroup, owner identity, notes and last-known evidence | `lane-tiles.ts:182-341,378-533`; `lane-usage-tile.component.ts:213-232,331-335` | recorded `quotaOwner`, owner snapshots, `classifyLaneState` | Keep context with each affected run; provider summary cannot claim another owner's window | AGENTS run expansion; LANES provider limit only for resolved owner | view-model spec: same/different/unknown owner, stale evidence |
+| LANES plan-window link, full window detail, source chips, cooldown, limit state | `lane-usage-tile.component.ts:311-335`; `inspector-limits-lanes.component.ts:75-82,121-132` | `PlanLimitsStore.snapshot().owners`; `PlanLimitTileModel` | Move limit facts to provider row; retain navigation/focus when same window appears in PLAN LIMITS | LANES provider row/window expansion | inspector-limits component spec: link, details, source, cooldown |
+| LANES subtotal Σ, known totals, partial/unknown count | `lane-tiles.ts:763-780`; `inspector-limits-lanes.component.ts:80-82` | all session `laneRuns` | Move, do not combine with orchestrator/session totals | AGENTS subtotal after complete list | `stats-limit-view-model.spec.ts` and AGENTS component spec |
+| Main PLAN LIMITS window bar, percent and reset | `inspector-limits-lanes.component.ts:20-45`; `plan-limit-tile.component.ts:128-162,230-284` | current session owner `planTiles`; `PlanLimitsStore.snapshot()` | Keep, reuse tile rendering for provider windows | PLAN LIMITS and LANES provider rows | `plan-limit-tile.component.spec.ts`, inspector-limits component spec |
+| Unknown limits, retained snapshots, refresh failure | `stats-limit-view-model.ts:11-27,72-105`; `plan-limit-tiles.ts:73-98` | snapshot owner status/age, `loadError()` | Keep explicit unknown/not tracked; never render 0% | LANES compact provider state | view-model spec: missing/unsupported/stale and refresh error |
+
+The requested “stop button in LANES” does not exist in the inspected implementation: `lane-usage-tile.component.ts:74-335` offers a collapse toggle and a plan-tile link, while Stop is in the AGENTS tray menu above. The redesign must retain the existing stop capability and may expose it more directly on an AGENTS run.
+
+The AGENTS dash is not solely a layout bug. `inspector-agent-list.ts:128-129` emits `—` for null usage. `inspector-agent-usage.ts:46-78` reads the monitor's structured totals or retained segments and estimates cost for Codex only (`lane-stats.adapters.ts:113-149`); LANES similarly reads the mapped run's `usageTotals` (`lane-tiles.ts:724-739`), but its per-run table can hide entirely unknown columns (`lane-usage-tile.component.ts:233-260`). Both paths must share the same per-run normalization and distinguish truly unknown values. Check that a missing monitor record or a session ownership mismatch does not leave a roster row without its run data.
+
+## Proposed Removals
+
+- Remove *from the Electron LANES section* the per-run token/cost/status face, per-run table, role grouping and Σ row after their AGENTS equivalents are present. Keep the shared expanded stats strip consumer of `laneTiles` until separately redesigned.
+- Replace the LANES “N · M runs” label with a provider count. Preserve the run count in AGENTS; avoid labeling provider rows as runs.
+- Remove the LANES `lane · not in totals` caption only after it appears alongside the AGENTS subtotal and the subtotal remains separate from session totals.
+
+## Clarifications Needed
+
+None. The request authorizes the sidebar relocation; current code settles the data and ownership boundaries.
+
