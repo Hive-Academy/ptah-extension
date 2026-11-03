@@ -27,6 +27,7 @@ import {
   NO_ERRORS_SCHEMA,
   ChangeDetectionStrategy,
   LOCALE_ID,
+  DeferBlockState,
   signal,
 } from '@angular/core';
 
@@ -794,6 +795,8 @@ describe('ChatViewComponent — Codex re-auth', () => {
     h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'running' });
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
     h.fixture.detectChanges();
+    const [signInBlock] = await h.fixture.getDeferBlocks();
+    await signInBlock.render(DeferBlockState.Complete);
 
     expect(h.fixture.nativeElement.querySelector('[data-testid="codex-sign-in-block"]')).not.toBeNull();
     const cancel = h.fixture.nativeElement.querySelector('button[data-testid="codex-reauth-cancel"]') as HTMLButtonElement | null;

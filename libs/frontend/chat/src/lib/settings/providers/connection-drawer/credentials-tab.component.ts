@@ -189,7 +189,9 @@ function probeResultText(result: AuthVerifyDraftConnectionResult): string {
                 ? 'The token in ~/.codex/auth.json has expired. Open login to sign in again.'
                 : 'Ptah uses the Codex login stored in ~/.codex/auth.json. Open login to switch or refresh the account.' }}
             </p>
-            <ptah-codex-sign-in-block layout="compact" role="chosen" />
+            @defer (on immediate) {
+              <ptah-codex-sign-in-block layout="compact" role="chosen" />
+            }
             @if (codexRunning()) {
               <button type="button" class="btn btn-outline btn-sm" (click)="externalActionRequested.emit('sign-in-cancel')"
                 data-testid="credentials-codex-cancel">Cancel sign-in</button>

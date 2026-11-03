@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { DeferBlockState, signal } from '@angular/core';
 import { CodexSignInService } from '@ptah-extension/core';
 import type { CodexLoginState } from '@ptah-extension/shared';
 import {
@@ -358,11 +358,13 @@ describe('CredentialsTabComponent', () => {
     expect(signOut).toHaveBeenCalledTimes(1);
   });
 
-  it('OpenAI Codex shows token-expired copy and in-app sign-in (#13)', () => {
+  it('OpenAI Codex shows token-expired copy and in-app sign-in (#13)', async () => {
     const action = jest.fn();
     fixture.componentInstance.externalActionRequested.subscribe(action);
     render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false, tokenStale: true }), kind: 'oauth' });
     expect(query('credentials-codex-copy')?.textContent).toContain('~/.codex/auth.json has expired');
+    const [signInBlock] = await fixture.getDeferBlocks();
+    await signInBlock.render(DeferBlockState.Complete);
     expect(query('codex-sign-in-block')).not.toBeNull();
     query('credentials-open-login')?.click();
     expect(action).toHaveBeenCalledWith('sign-in');
