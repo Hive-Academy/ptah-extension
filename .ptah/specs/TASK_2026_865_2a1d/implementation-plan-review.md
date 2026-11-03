@@ -1,7 +1,7 @@
 Author: Claude software-architect subagent
 Reviewer: codex lane
 Artifact revision: 0
-Round: 3
+Round: 4
 Verdict: REVISE
 
 ## Findings
@@ -55,3 +55,21 @@ Verdict: REVISE
 - **`/compact` path:** The specified eligible branch bypasses `chat:continue` and native Codex compaction; failed, timed-out and ineligible checks retain today's parameters and refusal shape. The shared `pending`/`isBusy` gate serializes the compact trigger with the banner button. `message-sender.service.ts:767-828`, `implementation-plan.md:613-646,967-1017` support this decision. The new Requirement 9 cases are observable through RPC calls, send outcomes, bubbles and binding; no further finding on this path.
 - **Module boundaries:** The planned agent-sdk → codex-runtime import uses existing `scope:extension,type:feature` peers; the Electron port consumes both from `scope:electron,type:app`; the renderer uses its own chat service. These edges satisfy `eslint.config.mjs:276-394` and the checked `project.json` tags. No new forbidden edge found.
 - **Verification limits:** This was a document and source review. No builds, tests or git history commands were run. Scoped `ptah_get_diagnostics` was requested for the relevant Codex, agent-sdk and chat files; it returned unavailable after its 45-second TypeScript timeout, so it provides no pass evidence. All proposed new ACs have observable outcomes, but proposed AC 3.10 cannot pass as written for a legacy native thread until Finding 1 is resolved. Decisions on the two Serious corrections are reversible design choices supported by the cited protocol and acceptance criteria.
+
+## Round 4 (scoped to round 3 findings)
+
+Artifact revision: 3
+Verdict: REVISE
+
+1. **F1 — Fixed (source-read design).** Component 11 `implementation-plan.md:843-895,897-935` specifies newest-first `thread/turns/list` and `thread/items/list` for every history mode, with at most 200 complete turns, 25 requests and 8 MiB of page data plus one response. The pinned request schemas `codex-protocol-methods.ts:148-170` accept a thread id, cursor, limit and descending sort without a legacy-mode restriction. This does not prove real-server legacy paging; A10 at `implementation-plan.md:879-882` requires a manual check. A rejected page throws and is mapped to fixed unreadable history (`implementation-plan.md:861-869,933-935`); the proposed tail path never retries `thread/read` with `includeTurns`. The existing full-history implementation at `codex-session-history.ts:100-122` remains for the separate history view and is not proposed as a fallback.
+2. **F2 — Fixed.** Component 12 `implementation-plan.md:1043-1054,1077-1085` maps `functionCallOutput.name` and `dynamicToolCall.tool` to one sanitized, content-free tool line each, with sentinel fixtures for output and arguments. Both item variants exist in `codex-protocol-schemas.ts:403-420`.
+3. **F3 — Fixed.** Component 11 `implementation-plan.md:913-930,986-993` drops an incomplete turn, stops before older turns, marks the window incomplete and throws `pageLimitExceeded` if no complete turn remains. It specifies item-page and byte-limit cases.
+4. **F4 — Fixed.** Component 13 `implementation-plan.md:1130-1133` cites `message-sender.service.ts:692-903`; the source signature is at 692 and the closing brace at 903.
+
+### New finding
+
+5. **Serious — Component 11 / proposed AC 3.4 and 3.10:** `implementation-plan.md:978-983,1235-1245`; `codex-protocol-methods.ts:152-160`. The byte-bound fixture claims 60 turns in roughly 1 MiB turn pages produce stored history over ten times the 8 MiB limit. With `limit: 25`, 60 turns yield only three turn pages, about 3 MiB; the test cannot reach the 8 MiB cutoff or establish the required ten-times-byte-bound source. Replace it with enough pages and data to exceed 80 MiB while each page remains below the 16 MiB frame limit; make the byte cutoff occur before the eight-page request cap, and assert the returned newest turns, incomplete-window flag, page-byte sum and no further requests.
+
+### Decisions
+
+- The paging design fixes the original F1 behaviour; the impossible byte fixture is a separate Serious verification gap, so the scoped verdict is REVISE. Correcting the fixture is reversible. The schema allows legacy ids syntactically, while actual server support remains A10's explicit validation step. No builds, tests or git history commands were run.
