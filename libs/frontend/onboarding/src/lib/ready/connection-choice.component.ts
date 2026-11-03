@@ -84,7 +84,7 @@ import { ConnectionChoiceStore } from './connection-choice.store';
 export class ConnectionChoiceComponent {
   readonly store = inject(ConnectionChoiceStore);
   private readonly injector = inject(Injector);
-  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly cards = [
     { id: 'claude-cli' as ProviderKind, name: 'Claude Code', description: "Anthropic's coding agent", icon: Terminal },
     { id: 'openai-codex' as ProviderKind, name: 'Codex', description: "OpenAI's coding agent", icon: Code },

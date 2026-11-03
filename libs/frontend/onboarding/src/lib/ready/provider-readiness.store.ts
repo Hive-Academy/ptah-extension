@@ -74,6 +74,9 @@ export class ProviderReadinessStore {
       this.notConfirmed.set(false);
       return true;
     } catch {
+      // degradation-audit: reported - false keeps notConfirmed set, so
+      // selection() stays 'not-confirmed' and the stage shows it;
+      // connection-choice.store.ts uses the result.
       return false;
     }
   }
@@ -117,7 +120,9 @@ export class ProviderReadinessStore {
     retrying.set(false);
     if (kind === 'recheck') this.activeRechecks.update((count) => count + 1);
     const cycle = this.run(provider, kind, mountId, epoch).catch(() => {
-      // Core services normally absorb failures. A rejected read affects only this provider.
+      // degradation-audit: reported - the core read services record read failures in
+      // their own state, which the provider panel shows; a rejection ends only this
+      // provider's cycle and finally() clears the retrying flag.
     }).finally(() => {
       retrying.set(false);
       if (kind === 'recheck') this.activeRechecks.update((count) => count - 1);

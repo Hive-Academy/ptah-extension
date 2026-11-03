@@ -27,7 +27,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isHttpsUrl(value: string): boolean {
-  try { return new URL(value).protocol === 'https:'; } catch { return false; }
+  try { return new URL(value).protocol === 'https:'; } catch {
+    // degradation-audit: optional-capability - an unparseable URL is not
+    // an https URL; the caller drops the field.
+    return false;
+  }
 }
 
 /** Keep only validated, display-safe fields from the host snapshot. */

@@ -32,6 +32,8 @@ const OptionalParamsSchema = z.preprocess(value => value === undefined ? {} : va
   z.object({}).passthrough());
 export const CodexReadinessParamsSchema = OptionalParamsSchema.pipe(z.object({
   refresh: z.boolean().optional(),
+  // degradation-audit: optional-capability - this is zod's schema .catch, not a
+  // promise; an unknown trigger value is dropped and the read runs untagged.
   trigger: ReadinessTriggerSchema.optional().catch(undefined),
 }));
 export const CodexLoginParamsSchema = OptionalParamsSchema.pipe(z.object({
