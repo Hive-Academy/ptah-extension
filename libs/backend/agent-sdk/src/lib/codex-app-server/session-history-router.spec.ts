@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import {
+  CodexSessionHistoryError,
   normalizeCodexWorkspaceKey,
+  type CodexHistoryReader,
   type CodexSessionHistory,
 } from '@ptah-extension/codex-runtime';
 import {
@@ -10,6 +12,7 @@ import {
 } from '@ptah-extension/shared';
 import type { SessionMetadata } from '../session-metadata-store';
 import { projectCodexHistory } from './codex-history-projector';
+import { projectCodexCarryOverTranscript } from './codex-carry-over-projector';
 import {
   SessionHistoryRouteError,
   SessionHistoryRouter,
@@ -95,6 +98,10 @@ const carryOverTranscript = {
   windowCoversWholeHistory: true,
   startsAtCompactionSummary: false,
 };
+
+type CodexHistoryTail = Awaited<ReturnType<CodexHistoryReader['readHistoryTail']>>;
+const nativeTail: CodexHistoryTail = { thread: snapshot.threads[0], coversWholeHistory: true };
+const nativeBound = { maxTurns: 200, maxTurnPages: 8, maxItemPages: 16 };
 
 function fixture(
   session: SessionMetadata | null,
@@ -300,8 +307,8 @@ describe('SessionHistoryRouter', () => {
       expect(legacy.readCarryOverTranscript).toHaveBeenCalledWith(sessionId, workspacePath, options);
     });
 
-    it('refuses a native session before any native or legacy read', async () => {
-      const native = { readHistory: jest.fn(async () => snapshot) };
+    it('refuses a native session for a caller without a native bound, before any read', async () => {
+      const native = { readHistory: jest.fn(async () => snapshot), readHistoryTail: jest.fn() };
       const getNative = jest.fn(() => native);
       const { router, legacy, getLegacy } = fixture(nativeSession, getNative);
       await expect(router.readCarryOverTranscript(sessionId, workspacePath, { tailBytes: 1024 }))
@@ -311,9 +318,123 @@ describe('SessionHistoryRouter', () => {
           message: 'Session history is unavailable in this host.',
         });
       expect(native.readHistory).toHaveBeenCalledTimes(0);
+      expect(native.readHistoryTail).toHaveBeenCalledTimes(0);
       expect(getNative).not.toHaveBeenCalled();
       expect(getLegacy).not.toHaveBeenCalled();
       expect(legacy.readCarryOverTranscript).not.toHaveBeenCalled();
+    });
+
+    it('routes a native session to readHistoryTail with the bound, never readHistory', async () => {
+      const native = {
+        readHistory: jest.fn(async () => snapshot),
+        readHistoryTail: jest.fn(async () => nativeTail),
+      };
+      const { router, legacy, getLegacy } = fixture(nativeSession, () => native);
+      const signal = new AbortController().signal;
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+        signal,
+      })).resolves.toEqual(projectCodexCarryOverTranscript(nativeTail));
+      expect(native.readHistoryTail).toHaveBeenCalledTimes(1);
+      expect(native.readHistoryTail).toHaveBeenCalledWith(nativeSession, nativeBound, signal);
+      const passed = native.readHistoryTail.mock.calls[0] as unknown[];
+      expect(passed[1]).toBe(nativeBound);
+      expect(native.readHistory).not.toHaveBeenCalled();
+      expect(getLegacy).not.toHaveBeenCalled();
+      expect(legacy.readCarryOverTranscript).not.toHaveBeenCalled();
+    });
+
+    it('projects the native tail and keeps its window flag', async () => {
+      const partial = { ...nativeTail, coversWholeHistory: false };
+      const native = { readHistory: jest.fn(), readHistoryTail: jest.fn(async () => partial) };
+      const { router } = fixture(nativeSession, () => native);
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+      })).resolves.toEqual({
+        turns: [
+          { role: 'user', text: 'Hello', compactionSummary: false },
+          { role: 'assistant', text: 'Hi', compactionSummary: false },
+          { role: 'user', text: 'Again', compactionSummary: false },
+          { role: 'assistant', text: 'Done', compactionSummary: false },
+        ],
+        windowCoversWholeHistory: false,
+        startsAtCompactionSummary: false,
+      });
+    });
+
+    it.each([
+      ['an absent port', () => undefined],
+      ['a null port', () => null],
+      ['a port without readHistoryTail', () => ({ readHistory: jest.fn(async () => snapshot) })],
+    ])('gives nativePortUnavailable for %s', async (_case, getNative) => {
+      const { router, legacy, getLegacy } = fixture(nativeSession, getNative);
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+      })).rejects.toMatchObject({ name: 'SessionHistoryRouteError', code: 'nativePortUnavailable' });
+      expect(getLegacy).not.toHaveBeenCalled();
+      expect(legacy.readCarryOverTranscript).not.toHaveBeenCalled();
+    });
+
+    it('passes a fixed-code Electron port error through unchanged', async () => {
+      const portError = Object.assign(new Error('Codex history could not be read.'), {
+        name: 'ElectronCodexHistoryError',
+        code: 'runtimeFailed',
+      });
+      const native = {
+        readHistory: jest.fn(),
+        readHistoryTail: jest.fn(async (): Promise<CodexHistoryTail> => { throw portError; }),
+      };
+      const { router } = fixture(nativeSession, () => native);
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+      })).rejects.toBe(portError);
+    });
+
+    it.each([
+      ['a bare CodexSessionHistoryError', new CodexSessionHistoryError('pageLimitExceeded')],
+      ['an unknown error', new Error('/home/user/.codex payload')],
+    ])('collapses %s to nativeReadFailed', async (_case, failure) => {
+      const native = {
+        readHistory: jest.fn(),
+        readHistoryTail: jest.fn(async (): Promise<CodexHistoryTail> => { throw failure; }),
+      };
+      const { router } = fixture(nativeSession, () => native);
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+      })).rejects.toMatchObject({
+        name: 'SessionHistoryRouteError',
+        code: 'nativeReadFailed',
+        message: 'Session history could not be read.',
+        cause: failure,
+      });
+    });
+
+    it('gives nativeReadFailed when the projection throws', async () => {
+      const broken = { coversWholeHistory: true, thread: { turns: null } } as unknown as CodexHistoryTail;
+      const native = { readHistory: jest.fn(), readHistoryTail: jest.fn(async () => broken) };
+      const { router } = fixture(nativeSession, () => native);
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, {
+        tailBytes: 1024,
+        nativeBound,
+      })).rejects.toMatchObject({ name: 'SessionHistoryRouteError', code: 'nativeReadFailed' });
+    });
+
+    it('routes a Claude session to the legacy read even when a native bound is passed', async () => {
+      const native = { readHistory: jest.fn(), readHistoryTail: jest.fn() };
+      const { router, legacy } = fixture(
+        { ...nativeSession, codexExecution: undefined, codexThread: undefined },
+        () => native,
+      );
+      const options = { tailBytes: 2048, nativeBound };
+      await expect(router.readCarryOverTranscript(sessionId, workspacePath, options))
+        .resolves.toBe(carryOverTranscript);
+      expect(legacy.readCarryOverTranscript).toHaveBeenCalledWith(sessionId, workspacePath, options);
+      expect(native.readHistoryTail).not.toHaveBeenCalled();
     });
 
     it('propagates an invalid native identity unchanged', async () => {

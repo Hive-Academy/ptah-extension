@@ -1,5 +1,6 @@
 import {
   normalizeCodexWorkspaceKey,
+  type CodexHistoryReader,
   type CodexSessionHistory,
 } from '@ptah-extension/codex-runtime';
 import type { SessionMetadata, SessionMetadataStore } from '../session-metadata-store';
@@ -9,10 +10,31 @@ import type {
 } from '../session-history-reader.service';
 import type { CarryOverTranscript } from '../helpers/history/history.types';
 import { projectCodexHistory } from './codex-history-projector';
+import {
+  projectCodexCarryOverTranscript,
+  type CodexCarryOverTail,
+} from './codex-carry-over-projector';
+
+/** Turn and page caps of one bounded native carry-over read. */
+export type NativeCarryOverBound = Parameters<CodexHistoryReader['readHistoryTail']>[2];
 
 export interface NativeSessionHistoryPort {
   /** Read the complete snapshot using execution.sessionId when the context mapping is absent. */
   readHistory(session: SessionMetadata): Promise<CodexSessionHistory>;
+  /** Read only the newest complete root turns inside `bound`; absent on hosts without it. */
+  readHistoryTail?(
+    session: SessionMetadata,
+    bound: NativeCarryOverBound,
+    signal?: AbortSignal,
+  ): Promise<CodexCarryOverTail>;
+}
+
+export interface CarryOverRouteOptions extends CarryOverReadOptions {
+  /**
+   * Bound of the native read. A caller that passes none is refused for a
+   * native session before any read, as before native sources were enabled.
+   */
+  readonly nativeBound?: NativeCarryOverBound;
 }
 
 export type SessionHistoryReadResult = Awaited<
@@ -74,17 +96,24 @@ export class SessionHistoryRouter {
 
   /**
    * The bounded transcript a provider carry-over renders. A Claude session
-   * reads its JSONL tail. A native session has no bounded read in this host
-   * yet, so it fails before any native or legacy read is attempted.
+   * reads its JSONL tail. A native session reads its newest root turns through
+   * the host port's `readHistoryTail`, never the full `readHistory`.
    */
   async readCarryOverTranscript(
     sessionId: string,
     workspacePath: string,
-    options: CarryOverReadOptions,
+    options: CarryOverRouteOptions,
   ): Promise<CarryOverTranscript> {
     const session = await this.nativeSession(sessionId);
-    if (session) throw new SessionHistoryRouteError('nativePortUnavailable');
-    return this.getLegacy().readCarryOverTranscript(sessionId, workspacePath, options);
+    if (!session)
+      return this.getLegacy().readCarryOverTranscript(sessionId, workspacePath, options);
+    if (!options.nativeBound) throw new SessionHistoryRouteError('nativePortUnavailable');
+    const tail = await this.nativeHistoryTail(session, options.nativeBound, options.signal);
+    try {
+      return projectCodexCarryOverTranscript(tail);
+    } catch (error: unknown) {
+      throw new SessionHistoryRouteError('nativeReadFailed', error);
+    }
   }
 
   private async nativeSession(sessionId: string): Promise<SessionMetadata | null> {
@@ -114,8 +143,24 @@ export class SessionHistoryRouter {
     const native = this.getNative();
     if (!native)
       throw new SessionHistoryRouteError('nativePortUnavailable');
+    return this.collapseNativeErrors(() => native.readHistory(session));
+  }
+
+  private async nativeHistoryTail(
+    session: SessionMetadata,
+    bound: NativeCarryOverBound,
+    signal: AbortSignal | undefined,
+  ): Promise<CodexCarryOverTail> {
+    const native = this.getNative();
+    const readTail = native?.readHistoryTail;
+    if (!native || typeof readTail !== 'function')
+      throw new SessionHistoryRouteError('nativePortUnavailable');
+    return this.collapseNativeErrors(() => readTail.call(native, session, bound, signal));
+  }
+
+  private async collapseNativeErrors<T>(read: () => Promise<T>): Promise<T> {
     try {
-      return await native.readHistory(session);
+      return await read();
     } catch (error: unknown) {
       // The Electron port has fixed codes. All other native failures are
       // collapsed here so a host cannot expose paths or protocol payloads.
