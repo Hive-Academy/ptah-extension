@@ -12,5 +12,9 @@ export default {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  setupFiles: ['reflect-metadata'],
+  moduleNameMapper: {
+    '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
+  },
   coverageDirectory: '../../../coverage/libs/backend/review-core',
 };
