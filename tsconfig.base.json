@@ -277,6 +277,12 @@
       ],
       "@ptah-extension/review-contracts": [
         "./libs/backend/review-contracts/src/index.ts"
+      ],
+      "@ptah-extension/review-core": [
+        "./libs/backend/review-core/src/index.ts"
+      ],
+      "@ptah-extension/review-github": [
+        "./libs/backend/review-github/src/index.ts"
       ]
     },
     "strict": false,
