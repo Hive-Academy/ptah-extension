@@ -101,6 +101,20 @@ class FakeFs implements Partial<IFileSystemProvider> {
     return [...children.entries()].map(([name, type]) => ({ name, type }));
   }
 
+  async lstat(p: string) {
+    const n = norm(p);
+    if (this.files.has(n)) return { type: FileType.File, size: Buffer.byteLength(this.files.get(n)!), ctime: 0, mtime: 0 };
+    if (await this.exists(p)) return { type: FileType.Directory, size: 0, ctime: 0, mtime: 0 };
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  }
+
+  async realpath(p: string): Promise<string> { return norm(p); }
+
+  async readFileBoundedNoFollow(p: string, maxBytes: number) {
+    const bytes = new TextEncoder().encode(await this.readFile(p));
+    return { bytes: bytes.slice(0, maxBytes), truncated: bytes.length > maxBytes };
+  }
+
   createFileWatcher(): IFileWatcher {
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
@@ -719,6 +733,48 @@ describe('TaskIndexService.readRoundJudge', () => {
     await expect(
       service.readRoundJudge(ROOT, 'TASK_2026_999', 1),
     ).resolves.toBeNull();
+    service.dispose();
+  });
+});
+
+describe('task folder read and listing', () => {
+  it('reads a direct markdown child and rejects traversal as a result', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    fs.setFile(path.join(specsDir(), 'TASK_2026_001', 'decisions.md'), '# Decisions');
+    const service = buildService(fs);
+    expect(await service.readFolderMarkdown(ROOT, 'TASK_2026_001', 'decisions.md')).toMatchObject({ state: 'ready', content: '# Decisions' });
+    expect(await service.readFolderMarkdown(ROOT, 'TASK_2026_001', '../secret.md')).toMatchObject({ state: 'rejected', content: null });
+    expect(await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).toMatchObject({ state: 'ready' });
+    service.dispose();
+  });
+
+  it('rejects a linked task folder and a canonical escape', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const originalLstat = fs.lstat.bind(fs);
+    fs.lstat = jest.fn(async (p) => norm(p).endsWith('TASK_2026_001')
+      ? { type: FileType.SymbolicLink, size: 0, ctime: 0, mtime: 0 }
+      : originalLstat(p));
+    const service = buildService(fs);
+    expect((await service.readFolderMarkdown(ROOT, 'TASK_2026_001', 'task.md')).state).toBe('rejected');
+    expect((await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).state).toBe('rejected');
+    service.dispose();
+
+    fs.lstat = originalLstat;
+    const originalRealpath = fs.realpath.bind(fs);
+    fs.realpath = jest.fn(async (p) => norm(p).endsWith('TASK_2026_001') ? path.resolve(ROOT, '..', 'outside') : originalRealpath(p));
+    const escaped = buildService(fs);
+    expect((await escaped.readFolderMarkdown(ROOT, 'TASK_2026_001', 'task.md')).state).toBe('rejected');
+    escaped.dispose();
+  });
+
+  it('returns unreadable if the file changes during a bounded read', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    fs.readFileBoundedNoFollow = jest.fn(async () => { throw Object.assign(new Error('changed'), { code: 'ELOOP' }); });
+    const service = buildService(fs);
+    expect((await service.readFolderMarkdown(ROOT, 'TASK_2026_001', 'task.md')).state).toBe('unreadable');
     service.dispose();
   });
 });

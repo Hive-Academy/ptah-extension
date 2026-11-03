@@ -73,6 +73,10 @@ import {
   type TasksGetResult,
   type TasksGetArtifactParams,
   type TasksGetArtifactResult,
+  type TasksReadFolderMarkdownParams,
+  type TasksReadFolderMarkdownResult,
+  type TasksListFolderEntriesParams,
+  type TasksListFolderEntriesResult,
   type TasksCreateParams,
   type TasksCreateResult,
   type TasksSweepParams,
@@ -107,6 +111,8 @@ import {
   TasksListParamsSchema,
   TasksGetParamsSchema,
   TasksGetArtifactParamsSchema,
+  TasksReadFolderMarkdownParamsSchema,
+  TasksListFolderEntriesParamsSchema,
   TasksCreateParamsSchema,
   TasksSweepParamsSchema,
   TasksUpdateStatusParamsSchema,
@@ -262,6 +268,8 @@ export class TasksRpcHandlers {
     'tasks:list',
     'tasks:get',
     'tasks:getArtifact',
+    'tasks:readFolderMarkdown',
+    'tasks:listFolderEntries',
     'tasks:create',
     'tasks:sweepFinished',
     'tasks:updateStatus',
@@ -307,6 +315,8 @@ export class TasksRpcHandlers {
     this.registerList();
     this.registerGet();
     this.registerGetArtifact();
+    this.registerReadFolderMarkdown();
+    this.registerListFolderEntries();
     this.registerCreate();
     this.registerSweepFinished();
     this.registerUpdateStatus();
@@ -689,6 +699,26 @@ export class TasksRpcHandlers {
         );
       }
     });
+  }
+
+  private registerReadFolderMarkdown(): void {
+    this.rpcHandler.registerMethod<TasksReadFolderMarkdownParams, TasksReadFolderMarkdownResult>(
+      'tasks:readFolderMarkdown', async (params) => {
+        const parsed = this.parse(TasksReadFolderMarkdownParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        return this.index.readFolderMarkdown(root, parsed.taskId, parsed.file);
+      },
+    );
+  }
+
+  private registerListFolderEntries(): void {
+    this.rpcHandler.registerMethod<TasksListFolderEntriesParams, TasksListFolderEntriesResult>(
+      'tasks:listFolderEntries', async (params) => {
+        const parsed = this.parse(TasksListFolderEntriesParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        return this.index.listFolderEntries(root, parsed.taskId, parsed.directory);
+      },
+    );
   }
 
   /**

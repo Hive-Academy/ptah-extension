@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'fs/promises';
+import { constants as fsConstants } from 'fs';
 import * as path from 'path';
 import type {
   IFileSystemProvider,
@@ -77,6 +78,42 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
       mtime: stats.mtimeMs,
       size: stats.size,
     };
+  }
+
+  async lstat(filePath: string): Promise<FileStat> {
+    const stats = await fs.lstat(filePath);
+    return {
+      type: stats.isSymbolicLink() ? FileType.SymbolicLink : stats.isFile() ? FileType.File : stats.isDirectory() ? FileType.Directory : FileType.Unknown,
+      ctime: stats.ctimeMs, mtime: stats.mtimeMs, size: stats.size,
+    };
+  }
+
+  async realpath(filePath: string): Promise<string> {
+    return fs.realpath(filePath);
+  }
+
+  async readFileBoundedNoFollow(filePath: string, maxBytes: number): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new RangeError('Invalid read bound');
+    const before = await fs.lstat(filePath);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('Not a regular file');
+    const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error('File changed');
+      const buffer = Buffer.alloc(maxBytes + 1);
+      let count = 0;
+      while (count < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, count, buffer.length - count, count);
+        if (bytesRead === 0) break;
+        count += bytesRead;
+      }
+      const after = await fs.lstat(filePath);
+      const openedAfter = await handle.stat();
+      if (!after.isFile() || after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino || openedAfter.size !== opened.size || openedAfter.mtimeMs !== opened.mtimeMs) throw new Error('File changed');
+      return { bytes: new Uint8Array(buffer.subarray(0, Math.min(count, maxBytes))), truncated: count > maxBytes };
+    } finally {
+      await handle.close();
+    }
   }
 
   async exists(filePath: string): Promise<boolean> {

@@ -24,6 +24,7 @@ import * as path from 'path';
 import {
   PLATFORM_TOKENS,
   createEvent,
+  FileType,
   type IFileSystemProvider,
   type IFileWatcher,
   type IEvent,
@@ -39,6 +40,8 @@ import {
   type ExcludedTaskFolder,
   type TaskSpecDetail,
   type TaskSpecSummary,
+  type TasksReadFolderMarkdownResult,
+  type TasksListFolderEntriesResult,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
@@ -347,8 +350,9 @@ export class TaskIndexService implements ITaskIndexNotifier {
       const raw = await this.fs.readFile(carrier);
       const parsed = parseTaskFile(folderName, raw);
       if (parsed.kind !== 'task') return null;
-      const artifacts = await this.listArtifacts(folderDir);
-      return { ...parsed.task, body: parsed.body, artifacts };
+      const entries = await this.listEntries(folderDir);
+      const artifacts = entries.map((entry) => entry.name);
+      return { ...parsed.task, body: parsed.body, artifacts, entries };
     } catch (error: unknown) {
       this.logger.warn('[task-specs] getDetail failed', {
         folderName,
@@ -388,6 +392,72 @@ export class TaskIndexService implements ITaskIndexNotifier {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
+    }
+  }
+
+  private inside(parent: string, child: string): boolean {
+    const relative = path.relative(parent, child);
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  }
+
+  private async containedTask(root: string, taskId: string): Promise<string> {
+    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) throw new Error('Invalid task folder');
+    const canonicalRoot = await this.fs.realpath(root);
+    let current = root;
+    for (const segment of ['.ptah', 'specs', taskId]) {
+      current = path.join(current, segment);
+      const stat = await this.fs.lstat(current);
+      if (stat.type !== FileType.Directory) throw new Error('Invalid task folder');
+      const canonical = await this.fs.realpath(current);
+      if (!this.inside(canonicalRoot, canonical)) throw new Error('Outside workspace');
+    }
+    return this.fs.realpath(current);
+  }
+
+  async readFolderMarkdown(workspaceRoot: string, taskId: string, file: string): Promise<TasksReadFolderMarkdownResult> {
+    const result = (state: TasksReadFolderMarkdownResult['state'], content: string | null = null): TasksReadFolderMarkdownResult => ({ taskId, file, state, content });
+    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) return result('rejected');
+    if (!/^[a-z0-9][a-z0-9._-]*\.md$/.test(file) || file.includes('..')) return result('rejected');
+    try {
+      const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
+      const target = path.join(folder, file);
+      const stat = await this.fs.lstat(target);
+      if (stat.type === FileType.Directory) return result('directory');
+      if (stat.type !== FileType.File) return result('rejected');
+      if (stat.size > 1048576) return result('too_large');
+      if (!this.inside(folder, await this.fs.realpath(target))) return result('rejected');
+      const read = await this.fs.readFileBoundedNoFollow(target, 1048576);
+      if (read.truncated) return result('too_large');
+      if (read.bytes.includes(0)) return result('binary');
+      try { return result('ready', new TextDecoder('utf-8', { fatal: true }).decode(read.bytes)); }
+      catch { return result('binary'); }
+    } catch (error: unknown) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      const message = error instanceof Error ? error.message : '';
+      return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
+    }
+  }
+
+  async listFolderEntries(workspaceRoot: string, taskId: string, directory: string): Promise<TasksListFolderEntriesResult> {
+    const result = (state: TasksListFolderEntriesResult['state'], entries: TasksListFolderEntriesResult['entries'] = []): TasksListFolderEntriesResult => ({ taskId, directory, state, entries });
+    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) return result('rejected');
+    const parts = directory === '' ? [] : directory.split('/');
+    if (parts.length > 4 || parts.some((part) => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(part) || part === '..' || part.includes('..'))) return result('rejected');
+    try {
+      const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
+      let current = folder;
+      for (const part of parts) {
+        current = path.join(current, part);
+        const stat = await this.fs.lstat(current);
+        if (stat.type !== FileType.Directory || !this.inside(folder, await this.fs.realpath(current))) return result('rejected');
+      }
+      const entries = await this.fs.readDirectory(current);
+      if (entries.length > 200) return result('too_many');
+      return result('ready', entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' : type === FileType.Directory ? 'directory' : type === FileType.SymbolicLink ? 'symlink' : 'other' })));
+    } catch (error: unknown) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      const message = error instanceof Error ? error.message : '';
+      return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
     }
   }
 
@@ -584,12 +654,14 @@ export class TaskIndexService implements ITaskIndexNotifier {
     }
   }
 
-  private async listArtifacts(folderDir: string): Promise<string[]> {
+  private async listEntries(folderDir: string): Promise<NonNullable<TaskSpecDetail['entries']>> {
     try {
       const entries = await this.fs.readDirectory(folderDir);
-      return entries.map((e) => e.name).sort();
+      return entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' as const : type === FileType.Directory ? 'directory' as const : type === FileType.SymbolicLink ? 'symlink' as const : 'other' as const })).sort((a, b) => a.name.localeCompare(b.name));
     } catch {
       return [];
     }
   }
+
 }
+

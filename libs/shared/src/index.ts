@@ -46,6 +46,7 @@ export * from './lib/types/mcp-registry-config.mapper';
 export * from './lib/types/task-spec.types';
 export * from './lib/types/session-organization.types';
 export * from './lib/types/task-spec.contract';
+export * from './lib/types/task-folder-markdown-eligibility';
 export * from './lib/types/task-graph';
 export * from './lib/types/task-filter';
 export * from './lib/types/task-view.types';
@@ -62,6 +63,7 @@ export * from './lib/types/agent-models.types';
 export * from './lib/types/session-budget.types';
 export * from './lib/types/advanced-settings.types';
 export * from './lib/type-guards/guards';
+export * from './lib/cli-version-label';
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';
 export * from './lib/utils/pricing.utils';
@@ -99,4 +101,3 @@ export type {
   ConfigClearScopeOverrideResult,
 } from './lib/types/rpc/rpc-auth.types';
 export { SCOPED_SETTING_KEYS } from './lib/types/rpc/rpc-auth.types';
-export * from './lib/cli-version-label';

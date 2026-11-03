@@ -342,11 +342,13 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 16 tasks:* methods', () => {
+  it('owns exactly the 18 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:getArtifact',
+      'tasks:readFolderMarkdown',
+      'tasks:listFolderEntries',
       'tasks:create',
       'tasks:sweepFinished',
       'tasks:updateStatus',
@@ -3819,6 +3821,8 @@ describe('tasks:* workspace authorization', () => {
       taskId: 'TASK_2026_401',
       file: 'implementation-plan.md',
     },
+    'tasks:readFolderMarkdown': { taskId: 'TASK_2026_401', file: 'decisions.md' },
+    'tasks:listFolderEntries': { taskId: 'TASK_2026_401', directory: '' },
     'tasks:create': { title: 'T', type: 'BUGFIX' },
     'tasks:sweepFinished': { olderThanDays: 7, apply: false },
     'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },
