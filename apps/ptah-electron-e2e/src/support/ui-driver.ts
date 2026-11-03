@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { visibleNewSessionTrigger } from './new-session-trigger';
 
@@ -501,6 +502,20 @@ export class UiDriver {
       opened: this.canvasPanes(keptSide === 'left' ? 'right' : 'left'),
       kept: this.canvasPanes(keptSide),
     };
+  }
+
+  /**
+   * Put the visible Rail in the given sort order. The Rail defaults to
+   * recent activity first, which hides Move up/down and puts the newest
+   * session first. Specs that rely on the stored card order use 'manual'.
+   */
+  public async setRailSort(mode: 'recent' | 'manual'): Promise<void> {
+    const toggle = this.page
+      .locator('ptah-canvas-rail:visible [data-testid="rail-sort-toggle"]')
+      .first();
+    const label = mode === 'recent' ? 'Recent' : 'Manual';
+    if ((await toggle.innerText()).trim() !== label) await toggle.click();
+    await expect(toggle).toHaveText(label);
   }
 
   /** The Electron dock body: git header, conflict banner and the review tabs. */
