@@ -1181,7 +1181,7 @@ describe('CodexChatAdapter', () => {
     await first.adapter.reset();
   });
 
-  it('clears open-only MCP secrets from the tracked session after the first turn receipt', async () => {
+  it('does not retain open-only MCP secrets in the tracked session', async () => {
     const h = setup();
     const secrets = new Map([['ref:auth', 'Bearer secret']]);
     h.ports.profile = jest.fn(async () => ({ profile, secrets }));
@@ -1190,7 +1190,7 @@ describe('CodexChatAdapter', () => {
     for await (const event of stream) void event;
 
     expect(h.context.startTurn).toHaveBeenCalledTimes(1);
-    expect(h.adapter['sessions'].get(id)?.secrets).toBeUndefined();
+    expect(h.adapter['sessions'].get(id)).not.toHaveProperty('secrets');
     await h.adapter.reset();
   });
 

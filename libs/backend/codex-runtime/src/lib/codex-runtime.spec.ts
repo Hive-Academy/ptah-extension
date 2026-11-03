@@ -339,6 +339,7 @@ describe('CodexRuntime', () => {
             source: 'installed' as const, reason: 'Using installed Codex 0.165.0.' },
         })),
         current: jest.fn(() => undefined),
+        markUnsupported: jest.fn(),
         activateFallback: jest.fn(async () => { throw new Error('No fallback'); }),
       },
       store: { persist, markInactive: inactive, read: async () => undefined },
@@ -380,6 +381,7 @@ describe('CodexRuntime', () => {
     options = { ...options, selectionSnapshot: {
       selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
       current: () => bundled,
+      markUnsupported: jest.fn(),
       activateFallback,
     } };
     jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
@@ -405,6 +407,7 @@ describe('CodexRuntime', () => {
     options = { ...options, selectionSnapshot: {
       selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
       current: () => bundled,
+      markUnsupported: jest.fn(),
       activateFallback,
     }, spawner: { spawnProcess: jest.fn(() => {
       const child = new FakeChild(`thread-${children.length + 1}`);
@@ -424,6 +427,81 @@ describe('CodexRuntime', () => {
     expect(children).toHaveLength(2);
   });
 
+  it('starts a new bundled thread after a zero-turn installed context rejects turn/start', async () => {
+    const installed = { path: realpathSync(process.execPath), version: '0.166.0',
+      source: 'installed' as const, reason: 'Using installed Codex.' };
+    const bundled = { ...installed, source: 'bundled' as const,
+      reason: 'Using bundled Codex.' };
+    options = { ...options, selectionSnapshot: {
+      selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
+      current: () => bundled,
+      markUnsupported: jest.fn(),
+      activateFallback: jest.fn(async () => bundled),
+    } };
+    runtime = new CodexRuntime(options);
+    const context = await runtime.open(profile);
+    children[0].failMethod = 'turn/start';
+    children[0].failCode = -32601;
+    await expect(context.startTurn({ text: 'go' })).rejects.toMatchObject({
+      method: 'turn/start', source: 'installed',
+    });
+    const replacement = await runtime.retryFirstTurnOnBundle(context, profile, undefined, 'turn/start');
+    expect(replacement.identity.threadId).toBe('thread-2');
+    expect(children[1].frames.map((frame) => frame['method'])).toContain('thread/start');
+    expect(children[1].frames.map((frame) => frame['method'])).not.toContain('thread/resume');
+  });
+
+  it('records an unsupported installed turn for the context selection', async () => {
+    const markUnsupported = jest.fn();
+    options = { ...options, selectionSnapshot: {
+      ...options.selectionSnapshot,
+      markUnsupported,
+    } };
+    runtime = new CodexRuntime(options);
+    const context = await runtime.open(profile);
+    expect(runtime.markUnsupported(context, 'turn/start')).toBe(false);
+    expect(markUnsupported).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'installed', version: '0.165.0' }),
+      'turn/start',
+    );
+  });
+
+  it('resumes the saved thread on bundled retry when the context has turn history', async () => {
+    const installed = { path: realpathSync(process.execPath), version: '0.166.0',
+      source: 'installed' as const, reason: 'Using installed Codex.' };
+    const bundled = { ...installed, source: 'bundled' as const,
+      reason: 'Using bundled Codex.' };
+    options = { ...options,
+      spawner: { spawnProcess: jest.fn(() => {
+        const child = new FakeChild('thread-1');
+        children.push(child);
+        return child;
+      }) },
+      selectionSnapshot: {
+        selectForOpen: async () => ({ selected: installed, bundledFallback: bundled }),
+        current: () => bundled,
+        markUnsupported: jest.fn(),
+        activateFallback: jest.fn(async () => bundled),
+      },
+    };
+    runtime = new CodexRuntime(options);
+    const resume: CodexThreadIdentity = {
+      threadId: 'thread-1', contextId: profile.contextId, processGeneration: 1,
+      normalizedHome: profile.normalizedHome, workspaceId: profile.workspaceId,
+      providerId: profile.providerId, profileFingerprint: profile.profileFingerprint,
+    };
+    const context = await runtime.open(profile, resume);
+    children[0].failMethod = 'turn/start';
+    children[0].failCode = -32601;
+    await expect(context.startTurn({ text: 'go' })).rejects.toMatchObject({
+      method: 'turn/start', source: 'installed',
+    });
+    const replacement = await runtime.retryFirstTurnOnBundle(context, profile, undefined, 'turn/start');
+    expect(replacement.identity.threadId).toBe('thread-1');
+    expect(children[1].frames.map((frame) => frame['method'])).toContain('thread/resume');
+    expect(children[1].frames.map((frame) => frame['method'])).not.toContain('thread/start');
+  });
+
   it('opens two lanes while their executable probes complete out of order', async () => {
     let firstStarted: (() => void) | undefined;
     let releaseFirst: (() => void) | undefined;
@@ -438,6 +516,7 @@ describe('CodexRuntime', () => {
         return { selected: { ...selected } };
       },
       current: () => undefined,
+      markUnsupported: jest.fn(),
       activateFallback: async () => { throw new Error('No fallback'); },
     } };
     runtime = new CodexRuntime(options);
@@ -465,6 +544,7 @@ describe('CodexRuntime', () => {
         return { selected: { ...selected } };
       },
       current: () => undefined,
+      markUnsupported: jest.fn(),
       activateFallback: async () => { throw new Error('No fallback'); },
     }, spawner: { spawnProcess: jest.fn(() => {
       const child = new FakeChild(children.length === 0 ? 'saved-thread' : 'lane-thread');

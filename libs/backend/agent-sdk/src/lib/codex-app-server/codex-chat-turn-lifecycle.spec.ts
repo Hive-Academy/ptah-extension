@@ -5,6 +5,7 @@ import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
   CodexUnsupportedMethodError,
+  CodexSelectionSnapshot,
   CodexEventTranslator,
   type ApprovalSink,
   type CodexContext,
@@ -136,10 +137,11 @@ function setup(
     await context.close();
     return bundledContext;
   });
+  const markUnsupported = jest.fn((_context: CodexContext, _method: string) => false);
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },
   });
-  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open, retryFirstTurnOnBundle } });
+  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open, retryFirstTurnOnBundle, markUnsupported } });
   const dispose = jest.fn(async () => {
     await scope.dispose();
   });
@@ -203,6 +205,7 @@ function setup(
     context,
     bundledContext,
     retryFirstTurnOnBundle,
+    markUnsupported,
     open,
     dispose,
     callbacks,
@@ -1045,35 +1048,50 @@ describe('Codex chat turn lifecycle', () => {
     },
   );
 
-  it('retries a rejected first turn on the bundled executable', async () => {
+  it('reports an installed first-turn unsupported method without changing the bound chat session id', async () => {
     const h = setup();
+    const snapshot = new CodexSelectionSnapshot({
+      installedCandidates: async () => ['/installed/codex'],
+      bundledCandidate: async () => '/bundle/codex',
+      canonicalNativePath: async (path) => path,
+      readVersion: async (path) => path === '/installed/codex'
+        ? 'codex-cli 0.166.0' : 'codex-cli 0.165.0',
+    });
+    const first = await snapshot.selectForOpen();
+    h.markUnsupported.mockImplementation((_context, method) => {
+      snapshot.markUnsupported(first.selected, method);
+      return true;
+    });
     h.context.startTurn.mockRejectedValueOnce(
       new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed'),
     );
-    const output = await collect(await h.adapter.startChatSession({ tabId }));
-    expect(h.retryFirstTurnOnBundle).toHaveBeenCalledTimes(1);
+    const output: FlatStreamEventUnion[] = [];
+    await expect((async () => {
+      for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+    })()).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.markUnsupported).toHaveBeenCalledWith(h.context, 'turn/start');
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(h.context.startTurn).toHaveBeenCalledTimes(1);
-    expect(h.bundledContext.startTurn).toHaveBeenCalledTimes(1);
-    expect(output.some((event) => event.eventType === 'turn_state' && event.phase === 'failed'))
-      .toBe(false);
+    expect(h.bundledContext.startTurn).not.toHaveBeenCalled();
+    expect(output.find((event) => event.eventType === 'text_delta' && event.source === 'complete'))
+      .toMatchObject({ delta: 'Codex 0.166.0 does not support required method turn/start. Update Codex or Ptah. The next session will use bundled Codex.' });
+    expect(h.adapter.isSessionActive(id)).toBe(false);
+    expect((await snapshot.selectForOpen()).selected).toMatchObject({ source: 'bundled' });
     await h.adapter.dispose();
   });
 
   it('reports a safe terminal error when bundled turn/start is also unsupported', async () => {
     const h = setup();
     h.context.startTurn.mockRejectedValueOnce(
-      new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed'),
-    );
-    h.bundledContext.startTurn.mockRejectedValueOnce(
       new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
     );
     const output: FlatStreamEventUnion[] = [];
     await expect((async () => {
       for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
     })()).rejects.toMatchObject({ code: 'runtime-failed' });
-    expect(h.retryFirstTurnOnBundle).toHaveBeenCalledTimes(1);
-    expect(h.bundledContext.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.bundledContext.startTurn).not.toHaveBeenCalled();
     expect(output.find((event) => event.eventType === 'text_delta' && event.source === 'complete'))
       .toMatchObject({ delta: 'Codex 0.165.0 does not support required method turn/start. Update Codex or Ptah.' });
     await h.adapter.dispose();

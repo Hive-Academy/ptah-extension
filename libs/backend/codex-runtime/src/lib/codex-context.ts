@@ -105,6 +105,7 @@ class RuntimeContext implements CodexContext {
   private revision = 0;
   private turnRevision = 0;
   private sentInitialInput = false;
+  private turnHistory = false;
   private settings: CodexTurnSettings;
   private levelPolicy: Pick<
     CodexExecutionProfile,
@@ -236,6 +237,10 @@ class RuntimeContext implements CodexContext {
     return this.committedIdentity;
   }
 
+  get hasTurnHistory(): boolean {
+    return this.turnHistory;
+  }
+
   get turnPermissionLevel(): CodexPermissionLevel {
     if (this.state === 'running' || this.state === 'interrupting')
       return (
@@ -247,6 +252,7 @@ class RuntimeContext implements CodexContext {
   }
 
   async open(resume?: CodexThreadIdentity): Promise<void> {
+    this.turnHistory = resume !== undefined;
     await this.process.start();
     if (this.process.verifiedCodexHome !== this.profile.normalizedHome)
       throw new CodexHomeMismatchError();
@@ -689,6 +695,7 @@ class RuntimeContext implements CodexContext {
       const turnId = result.turn.id;
       if (params.model) this.translator.setTurnModel(this.identity.threadId, turnId, params.model);
       this.sentInitialInput = true;
+      this.turnHistory = true;
       this.assertOpen();
       if (!this.terminalTurns.has(turnId)) {
         this.activeTurn = turnId;

@@ -28,6 +28,7 @@ export interface CodexSelectionSnapshotPort {
   selectForOpen(): Promise<CodexSelection>;
   current(): CodexExecutableSelection | undefined;
   activateFallback(failed: CodexExecutableSelection, method?: string): Promise<CodexExecutableSelection>;
+  markUnsupported(failed: CodexExecutableSelection, method: string): void;
 }
 
 const versionPattern = /(?:^|[^\w.])v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?=$|[^\w.+-])/;
@@ -120,14 +121,21 @@ export class CodexSelectionSnapshot implements CodexSelectionSnapshotPort {
   private selection?: CodexSelection;
   private generation = 0;
   private readonly fallbackByInstalled = new WeakMap<CodexExecutableSelection, CodexExecutableSelection>();
+  private readonly unsupportedInstalledVersions = new Map<string, string>();
   constructor(private readonly probes: CodexExecutableProbes) {}
   async selectForOpen(): Promise<CodexSelection> {
     const generation = ++this.generation;
     const resolved = await selectCodexExecutable(this.probes);
+    const method = resolved.selected.source === 'installed'
+      ? this.unsupportedInstalledVersions.get(resolved.selected.version) : undefined;
+    const bundledFallback = resolved.bundledFallback;
+    const selected = method && bundledFallback
+      ? { ...bundledFallback,
+        reason: `Installed Codex ${resolved.selected.version} lacks required method ${method}; using bundled Codex ${bundledFallback.version}.` }
+      : resolved.selected;
     const selection: CodexSelection = Object.freeze({
-      selected: Object.freeze(resolved.selected),
-      ...(resolved.bundledFallback
-        ? { bundledFallback: Object.freeze(resolved.bundledFallback) } : {}),
+      selected: Object.freeze(selected),
+      ...(bundledFallback ? { bundledFallback: Object.freeze(bundledFallback) } : {}),
     });
     if (selection.selected.source === 'installed' && selection.bundledFallback)
       this.fallbackByInstalled.set(selection.selected, selection.bundledFallback);
@@ -135,14 +143,26 @@ export class CodexSelectionSnapshot implements CodexSelectionSnapshotPort {
     return selection;
   }
   current(): CodexExecutableSelection | undefined { return this.selection?.selected; }
+  markUnsupported(failed: CodexExecutableSelection, method: string): void {
+    if (failed.source !== 'installed') return;
+    this.unsupportedInstalledVersions.set(parseCodexVersion(failed.version) ?? failed.version, method);
+    const bundledFallback = this.fallbackByInstalled.get(failed);
+    if (this.selection?.selected === failed && bundledFallback)
+      this.selection = { selected: {
+        ...bundledFallback,
+        reason: `Installed Codex ${failed.version} lacks required method ${method}; using bundled Codex ${bundledFallback.version}.`,
+      } };
+  }
   async activateFallback(failed: CodexExecutableSelection, method?: string): Promise<CodexExecutableSelection> {
+    const wasCurrent = this.selection?.selected === failed;
+    if (failed.source === 'installed') this.markUnsupported(failed, method ?? 'unknown');
     const bundledFallback = this.fallbackByInstalled.get(failed);
     if (failed.source !== 'installed' || !bundledFallback)
       throw new CodexExecutableUnavailableError(CODEX_MIN_SUPPORTED_VERSION);
     this.fallbackByInstalled.delete(failed);
     const fallback = { ...bundledFallback,
       reason: `Installed Codex ${failed.version} lacks required method ${method ?? 'unknown'}; using bundled Codex ${bundledFallback.version}.` };
-    if (this.selection?.selected === failed)
+    if (wasCurrent)
       this.selection = { selected: fallback };
     return fallback;
   }

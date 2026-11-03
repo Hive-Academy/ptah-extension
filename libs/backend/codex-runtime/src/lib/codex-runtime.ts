@@ -383,6 +383,14 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     throw new Error('Codex context could not be opened');
   }
 
+  /** Remember an unsupported installed executable for later opens in this host scope. */
+  markUnsupported(context: CodexContext, method: string): boolean {
+    const selection = this.contextSelections.get(context);
+    if (!selection || selection.selected.source !== 'installed') return false;
+    this.options.selectionSnapshot.markUnsupported(selection.selected, method);
+    return Boolean(selection.bundledFallback);
+  }
+
   /** Retry only a rejected first turn, before the caller receives a turn receipt. */
   async retryFirstTurnOnBundle(
     context: CodexContext,
@@ -393,7 +401,8 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     const selection = this.contextSelections.get(context);
     if (!selection || selection.selected.source !== 'installed' || method !== 'turn/start')
       throw new Error('Codex bundled retry is unavailable');
-    const resume = context.identity;
+    const resume = context instanceof RuntimeContext && context.hasTurnHistory
+      ? context.identity : undefined;
     await context.close();
     const fallback = await this.options.selectionSnapshot.activateFallback(selection.selected, method);
     return this.open(profile, resume, secrets, { selected: fallback });

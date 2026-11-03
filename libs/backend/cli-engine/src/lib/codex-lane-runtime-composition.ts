@@ -200,6 +200,7 @@ export function registerCliCodexLaneFactory(
       const selectedFallback: CodexSelectionSnapshotPort = {
         selectForOpen: async () => ({ selected: fallback }),
         current: () => fallback,
+        markUnsupported: (failed, method) => snapshot.markUnsupported(failed, method),
         activateFallback: (selected, missingMethod) =>
           snapshot.activateFallback(selected, missingMethod),
       };
@@ -220,6 +221,7 @@ export function registerCliCodexLaneFactory(
     const boundSnapshot: CodexSelectionSnapshotPort = {
       selectForOpen: async () => openedSelection,
       current: () => openedSelection.selected,
+      markUnsupported: (failed, method) => runtimeSnapshot.markUnsupported(failed, method),
       activateFallback: (failed, method) => runtimeSnapshot.activateFallback(failed, method),
     };
     if (container.isRegistered(CODEX_RUNTIME_TOKENS.Runtime, true))

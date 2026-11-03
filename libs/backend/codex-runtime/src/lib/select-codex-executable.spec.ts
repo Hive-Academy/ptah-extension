@@ -89,9 +89,36 @@ describe('Codex executable selection', () => {
     expect(snapshot.current()).toBe(fallback);
     expect(fallback.reason).toBe('Installed Codex 0.165.0 lacks required method model/list; using bundled Codex 0.165.0.');
     await expect(snapshot.activateFallback(first.selected)).rejects.toBeInstanceOf(CodexExecutableUnavailableError);
-    await snapshot.selectForOpen();
+    const next = await snapshot.selectForOpen();
     expect(probe.readVersion).toHaveBeenCalledTimes(4);
-    expect(snapshot.current()?.source).toBe('installed');
+    expect(next.selected.source).toBe('bundled');
+    expect(snapshot.current()).toBe(next.selected);
+  });
+
+  it('remembers an unsupported installed version and retries an upgraded version', async () => {
+    const versions = { '/installed': 'codex-cli 0.166.0', '/bundle/codex': 'codex-cli 0.165.0' };
+    const snapshot = new CodexSelectionSnapshot(probes(['/installed'], versions));
+    const first = await snapshot.selectForOpen();
+    snapshot.markUnsupported(first.selected, 'turn/start');
+    expect(snapshot.current()).toMatchObject({ source: 'bundled' });
+    const next = await snapshot.selectForOpen();
+    expect(next.selected).toMatchObject({
+      source: 'bundled',
+      reason: 'Installed Codex 0.166.0 lacks required method turn/start; using bundled Codex 0.165.0.',
+    });
+    versions['/installed'] = 'codex-cli 0.167.0';
+    const upgraded = await snapshot.selectForOpen();
+    expect(upgraded.selected).toMatchObject({ source: 'installed', version: '0.167.0' });
+    expect(snapshot.current()).toBe(upgraded.selected);
+  });
+
+  it('keeps installed Codex when an unsupported version has no bundle', async () => {
+    const probe = probes(['/installed'], { '/installed': 'codex-cli 0.166.0' });
+    probe.bundledCandidate = jest.fn(async () => undefined);
+    const snapshot = new CodexSelectionSnapshot(probe);
+    const first = await snapshot.selectForOpen();
+    snapshot.markUnsupported(first.selected, 'turn/start');
+    expect((await snapshot.selectForOpen()).selected.source).toBe('installed');
   });
 
   it('keeps two concurrent lane selections and their fallback budgets independent', async () => {

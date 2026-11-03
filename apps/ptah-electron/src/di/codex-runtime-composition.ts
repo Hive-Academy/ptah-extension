@@ -165,6 +165,7 @@ export function createElectronCodexSelectionSnapshot(
       return selection;
     },
     current: () => snapshot.current(),
+    markUnsupported: (failed, method) => snapshot.markUnsupported(failed, method),
     activateFallback: async (failed, method) => {
       const selected = await snapshot.activateFallback(failed, method);
       logSelection(selected);

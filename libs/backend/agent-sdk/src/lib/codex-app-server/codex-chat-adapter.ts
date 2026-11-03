@@ -335,7 +335,6 @@ export class CodexChatAdapter implements NativeChatAdapter {
       session = this.publishSession(
         id, context, sink, scope, prepared.profile, usageOwner,
         prepared.billingMode ?? 'unknown', savedUsage?.messageCount ?? 0,
-        prepared.secrets,
       );
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
@@ -398,10 +397,14 @@ export class CodexChatAdapter implements NativeChatAdapter {
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
     consumer: 'chat' | 'gateway',
   ): Promise<CodexContext> {
-    const runtime = this.ports.resolveRuntime
+    const runtime = this.runtimeForScope(scope, consumer);
+    return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
+  }
+
+  private runtimeForScope(scope: CodexChatScope, consumer: 'chat' | 'gateway'): CodexRuntime {
+    return this.ports.resolveRuntime
       ? this.ports.resolveRuntime(scope.container, consumer)
       : scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
-    return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
   }
 
   private persistMetadata(
@@ -430,7 +433,6 @@ export class CodexChatAdapter implements NativeChatAdapter {
     usageOwner: CodexSessionUsageOwner,
     billingMode: 'subscription' | 'api-key' | 'unknown',
     messageCount: number,
-      secrets?: CodexMcpSecrets,
   ): TrackedSession {
     const session: TrackedSession = {
       settings: {
@@ -443,7 +445,6 @@ export class CodexChatAdapter implements NativeChatAdapter {
       consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
         profile,
-        secrets,
       usageOwner,
       billingMode,
       messageCount,
@@ -597,6 +598,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return streamCodexChatTurn(session, input, {
       turnState: this.turnState,
       logger: this.ports.logger,
+      markUnsupported: (context, method) => this.runtimeForScope(
+        session.scope, session.consumer === 'gateway' ? 'gateway' : 'chat',
+      ).markUnsupported(context, method),
       completedTurn: (id) => this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),
@@ -618,14 +622,6 @@ export class CodexChatAdapter implements NativeChatAdapter {
       },
       interrupt: (id) => this.interruptCurrentTurn(id),
       close: (active) => this.close(active),
-      retryFirstTurn: async (active) => {
-        const runtime = this.ports.resolveRuntime
-          ? this.ports.resolveRuntime(active.scope.container, active.consumer ?? 'chat')
-          : active.scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
-        active.context = await runtime.retryFirstTurnOnBundle(
-          active.context, active.profile, active.secrets, 'turn/start',
-        );
-      },
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),

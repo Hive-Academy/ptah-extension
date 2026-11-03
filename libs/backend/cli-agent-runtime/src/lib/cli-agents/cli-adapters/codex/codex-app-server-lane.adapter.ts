@@ -258,6 +258,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     let registeredThreadId: string | undefined;
     let reservation: LiveLaneWriter | undefined;
     let sessionId = resume?.threadId;
+    let hasTurnHistory = resume !== undefined;
     let roleDelivery: 'developer-instructions' | 'task-prompt' = 'developer-instructions';
     const pending: CodexRuntimeEvent[] = [];
     const emit = (segment: CliOutputSegment): void => {
@@ -357,6 +358,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       const prior = this.writers.get(sessionId);
       if (prior && prior !== reservation && prior !== writer)
         throw new CodexLaneWriterConflictError();
+      if (registeredThreadId && registeredThreadId !== sessionId &&
+        this.writers.get(registeredThreadId) === writer)
+        this.writers.delete(registeredThreadId);
       registeredThreadId = sessionId;
       initialTurnPending = true;
       this.writers.set(sessionId, writer);
@@ -501,12 +505,15 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
               await closeContext(previous);
               eventAbort = new AbortController();
               pending.length = 0;
-              opened = await openContext(previous.identity, error.method);
+               opened = await openContext(
+                 hasTurnHistory ? previous.identity : undefined, error.method,
+               );
               void pump(opened, eventAbort.signal);
               receipt = await withCodexLaneStartupTimeout(
                 opened.startTurn({ text, signal: abort.signal }), abort,
               );
             }
+             hasTurnHistory = true;
             // Cleared in the same synchronous step that registers the turn.
             starting = false;
             if (closed) { resolve(1); return; }

@@ -881,28 +881,59 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 'unreadable' });
   });
 
-  it('reopens on the bundled executable once when the first turn lacks a method', async () => {
+  it('starts a new bundled thread and moves its writer when a fresh first turn lacks a method', async () => {
     const h = harness((context, attempt) => {
       if (attempt === 1) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
         new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
       );
     });
     let bundled: FakeContext | undefined;
-    h.runtime.openFallback = jest.fn(async (profile, identity) => {
-      bundled = new FakeContext(profile, identity);
+    h.runtime.openFallback = jest.fn(async (profile) => {
+      bundled = new FakeContext(profile, {
+        ...h.context.identity, threadId: 'thread-2',
+      });
       return bundled;
     });
     const handle = await h.adapter.runSdk(options({ model: 'future-codex-model' }));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(h.runtime.openFallback).toHaveBeenCalledWith(
-        h.profile, h.context.identity, expect.any(Object), '/bin/codex', 'turn/start', undefined,
+        h.profile, undefined, expect.any(Object), '/bin/codex', 'turn/start', undefined,
     );
     expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(handle.getSessionId?.()).toBe('thread-2');
+    expect(h.writers.has('thread-1')).toBe(false);
+    expect(h.writers.has('thread-2')).toBe(true);
     expect(bundled).toBeDefined();
     if (!bundled) throw new Error('Bundled context was not opened');
     await terminal(bundled);
     expect(await handle.done).toBe(0);
     expect(h.runtime.openFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes the same bundled thread when an existing lane has history', async () => {
+    const h = harness((context, attempt) => {
+      if (attempt === 2) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
+        new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
+      );
+    });
+    const first = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    expect(await first.done).toBe(0);
+    let bundled: FakeContext | undefined;
+    h.runtime.openFallback = jest.fn(async (profile, identity) => {
+      bundled = new FakeContext(profile, identity);
+      return bundled;
+    });
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.runtime.openFallback).toHaveBeenCalledWith(
+      h.profile, expect.objectContaining({ threadId: 'thread-1' }),
+      expect.any(Object), '/bin/codex', 'turn/start', undefined,
+    );
+    expect(h.writers.has('thread-1')).toBe(true);
+    if (!bundled) throw new Error('Bundled context was not opened');
+    await terminal(bundled);
+    expect(await resumed.done).toBe(0);
   });
 
   it('reports bundled turn/start failure after runtime model/list fallback without another retry', async () => {

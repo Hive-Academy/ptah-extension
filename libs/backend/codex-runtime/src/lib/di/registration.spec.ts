@@ -15,6 +15,7 @@ function ports(): CodexRuntimeRegistrationPorts {
       reason: 'Using installed Codex 0.165.0.',
     } })),
     current: jest.fn(() => undefined),
+    markUnsupported: jest.fn(),
     activateFallback: jest.fn(async () => { throw new Error('No bundled fallback'); }),
   };
   return {

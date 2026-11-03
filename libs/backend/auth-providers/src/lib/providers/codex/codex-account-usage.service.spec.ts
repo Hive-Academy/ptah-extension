@@ -746,6 +746,7 @@ describe('CodexAccountUsageService', () => {
       source: 'installed' as const, reason: 'Supported installed Codex' };
     const selectForOpen = jest.fn(async () => ({ selected }));
     h.service.setSelectionSnapshot({ selectForOpen, current: () => selected,
+      markUnsupported: jest.fn(),
       activateFallback: async () => { throw new Error('Unexpected fallback'); } });
     await h.service.getAccountUsage();
     expect(selectForOpen).toHaveBeenCalledTimes(1);

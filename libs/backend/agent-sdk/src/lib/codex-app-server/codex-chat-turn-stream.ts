@@ -2,7 +2,6 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CodexContext,
   CodexExecutionProfile,
-  CodexMcpSecrets,
   CodexReportedUsage,
   CodexRuntimeEvent,
   CodexTurnInput,
@@ -43,7 +42,6 @@ export interface CodexChatSession {
   readonly consumer?: 'chat' | 'gateway';
   context: CodexContext;
   readonly profile: CodexExecutionProfile;
-  secrets?: CodexMcpSecrets;
   readonly usageOwner: CodexSessionUsageOwner;
   readonly billingMode: 'subscription' | 'api-key' | 'unknown';
   messageCount: number;
@@ -63,7 +61,6 @@ export interface CodexChatSession {
   pendingInterrupt?: boolean;
   stopRequested?: boolean;
   closing?: Promise<void>;
-  bundledRetryUsed?: boolean;
   compacting?: Promise<void>;
 }
 
@@ -103,13 +100,13 @@ interface CodexChatTurnDependencies {
     'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
   >;
   readonly logger: Logger;
+  markUnsupported(context: CodexContext, method: string): boolean;
   completedTurn(id: SessionId): Promise<void>;
   callbacks: CodexChatAdapterPorts['callbacks'];
   stats: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
   persistUsage(id: SessionId, checkpoint: CodexUsageCheckpoint): Promise<void>;
   interrupt(id: SessionId): Promise<boolean>;
   close(session: CodexChatSession): Promise<void>;
-  retryFirstTurn(session: CodexChatSession): Promise<void>;
   notifyCompaction(session: CodexChatSession, trigger: 'auto'): void;
   error(
     code: CodexChatAdapterError['code'],
@@ -186,26 +183,9 @@ export async function* streamCodexChatTurn(
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     const eventStream = session.context.events(subscription.signal);
     events = eventStream[Symbol.asyncIterator]();
-    let receipt: CodexTurnReceipt;
-    try {
-      receipt = await session.context.startTurn({ ...input, signal: subscription.signal });
-    } catch (error: unknown) {
-      if (!(error instanceof CodexUnsupportedMethodError) ||
-          error.method !== 'turn/start' || error.source !== 'installed' ||
-          session.turnId !== undefined || session.bundledRetryUsed) throw error;
-      session.bundledRetryUsed = true;
-      subscription.abort();
-      await events.return?.();
-      try {
-        await deps.retryFirstTurn(session);
-      } finally {
-        session.secrets = undefined;
-      }
-      subscription = new AbortController();
-      events = session.context.events(subscription.signal)[Symbol.asyncIterator]();
-      receipt = await session.context.startTurn({ ...input, signal: subscription.signal });
-    }
-    session.secrets = undefined;
+    const receipt: CodexTurnReceipt = await session.context.startTurn({
+      ...input, signal: subscription.signal,
+    });
     session.turnId = receipt.turnId;
     admitted = true;
     deps.admission?.accepted();
@@ -530,9 +510,13 @@ export async function* streamCodexChatTurn(
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
+    const bundledNextSession = !admitted && error instanceof CodexUnsupportedMethodError &&
+      error.method === 'turn/start' && error.source === 'installed'
+      ? deps.markUnsupported(session.context, error.method) : false;
     const notice = error instanceof CodexUnsupportedMethodError &&
-      error.source === 'bundled' && error.method === 'turn/start'
-      ? error.message : CODEX_FAILURE_NOTICE;
+      error.method === 'turn/start'
+      ? `${error.message}${bundledNextSession ? ' The next session will use bundled Codex.' : ''}`
+      : CODEX_FAILURE_NOTICE;
     const interrupted = session.abort.signal.aborted || session.stopRequested ||
       (isCodexChatAdapterError(error) && error.code === 'cancelled');
     const failure = interrupted ? deps.error('cancelled', 'turn') : deps.failure(error, 'turn');
@@ -734,7 +718,6 @@ async function drainInterruptedTurn(
       );
     }
   } finally {
-    session.secrets = undefined;
     if (!terminal) deps.turnState.forceIdle(session.id, 'aborted_streaming');
     if (session.turnId) session.sink.endTurn(session.id, session.turnId);
     try {
