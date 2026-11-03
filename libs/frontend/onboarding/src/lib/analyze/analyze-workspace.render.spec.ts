@@ -1,6 +1,7 @@
 import { Component, OnDestroy, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { AnalysisTranscriptComponent, SetupWizardStateService, WizardAnalysisRunner, WizardRpcService } from '@ptah-extension/setup-wizard';
 import { DetailsLogComponent, type DetailsLogStreamCounts } from '../shared/details-log.component';
 import { AnalysisStepStore } from './analysis-step.store';
@@ -217,6 +218,41 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     expect(log.textContent).toContain('Streaming analysis output. Read-only.');
     expect(root.querySelector('[data-testid="phase-header"]')?.textContent).toContain('Phase 2 of 4');
     expect(root.textContent).toContain('The analysis keeps running.');
+    fixture.destroy();
+  });
+
+  it('renders the real transcript in pane mode without a collapse toggle', async () => {
+    TestBed.overrideComponent(DetailsLogComponent, {
+      remove: { imports: [AnalysisTranscriptStubComponent] },
+      add: { imports: [AnalysisTranscriptComponent] },
+    });
+    TestBed.overrideProvider(SetupWizardStateService, { useValue: {
+      reset: jest.fn(), analysisStream: signal([]), phaseStreamingStates: signal([]),
+      scanProgress: signal(null), phaseStatuses: signal([]),
+    } });
+    TestBed.overrideProvider(ExecutionTreeBuilderService, { useValue: { buildTree: jest.fn() } });
+    running.set(true);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const transcript = root.querySelector('ptah-analysis-transcript') as HTMLElement;
+    expect(transcript).not.toBeNull();
+    expect(transcript.querySelector('button[aria-controls="analysis-transcript-content"]')).toBeNull();
+    expect(transcript.querySelector('div')?.classList.contains('max-h-[70vh]')).toBe(false);
+    fixture.destroy();
+  });
+
+  it('keeps the same pane transcript and width while cancelling', async () => {
+    running.set(true);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const transcript = root.querySelector('ptah-analysis-transcript');
+    running.set(false); canceling.set(true); fixture.detectChanges();
+    expect(root.classList.contains('max-w-[1120px]')).toBe(true);
+    expect(root.querySelector('ptah-analysis-transcript')).toBe(transcript);
+    expect(root.querySelector('[data-testid="details-log"]')?.textContent).toContain('Stopped');
+    expect(root.textContent).toContain('Waiting for the run to stop.');
     fixture.destroy();
   });
 

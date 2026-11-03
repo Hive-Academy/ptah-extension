@@ -47,9 +47,9 @@ import { PhaseListComponent } from './phase-list.component';
   template: `
     <section
       class="mx-auto space-y-5"
-      [class.max-w-[1120px]]="runner.isRunning() && !stopRecovery()"
-      [class.max-w-[760px]]="!runner.isRunning() || stopRecovery()"
-      [class.p-4]="!runner.isRunning() || stopRecovery()"
+      [class.max-w-[1120px]]="(runner.isRunning() || runner.isCanceling()) && !stopRecovery()"
+      [class.max-w-[760px]]="(!runner.isRunning() && !runner.isCanceling()) || stopRecovery()"
+      [class.p-4]="(!runner.isRunning() && !runner.isCanceling()) || stopRecovery()"
       aria-labelledby="analyze-workspace-title"
       data-testid="analyze-workspace"
     >
@@ -79,21 +79,22 @@ import { PhaseListComponent } from './phase-list.component';
           (retry)="retry()"
           (startOver)="startFresh()"
         />
-      } @else if (runner.isRunning()) {
+      } @else if (runner.isRunning() || runner.isCanceling()) {
         <ptah-live-run-layout [hasLog]="true">
           <ptah-details-log
             runLog
             variant="pane"
+            data-transcript-variant="pane"
             mode="analysis"
-            liveState="live"
+            [liveState]="runner.isCanceling() ? 'stopped' : 'live'"
             [streamCounts]="store.streamCounts()"
             footerNote="Streaming analysis output. Read-only."
           />
           <ptah-run-panel
-            state="running"
+            [state]="runner.isCanceling() ? 'cancelling' : 'running'"
             [viewState]="viewState()"
-            title="Analyzing workspace"
-            [message]="runner.statusText()"
+            [title]="runner.isCanceling() ? 'Stopping analysis' : 'Analyzing workspace'"
+            [message]="runner.isCanceling() ? 'Waiting for the run to stop.' : runner.statusText()"
             (stop)="confirmStop()"
           >
             @if (store.phaseHeader(); as header) {
@@ -110,13 +111,6 @@ import { PhaseListComponent } from './phase-list.component';
           </ptah-run-panel>
           <p class="text-sm text-base-content-muted">You can leave this page. The analysis keeps running.</p>
         </ptah-live-run-layout>
-      } @else if (runner.isCanceling()) {
-        <ptah-run-panel
-          state="cancelling"
-          [viewState]="viewState()"
-          title="Stopping analysis"
-          message="Waiting for the run to stop."
-        />
       } @else if (runner.errorMessage(); as rawError) {
         <ptah-run-panel
           state="failed"
