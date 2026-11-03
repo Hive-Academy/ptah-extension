@@ -3452,14 +3452,20 @@ describe('ChatViewComponent — provider carry-over offer binding', () => {
       (h.fixture.nativeElement as HTMLElement).querySelector(
         'ptah-auth-required-banner',
       ) as HTMLElement;
-    return { h, view, bannerEl };
+    /** Detect changes and let the banner's `@defer (on immediate)` load. */
+    const showBanner = async (): Promise<void> => {
+      h.fixture.detectChanges();
+      await h.fixture.whenStable();
+      h.fixture.detectChanges();
+    };
+    return { h, view, bannerEl, showBanner };
   }
 
-  it('binds the offer in the refused tab and the output calls start once', () => {
-    const { h, view, bannerEl } = render();
+  it('binds the offer in the refused tab and the output calls start once', async () => {
+    const { h, view, bannerEl, showBanner } = render();
     h.authBannerSig.set(banner(3));
     h.carryOverOfferSig.set(offer(3));
-    h.fixture.detectChanges();
+    await showBanner();
 
     expect(view.carryOverOffer()).toEqual(offer(3));
     expect(view.carryOverBusy()).toBe(false);
@@ -3472,11 +3478,13 @@ describe('ChatViewComponent — provider carry-over offer binding', () => {
     expect(h.carryOverStartMock).toHaveBeenCalledWith(offer(3));
   });
 
-  it("gives null and today's banner in a view of another tab (AC 7.3)", () => {
-    const { h, view, bannerEl } = render({ sessionContextTabId: 'tab-other' });
+  it("gives null and today's banner in a view of another tab (AC 7.3)", async () => {
+    const { h, view, bannerEl, showBanner } = render({
+      sessionContextTabId: 'tab-other',
+    });
     h.authBannerSig.set(banner(3));
     h.carryOverOfferSig.set(offer(3));
-    h.fixture.detectChanges();
+    await showBanner();
 
     expect(view.carryOverOffer()).toBeNull();
     expect(view.carryOverBusy()).toBe(false);
@@ -3497,11 +3505,11 @@ describe('ChatViewComponent — provider carry-over offer binding', () => {
     expect(view.carryOverOffer()).toBeNull();
   });
 
-  it('gives null for a stale generation (AC 7.3)', () => {
-    const { h, view, bannerEl } = render();
+  it('gives null for a stale generation (AC 7.3)', async () => {
+    const { h, view, bannerEl, showBanner } = render();
     h.authBannerSig.set(banner(4));
     h.carryOverOfferSig.set(offer(3));
-    h.fixture.detectChanges();
+    await showBanner();
 
     expect(view.carryOverOffer()).toBeNull();
     expect(bannerEl().carryOverProvider).toBeNull();
@@ -3516,12 +3524,12 @@ describe('ChatViewComponent — provider carry-over offer binding', () => {
     expect(view.carryOverOffer()).toBeNull();
   });
 
-  it('is busy while the refused tab is pending', () => {
-    const { h, view, bannerEl } = render();
+  it('is busy while the refused tab is pending', async () => {
+    const { h, view, bannerEl, showBanner } = render();
     h.carryOverPendingTabs.add('tab-abc');
     h.authBannerSig.set(banner(3));
     h.carryOverOfferSig.set(offer(3));
-    h.fixture.detectChanges();
+    await showBanner();
 
     expect(view.carryOverBusy()).toBe(true);
     expect(bannerEl().carryOverBusy).toBe(true);

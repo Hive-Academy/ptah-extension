@@ -143,18 +143,21 @@
         />
       }
 
-      <!-- Auth Required Banner (e.g. expired Codex token) -->
+      <!-- Auth Required Banner (e.g. expired Codex token). Deferred: it only
+           shows after a refused send, so it stays out of the initial bundle. -->
       @if (authRequiredBanner(); as authBanner) {
         <div class="px-2 py-1">
-          <ptah-auth-required-banner
-            [message]="authBanner.message"
-            [providerId]="authBanner.providerId"
-            [carryOverProvider]="carryOverOffer()?.providerName ?? null"
-            [carryOverBusy]="carryOverBusy()"
-            (reauth)="onAuthReauth()"
-            (dismiss)="onAuthBannerDismiss()"
-            (carryOver)="onCarryOver()"
-          />
+          @defer (on immediate) {
+            <ptah-auth-required-banner
+              [message]="authBanner.message"
+              [providerId]="authBanner.providerId"
+              [carryOverProvider]="carryOverOffer()?.providerName ?? null"
+              [carryOverBusy]="carryOverBusy()"
+              (reauth)="onAuthReauth()"
+              (dismiss)="onAuthBannerDismiss()"
+              (carryOver)="onCarryOver()"
+            />
+          }
         </div>
       }
 

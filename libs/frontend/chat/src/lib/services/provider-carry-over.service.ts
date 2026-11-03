@@ -25,11 +25,22 @@
  * error envelope from the host is definite: the tab is released at once.
  *
  * The renderer never holds transcript text: the host reads and renders it.
+ * The launch path (offer check, both triggers, the launch RPC) lives in
+ * `provider-carry-over-launch.ts`, loaded with a dynamic `import()` on first
+ * use so it stays out of the initial bundle; this file keeps the state and
+ * the synchronous API sends and resolutions read.
  * Timers: one recovery timer per tab with an indeterminate launch, cleared
  * whenever its entry leaves `pending`; the notice's `ActionBannerService`
  * auto-clear.
  */
-import { Injectable, computed, inject, signal } from '@angular/core';
+import {
+  Injectable,
+  computed,
+  inject,
+  signal,
+  type Signal,
+  type WritableSignal,
+} from '@angular/core';
 import {
   AuthStateService,
   ClaudeRpcService,
@@ -38,7 +49,6 @@ import {
 } from '@ptah-extension/core';
 import {
   CHAT_ADMISSION_RPC_TIMEOUT_MS,
-  type ChatCarryOverResult,
   type SessionId,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -77,12 +87,6 @@ export const CARRY_OVER_START_FAILED_TEXT =
 
 /** Notice when an indeterminate launch was released after the deadline. */
 export const CARRY_OVER_EXPIRED_TEXT = "The new chat didn't start. Try again.";
-
-/**
- * `ClaudeRpcService.call` reports its own give-up (timeout, abort) as a failed
- * result with these error prefixes; nothing else tells it from a host answer.
- */
-const RENDERER_GIVE_UP_PREFIXES = ['RPC timeout', 'RPC aborted'] as const;
 
 /** The one-line notice shown after the new chat is bound (AC 4.3, 8.4). */
 export function carryOverNotice(providerName: string): string {
@@ -128,15 +132,12 @@ export interface CarryOverLaunchOutcome {
  * - otherwise the launch outcome.
  */
 export type CarryOverCompactResult =
-  | 'not-eligible'
-  | 'check-failed'
-  | 'busy'
-  | CarryOverLaunchOutcome;
+  'not-eligible' | 'check-failed' | 'busy' | CarryOverLaunchOutcome;
 
 /** Result of `claimSessionResolution`. */
 export type CarryOverClaim = 'none' | 'bind' | 'skip';
 
-interface PendingCarryOver {
+export interface PendingCarryOver {
   readonly sessionId: SessionId;
   /** Banner generation this launch owns, or null when no banner owns it. */
   readonly generation: number | null;
@@ -149,10 +150,53 @@ interface PendingCarryOver {
 }
 
 /** An indeterminate launch released after `CARRY_OVER_RECOVERY_MS`. */
-interface ExpiredCarryOver {
+export interface ExpiredCarryOver {
   readonly sessionId: SessionId;
   /** `Date.now()` after which a resolution is no longer attributed to it. */
   readonly until: number;
+}
+
+/**
+ * What the lazily loaded launch path reads and writes. Built once by the
+ * service; the launch module gets no other handle on its state.
+ */
+export interface CarryOverLaunchContext {
+  readonly rpc: ClaudeRpcService;
+  readonly vscode: VSCodeService;
+  readonly authState: AuthStateService;
+  readonly tabs: TabManagerService;
+  readonly actionBanner: ActionBannerService;
+  readonly offer: WritableSignal<CarryOverOffer | null>;
+  readonly pending: Signal<ReadonlyMap<string, PendingCarryOver>>;
+  readonly recoveryTimers: Map<string, ReturnType<typeof setTimeout>>;
+  readonly expired: Map<string, ExpiredCarryOver>;
+  isPending(tabId: string): boolean;
+  isBusy(sessionId: string): boolean;
+  setPending(tabId: string, entry: PendingCarryOver): void;
+  deletePending(tabId: string, entry: PendingCarryOver): void;
+  clearOffer(generation: number): void;
+  clearRecoveryTimer(tabId: string): void;
+}
+
+type LaunchModule = typeof import('./provider-carry-over-launch');
+
+/** The launch module once loaded; shared by every service instance. */
+let launchModule: LaunchModule | undefined;
+let launchLoading: Promise<LaunchModule> | undefined;
+
+/**
+ * Load the launch module once. A failed load is not cached, so the next
+ * trigger retries it.
+ */
+function loadLaunchModule(): Promise<LaunchModule> {
+  launchLoading ??= import('./provider-carry-over-launch').then(
+    (module) => (launchModule = module),
+    (error: unknown) => {
+      launchLoading = undefined;
+      throw error;
+    },
+  );
+  return launchLoading;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -174,6 +218,24 @@ export class ProviderCarryOverService {
   >();
   /** Per tab: the last expired launch, until its late-resolution window ends. */
   private readonly expired = new Map<string, ExpiredCarryOver>();
+
+  private readonly launchContext: CarryOverLaunchContext = {
+    rpc: this.rpc,
+    vscode: this.vscode,
+    authState: this.authState,
+    tabs: this.tabs,
+    actionBanner: this.actionBanner,
+    offer: this._offer,
+    pending: this._pending,
+    recoveryTimers: this.recoveryTimers,
+    expired: this.expired,
+    isPending: (tabId) => this.isPending(tabId),
+    isBusy: (sessionId) => this.isBusy(sessionId),
+    setPending: (tabId, entry) => this.setPending(tabId, entry),
+    deletePending: (tabId, entry) => this.deletePending(tabId, entry),
+    clearOffer: (generation) => this.clearOffer(generation),
+    clearRecoveryTimer: (tabId) => this.clearRecoveryTimer(tabId),
+  };
 
   /**
    * The current offer, shown only while its banner generation is the one on
@@ -203,69 +265,31 @@ export class ProviderCarryOverService {
 
   /**
    * Ask the host whether the refusal of banner `generation` can be carried
-   * over, and publish the offer when it can and the banner is unchanged. The
-   * decision uses the banner's origin only, never its message (AC 1.4).
+   * over, and publish the offer when it can and the banner is unchanged.
    */
   async offerFor(generation: number): Promise<void> {
-    const banner = this.authState.authRequiredBanner();
-    if (banner?.generation !== generation || !banner.origin) return;
-    const { sessionId, tabId, workspacePath } = banner.origin;
-
-    const result = await this.rpc.call('chat:carry-over-check', {
-      sessionId,
-      workspacePath,
-    });
-    if (!result.isSuccess() || !result.data.eligible) return;
-    // A newer refusal or a dismissal during the check makes this one stale.
-    if (this.authState.authRequiredBanner()?.generation !== generation) return;
-
-    this._offer.set({
-      generation,
-      sessionId,
-      tabId,
-      workspacePath,
-      providerId: result.data.providerId,
-      providerName: result.data.providerName,
-    });
+    const launch = launchModule ?? (await loadLaunchModule());
+    return launch.offerFor(this.launchContext, generation);
   }
 
-  /** Button trigger: re-check the offer at click time, then launch (AC 7.2). */
+  /**
+   * Button trigger: re-check the offer at click time, then launch (AC 7.2).
+   * A failed load of the launch path leaves the offer in place for a retry.
+   */
   async start(offer: CarryOverOffer): Promise<void> {
-    if (this.authState.authRequiredBanner()?.generation !== offer.generation) {
-      this.clearOffer(offer.generation);
-      return;
+    let launch = launchModule;
+    if (!launch) {
+      try {
+        launch = await loadLaunchModule();
+      } catch (error) {
+        // degradation-audit: reported — the click does nothing and the offer stays; the next click retries the load.
+        console.warn('[ProviderCarryOver] launch path failed to load', {
+          error: error instanceof Error ? error.name : typeof error,
+        });
+        return;
+      }
     }
-    const lookup = this.tabs.findTabByIdAcrossWorkspaces(offer.tabId);
-    if (!lookup) {
-      // The refused tab is gone: drop the offer and its banner (AC 4.5).
-      this.clearOffer(offer.generation);
-      this.authState.clearAuthRequiredBanner(offer.generation);
-      return;
-    }
-    if (lookup.tab.claudeSessionId !== offer.sessionId) {
-      this.clearOffer(offer.generation);
-      return;
-    }
-    this.pruneClosedTabs();
-    // Already starting (double click, second view): keep the offer (AC 5.4).
-    if (this.isPending(offer.tabId) || this.isBusy(offer.sessionId)) return;
-
-    const entry: PendingCarryOver = {
-      sessionId: offer.sessionId,
-      generation: offer.generation,
-      origin: {
-        sessionId: offer.sessionId,
-        tabId: offer.tabId,
-        workspacePath: offer.workspacePath,
-      },
-      bannerProviderId:
-        this.authState.authRequiredBanner()?.providerId ?? null,
-      providerName: offer.providerName,
-      trigger: 'button',
-      rpcSettled: false,
-    };
-    this.setPending(offer.tabId, entry);
-    await this.launch(offer.tabId, entry, lookup.tab.name);
+    return launch.start(this.launchContext, offer);
   }
 
   /**
@@ -275,24 +299,8 @@ export class ProviderCarryOverService {
   async tryCompact(
     origin: CarryOverCompactOrigin,
   ): Promise<CarryOverCompactResult> {
-    let result;
-    try {
-      result = await this.rpc.call(
-        'chat:carry-over-check',
-        { sessionId: origin.sessionId, workspacePath: origin.workspacePath },
-        { timeout: CARRY_OVER_CHECK_TIMEOUT_MS },
-      );
-    } catch {
-      // degradation-audit: reported — 'check-failed' is a distinct result; the caller fails closed or keeps today's /compact (P4 = A).
-      return 'check-failed';
-    }
-    if (!result.isSuccess()) return 'check-failed';
-    if (!result.data.eligible) return 'not-eligible';
-    return this.startFromCompact({
-      ...origin,
-      providerId: result.data.providerId,
-      providerName: result.data.providerName,
-    });
+    const launch = launchModule ?? (await loadLaunchModule());
+    return launch.tryCompact(this.launchContext, origin);
   }
 
   /**
@@ -306,29 +314,8 @@ export class ProviderCarryOverService {
       readonly providerName: string;
     },
   ): Promise<CarryOverCompactResult> {
-    this.pruneClosedTabs();
-    if (this.isPending(request.tabId) || this.isBusy(request.sessionId)) {
-      return 'busy';
-    }
-    const banner = this.authState.authRequiredBanner();
-    const ownsBanner =
-      banner?.origin?.sessionId === request.sessionId &&
-      banner.origin.tabId === request.tabId;
-    const entry: PendingCarryOver = {
-      sessionId: request.sessionId,
-      generation: ownsBanner ? banner.generation : null,
-      origin: {
-        sessionId: request.sessionId,
-        tabId: request.tabId,
-        workspacePath: request.workspacePath,
-      },
-      bannerProviderId: ownsBanner ? banner.providerId : null,
-      providerName: request.providerName,
-      trigger: 'compact',
-      rpcSettled: false,
-    };
-    this.setPending(request.tabId, entry);
-    return this.launch(request.tabId, entry, request.name);
+    const launch = launchModule ?? (await loadLaunchModule());
+    return launch.startFromCompact(this.launchContext, request);
   }
 
   /**
@@ -336,10 +323,7 @@ export class ProviderCarryOverService {
    * `'none'` and `'bind'`; `'skip'` drops the entry, and for a rebound tab
    * aborts the new session (AC 7.6, 7.7).
    */
-  claimSessionResolution(
-    tabId: string,
-    realSessionId: string,
-  ): CarryOverClaim {
+  claimSessionResolution(tabId: string, realSessionId: string): CarryOverClaim {
     const entry = this._pending().get(tabId);
     if (!entry) return this.claimExpired(tabId, realSessionId);
     if (realSessionId === entry.sessionId) return 'none';
@@ -381,167 +365,6 @@ export class ProviderCarryOverService {
     if (entry) this.deletePending(tabId, entry);
   }
 
-  private async launch(
-    tabId: string,
-    entry: PendingCarryOver,
-    name: string | undefined,
-  ): Promise<CarryOverCompactResult> {
-    let result;
-    try {
-      result = await this.rpc.call(
-        'chat:carry-over',
-        {
-          sessionId: entry.sessionId,
-          tabId,
-          workspacePath: entry.origin.workspacePath,
-          ...(name ? { name } : {}),
-          ...(this.vscode.isElectron ? { ptahUiFence: true } : {}),
-        },
-        { timeout: CHAT_ADMISSION_RPC_TIMEOUT_MS },
-      );
-    } catch {
-      // degradation-audit: reported — an indeterminate launch: the tab stays busy until the recovery deadline, then a notice offers a retry.
-      return this.indeterminate(tabId, entry);
-    }
-    if (!result.isSuccess()) {
-      // The renderer giving up (or a success envelope without data) is not
-      // definitive: the host may still start the session.
-      if (result.success || this.isRendererGiveUp(result.error)) {
-        return this.indeterminate(tabId, entry);
-      }
-      // The host answered with an error envelope: it refused the request
-      // before any start (schema rejection or a handler throw).
-      this.deletePending(tabId, entry);
-      return this.mapFailure(tabId, entry, {
-        success: false,
-        reason: 'START_FAILED',
-        error: CARRY_OVER_START_FAILED_TEXT,
-        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
-      });
-    }
-
-    const data = result.data;
-    if (data.success) {
-      const current = this._pending().get(tabId);
-      if (current === entry) {
-        this.setPending(tabId, { ...entry, rpcSettled: true });
-      }
-      return { success: true };
-    }
-
-    this.deletePending(tabId, entry);
-    return this.mapFailure(tabId, entry, data);
-  }
-
-  private mapFailure(
-    tabId: string,
-    entry: PendingCarryOver,
-    failure: Extract<ChatCarryOverResult, { success: false }>,
-  ): CarryOverCompactResult {
-    const owns = this.ownsUi(tabId, entry);
-    const compact = entry.trigger === 'compact';
-    switch (failure.reason) {
-      case 'NOT_ELIGIBLE':
-        if (compact) return 'not-eligible';
-        if (owns && entry.generation !== null) {
-          this.clearOffer(entry.generation);
-        }
-        return { success: false, errorAlreadyShown: true };
-      case 'IN_FLIGHT':
-        return { success: false, error: CARRY_OVER_BUSY_TEXT };
-      case 'HISTORY_UNREADABLE':
-        if (owns && entry.generation !== null) {
-          this.authState.flagAuthRequired(
-            entry.bannerProviderId,
-            CARRY_OVER_UNREADABLE_TEXT,
-            entry.origin,
-          );
-          return { success: false, errorAlreadyShown: true };
-        }
-        return { success: false, error: CARRY_OVER_UNREADABLE_TEXT };
-      case 'START_FAILED': {
-        const providerId = failure.providerId ?? entry.bannerProviderId;
-        if (owns && entry.generation !== null) {
-          this.authState.flagAuthRequired(
-            providerId,
-            failure.error,
-            entry.origin,
-          );
-          return { success: false, errorAlreadyShown: true };
-        }
-        // No banner owns the tab (compact only). Only an auth refusal of the
-        // active provider becomes its banner, without an origin, so no offer
-        // is made for the active provider's own refusal. Other failures are
-        // the tab's send failure.
-        if (owns && failure.errorCode === 'AUTH_REQUIRED') {
-          this.authState.flagAuthRequired(providerId, failure.error);
-          return { success: false, errorAlreadyShown: true };
-        }
-        return { success: false, error: failure.error };
-      }
-    }
-  }
-
-  /**
-   * A late result may change the UI only while the tab still exists and is
-   * bound to the carried-over session and, when a banner owns the launch,
-   * that banner is still the one showing (F2).
-   */
-  private ownsUi(tabId: string, entry: PendingCarryOver): boolean {
-    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
-    if (!lookup || lookup.tab.claudeSessionId !== entry.sessionId) {
-      return false;
-    }
-    return (
-      entry.generation === null ||
-      this.authState.authRequiredBanner()?.generation === entry.generation
-    );
-  }
-
-  private isRendererGiveUp(error: string | undefined): boolean {
-    return RENDERER_GIVE_UP_PREFIXES.some(
-      (prefix) => error?.startsWith(prefix) === true,
-    );
-  }
-
-  /**
-   * The host may or may not have started the session: keep the tab busy for
-   * `CARRY_OVER_RECOVERY_MS` (a resolution or chat error ends it sooner),
-   * then release it. The outcome is the busy text, as the tab is still held.
-   */
-  private indeterminate(
-    tabId: string,
-    entry: PendingCarryOver,
-  ): CarryOverLaunchOutcome {
-    if (this._pending().get(tabId) === entry) {
-      this.clearRecoveryTimer(tabId);
-      this.recoveryTimers.set(
-        tabId,
-        setTimeout(() => this.expire(tabId, entry), CARRY_OVER_RECOVERY_MS),
-      );
-    }
-    return { success: false, error: CARRY_OVER_BUSY_TEXT };
-  }
-
-  /** Release an indeterminate launch at its deadline, leaving a marker. */
-  private expire(tabId: string, entry: PendingCarryOver): void {
-    this.recoveryTimers.delete(tabId);
-    if (this._pending().get(tabId) !== entry) return;
-    this.deletePending(tabId, entry);
-    this.expired.set(tabId, {
-      sessionId: entry.sessionId,
-      until: Date.now() + CARRY_OVER_LATE_RESOLUTION_MS,
-    });
-    const lookup = this.tabs.findTabByIdAcrossWorkspaces(tabId);
-    if (lookup?.tab.claudeSessionId === entry.sessionId) {
-      this.actionBanner.showInfo(
-        CARRY_OVER_EXPIRED_TEXT,
-        tabId,
-        CARRY_OVER_NOTICE_MS,
-      );
-    }
-  }
-
   /**
    * A resolution for a tab with no pending entry. Within the late window of
    * an expired launch, a new session id that the tab is not already bound to
@@ -570,25 +393,6 @@ export class ProviderCarryOverService {
     this.recoveryTimers.delete(tabId);
   }
 
-  /**
-   * Drop entries of tabs that no longer exist (an unresolved launch whose tab
-   * was closed), so `pending` stays bounded by the open tabs and a closed
-   * tab never keeps its session busy.
-   */
-  private pruneClosedTabs(): void {
-    for (const [tabId, entry] of this._pending()) {
-      if (!this.tabs.findTabByIdAcrossWorkspaces(tabId)) {
-        this.deletePending(tabId, entry);
-      }
-    }
-    const now = Date.now();
-    for (const [tabId, marker] of this.expired) {
-      if (now > marker.until || !this.tabs.findTabByIdAcrossWorkspaces(tabId)) {
-        this.expired.delete(tabId);
-      }
-    }
-  }
-
   private clearOffer(generation: number): void {
     if (this._offer()?.generation === generation) this._offer.set(null);
   }
@@ -610,10 +414,13 @@ export class ProviderCarryOverService {
 
   private abortSession(sessionId: SessionId): void {
     const warn = (error: unknown): void => {
-      console.warn('[ProviderCarryOver] chat:abort failed for a skipped carry-over', {
-        sessionId,
-        error: error instanceof Error ? error.name : typeof error,
-      });
+      console.warn(
+        '[ProviderCarryOver] chat:abort failed for a skipped carry-over',
+        {
+          sessionId,
+          error: error instanceof Error ? error.name : typeof error,
+        },
+      );
     };
     try {
       // degradation-audit: reported — `warn` logs a failed abort of a skipped carry-over session.
