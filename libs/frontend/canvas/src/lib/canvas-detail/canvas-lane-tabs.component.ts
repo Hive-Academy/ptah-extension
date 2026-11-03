@@ -24,6 +24,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { injectWallClock } from '@ptah-extension/core';
 import { FloatingUIService } from '@ptah-extension/ui';
+import { Activity, CircleCheckBig, LucideAngularModule } from 'lucide-angular';
 import { AgentDockCardComponent } from './agent-dock-card.component';
 import { AgentDockMenuComponent } from './agent-dock-menu.component';
 import {
@@ -31,6 +32,10 @@ import {
   agentDurationText,
   agentStatusInk,
   dockCapacity,
+  dockGroup,
+  GROUP_MARKER_PX,
+  NAMED_CHIP_STEP_PX,
+  PILL_RESERVE_PX,
   planDockOverflow,
 } from './dock-overflow';
 
@@ -42,9 +47,9 @@ const DOCK_KINDS: readonly AgentKind[] = [
   'background',
 ];
 /** Unselected chip in an inline roster: avatar plus a truncated name. */
-const NAMED_CHIP_CLASS = 'h-7 max-w-[140px] gap-1.5 px-1 text-xs text-base-content-muted';
+const NAMED_CHIP_CLASS = 'h-8 max-w-[140px] gap-1.5 px-1 text-xs text-base-content-muted';
 /** Unselected chip beside the overflow menu: a bare avatar circle. */
-const CIRCLE_CHIP_CLASS = 'size-7 justify-center';
+const CIRCLE_CHIP_CLASS = 'size-8 justify-center';
 /** Rail chip in the stats sidebar: the larger avatar circle. */
 const RAIL_CHIP_CLASS = 'h-[38px] w-[38px] justify-center';
 
@@ -56,6 +61,8 @@ interface DockChipModel {
   readonly durationText: string | null;
   readonly statusInk: string;
   readonly tabDomId: string;
+  /** Set where the group changes from the previous chip: draw its marker. */
+  readonly groupStart: 'active' | 'finished' | null;
 }
 
 interface DockLayout {
@@ -81,6 +88,7 @@ interface DockLayout {
     AgentAvatarComponent,
     AgentDockCardComponent,
     AgentDockMenuComponent,
+    LucideAngularModule,
   ],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -142,15 +150,31 @@ interface DockLayout {
       (pointerdown)="onDockPointerDown()"
       (focusin)="onDockFocusIn($event)"
       (focusout)="onDockFocusOut($event)"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-0.5 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      class="relative z-10 flex min-w-0 items-center gap-1 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-0.5 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (chip of view.chips; track chip.key) {
+          @if (chip.groupStart; as group) {
+            <!-- Group marker: decoration only, not a tab; the chips carry their own status labels. -->
+            <span
+              role="presentation"
+              aria-hidden="true"
+              class="inline-flex shrink-0 items-center gap-1 text-base-content-muted"
+              [attr.data-testid]="'dock-group-' + group"
+              [title]="group === 'active' ? 'Active agents' : 'Finished agents'"
+            >
+              <span class="h-4 w-px bg-surface-border"></span>
+              <lucide-angular
+                [img]="group === 'active' ? activeGroupIcon : finishedGroupIcon"
+                class="h-3.5 w-3.5"
+              />
+            </span>
+          }
           @if (!rail() && chip.selected) {
             <button
               type="button"
               role="tab"
               [id]="chip.tabDomId"
-              class="inline-flex h-7 max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary pl-0.5 pr-2 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              class="inline-flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-full border border-secondary pl-0.5 pr-2 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [attr.aria-selected]="chip.selected"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
@@ -166,7 +190,7 @@ interface DockLayout {
               <ptah-agent-avatar
                 [kind]="chip.agent.kind"
                 [status]="chip.agent.status"
-                [size]="rail() ? 28 : 24"
+                [size]="28"
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
@@ -203,7 +227,7 @@ interface DockLayout {
               <ptah-agent-avatar
                 [kind]="chip.agent.kind"
                 [status]="chip.agent.status"
-                [size]="rail() ? 28 : 24"
+                [size]="28"
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
@@ -274,6 +298,8 @@ export class CanvasLaneTabsComponent {
   protected readonly namedChipClass = NAMED_CHIP_CLASS;
   protected readonly circleChipClass = CIRCLE_CHIP_CLASS;
   protected readonly railChipClass = RAIL_CHIP_CLASS;
+  protected readonly activeGroupIcon = Activity;
+  protected readonly finishedGroupIcon = CircleCheckBig;
 
   readonly agents = computed(() => this.roster.roster(this.tabId()));
   private readonly ticking = computed(() =>
@@ -324,21 +350,34 @@ export class CanvasLaneTabsComponent {
       ? DOCK_KINDS.flatMap((kind) => visible.filter((agent) => agent.kind === kind))
       : visible;
     const chips: DockChipModel[] = [];
+    let markers = 0;
+    let previousGroup: string | null = null;
     for (const agent of railOrder) {
+      const group = dockGroup(agent);
+      // A marker at every transition stays truthful while a keyboard freeze
+      // keeps an agent that just finished in its old place.
+      const groupStart = !this.rail() && group !== 'orchestrator' && group !== previousGroup
+        ? group : null;
+      previousGroup = group;
+      if (groupStart) markers++;
       const durationMs = agentDurationMs(agent, now);
+      const accessible = agentAccessibleLabel({
+        name: agent.name,
+        kind: agent.kind,
+        status: agent.status,
+        durationMs,
+      });
       const chip: DockChipModel = {
         key: agent.key,
         agent,
         selected: agent.key === selected,
-        label: agentAccessibleLabel({
-          name: agent.name,
-          kind: agent.kind,
-          status: agent.status,
-          durationMs,
-        }),
+        label: this.rail() || group === 'orchestrator'
+          ? accessible
+          : `${accessible}, ${group === 'active' ? 'active agents' : 'finished agents'}`,
         durationText: agentDurationText(agent, now),
         statusInk: agentStatusInk(agent.status),
         tabDomId: `${idPrefix}-tab-${agent.key}`,
+        groupStart,
       };
       chips.push(chip);
     }
@@ -348,7 +387,9 @@ export class CanvasLaneTabsComponent {
       compact: Number.isFinite(width) && width < 480,
       cardId: `${idPrefix}-agent-card`,
       named: !this.rail() && hidden.length === 0 &&
-        (visible.length <= 1 || (Number.isFinite(width) && width >= 16 + 180 + (visible.length - 1) * 140)),
+        (visible.length <= 1 || (Number.isFinite(width) &&
+          width >= 16 + PILL_RESERVE_PX + markers * GROUP_MARKER_PX +
+            (visible.length - 1) * NAMED_CHIP_STEP_PX)),
     };
   });
 
