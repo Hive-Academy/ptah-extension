@@ -7,6 +7,7 @@ import type {
   SettingScope,
 } from '@ptah-extension/shared';
 import { AuthStateService } from './auth-state.service';
+import { CodexSignInService } from './codex-sign-in.service';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { EffortStateService } from './effort-state.service';
 import { ModelStateService } from './model-state.service';
@@ -76,6 +77,8 @@ describe('ProvidersConnectionSetupService', () => {
   let hooks: ProvidersConnectionSetupHooks;
   let route: ProvidersSettingsSection<ProvidersEffectiveRoute>;
   let refreshSharedAuth: jest.Mock<Promise<void>, []>;
+  const codexStart = jest.fn<Promise<void>, []>(async () => undefined);
+  const codexCancel = jest.fn<Promise<void>, []>(async () => undefined);
 
   const methods = () => call.mock.calls.map(([method]) => method);
   const draft = (
@@ -122,10 +125,13 @@ describe('ProvidersConnectionSetupService', () => {
       return handler(params);
     });
     refreshSharedAuth = jest.fn(async () => void events.push('refreshAuthStatus'));
+    codexStart.mockClear();
+    codexCancel.mockClear();
     TestBed.configureTestingModule({
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: CodexSignInService, useValue: { start: codexStart, cancel: codexCancel, state: () => null } },
         {
           provide: AuthStateService,
           useValue: { refreshAuthStatus: refreshSharedAuth },
@@ -374,9 +380,10 @@ describe('ProvidersConnectionSetupService', () => {
             { ...openrouter, id: 'claude-cli', authMode: 'cli' },
           ],
         });
+        (hooks.refreshAuthStatus as jest.Mock).mockResolvedValueOnce(true);
         await expect(
           service.activateConnection(providerId, 'global', context, hooks),
-        ).resolves.toBe(true);
+        ).resolves.toEqual({ started: true, selectionReread: 'ok' });
         expect(call).toHaveBeenCalledWith(
           'auth:saveSettings',
           expected,
@@ -388,16 +395,33 @@ describe('ProvidersConnectionSetupService', () => {
     );
 
     it('blocks a connection that is not in the loaded catalogue', async () => {
-      await service.activateConnection('unknown', 'global', context, hooks);
+      await expect(service.activateConnection('unknown', 'global', context, hooks))
+        .resolves.toEqual({ started: true, selectionReread: 'not-run' });
       expect(commits.commit()).toMatchObject({
         status: 'blocked',
         unsaved: ['Main agent connection'],
       });
       expect(methods()).toEqual([]);
     });
+
+    it('reports a failed auth selection reread after a saved activation', async () => {
+      (hooks.refreshAuthStatus as jest.Mock).mockResolvedValueOnce(false);
+      await expect(service.activateConnection('openrouter', 'global', context, hooks))
+        .resolves.toEqual({ started: true, selectionReread: 'failed' });
+      expect(commits.commit().status).toBe('saved');
+    });
   });
 
   describe('performExternalAuth', () => {
+    it('delegates Codex sign-in and cancellation to the sign-in service', async () => {
+      handlers.set('auth:getAuthStatus', async () => success({ codexAuthenticated: false }));
+      await service.performExternalAuth('openai-codex', 'sign-in', hooks);
+      expect(codexStart).toHaveBeenCalledTimes(1);
+      expect(methods()).toEqual(['auth:getAuthStatus']);
+      await service.performExternalAuth('openai-codex', 'sign-in-cancel', hooks);
+      expect(codexCancel).toHaveBeenCalledTimes(1);
+      expect(methods()).toEqual(['auth:getAuthStatus']);
+    });
     it('explains unsupported actions without calling the host', async () => {
       await service.performExternalAuth(
         'github-copilot',

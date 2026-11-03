@@ -54,6 +54,7 @@ import {
   parseKimiLoginState,
 } from './kimi-code-login';
 import { AuthStateService } from './auth-state.service';
+import { CodexSignInService } from './codex-sign-in.service';
 
 /**
  * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
@@ -87,7 +88,7 @@ export interface ProvidersConnectionSetupHooks {
   /** Effective main-agent route; removing a custom connection checks its driver. */
   route(): ProvidersSettingsSection<ProvidersEffectiveRoute>;
   /** Refreshes the shared auth-state signals after a confirmed main-agent change. */
-  refreshAuthStatus(): Promise<void>;
+  refreshAuthStatus(): Promise<boolean>;
 }
 
 type CustomEndpointChanges = Partial<
@@ -144,6 +145,7 @@ export class ProvidersConnectionSetupService implements MessageHandler {
   private readonly commits = inject(ProvidersCommitService);
   private readonly workspace = inject(WorkspaceScopeService);
   private readonly authState = inject(AuthStateService);
+  private readonly codexSignIn = inject(CodexSignInService);
   private readonly probeStore =
     createSectionStore<AuthVerifyDraftConnectionResult>();
   private readonly externalAuthStore =
@@ -229,6 +231,10 @@ export class ProvidersConnectionSetupService implements MessageHandler {
       cliInstalled: null,
       message: null,
     };
+    if (providerId === 'openai-codex' && action === 'sign-in-cancel') {
+      await this.codexSignIn.cancel();
+      return;
+    }
     if (providerId === KIMI_CODE_ID && action !== 'cli-check') {
       this.kimiOwner = hooks;
       return action === 'sign-in-cancel'
@@ -272,15 +278,19 @@ export class ProvidersConnectionSetupService implements MessageHandler {
       this.externalAuthStore,
       async (): Promise<ProvidersExternalAuth> => {
         if (action !== 'cli-check') {
-          const result =
-            providerId === 'github-copilot'
-              ? await this.require('auth:copilotLogin', {}, 310000)
-              : await this.require('auth:codexLogin', {}, 310000);
-          if (!result.success) throw new Error('Sign-in unavailable');
+          if (providerId === 'openai-codex') {
+            await this.codexSignIn.start();
+          } else {
+            const result = await this.require('auth:copilotLogin', {}, 310000);
+            if (!result.success) throw new Error('Sign-in unavailable');
+          }
         }
         const result = await this.require('auth:getAuthStatus', { providerId });
         if (generation !== this.externalAuthGeneration)
           throw new Error('Superseded sign-in');
+        const codexStatus = providerId === 'openai-codex' && action === 'sign-in'
+          ? this.codexSignIn.state()?.status
+          : null;
         const signedIn =
           providerId === 'github-copilot'
             ? result.copilotAuthenticated === true
@@ -291,7 +301,10 @@ export class ProvidersConnectionSetupService implements MessageHandler {
                 : false;
         return {
           ...empty,
-          signInState: signedIn ? 'signed-in' : 'idle',
+          signInState: codexStatus === 'failed' ? 'failed'
+            : codexStatus === 'starting' || codexStatus === 'running' || codexStatus === 'awaiting-user' ? 'in-flight'
+            : codexStatus === 'cancelled' ? 'idle'
+            : signedIn ? 'signed-in' : 'idle',
           cliInstalled:
             providerId === 'claude-cli'
               ? (result.claudeCliInstalled ?? null)
@@ -650,8 +663,8 @@ export class ProvidersConnectionSetupService implements MessageHandler {
     applyTo: SettingScope,
     context: ProvidersEditContext,
     hooks: ProvidersConnectionSetupHooks,
-  ): Promise<boolean> {
-    if (this.commits.commit().status === 'saving') return false;
+  ): Promise<{ started: boolean; selectionReread: 'ok' | 'failed' | 'not-run' }> {
+    if (this.commits.commit().status === 'saving') return { started: false, selectionReread: 'not-run' };
     const connection = hooks
       .connections()
       .data?.find((entry) => entry.id === providerId);
@@ -660,7 +673,7 @@ export class ProvidersConnectionSetupService implements MessageHandler {
         ['Main agent connection'],
         'Refresh this connection before activating it.',
       );
-      return true;
+      return { started: true, selectionReread: 'not-run' };
     }
     const auth = this.activationAuth(providerId, connection.authMode, applyTo);
     const committed = await this.commits.run(
@@ -675,9 +688,10 @@ export class ProvidersConnectionSetupService implements MessageHandler {
         ),
     );
     if (committed && this.commits.commit().status === 'saved') {
-      await hooks.refreshAuthStatus();
+      const reread = await hooks.refreshAuthStatus();
+      return { started: true, selectionReread: reread ? 'ok' : 'failed' };
     }
-    return committed;
+    return { started: committed, selectionReread: 'not-run' };
   }
 
   private activationAuth(

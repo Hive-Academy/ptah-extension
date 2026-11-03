@@ -559,7 +559,7 @@ export class ProvidersSettingsStateService {
     providerId: string,
     applyTo: SettingScope,
     context: ProvidersEditContext,
-  ): Promise<boolean> {
+  ): Promise<{ started: boolean; selectionReread: 'ok' | 'failed' | 'not-run' }> {
     return this.setup.activateConnection(
       providerId,
       applyTo,
