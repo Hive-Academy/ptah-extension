@@ -402,7 +402,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers` passes (header: 2
   projects).
 
-## Batch 4: Carry-over launch pin and `ChatCarryOverService` — PENDING
+## Batch 4: Carry-over launch pin and `ChatCarryOverService` — COMPLETE (CI pending)
 
 - Recommended executor: subagent (backend-developer)
 - Execution mode: sequential
@@ -421,7 +421,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: Batches 1, 2, 3
 - Phase: 1 | Phase review: Phase 1 code-logic (must confirm F1)
 
-### Task 4.1: `startSession` carry-over launch option (F1, F4) — PENDING
+### Task 4.1: `startSession` carry-over launch option (F1, F4) — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.host-routing.spec.ts` (MODIFY),
@@ -457,7 +457,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
       and the result (AC 8.5);
     - without `launch`, the same throw takes today's branch (regression pin).
 
-### Task 4.2: `ChatCarryOverService` — PENDING
+### Task 4.2: `ChatCarryOverService` — COMPLETE (CI pending)
 
 - Depends on: Task 4.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-carry-over.service.ts` (CREATE),
@@ -649,7 +649,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 
 - `npm run verify -- -p @ptah-extension/core,@ptah-extension/chat` passes (header: 2 projects).
 
-## Batch 7: Message sender (offer, guard, `/compact`) and relink guard — PENDING
+## Batch 7: Message sender (offer, guard, `/compact`) and relink guard — COMPLETE (CI pending)
 
 - Recommended executor: subagent (frontend-developer)
 - Execution mode: sequential
@@ -666,7 +666,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 4 | Depends on: Batch 6
 - Phase: 1 | Phase review: Phase 1 code-logic (must confirm F3)
 
-### Task 7.1: `MessageSenderService` — offer origin, launch guard, `/compact` branch — PENDING
+### Task 7.1: `MessageSenderService` — offer origin, launch guard, `/compact` branch — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/message-sender.service.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/message-sender.service.spec.ts` (MODIFY)
@@ -700,7 +700,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   - a busy tab gives the busy outcome with no RPC;
   - a plain prompt never calls `chat:carry-over-check`.
 
-### Task 7.2: Lifecycle branch claim — PENDING
+### Task 7.2: Lifecycle branch claim — COMPLETE (CI pending)
 
 - Depends on: Task 7.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/chat-store/chat-lifecycle.service.ts` (MODIFY),
@@ -716,7 +716,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   `attachSession`, including the fallback, AC 7.6); `'skip'` with the tab rebound (AC 7.7);
   `'bind'` attaches, then calls `completeBinding` (AC 4.1); a claim throw follows today's path.
 
-### Task 7.3: Claimed-surface branch claim (F3) — PENDING
+### Task 7.3: Claimed-surface branch claim (F3) — COMPLETE (CI pending)
 
 - Depends on: Task 7.2
 - File: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts` (MODIFY)
@@ -732,7 +732,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   reason in the report.
 - Tests that prove the ACs: Task 7.4, integration case 2.
 
-### Task 7.4: Relink integration spec — PENDING
+### Task 7.4: Relink integration spec — COMPLETE (CI pending)
 
 - Depends on: Task 7.3
 - File: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/provider-carry-over.relink.integration.spec.ts` (CREATE)
