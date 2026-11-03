@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import {
   Check,
+  Code,
   Loader,
   LucideAngularModule,
   PlugZap,
@@ -15,6 +16,7 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 import type { ClaudeReadinessState } from './claude-readiness.store';
+import type { ChosenConnectionView, ProviderReadinessState } from './provider-readiness.derive';
 import type { ReadyStripSettingsWord } from './ready-strip-state';
 
 /** How a strip item's marker reads: status survives without colour. */
@@ -43,6 +45,17 @@ const CLAUDE_MARKERS: Record<ClaudeReadinessState, ReadyStripMarker> = {
   missing: 'need',
   'signed-out': 'need',
   error: 'need',
+};
+
+const CONNECTION_WORDS: Record<ProviderReadinessState, string> = {
+  checking: 'Checking', slow: 'Taking longer', ready: 'Ready',
+  missing: 'Needs install', 'signed-out': 'Needs sign-in', stale: 'Needs sign-in',
+  error: 'Could not check',
+};
+
+const CONNECTION_MARKERS: Record<ProviderReadinessState, ReadyStripMarker> = {
+  checking: 'checking', slow: 'checking', ready: 'done',
+  missing: 'need', 'signed-out': 'need', stale: 'need', error: 'need',
 };
 
 const SETTINGS_WORDS: Record<ReadyStripSettingsWord, string> = {
@@ -142,19 +155,33 @@ const BADGE: Record<ReadyStripMarker, string> = {
 })
 export class ReadyStripComponent {
   readonly current = input.required<1 | 2 | 3>();
-  readonly claude = input.required<ClaudeReadinessState>();
+  readonly claude = input<ClaudeReadinessState>();
+  readonly connection = input<ChosenConnectionView>();
   readonly settings = input.required<ReadyStripSettingsWord>();
 
   protected readonly items = computed<readonly ReadyStripItem[]>(() => {
     const current = this.current();
     const settings = this.settings();
+    const connection = this.connection();
+    const selection = connection?.selection.kind;
+    const state = connection?.readiness?.state;
+    const first: Pick<ReadyStripItem, 'label' | 'word' | 'marker' | 'icon'> = connection ? {
+      label: connection.name,
+      word: state ? CONNECTION_WORDS[state] : selection === 'loading' ? 'Checking'
+        : selection === 'other' ? 'Set in Providers' : 'Not confirmed',
+      marker: state ? CONNECTION_MARKERS[state] : selection === 'loading' ? 'checking' : 'idle',
+      icon: connection.provider === 'claude-cli' ? Terminal
+        : connection.provider === 'openai-codex' ? Code : PlugZap,
+    } : {
+      label: 'Claude Code',
+      word: CLAUDE_WORDS[this.claude() ?? 'checking'],
+      marker: CLAUDE_MARKERS[this.claude() ?? 'checking'],
+      icon: Terminal,
+    };
     return [
       {
         step: 1,
-        label: 'Claude Code',
-        word: CLAUDE_WORDS[this.claude()],
-        marker: CLAUDE_MARKERS[this.claude()],
-        icon: Terminal,
+        ...first,
         current: current === 1,
       },
       {

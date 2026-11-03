@@ -15,11 +15,8 @@ import {
   OnboardingFlagService,
   type OnboardingFlag,
 } from '../first-run/onboarding-flag.service';
-import {
-  ClaudeReadinessStore,
-  type ClaudeReadinessState,
-  type ClaudeReadinessView,
-} from './claude-readiness.store';
+import { deriveChosen, type ProviderReadinessState, type ProviderReadinessView, type SelectionView } from './provider-readiness.derive';
+import { ProviderReadinessStore } from './provider-readiness.store';
 import {
   CliOrchestrationMatrixComponent,
   ProvidersModelsLoader,
@@ -73,7 +70,7 @@ class SettingsToastStubComponent {}
 const ACCOUNTS = { connection: 'claude-cli', tab: 'accounts' };
 
 describe('ReadySettingsStepPage', () => {
-  let view: WritableSignal<ClaudeReadinessView>;
+  let chosen: WritableSignal<ReturnType<typeof deriveChosen>>;
   let refresh: jest.Mock;
   let open: jest.Mock;
   let markReady: jest.Mock;
@@ -81,9 +78,14 @@ describe('ReadySettingsStepPage', () => {
 
   async function render(
     url = '/onboarding/ready/settings',
-    state: ClaudeReadinessState = 'ready',
+    state: ProviderReadinessState = 'ready',
+    selection: SelectionView = { kind: 'claude-cli' },
   ): Promise<HTMLElement> {
-    view = signal({ state, errorCause: null, path: null, version: null });
+    const readiness = (provider: ProviderReadinessView['provider'], value: ProviderReadinessState): ProviderReadinessView => ({
+      provider, state: value, errorCause: value === 'error' ? 'timeout' : null,
+      failedFact: null, path: null, version: null, source: null,
+    });
+    chosen = signal(deriveChosen(selection, readiness('claude-cli', state), readiness('openai-codex', state)));
     refresh = jest.fn().mockResolvedValue(state);
     open = jest.fn().mockResolvedValue(undefined);
     markReady = jest.fn();
@@ -100,9 +102,9 @@ describe('ReadySettingsStepPage', () => {
           { path: 'onboarding', children: [] },
         ]),
         {
-          provide: ClaudeReadinessStore,
+          provide: ProviderReadinessStore,
           useValue: {
-            view,
+            chosen,
             rechecking: signal(false),
             refresh,
             available: true,
@@ -164,7 +166,7 @@ describe('ReadySettingsStepPage', () => {
     expect(
       el.querySelector('li[aria-current="step"]')?.getAttribute('data-step'),
     ).toBe('2');
-    expect(refresh).toHaveBeenCalledWith(false);
+    expect(refresh).toHaveBeenCalledWith('mount');
     expect(el.querySelector('ptah-settings-toast')).not.toBeNull();
     expect(el.textContent).toContain(
       'More options (voice, search, lane guards) are in Settings after setup.',
@@ -284,7 +286,7 @@ describe('ReadySettingsStepPage', () => {
     );
   });
 
-  it.each<[ClaudeReadinessState, boolean]>([
+  it.each<[ProviderReadinessState, boolean]>([
     ['missing', true],
     ['signed-out', true],
     ['error', true],
@@ -292,8 +294,22 @@ describe('ReadySettingsStepPage', () => {
     ['ready', false],
   ])('shows the banner for %s: %s', async (state, shown) => {
     const el = await render('/onboarding/ready/settings', state);
-    const banner = q(el, 'claude-readiness-banner');
+    const banner = q(el, 'connection-readiness-banner');
     expect(banner !== null).toBe(shown);
     if (banner) expect(banner.textContent).toContain('Fix Claude Code');
+  });
+
+  it('shows Codex as the chosen connection on stage 2', async () => {
+    const el = await render('/onboarding/ready/settings', 'missing', { kind: 'openai-codex' });
+    expect(el.textContent).toContain('Choose what Ptah can use besides Codex.');
+    expect(q(el, 'connection-readiness-banner')?.textContent).toContain('Fix Codex');
+    expect(el.querySelector('li[data-step="1"]')?.textContent).toContain('Codex');
+  });
+
+  it('uses a neutral lead and no banner without a chosen provider', async () => {
+    const el = await render('/onboarding/ready/settings', 'missing', { kind: 'not-confirmed' });
+    expect(el.textContent).toContain('Choose what Ptah can use.');
+    expect(q(el, 'connection-readiness-banner')).toBeNull();
+    expect(el.querySelector('li[data-step="1"]')?.getAttribute('data-marker')).toBe('idle');
   });
 });
