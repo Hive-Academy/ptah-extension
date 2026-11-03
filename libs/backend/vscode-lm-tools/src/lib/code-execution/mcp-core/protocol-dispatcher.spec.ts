@@ -188,20 +188,31 @@ const CLEAN_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
 describe('artifact publish dispatch scope', () => {
   it('publishes under the resolved tab id for a resumed SDK session', async () => {
     const publish = jest.fn().mockResolvedValue({
-      id: 'abcdefghijklmnop', revision: 1, title: 'Report',
-      sessionId: 'tab-a', viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
+      id: 'abcdefghijklmnop',
+      revision: 1,
+      title: 'Report',
+      sessionId: 'tab-a',
+      viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
       createdAt: '2026-10-20T12:00:00.000Z',
       savedPath: '/trusted/workspace/artifacts/index.html',
     });
     const deps = buildDeps({
       artifactStore: { publish, list: jest.fn(), readBytes: jest.fn() },
-      getSessionWorkspace: (id) => id === 'sdk-a' ? '/trusted/workspace' : undefined,
-      getSessionTabId: (id) => id === 'sdk-a' ? 'tab-a' : undefined,
+      getSessionWorkspace: (id) =>
+        id === 'sdk-a' ? '/trusted/workspace' : undefined,
+      getSessionTabId: (id) => (id === 'sdk-a' ? 'tab-a' : undefined),
     });
-    const response = await handleMCPRequest(makeRequest({
-      method: 'tools/call', _callerSessionId: 'sdk-a',
-      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
-    }), deps);
+    const response = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        _callerSessionId: 'sdk-a',
+        params: {
+          name: 'ptah_artifact_publish',
+          arguments: { title: 'Report', html: '<h1>ok</h1>' },
+        },
+      }),
+      deps,
+    );
     expect(response.result).toBeDefined();
     expect(publish).toHaveBeenCalledWith(
       { workspaceRoot: '/trusted/workspace', sessionId: 'tab-a' },
@@ -211,7 +222,9 @@ describe('artifact publish dispatch scope', () => {
 
   it('takes identity from the transport and rejects agent-supplied scope', async () => {
     const publish = jest.fn().mockResolvedValue({
-      id: 'abcdefghijklmnop', revision: 1, title: 'Report',
+      id: 'abcdefghijklmnop',
+      revision: 1,
+      title: 'Report',
       sessionId: 'trusted-session',
       viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
       createdAt: '2026-10-20T12:00:00.000Z',
@@ -227,7 +240,10 @@ describe('artifact publish dispatch scope', () => {
     const request = makeRequest({
       method: 'tools/call',
       _callerSessionId: 'trusted-session',
-      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+      params: {
+        name: 'ptah_artifact_publish',
+        arguments: { title: 'Report', html: '<h1>ok</h1>' },
+      },
     });
     expect((await handleMCPRequest(request, deps)).result).toBeDefined();
     expect(publish).toHaveBeenCalledWith(
@@ -235,10 +251,16 @@ describe('artifact publish dispatch scope', () => {
       { title: 'Report', html: '<h1>ok</h1>' },
     );
     expect(notify).toHaveBeenCalledTimes(1);
-    const spoofed = await handleMCPRequest({
-      ...request,
-      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: 'x', sessionId: 'forged' } },
-    }, deps);
+    const spoofed = await handleMCPRequest(
+      {
+        ...request,
+        params: {
+          name: 'ptah_artifact_publish',
+          arguments: { title: 'Report', html: 'x', sessionId: 'forged' },
+        },
+      },
+      deps,
+    );
     expect(spoofed.result).toMatchObject({ isError: true });
     expect(publish).toHaveBeenCalledTimes(1);
   });
@@ -254,7 +276,10 @@ describe('artifact publish dispatch scope', () => {
         method: 'tools/call',
         _callerWorkspaceRoot: '/declared/workspace',
         _callerSessionId: 'unknown-session',
-        params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+        params: {
+          name: 'ptah_artifact_publish',
+          arguments: { title: 'Report', html: '<h1>ok</h1>' },
+        },
       }),
       deps,
     );
@@ -3128,29 +3153,52 @@ describe('protocol-handlers › ptah_web_search argument validation', () => {
 // ---------------------------------------------------------------------------
 
 describe('protocol-handlers › approval_prompt auto-allow', () => {
-    it('resolves an in-app approval through the dispatcher', async () => {
-    let answer: ((response: { id: string; decision: 'allow' }) => void) | undefined;
+  it('resolves an in-app approval through the dispatcher', async () => {
+    let answer:
+      ((response: { id: string; decision: 'allow' }) => void) | undefined;
     const permissionPromptService = {
       createRequest: jest.fn(() => ({ id: 'mcp-request', timestamp: 42 })),
-      setPendingResolver: jest.fn((_id: string, resolve: typeof answer) => { answer = resolve; }),
+      setPendingResolver: jest.fn((_id: string, resolve: typeof answer) => {
+        answer = resolve;
+      }),
     };
     const webviewManager = {
       sendMessage: jest.fn().mockResolvedValue(undefined),
     };
     const pending = handleMCPRequest(
       makeRequest({
-        id: 'approval-with-view', method: 'tools/call',
-        params: { name: 'approval_prompt', arguments: { tool_name: 'Bash', input: { cmd: 'ls' } } },
+        id: 'approval-with-view',
+        method: 'tools/call',
+        params: {
+          name: 'approval_prompt',
+          arguments: { tool_name: 'Bash', input: { cmd: 'ls' } },
+        },
       }),
-        buildDeps({ permissionPromptService: Object.assign(Object.create(null) as NonNullable<ProtocolHandlerDependencies['permissionPromptService']>, permissionPromptService), webviewManager: Object.assign(Object.create(null) as NonNullable<ProtocolHandlerDependencies['webviewManager']>, webviewManager) }),
+      buildDeps({
+        permissionPromptService: Object.assign(
+          Object.create(null) as NonNullable<
+            ProtocolHandlerDependencies['permissionPromptService']
+          >,
+          permissionPromptService,
+        ),
+        webviewManager: Object.assign(
+          Object.create(null) as NonNullable<
+            ProtocolHandlerDependencies['webviewManager']
+          >,
+          webviewManager,
+        ),
+      }),
     );
-    for (let attempt = 0; attempt < 10 && !answer; attempt++) await Promise.resolve();
+    for (let attempt = 0; attempt < 10 && !answer; attempt++)
+      await Promise.resolve();
     expect(answer).toBeDefined();
     answer?.({ id: 'mcp-request', decision: 'allow' });
     await pending;
-      expect(permissionPromptService.setPendingResolver).toHaveBeenCalledWith(
-        'mcp-request', expect.any(Function), expect.objectContaining({ id: 'mcp-request' }),
-      );
+    expect(permissionPromptService.setPendingResolver).toHaveBeenCalledWith(
+      'mcp-request',
+      expect.any(Function),
+      expect.objectContaining({ id: 'mcp-request' }),
+    );
   });
 
   it('auto-allows approval_prompt when webviewManager is absent (Electron mode)', async () => {
@@ -7371,6 +7419,7 @@ describe('protocol-handlers › agent status throttle and read window (TASK_2026
       task: 'review batch 13',
       workingDirectory: 'D:\\projects\\ws',
       status: 'running',
+      parentSessionId: 'session-a',
       startedAt: '2026-09-26T09:59:00.000Z',
       ...overrides,
     };
@@ -7407,6 +7456,18 @@ describe('protocol-handlers › agent status throttle and read window (TASK_2026
 
   const unchangedLine = (iso: string, status: string) =>
     `Status unchanged since ${iso} (${status}). Wait for <agent-lane-completed> instead of polling.`;
+
+  it('directs an ownerless lane to wait or keep checking status', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValue(runningAgent({ parentSessionId: undefined }));
+    const h = statusHarness(status);
+    await h.call('ownerless-1', { _callerAgentId: 'child-1' });
+    h.clock.now = T0 + 1_000;
+    expect(
+      textOf(await h.call('ownerless-2', { _callerAgentId: 'child-1' })),
+    ).toContain('Use ptah_agent_wait or continue status checks.');
+  });
 
   it('answers a repeat status call for the same agent within 60 s with one line, and the full body again after 60 s', async () => {
     const status = jest.fn().mockResolvedValue(runningAgent());
@@ -8051,7 +8112,9 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
       // ptah_session_handoff, always-on (TASK_2026_655).
       expect(coding).toHaveLength(hasIDECapabilities ? 66 : 63);
-      expect(coding.map((tool) => tool.name)).toContain('ptah_artifact_publish');
+      expect(coding.map((tool) => tool.name)).toContain(
+        'ptah_artifact_publish',
+      );
       expect(coding.map((tool) => tool.name)).toEqual(
         expect.arrayContaining(['ptah_route_decide', 'ptah_outcome_report']),
       );

@@ -526,7 +526,7 @@ export class AgentToolDispatcher {
         ) +
           (callerSessionId
             ? ''
-            : '\nNo parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.'),
+            : '\nNo parent session: completion signals and reports will not be pushed. Use agent_wait / agent_status / agent_read.'),
         {
           agentId: result.agentId,
           cli: result.cli,

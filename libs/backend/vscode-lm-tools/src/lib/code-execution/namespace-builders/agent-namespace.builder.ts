@@ -18,6 +18,10 @@ import {
 import { readProviderAccountSelectionField } from '@ptah-extension/shared/schemas';
 import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
 import {
+  getCallerSessionId,
+  isMcpRequestInFlight,
+} from '../mcp-core/mcp-request-context';
+import {
   MAX_AGENT_WAIT_MS,
   PTAH_CLI_ROLE_DELIVERY,
   renderLaneCompletionContract,
@@ -252,6 +256,9 @@ function assertOutcomeField(
 /**
  * Build the agent namespace for ptah.agent.*
  */
+const NO_PARENT_NOTICE =
+  'No parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.';
+
 export function buildAgentNamespace(
   deps: AgentNamespaceDependencies,
 ): AgentNamespace {
@@ -289,14 +296,30 @@ export function buildAgentNamespace(
         );
       }
 
-      // An empty parentSessionId is absent, not supplied. `??` alone kept it,
-      // which BOTH suppressed the active-session fallback AND was then
-      // discarded by the truthiness check below — so the spawn was attributed
-      // to no parent at all.
-      const rawSessionId = request.parentSessionId?.trim() || undefined;
+      // The request context is transport-owned. An explicit parent remains
+      // available to internal callers outside an MCP request.
+      const rawSessionId = isMcpRequestInFlight()
+        ? getCallerSessionId()?.trim() || undefined
+        : request.parentSessionId?.trim() || undefined;
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;
+      // An HTTP MCP caller (execute_code) without session identity gets an
+      // ownerless lane. Say so in the result and the log; never guess one.
+      const markParentless = <T extends { agentId: string }>(
+        spawned: T,
+      ): T | (T & { parentSessionId: undefined; notice: string }) => {
+        if (!isMcpRequestInFlight() || activeSessionId) return spawned;
+        logger.warn('[agent namespace] Lane spawned without parent session', {
+          transport: 'http',
+          agentId: spawned.agentId,
+        });
+        return {
+          ...spawned,
+          parentSessionId: undefined,
+          notice: NO_PARENT_NOTICE,
+        };
+      };
       let roleDefinition: AgentRoleDefinition | undefined;
       if (request.role !== undefined) {
         if (!resolveAgentRole) {
@@ -422,7 +445,7 @@ export function buildAgentNamespace(
         );
         result.setAgentId(spawnResult.agentId);
 
-        return spawnResult;
+        return markParentless(spawnResult);
       }
       if (request.cli) {
         const disabledClis = getDisabledClis?.() ?? [];
@@ -470,7 +493,7 @@ export function buildAgentNamespace(
         ...(projectGuidance && { projectGuidance }),
         ...(pluginPaths && pluginPaths.length > 0 && { pluginPaths }),
       };
-      return agentProcessManager.spawn(enrichedRequest);
+      return markParentless(await agentProcessManager.spawn(enrichedRequest));
     },
 
     status: async (agentId?) => {

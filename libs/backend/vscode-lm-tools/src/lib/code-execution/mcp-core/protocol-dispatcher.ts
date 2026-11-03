@@ -3000,7 +3000,9 @@ function repeatAgentStatusLine(
   return unchanged === null
     ? null
     : `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
-        'Wait for <agent-lane-completed> instead of polling.';
+        (Array.isArray(result) || !result.parentSessionId
+          ? 'Use ptah_agent_wait or continue status checks.'
+          : 'Wait for <agent-lane-completed> instead of polling.');
 }
 
 /**

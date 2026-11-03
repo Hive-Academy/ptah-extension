@@ -47,6 +47,7 @@ import {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahAPI } from '../types';
+import { runWithMcpRequestContext } from '../mcp-core/mcp-request-context';
 import {
   EXECUTION_CANCELLED_MESSAGE,
   executeCode,
@@ -231,6 +232,38 @@ describe('buildAgentNamespace — outcome metadata validation', () => {
 });
 
 describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
+  it('uses the verified execute_code caller and reports an ownerless spawn', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a1',
+    } as SpawnAgentResult);
+    const agent = buildAgentNamespace(deps);
+    await runWithMcpRequestContext({ callerSessionId: 'verified' }, () =>
+      agent.spawn({ task: 't', parentSessionId: 'untrusted' }),
+    );
+    expect(mocks.processManager.spawn.mock.calls[0][0].parentSessionId).toBe(
+      'verified',
+    );
+
+    const result = await runWithMcpRequestContext({}, () =>
+      agent.spawn({ task: 't' }),
+    );
+    expect(
+      mocks.processManager.spawn.mock.calls[1][0].parentSessionId,
+    ).toBeUndefined();
+    expect(result).toEqual(
+      expect.objectContaining({
+        parentSessionId: undefined,
+        notice: expect.stringContaining(
+          'Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.',
+        ),
+      }),
+    );
+    expect(mocks.warn).toHaveBeenCalledWith(expect.any(String), {
+      transport: 'http',
+      agentId: 'a1',
+    });
+  });
   it('forwards valid taskKind and routingSource through the system CLI branch', async () => {
     const { deps, mocks } = makeDeps();
     mocks.processManager.spawn.mockResolvedValue({ agentId: 'a1' });

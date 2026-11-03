@@ -293,7 +293,9 @@ describe.each([
         expect.objectContaining({ parentSessionId: owner }),
       );
       const sentence =
-        'No parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.';
+        _name === 'protocol'
+          ? 'No parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.'
+          : 'No parent session: completion signals and reports will not be pushed. Use agent_wait / agent_status / agent_read.';
       expect(result.text.includes(sentence)).toBe(!owner);
       if (!owner) {
         expect(logger.warn).toHaveBeenCalledWith(
