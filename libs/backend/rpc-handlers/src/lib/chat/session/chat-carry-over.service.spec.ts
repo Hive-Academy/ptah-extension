@@ -385,6 +385,66 @@ describe('ChatCarryOverService', () => {
     });
   });
 
+  describe('check: no lasting side effect (review fix 1)', () => {
+    // Resolving a proxy-backed provider's profile acquires a pooled proxy that
+    // the pool never releases on its own, so the offer must not resolve it.
+    it.each(['openrouter', 'github-copilot', 'lm-studio'])(
+      'a check without a click acquires no proxy for %s',
+      async (active) => {
+        const h = makeHarness({ active, execution: claudeExecution(active) });
+
+        await expect(h.service.check(checkParams())).resolves.toMatchObject({
+          eligible: true,
+          providerId: active,
+        });
+        expect(h.prepare).not.toHaveBeenCalled();
+        expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
+        expect(h.startSession).not.toHaveBeenCalled();
+      },
+    );
+
+    it('acquires no proxy without a runtime profile either', async () => {
+      const h = makeHarness({ active: 'openrouter' });
+
+      await expect(h.service.check(checkParams())).resolves.toMatchObject({ eligible: true });
+      expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('a provider switch after a check leaves no retained probe proxy', async () => {
+      const h = makeHarness({ active: 'openrouter', execution: claudeExecution('openrouter') });
+
+      await h.service.check(checkParams());
+      h.state.active = 'github-copilot';
+      await expect(h.service.check(checkParams())).resolves.toMatchObject({
+        eligible: true,
+        providerId: 'github-copilot',
+      });
+      // Neither offer resolved a profile, so no proxy is held for either provider.
+      expect(h.prepare).not.toHaveBeenCalled();
+      expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
+
+      // The click still runs the full readiness resolution on the current provider.
+      await expect(h.service.carryOver(carryParams())).resolves.toMatchObject({
+        success: true,
+        providerId: 'github-copilot',
+      });
+      expect(h.prepare).toHaveBeenCalledTimes(1);
+      expect(h.startSession).toHaveBeenCalledWith(expect.anything(), {
+        expectedProviderId: 'github-copilot',
+      });
+    });
+
+    it('a direct (non-proxy) provider is still probed by the check', async () => {
+      const h = makeHarness({
+        active: 'requesty',
+        prepareError: new Error('requesty not ready'),
+      });
+
+      await expect(h.service.check(checkParams())).resolves.toEqual({ eligible: false });
+      expect(h.prepare).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('carryOver', () => {
     it('starts one new session on the checked provider (AC 2.1, 2.2, 2.3, 2.4)', async () => {
       const h = makeHarness({ execution: codexExecution() });

@@ -70,6 +70,22 @@ interface EligibleCarryOver {
 
 type CarryOverFailure = Extract<ChatCarryOverResult, { success: false }>;
 
+/** `'offer'`: the eligibility check, with no lasting side effect. `'launch'`: the click. */
+type ProbePurpose = 'offer' | 'launch';
+
+/**
+ * Whether resolving a new Claude session on `providerId` starts or binds a
+ * pooled proxy (`WorkspaceProviderProfileResolver.buildProxyProviderProfile`).
+ * Codex is excluded: its native path never reaches the pool, and the legacy
+ * path is refused before any acquisition.
+ */
+function acquiresProxyOnProbe(providerId: string): boolean {
+  return (
+    providerId !== 'openai-codex' &&
+    getAnthropicProvider(providerId)?.requiresProxy === true
+  );
+}
+
 function failure(
   reason: Exclude<ChatCarryOverFailureReason, 'START_FAILED'>,
 ): CarryOverFailure {
@@ -127,13 +143,18 @@ export class ChatCarryOverService {
     private readonly codexAuth?: Pick<ICodexAuthService, 'isAuthenticated'>,
   ) {}
 
-  /** Read-only eligibility for the banner button. Never throws. */
+  /**
+   * Read-only eligibility for the banner button and the /compact check. It
+   * leaves nothing running: a proxy-backed provider is not probed here (see
+   * {@link newSessionReady}). Never throws.
+   */
   async check(params: ChatCarryOverCheckParams): Promise<ChatCarryOverCheckResult> {
     const eligible = await this.evaluate(
       params.sessionId,
       params.workspacePath,
       // The probe needs a tab id; no tab exists yet, so the session id labels it.
       params.sessionId,
+      'offer',
     );
     return eligible
       ? { eligible: true, providerId: eligible.activeId, providerName: eligible.providerName }
@@ -154,7 +175,7 @@ export class ChatCarryOverService {
 
   private async runCarryOver(params: ChatCarryOverParams): Promise<ChatCarryOverResult> {
     const { sessionId, tabId } = params;
-    const eligible = await this.evaluate(sessionId, params.workspacePath, tabId);
+    const eligible = await this.evaluate(sessionId, params.workspacePath, tabId, 'launch');
     if (!eligible) return failure('NOT_ELIGIBLE');
     const { folder, activeId: pinnedProviderId, providerName } = eligible;
 
@@ -245,6 +266,7 @@ export class ChatCarryOverService {
     sessionId: SessionId,
     workspacePath: string,
     probeTabId: string,
+    purpose: ProbePurpose,
   ): Promise<EligibleCarryOver | null> {
     let folder: string;
     try {
@@ -292,7 +314,7 @@ export class ChatCarryOverService {
     if (activeId === storedProviderId) return null;
 
     try {
-      if (!(await this.newSessionReady(folder, probeTabId))) return null;
+      if (!(await this.newSessionReady(folder, probeTabId, activeId, purpose))) return null;
     } catch (error: unknown) {
       // degradation-audit: reported - logged by class name; not eligible is the fail-closed answer.
       this.warnStep('readiness probe', sessionId, error);
@@ -305,8 +327,20 @@ export class ChatCarryOverService {
    * The readiness check of a NEW session on the active provider: the same
    * resolution `chat:start` runs, with no stored identity (AC 2.3). A throw
    * means the active provider cannot start a chat (AC 1.3).
+   *
+   * An `'offer'` probe skips a proxy-backed provider: building its profile
+   * acquires a pooled proxy, and the pool has no per-acquire release and no
+   * idle TTL, so a check without a click would keep a credential-bearing
+   * proxy alive. The click (`'launch'`) runs the full resolution and the
+   * start refuses an unready provider with its own result.
    */
-  private async newSessionReady(folder: string, probeTabId: string): Promise<boolean> {
+  private async newSessionReady(
+    folder: string,
+    probeTabId: string,
+    activeId: string,
+    purpose: ProbePurpose,
+  ): Promise<boolean> {
+    if (purpose === 'offer' && acquiresProxyOnProbe(activeId)) return true;
     const model = this.modelSettings.selectedModel.get() || 'default';
     const execution = this.runtimeProfile
       ? await this.runtimeProfile.prepare(
