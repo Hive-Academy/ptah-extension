@@ -92,3 +92,39 @@ Verdict: **ISSUES** (score 6/10). Two serious findings, one moderate. No visual-
 - Single window size, two eager themes (not `ptah-glass`), no narrow-width sweep. Contrast figures for S1/S2 are computed from the oklch tokens with a WCAG luminance formula, not from a pixel sample.
 - Notice is auto-dismissed after 15 s; all captures were taken inside that window.
 - `dist/` is the dev build (development configuration), not the production renderer.
+
+## After fix 6 (re-capture)
+
+Verdict: **PASS** for S1, S2, notice contrast, spinner and focus ring. M1 unchanged (pre-existing, out of scope). No new findings.
+
+### Method
+
+- Real Electron app (Playwright `_electron.launch`), rebuilt from this worktree at head c8a6fb402: `node scripts/verify.mjs --exec --task shots-fix6-build -- bash -c "npx nx build-dev ptah-electron && npx nx copy-renderer-dev ptah-electron"` (exit 0, 272 s). The harness is the worktree copy, so the entry resolves to the worktree `dist/`.
+- Run: `NODE_PATH=<worktree>/node_modules node scripts/verify.mjs --exec --task screenshots-fix6 -- npx playwright test --config=/tmp/shots-fix6/playwright.config.ts` -> 8 passed, 4 skipped (states 1 and 6 skipped by request). Same isolation (temp user-data-dir, temp `PTAH_DB_PATH`) and same mocks as the earlier After run. `data-theme` asserted per test. Window 1200x775.
+- Spec: `/tmp/shots-fix6/capture.spec.ts` (derived from `screenshots/after/_capture.spec.ts.txt`, output redirected, contrast probe added).
+- Screenshots: `screenshots/after-fix6/` (states 2, 3, 4, 5 x dark/light, full + close-up, plus `state2-banner-button-focused-{dark,light}.png`). Every PNG was viewed.
+- Contrast method: `getComputedStyle` of the element (`color`, `border-top-color`). Each colour is resolved to sRGB through a canvas `fillStyle` -> `getImageData`, so oklch is converted by the browser, not by me. The surface is the ancestor background layers composited over white. Ratio is WCAG 2.x relative luminance, (L1+0.05)/(L2+0.05). Pixel-exact, not estimated from tokens. Border is measured against the banner surface.
+
+### Results
+
+| Item | Dark `anubis` | Light `anubis-light` | Criterion | Verdict |
+| --- | --- | --- | --- | --- |
+| S1 button text (`btn btn-xs btn-outline text-base-content-muted`) | 5.76:1 | 5.48:1 | 4.5:1 text | PASS (was about 1.3-1.4:1 in light) |
+| S2 button border | 5.76:1 (1 px) | 5.48:1 (2 px) | 3:1 UI component | PASS |
+| Notice text (`text-base-content` on `bg-success/10`) | 13.2:1 | 14.48:1 | 4.5:1 | PASS |
+| Busy spinner (own colour, `text-base-content-muted`) | 5.69:1 | 3.74:1 | 3:1 UI component | PASS |
+| Focus ring on the button (Tab, `:focus-visible`) | 2 px solid `oklch(0.77 0.14 91)` | 2 px solid `oklch(0.48 0.12 70)` | visible | PASS (`state2-banner-button-focused-*.png`: ring clearly visible, not clipped) |
+
+Notes:
+- Busy state: the disabled button label is at 20% alpha (1.75:1 dark, 1.46:1 light). That is the daisyUI disabled style; WCAG 1.4.3 exempts inactive components. The spinner carries the busy signal and is legible in both themes (`state3-busy-*-closeup.png`). The label is dim but readable as "Continue with Claude" in the close-ups. This is informational, not a finding.
+- Notice border (`border-success/30`, 1.77:1 dark, 1.42:1 light) is decorative; the text carries the information, and the box is distinguishable by its green tint in `state4-*-closeup.png`.
+- Layout: button and banner layout unchanged by the class change (same banner row, no wrapping, no truncation visible in the close-ups). "Re-authenticate in terminal" remains the single solid primary action.
+- Notice wraps to 2 lines, nothing truncated, in state 4 (both themes).
+
+### M1 (out of scope)
+
+`state5-notice-after-compact-{dark,light}-full.png`: the slash palette ("SUGGESTIONS / No matches found") still covers the lower part of the notice after `/compact`. Behaviour unchanged from the earlier After run. The notice text colour fix is verified on the uncovered state 4 and on the notice element's computed style in state 5 (same 13.2:1 / 14.48:1). Still pre-existing and not caused by this task.
+
+### Limits
+
+Same as the earlier After run: backend mocked, one window size, two eager themes (not `ptah-glass`), dev build, notice captured inside its 15 s auto-dismiss window. Disabled-state contrast is reported but exempt.
