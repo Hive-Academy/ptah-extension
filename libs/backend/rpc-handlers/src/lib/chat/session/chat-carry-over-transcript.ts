@@ -13,6 +13,15 @@ type CarryOverTurn = CarryOverTranscript['turns'][number];
 /** Read at most the last 2 MiB of a Claude JSONL session. */
 export const CARRY_OVER_READ_TAIL_BYTES = 2 * 1024 * 1024;
 
+/** Most complete root turns a native Codex carry-over read returns. */
+export const CARRY_OVER_NATIVE_MAX_TURNS = 200;
+
+/** Most `thread/turns/list` requests of one native read (25 turns per page). */
+export const CARRY_OVER_NATIVE_MAX_TURN_PAGES = 8;
+
+/** Most `thread/items/list` requests of one native read, across all its turns. */
+export const CARRY_OVER_NATIVE_MAX_ITEM_PAGES = 16;
+
 /** Upper bound of the rendered transcript, omission line and marker included. */
 export const CARRY_OVER_TEXT_BUDGET_CHARS = 48_000;
 

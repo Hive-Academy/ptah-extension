@@ -1,5 +1,8 @@
 import {
   CARRY_OVER_INSTRUCTION,
+  CARRY_OVER_NATIVE_MAX_ITEM_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURN_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURNS,
   CARRY_OVER_READ_TAIL_BYTES,
   CARRY_OVER_READ_TIMEOUT_MS,
   CARRY_OVER_TEXT_BUDGET_CHARS,
@@ -53,6 +56,12 @@ describe('chat carry-over transcript constants', () => {
     expect(CARRY_OVER_READ_TIMEOUT_MS).toBe(20_000);
     expect(CARRY_OVER_INSTRUCTION.trimStart().startsWith('/')).toBe(false);
     expect(CARRY_OVER_INSTRUCTION).toMatch(/summary only/i);
+  });
+
+  it('pins the native Codex read bound (AC 3.10)', () => {
+    expect(CARRY_OVER_NATIVE_MAX_TURNS).toBe(200);
+    expect(CARRY_OVER_NATIVE_MAX_TURN_PAGES).toBe(8);
+    expect(CARRY_OVER_NATIVE_MAX_ITEM_PAGES).toBe(16);
   });
 });
 

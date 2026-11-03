@@ -53,6 +53,9 @@ import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatCarryOverService } from './chat-carry-over.service';
 import {
   CARRY_OVER_INSTRUCTION,
+  CARRY_OVER_NATIVE_MAX_ITEM_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURN_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURNS,
   CARRY_OVER_READ_TAIL_BYTES,
   type CarryOverTranscript,
 } from './chat-carry-over-transcript';
@@ -83,6 +86,19 @@ const claudeExecution = (providerId?: string): Execution => ({
 const codexExecution = (): Execution => ({
   runtime: 'codex-app-server',
   seed: { providerId: 'openai-codex', model: 'gpt-5' },
+});
+
+/** Stored metadata of a native codex-app-server session. */
+const nativeMetadata = (providerId = 'openai-codex'): Record<string, unknown> => ({
+  workspaceId: FOLDER,
+  codexExecution: {
+    version: 1,
+    sessionId: SESSION_ID,
+    runtime: 'codex-app-server',
+    providerId,
+    workspaceId: FOLDER,
+    codex: { normalizedHome: '/home/u/.codex' },
+  },
 });
 
 const transcript = (
@@ -281,6 +297,21 @@ describe('ChatCarryOverService', () => {
       });
     });
 
+    it('native Codex -> Claude (D9), with no read before the click', async () => {
+      const h = makeHarness({
+        metadata: nativeMetadata(),
+        active: 'anthropic',
+        execution: claudeExecution(undefined),
+      });
+
+      const result = await h.service.check(checkParams());
+
+      expect(result).toEqual({ eligible: true, providerId: 'anthropic', providerName: 'Claude' });
+      expect(h.prepare).toHaveBeenCalledTimes(1);
+      expect(h.readCarryOverTranscript).not.toHaveBeenCalled();
+      expect(h.startSession).not.toHaveBeenCalled();
+    });
+
     it('a third-party target is named from the provider registry', async () => {
       const h = makeHarness({ active: 'openrouter', execution: claudeExecution('openrouter') });
 
@@ -348,21 +379,29 @@ describe('ChatCarryOverService', () => {
       expect(h.prepare).not.toHaveBeenCalled();
     });
 
-    it('a native codex-app-server session, before any router call (T2)', async () => {
+    it('a native Codex session with Codex still active, with no probe (AC 2.5, K22)', async () => {
       const h = makeHarness({
-        metadata: {
-          workspaceId: FOLDER,
-          codexExecution: {
-            version: 1,
-            sessionId: SESSION_ID,
-            runtime: 'codex-app-server',
-            providerId: 'openai-codex',
-            workspaceId: FOLDER,
-            codex: { normalizedHome: '/home/u/.codex' },
-          },
-        },
-        active: 'anthropic',
-        execution: claudeExecution(undefined),
+        metadata: nativeMetadata(),
+        active: 'openai-codex',
+        execution: codexExecution(),
+      });
+
+      await expect(h.service.check(checkParams())).resolves.toEqual({ eligible: false });
+      await expect(h.service.carryOver(carryParams())).resolves.toMatchObject({
+        success: false,
+        reason: 'NOT_ELIGIBLE',
+      });
+      expect(h.prepare).not.toHaveBeenCalled();
+      expect(h.isAuthenticated).not.toHaveBeenCalled();
+      expect(h.readCarryOverTranscript).not.toHaveBeenCalled();
+      expect(h.startSession).not.toHaveBeenCalled();
+    });
+
+    it('a native identity whose providerId is not openai-codex, with no router call (T2)', async () => {
+      const h = makeHarness({
+        metadata: nativeMetadata('anthropic'),
+        active: 'openrouter',
+        execution: claudeExecution('openrouter'),
       });
 
       await expect(h.service.check(checkParams())).resolves.toEqual({ eligible: false });
@@ -710,22 +749,63 @@ describe('ChatCarryOverService', () => {
       });
     });
 
-    it('reads the Claude JSONL tail with the bound and a timeout signal (AC 3.10)', async () => {
-      const h = makeHarness({ execution: codexExecution() });
+    it.each([
+      ['a Claude JSONL', undefined, 'openai-codex', codexExecution()],
+      ['a native Codex', nativeMetadata(), 'anthropic', claudeExecution(undefined)],
+    ] as const)(
+      'reads %s session with both bounds and a timeout signal (AC 3.10)',
+      async (_label, metadata, active, execution) => {
+        const h = makeHarness({ metadata, active, execution });
 
-      await h.service.carryOver(carryParams());
+        await h.service.carryOver(carryParams());
 
-      expect(h.readCarryOverTranscript).toHaveBeenCalledTimes(1);
-      const [sessionId, folder, options] = h.readCarryOverTranscript.mock.calls[0] as unknown as [
-        string,
-        string,
-        Record<string, unknown>,
-      ];
-      expect(sessionId).toBe(SESSION_ID);
-      expect(folder).toBe(FOLDER);
-      expect(options['tailBytes']).toBe(CARRY_OVER_READ_TAIL_BYTES);
-      expect(options['signal']).toBeInstanceOf(AbortSignal);
-      expect(Object.keys(options).sort()).toEqual(['signal', 'tailBytes']);
+        expect(h.readCarryOverTranscript).toHaveBeenCalledTimes(1);
+        const [sessionId, folder, options] = h.readCarryOverTranscript.mock
+          .calls[0] as unknown as [string, string, Record<string, unknown>];
+        expect(sessionId).toBe(SESSION_ID);
+        expect(folder).toBe(FOLDER);
+        expect(options['tailBytes']).toBe(CARRY_OVER_READ_TAIL_BYTES);
+        expect(options['nativeBound']).toEqual({
+          maxTurns: CARRY_OVER_NATIVE_MAX_TURNS,
+          maxTurnPages: CARRY_OVER_NATIVE_MAX_TURN_PAGES,
+          maxItemPages: CARRY_OVER_NATIVE_MAX_ITEM_PAGES,
+        });
+        expect(options['signal']).toBeInstanceOf(AbortSignal);
+        expect(Object.keys(options).sort()).toEqual(['nativeBound', 'signal', 'tailBytes']);
+      },
+    );
+
+    it('carries a native Codex session over to Claude, with no native adapter call (AC 1.1, 6.1)', async () => {
+      const h = makeHarness({
+        metadata: nativeMetadata(),
+        active: 'anthropic',
+        execution: claudeExecution(undefined),
+      });
+
+      const result = await h.service.carryOver(carryParams());
+
+      expect(result).toEqual({ success: true, providerId: 'anthropic', providerName: 'Claude' });
+      // The probe resolves a NEW Claude session, never the stored native identity.
+      expect(h.prepare).toHaveBeenCalledTimes(1);
+      expect(h.prepare).toHaveBeenCalledWith(expect.anything(), undefined, true);
+      expect(h.isAuthenticated).not.toHaveBeenCalled();
+      // The old native session is only read: no resume, no compact, no turn on it.
+      expect(h.session.resumeSession).toHaveBeenCalledTimes(0);
+      expect(h.session.continueSession).toHaveBeenCalledTimes(0);
+      expect(h.metadataWrites).toEqual([]);
+      expect(h.startSession).toHaveBeenCalledTimes(1);
+      const [startParams, launch] = h.startSession.mock.calls[0];
+      expect(startParams.prompt.startsWith(CARRY_OVER_INSTRUCTION)).toBe(true);
+      expect(launch).toEqual({ expectedProviderId: 'anthropic' });
+      expect(h.logger.info).toHaveBeenCalledWith('[carry-over] started', {
+        sessionId: SESSION_ID,
+        tabId: TAB_ID,
+        providerId: 'anthropic',
+        source: 'codex-native',
+        keptTurns: 2,
+        omittedTurns: 0,
+      });
+      expectAbsent(h, result, SENTINEL);
     });
 
     it('a provider switch during the read: NOT_ELIGIBLE, no start (AC 1.7, 2.5)', async () => {
@@ -830,6 +910,34 @@ describe('ChatCarryOverService', () => {
         error: expect.any(String),
       });
       expect(h.startSession).not.toHaveBeenCalled();
+      expectAbsent(h, result, SENTINEL);
+    });
+
+    it.each([
+      ['an empty native history', () => Promise.resolve(transcript([]))],
+      ['an unreadable native history', () => {
+        const error = new Error(`Session history could not be read. ${SENTINEL}`);
+        error.name = 'SessionHistoryRouteError';
+        return Promise.reject(error);
+      }],
+    ] as const)('%s makes no start (AC 5.1)', async (_label, read) => {
+      const h = makeHarness({
+        metadata: nativeMetadata(),
+        active: 'anthropic',
+        execution: claudeExecution(undefined),
+        read,
+      });
+
+      const result = await h.service.carryOver(carryParams());
+
+      expect(result).toEqual({
+        success: false,
+        reason: 'HISTORY_UNREADABLE',
+        error: expect.any(String),
+      });
+      expect(h.readCarryOverTranscript).toHaveBeenCalledTimes(1);
+      expect(h.startSession).not.toHaveBeenCalled();
+      expect(h.session.resumeSession).toHaveBeenCalledTimes(0);
       expectAbsent(h, result, SENTINEL);
     });
 

@@ -41,6 +41,9 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 
 import { CHAT_TOKENS } from '../tokens';
 import {
+  CARRY_OVER_NATIVE_MAX_ITEM_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURN_PAGES,
+  CARRY_OVER_NATIVE_MAX_TURNS,
   CARRY_OVER_READ_TAIL_BYTES,
   CARRY_OVER_READ_TIMEOUT_MS,
   renderCarryOverPrompt,
@@ -62,12 +65,20 @@ const NOT_ELIGIBLE_TEXT =
 const IN_FLIGHT_TEXT = 'This conversation is already being continued.';
 const HISTORY_UNREADABLE_TEXT = "Couldn't read this conversation's history.";
 
-/** The only source this host reads; the native Codex read is a later phase. */
-const CLAUDE_JSONL_SOURCE = 'claude-jsonl';
+/** Where the old conversation's transcript is read from; logged on success. */
+type CarryOverSource = 'claude-jsonl' | 'codex-native';
+
+/** The bound of a native Codex read; the router refuses a native read without it. */
+const NATIVE_BOUND = {
+  maxTurns: CARRY_OVER_NATIVE_MAX_TURNS,
+  maxTurnPages: CARRY_OVER_NATIVE_MAX_TURN_PAGES,
+  maxItemPages: CARRY_OVER_NATIVE_MAX_ITEM_PAGES,
+} as const;
 
 interface EligibleCarryOver {
   /** The session's own folder: the read and the new session both use it. */
   readonly folder: string;
+  readonly source: CarryOverSource;
   readonly activeId: string;
   readonly providerName: string;
 }
@@ -237,15 +248,18 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
     const { sessionId, tabId } = params;
     const eligible = await this.evaluate(sessionId, params.workspacePath, tabId, 'launch');
     if (!eligible) return failure('NOT_ELIGIBLE');
-    const { folder, activeId: pinnedProviderId, providerName } = eligible;
+    const { folder, source, activeId: pinnedProviderId, providerName } = eligible;
 
     let rendered: ReturnType<typeof renderCarryOverPrompt>;
     try {
+      // The router picks the route from the session's metadata; both bounds
+      // go along so either route stays bounded. Only read, never resumed.
       const transcript = await this.historyRouter.readCarryOverTranscript(
         sessionId,
         folder,
         {
           tailBytes: CARRY_OVER_READ_TAIL_BYTES,
+          nativeBound: NATIVE_BOUND,
           signal: AbortSignal.timeout(CARRY_OVER_READ_TIMEOUT_MS),
         },
       );
@@ -319,7 +333,7 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
       sessionId,
       tabId,
       providerId: pinnedProviderId,
-      source: CLAUDE_JSONL_SOURCE,
+      source,
       keptTurns: rendered.keptTurns,
       omittedTurns: rendered.omittedTurns,
     });
@@ -353,16 +367,22 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
     }
 
     let storedProviderId: string;
+    let source: CarryOverSource;
     try {
       const identity = storedChatRuntimeIdentity(
         sessionId,
         await this.metadataStore.get(sessionId),
         folder,
       );
-      // The Claude JSONL source only. A proxy-era Codex Claude session keeps
-      // its own refusal, and a native Codex session has no bounded read here.
-      if (identity.runtime !== 'claude-sdk' || identity.providerId === 'openai-codex') {
-        return null;
+      if (identity.runtime === 'claude-sdk') {
+        // A proxy-era Codex Claude session keeps its own refusal (E2).
+        if (identity.providerId === 'openai-codex') return null;
+        source = 'claude-jsonl';
+      } else {
+        // A native session is read through the bounded Codex tail, which
+        // only an `openai-codex` identity has (T2).
+        if (identity.providerId !== 'openai-codex') return null;
+        source = 'codex-native';
       }
       storedProviderId = identity.providerId;
     } catch (error: unknown) {
@@ -389,7 +409,7 @@ export class ChatCarryOverService implements CarryOverResolutionTags {
       this.warnStep('readiness probe', sessionId, error);
       return null;
     }
-    return { folder, activeId, providerName: providerDisplayName(activeId) };
+    return { folder, source, activeId, providerName: providerDisplayName(activeId) };
   }
 
   /**
