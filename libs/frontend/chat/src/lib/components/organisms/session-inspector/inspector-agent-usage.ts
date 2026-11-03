@@ -75,7 +75,7 @@ export function laneUsage(
       costPartial: cliUsage
         ? cliUsage.partial && cliCost != null
         : stats ? stats.costPartial : fallback?.partial === true,
-      costEstimated: true,
+      costEstimated: cliUsage ? cliCost != null && cliUsage.usage?.costUsd == null : true,
       input: subagent?.usage?.input ?? usage?.inputTokens ?? null,
       output: subagent?.usage?.output ?? usage?.outputTokens ?? null,
     },

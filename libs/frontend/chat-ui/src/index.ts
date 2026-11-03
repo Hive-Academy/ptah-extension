@@ -124,7 +124,11 @@ export {
   type LiveModelStats,
 } from './lib/molecules/session/session-stats-summary.component';
 export { buildStatsLimitViewModel } from './lib/molecules/session/plan-limits/stats-limit-view-model';
+export { ProviderLaneLimitTileComponent } from './lib/molecules/session/plan-limits/provider-lane-limit-tile.component';
 export type {
+  InspectorLaneRunDetail,
+  ProviderLaneLimitModel,
+  LaneSubtotalTileModel,
   StatsLimitLaneRun,
   StatsLimitViewModel,
   StatsLimitViewModelInput,

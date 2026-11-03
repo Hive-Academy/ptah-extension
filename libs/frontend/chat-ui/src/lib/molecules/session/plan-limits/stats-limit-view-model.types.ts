@@ -263,9 +263,33 @@ export interface StatsLimitViewModel {
   readonly refreshNotice?: string;
   readonly planTiles: readonly PlanLimitTileModel[];
   readonly laneTiles: readonly LaneUsageTileModel[];
+  readonly inspectorRuns: readonly InspectorLaneRunDetail[];
+  readonly providerLimits: readonly ProviderLaneLimitModel[];
   readonly subtotal?: LaneSubtotalTileModel;
   /** Number of lane runs (the "LANES n" pill). */
   readonly lanesCount: number;
+}
+
+/** Inspector facts for one CLI run, keyed independently of its provider. */
+export interface InspectorLaneRunDetail {
+  readonly runId: string;
+  readonly cliLabel: string;
+  readonly role: string | null;
+  readonly row: LaneRunRowModel;
+  readonly ownerText: string;
+  readonly notes: readonly string[];
+  readonly evidenceLines: readonly string[];
+  readonly windows: readonly PlanWindowDetailModel[];
+}
+
+/** One CLI family, regardless of run count or role. */
+export interface ProviderLaneLimitModel {
+  readonly id: string;
+  readonly label: string;
+  readonly ownerState: 'single' | 'multiple' | 'untracked';
+  readonly windows: readonly PlanLimitTileModel[];
+  readonly message: string;
+  readonly ownerDetails: readonly string[];
 }
 
 export const LANES_SUBTOTAL_TILE_ID = 'lanes-subtotal';

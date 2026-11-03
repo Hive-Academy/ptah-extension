@@ -13,6 +13,8 @@ import {
 import {
   AgentSteerInputComponent,
   agentRunDurationMs,
+  type InspectorLaneRunDetail,
+  type LaneSubtotalTileModel,
 } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ModelStateService, injectWallClock } from '@ptah-extension/core';
@@ -45,6 +47,7 @@ import {
 } from './inspector-agent-row.component';
 import { laneUsage } from './inspector-agent-usage';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
+import { InspectorAgentRunDetailComponent } from './inspector-agent-run-detail.component';
 
 /** Rows shown before "Show N more". */
 export const AGENTS_VISIBLE_LIMIT = 6;
@@ -76,6 +79,7 @@ let nextSectionId = 0;
     AgentSteerInputComponent,
     InspectorAgentActionsMenuComponent,
     InspectorAgentRowComponent,
+    InspectorAgentRunDetailComponent,
     InspectorRequestLinesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -97,7 +101,7 @@ let nextSectionId = 0;
           <span
             class="text-[10.5px] tabular-nums text-base-content-muted"
             data-testid="agents-count"
-            >{{ runningCount() }} running · {{ list().length }}</span
+            >{{ runningCount() }} running · {{ list().length }} · {{ laneRuns().length }} CLI runs</span
           >
         }
       </div>
@@ -131,6 +135,7 @@ let nextSectionId = 0;
           <span class="pl-8">Agent</span>
           <span class="text-right">Tokens</span>
           <span class="text-right">Cost</span>
+          <span class="text-right">Time</span>
           <span class="text-right">Status</span>
         </div>
         <ul [attr.aria-labelledby]="headingId">
@@ -152,6 +157,9 @@ let nextSectionId = 0;
                 <ptah-inspector-agent-row
                   class="min-w-0 flex-1"
                   [row]="row"
+                  [expandable]="runDetail(row.key) !== null"
+                  [expanded]="expandedKeys().has(row.key)"
+                  (expansionToggled)="toggleExpansion(row.key)"
                   (selected)="select(row)"
                 />
                 <span class="flex w-8 shrink-0 justify-center pr-1">
@@ -166,6 +174,11 @@ let nextSectionId = 0;
                   }
                 </span>
               </div>
+              @if (runDetail(row.key); as detail) {
+                @if (expandedKeys().has(row.key)) {
+                  <ptah-inspector-agent-run-detail [detail]="detail" [tokens]="row.tokens" [cost]="row.cost" />
+                }
+              }
               @if (row.requests.length > 0) {
                 <ptah-inspector-request-lines
                   class="mb-2 ml-[52px] mr-3 block"
@@ -212,6 +225,12 @@ let nextSectionId = 0;
             {{ showAll() ? 'Show fewer' : 'Show ' + hiddenCount() + ' more' }}
           </button>
         }
+        @if (laneSubtotal(); as subtotal) {
+          <div class="mx-3 mt-2 border-t border-surface-border pt-2 text-[11px] text-base-content-muted" data-testid="agents-lane-subtotal">
+            <span class="font-semibold">Σ lane</span> · {{ subtotal.tokensText }} · {{ subtotal.costValue || 'Cost unknown' }}
+            <span class="block">lane · not in totals</span>
+          </div>
+        }
       }
     </section>
   `,
@@ -229,6 +248,8 @@ export class InspectorAgentsSectionComponent {
   /** Owning session of the shown tab; scopes the tray contexts. */
   readonly sessionId = input<string | null>(null);
   readonly agents = input.required<SectionState<InspectorAgentsData>>();
+  readonly laneRuns = input<readonly InspectorLaneRunDetail[]>([]);
+  readonly laneSubtotal = input<LaneSubtotalTileModel | null>(null);
   readonly orchestrator = input<OrchestratorCardModel | null>(null);
   /** Session input / output tokens, shown in the Orchestrator tokens tooltip. */
   readonly sessionTokens = input<SessionTokenSplit | null>(null);
@@ -256,6 +277,16 @@ export class InspectorAgentsSectionComponent {
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
   protected readonly steerErrorKey = signal<string | null>(null);
+  protected readonly expandedKeys = signal<ReadonlySet<string>>(new Set());
+  protected runDetail(key: string): InspectorLaneRunDetail | null {
+    if (!key.startsWith('cli:')) return null;
+    return this.laneRuns().find(run => run.runId === key.slice(4)) ?? null;
+  }
+  protected toggleExpansion(key: string): void {
+    const next = new Set(this.expandedKeys());
+    if (next.has(key)) next.delete(key); else next.add(key);
+    this.expandedKeys.set(next);
+  }
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);
   private readonly orchestratorAgent = computed(
@@ -413,7 +444,7 @@ export class InspectorAgentsSectionComponent {
     const card = this.orchestrator();
     const split = this.sessionTokens();
     const modelRaw = card?.model ?? null;
-    return agentListRow({
+    const result = agentListRow({
       agent,
       secondary: modelRaw
         ? resolveModelDisplayName(modelRaw, this.modelState.availableModels())
@@ -433,6 +464,7 @@ export class InspectorAgentsSectionComponent {
       tray: null,
       hasActions: false,
     });
+    return result;
   }
 
   private laneRow(row: InspectorAgentRow, now: number): AgentListRow {
@@ -458,8 +490,10 @@ export class InspectorAgentsSectionComponent {
       },
       now,
     );
+    const role = this.runDetail(agent.key)?.role;
     return agentListRow({
       agent,
+      name: role ? `${agent.name} · ${role}` : agent.name,
       secondary: modelRaw
         ? resolveModelDisplayName(modelRaw, this.modelState.availableModels())
         : agentKindLine(agent),

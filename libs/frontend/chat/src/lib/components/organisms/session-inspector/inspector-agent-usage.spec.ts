@@ -52,6 +52,13 @@ const sources = {
 };
 
 describe('inspector CLI lane usage', () => {
+  it.each(['subagent', 'background', 'orchestrator'] as const)('keeps a reported fallback cost marked estimated for %s', kind => {
+    const agent: SessionAgent = { ...roster, kind, cliId: null,
+      usageTotals: { totalTokens: 12, costUsd: 0.25 } };
+    const result = laneUsage(agent, { cli: null, subagent: null, trayTokens: null, trayModel: null }, 2_000);
+    expect(result.usage.cost).toBe(0.25);
+    expect(result.usage.costEstimated).toBe(true);
+  });
   it('agrees with the shared header and summary resolver for partial usage', () => {
     const resolved = resolveCliLaneUsage(cli);
     const summary = cliLaneStats(cli);
