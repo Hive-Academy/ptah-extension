@@ -1,6 +1,6 @@
 # HANDOFF — TASK_2026_858_f7b9 (Ptah remote workers)
 
-Written 2026-11-04 by the orchestrator session. Supersedes the 2026-11-02 HANDOFF.
+Written 2026-11-04 by the orchestrator session (updated after Phase C). Supersedes the 2026-11-02 HANDOFF.
 
 ## Goal
 
@@ -29,21 +29,35 @@ JSONL event log. Libs: worker-protocol, worker-runtime, remote-machines, machine
 
 ## Done
 
-| Item | Commit(s) |
-| ---- | --------- |
-| Batches 1–7 (cherry-picked) | c9e71a634 … 69ddaf697 |
-| Round 6 plan (headless Electron worker), batches 8–26 revised | dda41e36c |
-| Phase B fix round 1 (L1–L8, S1–S3) | 846ff1c0a, 0284679e4, 42c6b8cf5 |
-| Fix round 2 (resync until head, attach tokens) | da747eecf |
-| Bounded correction (snapshot attach shown in view) | 40028bdea |
+PR #927 (draft): https://github.com/Hive-Academy/PtahCode/pull/927 — branch `feat/remote-workers-v2`.
 
-Reviews (Codex, implementer Claude): `fix-round-1-review.md` REVISE 6/10 → `fix-round-2-review.md`
-REVISE 6/10 → `fix-bounded-correction-review.md` REVISE 6/10 with ONE open Major defect
-(late frames after snapshot). Revise cap used. Codex lane session `01a1a55c-5f60-7611-95e3-0c9ff2cbf329`.
+| Item | Commit(s) | Review |
+| ---- | --------- | ------ |
+| Batches 1–7 (cherry-picked) + Phase B fixes + 7.9 | c9e71a634 … 17ade5466 | Codex; 7.9 APPROVED 8/10 |
+| Round 6 plan (headless Electron worker) | dda41e36c | orchestrator spot-check |
+| Batch 8 driver lock port, kernel/null lock | e9874ed73 | Phase C |
+| Batch 9 control endpoint, local lock client | e7d767ddf | Phase C |
+| Batch 10 registry lifecycle notifications | 88f2a7721 | Phase C |
+| Batch 11 host lock bindings | 0ca2270d6 | Phase C |
+| Audit fix | 3f0d133a7 | — |
+| Batch 12 lock coordinator + call sites | d7e3871ef | Phase C |
+| Batch 13 native Codex driver gate | 446c5f38b | Phase C |
+| Phase C fixes (2 Codex rounds + Claude spec correction) | c50e62b4d, 8cdb176b7 | style APPROVED 8/10; logic REVISE 7/10 → N1 |
+| CI fix (lock spec log folder) | c95822034 | in Batch 13.9 review |
+| Batch 13.9 (N1 + lock races) | 03dfe507b, 518cb5d17 | Codex APPROVED 8/10 |
 
-Verify on the rebuilt branch: Batch 1–7 project list all lint/typecheck pass; tests pass except
-load-flaky specs that pass alone (ptah-electron `git-watcher.real-git`, mcp-bench
-`snapshot-audits` mem.liveness.audit and `launchBenchHost` exit classification).
+Phase C implementers: Codex lanes (they cannot run Nx or sockets in their sandbox; the orchestrator
+ran every verify). Phase C reviewers: Claude subagents. Batch 13.9: Claude implementer, Codex reviewer.
+
+Open minor follow-ups (decision row 24): `console.warn` in `create-session-driver-lock.ts`, temp-home
+leak on spawn error in `spawn-driver-lock-holder.ts`, shared ChatSessionService spec factory,
+`SessionRegistry` exported from the agent-sdk barrel only for a spec.
+
+Known load flakes (pass alone): mcp-bench `snapshot-audits`, platform-core `file-settings-manager.bench`
+and `agent-pack-download` A2, ptah-electron `git-watcher.real-git`.
+
+Temporary worktree `.claude-worktrees/rw2-ci-merge` (detached, uncommitted merge of origin/main for an
+e2e check): waits for the user's permission to remove it.
 
 ## Decision model (Gatsby)
 
@@ -56,6 +70,6 @@ timed out at 30 s. `~/.ptah/settings.json` now says 60000 (backup
 ## Next steps
 
 1. Watch the draft PR CI and reviews; fix task-related failures.
-2. Batch 7.9 (fence late frames after snapshot) → verify → Codex review.
-3. Phase C Batches 8–13 per batches.md (Round 6), one executor at a time; Phase C review after
-   Batch 13 by a different family than the implementer.
+2. Phase D (Batches 14–19) per batches.md (Round 6), one executor at a time; Phase D review after
+   Batch 19 by a different family than the implementer. Ask the user before starting Phase D.
+3. Fleet operations O1–O5 and G-M: still unanswered; ask before any fleet change.

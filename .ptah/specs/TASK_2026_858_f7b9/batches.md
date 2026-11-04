@@ -763,7 +763,7 @@ phase summary.
 
 ---
 
-## Batch 13.9: Phase C carry-over — keep the drive lock until the SDK record binds — COMPLETE (review pending)
+## Batch 13.9: Phase C carry-over — keep the drive lock until the SDK record binds — COMPLETE
 
 - Source: `code-logic-review-phase-c-final.md` N1 (Serious, Claude review). Decision row 24.
 - Defect: `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (~1928, ~2159, ~2359)
@@ -776,6 +776,9 @@ phase summary.
   default (pass the fake explicitly in specs) and the double `hasLiveRecord` call in `control-endpoint.ts`.
 - Executor: backend-developer subagent (Claude). Review: Codex lane (different family).
 - Verify: `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench,degradation-audit`
+- Result: executor Claude subagent; commits 03dfe507b (settleDrive) and 518cb5d17 (per-attempt tokens,
+  token-scoped removal, release gate). Verify 19/19 each time. Codex review: `batch-13.9-review.md` REVISE
+  5/10 (three races) → `batch-13.9-review-round-1.md` APPROVED 8/10, no new defects.
 
 ---
 
