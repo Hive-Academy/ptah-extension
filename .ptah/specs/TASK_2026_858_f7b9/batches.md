@@ -1061,7 +1061,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
   `inputs` instead and report it
 - Implementation details: Linux deb only (AppImage, Windows, macOS: no launcher)
 
-### Task 19.4: `docs/worker.md` — PENDING
+### Task 19.4: `docs/worker.md` — COMPLETE
 
 - Depends on: Task 19.3
 - File: W/`libs/backend/worker-host/docs/worker.md` (create) (+ spec in worker-host comparing its
