@@ -292,6 +292,8 @@ export const DEFAULT_ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set<string>(
     'tasks:list',
     'tasks:get',
     'tasks:getArtifact',
+    'tasks:readFolderMarkdown',
+    'tasks:listFolderEntries',
     'tasks:board',
     'tasks:doctorPlan',
     'tasks:getViews',

@@ -69,6 +69,9 @@ function remap(
     writeFileBytes: (p, c) => provider.writeFileBytes(rewrite(p), c),
     readDirectory: (p) => provider.readDirectory(rewrite(p)),
     stat: (p) => provider.stat(rewrite(p)),
+    lstat: (p) => provider.lstat(rewrite(p)),
+    realpath: (p) => provider.realpath(rewrite(p)),
+    readFileBoundedNoFollow: (p, maxBytes) => provider.readFileBoundedNoFollow(rewrite(p), maxBytes),
     exists: (p) => provider.exists(rewrite(p)),
     delete: (p, opts) => provider.delete(rewrite(p), opts),
     createDirectory: (p) => provider.createDirectory(rewrite(p)),
@@ -94,6 +97,18 @@ function remap(
 runFileSystemContract('ElectronFileSystemProvider', async () => {
   const root = await makeTempDir();
   return remap(root, new ElectronFileSystemProvider());
+});
+
+describe('ElectronFileSystemProvider directory junctions', () => {
+  it('reports a junction as a link and resolves its target outside the workspace', async () => {
+    const root = await makeTempDir();
+    const outside = await makeTempDir();
+    const junction = path.join(root, 'TASK_2026_001');
+    await fs.symlink(outside, junction, process.platform === 'win32' ? 'junction' : 'dir');
+    const provider = new ElectronFileSystemProvider();
+    expect((await provider.lstat(junction)).type).toBe(FileType.SymbolicLink);
+    expect(path.relative(root, await provider.realpath(junction)).startsWith('..')).toBe(true);
+  });
 });
 
 afterEach(async () => {

@@ -746,6 +746,10 @@ import type {
   TasksGetResult,
   TasksGetArtifactParams,
   TasksGetArtifactResult,
+  TasksReadFolderMarkdownParams,
+  TasksReadFolderMarkdownResult,
+  TasksListFolderEntriesParams,
+  TasksListFolderEntriesResult,
   TasksCreateParams,
   TasksCreateResult,
   TasksSweepParams,
@@ -2643,6 +2647,8 @@ export interface RpcMethodRegistry
     params: TasksGetArtifactParams;
     result: TasksGetArtifactResult;
   };
+  'tasks:readFolderMarkdown': { params: TasksReadFolderMarkdownParams; result: TasksReadFolderMarkdownResult };
+  'tasks:listFolderEntries': { params: TasksListFolderEntriesParams; result: TasksListFolderEntriesResult };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
   'tasks:sweepFinished': {
     params: TasksSweepParams;
@@ -3834,6 +3840,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:list': true,
   'tasks:get': true,
   'tasks:getArtifact': true,
+  'tasks:readFolderMarkdown': true,
+  'tasks:listFolderEntries': true,
   'tasks:create': true,
   'tasks:sweepFinished': true,
   'tasks:updateStatus': true,

@@ -166,11 +166,11 @@ const MAX_VISIBLE_LABELS = 3;
                reading must not leave the screen because the group under it is
                long — that is the whole reason the list groups at all. -->
           <header
-            class="surface-1 sticky top-0 z-30 flex h-9 items-center gap-2 px-3 backdrop-blur"
+            class="surface-1 sticky top-0 z-30 flex min-h-10 items-center gap-2 border-b border-surface-border px-4 py-1"
           >
             <button
               type="button"
-              class="flex items-center gap-1.5 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              class="flex items-center gap-1.5 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [attr.aria-expanded]="!group.collapsed"
               [attr.data-testid]="'task-list-group-' + group.status"
               [title]="
@@ -234,7 +234,7 @@ const MAX_VISIBLE_LABELS = 3;
             } @else {
               <div
                 role="list"
-                class="divide-y divide-base-300/60"
+                class="divide-y divide-surface-border"
                 [attr.aria-label]="group.label + ' tasks'"
               >
                 @for (task of group.tasks; track task.id) {
@@ -248,12 +248,10 @@ const MAX_VISIBLE_LABELS = 3;
                   <div
                     role="listitem"
                     data-testid="task-row"
-                    class="flex items-start gap-3 border-l-2 border-l-transparent px-3 py-2.5 transition-colors hover:bg-base-200/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+                    class="flex items-start gap-3 border-l-2 border-l-transparent bg-surface-1 px-4 py-3 transition-colors hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
                     [class.border-l-primary]="task.id === selectedTaskId()"
-                    [class.bg-primary]="task.id === selectedTaskId()"
-                    [class.bg-opacity-10]="task.id === selectedTaskId()"
-                    [class.bg-base-200]="
-                      selection().has(task.id) && task.id !== selectedTaskId()
+                    [class.bg-surface-3]="
+                      task.id === selectedTaskId() || selection().has(task.id)
                     "
                     [attr.tabindex]="rovingTabIndex(task.id)"
                     [attr.data-task-id]="task.id"
@@ -464,7 +462,7 @@ const MAX_VISIBLE_LABELS = 3;
                           @if (rollup(task); as counts) {
                             <button
                               type="button"
-                              class="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+                              class="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                               [attr.tabindex]="rovingTabIndex(task.id)"
                               [title]="rollupActionTitle(task, counts)"
                               data-testid="task-row-rollup"
@@ -547,7 +545,7 @@ const MAX_VISIBLE_LABELS = 3;
                         </button>
                         <ul
                           [attr.tabindex]="rovingTabIndex(task.id)"
-                          class="dropdown-content menu menu-xs surface-3 z-40 w-52 rounded-box p-1"
+                          class="dropdown-content menu menu-xs z-40 w-52 rounded-box border border-surface-border bg-surface-2 p-1 shadow-[var(--elev-shadow-raised)]"
                         >
                           @if (group.startable) {
                             <li>
@@ -572,7 +570,7 @@ const MAX_VISIBLE_LABELS = 3;
                                 >
                                   Assign to agent…
                                 </summary>
-                                <ul class="w-60 bg-base-200">
+                                <ul class="w-60 bg-surface-2">
                                   @if (orchestratorAgents().length > 0) {
                                     <li
                                       class="menu-title px-2 py-1 text-[10px]"
@@ -698,7 +696,7 @@ const MAX_VISIBLE_LABELS = 3;
                    select-all — and only the second is worth the DOM. -->
               @if (group.windowed > 0) {
                 <div
-                  class="flex items-center gap-2 border-b border-base-300/60 px-3 py-1.5"
+                  class="flex items-center gap-2 border-b border-surface-border px-4 py-2"
                   [attr.data-testid]="'task-list-more-' + group.status"
                 >
                   <span class="text-[11px] text-base-content-muted">

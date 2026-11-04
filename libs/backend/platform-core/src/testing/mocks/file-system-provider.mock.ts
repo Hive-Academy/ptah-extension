@@ -162,6 +162,12 @@ export function createMockFileSystemProvider(
       }
       throw enoent(path);
     }),
+    lstat: jest.fn(async (path: string): Promise<FileStat> => mock.stat(path)),
+    realpath: jest.fn(async (path: string): Promise<string> => path),
+    readFileBoundedNoFollow: jest.fn(async (path: string, maxBytes: number) => {
+      const bytes = await mock.readFileBytes(path);
+      return { bytes: bytes.slice(0, maxBytes), truncated: bytes.length > maxBytes };
+    }),
     exists: jest.fn(async (path: string): Promise<boolean> => {
       if (files.has(path)) return true;
       const normalized = path.replace(/\\/g, '/').replace(/\/$/, '');

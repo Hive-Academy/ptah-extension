@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { CliType } from '@ptah-extension/shared';
+import { cliVersionLabel, type CliType } from '@ptah-extension/shared';
 import type { TaskAgentTarget } from '../types/task-agent.types';
 
 const ORCHESTRATOR_TARGET: TaskAgentTarget = {
@@ -67,15 +67,19 @@ export class TaskAgentDiscoveryService {
         clisResult.success && clisResult.data !== undefined
           ? (clisResult.data.clis ?? [])
               .filter((cli) => cli.installed && cli.disabled !== true)
-              .map((cli): TaskAgentTarget => ({
-                id: `lane:${cli.ptahCliId ?? cli.cli}`,
-                name: cli.ptahCliName ?? CLI_DISPLAY_NAMES[cli.cli] ?? cli.cli,
-                category: 'lane',
-                description: cli.version
-                  ? `Run through ${cli.cli} ${cli.version}.`
-                  : `Run through the ${cli.cli} CLI lane.`,
-                cli: cli.cli,
-              }))
+              .map((cli): TaskAgentTarget => {
+                const version = cliVersionLabel(cli.version ?? '');
+                return {
+                  id: `lane:${cli.ptahCliId ?? cli.cli}`,
+                  name:
+                    cli.ptahCliName ?? CLI_DISPLAY_NAMES[cli.cli] ?? cli.cli,
+                  category: 'lane',
+                  description: version
+                    ? `Run through ${cli.cli} ${version}.`
+                    : `Run through the ${cli.cli} CLI lane.`,
+                  cli: cli.cli,
+                };
+              })
           : [];
 
       this._availableAgents.set([

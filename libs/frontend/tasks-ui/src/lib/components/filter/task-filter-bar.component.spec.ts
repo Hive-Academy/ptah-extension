@@ -118,14 +118,14 @@ describe('TaskFilterBarComponent', () => {
     expect(offenders.map((el) => el.className)).toEqual([]);
   });
 
-  it('gives the chip remove control a 24px target, not a 12px one', () => {
+  it('gives the chip remove control a 32px target, not a 12px one', () => {
     const { host } = render({ labels: ['licensing'] });
     const remove = at(host, 'task-filter-chips')?.querySelector('button');
 
-    // h-6/w-6 = 1.5rem = 24px, WCAG 2.2 SC 2.5.8's floor. `badge-xs`, which
+    // h-8/w-8 = 2rem = 32px, the design-spec keyboard target. `badge-xs`, which
     // this replaced, is 12px.
-    expect(remove?.classList.contains('h-6')).toBe(true);
-    expect(remove?.classList.contains('w-6')).toBe(true);
+    expect(remove?.classList.contains('h-8')).toBe(true);
+    expect(remove?.classList.contains('w-8')).toBe(true);
   });
 
   it('emits the typed needle verbatim, never a pattern (BR-10)', () => {
