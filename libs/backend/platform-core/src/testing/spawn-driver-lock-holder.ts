@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 
 export interface DriverLockHolderProcess {
@@ -21,18 +24,18 @@ export function spawnDriverLockHolder(
           await lock.dispose();
         }).catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
     `;
-    const child = spawn(process.execPath, [
-      '-r',
-      'ts-node/register',
-      '-e',
-      code,
-    ]);
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-driver-holder-'));
+    const child = spawn(
+      process.execPath,
+      ['-r', 'ts-node/register', '-e', code],
+      { env: { ...process.env, HOME: home, TS_NODE_TRANSPILE_ONLY: '1' } },
+    );
     let output = '';
     let errorOutput = '';
     const timer = setTimeout(() => {
-      child.kill();
+      child.kill('SIGKILL');
       reject(new Error('Driver lock holder timed out'));
-    }, 5000);
+    }, 30000);
     child.stdout.on('data', (data: Buffer) => (output += data.toString()));
     child.stderr.on('data', (data: Buffer) => (errorOutput += data.toString()));
     child.once('error', (error) => {
@@ -41,6 +44,7 @@ export function spawnDriverLockHolder(
     });
     child.once('exit', (code) => {
       clearTimeout(timer);
+      fs.rmSync(home, { recursive: true, force: true });
       if (code !== 0)
         return reject(
           new Error(`Driver lock holder exited ${code}: ${errorOutput}`),

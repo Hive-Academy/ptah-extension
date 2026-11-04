@@ -41,6 +41,20 @@ function send(value: unknown): Promise<unknown> {
 (supported ? describe : describe.skip)(
   'session driver control endpoint',
   () => {
+    it('rechecks liveness before an operator release', async () => {
+      const lock = new KernelSessionDriverLock();
+      const id = `control-race-${process.pid}-${Date.now()}`;
+      let checks = 0;
+      lock.setLiveRecordCheck(() => ++checks >= 2);
+      try {
+        expect((await lock.acquire(id, owner)).ok).toBe(true);
+        expect(await requestRelease(id)).toBe('in-use');
+        expect(lock.held()).toHaveLength(1);
+      } finally {
+        await lock.dispose();
+      }
+    });
+
     it('protects the key, refuses a live record, and releases an orphan', async () => {
       const live = new Set<string>();
       const lock = new KernelSessionDriverLock();

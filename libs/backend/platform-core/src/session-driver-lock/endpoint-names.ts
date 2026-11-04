@@ -1,10 +1,10 @@
 import * as os from 'node:os';
 
-/** OS-user identity, with a stable SID-derived name on Windows. */
+/** OS-user identity, with a normalized username-derived name on Windows. */
 function userKey(): string {
   const info = os.userInfo();
   if (process.platform !== 'win32') return String(info.uid);
-  const sid = `${process.env['USERDOMAIN'] ?? ''}\\${info.username}`;
+  const sid = info.username.normalize('NFKC').toLowerCase();
   let hash = 2166136261;
   for (const char of sid) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   return (hash >>> 0).toString(16);

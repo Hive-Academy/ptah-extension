@@ -1,6 +1,7 @@
 import { runSessionDriverLockContract } from '../testing/contracts/run-session-driver-lock-contract';
 import { KernelSessionDriverLock } from './kernel-session-driver-lock';
 import { sessionDriverEndpoint } from './endpoint-names';
+import { controlEndpointName } from './control-keys';
 import * as net from 'node:net';
 import type { DriverHolder } from '../interfaces/session-driver-lock.interface';
 
@@ -63,15 +64,90 @@ describe('session endpoint naming', () => {
         expect.objectContaining({ sessionId: id, state: 'stranded' }),
       ]);
       expect((await lock.holder(id))?.label).toContain('release pending');
+      expect((await lock.acquire(id, owner)).ok).toBe(false);
+      expect(lock.held()[0].state).toBe('stranded');
     } finally {
       close.mockRestore();
     }
-    const second = await lock.acquire(
-      `after-stranded-${process.pid}-${Date.now()}`,
-      owner,
-    );
-    expect(second.ok).toBe(true);
-    expect(lock.held().find((entry) => entry.sessionId === id)).toBeUndefined();
+    const recovered = await lock.acquire(id, owner);
+    expect(recovered.ok).toBe(true);
+    if (recovered.ok)
+      expect(await lock.release(id, recovered.nonce)).toBe('released');
+    expect(lock.held()).toHaveLength(0);
     await lock.dispose();
-  }, 10000);
+  }, 15000);
+});
+
+(process.platform === 'linux' || process.platform === 'win32'
+  ? describe
+  : describe.skip)('release race', () => {
+  it('refuses acquisition while the existing server is closing', async () => {
+    const lock = new KernelSessionDriverLock();
+    const id = `release-race-${process.pid}-${Date.now()}`;
+    const first = await lock.acquire(id, {
+      kind: 'desktop',
+      hostname: 'local',
+      pid: process.pid,
+      label: 'test',
+      acquiredAt: new Date().toISOString(),
+      responding: true,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const serverClose = net.Server.prototype.close;
+    let finishClose: (() => void) | undefined;
+    const close = jest
+      .spyOn(net.Server.prototype, 'close')
+      .mockImplementation(function (
+        this: net.Server,
+        callback?: (error?: Error) => void,
+      ) {
+        finishClose = () => {
+          serverClose.call(this, callback);
+        };
+        return this;
+      });
+    try {
+      const releasing = lock.release(id, first.nonce);
+      await new Promise((resolve) => setImmediate(resolve));
+      const result = await lock.acquire(id, {
+        kind: 'desktop',
+        hostname: 'local',
+        pid: process.pid,
+        label: 'test',
+        acquiredAt: new Date().toISOString(),
+        responding: true,
+      });
+      expect(result.ok).toBe(false);
+      finishClose?.();
+      expect(await releasing).toBe('released');
+    } finally {
+      close.mockRestore();
+      finishClose?.();
+      await lock.dispose();
+    }
+  });
+});
+
+describe('Windows user endpoint identity', () => {
+  it('ignores USERDOMAIN for session and control names', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const previousDomain = process.env['USERDOMAIN'];
+    try {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: 'win32',
+      });
+      delete process.env['USERDOMAIN'];
+      const session = sessionDriverEndpoint('stable-user');
+      const control = controlEndpointName(12345);
+      process.env['USERDOMAIN'] = 'DIFFERENT_DOMAIN';
+      expect(sessionDriverEndpoint('stable-user')).toBe(session);
+      expect(controlEndpointName(12345)).toBe(control);
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+      if (previousDomain === undefined) delete process.env['USERDOMAIN'];
+      else process.env['USERDOMAIN'] = previousDomain;
+    }
+  });
 });

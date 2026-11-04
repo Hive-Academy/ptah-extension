@@ -408,6 +408,7 @@ export type {
 } from './interfaces/session-driver-lock.interface';
 export { KernelSessionDriverLock } from './session-driver-lock/kernel-session-driver-lock';
 export { NullSessionDriverLock } from './session-driver-lock/null-session-driver-lock';
+export { createSessionDriverLock } from './session-driver-lock/create-session-driver-lock';
 export { sessionDriverEndpoint } from './session-driver-lock/endpoint-names';
 
 export { listLocalDriverLocks, requestRelease } from './session-driver-lock/local-lock-client';

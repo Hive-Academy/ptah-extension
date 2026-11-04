@@ -64,7 +64,14 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
     if (this.disposed)
       return { ok: false, unavailable: 'Session driver lock disposed' };
     const own = this.entries.get(sessionId);
-    if (own) return { ok: true, nonce: own.nonce };
+    if (own) {
+      if (own.state !== 'held')
+        return {
+          ok: false,
+          unavailable: 'Session driver lock release in progress',
+        };
+      return { ok: true, nonce: own.nonce };
+    }
     const pending = this.pending.get(sessionId);
     if (pending) return pending;
     const attempt = this.bind(sessionId, owner, purpose);

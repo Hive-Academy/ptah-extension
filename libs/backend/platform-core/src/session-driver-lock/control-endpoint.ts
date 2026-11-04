@@ -1,16 +1,35 @@
 import * as net from 'node:net';
 import * as os from 'node:os';
 import type { HeldDriverLock } from '../interfaces/session-driver-lock.interface';
-import { controlEndpointName, controlKeysEqual, removeControlKey, writeControlKey, type ControlDiscovery } from './control-keys';
+import {
+  controlEndpointName,
+  controlKeysEqual,
+  removeControlKey,
+  writeControlKey,
+  type ControlDiscovery,
+} from './control-keys';
 
-export type ControlReleaseResult = 'released' | 'stranded' | 'in-use' | 'not-held';
+export type ControlReleaseResult =
+  'released' | 'stranded' | 'in-use' | 'not-held';
 export interface ControlLockSource {
   held(): HeldDriverLock[];
   hasLiveRecord(sessionId: string): boolean | Promise<boolean>;
   release(sessionId: string, nonce: string): Promise<'released' | 'stranded'>;
 }
-export interface ListedControlLock { sessionId: string; state: HeldDriverLock['state']; label: string; acquiredAt: string; hasLiveRecord: boolean }
-export interface ControlListing { ok: true; pid: number; kind: ControlDiscovery['kind']; hostname: string; locks: ListedControlLock[] }
+export interface ListedControlLock {
+  sessionId: string;
+  state: HeldDriverLock['state'];
+  label: string;
+  acquiredAt: string;
+  hasLiveRecord: boolean;
+}
+export interface ControlListing {
+  ok: true;
+  pid: number;
+  kind: ControlDiscovery['kind'];
+  hostname: string;
+  locks: ListedControlLock[];
+}
 
 let active: ControlEndpoint | undefined;
 let starting: Promise<ControlEndpoint> | undefined;
@@ -18,7 +37,14 @@ export class ControlEndpoint {
   private readonly sources = new Set<ControlLockSource>();
   private readonly server: net.Server;
   private readonly discovery: ControlDiscovery;
-  private readonly onExit = (): void => { try { this.server.close(); } catch { /* exiting */ } removeControlKey(this.discovery.key); };
+  private readonly onExit = (): void => {
+    try {
+      this.server.close();
+    } catch {
+      /* exiting */
+    }
+    removeControlKey(this.discovery.key);
+  };
   private closed = false;
 
   private constructor(server: net.Server, discovery: ControlDiscovery) {
@@ -27,17 +53,25 @@ export class ControlEndpoint {
     process.on('exit', this.onExit);
   }
 
-  static async register(kind: ControlDiscovery['kind'], source: ControlLockSource): Promise<ControlEndpoint> {
+  static async register(
+    kind: ControlDiscovery['kind'],
+    source: ControlLockSource,
+  ): Promise<ControlEndpoint> {
     if (!active) {
       starting ??= ControlEndpoint.start(kind);
-      try { active = await starting; }
-      finally { starting = undefined; }
+      try {
+        active = await starting;
+      } finally {
+        starting = undefined;
+      }
     }
     active.sources.add(source);
     return active;
   }
 
-  private static async start(kind: ControlDiscovery['kind']): Promise<ControlEndpoint> {
+  private static async start(
+    kind: ControlDiscovery['kind'],
+  ): Promise<ControlEndpoint> {
     const discovery = writeControlKey(kind);
     const server = net.createServer();
     const endpoint = new ControlEndpoint(server, discovery);
@@ -50,7 +84,11 @@ export class ControlEndpoint {
       return endpoint;
     } catch (error) {
       process.removeListener('exit', endpoint.onExit);
-      try { server.close(); } catch { /* bind failed */ }
+      try {
+        server.close();
+      } catch {
+        /* bind failed */
+      }
       removeControlKey(discovery.key);
       throw error;
     }
@@ -71,38 +109,89 @@ export class ControlEndpoint {
     socket.setTimeout(500, () => socket.destroy());
     socket.on('data', (chunk: Buffer) => {
       data += chunk.toString();
-      if (Buffer.byteLength(data) > 4096) { socket.destroy(); return; }
+      if (Buffer.byteLength(data) > 4096) {
+        socket.destroy();
+        return;
+      }
       const newline = data.indexOf('\n');
       if (newline < 0) return;
       socket.removeAllListeners('data');
-      void this.respond(data.slice(0, newline)).then((response) => socket.end(`${JSON.stringify(response)}\n`), () => socket.end('{"ok":false,"code":"UNAVAILABLE"}\n'));
+      void this.respond(data.slice(0, newline)).then(
+        (response) => socket.end(`${JSON.stringify(response)}\n`),
+        () => socket.end('{"ok":false,"code":"UNAVAILABLE"}\n'),
+      );
     });
-    socket.on('error', () => { /* peer disconnected */ });
+    socket.on('error', () => {
+      /* peer disconnected */
+    });
+  }
+
+  private async hasLiveRecord(
+    source: ControlLockSource,
+    sessionId: string,
+  ): Promise<boolean> {
+    try {
+      return await source.hasLiveRecord(sessionId);
+    } catch {
+      // degradation-audit: reported — an uncertain record is treated as live.
+      return true;
+    }
   }
 
   private async respond(line: string): Promise<unknown> {
     let request: unknown;
-    try { request = JSON.parse(line); } catch { return { ok: false, code: 'BAD_REQUEST' }; }
-    if (!request || typeof request !== 'object') return { ok: false, code: 'BAD_REQUEST' };
-    const input = request as { cmd?: unknown; key?: unknown; sessionId?: unknown };
-    if (!controlKeysEqual(this.discovery.key, input.key)) return { ok: false, code: 'BAD_KEY' };
+    try {
+      request = JSON.parse(line);
+    } catch {
+      return { ok: false, code: 'BAD_REQUEST' };
+    }
+    if (!request || typeof request !== 'object')
+      return { ok: false, code: 'BAD_REQUEST' };
+    const input = request as {
+      cmd?: unknown;
+      key?: unknown;
+      sessionId?: unknown;
+    };
+    if (!controlKeysEqual(this.discovery.key, input.key))
+      return { ok: false, code: 'BAD_KEY' };
     if (input.cmd === 'list') {
       const locks: ListedControlLock[] = [];
-      for (const source of this.sources) for (const entry of source.held()) {
-        let hasLiveRecord = true;
-        try { hasLiveRecord = await source.hasLiveRecord(entry.sessionId); } catch { /* fail closed */ }
-        locks.push({ sessionId: entry.sessionId, state: entry.state, label: entry.owner.label, acquiredAt: entry.owner.acquiredAt, hasLiveRecord });
-      }
-      return { ok: true, pid: process.pid, kind: this.discovery.kind, hostname: os.hostname(), locks } satisfies ControlListing;
+      for (const source of this.sources)
+        for (const entry of source.held()) {
+          const hasLiveRecord = await this.hasLiveRecord(
+            source,
+            entry.sessionId,
+          );
+          locks.push({
+            sessionId: entry.sessionId,
+            state: entry.state,
+            label: entry.owner.label,
+            acquiredAt: entry.owner.acquiredAt,
+            hasLiveRecord,
+          });
+        }
+      return {
+        ok: true,
+        pid: process.pid,
+        kind: this.discovery.kind,
+        hostname: os.hostname(),
+        locks,
+      } satisfies ControlListing;
     }
     if (input.cmd === 'release' && typeof input.sessionId === 'string') {
       for (const source of this.sources) {
-        const entry = source.held().find((item) => item.sessionId === input.sessionId);
+        const entry = source
+          .held()
+          .find((item) => item.sessionId === input.sessionId);
         if (!entry) continue;
-        try {
-          if (await source.hasLiveRecord(input.sessionId)) return { ok: true, result: 'in-use' };
-        } catch { return { ok: true, result: 'in-use' }; }
-        return { ok: true, result: await source.release(entry.sessionId, entry.nonce) };
+        if (await this.hasLiveRecord(source, input.sessionId))
+          return { ok: true, result: 'in-use' };
+        if (await this.hasLiveRecord(source, input.sessionId))
+          return { ok: true, result: 'in-use' };
+        return {
+          ok: true,
+          result: await source.release(entry.sessionId, entry.nonce),
+        };
       }
       return { ok: true, result: 'not-held' };
     }

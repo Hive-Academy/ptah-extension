@@ -23,6 +23,7 @@ import {
   type CodexChatAdapterErrorCode,
 } from './codex-chat-adapter-error';
 import { SessionApprovalRouter } from './session-approval-router';
+import { CodexChatApprovalSink } from './codex-chat-approval-sink';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import { SessionAdmissionRefusedError } from '../errors/session-admission-refused.error';
 
@@ -214,6 +215,27 @@ describe('CodexChatAdapter', () => {
     await h.adapter.closeSession(id);
     await h.adapter.closeSession(id);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the native lease once when sink disposal throws synchronously', async () => {
+    const h = setup();
+    const release = jest.fn();
+    h.ports.driver.admit = jest.fn(async () => ({ release }));
+    await h.adapter.startChatSession({ tabId });
+    const disposeSink = jest
+      .spyOn(CodexChatApprovalSink.prototype, 'dispose')
+      .mockImplementation(() => {
+        throw new Error('sink disposal failed');
+      });
+    try {
+      await expect(h.adapter.closeSession(id)).rejects.toThrow();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(h.dispose).toHaveBeenCalledTimes(1);
+      await h.adapter.closeSession(id);
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      disposeSink.mockRestore();
+    }
   });
 
   it('admits a resume before opening the native context', async () => {

@@ -106,11 +106,11 @@ export class CodexChatSessionControls {
     }
     session.busy = false;
     session.blocked = false;
-    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
-    session.abort.abort();
-    session.sink.dispose();
     session.closing = this.deps.safe('close', async () => {
       try {
+        if (session.turnId) session.sink.endTurn(session.id, session.turnId);
+        session.abort.abort();
+        session.sink.dispose();
         await session.context.close();
       } finally {
         try {
