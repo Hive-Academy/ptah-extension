@@ -879,7 +879,7 @@ phase summary.
 
 - Drift and outside-grant specs pass; verify passes
 
-## Batch 17: C6d session driver, approvals, transcript (revised Round 6) — PENDING
+## Batch 17: C6d session driver, approvals, transcript (revised Round 6) — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -891,7 +891,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 17.1: Session driver and transcript — PENDING
+### Task 17.1: Session driver and transcript — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{session-driver,transcript}.ts` (+ specs)
 - Plan reference: W8 :374-436; C6 :1154-1158, :1160-1161; AD-18, AD-22
@@ -902,7 +902,7 @@ phase summary.
 - Validation notes: A3 / R-K fixture JSONL spec; W8 attach cases
 - Implementation details: snapshot via `CHAT_TOKENS.HISTORY_READ` → `readForResume`
 
-### Task 17.2: Pending permissions and native capability limit — PENDING
+### Task 17.2: Pending permissions and native capability limit — COMPLETE
 
 - Depends on: Task 17.1
 - Files: W/`libs/backend/worker-runtime/src/lib/pending-permissions.ts` (+ spec),

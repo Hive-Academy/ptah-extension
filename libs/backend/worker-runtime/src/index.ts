@@ -14,3 +14,6 @@ export * from './lib/worker-methods';
 export * from './lib/in-process-rpc';
 export * from './lib/worker-host-profile';
 export * from './lib/capabilities/worker-capabilities';
+export * from './lib/session-driver';
+export * from './lib/transcript';
+export * from './lib/pending-permissions';
