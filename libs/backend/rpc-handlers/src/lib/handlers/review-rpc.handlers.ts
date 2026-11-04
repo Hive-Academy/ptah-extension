@@ -3,7 +3,7 @@ import { ulid } from 'ulid';
 import { ZodError } from 'zod';
 import { ReviewRpcSchemas, type IGitHubReviewPort } from '@ptah-extension/review-contracts';
 import {
-  REVIEW_CORE_TOKENS, type IReviewArtifactReader, type IReviewQueryRepository,
+  REVIEW_CORE_TOKENS, ReviewPollDisabledError, type IReviewArtifactReader, type IReviewQueryRepository,
   type IReviewSecretPresence, type IReviewSettingsStore, type ReviewQueueService,
   type ReviewOrchestratorService,
 } from '@ptah-extension/review-core';
@@ -26,7 +26,7 @@ export class ReviewRpcHandlers {
     @inject(REVIEW_CORE_TOKENS.ARTIFACT_READER) private readonly artifacts: IReviewArtifactReader,
     @inject(REVIEW_CORE_TOKENS.SECRET_PRESENCE) private readonly secrets: IReviewSecretPresence,
     @inject(REVIEW_CORE_TOKENS.QUEUE_SERVICE) private readonly queue: Pick<ReviewQueueService, 'retry'>,
-    @inject(REVIEW_CORE_TOKENS.ORCHESTRATOR) private readonly orchestrator: Pick<ReviewOrchestratorService, 'discoveryHandler'>,
+    @inject(REVIEW_CORE_TOKENS.ORCHESTRATOR) private readonly orchestrator: Pick<ReviewOrchestratorService, 'pollAndRecord'>,
     @inject(REVIEW_CORE_TOKENS.GITHUB) private readonly github: Pick<IGitHubReviewPort, 'getPull'>,
   ) {}
 
@@ -34,6 +34,7 @@ export class ReviewRpcHandlers {
     try { return await run(); }
     catch (error: unknown) {
       if (error instanceof RpcUserError) throw error;
+      if (error instanceof ReviewPollDisabledError) throw new RpcUserError('Review repository is disabled', 'REVIEW_DISABLED');
       if (error instanceof ZodError) throw new RpcUserError('Invalid review request', 'INVALID_PARAMS');
       // Never log an untrusted exception: an adapter error may include a credential.
       throw new RpcUserError('Review service is unavailable', 'PERSISTENCE_UNAVAILABLE');
@@ -80,8 +81,8 @@ export class ReviewRpcHandlers {
       return ReviewRpcSchemas['review:retryHead'].result.parse({ ok: true, attemptId });
     }));
     this.rpc.registerMethod('review:refresh', (raw) => this.safe(async () => {
-      ReviewRpcSchemas['review:refresh'].params.parse(raw);
-      await this.orchestrator.discoveryHandler();
+      const { repo } = ReviewRpcSchemas['review:refresh'].params.parse(raw);
+      await this.orchestrator.pollAndRecord(repo);
       return ReviewRpcSchemas['review:refresh'].result.parse({ ok: true });
     }));
     this.rpc.registerMethod('review:exportRun', (raw) => this.safe(async () => {

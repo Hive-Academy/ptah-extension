@@ -5,6 +5,7 @@ import type {
   IReviewSettingsStore, ReviewQueueService, ReviewOrchestratorService,
 } from '@ptah-extension/review-core';
 import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
+import { ReviewPollDisabledError } from '@ptah-extension/review-core';
 import { ReviewRpcHandlers } from './review-rpc.handlers';
 
 const settings = {
@@ -30,7 +31,7 @@ function suite() {
   const artifacts = { exportRun: jest.fn() } as IReviewArtifactReader;
   const secrets = { hasToken: jest.fn().mockResolvedValue(true) } as IReviewSecretPresence;
   const queue = { retry: jest.fn() } as Pick<ReviewQueueService, 'retry'>;
-  const orchestrator = { discoveryHandler: jest.fn() } as Pick<ReviewOrchestratorService, 'discoveryHandler'>;
+  const orchestrator = { pollAndRecord: jest.fn() } as Pick<ReviewOrchestratorService, 'pollAndRecord'>;
   const github = { getPull: jest.fn() } as Pick<IGitHubReviewPort, 'getPull'>;
   new ReviewRpcHandlers(logger, rpc, query, store, artifacts, secrets, queue, orchestrator, github).register();
   const calls = (rpc.registerMethod as jest.Mock).mock.calls as Array<[string, (params: unknown) => Promise<unknown>]>;
@@ -39,10 +40,27 @@ function suite() {
     if (!handler) throw new Error(`Missing ${name}`);
     return handler(params);
   };
-  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github };
+  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github, orchestrator };
 }
 
 describe('ReviewRpcHandlers', () => {
+  it('clears a failed poll after successful Refresh', async () => {
+    const { invoke, orchestrator } = suite();
+    (orchestrator.pollAndRecord as jest.Mock).mockRejectedValueOnce(new Error('secret remote error'))
+      .mockResolvedValueOnce(0);
+    const params = { repo: { owner: 'Hive-Academy', name: 'PtahCode' } };
+    await expect(invoke('review:refresh', params)).rejects.toThrow('Review service is unavailable');
+    expect(await invoke('review:refresh', params)).toEqual({ ok: true });
+    expect(orchestrator.pollAndRecord).toHaveBeenCalledWith(params.repo);
+  });
+
+  it('rejects manual Refresh while disabled without changing poll state', async () => {
+    const { invoke, orchestrator } = suite();
+    (orchestrator.pollAndRecord as jest.Mock).mockRejectedValue(new ReviewPollDisabledError());
+    await expect(invoke('review:refresh', { repo: { owner: 'Hive-Academy', name: 'PtahCode' } }))
+      .rejects.toThrow('Review repository is disabled');
+    expect(orchestrator.pollAndRecord).toHaveBeenCalledTimes(1);
+  });
   it('returns the queued manual attempt id', async () => {
     const { invoke, github, queue } = suite();
     (github.getPull as jest.Mock).mockResolvedValue({ headSha: 'a'.repeat(40) });

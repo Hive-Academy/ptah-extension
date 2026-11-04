@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { ReviewRunsStore } from '../review-runs.store';
 import { ReviewRunsPageComponent } from './review-runs-page.component';
 
 describe('ReviewRunsPageComponent', () => {
@@ -52,4 +53,29 @@ describe('ReviewRunsPageComponent', () => {
     await fixture.whenStable();
     expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
   });
+
+  it('routes failed-poll Retry to refresh and history-error Retry to load', async () => {
+    const call = jest.fn().mockImplementation((method: string) => Promise.resolve({ isSuccess: () => true,
+      data: method === 'review:listRepositories' ? [] : method === 'review:listRuns'
+        ? { runs: [], nextCursor: null, poll: { status: 'failed', error: 'github-poll-failed', lastSuccessAt: null, lastErrorAt: null } }
+        : { settings: null, hasToken: false } }));
+    TestBed.configureTestingModule({ imports: [ReviewRunsPageComponent], providers: [{ provide: ClaudeRpcService, useValue: { call } }] });
+    const fixture = TestBed.createComponent(ReviewRunsPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const store = TestBed.inject(ReviewRunsStore);
+    const refresh = jest.spyOn(store, 'refresh').mockResolvedValue();
+    const load = jest.spyOn(store, 'load').mockResolvedValue();
+    fixture.detectChanges();
+    const buttons = () => Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    buttons().find((button) => button.textContent?.includes('Retry with Refresh'))?.click();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(load).not.toHaveBeenCalled();
+    store.poll.set(null);
+    store.state.set('error');
+    fixture.detectChanges();
+    buttons().find((button) => button.textContent?.trim() === 'Retry')?.click();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
 });
+

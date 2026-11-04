@@ -61,16 +61,31 @@ describe('ReviewRunsStore', () => {
     call.mockClear();
     await store.refresh();
     expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
-    expect(call).toHaveBeenCalledWith('review:refresh', { repo: { owner: 'Hive-Academy', name: 'PtahCode' } }, { timeout: 5_000 });
+    expect(call).toHaveBeenCalledWith('review:refresh', { repo: { owner: 'Hive-Academy', name: 'PtahCode' } }, { timeout: 120_000 });
     expect(store.state()).toBe('ready');
 
     call.mockClear();
-    call.mockRejectedValueOnce(new Error('poll unavailable'));
+    call.mockImplementationOnce(() => Promise.resolve({ isSuccess: () => false, data: null }));
     await store.refresh();
-    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh']);
-    expect(store.state()).toBe('offline');
+    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
+    expect(store.state()).toBe('ready');
+    expect(store.refreshError()).toBe(true);
     expect(store.runs()).toEqual([run]);
     expect(store.isRefreshing()).toBe(false);
+  });
+
+  it('reloads after a timed-out Refresh and keeps the failed poll visible', async () => {
+    const poll = { status: 'failed', error: 'github-poll-failed', lastSuccessAt: null, lastErrorAt: null };
+    call.mockImplementation((method: string) => Promise.resolve({ isSuccess: () => true,
+      data: method === 'review:listRepositories' ? [] : { runs: [], nextCursor: null, poll } }));
+    await store.load();
+    call.mockClear();
+    call.mockRejectedValueOnce(new Error('timeout'));
+    await store.refresh();
+    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
+    expect(store.poll()?.status).toBe('failed');
+    expect(store.refreshError()).toBe(true);
+    expect(store.state()).toBe('ready');
   });
 
   it('reads settings from the token-presence response without exposing a credential', async () => {

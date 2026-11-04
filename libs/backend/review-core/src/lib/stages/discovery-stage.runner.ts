@@ -17,20 +17,20 @@ export class DiscoveryStageRunner {
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
   ) {}
 
-  async run(): Promise<number> {
+  async run(repo: RepoIdentity = REVIEW_REPO): Promise<number> {
     let page = 1;
     let count = 0;
     do {
-      const result = await this.github.listOpenPulls(REVIEW_REPO, undefined, page);
+      const result = await this.github.listOpenPulls(repo, undefined, page);
       const settings = await this.environment.settings();
       for (const pull of result.items) {
-        const baseConfig = await this.environment.baseConfig(REVIEW_REPO, pull.baseSha);
-        const decision = this.policy.eligibility({ owner: REVIEW_REPO.owner, name: REVIEW_REPO.name,
+        const baseConfig = await this.environment.baseConfig(repo, pull.baseSha);
+        const decision = this.policy.eligibility({ owner: repo.owner, name: repo.name,
           authorLogin: pull.authorLogin, state: pull.state, draft: pull.draft, headIsFork: pull.headIsFork,
           headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId, settings, baseConfig });
-        if (decision.reason === 'draft') await this.queue.recordDraft({ repo: REVIEW_REPO, prNumber: pull.number, headSha: pull.headSha });
+        if (decision.reason === 'draft') await this.queue.recordDraft({ repo, prNumber: pull.number, headSha: pull.headSha });
         if (!decision.eligible) continue;
-        await this.queue.discover({ repo: REVIEW_REPO, prNumber: pull.number, headSha: pull.headSha });
+        await this.queue.discover({ repo, prNumber: pull.number, headSha: pull.headSha });
         count++;
       }
       if (result.nextPage === null) break;

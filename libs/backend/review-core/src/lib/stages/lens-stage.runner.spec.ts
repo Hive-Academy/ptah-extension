@@ -16,6 +16,7 @@ describe('LensStageRunner checkpoints', () => {
     const stages = new Map<string, ReviewStageRecord>();
     const checkpoints = new Map<string, unknown>();
     const repository: IReviewRepository = {
+      getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(),
       enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(), claimNext: jest.fn(), heartbeat: jest.fn(), release: jest.fn(),
       reconcileExpiredLeases: jest.fn(), getAttempt: jest.fn(),
       getStages: async () => [...stages.values()],
@@ -37,3 +38,4 @@ describe('LensStageRunner checkpoints', () => {
     expect(checkpoints.get('lens:security-privacy')).toEqual({ status: 'partial', reason: 'deadline' });
   });
 });
+

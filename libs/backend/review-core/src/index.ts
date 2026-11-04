@@ -31,7 +31,7 @@ export { buildSecurityPrivacyPrompt } from './lib/lanes/prompts/security-privacy
 export { buildHostDiConfigPrompt } from './lib/lanes/prompts/host-di-config.prompt';
 export { ReviewArtifactWriter } from './lib/lanes/review-artifact.writer';
 export type { ReviewArtifactFileSystem, ReviewPreviewInput } from './lib/lanes/review-artifact.writer';
-export { ReviewOrchestratorService } from './lib/review-orchestrator.service';
+export { ReviewOrchestratorService, ReviewPollDisabledError } from './lib/review-orchestrator.service';
 export { DiscoveryStageRunner } from './lib/stages/discovery-stage.runner';
 export { ContextStageRunner } from './lib/stages/context-stage.runner';
 export { ReviewRepositoryUnavailableError, resolveReviewRoots } from './lib/stages/context-stage.runner';

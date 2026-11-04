@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import { z } from 'zod';
-import { RepoIdentitySchema } from '@ptah-extension/review-contracts';
+import { RepoIdentitySchema, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { PERSISTENCE_TOKENS, SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { ReviewQueueAttempt, ReviewQueueClaim, ReviewQueueHead } from '../review-queue.service';
@@ -27,6 +27,31 @@ export class SqliteReviewRepository implements IReviewRepository {
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: SqliteConnectionService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
+
+  async getLastPollAt(repo: RepoIdentity): Promise<number | null> {
+    const row = this.sqlite.db.prepare('SELECT last_poll_at FROM review_repositories WHERE repo_id = ?')
+      .get(`${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`);
+    return row ? z.object({ last_poll_at: z.number().int().nullable() }).parse(row).last_poll_at : null;
+  }
+
+  async recordPoll(repo: RepoIdentity, ok: boolean): Promise<void> {
+    const at = Date.now();
+    const id = `${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`;
+    const errorCode = ok ? null : 'github-poll-failed';
+    this.sqlite.db.transaction(() => {
+      this.sqlite.db.prepare(`INSERT INTO review_repositories (repo_id, owner, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(repo_id) DO NOTHING`).run(id, repo.owner, repo.name, at, at);
+      this.sqlite.db.prepare(`UPDATE review_repositories SET last_poll_at = CASE WHEN ? THEN ? ELSE last_poll_at END,
+        poll_status = ?, poll_error = ?, updated_at = ? WHERE repo_id = ?`)
+        .run(Number(ok), at, ok ? 'succeeded' : 'failed', errorCode, at, id);
+      this.sqlite.db.prepare(`INSERT INTO review_poll_state (repo_id, last_success_at, last_error_at, last_error)
+        VALUES (?, ?, ?, ?) ON CONFLICT(repo_id) DO UPDATE SET
+          last_success_at = CASE WHEN ? THEN excluded.last_success_at ELSE review_poll_state.last_success_at END,
+          last_error_at = CASE WHEN ? THEN review_poll_state.last_error_at ELSE excluded.last_error_at END,
+          last_error = excluded.last_error`)
+        .run(id, ok ? at : null, ok ? null : at, errorCode, Number(ok), Number(ok));
+    })();
+  }
 
   private queueAttempt(row: unknown): ReviewQueueAttempt {
     const a = attemptRow.parse(row);

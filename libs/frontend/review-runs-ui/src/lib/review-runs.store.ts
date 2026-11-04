@@ -5,6 +5,8 @@ import type { z } from 'zod';
 
 export type ReviewListState = 'loading' | 'ready' | 'offline' | 'error' | 'no-lanes';
 export type ReviewStateFilter = 'all' | z.infer<typeof ReviewStateSchema>;
+/** Allows several 15-second GitHub GET attempts plus per-pull base-config reads. */
+const REVIEW_REFRESH_TIMEOUT_MS = 120_000;
 const defaultSettings: OperatorSettings = {
   repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: false, dryRun: true, publicationPaused: false }],
   maintainerLogins: [], pollMinutes: 10, globalPublicationPaused: false, laneCapPerPr: 6,
@@ -33,6 +35,7 @@ export class ReviewRunsStore {
   readonly settingsState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly pauseSaving = signal(false);
   readonly pauseError = signal(false);
+  readonly refreshError = signal(false);
   readonly isRefreshing = signal(false);
   readonly hasCache = computed(() => this.lastRefreshedAt() !== null);
   readonly filteredRuns = computed(() => this.runs().filter((run) =>
@@ -64,6 +67,7 @@ export class ReviewRunsStore {
   async refresh(): Promise<void> {
     if (this.isRefreshing()) return;
     this.isRefreshing.set(true);
+    this.refreshError.set(false);
     try {
       const repo = this.repositories()[0] ?? this.settings()?.repositories[0] ?? defaultSettings.repositories[0];
       const result = await this.request('review:refresh',
@@ -72,7 +76,9 @@ export class ReviewRunsStore {
       if (!result.ok) throw new Error('Review poll failed');
       await this.load();
     } catch {
-      this.state.set(this.hasCache() ? 'offline' : 'error');
+      // The host may finish after the RPC timeout. Reload its latest poll state.
+      this.refreshError.set(true);
+      await this.load();
     } finally {
       this.isRefreshing.set(false);
     }
@@ -147,8 +153,10 @@ export class ReviewRunsStore {
   private async request<T>(method: 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings' | 'review:updateSettings' | 'review:setPublicationPause' | 'review:refresh', params: object, schema: z.ZodType<T>): Promise<T> {
     // P1-16 adds review methods to the shared RPC method union. Parse results meanwhile.
     const call = this.rpc.call as (method: string, params: object, options: { timeout: number }) => Promise<{ isSuccess(): boolean; data: unknown }>;
-    const response = await call.call(this.rpc, method, params, { timeout: 5_000 });
+    const response = await call.call(this.rpc, method, params,
+      { timeout: method === 'review:refresh' ? REVIEW_REFRESH_TIMEOUT_MS : 5_000 });
     if (!response.isSuccess()) throw new Error('Review data is unavailable');
     return schema.parse(response.data);
   }
 }
+

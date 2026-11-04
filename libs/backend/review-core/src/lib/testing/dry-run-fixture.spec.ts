@@ -9,6 +9,7 @@ import { SqliteReviewRepository } from '../persistence/sqlite-review.repository'
 import { ReviewQueueService } from '../review-queue.service';
 import { ReviewPolicyService } from '../review-policy.service';
 import { ReviewOrchestratorService } from '../review-orchestrator.service';
+import type { IReviewSettingsStore } from '../persistence/review-settings.store';
 import { ReviewArtifactWriter } from '../lanes/review-artifact.writer';
 import { DiscoveryStageRunner, REVIEW_REPO } from '../stages/discovery-stage.runner';
 import { ContextStageRunner, type ContextStageResult } from '../stages/context-stage.runner';
@@ -85,7 +86,9 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
         writeFile: async (path, data) => { writeFileSync(path, data, 'utf8'); } });
       const publication = new PublicationStageRunner(writer, policy, environment);
       const coordinator = new ReviewOrchestratorService(new DiscoveryStageRunner(github, queue, policy, environment),
-        context, triage, lens, verification, publication, queue, policy, first.repository, github, environment, logger);
+        context, triage, lens, verification, publication, queue, policy, first.repository, github, environment, logger,
+        { getSettings: jest.fn().mockResolvedValue(settings), updateSettings: jest.fn(), listRepositories: jest.fn(),
+          setPublicationPause: jest.fn() } as IReviewSettingsStore);
       expect((await coordinator.discoveryHandler()).summary).toContain('Enqueued 1');
       const discovered = await first.repository.enqueueDiscovered({ repo: REVIEW_REPO, prNumber: 1, headSha: sha }, new Date().toISOString());
       expect(await coordinator.drain('worker', Date.now() + 60_000)).toBe(1);
@@ -107,3 +110,4 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
     } finally { if (first.db.open) first.db.close(); rmSync(root, { recursive: true, force: true }); }
   });
 });
+

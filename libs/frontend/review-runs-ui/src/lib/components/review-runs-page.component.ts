@@ -1,4 +1,4 @@
-﻿import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { ReviewStateSchema } from '@ptah-extension/review-contracts';
 import { LucideAngularModule, RefreshCw } from 'lucide-angular';
 import { ReviewRunsStore } from '../review-runs.store';
@@ -24,7 +24,7 @@ import { ReviewSettingsDrawerComponent } from './review-settings-drawer.componen
         <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="Refresh review runs" [disabled]="store.isRefreshing()" (click)="store.refresh()">Refresh</button></div>
       </header>
       @if (store.pauseError()) { <div class="alert alert-error mt-3" role="alert">Publication pause could not be updated.</div> }
-      @if (store.poll()?.status === 'failed') { <div class="alert alert-warning mt-3" role="alert">The last review poll failed. Review runs may be out of date. Retry with Refresh.</div> }
+      @if (store.poll()?.status === 'failed' || store.refreshError()) { <div class="alert alert-warning mt-3" role="alert"><span>The last review poll failed. Review runs may be out of date.</span><button type="button" class="btn btn-ghost btn-sm" aria-label="Retry with Refresh" (click)="store.refresh()">Retry with Refresh</button></div> }
       @if (store.state() === 'offline') {
         <div class="alert alert-warning mt-4" role="alert"><span>Review service is unavailable. Showing cached runs from {{ store.lastRefreshedAt()?.toLocaleString() }}. Live publication status is unavailable.</span><button class="btn btn-ghost btn-sm" (click)="store.load()">Retry connection</button></div>
       } @else if (store.state() === 'error') {
@@ -79,3 +79,4 @@ export class ReviewRunsPageComponent implements OnInit {
     else { const state = ReviewStateSchema.safeParse(target.value); if (state.success) this.store.setStateFilter(state.data); }
   }
 }
+

@@ -24,6 +24,22 @@ function setup() {
 }
 
 describe('SqliteReviewRepository', () => {
+  it('records failed and recovered polls without advancing the success cursor on failure', async () => {
+    const { db, repository } = setup();
+    const repo = head(1, 'a').repo;
+    try {
+      await repository.recordPoll(repo, true);
+      const lastSuccess = await repository.getLastPollAt(repo);
+      await repository.recordPoll(repo, false);
+      expect(await repository.getLastPollAt(repo)).toBe(lastSuccess);
+      expect(db.prepare('SELECT poll_status, poll_error FROM review_repositories').get())
+        .toEqual({ poll_status: 'failed', poll_error: 'github-poll-failed' });
+      await repository.recordPoll(repo, true);
+      expect(db.prepare('SELECT poll_status, poll_error FROM review_repositories').get())
+        .toEqual({ poll_status: 'succeeded', poll_error: null });
+      expect(db.prepare('SELECT last_error FROM review_poll_state').get()).toEqual({ last_error: null });
+    } finally { db.close(); }
+  });
   it('dedupes concurrent discovery to one automatic attempt', async () => {
     const { db, repository } = setup();
     try {

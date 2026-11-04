@@ -1,11 +1,12 @@
 import { inject, injectable } from 'tsyringe';
-import { CandidateFindingSchema, VerifierVerdictSchema, type IGitHubReviewPort } from '@ptah-extension/review-contracts';
+import { CandidateFindingSchema, VerifierVerdictSchema, type IGitHubReviewPort, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
 import { REVIEW_CORE_TOKENS } from '../di/tokens';
 import { ReviewQueueService, type ReviewQueueClaim } from './review-queue.service';
 import { ReviewPolicyService } from './review-policy.service';
 import type { IReviewRepository, ReviewStageRecord } from './persistence/review-repository.interface';
+import type { IReviewSettingsStore } from './persistence/review-settings.store';
 import { DiscoveryStageRunner } from './stages/discovery-stage.runner';
 import { ContextStageRunner, resolveReviewRoots, type ReviewStageEnvironment } from './stages/context-stage.runner';
 import { TriageStageRunner } from './stages/triage-stage.runner';
@@ -25,6 +26,10 @@ const VerificationSchema = z.array(z.object({ lens: z.string(), finding: Candida
 /** An attempt gets its own review window; drain's deadline only limits new claims. */
 const REVIEW_ATTEMPT_WINDOW_MS = 30 * 60_000;
 
+export class ReviewPollDisabledError extends Error {
+  constructor() { super('Review repository is disabled'); }
+}
+
 @injectable()
 export class ReviewOrchestratorService {
   private workerActive = false;
@@ -41,7 +46,25 @@ export class ReviewOrchestratorService {
     @inject(REVIEW_CORE_TOKENS.GITHUB) private readonly github: IGitHubReviewPort,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(REVIEW_CORE_TOKENS.SETTINGS_STORE) private readonly settingsStore: IReviewSettingsStore,
   ) {}
+
+  async lastPollAt(repo: RepoIdentity): Promise<number | null> { return this.repository.getLastPollAt(repo); }
+
+  async pollAndRecord(repo: RepoIdentity): Promise<number> {
+    const settings = await this.settingsStore.getSettings();
+    if (!settings?.repositories.some((entry) => entry.enabled && entry.owner === repo.owner && entry.name === repo.name))
+      throw new ReviewPollDisabledError();
+    try {
+      await this.environment.resolve(repo);
+      const count = await this.discovery.run(repo);
+      await this.repository.recordPoll(repo, true);
+      return count;
+    } catch (error: unknown) {
+      await this.repository.recordPoll(repo, false);
+      throw error;
+    }
+  }
 
   /** Bind this to cron's named handler job. It only discovers and enqueues. */
   async discoveryHandler(): Promise<{ summary: string }> {
@@ -49,10 +72,10 @@ export class ReviewOrchestratorService {
     return { summary: `Enqueued ${count} review heads` };
   }
 
-  async startupPoll(lastDiscoveryAt: number | null): Promise<number> {
+  async startupPoll(lastDiscoveryAt: number | null, repo?: RepoIdentity): Promise<number> {
     await this.queue.reconcileStartup([]);
     if (lastDiscoveryAt !== null && Date.now() - lastDiscoveryAt < 48 * 60 * 60 * 1000) return 0;
-    const count = await this.discovery.run();
+    const count = repo ? await this.pollAndRecord(repo) : await this.discovery.run();
     return count;
   }
 

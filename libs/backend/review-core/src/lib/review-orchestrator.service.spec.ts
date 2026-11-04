@@ -1,9 +1,10 @@
 import { Logger } from '@ptah-extension/vscode-core';
 import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
-import { ReviewOrchestratorService } from './review-orchestrator.service';
+import { ReviewOrchestratorService, ReviewPollDisabledError } from './review-orchestrator.service';
 import { ReviewQueueService, type ReviewQueueClaim } from './review-queue.service';
 import { ReviewPolicyService } from './review-policy.service';
 import type { IReviewRepository, ReviewStageRecord } from './persistence/review-repository.interface';
+import type { IReviewSettingsStore } from './persistence/review-settings.store';
 import { DiscoveryStageRunner } from './stages/discovery-stage.runner';
 import { ContextStageRunner, type ContextStageResult } from './stages/context-stage.runner';
 import { TriageStageRunner } from './stages/triage-stage.runner';
@@ -26,6 +27,7 @@ function fixture() {
   const checkpoints = new Map<string, unknown>();
   const key = (name: string, ordinal: number) => `${name}:${ordinal}`;
   const repository: IReviewRepository = {
+    getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(),
     enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(),
     claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
     heartbeat: jest.fn(), release: jest.fn().mockResolvedValue(true), reconcileExpiredLeases: jest.fn().mockResolvedValue(0),
@@ -57,14 +59,34 @@ function fixture() {
     upsertWalkthrough: jest.fn(), createCommentReview: jest.fn(), replyToFinding: jest.fn() };
   const logger = Object.create(Logger.prototype) as Logger;
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+  const settingsStore = { getSettings: jest.fn().mockResolvedValue(settings), updateSettings: jest.fn(), listRepositories: jest.fn(),
+    setPublicationPause: jest.fn() } as jest.Mocked<IReviewSettingsStore>;
   const coordinator = new ReviewOrchestratorService(discovery, context, triage, lenses, verification, publication, queue,
     new ReviewPolicyService(), repository, github,
-    { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger);
-  return { coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,
+    { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger,
+    settingsStore);
+  return { settingsStore, coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,
     verificationRun, publicationRun, github };
 }
 
 describe('ReviewOrchestratorService', () => {
+  it('records failed discovery and successful retry through the repository', async () => {
+    const f = fixture();
+    const repo = claim.repo;
+    f.discover.mockRejectedValueOnce(new Error('remote failure')).mockResolvedValueOnce(1);
+    await expect(f.coordinator.pollAndRecord(repo)).rejects.toThrow('remote failure');
+    expect(f.repository.recordPoll).toHaveBeenCalledWith(repo, false);
+    await expect(f.coordinator.pollAndRecord(repo)).resolves.toBe(1);
+    expect(f.repository.recordPoll).toHaveBeenLastCalledWith(repo, true);
+  });
+  it('rejects a disabled repository without discovery or a poll write', async () => {
+    const f = fixture();
+    f.settingsStore.getSettings.mockResolvedValueOnce(null);
+    await expect(f.coordinator.pollAndRecord({ owner: 'Hive-Academy', name: 'PtahCode' }))
+      .rejects.toBeInstanceOf(ReviewPollDisabledError);
+    expect(f.discover).not.toHaveBeenCalled();
+    expect(f.repository.recordPoll).not.toHaveBeenCalled();
+  });
   it('gives a claimed attempt its own deadline beyond the drain window', async () => {
     const f = fixture();
     const drainDeadline = Date.now() + 1000;
@@ -137,3 +159,4 @@ describe('ReviewOrchestratorService', () => {
     expect(f.release).toHaveBeenCalledWith(claim.attemptId, 'worker', 'superseded');
   });
 });
+

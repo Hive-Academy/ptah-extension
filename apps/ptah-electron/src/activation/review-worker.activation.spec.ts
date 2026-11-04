@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
-import { MIGRATIONS, PERSISTENCE_TOKENS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { REVIEW_CORE_TOKENS } from '@ptah-extension/review-core';
 import { startReviewWorker } from './review-worker.activation';
 
@@ -20,7 +19,7 @@ describe('review worker activation', () => {
     const resolve = jest.fn(async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }));
     const controller = new AbortController();
     scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, {
-      useValue: { drain, startupPoll, discoveryHandler: async () => ({ summary: 'Enqueued 0 review heads' }) },
+      useValue: { drain, startupPoll, lastPollAt: async () => null, pollAndRecord: async () => 0 },
     });
     scope.register(REVIEW_CORE_TOKENS.ENVIRONMENT, { useValue: { resolve } });
     scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => null } });
@@ -31,9 +30,6 @@ describe('review worker activation', () => {
         register: (name: string, fn: (context: { signal: AbortSignal }) => Promise<unknown>) => { handlers.set(name, fn); },
         unregister: (name: string) => { handlers.delete(name); },
       },
-    });
-    scope.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
-      useValue: { db: { prepare: () => ({ get: () => null, run: jest.fn() }), transaction: (fn: () => void) => fn } },
     });
     const handle = await startReviewWorker(scope, controller.signal, { error: jest.fn() });
     expect(handle).not.toBeNull();
@@ -55,32 +51,23 @@ describe('review worker activation', () => {
     handle?.dispose();
   });
 
-  it('persists a startup poll failure without advancing the success cursor', async () => {
-    const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-    const db = new Database(':memory:');
-    const migration = MIGRATIONS.find((entry) => entry.version === 65);
-    if (!migration?.sql) throw new Error('Review migration missing');
-    db.exec(migration.sql);
-    try {
+  it('routes startup polling through the orchestrator and logs failure', async () => {
+    const repo = { owner: 'Hive-Academy', name: 'PtahCode', enabled: true };
+    const logger = { error: jest.fn() };
+    const startupPoll = jest.fn(async () => { throw new Error('remote failure'); });
       const scope = container.createChildContainer();
       scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useValue: {
-        drain: async () => 0, startupPoll: async () => { throw new Error('remote failure'); },
-        discoveryHandler: async () => ({ summary: 'Enqueued 0 review heads' }),
+        drain: async () => 0, startupPoll, lastPollAt: async () => null, pollAndRecord: async () => 0,
       } });
-      scope.register(REVIEW_CORE_TOKENS.ENVIRONMENT, { useValue: { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }) } });
-      scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => null } });
+      scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => ({ repositories: [repo] }) } });
       scope.register(CRON_TOKENS.CRON_JOB_STORE, { useValue: { upsert: jest.fn() } });
       scope.register(CRON_TOKENS.CRON_HANDLER_REGISTRY, { useValue: {
         has: () => false, register: jest.fn(), unregister: jest.fn(),
       } });
-      scope.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, { useValue: { db } });
-      const handle = await startReviewWorker(scope, new AbortController().signal, { error: jest.fn() });
+      const handle = await startReviewWorker(scope, new AbortController().signal, logger);
       handle?.dispose();
       await handle?.awaitStopped();
-      expect(db.prepare(`SELECT last_poll_at, poll_status, poll_error FROM review_repositories`).get())
-        .toEqual({ last_poll_at: null, poll_status: 'failed', poll_error: 'github-poll-failed' });
-      expect(db.prepare(`SELECT last_success_at, last_error FROM review_poll_state`).get())
-        .toEqual({ last_success_at: null, last_error: 'github-poll-failed' });
-    } finally { db.close(); }
+      expect(startupPoll).toHaveBeenCalledWith(null, repo);
+      expect(logger.error).toHaveBeenCalledWith('Review startup poll failed', expect.any(Error));
   });
 });

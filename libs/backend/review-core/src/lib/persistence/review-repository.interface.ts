@@ -1,4 +1,5 @@
 import type { IReviewQueueRepository } from '../review-queue.service';
+import type { RepoIdentity } from '@ptah-extension/review-contracts';
 
 export interface ReviewStageRecord {
   attemptId: string;
@@ -28,6 +29,8 @@ export interface ReviewAttemptRecord {
 
 /** A checkpoint is stored as a stage with a JSON outcome, keyed by attempt/stage/ordinal. */
 export interface IReviewRepository extends IReviewQueueRepository {
+  getLastPollAt(repo: RepoIdentity): Promise<number | null>;
+  recordPoll(repo: RepoIdentity, ok: boolean): Promise<void>;
   getAttempt(attemptId: string): Promise<ReviewAttemptRecord | null>;
   getStages(attemptId: string): Promise<ReviewStageRecord[]>;
   saveStage(stage: ReviewStageRecord): Promise<void>;
