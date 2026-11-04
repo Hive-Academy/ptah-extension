@@ -5,7 +5,7 @@ import { PERSISTENCE_TOKENS, SqliteConnectionService } from '@ptah-extension/per
 import { RepoIdentitySchema, ReviewFindingSchema, ReviewRunSchema, ReviewRpcSchemas, type ReviewFinding, type ReviewRun } from '@ptah-extension/review-contracts';
 
 export interface IReviewQueryRepository {
-  listRuns(input: z.input<typeof ReviewRpcSchemas['review:listRuns']['params']>): Promise<{ runs: ReviewRun[]; nextCursor: string | null }>;
+  listRuns(input: z.input<typeof ReviewRpcSchemas['review:listRuns']['params']>): Promise<z.output<typeof ReviewRpcSchemas['review:listRuns']['result']>>;
   getRun(attemptId: string): Promise<ReviewRun | null>;
   listFindings(attemptId: string): Promise<ReviewFinding[]>;
 }
@@ -14,11 +14,13 @@ const rowSchema = z.object({ attempt_id: z.string(), owner: z.string(), name: z.
   head_sha: z.string(), trigger: z.enum(['automatic', 'manual']), state: z.string(), queued_at: z.number(),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), deadline_at: z.number().nullable(),
   config_snapshot_hash: z.string().nullable(), result_status: z.enum(['succeeded', 'partial', 'failed', 'superseded']).nullable() });
-const stageSchema = z.object({ stage: z.string(), state: z.string(), family: z.string().nullable(), scope: z.string().nullable(),
+const stageSchema = z.object({ stage: z.string(), state: z.string(), outcome: z.string().nullable(), family: z.string().nullable(), scope: z.string().nullable(),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), error_summary: z.string().nullable(), artifact_path: z.string().nullable() });
 const findingSchema = z.object({ payload_json: z.string() });
 const coverageSchema = z.object({ coverage: z.array(z.string().min(1).max(256)).max(100) });
 const checkpointSchema = z.object({ outcome: z.string().nullable() });
+const pollRowSchema = z.object({ poll_status: z.enum(['succeeded', 'failed']).nullable(), poll_error: z.string().nullable(),
+  last_success_at: z.number().nullable(), last_error_at: z.number().nullable() });
 const iso = (value: number): string => new Date(value).toISOString();
 const redact = (value: string): string => value
   .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\b/g, '[REDACTED]')
@@ -36,11 +38,11 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
       .get(row.attempt_id);
     const outcome = checkpoint ? checkpointSchema.parse(checkpoint).outcome : null;
     const coverage = outcome === null ? null : coverageSchema.parse(JSON.parse(outcome)).coverage;
-    const stages = this.sqlite.db.prepare(`SELECT stage, state, family, scope, started_at, ended_at, error_summary, artifact_path
+    const stages = this.sqlite.db.prepare(`SELECT stage, state, outcome, family, scope, started_at, ended_at, error_summary, artifact_path
       FROM review_stages WHERE attempt_id = ? AND stage NOT LIKE 'checkpoint:%' ORDER BY started_at, ordinal LIMIT 8`).all(row.attempt_id)
       .map((value) => {
         const stage = stageSchema.parse(value);
-        const status = stage.state === 'completed' ? 'succeeded' : stage.state === 'cancelled' ? 'superseded' : stage.state;
+        const status = stage.outcome === 'partial' ? 'partial' : stage.state === 'completed' ? 'succeeded' : stage.state === 'cancelled' ? 'superseded' : stage.state;
         const lens = stage.stage.startsWith('lens:') ? stage.stage.slice(5) : null;
         return { name: lens === null ? stage.stage : 'lenses', status, family: stage.family,
           scope: lens ?? stage.scope,
@@ -60,7 +62,7 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
       coverage: coverage ?? [], stages });
   }
 
-  async listRuns(raw: z.input<typeof ReviewRpcSchemas['review:listRuns']['params']>): Promise<{ runs: ReviewRun[]; nextCursor: string | null }> {
+  async listRuns(raw: z.input<typeof ReviewRpcSchemas['review:listRuns']['params']>): Promise<z.output<typeof ReviewRpcSchemas['review:listRuns']['result']>> {
     const input = ReviewRpcSchemas['review:listRuns'].params.parse(raw);
     const cursor = input.cursor ? z.string().regex(/^\d+:[A-Za-z0-9_-]{1,64}$/).parse(input.cursor).split(':') : null;
     const cursorTime = cursor ? Number(cursor[0]) : null;
@@ -76,8 +78,15 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
       input.limit + 1);
     const page = rows.slice(0, input.limit);
     const last = page.length ? rowSchema.parse(page[page.length - 1]) : null;
+    const pollRaw = this.sqlite.db.prepare(`SELECT r.poll_status, r.poll_error, p.last_success_at, p.last_error_at
+      FROM review_repositories r LEFT JOIN review_poll_state p ON p.repo_id = r.repo_id WHERE r.repo_id = ?`)
+      .get('hive-academy/ptahcode');
+    const poll = pollRaw ? pollRowSchema.parse(pollRaw) : null;
     return ReviewRpcSchemas['review:listRuns'].result.parse({ runs: page.map((row) => this.mapRun(row)),
-      nextCursor: rows.length > input.limit && last ? `${last.queued_at}:${last.attempt_id}` : null });
+      nextCursor: rows.length > input.limit && last ? `${last.queued_at}:${last.attempt_id}` : null,
+      poll: { status: poll?.poll_status ?? null, error: poll?.poll_error ?? null,
+        lastSuccessAt: poll?.last_success_at == null ? null : iso(poll.last_success_at),
+        lastErrorAt: poll?.last_error_at == null ? null : iso(poll.last_error_at) } });
   }
 
   async getRun(attemptId: string): Promise<ReviewRun | null> {

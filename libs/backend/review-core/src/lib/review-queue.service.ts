@@ -32,6 +32,7 @@ export interface ReviewQueueClaim extends ReviewQueueAttempt {
  */
 export interface IReviewQueueRepository {
   enqueueDiscovered(head: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt>;
+  recordDraft(head: ReviewQueueHead, queuedAt: string): Promise<void>;
   enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string): Promise<ReviewQueueAttempt>;
   claimNext(owner: string, now: string, expiresAt: string): Promise<ReviewQueueClaim | null>;
   heartbeat(attemptId: string, owner: string, now: string, expiresAt: string): Promise<boolean>;
@@ -51,6 +52,11 @@ export class ReviewQueueService {
   discover(head: ReviewQueueHead): Promise<ReviewQueueAttempt> {
     this.validateHead(head);
     return this.repository.enqueueDiscovered(head, this.clock.now().toISOString());
+  }
+
+  recordDraft(head: ReviewQueueHead): Promise<void> {
+    this.validateHead(head);
+    return this.repository.recordDraft(head, this.clock.now().toISOString());
   }
 
   /** Caller supplies a unique ID; repository must enforce uniqueness atomically. */

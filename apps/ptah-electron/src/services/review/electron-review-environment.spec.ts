@@ -9,6 +9,25 @@ import { ReviewCommandRunner } from './review-command-runner';
 const repo = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
 
 describe('ElectronReviewEnvironment', () => {
+  it('loads only the requested base SHA and validates bounded YAML policy', async () => {
+    const data = await mkdtemp(join(tmpdir(), 'ptah-review-base-config-'));
+    try {
+      const settings = OperatorSettingsSchema.parse({ repositories: [{ ...repo, enabled: true, dryRun: true, publicationPaused: false }],
+        maintainerLogins: ['maintainer'], pollMinutes: 10, globalPublicationPaused: false, fallbackFamilies: [] });
+      const readConfig = jest.fn().mockResolvedValue('version: 1\nchecks:\n  eslint: true\n  degradationAudit: false\npathInstructions:\n  - glob: "src/**"\n    instruction: Check callers\n');
+      const environment = new ElectronReviewEnvironment({ getSettings: async () => settings },
+        { getWorkspaceRoot: () => data }, () => data,
+        async () => ({ topLevel: data, origin: 'git@github.com:Hive-Academy/PtahCode.git' }), readConfig);
+      const baseSha = 'b'.repeat(40);
+      expect(await environment.baseConfig(repo, baseSha)).toMatchObject({ checks: { eslint: true, degradationAudit: false },
+        pathInstructions: [{ glob: 'src/**', instruction: 'Check callers' }] });
+      expect(readConfig).toHaveBeenCalledWith(data, baseSha);
+      await expect(environment.baseConfig(repo, 'invalid')).rejects.toThrow();
+      expect(readConfig).toHaveBeenCalledTimes(1);
+      readConfig.mockResolvedValue('version: 1\nextra: untrusted');
+      await expect(environment.baseConfig(repo, baseSha)).rejects.toThrow('extra');
+    } finally { await rm(data, { recursive: true, force: true }); }
+  });
   it('resolves the configured repository to the active checkout', async () => {
     const data = await mkdtemp(join(tmpdir(), 'ptah-review-environment-'));
     const probe = jest.spyOn(ReviewCommandRunner, 'inspectCheckout')

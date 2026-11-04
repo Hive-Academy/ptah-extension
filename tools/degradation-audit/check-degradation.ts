@@ -859,6 +859,28 @@ async function runLint(updateBaseline: boolean): Promise<number> {
   return failed ? 1 : 0;
 }
 
+async function runChangedFiles(paths: string[]): Promise<number> {
+  if (paths.length === 0 || paths.length > 80) throw new Error('Expected 1-80 changed files');
+  const files: string[] = [];
+  for (const candidate of paths) {
+    if (!/^(?:apps|libs)\/[^/]+(?:\/[^/]+)*\/src\/.*\.ts$/.test(candidate) ||
+        /\.(?:spec|test)\.ts$/.test(candidate) || candidate.split('/').includes('..'))
+      throw new Error('Invalid changed file path');
+    const absolute = path.resolve(REPO_ROOT, candidate);
+    const relative = path.relative(REPO_ROOT, absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Changed file escapes repository');
+    if (!fs.existsSync(absolute)) continue;
+    const real = fs.realpathSync(absolute);
+    const realRelative = path.relative(REPO_ROOT, real);
+    if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) throw new Error('Changed file escapes repository');
+    files.push(real);
+  }
+  const violations = await collectViolations(files);
+  console.log(`degradation-audit: scanned ${files.length} changed file(s)`);
+  for (const violation of violations) console.log(`  ${violation.file}:${violation.line} [${violation.kind}] ${violation.detail}`);
+  return violations.length ? 1 : 0;
+}
+
 async function main(): Promise<number> {
   const selfTest = process.argv.includes('--self-test');
   const parseGuard = process.argv.includes('--self-test-parse-guard');
@@ -866,6 +888,11 @@ async function main(): Promise<number> {
 
   if (parseGuard) return runParseGuardTest();
   if (selfTest) return runSelfTest();
+  const changedIndex = process.argv.indexOf('--changed-files');
+  if (changedIndex >= 0) {
+    if (updateBaseline) throw new Error('Changed-file scan cannot update baseline');
+    return runChangedFiles(process.argv.slice(changedIndex + 1));
+  }
   return runLint(updateBaseline);
 }
 

@@ -18,6 +18,7 @@ import { VerificationStageRunner, type VerificationResult } from '../stages/veri
 import { PublicationStageRunner } from '../stages/publication-stage.runner';
 
 const sha = 'a'.repeat(40);
+const canary = 'ptah-review-canary-873';
 const settings = { repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
   maintainerLogins: ['maintainer'], pollMinutes: 10, globalPublicationPaused: false, fallbackFamilies: [] };
 const finding: CandidateFinding = { schemaVersion: 1, lens: 'correctness-lifecycle', title: 'Missing release',
@@ -32,7 +33,7 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
     const attemptRoot = join(root, 'attempt');
     const out = join(attemptRoot, 'out');
     mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, 'walkthrough.md'), 'Observed behavior: retry path changed.');
+    writeFileSync(join(out, 'walkthrough.md'), `Observed behavior: retry path changed. ${canary}`);
     const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
     const logger = Object.create(Logger.prototype) as Logger;
     logger.info = jest.fn(); logger.error = jest.fn();
@@ -51,7 +52,8 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
       const clock = { now: () => new Date() };
       const queue = new ReviewQueueService(first.repository, clock, logger);
       const policy = new ReviewPolicyService();
-      const environment = { resolve: async () => ({ repoRoot: root, attemptsRoot: root }), settings: async () => settings, baseConfig: async () => null };
+      const environment = { resolve: async () => ({ repoRoot: root, attemptsRoot: root }), settings: async () => settings,
+        baseConfig: async () => null, redactionSecrets: async () => [canary] };
       const mutations = { upsertWalkthrough: jest.fn(), createCommentReview: jest.fn(), replyToFinding: jest.fn() };
       const github: IGitHubReviewPort = { listOpenPulls: jest.fn().mockResolvedValue({ items: [{ number: 1, headSha: sha,
         baseSha: 'b'.repeat(40), state: 'open', draft: false, authorLogin: 'maintainer', headRepoId: 1,
@@ -99,6 +101,8 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
         expect(readFileSync(join(out, 'review-preview.md'), 'utf8')).toContain('weaker evidence');
         expect(readFileSync(join(out, 'review-preview.md'), 'utf8')).toContain('lint:unavailable');
         expect(readFileSync(join(out, 'review-export.json'), 'utf8')).toContain('same-family-weaker');
+        expect(readFileSync(join(out, 'review-preview.md'), 'utf8')).not.toContain(canary);
+        expect(readFileSync(join(out, 'review-export.json'), 'utf8')).not.toContain(canary);
       } finally { reopened.db.close(); }
     } finally { if (first.db.open) first.db.close(); rmSync(root, { recursive: true, force: true }); }
   });

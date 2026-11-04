@@ -23,11 +23,13 @@ export class DiscoveryStageRunner {
     do {
       const result = await this.github.listOpenPulls(REVIEW_REPO, undefined, page);
       const settings = await this.environment.settings();
-      const baseConfig = await this.environment.baseConfig();
       for (const pull of result.items) {
-        if (!this.policy.eligibility({ owner: REVIEW_REPO.owner, name: REVIEW_REPO.name,
+        const baseConfig = await this.environment.baseConfig(REVIEW_REPO, pull.baseSha);
+        const decision = this.policy.eligibility({ owner: REVIEW_REPO.owner, name: REVIEW_REPO.name,
           authorLogin: pull.authorLogin, state: pull.state, draft: pull.draft, headIsFork: pull.headIsFork,
-          headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId, settings, baseConfig }).eligible) continue;
+          headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId, settings, baseConfig });
+        if (decision.reason === 'draft') await this.queue.recordDraft({ repo: REVIEW_REPO, prNumber: pull.number, headSha: pull.headSha });
+        if (!decision.eligible) continue;
         await this.queue.discover({ repo: REVIEW_REPO, prNumber: pull.number, headSha: pull.headSha });
         count++;
       }

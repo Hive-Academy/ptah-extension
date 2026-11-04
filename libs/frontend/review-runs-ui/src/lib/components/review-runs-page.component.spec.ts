@@ -13,7 +13,7 @@ describe('ReviewRunsPageComponent', () => {
             headSha: 'a'.repeat(40), attemptId: 'rvw-428', trigger: 'poll', configHash: 'b'.repeat(40),
             status: 'queued', createdAt: '2026-11-03T10:00:00.000Z', startedAt: null,
             completedAt: null, deadlineAt: '2026-11-03T11:00:00.000Z', coverage: [], stages: [],
-          }], nextCursor: null },
+          }], nextCursor: null, poll: { status: null, error: null, lastSuccessAt: null, lastErrorAt: null } },
     }));
     TestBed.configureTestingModule({ imports: [ReviewRunsPageComponent], providers: [{ provide: ClaudeRpcService, useValue: { call } }] });
     const fixture = TestBed.createComponent(ReviewRunsPageComponent);

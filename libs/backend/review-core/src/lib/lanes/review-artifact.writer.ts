@@ -42,6 +42,10 @@ function redactText(value: string, secrets: readonly string[]): string {
     .replace(/\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\s*=\s*[^\s,;]+/g, '[REDACTED]');
 }
 
+function assertRedacted(content: string, secrets: readonly string[]): void {
+  if (secrets.some((secret) => content.includes(secret))) throw new Error('Review artifact contains redaction secret');
+}
+
 function safeText(value: string, secrets: readonly string[]): string {
   return redactText(value, secrets)
     .replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char] ?? char)
@@ -111,6 +115,7 @@ export class ReviewArtifactWriter {
     if (!rel || rel === '..' || rel.startsWith(`..\\`) || rel.startsWith('../') || isAbsolute(rel))
       throw new Error('Artifact path escapes out/');
     const content = this.renderPreview(raw, effective);
+    assertRedacted(content, PreviewInputSchema.parse(raw).secrets);
     await this.fs.writeFile(join(root, rel), content, 'utf8');
     return target;
   }
@@ -133,6 +138,7 @@ export class ReviewArtifactWriter {
       accepted: input.accepted, suppressed: input.suppressed, verification: input.verification };
     const json = JSON.stringify(payload, (_key, value: unknown) => typeof value === 'string'
       ? redactText(value, input.secrets) : value, 2);
+    assertRedacted(json, input.secrets);
     const target = resolve(root, 'review-export.json');
     await this.fs.writeFile(target, json + '\n', 'utf8');
     return target;

@@ -18,7 +18,7 @@ export interface ReviewCommandResult {
 
 /** Implementations must spawn argv directly, set cwd, and enforce timeoutMs. */
 export interface IReviewCommandRunner {
-  run(repo: RepoIdentity, command: string, args: readonly string[], cwd: string, timeoutMs: number): Promise<ReviewCommandResult>;
+  run(repo: RepoIdentity, command: string, args: readonly string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<ReviewCommandResult>;
 }
 
 export interface IReviewContextFiles {

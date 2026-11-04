@@ -11,7 +11,8 @@ describe('DiscoveryStageRunner', () => {
   it('only enqueues eligible heads and does not claim work', async () => {
     const enqueueDiscovered = jest.fn().mockResolvedValue({ attemptId: 'a' });
     const claimNext = jest.fn();
-    const repository: IReviewQueueRepository = { enqueueDiscovered, claimNext,
+    const recordDraft = jest.fn().mockResolvedValue(undefined);
+    const repository: IReviewQueueRepository = { enqueueDiscovered, recordDraft, claimNext,
       enqueueManual: jest.fn(), heartbeat: jest.fn(), release: jest.fn(), reconcileExpiredLeases: jest.fn() };
     const github: IGitHubReviewPort = {
       listOpenPulls: jest.fn().mockResolvedValue({ items: [pull, { ...pull, number: 8, draft: true }], nextPage: null, etag: null, notModified: false }),
@@ -27,6 +28,7 @@ describe('DiscoveryStageRunner', () => {
     });
     expect(await runner.run()).toBe(1);
     expect(enqueueDiscovered).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 7, headSha: sha }, '2026-11-03T00:00:00.000Z');
+    expect(recordDraft).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 8, headSha: sha }, '2026-11-03T00:00:00.000Z');
     expect(claimNext).not.toHaveBeenCalled();
   });
 });

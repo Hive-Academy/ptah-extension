@@ -39,10 +39,18 @@ function suite() {
     if (!handler) throw new Error(`Missing ${name}`);
     return handler(params);
   };
-  return { invoke, calls, logger, query, store, artifacts, secrets };
+  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github };
 }
 
 describe('ReviewRpcHandlers', () => {
+  it('returns the queued manual attempt id', async () => {
+    const { invoke, github, queue } = suite();
+    (github.getPull as jest.Mock).mockResolvedValue({ headSha: 'a'.repeat(40) });
+    const result = await invoke('review:retryHead', { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1 });
+    expect(result).toEqual({ ok: true, attemptId: expect.any(String) });
+    expect(queue.retry).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'a'.repeat(40) }),
+      (result as { attemptId: string }).attemptId);
+  });
   it('registers exactly the P1 review methods', () => {
     const { calls } = suite();
     expect(calls.map(([name]) => name)).toEqual([...ReviewRpcHandlers.METHODS]);
@@ -61,6 +69,12 @@ describe('ReviewRpcHandlers', () => {
     await expect(invoke('review:updateSettings', { settings, token: 'ghp_secret' })).rejects.toThrow('Invalid review request');
     expect(store.updateSettings).not.toHaveBeenCalled();
     expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain('ghp_secret');
+  });
+
+  it('returns unconfigured settings so the first save can proceed', async () => {
+    const { invoke, store } = suite();
+    (store.getSettings as jest.Mock).mockResolvedValue(null);
+    expect(await invoke('review:getSettings', {})).toEqual({ settings: null, hasToken: true });
   });
 
   it('treats an unknown attempt safely', async () => {

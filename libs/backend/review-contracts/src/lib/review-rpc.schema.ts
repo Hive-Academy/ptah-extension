@@ -19,7 +19,7 @@ const result = z
   .object({ ok: z.boolean(), error: z.string().max(500).optional() })
   .strict();
 export const ReviewSettingsReadSchema = z.object({
-  settings: OperatorSettingsSchema,
+  settings: OperatorSettingsSchema.nullable(),
   hasToken: z.boolean(),
 }).strict();
 export const ReviewSettingsUpdateSchema = z.object({
@@ -39,6 +39,8 @@ export const ReviewRpcSchemas = {
       .object({
         runs: z.array(ReviewRunSchema).max(100),
         nextCursor: z.string().max(256).nullable(),
+        poll: z.object({ status: z.enum(['succeeded', 'failed']).nullable(), error: z.string().max(500).nullable(),
+          lastSuccessAt: z.string().datetime().nullable(), lastErrorAt: z.string().datetime().nullable() }).strict(),
       })
       .strict(),
   },
@@ -69,7 +71,7 @@ export const ReviewRpcSchemas = {
         prNumber: z.number().int().min(1).max(1_000_000_000),
       })
       .strict(),
-    result,
+    result: result.extend({ attemptId: z.string().min(1).max(64).optional() }),
   },
   'review:refresh': { params: repo, result },
   'review:verifyBot': {

@@ -58,6 +58,8 @@ export const RepoReviewConfigV1Schema = z
         'host-di-config': true,
       }),
     minimumSeverity: SeveritySchema.default('Minor'),
+    checks: z.object({ eslint: z.boolean(), degradationAudit: z.boolean() }).strict()
+      .default({ eslint: true, degradationAudit: true }),
   })
   .strict();
 export type RepoReviewConfigV1 = z.infer<typeof RepoReviewConfigV1Schema>;

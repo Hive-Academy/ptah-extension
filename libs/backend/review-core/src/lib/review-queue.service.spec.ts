@@ -8,6 +8,7 @@ const logger = { info: jest.fn() };
 class FakeRepository implements IReviewQueueRepository {
   attempts: Array<ReviewQueueAttempt & { status: 'queued' | 'running' | 'superseded' | 'done'; leaseOwner?: string }> = [];
   expired = 0;
+  async recordDraft(): Promise<void> { return; }
   async enqueueDiscovered(value: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt> {
     const existing = this.attempts.find((attempt) => attempt.headSha === value.headSha && attempt.trigger === 'poll');
     if (existing) return existing;

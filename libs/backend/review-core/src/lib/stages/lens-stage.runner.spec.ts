@@ -16,7 +16,7 @@ describe('LensStageRunner checkpoints', () => {
     const stages = new Map<string, ReviewStageRecord>();
     const checkpoints = new Map<string, unknown>();
     const repository: IReviewRepository = {
-      enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), claimNext: jest.fn(), heartbeat: jest.fn(), release: jest.fn(),
+      enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(), claimNext: jest.fn(), heartbeat: jest.fn(), release: jest.fn(),
       reconcileExpiredLeases: jest.fn(), getAttempt: jest.fn(),
       getStages: async () => [...stages.values()],
       saveStage: async (stage) => { stages.set(stage.stage, stage); },
@@ -33,7 +33,7 @@ describe('LensStageRunner checkpoints', () => {
     expect(results).toHaveLength(4);
     expect(results[0].result).toEqual({ status: 'partial', reason: 'no-confirmed-room' });
     expect(run).toHaveBeenCalledTimes(3);
-    expect(stages.get('lens:security-privacy')?.state).toBe('completed');
+    expect(stages.get('lens:security-privacy')?.state).toBe('interrupted');
     expect(checkpoints.get('lens:security-privacy')).toEqual({ status: 'partial', reason: 'deadline' });
   });
 });

@@ -14,6 +14,51 @@ const claim: ReviewQueueClaim = {
 };
 
 describe('ContextStageRunner repository resolution', () => {
+  it('passes exported symbols and bounded changed-file checks into deterministic context', async () => {
+    const github = Object.create(null) as IGitHubReviewPort;
+    github.getDiff = jest.fn().mockResolvedValue({ baseSha: 'b'.repeat(40), patch: 'diff --git a/libs/backend/sample/src/a.ts b/libs/backend/sample/src/a.ts\n+export function changedApi() {}', truncated: false });
+    const worktree = Object.create(ReviewWorktreeService.prototype) as ReviewWorktreeService;
+    jest.spyOn(worktree, 'create').mockResolvedValue({ root: '/attempt', src: '/attempt/src', out: '/attempt/out', meta: '/attempt/meta' });
+    jest.spyOn(worktree, 'snapshot').mockResolvedValue({ headSha: claim.headSha, checksum: 'checksum', files: [] });
+    const context = Object.create(ReviewContextService.prototype) as ReviewContextService;
+    const build = jest.spyOn(context, 'build').mockResolvedValue({ changedPaths: ['libs/backend/sample/src/a.ts'],
+      changedLockfiles: [], callers: [{ symbol: 'changedApi', path: 'libs/backend/other/src/b.ts', line: 4, outsideDiff: true }] });
+    const dependencies = Object.create(ReviewDependenciesService.prototype) as ReviewDependenciesService;
+    jest.spyOn(dependencies, 'prepare').mockResolvedValue({ status: 'available', reason: null, source: 'test',
+      lockfileSha256: null, scriptsDisabled: true, invocation: null });
+    const checks = Object.create(ReviewChecksService.prototype) as ReviewChecksService;
+    const runChecks = jest.spyOn(checks, 'run').mockResolvedValue([]);
+    const baseConfig = jest.fn().mockResolvedValue({ version: 1, pathInstructions: [{ glob: 'src/**', instruction: 'Check callers' }] });
+    const runner = new ContextStageRunner(github, { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }),
+      settings: async () => null, baseConfig }, worktree, context, dependencies, checks);
+    const result = await runner.run(claim);
+    expect(build).toHaveBeenCalledWith(claim.repo, '/attempt/src', ['libs/backend/sample/src/a.ts'], ['changedApi'], expect.any(AbortSignal));
+    expect(runChecks.mock.calls[0]?.[2]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'eslint', args: expect.arrayContaining(['libs/backend/sample/src/a.ts']) }),
+      expect.objectContaining({ name: 'degradation-audit', args: expect.arrayContaining(['--changed-files', 'libs/backend/sample/src/a.ts']) }),
+    ]));
+    expect(result.promptInput.fileContent).toContain('libs/backend/other/src/b.ts');
+    expect(result.promptInput.repositoryRules).toContain('Check callers');
+    expect(baseConfig).toHaveBeenCalledWith(claim.repo, 'b'.repeat(40));
+    baseConfig.mockResolvedValue({ version: 1, checks: { eslint: false, degradationAudit: true } });
+    await runner.run(claim);
+    expect(runChecks.mock.calls[1]?.[2]).toEqual([
+      expect.objectContaining({ name: 'degradation-audit' }),
+    ]);
+  });
+  it('rejects an expired attempt before repository work starts', async () => {
+    const resolve = jest.fn();
+    const worktree = Object.create(ReviewWorktreeService.prototype) as ReviewWorktreeService;
+    const create = jest.spyOn(worktree, 'create');
+    const runner = new ContextStageRunner(Object.create(null) as IGitHubReviewPort,
+      { resolve, settings: async () => null, baseConfig: async () => null }, worktree,
+      Object.create(ReviewContextService.prototype) as ReviewContextService,
+      Object.create(ReviewDependenciesService.prototype) as ReviewDependenciesService,
+      Object.create(ReviewChecksService.prototype) as ReviewChecksService);
+    await expect(runner.run(claim, Date.now() - 1)).rejects.toThrow('deadline');
+    expect(resolve).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
   it('rejects an unconfigured repository before touching a worktree or GitHub', async () => {
     const github = Object.create(null) as IGitHubReviewPort;
     github.getDiff = jest.fn();

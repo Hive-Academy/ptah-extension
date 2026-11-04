@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
-import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { MIGRATIONS, PERSISTENCE_TOKENS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { REVIEW_CORE_TOKENS } from '@ptah-extension/review-core';
 import { startReviewWorker } from './review-worker.activation';
 
@@ -13,7 +13,9 @@ describe('review worker activation', () => {
     const scope = container.createChildContainer();
     const handlers = new Map<string, (context: { signal: AbortSignal }) => Promise<unknown>>();
     const upsert = jest.fn();
-    const drain = jest.fn(async () => 0);
+    let finishDrain!: (count: number) => void;
+    const drain = jest.fn((_owner: string, _deadline: number, _signal: AbortSignal) =>
+      new Promise<number>((resolve) => { finishDrain = resolve; }));
     const startupPoll = jest.fn(async () => 0);
     const resolve = jest.fn(async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }));
     const controller = new AbortController();
@@ -31,7 +33,7 @@ describe('review worker activation', () => {
       },
     });
     scope.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
-      useValue: { db: { prepare: () => ({ get: () => null, run: jest.fn() }) } },
+      useValue: { db: { prepare: () => ({ get: () => null, run: jest.fn() }), transaction: (fn: () => void) => fn } },
     });
     const handle = await startReviewWorker(scope, controller.signal, { error: jest.fn() });
     expect(handle).not.toBeNull();
@@ -39,10 +41,46 @@ describe('review worker activation', () => {
     expect(handlers.has('review:discover')).toBe(true);
     expect(drain).toHaveBeenCalledTimes(1);
     controller.abort();
+    expect(drain.mock.calls[0][2].aborted).toBe(true);
     jest.advanceTimersByTime(60_000);
     expect(drain).toHaveBeenCalledTimes(1);
     expect(handlers.has('review:discover')).toBe(false);
-    await expect(handle?.awaitStopped()).resolves.toBeUndefined();
+    let stopped = false;
+    const waiting = handle?.awaitStopped().then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finishDrain(0);
+    await waiting;
+    expect(stopped).toBe(true);
     handle?.dispose();
+  });
+
+  it('persists a startup poll failure without advancing the success cursor', async () => {
+    const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
+    const db = new Database(':memory:');
+    const migration = MIGRATIONS.find((entry) => entry.version === 65);
+    if (!migration?.sql) throw new Error('Review migration missing');
+    db.exec(migration.sql);
+    try {
+      const scope = container.createChildContainer();
+      scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useValue: {
+        drain: async () => 0, startupPoll: async () => { throw new Error('remote failure'); },
+        discoveryHandler: async () => ({ summary: 'Enqueued 0 review heads' }),
+      } });
+      scope.register(REVIEW_CORE_TOKENS.ENVIRONMENT, { useValue: { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }) } });
+      scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => null } });
+      scope.register(CRON_TOKENS.CRON_JOB_STORE, { useValue: { upsert: jest.fn() } });
+      scope.register(CRON_TOKENS.CRON_HANDLER_REGISTRY, { useValue: {
+        has: () => false, register: jest.fn(), unregister: jest.fn(),
+      } });
+      scope.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, { useValue: { db } });
+      const handle = await startReviewWorker(scope, new AbortController().signal, { error: jest.fn() });
+      handle?.dispose();
+      await handle?.awaitStopped();
+      expect(db.prepare(`SELECT last_poll_at, poll_status, poll_error FROM review_repositories`).get())
+        .toEqual({ last_poll_at: null, poll_status: 'failed', poll_error: 'github-poll-failed' });
+      expect(db.prepare(`SELECT last_success_at, last_error FROM review_poll_state`).get())
+        .toEqual({ last_success_at: null, last_error: 'github-poll-failed' });
+    } finally { db.close(); }
   });
 });

@@ -13,7 +13,7 @@ describe('ReviewLaneFiles', () => {
     const attempt = resolve(root, 'attempt-1');
     await files.prepare(repo, attempt, 'a'.repeat(40));
     expect(await files.sourceChecksum(repo, attempt, 'a'.repeat(40))).toBe('sum');
-    expect(snapshot).toHaveBeenCalledWith(repo, resolve(attempt, 'src'), 'a'.repeat(40));
+    expect(snapshot).toHaveBeenCalledWith(repo, resolve(attempt, 'src'), 'a'.repeat(40), undefined);
     await expect(files.prepare(repo, resolve(root, '..', 'outside'), 'a'.repeat(40))).rejects.toThrow();
     expect(snapshot).toHaveBeenCalledTimes(2);
   });

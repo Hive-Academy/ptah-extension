@@ -23,9 +23,15 @@ describe('ReviewCommandRunner', () => {
       });
 
       await expect(runner.run(repoA, 'git', ['worktree', 'add'], checkoutA, 1_000))
+        .rejects.toBeInstanceOf(ReviewCommandScopeError);
+      await expect(runner.run(repoA, 'git', ['worktree', 'add', '--detach', outside, 'a'.repeat(40)], checkoutA, 1_000))
+        .rejects.toBeInstanceOf(ReviewCommandScopeError);
+      await expect(runner.run(repoA, 'git', ['worktree', 'add', '--detach', join(root, 'outside', 'src'), 'a'.repeat(40)], checkoutA, 1_000))
+        .rejects.toBeInstanceOf(ReviewCommandScopeError);
+      await expect(runner.run(repoA, 'node', ['--version'], source, 10_000))
         .resolves.toEqual(expect.objectContaining({ timedOut: false }));
-      await expect(runner.run(repoA, 'node', ['--version'], source, 1_000))
-        .resolves.toEqual(expect.objectContaining({ timedOut: false }));
+      await expect(runner.run(repoA, 'node', ['-e', "process.stdout.write('x'.repeat(1_000_001))"], source, 5_000))
+        .resolves.toEqual(expect.objectContaining({ timedOut: true }));
       await expect(runner.run(repoA, 'git', ['worktree', 'add'], checkoutB, 1_000))
         .rejects.toMatchObject({ code: 'review-command-cwd-outside-roots' });
       await expect(runner.run(repoA, 'node', ['--version'], escape, 1_000))
@@ -35,5 +41,5 @@ describe('ReviewCommandRunner', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

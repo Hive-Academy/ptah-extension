@@ -62,7 +62,7 @@ describe('SqliteReviewRepository', () => {
     } finally { db.close(); }
   });
 
-  it('reconciles expired leases and restart discovery cannot duplicate an interrupted run', async () => {
+  it('requeues an expired lease and allows its interrupted stage to restart', async () => {
     const { db, repository } = setup();
     try {
       const attempt = await repository.enqueueDiscovered(head(1, 'a'), at(0));
@@ -72,8 +72,45 @@ describe('SqliteReviewRepository', () => {
       expect(await repository.reconcileExpiredLeases(at(6))).toBe(1);
       expect((await repository.getStages(attempt.attemptId))[0].state).toBe('interrupted');
       expect(await repository.enqueueDiscovered(head(1, 'a'), at(7))).toEqual(attempt);
-      expect(await repository.claimNext('new-owner', at(8), at(100))).toBeNull();
+      expect((await repository.getAttempt(attempt.attemptId))?.state).toBe('queued');
+      expect((await repository.claimNext('new-owner', at(8), at(100)))?.attemptId).toBe(attempt.attemptId);
       expect(await repository.reconcileExpiredLeases(at(9))).toBe(0);
+    } finally { db.close(); }
+  });
+
+  it('activates a previously seen SHA and queues a fresh attempt after a force-push back', async () => {
+    const { db, repository } = setup();
+    try {
+      const first = await repository.enqueueDiscovered(head(1, 'a'), at(0));
+      await repository.enqueueDiscovered(head(1, 'b'), at(1));
+      const returned = await repository.enqueueDiscovered(head(1, 'a'), at(2));
+      expect(returned.attemptId).not.toBe(first.attemptId);
+      expect((await repository.claimNext('owner', at(3), at(100)))?.attemptId).toBe(returned.attemptId);
+      expect(db.prepare(`SELECT head_sha FROM review_heads WHERE state = 'active'`).get()).toEqual({ head_sha: 'a'.repeat(40) });
+    } finally { db.close(); }
+  });
+
+  it('queues a new automatic attempt after a failed review of the current head', async () => {
+    const { db, repository } = setup();
+    try {
+      const first = await repository.enqueueDiscovered(head(1, 'a'), at(0));
+      await repository.claimNext('owner', at(1), at(100));
+      expect(await repository.release(first.attemptId, 'owner', 'failed', at(2))).toBe(true);
+      const retried = await repository.enqueueDiscovered(head(1, 'a'), at(3));
+      expect(retried.attemptId).not.toBe(first.attemptId);
+      expect((await repository.claimNext('owner', at(4), at(100)))?.attemptId).toBe(retried.attemptId);
+    } finally { db.close(); }
+  });
+
+  it('records a draft head without an attempt and enqueues it when it becomes eligible', async () => {
+    const { db, repository } = setup();
+    try {
+      await repository.recordDraft(head(1, 'a'), at(0));
+      expect(db.prepare('SELECT draft, trust_reason FROM review_heads').get()).toEqual({ draft: 1, trust_reason: 'draft' });
+      expect(db.prepare('SELECT count(*) AS count FROM review_attempts').get()).toEqual({ count: 0 });
+      const attempt = await repository.enqueueDiscovered(head(1, 'a'), at(1));
+      expect(db.prepare('SELECT draft, trust_reason FROM review_heads').get()).toEqual({ draft: 0, trust_reason: null });
+      expect((await repository.claimNext('owner', at(2), at(100)))?.attemptId).toBe(attempt.attemptId);
     } finally { db.close(); }
   });
 

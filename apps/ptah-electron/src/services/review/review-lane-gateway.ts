@@ -34,7 +34,7 @@ export class ReviewLaneGateway implements IReviewLaneGateway {
     };
   }
 
-  async spawn(input: { laneId: string; cwd: string; prompt: string; signal: AbortSignal }): Promise<string> {
+  async spawn(input: { laneId: string; cwd: string; prompt: string; signal: AbortSignal }): Promise<void> {
     const parsed = spawnInputSchema.parse({ laneId: input.laneId, cwd: input.cwd, prompt: input.prompt });
     if (input.signal.aborted) throw new Error('Review lane cancelled');
     const installed = await this.detection.getInstalledClis();
@@ -58,6 +58,5 @@ export class ReviewLaneGateway implements IReviewLaneGateway {
     const terminal = waited.entries[0];
     if (terminal?.state !== 'exited' || terminal.info.status !== 'completed')
       throw new Error('Review lane failed');
-    return this.manager.readOutput(agentId).stdout;
   }
 }

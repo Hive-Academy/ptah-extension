@@ -33,6 +33,8 @@ describe('review contracts', () => {
   it('applies canonical config defaults and rejects unsafe keys and paths', () => {
     const parsed = RepoReviewConfigV1Schema.parse({ version: 1 });
     expect(parsed.minimumSeverity).toBe('Minor');
+    expect(parsed.checks).toEqual({ eslint: true, degradationAudit: true });
+    expect(RepoReviewConfigV1Schema.parse({ version: 1, checks: { eslint: false, degradationAudit: true } }).checks.eslint).toBe(false);
     expect(Object.keys(parsed.lenses)).toEqual([
       'correctness-lifecycle',
       'contracts-callers',

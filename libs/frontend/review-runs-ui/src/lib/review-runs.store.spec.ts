@@ -26,11 +26,13 @@ describe('ReviewRunsStore', () => {
       isSuccess: () => true,
       data: method === 'review:listRepositories'
         ? [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }]
-        : { runs: [run], nextCursor: null },
+        : { runs: [run], nextCursor: null, poll: { status: 'failed', error: 'github-poll-failed',
+          lastSuccessAt: null, lastErrorAt: '2026-11-03T10:00:00.000Z' } },
     }));
     await store.load();
     expect(store.state()).toBe('ready');
     expect(store.queuedCount()).toBe(1);
+    expect(store.poll()?.status).toBe('failed');
     store.setStateFilter('failed');
     expect(store.filteredRuns()).toEqual([]);
     store.clearFilters();
@@ -39,6 +41,7 @@ describe('ReviewRunsStore', () => {
     await store.load();
     expect(store.state()).toBe('offline');
     expect(store.runs()).toEqual([run]);
+    expect(store.poll()?.error).toBe('github-poll-failed');
   });
 
   it('shows initial failure and explicit no-lanes state without a clean result', async () => {
@@ -59,5 +62,48 @@ describe('ReviewRunsStore', () => {
     await store.loadSettings();
     expect(store.settingsState()).toBe('ready');
     expect(store.settings()).toEqual(settings);
+  });
+
+  it('saves global publication pause and reflects the persisted state', async () => {
+    const settings = {
+      repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
+      maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: false,
+      laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
+    };
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: { ok: true } });
+    await store.loadSettings();
+    await store.setPublicationPause(true);
+    expect(call).toHaveBeenLastCalledWith('review:setPublicationPause', { paused: true }, { timeout: 5_000 });
+    expect(store.settings()?.globalPublicationPaused).toBe(true);
+    expect(store.pauseError()).toBe(false);
+  });
+
+  it('keeps the old pause state and exposes a failed save', async () => {
+    const settings = {
+      repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
+      maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: false,
+      laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
+    };
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true } })
+      .mockRejectedValueOnce(new Error('offline'));
+    await store.loadSettings();
+    await store.setPublicationPause(true);
+    expect(store.settings()?.globalPublicationPaused).toBe(false);
+    expect(store.pauseError()).toBe(true);
+  });
+  it('saves first-run settings without sending a token', async () => {
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings: null, hasToken: false } });
+    await store.loadSettings();
+    expect(store.settingsState()).toBe('ready');
+    expect(store.hasToken()).toBe(false);
+    store.updateDraft({ maintainerLogins: ['maintainer'] });
+    store.setRepositoryEnabled(true);
+    const saved = store.draftSettings();
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: saved });
+    await store.saveSettings();
+    expect(call).toHaveBeenLastCalledWith('review:updateSettings', { settings: saved }, { timeout: 5_000 });
+    expect(store.settings()).toEqual(saved);
+    expect(JSON.stringify(call.mock.calls)).not.toContain('token');
   });
 });

@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
 import { z } from 'zod';
 import type { RepoIdentity } from '@ptah-extension/review-contracts';
 import { ReviewWorktreeService, type IReviewLaneFiles, type ReviewRoots } from '@ptah-extension/review-core';
@@ -19,14 +20,25 @@ export class ReviewLaneFiles implements IReviewLaneFiles {
     return resolve(attemptRoot, 'src');
   }
 
-  async prepare(repo: RepoIdentity, attemptRoot: string, headSha: string): Promise<void> {
+  async prepare(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<void> {
     const source = await this.source(attemptRoot);
-    await this.worktree.snapshot(repo, source, headSha);
+    await this.worktree.snapshot(repo, source, headSha, signal);
   }
 
-  async sourceChecksum(repo: RepoIdentity, attemptRoot: string, headSha: string): Promise<string> {
+  async sourceChecksum(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<string> {
     const source = await this.source(attemptRoot);
-    const snapshot = await this.worktree.snapshot(repo, source, headSha);
+    const snapshot = await this.worktree.snapshot(repo, source, headSha, signal);
     return snapshot.checksum;
+  }
+
+  async readOutput(attemptRoot: string, name: 'lane-output.json' | 'walkthrough.md'): Promise<string> {
+    await this.source(attemptRoot);
+    const attempt = await realpath(attemptRoot);
+    const out = await realpath(resolve(attemptRoot, 'out'));
+    if (relative(attempt, out) !== 'out') throw new Error('Lane output escapes attempt out/');
+    const target = await realpath(resolve(out, name));
+    const rel = relative(out, target);
+    if (rel !== name || isAbsolute(rel)) throw new Error('Lane output escapes attempt out/');
+    return readFile(target, 'utf8');
   }
 }

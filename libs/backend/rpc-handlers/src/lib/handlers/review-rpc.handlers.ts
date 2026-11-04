@@ -61,7 +61,6 @@ export class ReviewRpcHandlers {
     this.rpc.registerMethod('review:getSettings', (raw) => this.safe(async () => {
       ReviewRpcSchemas['review:getSettings'].params.parse(raw);
       const settings = await this.settings.getSettings();
-      if (!settings) throw new RpcUserError('Review settings are unavailable', 'PERSISTENCE_UNAVAILABLE');
       return ReviewRpcSchemas['review:getSettings'].result.parse({ settings, hasToken: await this.secrets.hasToken() });
     }));
     this.rpc.registerMethod('review:updateSettings', (raw) => this.safe(async () => {
@@ -76,8 +75,9 @@ export class ReviewRpcHandlers {
     this.rpc.registerMethod('review:retryHead', (raw) => this.safe(async () => {
       const { repo, prNumber } = ReviewRpcSchemas['review:retryHead'].params.parse(raw);
       const pull = await this.github.getPull(repo, prNumber);
-      await this.queue.retry({ repo, prNumber, headSha: pull.headSha }, ulid());
-      return ReviewRpcSchemas['review:retryHead'].result.parse({ ok: true });
+      const attemptId = ulid();
+      await this.queue.retry({ repo, prNumber, headSha: pull.headSha }, attemptId);
+      return ReviewRpcSchemas['review:retryHead'].result.parse({ ok: true, attemptId });
     }));
     this.rpc.registerMethod('review:refresh', (raw) => this.safe(async () => {
       ReviewRpcSchemas['review:refresh'].params.parse(raw);

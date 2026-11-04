@@ -1,10 +1,16 @@
 import { resolve } from 'node:path';
 import { mkdir, realpath } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { app } from 'electron';
-import { RepoIdentitySchema, type RepoIdentity, type RepositorySettings } from '@ptah-extension/review-contracts';
+import { parseDocument } from 'yaml';
+import { z } from 'zod';
+import { RepoIdentitySchema, RepoReviewConfigV1Schema, type RepoIdentity, type RepositorySettings } from '@ptah-extension/review-contracts';
 import { ReviewRepositoryUnavailableError, type IReviewSettingsStore, type ReviewRoots, type ReviewStageEnvironment } from '@ptah-extension/review-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { ReviewCommandRunner } from './review-command-runner';
+
+const execFileAsync = promisify(execFile);
 
 function originIdentity(url: string): { owner: string; name: string } | null {
   const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url.trim());
@@ -18,7 +24,16 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
     private readonly workspace: Pick<IWorkspaceProvider, 'getWorkspaceRoot'>,
     private readonly userDataRoot: () => string = () => app.getPath('userData'),
     private readonly inspect: (cwd: string) => Promise<{ topLevel: string; origin: string }> = ReviewCommandRunner.inspectCheckout,
+    private readonly readConfig: (cwd: string, baseSha: string) => Promise<string | null> = ElectronReviewEnvironment.readBaseConfig,
   ) {}
+
+  private static async readBaseConfig(cwd: string, baseSha: string): Promise<string | null> {
+    const options = { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false } as const;
+    const { stdout: names } = await execFileAsync('git', ['ls-tree', '--name-only', baseSha, '--', '.ptah-review.yaml'], options);
+    if (names.trim() !== '.ptah-review.yaml') return null;
+    const { stdout } = await execFileAsync('git', ['show', `${baseSha}:.ptah-review.yaml`], options);
+    return stdout;
+  }
 
   async resolve(repo: RepoIdentity): Promise<ReviewRoots> {
     const parsed = RepoIdentitySchema.safeParse(repo);
@@ -46,5 +61,23 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
   }
 
   async settings(): Promise<unknown> { return this.settingsStore.getSettings(); }
-  async baseConfig(): Promise<null> { return null; }
+  async baseConfig(repo: RepoIdentity, baseSha?: string): Promise<unknown | null> {
+    if (baseSha === undefined) return null;
+    const sha = z.string().regex(/^[a-f0-9]{40}$/i).parse(baseSha);
+    const roots = await this.resolve(repo);
+    const content = await this.readConfig(roots.repoRoot, sha);
+    if (content === null) return null;
+    if (content.length > 131_072) throw new Error('Review base config exceeds size limit');
+    const document = parseDocument(content, { uniqueKeys: true });
+    if (document.errors.length) throw new Error('Review base config YAML is invalid');
+    const value: unknown = document.toJS();
+    const parsed = RepoReviewConfigV1Schema.safeParse(value);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const location = issue?.path.join('.') || 'root';
+      const keys = issue?.code === 'unrecognized_keys' ? `: ${issue.keys.join(', ')}` : '';
+      throw new Error(`Review base config invalid at ${location}${keys}`);
+    }
+    return parsed.data;
+  }
 }

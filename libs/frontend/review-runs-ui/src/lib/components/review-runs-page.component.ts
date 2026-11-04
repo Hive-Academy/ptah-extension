@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { ReviewStateSchema } from '@ptah-extension/review-contracts';
+import { LucideAngularModule, RefreshCw } from 'lucide-angular';
 import { ReviewRunsStore } from '../review-runs.store';
 import { ReviewRepositoriesComponent } from './review-repositories.component';
 import { ReviewRunsListComponent } from './review-runs-list.component';
@@ -9,18 +10,21 @@ import { ReviewSettingsDrawerComponent } from './review-settings-drawer.componen
 @Component({
   selector: 'ptah-review-runs-page',
   standalone: true,
-  imports: [ReviewRepositoriesComponent, ReviewRunsListComponent, ReviewRunDetailComponent, ReviewSettingsDrawerComponent],
+  imports: [LucideAngularModule, ReviewRepositoriesComponent, ReviewRunsListComponent, ReviewRunDetailComponent, ReviewSettingsDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="p-4 md:p-6">
       <header class="surface-1 flex flex-wrap items-start justify-between gap-4 rounded-xl p-5">
-        <div class="flex items-start gap-3"><div class="flex h-10 w-10 items-center justify-center rounded-xl bg-base-200" aria-hidden="true">↻</div>
+        <label class="order-3 flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" class="toggle toggle-sm" [checked]="store.settings()?.globalPublicationPaused ?? false" [disabled]="!store.settings() || store.pauseSaving()" (change)="setPause($event)" />Pause all publication</label>
+        <div class="flex items-start gap-3"><div class="flex h-10 w-10 items-center justify-center rounded-xl bg-base-200" aria-hidden="true"><lucide-angular [img]="icons.refresh" class="size-5" aria-hidden="true" /></div>
           <div><h1 class="text-xl font-semibold">Review runs</h1><p class="text-sm text-base-content-muted">Repository review attempts and coverage</p>
             @if (store.lastRefreshedAt(); as refreshed) { <p class="mt-1 text-xs text-base-content-muted">Last refreshed {{ refreshed.toLocaleString() }}</p> }
           </div>
         </div>
-        <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" [disabled]="store.isRefreshing()" (click)="store.load()">Refresh</button></div>
+        <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="Refresh review runs" [disabled]="store.isRefreshing()" (click)="store.load()">Refresh</button></div>
       </header>
+      @if (store.pauseError()) { <div class="alert alert-error mt-3" role="alert">Publication pause could not be updated.</div> }
+      @if (store.poll()?.status === 'failed') { <div class="alert alert-warning mt-3" role="alert">The last review poll failed. Review runs may be out of date. Retry with Refresh.</div> }
       @if (store.state() === 'offline') {
         <div class="alert alert-warning mt-4" role="alert"><span>Review service is unavailable. Showing cached runs from {{ store.lastRefreshedAt()?.toLocaleString() }}. Live publication status is unavailable.</span><button class="btn btn-ghost btn-sm" (click)="store.load()">Retry connection</button></div>
       } @else if (store.state() === 'error') {
@@ -55,7 +59,7 @@ import { ReviewSettingsDrawerComponent } from './review-settings-drawer.componen
         </section>
       </div>
       @if (store.selectedRun(); as run) { <ptah-review-run-detail [run]="run" [loadState]="store.detailState()" (retry)="store.loadRun(run.attemptId)" (closed)="store.closeRun()" /> }
-      @if (settingsOpen()) { <ptah-review-settings-drawer [repository]="store.repositories()[0] ?? null" [settings]="store.settings()" [loadState]="store.settingsState()" (retry)="store.loadSettings()" (closed)="settingsOpen.set(false)" /> }
+      @if (settingsOpen()) { <ptah-review-settings-drawer [repository]="store.repositories()[0] ?? null" [settings]="store.settings()" [draft]="store.draftSettings()" [hasToken]="store.hasToken()" [saving]="store.settingsSaving()" [saveError]="store.settingsSaveError()" [loadState]="store.settingsState()" (changed)="store.updateDraft($event)" (repositoryEnabled)="store.setRepositoryEnabled($event)" (save)="store.saveSettings()" (retry)="store.loadSettings()" (closed)="settingsOpen.set(false)" /> }
     </main>
   `,
 })
@@ -63,8 +67,10 @@ export class ReviewRunsPageComponent implements OnInit {
   readonly store = inject(ReviewRunsStore);
   readonly settingsOpen = signal(false);
   readonly statuses = ReviewStateSchema.options;
+  protected readonly icons = { refresh: RefreshCw } as const;
   openSettings(): void { this.settingsOpen.set(true); void this.store.loadSettings(); }
-  ngOnInit(): void { void this.store.load(); }
+  ngOnInit(): void { void this.store.load(); void this.store.loadSettings(); }
+  setPause(event: Event): void { const target = event.target; if (target instanceof HTMLInputElement) void this.store.setPublicationPause(target.checked); }
   setRepo(event: Event): void { const target = event.target; if (target instanceof HTMLSelectElement) this.store.setRepoFilter(target.value); }
   setState(event: Event): void {
     const target = event.target;

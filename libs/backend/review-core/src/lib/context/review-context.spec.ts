@@ -22,7 +22,7 @@ describe('review exact SHA context', () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('b'.repeat(40)) : ok()) };
     const service = new ReviewWorktreeService(runner, files, logger);
     await expect(service.create(repo, '/repo', '/attempts', 'attempt-1', 'a'.repeat(40))).rejects.toThrow('HEAD differs');
-    expect(runner.run).toHaveBeenCalledWith(repo, 'git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 30_000);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 30_000, undefined);
   });
 
   it('finds unchanged callers outside the diff and flags a changed lockfile', async () => {
@@ -38,9 +38,26 @@ describe('review exact SHA context', () => {
       { name: 'audit', command: 'node', args: ['audit.mjs'], timeoutMs: 1000, needsDependencies: false },
       { name: 'lint', command: 'npm', args: ['run', 'lint'], timeoutMs: 1000, needsDependencies: true },
     ], false);
-    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-audit', '--', 'node', 'audit.mjs'], '/repo', 1000);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-audit', '--', 'node', 'audit.mjs'], '/repo', 1000, undefined);
     expect(checks.map((check) => check.status)).toEqual(['unavailable', 'unavailable']);
     expect(checks[1].reason).toBe('Dependencies unavailable');
+  });
+
+  it('returns bounded, redacted diagnostics with the check scope', async () => {
+    const runner: IReviewCommandRunner = { run: jest.fn(async () => ({
+      ...ok('authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz\n' + 'x'.repeat(5000)),
+      exitCode: 1,
+    })) };
+    const [result] = await new ReviewChecksService(runner).run(repo, '/repo', [
+      { name: 'audit', command: 'node', args: ['audit.mjs'], timeoutMs: 1000,
+        needsDependencies: false, scope: ['libs/backend/sample/src/a.ts'] },
+    ], true);
+    expect(result.status).toBe('failed');
+    expect(result.scope).toEqual(['libs/backend/sample/src/a.ts']);
+    expect(result.diagnostics).toHaveLength(4000);
+    expect(result.diagnostics).toContain('[REDACTED]');
+    expect(result.diagnostics).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz');
+    expect(result.truncated).toBe(true);
   });
 
   it('blocks changed lockfiles without policy and disables lifecycle scripts when allowed', async () => {
@@ -51,7 +68,7 @@ describe('review exact SHA context', () => {
     const result = await service.prepare(repo, '/repo', ['package-lock.json'], true);
     expect(result.status).toBe('available');
     expect(result.lockfileSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-npm-ci', '--', 'npm', 'ci', '--ignore-scripts'], '/repo', 600_000);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-npm-ci', '--', 'npm', 'ci', '--ignore-scripts'], '/repo', 600_000, undefined);
   });
 
   it('detects source checksum drift after lanes', async () => {

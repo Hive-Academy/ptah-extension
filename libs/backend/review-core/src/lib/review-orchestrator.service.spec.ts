@@ -26,7 +26,7 @@ function fixture() {
   const checkpoints = new Map<string, unknown>();
   const key = (name: string, ordinal: number) => `${name}:${ordinal}`;
   const repository: IReviewRepository = {
-    enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(),
+    enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(),
     claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
     heartbeat: jest.fn(), release: jest.fn().mockResolvedValue(true), reconcileExpiredLeases: jest.fn().mockResolvedValue(0),
     getAttempt: jest.fn(), getStages: async () => [...stages.values()],
@@ -49,7 +49,7 @@ function fixture() {
   const verification = Object.create(VerificationStageRunner.prototype) as VerificationStageRunner;
   const verificationRun = jest.spyOn(verification, 'run').mockResolvedValue([]);
   const publication = Object.create(PublicationStageRunner.prototype) as PublicationStageRunner;
-  jest.spyOn(publication, 'run').mockResolvedValue({ artifactPath: '/attempt/out/review-preview.md',
+  const publicationRun = jest.spyOn(publication, 'run').mockResolvedValue({ artifactPath: '/attempt/out/review-preview.md',
     exportPath: '/attempt/out/review-export.json', acceptedCount: 0, suppressedCount: 0 });
   const github: IGitHubReviewPort = { getPull: jest.fn().mockResolvedValue({ number: 1, headSha: sha,
     baseSha: 'b'.repeat(40), state: 'open', draft: false, authorLogin: 'maintainer', headRepoId: 1, baseRepoId: 1, headIsFork: false }),
@@ -61,10 +61,27 @@ function fixture() {
     new ReviewPolicyService(), repository, github,
     { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger);
   return { coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,
-    verificationRun, github };
+    verificationRun, publicationRun, github };
 }
 
 describe('ReviewOrchestratorService', () => {
+  it('gives a claimed attempt its own deadline beyond the drain window', async () => {
+    const f = fixture();
+    const drainDeadline = Date.now() + 1000;
+    await f.coordinator.drain('worker', drainDeadline);
+    expect(f.contextRun).toHaveBeenCalledWith(claim, expect.any(Number), undefined);
+    const contextDeadline = f.contextRun.mock.calls[0][1];
+    expect(contextDeadline).toBeGreaterThan(drainDeadline + 20 * 60_000);
+    expect(f.triageRun.mock.calls[0][2]).toBe(contextDeadline);
+  });
+
+  it('does not publish when all lens lanes skipped for deadline', async () => {
+    const f = fixture();
+    f.lensRun.mockResolvedValue([{ lens: 'correctness-lifecycle', result: { status: 'partial', reason: 'deadline' } }]);
+    await f.coordinator.drain('worker', Date.now() + 1000);
+    expect(f.publicationRun).not.toHaveBeenCalled();
+    expect(f.release).toHaveBeenCalledWith(claim.attemptId, 'worker', 'partial');
+  });
   it('polls on startup only when discovery is at least 48 hours old', async () => {
     const f = fixture();
     expect(await f.coordinator.startupPoll(Date.now() - 47 * 60 * 60 * 1000)).toBe(0);
@@ -81,6 +98,15 @@ describe('ReviewOrchestratorService', () => {
     await f.coordinator.drain('worker', Date.now() + 10_000);
     expect(f.contextRun).not.toHaveBeenCalled();
     expect(f.triageRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts an interrupted context stage after lease recovery', async () => {
+    const f = fixture();
+    f.stages.set('context:0', { attemptId: claim.attemptId, stage: 'context', ordinal: 0, state: 'interrupted',
+      startedAt: null, endedAt: null, outcome: 'interrupted', errorSummary: 'Lease expired', artifactHash: null, artifactPath: null });
+    await f.coordinator.drain('worker', Date.now() + 10_000);
+    expect(f.contextRun).toHaveBeenCalledTimes(1);
+    expect(f.stages.get('context:0')?.state).toBe('completed');
   });
 
   it.each([['no room', 'no-confirmed-room'], ['deadline', 'deadline']])('marks %s partial', async (_case, reason) => {

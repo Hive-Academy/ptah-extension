@@ -16,14 +16,15 @@ export class ReviewContextService {
   constructor(@inject(REVIEW_CONTEXT_TOKENS.COMMAND_RUNNER) private readonly commands: IReviewCommandRunner) {}
 
   /** Search the complete checked-out source, including files absent from the diff. */
-  async build(repo: RepoIdentity, src: string, changedPathsInput: unknown, changedSymbolsInput: unknown): Promise<ReviewContext> {
+  async build(repo: RepoIdentity, src: string, changedPathsInput: unknown, changedSymbolsInput: unknown, signal?: AbortSignal): Promise<ReviewContext> {
     const changedPaths = ChangedFileSchema.parse(changedPathsInput);
     const symbols = z.array(SymbolSchema).max(200).parse(changedSymbolsInput);
     for (const path of changedPaths) if (!insideRoot(src, resolve(src, path))) throw new Error('Changed path escapes source');
     const changed = new Set(changedPaths);
     const callers: ReviewCaller[] = [];
     for (const symbol of new Set(symbols)) {
-      const result = await this.commands.run(repo, 'git', ['grep', '-n', '-F', '-e', symbol, '--', '*.ts', '*.tsx', '*.js', '*.jsx'], src, timeoutMs);
+      if (signal?.aborted) throw new Error('Review context aborted');
+      const result = await this.commands.run(repo, 'git', ['grep', '-n', '-F', '-e', symbol, '--', '*.ts', '*.tsx', '*.js', '*.jsx'], src, timeoutMs, signal);
       if (result.timedOut || result.unavailable || (result.exitCode !== 0 && result.exitCode !== 1)) throw new Error('Caller search unavailable');
       for (const row of result.stdout.split('\n').filter(Boolean)) {
         const match = /^(.+?):(\d+):(.*)$/.exec(row);

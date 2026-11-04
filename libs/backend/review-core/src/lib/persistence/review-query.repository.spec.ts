@@ -32,8 +32,8 @@ describe('ReviewQueryRepository', () => {
         (attempt_id, repo_id, pr_number, head_sha, attempt_number, trigger, state, queued_at)
         VALUES ('a4', 'hive-academy/ptahcode', 1, ?, 4, 'manual', 'queued', ?)`)
         .run(sha, now + 4);
-      db.prepare(`INSERT INTO review_stages (attempt_id, stage, ordinal, state)
-        VALUES ('a3', 'lens:security-privacy', 0, 'completed')`).run();
+      db.prepare(`INSERT INTO review_stages (attempt_id, stage, ordinal, state, outcome, error_summary)
+        VALUES ('a3', 'lens:security-privacy', 0, 'interrupted', 'partial', 'deadline')`).run();
       const findingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
       const secret = `ghp_${'a'.repeat(30)}`;
       const finding = { schemaVersion: 1, lens: 'security-privacy', title: 'Credential exposure',
@@ -52,12 +52,19 @@ describe('ReviewQueryRepository', () => {
       const connection = new SqliteConnectionService(':memory:', logger);
       Object.defineProperty(connection, 'db', { value: db });
       const query = new ReviewQueryRepository(connection);
+      db.prepare(`UPDATE review_repositories SET poll_status = 'failed', poll_error = 'github-poll-failed'
+        WHERE repo_id = 'hive-academy/ptahcode'`).run();
+      db.prepare(`INSERT INTO review_poll_state (repo_id, last_error_at, last_error)
+        VALUES ('hive-academy/ptahcode', ?, 'github-poll-failed')`).run(now + 5);
       expect(await query.getRun('a4')).toMatchObject({ configHash: null, deadlineAt: null, coverage: [] });
-      expect((await query.getRun('a3'))?.stages).toMatchObject([{ name: 'lenses', scope: 'security-privacy' }]);
+      expect((await query.getRun('a3'))?.stages).toMatchObject([{ name: 'lenses', scope: 'security-privacy',
+        status: 'partial', error: 'Review stage failed' }]);
       const findings = await query.listFindings('a3');
       expect(findings).toHaveLength(1);
       expect(JSON.stringify(findings)).not.toContain(secret);
       const first = await query.listRuns({ state: 'partial', limit: 1 });
+      expect(first.poll).toEqual({ status: 'failed', error: 'github-poll-failed', lastSuccessAt: null,
+        lastErrorAt: new Date(now + 5).toISOString() });
       expect(first.runs.map((run) => run.attemptId)).toEqual(['a3']);
       expect(first.nextCursor).not.toBeNull();
       const second = await query.listRuns({ state: 'partial', limit: 1, cursor: first.nextCursor ?? undefined });
