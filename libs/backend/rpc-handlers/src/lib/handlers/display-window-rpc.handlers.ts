@@ -29,7 +29,6 @@ import { TOKENS, RpcUserError, type Logger, type RpcHandler } from '@ptah-extens
 
 const MAX_ID_LENGTH = 256;
 const MAX_KEY_LENGTH = 1024;
-const MAX_PATH_LENGTH = 4096;
 
 const EmptyParamsSchema = z.strictObject({});
 
@@ -45,8 +44,6 @@ const ActionSchema: z.ZodType<DisplayWindowAction> = z.discriminatedUnion('type'
     surfaceKey: z.string().min(1).max(MAX_KEY_LENGTH),
     viewState: JsonObjectSchema,
   }),
-  z.strictObject({ type: z.literal('open-file'), path: z.string().min(1).max(MAX_PATH_LENGTH) }),
-  z.strictObject({ type: z.literal('review') }),
   z.strictObject({ type: z.literal('attach') }),
 ]);
 

@@ -83,8 +83,6 @@ describe('DisplayWindowRpcHandlers', () => {
       { type: 'select', key: 'artifact:abc' },
       { type: 'fullscreen-closed' },
       { type: 'view-state', surfaceKey: 'surface:1', viewState: { zoom: 2, open: [1, 2] } },
-      { type: 'open-file', path: 'src/a.ts' },
-      { type: 'review' },
       { type: 'attach' },
     ];
 
@@ -104,7 +102,7 @@ describe('DisplayWindowRpcHandlers', () => {
       expect(await h.call('displayWindow:status', {})).toEqual({ supported: false, open: false });
       expect(await h.call('displayWindow:publishState', snapshot)).toEqual({ delivered: false });
       expect(await h.call('displayWindow:getState', {})).toEqual({ state: null });
-      expect(await h.call('displayWindow:action', { tabId: 'tab-a', action: { type: 'review' } }))
+      expect(await h.call('displayWindow:action', { tabId: 'tab-a', action: { type: 'attach' } }))
         .toEqual({ relayed: false });
       expect(h.container.resolve).not.toHaveBeenCalled();
     });
@@ -152,8 +150,8 @@ describe('DisplayWindowRpcHandlers', () => {
       { tabId: 'tab-a', action: { type: 'select', key: 'k', extra: 1 } },
       { tabId: 'tab-a', action: { type: 'open-file', path: '' } },
       { tabId: 'tab-a', action: { type: 'view-state', surfaceKey: 's', viewState: 'x' } },
-      { tabId: '', action: { type: 'review' } },
-      { tabId: 'tab-a', action: { type: 'review' }, extra: 1 },
+      { tabId: '', action: { type: 'attach' } },
+      { tabId: 'tab-a', action: { type: 'attach' }, extra: 1 },
     ])('action rejects malformed params %#', async (params) => {
       const host = fakeHost();
       const h = setup(host);
