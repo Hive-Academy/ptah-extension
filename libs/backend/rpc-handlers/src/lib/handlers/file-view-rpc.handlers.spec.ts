@@ -330,7 +330,10 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
     expect(result.reason).toBe('not-a-file');
   });
 
-  it('declares exactly one method', () => {
-    expect(FileViewRpcHandlers.METHODS).toEqual(['file:viewContent']);
+  it('declares the text method and the binary method', () => {
+    expect(FileViewRpcHandlers.METHODS).toEqual([
+      'file:viewContent',
+      'file:viewBinary',
+    ]);
   });
 });
