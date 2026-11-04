@@ -186,14 +186,21 @@ const FOCUS =
           [includeDefault]="true"
           [compact]="true"
           placeholder="Search models"
-          [defaultLabel]="
-            catalogueStatus() === 'loading'
-              ? 'Loading models…'
-              : 'Provider default'
-          "
-          [disabled]="busy() || !context || catalogueStatus() === 'loading'"
+          defaultLabel="Provider default"
+          [loading]="catalogueStatus() === 'loading'"
+          [loadingLabel]="'Loading ' + cell.name + ' models…'"
+          [disabled]="busy() || !context"
           (modelSelected)="saveSystemModel(cell, $event)"
         />
+        @if (catalogueStatus() === 'loading') {
+          <p
+            role="status"
+            class="text-base-content-muted"
+            data-testid="cli-matrix-models-loading"
+          >
+            Loading the model list. This can take a few seconds.
+          </p>
+        }
       }
 
       @if (systemEffort(); as cell) {
