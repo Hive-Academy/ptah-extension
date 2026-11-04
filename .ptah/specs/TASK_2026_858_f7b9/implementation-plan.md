@@ -13,6 +13,13 @@ kernel as a per-session local socket, so it needs no native module and is releas
 process dies. Electron's main process reaches the worker over `ssh -W`, and the renderer keeps
 `ClaudeRpcService` over IPC. Revision 2 answers the "Round 1 re-review"; revision 3 answers the "Round 2 re-review" and records the Gate 2 answers; revision 4 is the post-approval drift amendment; revision 5 applies the user's answer (decisions.md row 14) that the driver lock also protects native Codex sessions (AD-25), and locks the rewind path (see the Revision log).
 
+> **Round 6 (2026-11-04) supersedes every `apps/ptah-cli`, `ptah-tui`, `ptah-extension-vscode`,
+> `platform-vscode`, `ptah-video-studio`, `ptah-license-server` and `ptah worker …` reference
+> below.** Those hosts were removed on `main` (1cee6fafe); the worker is now a headless,
+> node-mode process of the desktop package (`ptah-worker` launcher → `worker-host.mjs` on
+> cli-engine; decisions.md row 19). Read "Round 6 — headless Electron worker host" at the end
+> first; its R6.0 table maps each superseded line to its replacement.
+
 ## Inputs and constraints
 
 - Requirements used: `task-description.md` (Gate 1 approved), `task-description-review.md`
@@ -33,6 +40,11 @@ process dies. Electron's main process reaches the worker over `ssh -W`, and the 
   - U1-U5, the attempts-count copy, and fleet consent are open (Clarifications Needed).
 
 ## Project rules (bind every batch, repeat in every lane prompt)
+
+> Round 6: the worktree is `/home/amun/ptah-extension/.claude-worktrees/remote-workers-v2`
+> (branch `feat/remote-workers-v2`). The TUI and VS Code hosts no longer exist; the compile rule
+> for them lapses. Shared-lib changes verify ptah-electron, ptah-extension-webview and mcp-bench
+> as the Nx graph requires (R6.5).
 
 - Electron first. Build and verify for `apps/ptah-electron` first. No feature or polish work for
   the TUI (`apps/ptah-tui`) or the VS Code extension. Keep every host compiling; when a shared
@@ -88,6 +100,10 @@ process dies. Electron's main process reaches the worker over `ssh -W`, and the 
 | Verified: `interact.ts` rejects only an overlapping turn | `apps/ptah-cli/src/cli/commands/interact.ts:292,414-418` | 4.7. |
 
 ## Architecture decision
+
+> Round 6: the host process below is superseded by R6.2 (node-mode desktop process,
+> `ptah-worker serve`, cli-engine composition in `@ptah-extension/worker-host`). Protocol, lock,
+> log and client design are unchanged.
 
 - Chosen approach (U1 option 1): the worker runs as `ptah worker serve`, built on
   `withEngine`/`CliDIContainer` with a worker host profile. It has one loopback HTTP server
@@ -178,6 +194,9 @@ process dies. Electron's main process reaches the worker over `ssh -W`, and the 
 | `persistence-sqlite` | Leave | The lock must work where `better-sqlite3` cannot load (Node 20); kernel locks need no store. |
 
 ## Library placement and boundaries
+
+> Round 6: worker-runtime is consumed by `@ptah-extension/worker-host` (`scope:cli`, new), not
+> `apps/ptah-cli`; remote-machines is consumed by `apps/ptah-electron` only (R6.3).
 
 | Project (name / path) | Tags | Template | Depends on | Consumed by |
 | --- | --- | --- | --- | --- |
@@ -1001,6 +1020,9 @@ nextRetryAt?, versions?, lastSeenAt? }`. New `RpcUserErrorCode` values:
 
 #### C4a. Driver lock port, kernel lock and lifecycle notifications
 
+> Round 6 (R6.3 component 4): the vscode-core default registration and the
+> `apps/ptah-extension-vscode` file are out of scope; verify lists per R6.5.
+
 - Purpose: W10 port, `KernelSessionDriverLock`, null lock, bindings, the `ptah worker locks`
   control protocol (library side), and registry notifications.
 - Responsibilities: interface and token, `KernelSessionDriverLock`, `NullSessionDriverLock` and
@@ -1135,6 +1157,9 @@ nextRetryAt?, versions?, lastSeenAt? }`. New `RpcUserErrorCode` values:
 
 #### C6. `worker-runtime` sources
 
+> Round 6 (R6.3 component 3): readiness checks 2, 3, 6 wording, native-limit evidence, and drift
+> spec (a) moved to worker-host. Behaviour otherwise unchanged.
+
 - Purpose: everything the worker service does.
 - Responsibilities (one file per unit, under `libs/backend/worker-runtime/src/lib/`):
   - `paths.ts`, `workspace-registry.ts` (`workspaceId = 'ws_' + sha256(realpath)[0..12]`),
@@ -1210,6 +1235,10 @@ nextRetryAt?, versions?, lastSeenAt? }`. New `RpcUserErrorCode` values:
 
 #### C7. `ptah worker` command group (`apps/ptah-cli`)
 
+> **SUPERSEDED by Round 6** (R6.3 components 1 and 2): `apps/ptah-cli` no longer exists. The
+> commands live in `@ptah-extension/worker-host`, run as `ptah-worker <command>`, bundled into the
+> desktop package. The text below is kept for history only.
+
 - Purpose: worker composition root and operator commands.
 - Responsibilities: `worker serve [--port 41873] [--max-active-turns N]`,
   `worker status [--json]`, `worker pair [--workspace ...] [--ttl 300] [--json]`,
@@ -1244,6 +1273,9 @@ nextRetryAt?, versions?, lastSeenAt? }`. New `RpcUserErrorCode` values:
   MODIFY `apps/ptah-cli/src/cli/router.ts`.
 
 #### C8. `remote-machines` sources (Electron main client)
+
+> Round 6 (R6.3 component 5): remote command = `WORKER_REMOTE_COMMAND`
+> (`/opt/Ptah/resources/bin/ptah-worker`), not `ptah worker`.
 
 - Purpose: registry, tokens, SSH transport, connections, `machines:*` handlers.
 - Responsibilities: `machine-registry.ts` (`~/.ptah/remote-machines.json`, atomic write, AD-11);
@@ -1478,6 +1510,9 @@ Numbers come from Phase 0 and are approved by the user:
 
 ## Test strategy and verify commands
 
+> Round 6: this table lists removed projects and is superseded by R6.5. The runbook moves to
+> `libs/backend/worker-host/docs/worker.md`.
+
 Jest only, scoped, inside the worktree. Dependent hosts are in the same command.
 
 | Component | Verify command |
@@ -1506,6 +1541,9 @@ desktop session on the worker during a remote session (1.4/1.5). Visual review i
 
 ## Risks
 
+> Round 6: AR8 is closed (bundled runtime, AD-31). New risks: A10 node mode on the packaged
+> app (fallback: bundle outside the asar), A12 watcher degrade only (R6.2).
+
 | ID | Risk | Mitigation |
 | --- | --- | --- |
 | AR1 | A1 fails | `ssh -L` fallback; Duplex spec first; real-SSH acceptance in the runbook. |
@@ -1522,6 +1560,8 @@ desktop session on the worker during a remote session (1.4/1.5). Visual review i
 | R1-R9 | As in task-description | Unchanged; R9 tests in C6. |
 
 ## Team-leader handoff
+
+> Round 6: C7 rows, `apps/ptah-cli/**` files and the VS Code files are superseded by R6.6.
 
 - Recommended executors: C0 → devops-engineer (workspace config, deps, scaffolding); P0-1 →
   devops-engineer for the tool, with the measurement run coordinated by the orchestrator after Q4;
@@ -1577,6 +1617,9 @@ desktop session on the worker during a remote session (1.4/1.5). Visual review i
 
 ## Decisions
 
+> Round 6: AD-1 and AD-21 are superseded by AD-26 and AD-31; AD-12 keeps its meaning under
+> `ptah-worker grants add` (R6.7).
+
 | # | Decision | Options | Evidence | Reversible |
 | --- | --- | --- | --- | --- |
 | AD-1 | Worker = `ptah worker` on `withEngine`/`CliDIContainer` | new app / extend `interact` / CLI command | `container.ts:403-1009`; CLI ships to workers | yes, before C7 |
@@ -1606,6 +1649,9 @@ desktop session on the worker during a remote session (1.4/1.5). Visual review i
 | AD-20 | C0 owns every workspace-wide file; Phase 0 sampler is a `type:tool` Nx project | scripts/ + `test:scripts` / tool project | S6; `tools/mcp-bench/project.json` | yes |
 
 ## Clarifications Needed
+
+> Round 6: Q4 (Node 22 + CLI on Horus) and Q6 (CLI `engines.node`) are obsolete — the desktop
+> package carries its runtime (AD-31). New open points are R6-Q1 and R6-Q2 in R6.8.
 
 User-reserved points. The user answered all seven at Gate 2 (2026-11-01; decisions.md row 10;
 context.md "Gate 2 user answers"). The plan follows those answers: C10 waits for the designer's
@@ -1730,3 +1776,311 @@ for everything not listed here.
 | Components | C4a note (:1017-1019); C4b rewritten without the runtime filter, with rewind, guard and `CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR` (:1044-1082); new C4c native gate in agent-sdk plus Electron wiring (:1083-1119). Handoff: executors, complexity, C4c needs C4b, parallel sets, verify row, files (:1491-1492, :1526-1568). |
 | Scope wording | Q3 (:1632-1642), AD-25 (:1595), AR4/AR11 (:1514-1515), quality scope and Correctness (:1463-1474), header (:14). |
 | Round 4 drift anchors re-checked | `electron-shell.component.ts` is `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`; guard :233, first welcome branch :385-388 (was cited :384-388), second no-folder branch :431. Tasks route `app.routes.ts:142-147` with `surfaceActiveFor('tasks')`. Updated at :85 and C10 (:1301-1305). |
+
+## Round 6 — headless Electron worker host (2026-11-04)
+
+Trigger: `main` commit 1cee6fafe removed `apps/ptah-cli`, `apps/ptah-tui`,
+`apps/ptah-extension-vscode` (+ e2e) and `libs/backend/platform-vscode`; `ptah-video-studio` and
+`ptah-license-server` are no longer Nx projects. `cli-engine` and `platform-cli` stay as the
+headless engine (mcp-bench). User decision (decisions.md row 19): the remote worker is a headless
+mode of the installed desktop package, built on cli-engine, not `ptah worker serve` from the
+removed CLI. Branch `feat/remote-workers-v2` (row 18). Targeted amendment: Gate 2 approval stands
+for everything this section does not supersede. Where an earlier section and this one disagree,
+this one wins.
+
+### R6.0 Inventory of superseded references
+
+84 lines of this plan (above this section) and 30 lines of `batches.md` name a removed host or the
+`ptah worker` CLI command; 14 plan verify commands and 12 batch verify commands list removed
+projects (8 of them in Batches 8-26). Superseded parts, by plan section (`:N` line numbers are
+the Round 5 file, before the Round 6 marker blocks were inserted; each marked section now starts
+with a "> Round 6" or "> SUPERSEDED" note):
+
+| Plan section (earlier rounds) | What is superseded | Replacement |
+| --- | --- | --- |
+| Header verdict (:9-15), Inputs (:21) | "`ptah worker` command group on the existing CLI composition root"; `ptah worker grants add` | R6.2: `ptah-worker` launcher → `worker-host.mjs` on `withEngine`; `ptah-worker grants add` |
+| Project rules (:37-46) | TUI / VS Code compile rule; worktree `remote-workers` | Those hosts no longer exist; worktree `.claude-worktrees/remote-workers-v2` |
+| Codebase evidence rows :68, :72, :74, :80, :81, :88 | Citations into `apps/ptah-cli/**` (chat-bridge, expected-resolvable, package.json engines, interact) | R6.1 evidence (native-null proof now `cli-engine/src/lib/codex-runtime-composition.spec.ts:57-77`) |
+| Architecture decision (:92-93, :150-153, :160) | "worker runs as `ptah worker serve`"; A8 smoke via `ptah worker locks --self-test` on the worker's Node | R6.2; smoke is `ptah-worker locks --self-test` on the desktop's bundled Node |
+| Reuse verdicts row `apps/ptah-cli` (:176) | "Extend with `ptah worker`" | New lib `@ptah-extension/worker-host` (R6.3 component 1) |
+| Library placement (:185-186) | worker-runtime consumed by `apps/ptah-cli`; remote-machines by `apps/ptah-cli` in Phase 2 | worker-runtime → `@ptah-extension/worker-host`; remote-machines → `apps/ptah-electron` only |
+| W3 (:241-244, :264), W5 (:283), W10 operator recovery (:516-535), W10 worker side (:594, :654-666), :776, :853 | `ptah worker pair|status|locks …`; "the CLI" as lock holder kind; `apps/ptah-cli/...expected-resolvable.ts` citations | Same commands under `ptah-worker`; lock holders are Electron main, the worker host and mcp-bench (all bind `KernelSessionDriverLock`) |
+| C2 (:980), C3 (:992-1000) | VS Code `expected-absent.ts`/`rpc-surface.spec.ts`; verify lists | Batches 5 and 7 are complete; the VS Code files were dropped in the cherry-pick (row 18) |
+| C4a (:1004-1043) | vscode-core null default; `apps/ptah-extension-vscode/src/di/expected-resolvable.ts`; verify list | R6.3 component 4 |
+| C4b, C4c, C5 verify lists (:1073, :1110, :1132) | `ptah-extension-vscode,ptah-cli,ptah-tui` | R6.5 |
+| C6 readiness (:1162-1170) | "`ptah worker serve` refuses"; check 3 "Ptah CLI version"; check 6 "sources as `apps/ptah-cli/src/cli/commands/doctor.ts`" | R6.3 component 3 |
+| C6 drift spec (a) (:1204-1206) | worker-runtime spec compares with the CLI profile (needs a `scope:extension` → `scope:cli` import, a boundary violation in any round) | Moves to worker-host (R6.3 component 1) |
+| C7 (:1211-1245) entire | `apps/ptah-cli` command group, `docs/worker.md`, `npm i -g`, Node ≥ 22 install | R6.3 components 1 and 2 |
+| C8 (:1252), failure row :1419 | `ssh <alias> ptah worker status|pair --json`; "No `ptah worker`" | R6.3 component 5 |
+| Phases 2-4 (:1350, :1380) | `ptah worker grants`, `ptah worker expose cloudflare`; `ptah fleet` | Same verbs under `ptah-worker`; `ptah fleet` (Phase 2, CLI) has no host — re-plan in Phase 2 |
+| Observability (:1405) | `ptah worker status` | `ptah-worker status` |
+| Test strategy table (:1488-1495), runbook (:1502-1504) | Verify lists with removed projects; runbook in `apps/ptah-cli/docs/worker.md`; `pkill -f "ptah worker serve"` | R6.5; runbook in `libs/backend/worker-host/docs/worker.md`; `pkill -f "worker-host.mjs serve"` |
+| Risks AR3, AR8, AR11 (:1513-1515) | `ptah worker status`; Node 20 on Horus; "no native runtime on the CLI" | AR8 closed (R6.4); AR3/AR11 wording via `ptah-worker`, worker cli-engine composition |
+| Team-leader handoff (:1555-1570), Files affected | `apps/ptah-cli/package.json`, `apps/ptah-cli/src/cli/commands/worker.ts`, `docs/worker.md` | R6.6 |
+| Decisions AD-1, AD-12, AD-21 (:1582, :1592, :1598) | Worker = `ptah worker`; Node floor via CLI `engines` | AD-26 … AD-31 (R6.7) |
+| Clarifications Q4, Q6 (:1643-1660) | Node 22 + CLI install on Horus; CLI `engines.node` | Obsolete: the desktop package carries its runtime (R6.4) |
+
+### R6.1 Codebase evidence (re-read at this branch)
+
+| Evidence | Location | Implication |
+| --- | --- | --- |
+| Verified: Electron main takes the single-instance lock at module load and quits when it is held | `apps/ptah-electron/src/main.ts:67-70` | A second Electron *main* process (GUI already running) quits; worker mode cannot be a branch of `main.ts` that shares this path |
+| Verified: the preparing window is created before DI boot, and the boot takes the window getter | `main.ts:210-213`, `:238` (`bootstrapElectron(() => mainWindow, coordinator)`), `:351-357` (`wireRuntimePreWindow`), `:363-374` (post-window, update interval), `:386-401` (tray) | The Electron boot is window-coupled end to end; a headless path through it would fork most of `activation/` |
+| Verified: two worker-backed workspace stores on one `<userData>/workspace-storage/default` root raced and hung boot | `apps/ptah-electron/src/di/workspace-state-storage-single-instance.spec.ts:1-15` | A second process on the GUI's Electron DI graph and userData is unsafe |
+| Verified: desktop secrets are `<userData>/secrets.json` through `safeStorage`; without encryption an encrypted value cannot be read | `libs/backend/platform-electron/src/registration.ts:148-152`; `implementations/electron-secret-storage.ts:49`, `:67-69` | A headless process without an unlocked keyring could not read the desktop's secrets anyway |
+| Verified: `scope:electron` may depend only on `scope:shared`, `scope:electron`, `scope:extension`; `scope:cli` may depend on `scope:shared`, `scope:cli`, `scope:extension` | `eslint.config.mjs:311-326`; tags `libs/backend/cli-engine/project.json` (`scope:cli`), `apps/ptah-electron/project.json` (`scope:electron`) | `apps/ptah-electron` cannot import cli-engine. The worker composition must live in a `scope:cli` project |
+| Verified: ptah-electron already builds extra Node bundles whose entry lives in a lib | `apps/ptah-electron/project.json` targets `build-voice-worker`, `build-integrity-worker`, `build-workspace-watch-host`, `build-state-storage-worker` (each `main` under `libs/backend/**`, output beside `main.mjs`); `build` `dependsOn` lists them | Precedent for a `build-worker-host` target bundling a `scope:cli` lib entry into the desktop package |
+| Verified: a headless cli-engine bundle already exists, with the `vscode` shim alias and the `reflect-metadata`/`require` banner | `tools/mcp-bench/project.json:99-125` (`build-host-bundle`); boot `tools/mcp-bench/src/transport/bench-host-boot.ts:417` (`withEngine`) | Copy that esbuild shape |
+| Verified: `withEngine` forwards `pushAdapter` and `hostProfile` (Batch 6), reads `PTAH_CONFIG_PATH`, awaits workspace readiness, then initializes the SDK; `bootstrap` is an injectable test hook | `libs/backend/cli-engine/src/lib/bootstrap/with-engine.ts:204`, `:273-278`, `:298`, `:339`; `PTAH_AUTO_APPROVE` `:366` | Worker serve = one `withEngine` call; auto-approve must be refused before it |
+| Verified: CLI container defaults `userDataPath` to `~/.ptah`, `appPath` to the bundle dir, forks the watch host beside the bundle, registers the shared session store as host `cli`, and file settings under `userDataPath` | `libs/backend/cli-engine/src/lib/container.ts:423-427`, `:437-440`, `:493`, `:853`, `:999` (`options.hostProfile ?? createCliRpcHostProfile(host)`) | Worker data lives under `~/.ptah`, not Electron userData; settings and sessions are the files the GUI already shares with headless hosts |
+| Verified: CLI secrets are `~/.ptah/secrets.enc` | `libs/backend/platform-cli/src/registration.ts:76-77`; `implementations/cli-secret-storage.ts:61` | Worker and desktop do not share API-key secrets (Clarification R6-Q1) |
+| Verified: the session store file is `~/.ptah/state/<db>` for every host | `libs/backend/persistence-sqlite/src/lib/session-store/session-store-db-path.ts:21-31`; `register-session-store.ts:34-42` | GUI and worker list the same sessions |
+| Verified: the CLI watcher forks `workspace-watch-host.mjs` from the bundle's own directory; Electron's watch-host entry also accepts a `child_process.fork` IPC channel | `libs/backend/platform-cli/src/implementations/cli-workspace-watcher.ts:49-52`, `:91-95`; `libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.entry.ts:5-6` | `worker-host.mjs` placed beside Electron's `workspace-watch-host.mjs` gets a working watcher (A12) |
+| Verified: Electron host repairs `PATH` for GUI launches with `fixPath()` | `apps/ptah-electron/src/activation/bootstrap.ts:319`; `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/fix-path.ts:1-20`, `:100` (lib tags `scope:extension`) | A systemd user service has the same minimal `PATH`; the worker calls `fixPath()` before boot |
+| Verified: cli-engine binds every native-chat token to `null` and `RUNTIME_HOST_CAPABILITIES` to `{ nativeCodex: false }` | `libs/backend/cli-engine/src/lib/codex-runtime-composition.spec.ts:57-77` | Replaces the deleted `apps/ptah-cli/src/di/expected-resolvable.ts` citation: the worker still cannot run native Codex (C6 `CODEX_UNAVAILABLE` unchanged) |
+| Verified: Electron 44.4.3; `better-sqlite3` is rebuilt for the Electron ABI and unpacked; Linux targets AppImage and deb; no `electronFuses` configuration (RunAsNode fuse left at Electron's default, enabled) | `apps/ptah-electron/electron-builder.yml:4`, `:17-23`, `:198-205`; grep for `fuses` in `package.json`, `apps/ptah-electron/{package.json,electron-builder.yml,electron-builder.local-production.cjs}`: no match | `ELECTRON_RUN_AS_NODE=1 ptah-desktop <script>` runs plain Node with the Electron ABI, so the packed `better-sqlite3` loads (A10) |
+| Verified: package name `ptah-desktop` (deb installs `/opt/Ptah/ptah-desktop`, as `pgrep -f /opt/Ptah/ptah-desktop` in G-M assumes) | `apps/ptah-electron/package.json:2` | Launcher path |
+| Verified: `validate-deps` scans only `main.mjs`; packaged dependencies are exactly `apps/ptah-electron/package.json`; `implicitDependencies: ["ptah-extension-webview"]` is the build-edge precedent | `apps/ptah-electron/scripts/validate-deps.js:24`, `:84-97`; `scripts/prune-dist-deps.js:4-11`; `apps/ptah-electron/project.json` `implicitDependencies` | The worker bundle needs its own scan; its externals must already be Electron deps (`tsyringe`, `cross-spawn`, `gpt-tokenizer`, `ws`, `@parcel/watcher` all are) |
+| Verified: `registerVsCodeCorePlatformAgnostic` callers are Electron and cli-engine only | `apps/ptah-electron/src/di/phase-1-infra.ts:94`; `libs/backend/cli-engine/src/lib/container.ts:486` | No host needs a vscode-core "null lock when absent" default |
+| Verified: provider readiness sources | `ClaudeCliDetector` `libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:130`; `resolveEffectiveAuthRoute` `libs/backend/auth-providers/src/lib/auth/effective-route.ts:55` | Replaces the deleted `doctor.ts` citation in C6 check 6 |
+| Verified (Nx graph at this branch): app dependents — platform-core, agent-sdk, rpc-handlers, vscode-core → ptah-electron, mcp-bench; platform-electron → ptah-electron; platform-cli, cli-engine → mcp-bench; shared → ptah-electron, ptah-extension-webview, mcp-bench; chat, core → ptah-electron, ptah-extension-webview; worker-protocol/worker-runtime/remote-machines/machines-ui → no app yet | `npx nx graph --file` (read-only) | R6.5 verify lists |
+
+### R6.2 Architecture decision
+
+- Chosen approach: the worker is a **node-mode process of the installed desktop package**. A
+  launcher shipped in the Linux package, `/opt/Ptah/resources/bin/ptah-worker`, runs
+  `ELECTRON_RUN_AS_NODE=1 exec /opt/Ptah/ptah-desktop /opt/Ptah/resources/app.asar/worker-host.mjs "$@"`
+  (paths derived from the launcher's own location). `worker-host.mjs` is a new bundle built by
+  ptah-electron from a new `scope:cli` lib, `@ptah-extension/worker-host`, which composes
+  cli-engine (`withEngine` + `CliWebviewManagerAdapter` tap + `hostProfile`) with
+  `@ptah-extension/worker-runtime` (`createWorkerServer`). Commands: `ptah-worker serve|status|pair|
+  workspace|grants|locks` with the C7 options unchanged.
+- Worker-mode detection: Electron reads `ELECTRON_RUN_AS_NODE` before Chromium starts, so the
+  process never loads `main.ts`. Skipped by construction, not by guards: single-instance lock
+  (`main.ts:67`), crash reporter (`:139`), preparing window and every `BrowserWindow`
+  (`:210`, `:422-441`), renderer, IPC bridge, `wireRuntimePreWindow`, post-window boot, update
+  checks (`:373-374`), tray (`:386-401`), Sentry flush on quit. Booted (inside `withEngine`):
+  the cli-engine DI container, file settings (`container.ts:853`), the shared session store
+  (`:493`), settings and auth migrations (`with-engine.ts` before `:339`), the SDK adapter
+  (`:339`), `SessionRegistry` (agent-sdk via `registerSdkServices`), CLI agent runtimes and
+  detectors (after `fixPath()`), `KernelSessionDriverLock` (platform-cli binding, Batch 11), and
+  then `createWorkerServer`.
+- Rationale: requirement fit is the same as U1 option 1 (Round 1 rationale stands); the change is
+  only the host process. cli-engine is the graph built for headless use (mcp-bench already ships
+  it); every Phase C/D contract (lock port bound per platform, push tap, host profile) was built
+  against it. Node mode needs no display server (workers are reached over SSH and run as a
+  systemd user service), no keyring, and no window, and it brings the Electron ABI and Electron's
+  bundled Node (≥ 22, A10) so `better-sqlite3` loads with no Node install on the worker.
+- Rejected alternatives:
+  - Electron DI container booted headless inside Electron main. `bootstrapElectron` and
+    `wireRuntimePreWindow` take the window getter and run renderer-facing steps
+    (`main.ts:238`, `:351-357`); sharing the GUI's userData means two writers on the workspace
+    store root that already hung boot once (`workspace-state-storage-single-instance.spec.ts:1-15`);
+    a separate userData loses the only advantage (shared safeStorage secrets), which in any case
+    needs an unlocked keyring that a systemd service or an SSH session lacks
+    (`electron-secret-storage.ts:67-69`). It would also need a display or an unverified
+    `--ozone-platform=headless`. Its one gain, native Codex on the worker, is out of Phase 1 scope.
+  - cli-engine inside Electron main behind a `main.ts` argv flag (`ptah-desktop --worker-serve`).
+    Forbidden import (`eslint.config.mjs:311-318`); widening the rule lets all Electron code reach
+    platform-cli implementations. Electron still initialises Chromium (display) and the flag
+    check would have to precede the single-instance lock in a module whose static imports already
+    load the desktop graph.
+  - Worker composition inside `cli-engine`. It adds a cli-engine → worker-runtime edge to
+    mcp-bench's graph and mixes a host (argv, operator commands, docs) into the engine.
+  - A new `apps/ptah-worker` application. It would need its own build and a copy step into the
+    desktop dist; ptah-electron's existing pattern for extra bundles is a lib entry plus a
+    ptah-electron esbuild target.
+- Assumptions (each with its check):
+  - A10: on the packaged 44.4.3 deb, `ELECTRON_RUN_AS_NODE=1 /opt/Ptah/ptah-desktop
+    /opt/Ptah/resources/app.asar/worker-host.mjs status --json` runs, resolves
+    `app.asar/node_modules` (and the unpacked `better-sqlite3`), and `process.versions.node` is
+    ≥ 22. Check: G-R step "node mode" on the worker, plus the Batch 19 packaging spec that fails if
+    any electron-builder config disables the RunAsNode fuse. Fallback: ship `worker-host.mjs` and
+    its externals outside the asar via `extraResources`.
+  - A11: an `implicitDependencies` entry from ptah-electron to the `scope:cli` lib is a build
+    edge only and does not trip `@nx/enforce-module-boundaries` (it checks imports). Check: Batch
+    19 verify (`ptah-electron` lint). Fallback: list the lib's sources in the
+    `build-worker-host` target `inputs` instead.
+  - A12: the CLI watcher's fork of Electron's `workspace-watch-host.mjs` works in node mode (fork
+    inherits `ELECTRON_RUN_AS_NODE`; the entry takes the fork IPC transport). Check: G-R boot log.
+    Failure degrades the watcher only (`container.ts:434-436` comment), never the boot.
+  - A13: A6 still holds: the lock name depends on uid and session ID only, so Electron main and
+    the worker (and mcp-bench) compute the same name. No change from Round 5.
+- Effect on existing code: Batches 1-7 unchanged. Phase C (8-13) unchanged in design; file lists
+  lose the VS Code host files and verify lists lose removed projects. Phase D: C6 wording only,
+  C7 replaced. Phase E: one constant and the remote command string. Phase F: three copy strings.
+
+### R6.3 Component specifications (deltas)
+
+#### 1. `@ptah-extension/worker-host` (replaces C7's command group)
+
+- Purpose: worker composition root and operator commands, as a lib whose entry is bundled into
+  the desktop package.
+- Responsibilities: argv parsing with `node:util` `parseArgs` (no new dependency: packaged deps
+  are exactly ptah-electron's); the C7 command set under `ptah-worker`; `serve` = `fixPath()` →
+  refuse auto-approve (`--auto-approve` or `PTAH_AUTO_APPROVE=true`, AD-16) → readiness check 2
+  (refuse) → `withEngine({}, { mode: 'full', thoth: 'off', hostProfile: createWorkerRpcHostProfile(),
+  pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, fn)` where `fn` starts
+  `createWorkerServer` and resolves on SIGTERM/SIGINT after the worker-service shutdown;
+  package version read from the `package.json` beside the bundle (build-main emits it) and passed
+  to worker-runtime for readiness check 3 and `endpoint.json.ptahVersion`; `locks` uses the
+  platform-core `listLocalDriverLocks`/`requestRelease` (Batch 9); the C6 drift spec (a)
+  in-process parity (`deriveRpcSurface(createWorkerRpcHostProfile())` vs
+  `createCliRpcHostProfile('cli')`, `cli-engine/src/lib/rpc/cli-host-profile.ts:18`) lives here,
+  because only a `scope:cli` project may import both; `docs/worker.md` with the generated
+  capability table compared by spec.
+- Tags `scope:cli`, `type:feature` (`eslint.config.mjs:319-326`: may import cli-engine,
+  platform-cli, worker-runtime, worker-protocol, cli-agent-runtime, rpc-handlers, platform-core).
+  Never exported to Electron code.
+- Failure behaviour: as C7 (no service → "worker service is not running"; `locks release`
+  refuses without `--yes` in non-TTY); `EADDRINUSE` names the port (second instance); boot
+  failure exits non-zero with one stderr line (systemd restarts with backoff).
+- Verification seam: command specs with an injected `bootstrap` (`with-engine.ts:204`); `serve`
+  integration with a stub bootstrap and a real `ws` client; auto-approve refusal; Node < 22 /
+  `better-sqlite3` failure refusal (injected); parity drift spec; doc table spec.
+- Files: CREATE `libs/backend/worker-host/**` (project files, `src/index.ts`,
+  `src/worker-host.entry.ts`, `src/lib/**`, `docs/worker.md`); MODIFY `tsconfig.base.json`
+  (alias), `nx.json` (lint/test include lists, as Batch 3 did for the four libs),
+  `.commitlintrc.json` (scope `worker-host`).
+
+#### 2. Desktop packaging of the worker host (`apps/ptah-electron`)
+
+- Purpose: ship `worker-host.mjs` and the `ptah-worker` launcher in the desktop package.
+- Responsibilities: target `build-worker-host` (shape of `build-workspace-watch-host` plus the
+  mcp-bench `vscode` alias and banner, `tools/mcp-bench/project.json:99-125`; output
+  `dist/apps/ptah-electron/worker-host.mjs`, beside `workspace-watch-host.mjs`); add it to
+  `build.dependsOn` and `build-dev` commands; `implicitDependencies` += `@ptah-extension/worker-host`
+  (A11); `tsconfig.worker-host.json` (precedent `tsconfig.voice-worker.json`); launcher script
+  and systemd unit template under `apps/ptah-electron/worker-host/`, shipped by
+  `linux.extraResources` to `resources/bin/` (outside the asar so it can be executed);
+  `validate-deps.js` scans `worker-host.mjs` as well as `main.mjs`.
+- Launcher contract (POSIX `sh`): resolve its real path, `appdir = ../..`, then
+  `ELECTRON_RUN_AS_NODE=1 exec "$appdir/ptah-desktop" "$appdir/resources/app.asar/worker-host.mjs" "$@"`.
+  `exec` keeps the systemd main PID equal to the worker. Linux deb only in Phase 1 (workers are
+  Linux; AppImage and other OSes: unsupported, documented).
+- systemd user unit template `ptah-worker.service`:
+  `ExecStart=/opt/Ptah/resources/bin/ptah-worker serve --port 41873`, `Restart=on-failure`,
+  `RestartSec=5`, `KillSignal=SIGTERM`, `TimeoutStopSec=20`, `WantedBy=default.target`. Operator:
+  copy to `~/.config/systemd/user/`, `systemctl --user enable --now ptah-worker`; start without a
+  login needs `loginctl enable-linger <user>` (Clarification R6-Q2).
+- Failure behaviour: a missing bundle → launcher exits 127 with the path; the client maps it
+  (component 5).
+- Quality: no `build`/`package` run by executors (CLAUDE.md); the shape is pinned by a spec in
+  `apps/ptah-electron/src/config/` (target present, output name, `extraResources` entry, launcher
+  text, no RunAsNode-disabling fuse), precedent `packaged-deps.spec.ts`.
+- Files: MODIFY `apps/ptah-electron/project.json`, `apps/ptah-electron/electron-builder.yml`,
+  `apps/ptah-electron/scripts/validate-deps.js`; CREATE `apps/ptah-electron/tsconfig.worker-host.json`,
+  `apps/ptah-electron/worker-host/{ptah-worker,ptah-worker.service}`,
+  `apps/ptah-electron/src/config/worker-host-packaging.spec.ts`.
+
+#### 3. C6 `worker-runtime` (wording deltas only)
+
+- Readiness check 2: "Node ≥ 22 and `better-sqlite3` loads" stays; the runtime is the desktop's
+  bundled Node, so the fix text is "update the Ptah desktop package", not "install Node 22".
+- Check 3: "Ptah package version (injected by worker-host) and protocol version".
+- Check 6 sources: `ClaudeCliDetector` and `resolveEffectiveAuthRoute` (R6.1), not `doctor.ts`.
+- Native capability limit: unchanged behaviour; evidence is
+  `cli-engine/src/lib/codex-runtime-composition.spec.ts:57-77`.
+- Drift spec (a) in-process parity moves to worker-host; spec (b) remote surface stays here.
+- worker-runtime never imports cli-engine or Electron (unchanged; `scope:extension`).
+
+#### 4. C4a host bindings (Phase C delta)
+
+- Drop the vscode-core "null when absent" default and the VS Code `expected-resolvable.ts`
+  edit: the only callers of `registerVsCodeCorePlatformAgnostic` are Electron and cli-engine
+  (R6.1), and both bind the lock in their platform registration. A container without a binding
+  fails at resolve, which the Electron and cli-engine smoke specs catch.
+- Everything else in Phase C (W10, C4a-C4c) is unchanged. Coexistence with the GUI is the lock's
+  existing cross-process case: GUI Electron main and the worker are two processes of one user.
+
+#### 5. C8 remote command (Phase E delta)
+
+- `libs/worker-protocol/src/lib/worker-command.ts`: `WORKER_REMOTE_COMMAND =
+  '/opt/Ptah/resources/bin/ptah-worker'` (absolute, because a non-interactive SSH shell does not
+  read the user's profile). Consumed by remote-machines (ssh argv) and machines-ui (copy).
+- `ssh-worker-commands.ts`: `ssh -o BatchMode=yes -o ConnectTimeout=10 -- <alias>
+  /opt/Ptah/resources/bin/ptah-worker status|pair --json` (argument array, `shell: false`).
+  Exit 127 or "not found" → `version-mismatch` with "This Ptah build on <Machine> has no worker
+  mode. Update the Ptah desktop app there." (replaces failure row :1419).
+- Transport unchanged: `ssh … -W 127.0.0.1:41873 -- <alias>`; the worker's sshd opens the
+  loopback connection on the worker, so nothing listens on a LAN address (8.1). Requires sshd
+  `AllowTcpForwarding` not `no` (default `yes`); readiness check 4 already reports the listener.
+
+#### 6. C10 copy (Phase F delta; design-handoff conflict resolved)
+
+- `design-spec.md:56` copyable command `ptah worker pair`, `:71` footer `ptah worker doctor`
+  `[TBC by architect]`, `:123` `ptah worker locks release <session id>`: the plan changes the
+  command name, not the design. Resolution: the copy keeps the designer's layout and wording and
+  substitutes `WORKER_REMOTE_COMMAND` + `pair`, `status`, `locks release <session id>`. The
+  readiness row "Node version" keeps its label (it reports the bundled runtime).
+  `design-spec.md` itself is not edited by the plan.
+
+### R6.4 Coexistence with a GUI instance on the same machine
+
+| Shared thing | Behaviour | Failure behaviour |
+| --- | --- | --- |
+| Electron single-instance lock (`main.ts:67`) | Not taken by the worker (main.ts never runs) | GUI starts and stops freely while the worker runs, and vice versa |
+| Electron userData (`~/.config/Ptah`), workspace stores, safeStorage secrets | Not opened by the worker (`userDataPath` = `~/.ptah`, `container.ts:423-424`) | none |
+| `~/.ptah/settings.json` | Both processes read and watch it (as GUI + CLI did) | Known whole-cache write risk (`file-settings-manager.ts` `persist()`, HANDOFF): a worker write can revert a concurrent GUI edit. The worker writes settings only through migrations at boot; no new writer is added. Not fixed here (user decides) |
+| Session store `~/.ptah/state/<db>` | Shared, host-stamped (`cli` for the worker) | Same as GUI + CLI today |
+| Driver lock (Phase C) | Same kernel name per session in both processes | GUI drives → worker turn refused `SESSION_DRIVEN_ELSEWHERE` naming the desktop; worker drives → GUI refused naming the worker label; lock endpoint unavailable → fail closed in that process |
+| Port 41873 | Worker only | A second `serve` fails `EADDRINUSE` naming the port; systemd keeps one |
+| Provider CLIs (`~/.claude`, `~/.codex`) | Shared logins | none |
+| API-key secrets | Not shared (`secrets.enc` vs `secrets.json`) | Worker readiness check 6 fails with the provider named (R6-Q1) |
+
+### R6.5 Verify lists (valid projects only)
+
+| Component | Verify command |
+| --- | --- |
+| Batches 1-7 re-verification on this branch | `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,process-sampler,@ptah-extension/shared,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/vscode-core,ptah-electron,ptah-extension-webview,mcp-bench,ptah-landing-page` |
+| C4a-1, C4a-2 (platform-core) | `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,mcp-bench` |
+| C4a-3 (agent-sdk) | `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench` |
+| C4a-4 bindings | `npm run verify -- -p @ptah-extension/platform-electron,@ptah-extension/platform-cli,@ptah-extension/cli-engine,ptah-electron,mcp-bench` |
+| C4b | `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,mcp-bench` |
+| C4c | `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench` |
+| C6 | `npm run verify -- -p @ptah-extension/worker-runtime` |
+| Worker host + packaging | `npm run verify -- -p @ptah-extension/worker-host,ptah-electron` |
+| C8 (with the worker-protocol constant) | `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,@ptah-extension/worker-host` |
+| C9 | `npm run verify -- -p ptah-electron` |
+| C10 shell/route | `npm run verify -- -p @ptah-extension/shared,@ptah-extension/machines-ui,@ptah-extension/chat,@ptah-extension/core,ptah-extension-webview,ptah-electron,mcp-bench,ptah-landing-page` |
+
+### R6.6 Team-leader handoff (delta)
+
+- Executors: worker-host commands → backend-developer; worker-host scaffold and desktop packaging
+  → devops-engineer capability (build targets, builder config, scripts); rest unchanged.
+- Ordering: worker-host needs C5 (Batch 6), C4a-2 (Batch 9) and C6 (Batch 18). The C8 constant
+  lands with Batch 20, after worker-host, so worker-host's usage text uses the literal name and
+  does not import the constant.
+- Files affected (replaces the C7 rows): CREATE `libs/backend/worker-host/**`,
+  `apps/ptah-electron/tsconfig.worker-host.json`, `apps/ptah-electron/worker-host/{ptah-worker,ptah-worker.service}`,
+  `apps/ptah-electron/src/config/worker-host-packaging.spec.ts`,
+  `libs/worker-protocol/src/lib/worker-command.ts`; MODIFY `tsconfig.base.json`, `nx.json`,
+  `.commitlintrc.json`, `apps/ptah-electron/{project.json,electron-builder.yml,scripts/validate-deps.js}`,
+  `libs/worker-protocol/src/index.ts`. Removed from scope: every `apps/ptah-cli/**`,
+  `apps/ptah-extension-vscode/**` file and `libs/backend/vscode-core/src/di/register-platform-agnostic.ts`.
+- Gated steps: G-M on Horus no longer installs Node or the CLI; it needs a desktop build with
+  worker mode (fleet op, consent as before). G-R follows `libs/backend/worker-host/docs/worker.md`
+  and adds A10 (node mode) and the systemd unit start/stop.
+
+### R6.7 Decisions
+
+| # | Decision | Options | Evidence | Reversible |
+| --- | --- | --- | --- | --- |
+| AD-26 | Worker = cli-engine composition in a node-mode process of the desktop package (supersedes AD-1) | Electron DI headless / cli-engine in Electron main / node-mode cli-engine | `main.ts:67`, `:238`; `workspace-state-storage-single-instance.spec.ts:1-15`; `electron-secret-storage.ts:67-69`; `eslint.config.mjs:311-326`; user row 19 | yes, before Batch 19 |
+| AD-27 | Mode selected by the `ptah-worker` launcher (`ELECTRON_RUN_AS_NODE=1`), not a `main.ts` argv flag | argv flag / launcher | `main.ts:67`, `:210`; Chromium never starts in node mode | yes |
+| AD-28 | New lib `@ptah-extension/worker-host` (`scope:cli`, `type:feature`) bundled by a ptah-electron target | in cli-engine / new app / new lib | `eslint.config.mjs:311-326`; ptah-electron extra-bundle targets | yes |
+| AD-29 | Phase 1 worker install = Linux deb at `/opt/Ptah`; `WORKER_REMOTE_COMMAND` absolute | PATH lookup / absolute | `package.json:2`; `electron-builder.yml:198-205` | yes |
+| AD-30 | Drop the vscode-core null lock default | keep / drop | R6.1 `registerVsCodeCorePlatformAgnostic` callers | yes |
+| AD-31 | Node floor handled by the bundled runtime; AD-21, Q4 and Q6 obsolete | — | `electron-builder.yml:4`; A10 | n/a |
+
+### R6.8 Clarifications needed (user-reserved)
+
+- R6-Q1 Provider auth on workers. The worker reads API keys from `~/.ptah/secrets.enc`, not the
+  desktop's safeStorage file, and the `ptah provider set-key` command left with the CLI host.
+  - (Recommended) Phase 1 workers use provider CLI logins only (`claude` / `codex` signed in on
+    the worker); readiness check 6 says so. No key command.
+  - Add `ptah-worker auth set-key <provider>` (writes `~/.ptah/secrets.enc`).
+- R6-Q2 Start at boot (fleet operation on Horus, Anubis, Chappie).
+  - (Recommended) `loginctl enable-linger <user>` plus the user unit, so the worker runs without a
+    login session.
+  - Run the unit only while the user is logged in (no system change).

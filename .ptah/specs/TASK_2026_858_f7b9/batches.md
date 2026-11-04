@@ -1,27 +1,30 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 7/26
+Total tasks: 44 (Round 6: Batch 19 has 4 tasks, was 2) | Batches: 26 | Complete: 7/26
 
-Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
+Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5 as amended by
+Round 6 (headless Electron worker host, decisions.md row 19). C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
 their own decomposition after Phase 1 ships.
 
-Worktree (every path below is under it):
-`/home/amun/ptah-extension/.claude-worktrees/remote-workers` (branch `feat/remote-workers`, base
-main `8ca24c134`). Abbreviated below as `W/`; every executor prompt must expand it to the
-absolute path.
+Worktree (every path below is under it), Round 6:
+`/home/amun/ptah-extension/.claude-worktrees/remote-workers-v2` (branch `feat/remote-workers-v2`,
+base main `c5e5c704b`, Batches 1-7 cherry-picked; decisions.md row 18). The old worktree
+`remote-workers` (branch `feat/remote-workers`) is a backup and is never edited. Abbreviated below
+as `W/`; every executor prompt must expand it to the absolute path.
 
 ## Rules for every executor (repeat them in every lane or subagent prompt)
 
-- Work only inside `/home/amun/ptah-extension/.claude-worktrees/remote-workers`. Never edit the
-  main checkout `/home/amun/ptah-extension`.
+- Work only inside `/home/amun/ptah-extension/.claude-worktrees/remote-workers-v2`. Never edit the
+  main checkout `/home/amun/ptah-extension` or the backup worktree `remote-workers`.
 - Verify only with the batch's `npm run verify -- -p <projects>` command, run from the worktree,
   one foreground run, output filtered with `| tail -60`. Never run workspace-wide checks, never
   `nx run-many` over unchanged projects, never `build`, `serve`, `dev`, `e2e` or `package`
   targets. Other heavy commands run under
   `node scripts/verify.mjs --exec --task <name> -- <command>`.
-- Electron first. No feature or polish work for the TUI or the VS Code extension; only keep them
-  compiling with the smallest change.
+- Electron first. The TUI, CLI and VS Code hosts no longer exist (main 1cee6fafe); never name
+  `ptah-cli`, `ptah-tui`, `ptah-extension-vscode`, `ptah-video-studio` or `ptah-license-server`
+  in a verify command. Keep `cli-engine`, `platform-cli` and mcp-bench working.
 - Executors do not run git (no commit, push, stash, branch). The team-leader owns git.
 - Executors never edit `batches.md`, `task.md` or any other file in the task folder unless the
   task names that file as the deliverable.
@@ -122,6 +125,27 @@ Edge cases:
 | D-5 | Interim Electron surface expectation from Batch 7 to Batch 22 | merge C3 into C9 / set Electron `remoteMachines` early without handlers / interim spec | C6 needs C3's host profile long before C9; an early capability flag would advertise methods with no handler | yes |
 | D-6 | All batches sequential in one worktree | parallel lanes in one worktree / separate worktrees / sequential | R-L; separate worktrees would need extra merges the team-leader cannot verify per batch | yes |
 | D-7 | Phase 0 measurement is an orchestrator step (G-M), not a batch | batch / step | The plan says it is not a verification and the Horus run needs a fleet machine | yes |
+| D-8 (R6) | Verify lists name only existing projects; dependents taken from the Nx graph at this branch (plan R6.5) | keep removed names / graph | `npx nx graph`; removed hosts are not Nx projects | yes |
+| D-9 (R6) | Batch 11 drops the vscode-core null default and the VS Code smoke file | keep / drop | Only Electron and cli-engine call `registerVsCodeCorePlatformAgnostic` (plan R6.1, AD-30) | yes |
+| D-10 (R6) | Batch 19 becomes the worker host lib + desktop packaging (4 tasks, D-1 exception) | split into 19a/19b / one batch | Numbering stays stable; the lib, its bundle target and the launcher must land together | yes |
+| D-11 (R6) | `WORKER_REMOTE_COMMAND` lands in Batch 20 (worker-protocol), not Batch 19 | 19 / 20 | Batch 20 is its first code consumer; Batch 19 uses the literal name in usage text | yes |
+
+## Round 6 revision (2026-11-04)
+
+Plan: implementation-plan.md "Round 6 — headless Electron worker host".
+
+- Inventory: 30 lines of this file named a removed host or `ptah worker` (13 inside Batches
+  8-26), and 12 verify commands listed removed projects (8 inside Batches 8-26: Batches 8, 9, 10,
+  11, 12, 13, 19, 26). The plan had 84 such lines and 14 such verify commands.
+- Batches 1-7 are not edited. Their re-verification on `feat/remote-workers-v2` uses one command:
+  `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,process-sampler,@ptah-extension/shared,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/vscode-core,ptah-electron,ptah-extension-webview,mcp-bench,ptah-landing-page`.
+  Their per-batch "Verify:" lines below name removed projects and are historical.
+- Revised batches: 8, 9, 10, 11, 12, 13 (verify lists; 11 and 13 also file/notes), 16, 17, 18
+  (wording, evidence, drift spec move), 19 (replaced), 20 (remote command), 24, 25 (copy), 26
+  (verify list). Unchanged: 14, 15, 21, 22, 23.
+- Plan validation rows above that cite `apps/ptah-cli`, `ptah-video-studio` or Task 19.1's
+  `ptah worker locks --self-test` read as Round 6 (`ptah-worker locks --self-test`).
+- Phase B fix round (HANDOFF) is independent of Round 6 and still runs before Batch 8.
 
 ## Gated steps (not batches; the orchestrator runs them)
 
@@ -134,15 +158,19 @@ Edge cases:
   `design-spec-review.md`. Batch 23 starts only on an APPROVED verdict. Can start now.
 - **G-M — Phase 0 measurement run (after Batch 2).** amun-PC: `node
   tools/process-sampler/src/sampler.js --duration 1800 --out <file>` under normal work. Horus
-  run (Q4 consent, decisions.md row 10): needs Node 22 and the CLI on Horus. Before installing,
-  back up what is replaced and check that Ptah is not running (`pgrep -f /opt/Ptah/ptah-desktop`).
+  run (Q4 consent, decisions.md row 10): Round 6 — no Node or CLI install; the sampler can run
+  under the desktop's bundled runtime (`ELECTRON_RUN_AS_NODE=1 /opt/Ptah/ptah-desktop
+  sampler.js …`), and the worker measurement needs a desktop build with worker mode. Before
+  installing, back up what is replaced and check that Ptah is not running (`pgrep -f /opt/Ptah/ptah-desktop`).
   Writes `.ptah/specs/TASK_2026_858_f7b9/phase-0-measurement.md`. Not blocking for Phase 1 code;
   B1-B3 resource budget numbers come from it.
 - **G-R — Phase 1 exit runbook (after Batch 26 and its phase review).** Follows
-  `apps/ptah-cli/docs/worker.md` on a preprovisioned worker: Horus (Q4) or Chappie after O3.
-  Covers the exit scenario, A1 real `ssh -W` acceptance, the 8.1 port scan, `pkill -f "ptah worker
-  serve"` mid-turn, a desktop session during a remote session, the A8 self-tests. Result recorded
-  in the task folder.
+  `libs/backend/worker-host/docs/worker.md` (Round 6) on a worker with a desktop deb build that
+  has worker mode: Horus or Chappie after O3. Covers the exit scenario, A10 node mode
+  (`ptah-worker status --json` over SSH), the systemd user unit start/stop, A1 real `ssh -W`
+  acceptance, the 8.1 port scan, `pkill -f "worker-host.mjs serve"` mid-turn, a desktop GUI
+  session on the worker during a remote session, the A8 self-tests. Result recorded in the task
+  folder.
 - **O1-O5 (fleet operations) stay gated on the user's answers.** No batch depends on them. O3
   (upgrade Chappie) is only needed if G-R runs on Chappie. O6 is done (decisions.md row 15).
 
@@ -153,7 +181,7 @@ Edge cases:
 | A Scaffold and measurement tool | 1-2 | none (workspace config and measurement tooling only) |
 | B Contracts and engine hooks | 3-7 | code-logic + style (new public API: `worker-protocol`, `rpc-machines.types.ts`) |
 | C Driver lock (both runtimes) | 8-13 | code-logic + style (new platform-core port, new required agent-sdk port) |
-| D Worker runtime and `ptah worker` | 14-19 | code-logic + style + `review-security` (R9) |
+| D Worker runtime and headless worker host (Round 6) | 14-19 | code-logic + style + `review-security` (R9) |
 | E Electron client and wiring | 20-22 | code-logic + `review-security` (R9) |
 | F Machines view | 23-26 (after G-D) | code-logic + style + visual (Electron, dark and light, against the revised prototype) |
 
@@ -452,7 +480,7 @@ phase summary.
 
 ---
 
-## Batch 8: C4a-1 driver lock port and kernel lock — PENDING
+## Batch 8: C4a-1 driver lock port and kernel lock (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -462,7 +490,7 @@ phase summary.
 - Rationale: the core of W10 in one lib; cross-process specs fork children.
 - Tasks: 1 | Depends on: Batch 1
 - Phase: C | Phase review: at Batch 13
-- Verify: `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,mcp-bench`
 
 ### Task 8.1: Interface, token, kernel and null locks, contract suite — PENDING
 
@@ -484,7 +512,7 @@ phase summary.
 
 - Contract suite runs against both locks; cross-process spec passes; verify passes
 
-## Batch 9: C4a-2 control endpoint and local lock client — PENDING
+## Batch 9: C4a-2 control endpoint and local lock client (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -494,7 +522,7 @@ phase summary.
 - Rationale: holder discovery and operator release (AD-23), same lib as Batch 8.
 - Tasks: 1 | Depends on: Batch 8
 - Phase: C | Phase review: at Batch 13
-- Verify: `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,mcp-bench`
 
 ### Task 9.1: Control keys, control endpoint, `listLocalDriverLocks`/`requestRelease` — PENDING
 
@@ -514,7 +542,7 @@ phase summary.
 
 - Operator release, `in-use`, wrong-key specs pass; verify passes
 
-## Batch 10: C4a-3 registry lifecycle notifications (agent-sdk) — PENDING
+## Batch 10: C4a-3 registry lifecycle notifications (agent-sdk) (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -524,7 +552,7 @@ phase summary.
 - Rationale: two agent-sdk files, independent of Batches 8-9 by file (parallel-eligible).
 - Tasks: 1 | Depends on: Batch 1
 - Phase: C | Phase review: at Batch 13
-- Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
 ### Task 10.1: `onRecordRemoved`, `onRealSessionIdBound`, `onRealSessionIdRebound` — PENDING
 
@@ -544,31 +572,32 @@ phase summary.
 
 - Spec per removal path and the rebound branch; verify passes
 
-## Batch 11: C4a-4 host bindings and DI smoke specs — PENDING
+## Batch 11: C4a-4 host bindings and DI smoke specs (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
 - Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
 - Subagent reason: N/A
 - Review family: different from implementer
-- Rationale: D-1 exception: one-line bindings across platform-electron, platform-cli,
-  vscode-core and three host smoke specs must land together so every DI smoke spec stays green.
+- Rationale: D-1 exception: one-line bindings across platform-electron and platform-cli and the
+  two host smoke specs must land together so every DI smoke spec stays green. Round 6 (D-9): the
+  vscode-core default and the VS Code smoke file are dropped; the hosts left are Electron and
+  cli-engine (worker host, mcp-bench).
 - Tasks: 1 | Depends on: Batches 8, 9
 - Phase: C | Phase review: at Batch 13
-- Verify: `npm run verify -- -p @ptah-extension/platform-electron,@ptah-extension/platform-cli,@ptah-extension/vscode-core,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-electron,@ptah-extension/platform-cli,@ptah-extension/cli-engine,ptah-electron,mcp-bench`
 
 ### Task 11.1: Bind the lock per host — PENDING
 
 - Files: W/`libs/backend/platform-electron/src/registration.ts`,
   W/`libs/backend/platform-cli/src/registration.ts`,
-  W/`libs/backend/vscode-core/src/di/register-platform-agnostic.ts`,
-  W/`apps/ptah-extension-vscode/src/di/expected-resolvable.ts`,
   W/`apps/ptah-electron/src/di/surface-composition.spec.ts`,
   W/`libs/backend/cli-engine/src/lib/container-driver-lock.spec.ts` (create)
-- Plan reference: C4a :1020-1043; `register-platform-agnostic.ts:80-90`
+- Plan reference: C4a :1020-1043; Round 6 R6.3 component 4 (AD-30)
 - Pattern to follow: existing platform bindings in each registration file
-- Quality requirements: Electron and CLI bind `KernelSessionDriverLock` (darwin → null);
-  vscode-core default registers null only when absent; smoke specs assert the bound class
+- Quality requirements: Electron and CLI bind `KernelSessionDriverLock` (darwin → null); no
+  vscode-core default (a container without a binding fails at resolve); smoke specs assert the
+  bound class
 - Validation notes: R-H
 - Implementation details: none
 
@@ -576,7 +605,7 @@ phase summary.
 
 - Smoke specs assert the class on Electron and CLI; verify passes
 
-## Batch 12: C4b driver lock enforcement (rpc-handlers) — PENDING
+## Batch 12: C4b driver lock enforcement (rpc-handlers) (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -587,7 +616,7 @@ phase summary.
   the coordinator and its call sites consistent.
 - Tasks: 2 | Depends on: Batches 5, 10, 11
 - Phase: C | Phase review: at Batch 13
-- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
 ### Task 12.1: `SessionDriverLockCoordinator` — PENDING
 
@@ -626,7 +655,7 @@ phase summary.
 
 - Coordinator, rewind and cross-process specs pass; verify passes
 
-## Batch 13: C4c native Codex driver gate — PENDING
+## Batch 13: C4c native Codex driver gate (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -637,7 +666,7 @@ phase summary.
   its Electron wiring must compile together.
 - Tasks: 3 | Depends on: Batch 12
 - Phase: C (last) | Phase review: **code-logic + style for Phase C (Batches 8-13)**
-- Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
 ### Task 13.1: Gate port and adapter calls (agent-sdk) — PENDING
 
@@ -677,7 +706,8 @@ phase summary.
 - Quality requirements: `driver` next to `sessions` (:602), resolving the coordinator lazily via
   `CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR` (precedent `codex-session-binding.ts:40-43`);
   composition spec asserts it
-- Validation notes: CLI and VS Code untouched (null ports, `register.ts:1003-1004`)
+- Validation notes: cli-engine untouched (native ports bound to `null`, `nativeCodex: false`:
+  `libs/backend/cli-engine/src/lib/codex-runtime-composition.spec.ts:57-77`; Round 6)
 - Implementation details: none
 
 ### Batch 13 verification
@@ -741,7 +771,7 @@ phase summary.
 
 - The two bold W7 specs exist and pass; verify passes
 
-## Batch 16: C6c in-process RPC, method table, authorizer, capabilities — PENDING
+## Batch 16: C6c in-process RPC, method table, authorizer, capabilities (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -771,8 +801,12 @@ phase summary.
   W/`libs/backend/worker-runtime/src/index.ts`
 - Plan reference: C6 :1171-1177; drift specs :1204-1209
 - Quality requirements: `host: 'worker'`, `platform: 'cli'`, `filePicker: false`,
-  `assertOnDrift: false`; both drift specs (capability mapping incl. Electron profile; remote
-  surface equals `Object.keys(WORKER_METHODS)`)
+  `assertOnDrift: false`; drift spec (a) capability mapping incl. Electron profile (rows only);
+  drift spec (b) remote surface equals `Object.keys(WORKER_METHODS)`. Round 6: the in-process
+  parity half of (a) (`deriveRpcSurface(createWorkerRpcHostProfile())` vs the CLI profile)
+  moves to Task 19.2: `createCliRpcHostProfile` is in cli-engine
+  (`libs/backend/cli-engine/src/lib/rpc/cli-host-profile.ts:18`, `scope:cli`), which this
+  `scope:extension` lib may not import (`eslint.config.mjs:281-284`)
 - Validation notes: rows follow "Phase 1 minimum capability set" (a)/(b)
 - Implementation details: the module later generates the `worker.md` table (Batch 19)
 
@@ -780,7 +814,7 @@ phase summary.
 
 - Drift and outside-grant specs pass; verify passes
 
-## Batch 17: C6d session driver, approvals, transcript — PENDING
+## Batch 17: C6d session driver, approvals, transcript (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -813,14 +847,16 @@ phase summary.
   (`session-metadata-store.ts:263`, read via `get` :1424) → `CODEX_UNAVAILABLE`, no
   `chat:continue`, no lock call; metadata read error → refused; attach → snapshot; `claude-sdk`
   and metadata-less sessions take the normal path; auto-approve refused
-- Validation notes: R-J
+- Validation notes: R-J. Round 6: the reason is the worker's cli-engine composition (native
+  tokens `null`, `nativeCodex: false`, `libs/backend/cli-engine/src/lib/codex-runtime-composition.spec.ts:57-77`),
+  not the removed CLI app; behaviour unchanged
 - Implementation details: none
 
 ### Batch 17 verification
 
 - Approval, turn, transcript and native-limit specs pass; verify passes
 
-## Batch 18: C6e server, connection, readiness, service — PENDING
+## Batch 18: C6e server, connection, readiness, service (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability (security specs pinned by a test-capability lane, Task 18.3)
 - Execution mode: sequential
@@ -838,7 +874,13 @@ phase summary.
 - Plan reference: W2 :228-238; C6 :1142-1144, :1162-1170; AD-4, AD-14
 - Quality requirements: loopback literal only; `noServer` upgrade on `/rpc`; Host check; any
   `Origin` refused; other paths 404; timers released on close; readiness checks 1-7 with Node ≥ 22
-  and `better-sqlite3` load, check 7 detail text per AD-25
+  and `better-sqlite3` load, check 7 detail text per AD-25. Round 6 (plan R6.3 component 3):
+  check 2 fix text "update the Ptah desktop package" (the runtime is the desktop's bundled Node);
+  check 3 = Ptah package version (injected by the host, no packaging knowledge here) and protocol
+  version; check 6 sources `ClaudeCliDetector`
+  (`libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:130`) and
+  `resolveEffectiveAuthRoute` (`libs/backend/auth-providers/src/lib/auth/effective-route.ts:55`);
+  wording follows R6-Q1
 - Validation notes: `EADDRINUSE` names the port
 - Implementation details: none
 
@@ -867,49 +909,117 @@ phase summary.
 
 - Security suite passes; verify passes
 
-## Batch 19: C7 `ptah worker` command group — PENDING
+## Batch 19: C7 headless worker host — `worker-host` lib and desktop packaging (revised Round 6) — PENDING
 
-- Recommended executor: CLI lane backend capability
-- Execution mode: sequential
-- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+Replaces the Round 5 batch (`apps/ptah-cli` command group, removed on main). Plan: Round 6 R6.2,
+R6.3 components 1-2, AD-26 … AD-29.
+
+- Recommended executor: CLI lane backend capability for Tasks 19.2 and 19.4; Tasks 19.1 and 19.3
+  (project scaffold, build target, builder config, scripts) on a devops capability lane
+- Execution mode: sequential (19.1 → 19.2 → 19.3 → 19.4)
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer; devops-engineer for 19.1 and 19.3)
 - Subagent reason: N/A
 - Review family: different from implementer
-- Rationale: composition root plus operator docs, one app.
-- Tasks: 2 | Depends on: Batches 9, 18
+- Rationale: D-1/D-10 exception: the new lib, the ptah-electron target that bundles its entry and
+  the launcher must land together, or the desktop build references a missing entry.
+- Tasks: 4 | Depends on: Batches 6, 9, 18
 - Phase: D (last) | Phase review: **code-logic + style + review-security for Phase D (Batches 14-19)**
-- Verify: `npm run verify -- -p ptah-cli`
+- Verify: `npm run verify -- -p @ptah-extension/worker-host,ptah-electron`
+- Never run `build`, `build-worker-host`, `serve` or `package` targets; the packaged behaviour is
+  checked in G-R (A10).
 
-### Task 19.1: Command group and router — PENDING
+### Task 19.1: `@ptah-extension/worker-host` project scaffold — PENDING
 
-- Files: W/`apps/ptah-cli/src/cli/commands/worker.ts` (+ spec), W/`apps/ptah-cli/src/cli/router.ts`
-- Plan reference: C7 :1211-1245; AD-1, AD-12, AD-16, AD-21
-- Pattern to follow: router `apps/ptah-cli/src/cli/router.ts:590-600`; specs like `doctor.spec.ts`,
-  `interact.spec.ts`
-- Quality requirements: `serve`, `status`, `pair`, `workspace add|remove|list`, `grants [add]`,
-  `locks [release] [--self-test]`; `serve` calls `withEngine` with the worker profile and tap;
-  refuses auto-approve; refuses on Node < 22 or `better-sqlite3` failure; `locks release`
-  confirms and refuses without `--yes` in non-TTY; no service → clear exit message
-- Validation notes: A8 self-test command
-- Implementation details: serve integration spec with a stub bootstrap and a real `ws` client
+- Files: W/`libs/backend/worker-host/{project.json,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json,jest.config.ts,eslint.config.mjs,src/index.ts}`,
+  W/`tsconfig.base.json` (alias `@ptah-extension/worker-host`), W/`nx.json` (lint/test include
+  lists, as Batch 3 did for the four libs), W/`.commitlintrc.json` (scope `worker-host`)
+- Plan reference: R6.3 component 1; AD-28
+- Pattern to follow: W/`libs/backend/worker-runtime/project.json` (Batch 1 skeleton, typecheck
+  target) and its jest/eslint files
+- Quality requirements: tags `["scope:cli", "type:feature"]` (`eslint.config.mjs:319-326`);
+  `typecheck` target; no `build` target (ptah-electron bundles the entry)
+- Validation notes: A11 (implicit dependency added in 19.3)
+- Implementation details: none
 
-### Task 19.2: `docs/worker.md` — PENDING
+### Task 19.2: Commands, engine composition and entry — PENDING
 
 - Depends on: Task 19.1
-- File: W/`apps/ptah-cli/docs/worker.md` (create)
-- Plan reference: C7 :1218-1232; test strategy :1500-1504
-- Quality requirements: install, start/stop, uninstall, limits, durability, lock limitations
-  (incl. native Codex capability limit), Node ≥ 22 breaking change, generated capability table
-  compared by spec, Phase 1 exit runbook incl. A1 real-SSH acceptance
-- Validation notes: `files` entry already added in Batch 1
+- Files: W/`libs/backend/worker-host/src/lib/**` (argv dispatch, one file per command group:
+  serve, status, pair, workspace, grants, locks; the `withEngine` composition) (+ specs),
+  W/`libs/backend/worker-host/src/worker-host.entry.ts`, W/`libs/backend/worker-host/src/index.ts`
+- Plan reference: C7 :1211-1245 (command set and options, still valid) as amended by R6.3
+  component 1; AD-12, AD-16
+- Pattern to follow: headless boot `tools/mcp-bench/src/transport/bench-host-boot.ts:417`;
+  `withEngine` `libs/backend/cli-engine/src/lib/bootstrap/with-engine.ts:204` (test `bootstrap`
+  hook), `:273-278`; `fixPath()` as `apps/ptah-electron/src/activation/bootstrap.ts:319`
+- Quality requirements: `ptah-worker serve [--port 41873] [--max-active-turns N]`,
+  `status [--json]`, `pair [--workspace …] [--ttl 300] [--json]`, `workspace add|remove|list`,
+  `grants [list] [--json]`, `grants add <tokenId> <workspace…>`, `locks [--json]`,
+  `locks release <sessionId> [--yes]`, `locks --self-test`; argv via `node:util` `parseArgs`
+  (no new dependency); `serve`: `fixPath()`, refuse `--auto-approve` / `PTAH_AUTO_APPROVE=true`
+  (`with-engine.ts:366`), refuse on Node < 22 or `better-sqlite3` failure, then
+  `withEngine({}, { mode: 'full', thoth: 'off', hostProfile: createWorkerRpcHostProfile(),
+  pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `createWorkerServer`
+  until SIGTERM/SIGINT; Ptah version from the `package.json` beside the bundle, passed to
+  worker-runtime; `locks` via platform-core `listLocalDriverLocks`/`requestRelease` (Batch 9);
+  `locks release` confirms, refuses without `--yes` in non-TTY; no service → "worker service is
+  not running"; one JSON line on stdout for `--json`, errors on stderr, non-zero exit on failure
+- Validation notes: A8 self-test command; in-process parity drift spec moved from Task 16.2
+  (`deriveRpcSurface(createWorkerRpcHostProfile())` vs `createCliRpcHostProfile('cli')`,
+  `libs/backend/cli-engine/src/lib/rpc/cli-host-profile.ts:18`)
+- Implementation details: `serve` integration spec with a stub bootstrap and a real `ws`
+  client; auto-approve and Node/`better-sqlite3` refusal specs (injected)
+
+### Task 19.3: Desktop packaging — bundle target, launcher, systemd unit — PENDING
+
+- Depends on: Task 19.2
+- Files: W/`apps/ptah-electron/project.json` (target `build-worker-host`; `build.dependsOn` and
+  `build-dev` commands; `implicitDependencies` += `@ptah-extension/worker-host`),
+  W/`apps/ptah-electron/tsconfig.worker-host.json` (create),
+  W/`apps/ptah-electron/worker-host/{ptah-worker,ptah-worker.service}` (create),
+  W/`apps/ptah-electron/electron-builder.yml` (`linux.extraResources` → `bin/`, kept out of
+  `app.asar`), W/`apps/ptah-electron/scripts/validate-deps.js` (scan `worker-host.mjs` too),
+  W/`apps/ptah-electron/src/config/worker-host-packaging.spec.ts` (create)
+- Plan reference: R6.3 component 2; A10, A11; AD-27, AD-29
+- Pattern to follow: `build-workspace-watch-host` / `build-voice-worker` targets in
+  `apps/ptah-electron/project.json`; esbuild `vscode` alias and banner from
+  `tools/mcp-bench/project.json:99-125`; spec precedent `apps/ptah-electron/src/config/packaged-deps.spec.ts`
+- Quality requirements: output `dist/apps/ptah-electron/worker-host.mjs` beside
+  `workspace-watch-host.mjs` (`cli-workspace-watcher.ts:49-52`); externals are a subset of
+  `apps/ptah-electron/package.json` dependencies; launcher is POSIX `sh`, resolves its own real
+  path, then `ELECTRON_RUN_AS_NODE=1 exec "$appdir/ptah-desktop" "$appdir/resources/app.asar/worker-host.mjs" "$@"`;
+  unit `ExecStart=/opt/Ptah/resources/bin/ptah-worker serve --port 41873`, `Restart=on-failure`,
+  `RestartSec=5`, `KillSignal=SIGTERM`, `TimeoutStopSec=20`, `WantedBy=default.target`; the spec
+  pins the target, output name, `extraResources` entry, launcher text and that no builder config
+  disables the RunAsNode fuse
+- Validation notes: A11 — if `ptah-electron` lint rejects the implicit dependency, use target
+  `inputs` instead and report it
+- Implementation details: Linux deb only (AppImage, Windows, macOS: no launcher)
+
+### Task 19.4: `docs/worker.md` — PENDING
+
+- Depends on: Task 19.3
+- File: W/`libs/backend/worker-host/docs/worker.md` (create) (+ spec in worker-host comparing its
+  capability table with worker-runtime's capability module)
+- Plan reference: C7 docs bullet :1218-1232 as amended by R6.3 components 1-2, R6.4, R6.8
+- Quality requirements: install = desktop deb build with worker mode (no Node or npm install);
+  one provider CLI signed in (per R6-Q1); `ptah-worker workspace add`; start/stop via the user
+  unit (`systemctl --user enable --now ptah-worker`; linger per R6-Q2); uninstall
+  (`systemctl --user disable --now ptah-worker`, `rm -rf ~/.ptah/worker`); lifetimes and attempt
+  limits; durability; permission timeout; lock behaviour and limitations (native Codex capability
+  limit, older desktop builds); coexistence with the desktop GUI (plan R6.4); generated
+  capability table; Phase 1 exit runbook incl. A1 real `ssh -W` and A10 node mode
+- Validation notes: none
 - Implementation details: none
 
 ### Batch 19 verification
 
-- Command specs pass; doc table matches the module; verify passes; then NEEDS REVIEW for Phase D
+- Command, parity and packaging specs pass; doc table matches the module; verify passes; then
+  NEEDS REVIEW for Phase D
 
 ---
 
-## Batch 20: C8a SSH transport, registry, token store — PENDING
+## Batch 20: C8a SSH transport, registry, token store (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -917,20 +1027,27 @@ phase summary.
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: process and file boundaries of the Electron client, no connection logic yet.
-- Tasks: 1 | Depends on: Batches 3, 5
+- Tasks: 1 | Depends on: Batches 3, 5, 19
 - Phase: E | Phase review: at Batch 22
-- Verify: `npm run verify -- -p @ptah-extension/remote-machines`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,@ptah-extension/worker-host`
 
 ### Task 20.1: Alias, ssh commands, stdio transport, registry, token store — PENDING
 
 - Files: W/`libs/backend/remote-machines/src/lib/{ssh-alias,ssh-worker-commands,ssh-stdio-transport,machine-registry,machine-token-store}.ts`
-  (+ specs), W/`libs/backend/remote-machines/src/index.ts`
-- Plan reference: C8 :1246-1275; AD-5, AD-11
+  (+ specs), W/`libs/backend/remote-machines/src/index.ts`,
+  W/`libs/worker-protocol/src/lib/worker-command.ts` (+ spec, create; Round 6),
+  W/`libs/worker-protocol/src/index.ts`
+- Plan reference: C8 :1246-1275; AD-5, AD-11; Round 6 R6.3 component 5, AD-29
 - Quality requirements: alias regex rejects `-oProxyCommand=…`; `spawn` argument arrays,
   `shell: false`, `--`; 15 s timeout; zod-parsed output; atomic registry write; tokens via
   `ISecretStorage`
-- Validation notes: AR5 plain-text keyring warning
-- Implementation details: exact ssh option lists from the plan
+- Validation notes: AR5 plain-text keyring warning. Round 6: `WORKER_REMOTE_COMMAND =
+  '/opt/Ptah/resources/bin/ptah-worker'` exported from worker-protocol; remote argv
+  `['-o','BatchMode=yes','-o','ConnectTimeout=10','--', alias, WORKER_REMOTE_COMMAND, 'status'|'pair', '--json']`;
+  remote exit 127 or "not found" → `version-mismatch` "This Ptah build on <Machine> has no
+  worker mode. Update the Ptah desktop app there." (never `ptah worker …`)
+- Implementation details: exact ssh option lists from the plan (C8; the `-W 127.0.0.1:<port>`
+  transport is unchanged)
 
 ### Batch 20 verification
 
@@ -1041,7 +1158,7 @@ phase summary.
 
 - 4.2 and A5 specs pass; verify passes
 
-## Batch 24: C10b machine list, pairing, readiness — PENDING
+## Batch 24: C10b machine list, pairing, readiness (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane frontend capability
 - Execution mode: sequential
@@ -1061,7 +1178,11 @@ phase summary.
 - Pattern to follow: `libs/frontend/tasks-ui/src/lib/components/`; prototype screens 01-05b
 - Quality requirements: alias datalist; 8-cell code with paste; "Pair automatically via SSH";
   4.3 banners (attempt count per Q2: shown over SSH only); seven readiness checks; version
-  mismatch shows both versions; `ptah-glass` tokens
+  mismatch shows both versions; `ptah-glass` tokens. Round 6 copy (plan R6.3 component 6;
+  design layout unchanged): copyable pairing command = `WORKER_REMOTE_COMMAND` + ` pair`
+  (design-spec.md:56 says `ptah worker pair`); readiness footer names `WORKER_REMOTE_COMMAND` +
+  ` status` (design-spec.md:71 `ptah worker doctor`, marked TBC); "no worker mode" mismatch copy
+  from Batch 20
 - Validation notes: none
 - Implementation details: component specs per state
 
@@ -1069,7 +1190,7 @@ phase summary.
 
 - Component specs per state; verify passes
 
-## Batch 25: C10c remote sessions — PENDING
+## Batch 25: C10c remote sessions (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane frontend capability
 - Execution mode: sequential
@@ -1086,7 +1207,9 @@ phase summary.
 - Files: W/`libs/frontend/machines-ui/src/lib/components/{remote-session-list,remote-approval-block,reconnect-banner}/*` (+ specs)
 - Plan reference: C10 :1297-1301; design 4.6-4.8, revised 4.9
 - Quality requirements: Allow once / Deny with untruncated args; 7c neutral denial; "Fetching
-  missing events" with replay; `SESSION_DRIVER_LOCK_UNAVAILABLE` fix text; 4.9 watch-only per G-D
+  missing events" with replay; `SESSION_DRIVER_LOCK_UNAVAILABLE` fix text; 4.9 watch-only per G-D.
+  Round 6 copy: the 9d stranded fix line names `WORKER_REMOTE_COMMAND` + ` locks release <session id>`
+  (design-spec.md:123 says `ptah worker locks release`)
 - Validation notes: R-M
 - Implementation details: none
 
@@ -1105,7 +1228,7 @@ phase summary.
 
 - Specs pass; verify passes
 
-## Batch 26: C10d shell, route and surface ID — PENDING
+## Batch 26: C10d shell, route and surface ID (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane frontend capability
 - Execution mode: sequential
@@ -1117,7 +1240,7 @@ phase summary.
 - Tasks: 2 | Depends on: Batches 22, 25
 - Phase: F (last) | Phase review: **code-logic + style + visual for Phase F (Batches 23-26)**;
   visual in Electron, dark and light, against the revised prototype
-- Verify: `npm run verify -- -p @ptah-extension/shared,@ptah-extension/machines-ui,@ptah-extension/chat,@ptah-extension/core,ptah-extension-webview,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench,ptah-landing-page,ptah-license-server`
+- Verify (Round 6): `npm run verify -- -p @ptah-extension/shared,@ptah-extension/machines-ui,@ptah-extension/chat,@ptah-extension/core,ptah-extension-webview,ptah-electron,mcp-bench,ptah-landing-page`
 
 ### Task 26.1: `'machines'` surface ID and route — PENDING
 
