@@ -61,6 +61,23 @@ export class ReviewRunsStore {
     }
   }
 
+  async refresh(): Promise<void> {
+    if (this.isRefreshing()) return;
+    this.isRefreshing.set(true);
+    try {
+      const repo = this.repositories()[0] ?? this.settings()?.repositories[0] ?? defaultSettings.repositories[0];
+      const result = await this.request('review:refresh',
+        ReviewRpcSchemas['review:refresh'].params.parse({ repo: { owner: repo.owner, name: repo.name } }),
+        ReviewRpcSchemas['review:refresh'].result);
+      if (!result.ok) throw new Error('Review poll failed');
+      await this.load();
+    } catch {
+      this.state.set(this.hasCache() ? 'offline' : 'error');
+    } finally {
+      this.isRefreshing.set(false);
+    }
+  }
+
   setRepoFilter(repo: string): void { this.repoFilter.set(repo); }
   setStateFilter(state: ReviewStateFilter): void { this.stateFilter.set(state); }
   clearFilters(): void { this.repoFilter.set('all'); this.stateFilter.set('all'); }
@@ -127,7 +144,7 @@ export class ReviewRunsStore {
   /** Integration may report lane availability independently of the list RPC. */
   setNoLanesAvailable(): void { this.state.set('no-lanes'); }
 
-  private async request<T>(method: 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings' | 'review:updateSettings' | 'review:setPublicationPause', params: object, schema: z.ZodType<T>): Promise<T> {
+  private async request<T>(method: 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings' | 'review:updateSettings' | 'review:setPublicationPause' | 'review:refresh', params: object, schema: z.ZodType<T>): Promise<T> {
     // P1-16 adds review methods to the shared RPC method union. Parse results meanwhile.
     const call = this.rpc.call as (method: string, params: object, options: { timeout: number }) => Promise<{ isSuccess(): boolean; data: unknown }>;
     const response = await call.call(this.rpc, method, params, { timeout: 5_000 });

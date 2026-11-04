@@ -32,6 +32,10 @@ describe('ReviewQueryRepository', () => {
         (attempt_id, repo_id, pr_number, head_sha, attempt_number, trigger, state, queued_at)
         VALUES ('a4', 'hive-academy/ptahcode', 1, ?, 4, 'manual', 'queued', ?)`)
         .run(sha, now + 4);
+      db.prepare(`INSERT INTO review_attempts
+        (attempt_id, repo_id, pr_number, head_sha, attempt_number, trigger, state, result_status, queued_at, ended_at)
+        VALUES ('a5', 'hive-academy/ptahcode', 1, ?, 5, 'automatic', 'cancelled', 'superseded', ?, ?)`)
+        .run(sha, now + 5, now + 6);
       db.prepare(`INSERT INTO review_stages (attempt_id, stage, ordinal, state, outcome, error_summary)
         VALUES ('a3', 'lens:security-privacy', 0, 'interrupted', 'partial', 'deadline')`).run();
       const findingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -57,6 +61,12 @@ describe('ReviewQueryRepository', () => {
       db.prepare(`INSERT INTO review_poll_state (repo_id, last_error_at, last_error)
         VALUES ('hive-academy/ptahcode', ?, 'github-poll-failed')`).run(now + 5);
       expect(await query.getRun('a4')).toMatchObject({ configHash: null, deadlineAt: null, coverage: [] });
+      expect((await query.listRuns({ limit: 10 })).runs.find((run) => run.attemptId === 'a5'))
+        .toMatchObject({ status: 'superseded' });
+      expect(await query.getRun('a5')).toMatchObject({ status: 'superseded' });
+      db.prepare(`UPDATE review_attempts SET result_status = NULL WHERE attempt_id = 'a5'`).run();
+      expect((await query.listRuns({ limit: 10 })).runs.find((run) => run.attemptId === 'a5'))
+        .toMatchObject({ status: 'superseded' });
       expect((await query.getRun('a3'))?.stages).toMatchObject([{ name: 'lenses', scope: 'security-privacy',
         status: 'partial', error: 'Review stage failed' }]);
       const findings = await query.listFindings('a3');

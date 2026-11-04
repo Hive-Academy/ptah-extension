@@ -50,8 +50,8 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
           error: stage.error_summary === null ? null : 'Review stage failed',
           artifactPath: stage.artifact_path ? basename(stage.artifact_path) : null };
       });
-    const status = row.result_status ?? row.state;
-    if (status === 'completed' || status === 'cancelled') throw new Error('Review result status unavailable');
+    const status = row.result_status ?? (row.state === 'cancelled' ? 'superseded' : row.state);
+    if (status === 'completed') throw new Error('Review result status unavailable');
     return ReviewRunSchema.parse({ repo: RepoIdentitySchema.parse({ owner: row.owner, name: row.name }),
       prNumber: row.pr_number, headSha: row.head_sha, attemptId: row.attempt_id,
       trigger: row.trigger === 'automatic' ? 'poll' : 'manual',

@@ -31,4 +31,25 @@ describe('ReviewRunsPageComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[role="listitem"]')).toHaveLength(1);
   });
+
+  it('uses the header Refresh action to retry a failed poll', async () => {
+    const call = jest.fn().mockImplementation((method: string) => Promise.resolve({
+      isSuccess: () => true,
+      data: method === 'review:listRepositories'
+        ? [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }]
+        : method === 'review:listRuns'
+          ? { runs: [], nextCursor: null, poll: { status: 'failed', error: 'poll failed', lastSuccessAt: null, lastErrorAt: null } }
+          : method === 'review:refresh' ? { ok: true } : { settings: null, hasToken: false },
+    }));
+    TestBed.configureTestingModule({ imports: [ReviewRunsPageComponent], providers: [{ provide: ClaudeRpcService, useValue: { call } }] });
+    const fixture = TestBed.createComponent(ReviewRunsPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Retry with Refresh');
+    call.mockClear();
+    (fixture.nativeElement.querySelector('[aria-label="Refresh review runs"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
+  });
 });

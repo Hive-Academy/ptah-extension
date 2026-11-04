@@ -43,6 +43,8 @@ describe('SqliteReviewRepository', () => {
       const next = await repository.enqueueDiscovered(head(1, 'b'), at(2));
       expect(next.headSha).toBe('b'.repeat(40));
       expect((await repository.getAttempt(old.attemptId))?.state).toBe('cancelled');
+      expect(db.prepare('SELECT result_status FROM review_attempts WHERE attempt_id = ?').get(old.attemptId))
+        .toEqual({ result_status: 'superseded' });
       expect((await repository.getStages(old.attemptId))[0].state).toBe('interrupted');
       expect(await repository.heartbeat(old.attemptId, 'worker', at(3), at(100))).toBe(false);
     } finally { db.close(); }

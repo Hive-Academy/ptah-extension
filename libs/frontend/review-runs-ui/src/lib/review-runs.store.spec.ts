@@ -52,6 +52,27 @@ describe('ReviewRunsStore', () => {
     expect(store.state()).toBe('no-lanes');
   });
 
+  it('polls before reloading review runs and exposes a failed poll', async () => {
+    const repositories = [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }];
+    const list = { runs: [run], nextCursor: null, poll: { status: 'succeeded', error: null, lastSuccessAt: null, lastErrorAt: null } };
+    call.mockImplementation((method: string) => Promise.resolve({ isSuccess: () => true,
+      data: method === 'review:listRepositories' ? repositories : method === 'review:listRuns' ? list : { ok: true } }));
+    await store.load();
+    call.mockClear();
+    await store.refresh();
+    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
+    expect(call).toHaveBeenCalledWith('review:refresh', { repo: { owner: 'Hive-Academy', name: 'PtahCode' } }, { timeout: 5_000 });
+    expect(store.state()).toBe('ready');
+
+    call.mockClear();
+    call.mockRejectedValueOnce(new Error('poll unavailable'));
+    await store.refresh();
+    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh']);
+    expect(store.state()).toBe('offline');
+    expect(store.runs()).toEqual([run]);
+    expect(store.isRefreshing()).toBe(false);
+  });
+
   it('reads settings from the token-presence response without exposing a credential', async () => {
     const settings = {
       repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],

@@ -21,7 +21,7 @@ import { ReviewSettingsDrawerComponent } from './review-settings-drawer.componen
             @if (store.lastRefreshedAt(); as refreshed) { <p class="mt-1 text-xs text-base-content-muted">Last refreshed {{ refreshed.toLocaleString() }}</p> }
           </div>
         </div>
-        <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="Refresh review runs" [disabled]="store.isRefreshing()" (click)="store.load()">Refresh</button></div>
+        <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" (click)="openSettings()">Review settings</button><button type="button" class="btn btn-ghost btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="Refresh review runs" [disabled]="store.isRefreshing()" (click)="store.refresh()">Refresh</button></div>
       </header>
       @if (store.pauseError()) { <div class="alert alert-error mt-3" role="alert">Publication pause could not be updated.</div> }
       @if (store.poll()?.status === 'failed') { <div class="alert alert-warning mt-3" role="alert">The last review poll failed. Review runs may be out of date. Retry with Refresh.</div> }

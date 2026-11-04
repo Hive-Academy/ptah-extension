@@ -77,7 +77,7 @@ export class SqliteReviewRepository implements IReviewRepository {
         db.prepare(`UPDATE review_heads SET state = 'superseded', superseded_at = ? WHERE repo_id = ? AND pr_number = ? AND state = 'active'`).run(at, repo, head.prNumber);
         db.prepare(`UPDATE review_stages SET state = 'interrupted', ended_at = ?, error_summary = 'Head superseded' WHERE attempt_id IN
           (SELECT attempt_id FROM review_attempts WHERE repo_id = ? AND pr_number = ? AND state = 'running') AND state = 'running'`).run(at, repo, head.prNumber);
-        db.prepare(`UPDATE review_attempts SET state = 'cancelled', ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
+        db.prepare(`UPDATE review_attempts SET state = 'cancelled', result_status = 'superseded', ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
           WHERE repo_id = ? AND pr_number = ? AND state IN ('queued', 'running')`).run(at, repo, head.prNumber);
       }
       db.prepare(`INSERT INTO review_heads (repo_id, pr_number, head_sha, state, discovered_at) VALUES (?, ?, ?, 'active', ?)
