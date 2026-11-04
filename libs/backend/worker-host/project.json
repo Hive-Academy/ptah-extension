@@ -1,0 +1,20 @@
+{
+  "name": "@ptah-extension/worker-host",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/worker-host/src",
+  "tags": ["scope:cli", "type:feature"],
+  "targets": {
+    "test": {
+      "options": {
+        "passWithNoTests": true
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/worker-host/tsconfig.lib.json"
+      }
+    }
+  }
+}

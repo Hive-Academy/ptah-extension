@@ -993,7 +993,7 @@ R6.3 components 1-2, AD-26 … AD-29.
 - Never run `build`, `build-worker-host`, `serve` or `package` targets; the packaged behaviour is
   checked in G-R (A10).
 
-### Task 19.1: `@ptah-extension/worker-host` project scaffold — PENDING
+### Task 19.1: `@ptah-extension/worker-host` project scaffold — COMPLETE
 
 - Files: W/`libs/backend/worker-host/{project.json,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json,jest.config.ts,eslint.config.mjs,src/index.ts}`,
   W/`tsconfig.base.json` (alias `@ptah-extension/worker-host`), W/`nx.json` (lint/test include

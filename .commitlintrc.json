@@ -99,6 +99,7 @@
         "skill-synthesis-ui",
         "webview-e2e-harness",
         "worker-protocol",
+        "worker-host",
         "worker-runtime",
         "remote-machines",
         "machines-ui",

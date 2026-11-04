@@ -113,6 +113,9 @@
       "@ptah-extension/worker-protocol": [
         "./libs/worker-protocol/src/index.ts"
       ],
+      "@ptah-extension/worker-host": [
+        "./libs/backend/worker-host/src/index.ts"
+      ],
       "@ptah-extension/worker-runtime": [
         "./libs/backend/worker-runtime/src/index.ts"
       ],
