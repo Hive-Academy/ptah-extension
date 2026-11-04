@@ -222,6 +222,20 @@ function makeHarness(budget: BudgetFake | null): Harness {
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     null,
     budget,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
 
   return { service, readForResume };

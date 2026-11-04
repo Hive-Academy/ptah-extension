@@ -80,6 +80,13 @@ function harness(live: boolean) {
     },
   ) as ChatSlashCommandRouterService;
   const service = Object.assign(Object.create(ChatSessionService.prototype), {
+    driverLock: {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue(undefined),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    },
     logger,
     ptahCli: {
       handleContinue: jest
@@ -96,7 +103,9 @@ function harness(live: boolean) {
     // Ambient host (no account service): the gate reads local metadata only,
     // and a session without an account binding is admitted.
     sessionMetadataStore: { get: jest.fn().mockResolvedValue(undefined) },
-    workspaceProvider: createMockWorkspaceProvider({ folders: [workspacePath] }),
+    workspaceProvider: createMockWorkspaceProvider({
+      folders: [workspacePath],
+    }),
     platformInfo: {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',

@@ -257,6 +257,17 @@ function harness(bound = false) {
     null,
     accounts as unknown as Args[27],
     activeProvider as unknown as Args[28],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
   return {
     service,

@@ -14,3 +14,4 @@
 export * from './mocks';
 export * from './contracts';
 export * from './probes/count-directory-reads';
+export * from './spawn-driver-lock-holder';

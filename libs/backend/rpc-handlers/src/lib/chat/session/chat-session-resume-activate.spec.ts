@@ -106,6 +106,11 @@ function makeService(params: {
   upgradeLegacyPluginConfigAncestorRoots?: jest.Mock;
   sessionEndRegister?: jest.Mock;
   restoreAgents?: jest.Mock;
+  driverLock?: {
+    beginDrive?: jest.Mock;
+    abandonDrive?: jest.Mock;
+    assertDriveHeld?: jest.Mock;
+  };
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -245,10 +250,47 @@ function makeService(params: {
     params.restoreAgents
       ? ({ restoreAgents: params.restoreAgents } as never)
       : null,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+      ...params.driverLock,
+    } as never,
   );
 }
 
 describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
+  it('refuses activation before SDK resume when another holder owns the lock', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      resumeSession,
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(new Error('worker A holds the session')),
+      },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.stringContaining('worker A'),
+    });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
   it.each([
     {
       roots: [`${TEST_ROOT}/my-repo/ancestor`],
@@ -598,6 +640,42 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     await expect(
       svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
     ).resolves.toMatchObject({ resumed: false });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('checks the held drive before SDK auto-resume', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      metadata: { workingDirectory: OPEN_FOLDER },
+      resumeSession,
+      driverLock: {
+        assertDriveHeld: jest
+          .fn()
+          .mockRejectedValue(new Error('lock unavailable')),
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toMatchObject({ resumed: false });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses rewind admission before checking stream liveness or resuming SDK', async () => {
+    const resumeSession = jest.fn();
+    const isStreaming = jest.fn().mockReturnValue(false);
+    const svc = makeService({
+      resumeSession,
+      isStreaming,
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(new Error('worker A holds the session')),
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).rejects.toThrow('worker A');
+    expect(isStreaming).not.toHaveBeenCalled();
     expect(resumeSession).not.toHaveBeenCalled();
   });
 

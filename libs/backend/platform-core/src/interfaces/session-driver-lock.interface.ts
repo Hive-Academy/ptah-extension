@@ -22,6 +22,9 @@ export interface HeldDriverLock {
 }
 
 export interface ISessionDriverLock {
+  setLiveRecordCheck(
+    check: (sessionId: string) => boolean | Promise<boolean>,
+  ): void;
   acquire(
     sessionId: string,
     owner: DriverHolder,

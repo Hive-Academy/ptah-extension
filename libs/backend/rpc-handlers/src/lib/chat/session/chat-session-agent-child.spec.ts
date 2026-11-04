@@ -90,8 +90,11 @@ const mockCodexChatAdapterError = class LocalCodexChatAdapterError extends Error
 };
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
-  ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>('@ptah-extension/agent-sdk'),
-  isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
+  ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>(
+    '@ptah-extension/agent-sdk',
+  ),
+  isCodexChatAdapterError: (error: unknown) =>
+    error instanceof mockCodexChatAdapterError,
 }));
 
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
@@ -215,6 +218,22 @@ function makeHarness(
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
 
   // The Smithery / OAuth override resolvers read installed manifests from
@@ -290,12 +309,17 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
       const h = makeHarness();
       const failure = new mockCodexChatAdapterError('runtime-failed', 'open');
       h.startChatSession.mockRejectedValueOnce(failure);
-      await expect(h.service.startSession({ tabId: 'tab-1', prompt: 'Hello', workspacePath: ROOT }))
-        .resolves.toEqual({
-          success: false,
-          errorCode: 'CODEX_RUNTIME_FAILED',
-          error: 'Codex chat could not complete the operation.',
-        });
+      await expect(
+        h.service.startSession({
+          tabId: 'tab-1',
+          prompt: 'Hello',
+          workspacePath: ROOT,
+        }),
+      ).resolves.toEqual({
+        success: false,
+        errorCode: 'CODEX_RUNTIME_FAILED',
+        error: 'Codex chat could not complete the operation.',
+      });
     });
 
     it('passes workspaceId === projectPath === the workspace path, without a permission level', async () => {

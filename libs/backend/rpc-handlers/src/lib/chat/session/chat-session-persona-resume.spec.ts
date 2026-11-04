@@ -25,6 +25,13 @@ function service() {
   const isStreaming = jest.fn().mockReturnValue(false);
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const subject = Object.assign(Object.create(ChatSessionService.prototype), {
+    driverLock: {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue(undefined),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    },
     sdkAdapter: { isSessionActive, resumeSession },
     streamBroadcaster: { isStreaming, streamEventsToWebview: jest.fn() },
     historyRead: {

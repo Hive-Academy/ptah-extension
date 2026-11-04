@@ -134,6 +134,22 @@ function makeSessionService() {
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
   return { service, historyRead, subagentRegistry, events, stats };
 }

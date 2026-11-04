@@ -85,6 +85,11 @@ interface HarnessOptions {
   ptahCliContinue?: jest.Mock;
   /** The active-provider resolver a carry-over launch pins against. */
   activeProvider?: { resolveActiveAuthForPath: jest.Mock };
+  driverLock?: {
+    beginDrive?: jest.Mock;
+    assertRecordAdmission?: jest.Mock;
+    abandonDrive?: jest.Mock;
+  };
 }
 
 interface Harness {
@@ -205,6 +210,15 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     undefined,
     undefined,
     hostRouting,
+    undefined,
+    {
+      beginDrive: jest.fn().mockResolvedValue(undefined),
+      abandonDrive: jest.fn().mockResolvedValue(undefined),
+      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
+      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
+      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
+      ...opts.driverLock,
+    } as never,
   );
 
   jest
@@ -318,6 +332,54 @@ describe('ChatSessionService host routing admission', () => {
   });
 
   describe('never admits', () => {
+    it('checks bound-session admission before reporting start success', async () => {
+      const h = makeHarness({
+        driverLock: {
+          assertRecordAdmission: jest
+            .fn()
+            .mockRejectedValue(new Error('worker A holds the session')),
+        },
+      });
+      const result = await h.service.startSession(startParams(PROMPT));
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('worker A'),
+      });
+    });
+
+    it('skips the lock for a ptah CLI continue passthrough', async () => {
+      const beginDrive = jest
+        .fn()
+        .mockRejectedValue(new Error('should not acquire'));
+      const h = makeHarness({
+        driverLock: { beginDrive },
+        ptahCliContinue: jest
+          .fn()
+          .mockResolvedValue({ success: true, sessionId: SESSION_ID }),
+      });
+      await h.service.continueSession(continueParams(PROMPT));
+      expect(beginDrive).not.toHaveBeenCalled();
+    });
+
+    it('returns the holder name when continue acquisition is refused before SDK work', async () => {
+      const h = makeHarness({
+        driverLock: {
+          beginDrive: jest
+            .fn()
+            .mockRejectedValue(
+              new Error('Session is being driven by worker A'),
+            ),
+        },
+      });
+      const result = await h.service.continueSession(continueParams(PROMPT));
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('worker A'),
+      });
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
+      expect(h.resumeSession).not.toHaveBeenCalled();
+    });
+
     it('a native slash command on chat:start', async () => {
       const admitUserTurn: AdmitMock = jest.fn();
       const h = makeHarness({
@@ -480,9 +542,10 @@ describe('ChatSessionService host routing admission', () => {
     it('does not admit a carry-over launch, and still admits chat:start without one (AC 8.1)', async () => {
       const admitUserTurn: AdmitMock = jest.fn();
       const activeProvider = {
-        resolveActiveAuthForPath: jest
-          .fn()
-          .mockReturnValue({ authMethod: 'claudeCli', providerId: 'anthropic' }),
+        resolveActiveAuthForPath: jest.fn().mockReturnValue({
+          authMethod: 'claudeCli',
+          providerId: 'anthropic',
+        }),
       };
       const h = makeHarness({ admitUserTurn, activeProvider });
 

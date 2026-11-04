@@ -639,7 +639,7 @@ phase summary.
   with `useValue` (instance created at registration); check that the constructor does not open the
   control endpoint or any socket before first use.
 
-## Batch 12: C4b driver lock enforcement (rpc-handlers) (revised Round 6) — PENDING
+## Batch 12: C4b driver lock enforcement (rpc-handlers) (revised Round 6) — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -652,7 +652,7 @@ phase summary.
 - Phase: C | Phase review: at Batch 13
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
-### Task 12.1: `SessionDriverLockCoordinator` — PENDING
+### Task 12.1: `SessionDriverLockCoordinator` — COMPLETE
 
 - Files: W/`libs/backend/rpc-handlers/src/lib/chat/session/session-driver-lock-coordinator.ts`
   (+ spec, + `session-driver-lock-coordinator.cross-process.spec.ts`),
@@ -670,7 +670,7 @@ phase summary.
 - Implementation details: token `CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR`; export the class
   type from the barrel for Batch 13
 
-### Task 12.2: Call sites in `ChatSessionService` — PENDING
+### Task 12.2: Call sites in `ChatSessionService` — COMPLETE
 
 - Depends on: Task 12.1
 - Files: W/`libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (+ spec),
@@ -688,6 +688,13 @@ phase summary.
 ### Batch 12 verification
 
 - Coordinator, rewind and cross-process specs pass; verify passes
+- Result: executor Codex lanes (initial + 2 fix rounds). Orchestrator verify (platform-core, agent-sdk,
+  rpc-handlers, ptah-electron, mcp-bench, degradation-audit) 21/22; the one failure was load timeouts
+  in platform-core `control-endpoint.cross-process` and `file-settings-manager.bench`, which pass
+  alone (3/3). Decision (orchestrator): the live-record check is set on the lock port with
+  `setLiveRecordCheck` by the coordinator from its owner set; platform libs do not import agent-sdk.
+  `SessionRegistry` is now exported from the agent-sdk barrel (cross-process spec).
+  For Phase C review: the cross-process child start timeout is 5 s with ts-node; fragile under load.
 
 ## Batch 13: C4c native Codex driver gate (revised Round 6) — PENDING
 
