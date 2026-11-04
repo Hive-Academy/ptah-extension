@@ -119,7 +119,11 @@ type EventPart = CodexRuntimeEvent extends infer Event
     : never
   : never;
 
-function harness(configure?: (context: FakeContext, attempt: number) => void, home?: string) {
+function harness(
+  configure?: (context: FakeContext, attempt: number) => void,
+  home?: string,
+  homeResolver: () => Promise<string | undefined> = async () => home,
+) {
   let context: FakeContext | undefined;
   const contexts: FakeContext[] = [];
   let openedProfile: CodexExecutionProfile | undefined;
@@ -170,7 +174,7 @@ function harness(configure?: (context: FakeContext, attempt: number) => void, ho
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
   const createAdapter = () => new CodexAppServerLaneAdapter(
     runtime, profiles, identities, logger, binary, credentials,
-    async () => home, writers,
+    homeResolver, writers,
   );
   const adapter = createAdapter();
   return {
@@ -862,6 +866,20 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('detection failed'), { errorClass: 'Error' },
     );
+    expect(h.runtime.open).not.toHaveBeenCalled();
+  });
+
+  it('reports an explicitly empty Codex home as not installed even when a binary resolves', async () => {
+    const h = harness(undefined, undefined, async () => {
+      throw new Error('Codex home is empty');
+    });
+
+    await expect(h.adapter.detect()).resolves.toEqual({
+      cli: 'codex', installed: false, messagingMode: 'queue',
+    });
+    expect(h.binary.resolve).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith('[CodexAppServerLaneAdapter] Codex home is empty');
+    expect(h.credentials.check).not.toHaveBeenCalled();
     expect(h.runtime.open).not.toHaveBeenCalled();
   });
 

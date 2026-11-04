@@ -398,6 +398,11 @@ export class ProviderAccountRpcHandlers {
         read.state === 'unknown' && read.reason !== undefined
           ? { state: read.state, checkedAt: read.checkedAt, reason: read.reason }
           : { state: read.state, checkedAt: read.checkedAt };
+      this.logger.info('[readiness] claude', {
+        state: status.state,
+        reason: status.reason,
+        trigger: params.trigger,
+      });
       return { ok: true, status };
     } catch (error: unknown) {
       return this.refusalFrom('provider:getAmbientClaudeStatus', error);

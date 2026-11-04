@@ -31,6 +31,7 @@ import {
   PlanLimitsStore,
   ProviderAccountsStateService,
   ProvidersConnectionSetupService,
+  CodexSignInService,
   MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
@@ -475,6 +476,7 @@ export const appConfig: ApplicationConfig = {
       useExisting: ProvidersConnectionSetupService,
       multi: true,
     },
+    { provide: MESSAGE_HANDLERS, useExisting: CodexSignInService, multi: true },
     provideMarkdownRendering({ extensions: 'full' }),
     // Installs the document-level file-link listener. It acts only inside a
     // container carrying `data-ptah-file-links`, so non-agent markdown (task

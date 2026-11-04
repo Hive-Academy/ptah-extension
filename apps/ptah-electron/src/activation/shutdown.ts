@@ -124,6 +124,9 @@ export const METADATA_FLUSH_BUDGET_MS = 2000;
  */
 export const RUN_CHECK_KILL_BUDGET_MS = 5000;
 
+/** Maximum wait for the Codex sign-in child to stop during quit. */
+export const CODEX_SIGN_IN_STOP_BUDGET_MS = 2000;
+
 /**
  * How long the chain may wait for the main-chat SDK sessions to end before it
  * moves on to the agent reap and `SQLite close`.
@@ -143,6 +146,8 @@ export const CHAT_SESSION_DISPOSE_BUDGET_MS = 2000;
 export interface QuitSequenceDeps {
   /** The coordinator's stable refs object — read, never copied. */
   refs: BootRefs;
+  /** Existing Codex sign-in instance, without resolving it during quit. */
+  codexSignIn: { isActive(): boolean; stop(): Promise<void> };
   /** `coordinator.abort()`. */
   abortBoot: () => void;
   /** `coordinator.isRunning` at the moment the quit arrives. */
@@ -177,6 +182,8 @@ export interface QuitSequenceDeps {
   metadataFlushBudgetMs?: number;
   /** Override for tests. Defaults to {@link RUN_CHECK_KILL_BUDGET_MS}. */
   runCheckKillBudgetMs?: number;
+  /** Override for tests. Defaults to {@link CODEX_SIGN_IN_STOP_BUDGET_MS}. */
+  codexSignInStopBudgetMs?: number;
   /** Override for tests. Defaults to {@link CHAT_SESSION_DISPOSE_BUDGET_MS}. */
   chatSessionDisposeBudgetMs?: number;
 }
@@ -192,6 +199,8 @@ export type DisposalDeps = Pick<
   | 'agentReapBudgetMs'
   | 'metadataFlushBudgetMs'
   | 'runCheckKillBudgetMs'
+  | 'codexSignIn'
+  | 'codexSignInStopBudgetMs'
   | 'chatSessionDisposeBudgetMs'
 >;
 
@@ -230,7 +239,10 @@ function nonFatal(label: string, fn: () => void): void {
  * runs when {@link requiresDeferredDisposal} saw no running check, so there is
  * nothing for it to wait on.
  */
-function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
+function disposeBeforePersistence(deps: DisposalDeps): {
+  checksKilled: Promise<void>;
+  codexSignInStopped: Promise<void>;
+} {
   const { refs } = deps;
 
   nonFatal('ProviderProxyPool disposeAll', () => {
@@ -248,6 +260,10 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   // killed. `killRunningChecks` never rejects; the kill is started here and
   // awaited by the caller.
   const checksKilled = killRunningChecks();
+  let codexSignInStopped: Promise<void> = Promise.resolve();
+  nonFatal('Codex sign-in stop', () => {
+    codexSignInStopped = deps.codexSignIn.stop();
+  });
   nonFatal('Git root watchers stop', () => refs.gitRootWatchers?.dispose());
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
@@ -262,7 +278,7 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   // Releases routing subscriptions while their producers (the SDK adapter and
   // the session-id registry) are still alive. Synchronous, touches no SQLite.
   nonFatal('Host routing dispose', () => refs.hostRouting?.dispose());
-  return checksKilled;
+  return { checksKilled, codexSignInStopped };
 }
 
 /**
@@ -545,7 +561,8 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
  * listener.
  */
 export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
-  const killStarted = disposeBeforePersistence(deps);
+  const { checksKilled: killStarted, codexSignInStopped: stopStarted } =
+    disposeBeforePersistence(deps);
   // The check kill gates nothing in the chain, only the re-issued quit, so its
   // budget starts now and it is awaited after the rest of the teardown: the
   // gateway drain, SQLite close and the agent reap do not queue behind it.
@@ -554,6 +571,12 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
     () => killStarted,
     deps.runCheckKillBudgetMs ?? RUN_CHECK_KILL_BUDGET_MS,
     'quitting with the check trees possibly still alive.',
+  );
+  const codexSignInStopped = withBudget(
+    'Codex sign-in stop',
+    () => stopStarted,
+    deps.codexSignInStopBudgetMs ?? CODEX_SIGN_IN_STOP_BUDGET_MS,
+    'quitting with the sign-in process possibly still alive.',
   );
 
   const gateway = deps.refs.messagingGateway;
@@ -566,6 +589,7 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
 
   await disposeAfterPersistence(deps);
   await checksKilled;
+  await codexSignInStopped;
 
   // LAST, and AWAITED. The early flush in `handleWillQuit` drained what was
   // staged when the quit arrived; this one drains what the TEARDOWN ITSELF
@@ -662,7 +686,11 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
 
   const bootRunning = deps.isBootRunning();
 
-  if (!bootRunning && !requiresDeferredDisposal(deps.refs)) {
+  if (
+    !bootRunning &&
+    !requiresDeferredDisposal(deps.refs) &&
+    !deps.codexSignIn.isActive()
+  ) {
     // The common path: nothing in flight and nothing to await, so this is
     // byte-for-byte the pre-change synchronous teardown. The two halves are run
     // inline rather than through `disposeBootRefs` precisely so that no `await`

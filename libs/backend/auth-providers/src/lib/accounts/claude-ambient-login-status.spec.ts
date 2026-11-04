@@ -287,7 +287,7 @@ describe('ClaudeAmbientLoginStatusReader', () => {
       expect((await released).state).toBe('connected');
     });
 
-    it('repeated blocked reads return the earlier attempt unchanged', async () => {
+    it('changes an earlier unknown timeout to timeout while a child stays unclosed', async () => {
       await readWith(SIGNED_IN);
       jest.advanceTimersByTime(1_000);
       const receipt = new FakeReceipt();
@@ -297,13 +297,32 @@ describe('ClaudeAmbientLoginStatusReader', () => {
       const blocked1 = await reader.read({ refresh: true });
       jest.advanceTimersByTime(7_000);
       const blocked2 = await reader.read({ refresh: true });
-      expect(blocked1).toBe(timedOut);
-      expect(blocked2).toBe(timedOut);
+      expect(blocked1).toEqual(timedOut);
+      expect(blocked2).toEqual(timedOut);
       expect(commands.probes).toHaveLength(2);
       expect(commands.maxLive).toBe(1);
       receipt.close();
       expect((await readWith(SIGNED_IN, true)).state).toBe('connected');
       expect(commands.probes).toHaveLength(3);
+    });
+
+    it('answers timeout after an unreadable attempt with an unclosed child', async () => {
+      const receipt = new FakeReceipt();
+      const unreadable = await readWith({ ...UNREADABLE, terminated: false, closeReceipt: receipt });
+      expect(unreadable).toEqual({ state: 'unknown', reason: 'unreadable', checkedAt: iso() });
+      expect(await reader.read({ refresh: true })).toEqual({
+        state: 'unknown', reason: 'timeout', checkedAt: unreadable.checkedAt,
+      });
+      expect(commands.probes).toHaveLength(1);
+      receipt.close();
+    });
+
+    it('reuses a connected answer while a child stays unclosed', async () => {
+      const receipt = new FakeReceipt();
+      const connected = await readWith({ ...SIGNED_IN, terminated: false, closeReceipt: receipt });
+      expect(await reader.read({ refresh: true })).toBe(connected);
+      expect(commands.probes).toHaveLength(1);
+      receipt.close();
     });
 
     it('answers a queued caller at the 25 s deadline without touching the slow attempt (P5-D16)', async () => {

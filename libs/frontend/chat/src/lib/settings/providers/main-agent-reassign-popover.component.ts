@@ -4,7 +4,7 @@ import {
 } from '@angular/core';
 import { X, LucideAngularModule } from 'lucide-angular';
 import {
-  ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService, VSCodeService, type ProviderAccountActionOutcome,
+  ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService, VSCodeService, defaultMainConnectionTarget, type ProviderAccountActionOutcome,
   type ProviderAccountChoice, type ProvidersEditContext,
 } from '@ptah-extension/core';
 import {
@@ -356,11 +356,7 @@ export class MainAgentReassignPopoverComponent {
    * never a scope `writeScopes` did not offer (M1, Providers 21-28 review).
    */
   protected readonly target = computed<SettingScope | null>(() => {
-    const chosen = this.targetChoice(), targets = this.targets();
-    if (chosen && targets.includes(chosen)) return chosen;
-    if (targets.includes('workspace')) return 'workspace';
-    const source = this.state.mainSources().data?.model?.scope;
-    return source && targets.includes(source) ? source : targets[0] ?? null;
+    return defaultMainConnectionTarget(this.state, this.targetChoice());
   });
   /** Model, effort and Save-to accept input only once a target is offered. */
   protected readonly targetReady = computed(() => this.target() !== null);
@@ -631,7 +627,7 @@ export class MainAgentReassignPopoverComponent {
     this.saving.set(true);
     try {
       if (pending && target) {
-        await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context), (outcome) => {
+        await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context).then((result) => result.started), (outcome) => {
           if (session === this.session) this.outcome.set(outcome);
           // The toast outlives the popover. A saved provider is said by the write that follows it, when one does.
           const said = commitToast(outcome, PROVIDER_SAVED);

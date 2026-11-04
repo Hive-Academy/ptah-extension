@@ -177,7 +177,7 @@ export class ClaudeAmbientLoginStatusReader {
     const env = ambientProbeEnv(this.host.env());
     const key = this.keyOf(env);
     if (this.hasUnclosedReceipt()) {
-      const blocked = this.blocked(key);
+      const blocked = this.blockedByUnclosedChild(key);
       callers.forEach(caller => caller.answer(blocked));
       return;
     }
@@ -250,6 +250,12 @@ export class ClaudeAmbientLoginStatusReader {
   /** Earlier completed attempt for `key`, unchanged, or `unknown/timeout` without a timestamp. */
   private blocked(key: string): ProviderAmbientClaudeStatus {
     return this.lastAttempt.get(key)?.status ?? UNKNOWN_TIMEOUT;
+  }
+
+  private blockedByUnclosedChild(key: string): ProviderAmbientClaudeStatus {
+    const last = this.lastAttempt.get(key)?.status;
+    if (last?.state === 'connected' || last?.state === 'signed-out') return last;
+    return { state: 'unknown', reason: 'timeout', checkedAt: last?.checkedAt ?? null };
   }
 
   private currentKey(): string {

@@ -8,11 +8,8 @@ import {
   OnboardingFlagService,
   type OnboardingFlag,
 } from '../first-run/onboarding-flag.service';
-import {
-  ClaudeReadinessStore,
-  type ClaudeReadinessState,
-  type ClaudeReadinessView,
-} from '../ready/claude-readiness.store';
+import { ProviderReadinessStore } from '../ready/provider-readiness.store';
+import { deriveChosen, type ProviderReadinessState, type ProviderReadinessView } from '../ready/provider-readiness.derive';
 import { OnboardingHomeComponent } from './onboarding-home.component';
 import { OnboardingWorkspaceStore } from '../shell/onboarding-workspace.store';
 import { WizardRpcService } from '@ptah-extension/setup-wizard';
@@ -65,23 +62,21 @@ describe('OnboardingHomeComponent', () => {
   function createReadinessStore(available: boolean) {
     return {
       available,
-      view: signal<ClaudeReadinessView>({
-        state: 'checking',
-        errorCause: null,
-        path: null,
-        version: null,
-      }),
-      rechecking: signal(false),
-      refresh: jest.fn().mockResolvedValue('ready'),
+      chosen: signal(deriveChosen({ kind: 'claude-cli' }, providerView('claude-cli', 'checking'), providerView('openai-codex', 'checking'))),
+      refresh: jest.fn().mockResolvedValue(undefined),
     };
   }
-  function setReadiness(state: ClaudeReadinessState): void {
-    readiness.view.set({ state, errorCause: null, path: null, version: null });
+  function providerView(provider: ProviderReadinessView['provider'], state: ProviderReadinessState): ProviderReadinessView {
+    return { provider, state, errorCause: state === 'slow' ? 'timeout' : null,
+      failedFact: null, path: null, version: null, source: null };
+  }
+  function setReadiness(state: ProviderReadinessState): void {
+    readiness.chosen.set(deriveChosen({ kind: 'claude-cli' }, providerView('claude-cli', state), providerView('openai-codex', 'checking')));
     fixture.detectChanges();
   }
   function useReadiness(available: boolean): void {
     readiness = createReadinessStore(available);
-    TestBed.overrideProvider(ClaudeReadinessStore, { useValue: readiness });
+    TestBed.overrideProvider(ProviderReadinessStore, { useValue: readiness });
   }
 
   function el(): HTMLElement {
@@ -112,7 +107,7 @@ describe('OnboardingHomeComponent', () => {
         provideRouter([]),
         { provide: SetupStatusStore, useValue: store },
         { provide: OnboardingFlagService, useValue: { markDismissed, flag } },
-        { provide: ClaudeReadinessStore, useValue: readiness },
+        { provide: ProviderReadinessStore, useValue: readiness },
         { provide: AppStateManager, useValue: { setCurrentView } },
         { provide: LoggingService, useValue: { warn: jest.fn() } },
         { provide: OnboardingResumeStore, useValue: resume },
@@ -152,7 +147,7 @@ describe('OnboardingHomeComponent', () => {
     expect(resume.refresh).toHaveBeenCalledTimes(2);
   });
 
-  it('places resume banners after the Claude banner and opens their target', () => {
+  it('places resume banners after the connection banner and opens their target', () => {
     resume.items.set([
       {
         id: 'generation:tab-1',
@@ -165,12 +160,13 @@ describe('OnboardingHomeComponent', () => {
       },
     ]);
     render();
-    const claude = el().querySelector('ptah-claude-readiness-banner');
+    setReadiness('missing');
+    const banner = byTestId('connection-readiness-banner');
     const banners = byTestId('onboarding-resume-banners');
-    expect(claude).not.toBeNull();
+    expect(banner).not.toBeNull();
     expect(banners?.textContent).toContain('Continue agent generation');
     expect(
-      claude!.compareDocumentPosition(banners!) &
+      banner!.compareDocumentPosition(banners!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const navigate = jest
@@ -325,7 +321,7 @@ describe('OnboardingHomeComponent', () => {
           .querySelector('li[aria-current="step"]')
           ?.getAttribute('data-step'),
       ).toBe('3');
-      expect(readiness.refresh).toHaveBeenCalledWith(false);
+      expect(readiness.refresh).toHaveBeenCalledWith('mount');
     });
 
     it('item 2 reads Skipped on Home after a skip', () => {
@@ -336,7 +332,7 @@ describe('OnboardingHomeComponent', () => {
       );
     });
 
-    it.each<[ClaudeReadinessState, string]>([
+    it.each<[ProviderReadinessState, string]>([
       ['missing', 'Install Claude Code'],
       ['signed-out', 'Sign in'],
       ['error', 'Check again'],
@@ -345,7 +341,7 @@ describe('OnboardingHomeComponent', () => {
       (state, action) => {
         render();
         setReadiness(state);
-        const banner = byTestId('claude-readiness-banner');
+        const banner = byTestId('connection-readiness-banner');
         expect(banner?.querySelector('a')?.textContent?.trim()).toBe(action);
         const lede = el().querySelector('section > p');
         const tiles = el().querySelector('ptah-onboarding-path-tile');
@@ -363,16 +359,23 @@ describe('OnboardingHomeComponent', () => {
     it('clears the banner without a flag write once a re-read returns ready', () => {
       render();
       setReadiness('missing');
-      expect(byTestId('claude-readiness-banner')).not.toBeNull();
+      expect(byTestId('connection-readiness-banner')).not.toBeNull();
       setReadiness('ready');
-      expect(byTestId('claude-readiness-banner')).toBeNull();
+      expect(byTestId('connection-readiness-banner')).toBeNull();
       expect(markDismissed).not.toHaveBeenCalled();
     });
 
-    it('links "Review Claude Code and settings" to stage 1 in the footer', () => {
+    it('shows Taking longer in the strip without a banner after a mount timeout', () => {
+      render();
+      setReadiness('slow');
+      expect(el().querySelector('li[data-step="1"]')?.textContent).toContain('Taking longer');
+      expect(byTestId('connection-readiness-banner')).toBeNull();
+    });
+
+    it('links "Review your connection and settings" to stage 1 in the footer', () => {
       render();
       const link = byTestId<HTMLAnchorElement>('onboarding-review-ready');
-      expect(link?.textContent?.trim()).toBe('Review Claude Code and settings');
+      expect(link?.textContent?.trim()).toBe('Review your connection and settings');
       expect(link?.getAttribute('href')).toBe('/onboarding/ready');
     });
   });
@@ -382,15 +385,10 @@ describe('OnboardingHomeComponent', () => {
 
     it('renders no strip, banner or link and reads nothing', () => {
       render();
-      readiness.view.set({
-        state: 'missing',
-        errorCause: null,
-        path: null,
-        version: null,
-      });
+      readiness.chosen.set(deriveChosen({ kind: 'openai-codex' }, providerView('claude-cli', 'checking'), providerView('openai-codex', 'missing')));
       fixture.detectChanges();
       expect(el().querySelector('ptah-ready-strip')).toBeNull();
-      expect(el().querySelector('ptah-claude-readiness-banner')).toBeNull();
+      expect(el().querySelector('ptah-connection-readiness-banner')).toBeNull();
       expect(byTestId('onboarding-review-ready')).toBeNull();
       expect(readiness.refresh).not.toHaveBeenCalled();
     });

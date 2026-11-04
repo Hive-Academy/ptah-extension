@@ -14,6 +14,7 @@ import {
 } from '@ptah-extension/codex-runtime';
 import {
   CodexHomeAuthService,
+  isCodexHomeExplicitlyEmpty,
   resolveCodexHome,
 } from './codex-home-auth.service';
 
@@ -76,6 +77,57 @@ describe('CodexHomeAuthService', () => {
       resolveCodexHome({ CODEX_HOME: '  ', HOME: b, USERPROFILE: b }, () => a),
     ).toBe(join(a, '.codex'));
     expect(resolveCodexHome({}, () => a)).toBe(join(a, '.codex'));
+  });
+
+  it('detects only explicitly empty Codex home settings', () => {
+    expect(isCodexHomeExplicitlyEmpty({ CODEX_HOME: '' })).toBe(true);
+    expect(isCodexHomeExplicitlyEmpty({ HOME: '' })).toBe(true);
+    expect(isCodexHomeExplicitlyEmpty({ HOME: '', USERPROFILE: a })).toBe(false);
+    expect(isCodexHomeExplicitlyEmpty({ CODEX_HOME: ' ', HOME: '' })).toBe(false);
+    expect(isCodexHomeExplicitlyEmpty({})).toBe(false);
+  });
+
+  it.each([
+    ['absent', undefined, 'signed-out', { authenticated: false, stale: false }],
+    ['invalid JSON', '{', 'unreadable', { authenticated: false, stale: false }],
+    ['stale token', stale('a'), 'stale', { authenticated: true, stale: true }],
+    ['fresh token', { tokens: { access_token: 'synthetic-access' }, last_refresh: new Date().toISOString() }, 'signed-in', { authenticated: true, stale: false }],
+    ['API key', { OPENAI_API_KEY: 'synthetic-key' }, 'signed-in', { authenticated: true, stale: false }],
+  ] as const)('classifies %s from one disk read without changing token status', async (_name, fixture, outcome, tokenStatus) => {
+    if (fixture !== undefined) {
+      await writeFile(join(a, 'auth.json'), typeof fixture === 'string' ? fixture : JSON.stringify(fixture));
+    }
+    const auth = service.forHome(a);
+    expect(await auth.getTokenStatus()).toEqual(tokenStatus);
+    const read = jest.mocked(fs.readFile);
+    read.mockClear();
+    expect(await auth.getSignInOutcome()).toBe(outcome);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(await auth.getTokenStatus()).toEqual(tokenStatus);
+  });
+
+  it('reports an inaccessible auth file as unreadable without logging the path', async () => {
+    const failure = Object.assign(new Error('synthetic-private-path'), { code: 'EACCES' });
+    jest.mocked(fs.readFile).mockRejectedValueOnce(failure);
+    expect(await service.forHome(a).getSignInOutcome()).toBe('unreadable');
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('synthetic-private-path');
+  });
+
+  it.each([
+    ['ENOENT', 'signed-out'],
+    ['ENOTDIR', 'signed-out'],
+    ['EACCES', 'unreadable'],
+  ] as const)('reads %s from a cross-realm shaped error', async (code, expected) => {
+    jest.mocked(fs.readFile).mockRejectedValueOnce({ code, message: 'synthetic-private-path' });
+    expect(await service.forHome(a).getSignInOutcome()).toBe(expected);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('synthetic-private-path');
+  });
+
+  it('treats a missing parent directory as signed out', async () => {
+    expect(await service.forHome(join(root, 'missing')).getSignInOutcome()).toBe('signed-out');
+    const file = join(root, 'not-a-directory');
+    await writeFile(file, 'synthetic');
+    expect(await service.forHome(file).getSignInOutcome()).toBe('signed-out');
   });
 
   it('shares the core home key across trailing separators and Windows case aliases', () => {
@@ -386,6 +438,7 @@ describe('CodexHomeAuthService', () => {
       .mockRejectedValue(new Error('synthetic-sensitive-path'));
     expect(await service.ensureTokensFresh(a)).toBe(true);
     service.forHome(a).clearCache();
+    expect(await service.forHome(a).getSignInOutcome()).toBe('signed-in');
     expect((await service.forHome(a).getHeaders()).Authorization).toBe(
       'Bearer fresh-a',
     );

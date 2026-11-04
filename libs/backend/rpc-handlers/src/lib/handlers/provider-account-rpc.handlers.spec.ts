@@ -1042,6 +1042,30 @@ describe('ProviderAccountRpcHandlers', () => {
       expect(ambient.reads).toEqual([{ refresh: true }]);
     });
 
+    it.each(['mount', 'follow-up', 'recheck'] as const)(
+      'accepts trigger %s and logs only readiness fields',
+      async trigger => {
+        const ambient = new FakeAmbientReader();
+        const { call, logger } = setup({ ambient });
+        ambient.next = {
+          state: 'unknown',
+          checkedAt: null,
+          reason: 'unreadable',
+        };
+        await call('provider:getAmbientClaudeStatus', {
+          provider: 'claude',
+          trigger,
+        });
+        expect(logger.info).toHaveBeenCalledWith('[readiness] claude', {
+          state: 'unknown',
+          reason: 'unreadable',
+          trigger,
+        });
+        expect(JSON.stringify(logger.info.mock.calls)).not.toContain(ROOT);
+        expect(JSON.stringify(logger.info.mock.calls)).not.toContain('configDir');
+      },
+    );
+
     it.each([
       ['omitted', { provider: 'claude' }],
       ['false', { provider: 'claude', refresh: false }],
@@ -1058,6 +1082,8 @@ describe('ProviderAccountRpcHandlers', () => {
       ['a config dir', { provider: 'claude', configDir: '/home/me/.claude' }],
       ['a non-boolean refresh', { provider: 'claude', refresh: 'yes' }],
       ['an unknown provider', { provider: 'gemini' }],
+      ['an unknown trigger', { provider: 'claude', trigger: 'other' }],
+      ['an extra key with a trigger', { provider: 'claude', trigger: 'mount', path: ROOT }],
       ['no params', undefined],
     ])('rejects %s before reading', async (_label, params) => {
       const ambient = new FakeAmbientReader();
