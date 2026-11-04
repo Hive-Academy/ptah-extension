@@ -69,6 +69,11 @@ export interface SessionRecord {
  * Where the view comes from: `log` follows the worker's event log; `snapshot`
  * is a saved transcript an attach returned for a session it cannot stream
  * (not logged, or another process drives it). A snapshot never updates.
+ *
+ * Host contract: a snapshot is left only through a new connection. To refresh
+ * it (for example after the driver lock is released), the host replaces the
+ * socket and dispatches `connected` once the new socket is open; the reducer
+ * then asks for a fresh attach. Frames on the old connection are ignored.
  */
 export type SessionViewSource = 'log' | 'snapshot';
 
