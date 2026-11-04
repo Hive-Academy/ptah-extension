@@ -1,5 +1,6 @@
 import type { EventFrame } from '../frames';
 import {
+  MAX_ATTACH_RETRIES,
   MAX_HELD_FRAMES,
   initialSessionEventState,
   reduceSessionEvent,
@@ -223,7 +224,31 @@ describe('SessionEventReducer gap → replay request', () => {
       kind: 'replay',
       token: token + 1,
       settled: false,
+      retries: 1,
     });
+  });
+
+  it('stops retrying after MAX_ATTACH_RETRIES failures in a row until the next connected', () => {
+    let state = run([baseline(1, []), frame(2), frame(6)]).state;
+    const sent: number[] = [];
+    for (let i = 0; i <= MAX_ATTACH_RETRIES; i++) {
+      const step = dispatch(state, {
+        kind: 'attach-failed',
+        token: currentToken(state),
+      });
+      state = step.state;
+      if (step.attach) sent.push(step.attach.token);
+    }
+    expect(sent).toHaveLength(MAX_ATTACH_RETRIES);
+    // A further gap does not restart it; the recovery is still in charge.
+    expect(run([frame(8)], state).attaches).toEqual([]);
+    const reconnected = dispatch(state, { kind: 'connected' });
+    expect(reconnected.attach?.params).toEqual({
+      sessionId: SESSION,
+      afterSeq: 2,
+      epoch: 'e-1',
+    });
+    expect(reconnected.state.recovery).toMatchObject({ retries: 0 });
   });
 
   it('ignores a failure or success that carries a stale token', () => {
@@ -273,6 +298,7 @@ describe('SessionEventReducer held-frame overflow → resync', () => {
       kind: 'resync',
       token: 2,
       settled: false,
+      retries: 0,
     });
     expect(state.target).toBe(1_003);
     expect(state.last).toBe(1);
@@ -390,6 +416,7 @@ describe('SessionEventReducer connect', () => {
       kind: 'resync',
       token: 1,
       settled: false,
+      retries: 0,
     });
   });
 
@@ -554,7 +581,7 @@ describe('SessionEventReducer epoch reset', () => {
     expect(step.attach).toEqual({ token, params: { sessionId: SESSION } });
     expect(step.state).toEqual({
       ...initialSessionEventState(SESSION),
-      recovery: { kind: 'resync', token, settled: false },
+      recovery: { kind: 'resync', token, settled: false, retries: 0 },
       nextToken: token + 1,
     });
     expect(dispatch(step.state, { kind: 'connected' }).attach?.params).toEqual({

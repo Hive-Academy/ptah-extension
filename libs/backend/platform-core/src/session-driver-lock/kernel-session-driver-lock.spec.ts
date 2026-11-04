@@ -127,6 +127,36 @@ describe('session endpoint naming', () => {
       await lock.dispose();
     }
   });
+
+  it('releases even when a holder query peer never closes or resets', async () => {
+    const lock = new KernelSessionDriverLock();
+    const id = `idle-peer-${process.pid}-${Date.now()}`;
+    const first = await lock.acquire(id, {
+      kind: 'desktop',
+      hostname: 'local',
+      pid: process.pid,
+      label: 'test',
+      acquiredAt: new Date().toISOString(),
+      responding: true,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const endpoint = sessionDriverEndpoint(id);
+    // Half-open peer: reads the holder line, never ends its side.
+    const idle = net.createConnection({ path: endpoint, allowHalfOpen: true });
+    idle.on('error', () => undefined);
+    await new Promise<void>((resolve) => idle.once('data', () => resolve()));
+    // Resetting peer: aborts while the holder line is being written.
+    const reset = net.createConnection(endpoint);
+    reset.on('error', () => undefined);
+    reset.once('connect', () => reset.resetAndDestroy());
+    try {
+      expect(await lock.release(id, first.nonce)).toBe('released');
+    } finally {
+      idle.destroy();
+      await lock.dispose();
+    }
+  }, 10000);
 });
 
 describe('Windows user endpoint identity', () => {

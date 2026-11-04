@@ -5,7 +5,9 @@ import { RpcUserError, TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
+  PlatformType,
   type DriverHolder,
+  type IPlatformInfo,
   type ISessionDriverLock,
 } from '@ptah-extension/platform-core';
 
@@ -47,6 +49,8 @@ export class SessionDriverLockCoordinator {
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly lifecycle: SessionLifecycleManager,
     @inject(TOKENS.LOGGER) private readonly logger: Pick<Logger, 'error'>,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: Pick<IPlatformInfo, 'type'>,
   ) {
     lock.setLiveRecordCheck((sessionId) => owned(this.owners.get(sessionId)));
     // Operator release runs in the session's queue, so no owner can be admitted
@@ -116,7 +120,7 @@ export class SessionDriverLockCoordinator {
 
   private owner(): DriverHolder {
     return {
-      kind: 'desktop',
+      kind: this.platformInfo.type === PlatformType.CLI ? 'cli' : 'desktop',
       hostname: hostname(),
       pid: process.pid,
       label: `Ptah (${hostname()}, PID ${process.pid})`,

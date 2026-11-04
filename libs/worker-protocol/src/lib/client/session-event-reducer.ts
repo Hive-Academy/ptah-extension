@@ -31,7 +31,12 @@
  * - Every request carries a new token and supersedes the one before it. The
  *   host reports the outcome with that token (`attach-succeeded`,
  *   `attach-failed`); an outcome whose token is not the current recovery's is
- *   stale and ignored. A failure of the current request retries it.
+ *   stale and ignored. A failure of the current request retries it at once,
+ *   at most {@link MAX_ATTACH_RETRIES} times in a row; then the recovery
+ *   waits for the next `connected` (the reducer has no clock for backoff).
+ *   Host contract: connection loss is reported as `connected` on the new
+ *   socket, not as `attach-failed`; a host that retries on a timer itself
+ *   reconnects and dispatches `connected`.
  * - The recovery ends only after its attach succeeded and the view reached
  *   `target` with nothing held. A frame that happens to fill `last + 1`
  *   meanwhile does not end it.
@@ -133,6 +138,8 @@ export interface SessionRecovery {
   readonly token: number;
   /** The attach call succeeded; its records are streaming in. */
   readonly settled: boolean;
+  /** Failed attaches this recovery already retried in a row. */
+  readonly retries: number;
 }
 
 export interface SessionEventState {
@@ -189,6 +196,12 @@ export interface SessionEventStep {
  * and resyncs from a fresh attach.
  */
 export const MAX_HELD_FRAMES = 1_000;
+
+/**
+ * Most immediate retries of a failed attach. Bounds the loop a permanent
+ * error (or a closed connection rejecting at once) would otherwise spin.
+ */
+export const MAX_ATTACH_RETRIES = 3;
 
 const EMPTY_TRANSCRIPT: SessionTranscript = Object.freeze({
   source: 'log',
@@ -253,9 +266,9 @@ export function reduceSessionEvent(
       );
     case 'attach-failed': {
       const attempt = currentAttempt(state, action.token);
-      return attempt === null
+      return attempt === null || attempt.retries >= MAX_ATTACH_RETRIES
         ? { state, attach: null }
-        : requestRecovery(state, attempt.kind);
+        : requestRecovery(state, attempt.kind, attempt.retries + 1);
     }
     case 'attach-succeeded':
       return attachSucceeded(state, action.token, action.result);
@@ -386,6 +399,7 @@ function holdPastGap(
 function requestRecovery(
   state: SessionEventState,
   kind: SessionRecovery['kind'],
+  retries = 0,
 ): SessionEventStep {
   const token = state.nextToken;
   const params: SessionAttachRequest =
@@ -399,7 +413,7 @@ function requestRecovery(
   return {
     state: {
       ...state,
-      recovery: { kind, token, settled: false },
+      recovery: { kind, token, settled: false, retries },
       nextToken: token + 1,
     },
     attach: { token, params },
