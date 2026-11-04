@@ -41,7 +41,8 @@ export class SessionLogWriter {
 
   constructor(
     readonly log: SessionEventLog,
-    private readonly fanOut: SessionFanOut,
+    /** Subscribers attach here; only this writer publishes to it. */
+    readonly fanOut: SessionFanOut,
     private readonly options: SessionLogWriterOptions,
   ) {
     this.now = options.now ?? Date.now;

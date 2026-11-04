@@ -3,7 +3,7 @@ import type { RpcMethodResult, SessionId } from '@ptah-extension/shared';
 import { IN_PROCESS_SPECS, InProcessRpc, type RpcSpec } from './in-process-rpc';
 import { SessionLogWriter } from './session-log-writer';
 import { SessionEventLog } from './session-event-log';
-import { Transcript } from './transcript';
+import { historyMark, Transcript } from './transcript';
 
 export type DriverErrorCode =
   | 'TURN_IN_FLIGHT'
@@ -28,6 +28,12 @@ export interface DriverTurn {
   sessionId: string;
   tabId: string;
   turnId: string;
+}
+export interface DriverStart {
+  tabId: string;
+  prompt: string;
+  workspacePath: string;
+  name?: string;
 }
 
 /** The local chat RPC is the only turn admission path; its coordinator owns the lock. */
@@ -153,6 +159,67 @@ export class SessionDriver {
     }
   }
 
+  /**
+   * Starts a new session on a worker tab. `resolved` yields the session ID once
+   * the backend reports it and its log is open. Tab events that arrived first are
+   * delivered after the empty baseline and `worker:turn.begin`, in arrival order.
+   */
+  async start(
+    params: DriverStart,
+    resolved: () => Promise<string>,
+    deliver: (sessionId: string, event: unknown) => void,
+  ): Promise<DriverTurn> {
+    if (!this.providerReady())
+      throw new SessionDriverError('NO_PROVIDER_READY');
+    if (this.turns.size + this.reservations.size >= this.maxActiveTurns)
+      throw new SessionDriverError('WORKER_BUSY');
+    // Session IDs never contain ':', so a tab reservation cannot collide.
+    const reservation = `tab:${params.tabId}`;
+    this.reservations.add(reservation);
+    try {
+      const result = await this.rpc.call(
+        'chat:start',
+        {
+          tabId: params.tabId,
+          prompt: params.prompt,
+          workspacePath: params.workspacePath,
+          ...(params.name ? { name: params.name } : {}),
+        },
+        IN_PROCESS_SPECS['chat:start'] as unknown as RpcSpec<
+          RpcMethodResult<'chat:start'>
+        >,
+      );
+      if (!result.ok) {
+        if (result.error.code === 'DRIVER_LOCK_UNAVAILABLE')
+          throw new SessionDriverError('DRIVER_LOCK_UNAVAILABLE');
+        throw new SessionDriverError('INTERNAL');
+      }
+      const sessionId = await resolved();
+      const writer = this.writerFor(sessionId);
+      try {
+        // A new session has no history before its first turn.
+        await writer.enqueue('worker:baseline', {
+          events: [],
+          historyMark: historyMark([]),
+        });
+        const turn: DriverTurn = {
+          sessionId,
+          tabId: params.tabId,
+          turnId: randomUUID(),
+        };
+        await writer.enqueue('worker:turn.begin', { turnId: turn.turnId });
+        this.turns.set(sessionId, turn);
+        this.resolveTab(params.tabId, sessionId, deliver);
+        return turn;
+      } catch (error) {
+        await this.abort(sessionId);
+        throw error;
+      }
+    } finally {
+      this.reservations.delete(reservation);
+    }
+  }
+
   async end(sessionId: string): Promise<void> {
     const turn = this.turns.get(sessionId);
     if (!turn) return;
@@ -166,6 +233,7 @@ export class SessionDriver {
   }
 
   async abort(sessionId: string): Promise<void> {
+    const turn = this.turns.get(sessionId);
     this.turns.delete(sessionId);
     await this.rpc.call(
       'chat:abort',
@@ -174,6 +242,15 @@ export class SessionDriver {
         RpcMethodResult<'chat:abort'>
       >,
     );
+    if (!turn) return;
+    const writer = this.writerFor(sessionId);
+    if (writer.degraded) return;
+    // Close the open turn in the log.
+    // degradation-audit: reported - a failed append degrades the writer, which
+    // sends subscribers ctl session-state; log recovery closes the turn on restart.
+    await writer
+      .enqueue('worker:turn.interrupted', { turnId: turn.turnId })
+      .catch(() => undefined);
   }
 
   /** Wire this callback into SessionLogWriterOptions.onAppendFailed. */

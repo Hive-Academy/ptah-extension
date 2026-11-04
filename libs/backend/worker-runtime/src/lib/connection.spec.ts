@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { WebSocket } from 'ws';
-import { WorkerConnection } from './connection';
+import { WorkerConnection, type WorkerPeer } from './connection';
 import { WORKER_LIMITS } from '@ptah-extension/worker-protocol';
 import type { PairingWindow } from './pairing-window';
 import type { TokenStore } from './token-store';
@@ -157,4 +157,60 @@ describe('liveness timers', () => {
     expect(socket.code).toBe(4401);
     expect(jest.getTimerCount()).toBe(0);
   });
+});
+
+it('gives the handler a peer whose reply tasks run after the response and whose close listeners run once', async () => {
+  const socket = new FakeSocket();
+  const closed = jest.fn();
+  const handle = jest.fn(
+    async (
+      _method: string,
+      _params: unknown,
+      _grant: unknown,
+      _admin: boolean,
+      peer: WorkerPeer,
+    ) => {
+      expect(peer.tokenId).toBe('t');
+      peer.afterReply(() =>
+        peer.send({
+          v: 1,
+          kind: 'ctl',
+          type: 'session-state',
+          payload: { sessionId: 's' },
+        }),
+      );
+      peer.onClose(closed);
+      return { machineId: 'm' };
+    },
+  );
+  const tokens = {
+    authenticate: () => ({
+      tokenId: 't',
+      grant: { machineId: 'm', workspaceIds: [] },
+    }),
+  } as unknown as TokenStore;
+  const connection = new WorkerConnection(socket as unknown as WebSocket, {
+    identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+    pairing: {} as PairingWindow,
+    tokens,
+    handle,
+  });
+  socket.emit(
+    'message',
+    frame('1', 'hello', {
+      protocol: { min: 1, max: 1 },
+      client: { name: 'c', version: '1' },
+    }),
+    false,
+  );
+  socket.emit('message', frame('2', 'auth', { token: 't' }), false);
+  socket.emit('message', frame('3', 'machine.info', {}), false);
+  await new Promise((resolve) => setImmediate(resolve));
+  const kinds = socket.frames
+    .slice(2)
+    .map((item) => (item as { kind: string }).kind);
+  expect(kinds).toEqual(['res', 'ctl']);
+  connection.close();
+  connection.close();
+  expect(closed).toHaveBeenCalledTimes(1);
 });

@@ -133,3 +133,32 @@ describe('WORKER_METHODS', () => {
     ).toBe(false);
   });
 });
+
+it('keeps a typed refusal code from a handler and hides any other failure', async () => {
+  const handlers = Object.fromEntries(
+    REMOTE_METHODS.map((name) => [name, jest.fn()]),
+  ) as unknown as Record<string, jest.Mock>;
+  handlers['workspaces.list'].mockRejectedValue(
+    Object.assign(new Error('busy'), { code: 'WORKER_BUSY' }),
+  );
+  handlers['machine.info'].mockRejectedValue(
+    Object.assign(new Error('private path'), { code: 'CODEX_UNAVAILABLE' }),
+  );
+  const typed = await dispatchWorkerMethod(
+    'workspaces.list',
+    {},
+    inside,
+    authorizer,
+    handlers as unknown as WorkerHandlers,
+  );
+  expect(typed).toMatchObject({ ok: false, error: { code: 'WORKER_BUSY' } });
+  const hidden = await dispatchWorkerMethod(
+    'machine.info',
+    {},
+    inside,
+    authorizer,
+    handlers as unknown as WorkerHandlers,
+  );
+  expect(hidden).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+  expect(JSON.stringify(hidden)).not.toContain('private path');
+});

@@ -1,4 +1,5 @@
 import {
+  isWorkerErrorCode,
   REMOTE_METHODS,
   WORKER_METHOD_SCHEMAS,
   workerError,
@@ -90,8 +91,17 @@ export async function dispatchWorkerMethod(
     const result = row.result.safeParse(value);
     if (!result.success) return { ok: false, error: workerError('INTERNAL') };
     return { ok: true, value: result.data };
-  } catch {
-    return { ok: false, error: workerError('INTERNAL') };
+  } catch (error) {
+    // A typed refusal (TURN_IN_FLIGHT, WORKER_BUSY, ALREADY_ANSWERED, ...)
+    // keeps its code and fixed copy; anything else stays INTERNAL.
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? error.code
+        : undefined;
+    return {
+      ok: false,
+      error: workerError(isWorkerErrorCode(code) ? code : 'INTERNAL'),
+    };
   }
 }
 

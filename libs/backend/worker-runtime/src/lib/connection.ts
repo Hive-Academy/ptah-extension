@@ -7,6 +7,8 @@ import {
   parseClientFrame,
   parseMethodParams,
   workerError,
+  type ControlFrame,
+  type EventFrame,
   type WorkerGrant,
   type WorkerIdentity,
   type WorkerErrorCode,
@@ -14,6 +16,20 @@ import {
 import { PairingWindow } from './pairing-window';
 import { TokenStore } from './token-store';
 import { verifyAdminKey } from './admin-key';
+
+/** The calling connection, as an authenticated method handler sees it. */
+export interface WorkerPeer {
+  readonly id: string;
+  /** The authenticated client token; null on the admin channel. */
+  readonly tokenId: string | null;
+  /** Pushes an event or control frame; a closed connection drops it. */
+  send(frame: EventFrame | ControlFrame): void;
+  /** Runs after this request's successful response frame has been sent. */
+  afterReply(task: () => void): void;
+  /** Runs once when the connection closes. */
+  onClose(listener: () => void): void;
+  close(code?: number): void;
+}
 
 export interface ConnectionOptions {
   identity: WorkerIdentity;
@@ -25,6 +41,7 @@ export interface ConnectionOptions {
     params: unknown,
     grant: WorkerGrant | null,
     admin: boolean,
+    peer: WorkerPeer,
   ) => Promise<unknown>;
   onError?: (error: unknown) => void;
 }
@@ -42,7 +59,23 @@ export class WorkerConnection {
   private pairDelayDone: (() => void) | undefined;
   private receiving: Promise<void> = Promise.resolve();
   private grant: WorkerGrant | null = null;
+  private tokenId: string | null = null;
   private closed = false;
+  private replyTasks: (() => void)[] = [];
+  private readonly closeListeners: (() => void)[] = [];
+  private readonly peer: WorkerPeer = {
+    id: this.id,
+    tokenId: null,
+    send: (frame) => this.send(frame),
+    afterReply: (task) => {
+      this.replyTasks.push(task);
+    },
+    onClose: (listener) => {
+      if (this.closed) listener();
+      else this.closeListeners.push(listener);
+    },
+    close: (code) => this.close(code),
+  };
 
   constructor(
     private readonly socket: WebSocket,
@@ -93,6 +126,13 @@ export class WorkerConnection {
     if (this.pongDue) clearTimeout(this.pongDue);
     if (this.pairDelay) clearTimeout(this.pairDelay);
     this.pairDelayDone?.();
+    for (const listener of this.closeListeners.splice(0)) {
+      try {
+        listener();
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+    }
   }
 
   private send(frame: unknown): void {
@@ -231,6 +271,7 @@ export class WorkerConnection {
             return;
           }
           this.grant = token.grant;
+          this.tokenId = token.tokenId;
           this.state = 'client';
           this.respond(id, {
             role: 'client',
@@ -240,15 +281,26 @@ export class WorkerConnection {
         }
         clearTimeout(this.authTimer);
       } else {
+        this.replyTasks = [];
         const result = await this.options.handle(
           method,
           validated.value,
           this.grant,
           this.state === 'admin',
+          { ...this.peer, tokenId: this.tokenId },
         );
         this.respond(id, result);
+        // The response is already sent: a failing task must not answer twice.
+        for (const task of this.replyTasks.splice(0)) {
+          try {
+            task();
+          } catch (taskError) {
+            this.options.onError?.(taskError);
+          }
+        }
       }
     } catch (error) {
+      this.replyTasks = [];
       this.options.onError?.(error);
       const code =
         typeof error === 'object' && error !== null && 'code' in error

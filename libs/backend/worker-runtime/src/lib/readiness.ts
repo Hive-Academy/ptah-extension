@@ -87,6 +87,8 @@ export async function checkWorkerReadiness(
       try {
         return (await stat(path)).isDirectory();
       } catch {
+        // degradation-audit: reported - a path that cannot be stat'ed counts as
+        // missing, and the workspaces readiness check reports it as a failure.
         return false;
       }
     });

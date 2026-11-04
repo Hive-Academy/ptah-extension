@@ -10,6 +10,7 @@ import { SessionLogWriter } from './session-log-writer';
 import type { SessionDriver } from './session-driver';
 import { assertManualApproval } from './pending-permissions';
 import { ensureWorkerDirectory, type WorkerPaths } from './paths';
+import type { WorkerPeer } from './connection';
 import {
   createWorkerServer,
   type WorkerServer,
@@ -32,6 +33,7 @@ export interface WorkerServiceOptions extends Omit<
     params: unknown,
     grant: WorkerGrant | null,
     admin: boolean,
+    peer: WorkerPeer,
   ) => Promise<unknown>;
   releaseLocks: () => Promise<void>;
   readiness: () => Promise<ReadinessReport>;
@@ -97,6 +99,11 @@ export class WorkerService {
     const writer = this.writers.get(sessionId);
     if (!writer) throw new Error('Session log is not open');
     return writer;
+  }
+
+  /** The open writer for a logged session, or undefined when it has no log. */
+  findWriter(sessionId: string): SessionLogWriter | undefined {
+    return this.writers.get(sessionId);
   }
 
   async openSession(sessionId: string): Promise<SessionLogWriter> {

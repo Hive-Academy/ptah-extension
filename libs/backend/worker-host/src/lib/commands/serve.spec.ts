@@ -83,6 +83,10 @@ it.each(['SIGTERM', 'SIGINT'] as const)(
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      // Stand-ins for the driver lock and workspace lifecycle the session
+      // composition resolves; this case drives no session.
+      held: jest.fn(() => []),
+      addFolder: jest.fn(),
     };
     const container = {
       clearInstances: jest.fn(),

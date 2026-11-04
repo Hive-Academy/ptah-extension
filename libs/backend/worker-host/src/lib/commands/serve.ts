@@ -3,12 +3,23 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { WithEngineOptions } from '@ptah-extension/cli-engine';
-import type { WorkerPaths } from '@ptah-extension/worker-runtime';
+import type {
+  ISessionDriverLock,
+  IWorkspaceLifecycleProvider,
+} from '@ptah-extension/platform-core';
+import type { ISdkPermissionHandler, SessionId } from '@ptah-extension/shared';
+import type {
+  HistoryReader,
+  SessionMetadataReader,
+  WorkerPaths,
+  WorkerPeer,
+} from '@ptah-extension/worker-runtime';
 import type {
   ReadinessReport,
   WorkerGrant,
 } from '@ptah-extension/worker-protocol';
 import { withFileLock } from './file-lock';
+import type { RemoteSessions } from './remote-sessions';
 
 export interface ServeChecks {
   nodeVersion(): string;
@@ -84,15 +95,22 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   const { withEngine, CliWebviewManagerAdapter } =
     await import('@ptah-extension/cli-engine');
   const runtime = await import('@ptah-extension/worker-runtime');
-  const { PROTOCOL_VERSION } = await import('@ptah-extension/worker-protocol');
-  const { ClaudeCliDetector } = await import('@ptah-extension/agent-sdk');
-  const { listLocalDriverLocks } =
+  const { PROTOCOL_VERSION, WORKER_CLOSE_CODES, FlatStreamEventSchema } =
+    await import('@ptah-extension/worker-protocol');
+  const { ClaudeCliDetector, SDK_TOKENS } =
+    await import('@ptah-extension/agent-sdk');
+  const { CHAT_TOKENS } = await import('@ptah-extension/rpc-handlers');
+  const { PLATFORM_TOKENS, listLocalDriverLocks, requestRelease } =
     await import('@ptah-extension/platform-core');
+  const { createRemoteSessions } = await import('./remote-sessions');
   const logger = {
     error: (message: string) => process.stderr.write(`${message}\n`),
   };
+  // Push events reach the session composition once the engine is up; the
+  // engine emits nothing a remote client drives before that.
+  let remote: RemoteSessions | undefined;
   const pushAdapter = new CliWebviewManagerAdapter({
-    tap: () => undefined,
+    tap: (type, payload) => remote?.tap(type, payload),
     logger,
   });
   await withEngine(
@@ -182,27 +200,78 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         });
         return readiness;
       };
+      const container = engine.container;
+      const chatHistory = container.resolve<{
+        readForResume(sessionId: SessionId): Promise<{ events: unknown[] }>;
+      }>(CHAT_TOKENS.HISTORY_READ);
+      const history: HistoryReader = {
+        readForResume: async (sessionId) => ({
+          // Validated here: the baseline record schema rejects anything else.
+          events: FlatStreamEventSchema.array().parse(
+            (await chatHistory.readForResume(sessionId as SessionId)).events,
+          ),
+        }),
+      };
+      const sessions = createRemoteSessions({
+        runtime,
+        machineId,
+        maxActiveTurns: options.maxActiveTurns,
+        registry,
+        // Called only from method handlers and the push tap, which both run
+        // after the service below exists.
+        logs: {
+          openSession: (sessionId) => service.openSession(sessionId),
+          findWriter: (sessionId) => service.findWriter(sessionId),
+        },
+        rpc: {
+          handleMessage: ({ method, params }) =>
+            engine.transport.call(method, params),
+        },
+        history,
+        metadata: container.resolve<SessionMetadataReader>(
+          SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        ),
+        permissions: container.resolve<ISdkPermissionHandler>(
+          SDK_TOKENS.SDK_PERMISSION_HANDLER,
+        ),
+        lock: container.resolve<ISessionDriverLock>(
+          PLATFORM_TOKENS.SESSION_DRIVER_LOCK,
+        ),
+        workspaces: container.resolve<IWorkspaceLifecycleProvider>(
+          PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER,
+        ),
+        providerReady: () =>
+          readiness.ready &&
+          readiness.checks.every(
+            (check) => check.id !== 'provider' || check.status === 'pass',
+          ),
+        machineInfo: (grant) => ({
+          ...identity,
+          protocol: PROTOCOL_VERSION,
+          grant,
+          readiness,
+        }),
+        revokedCloseCode: WORKER_CLOSE_CODES.REVOKED,
+        clientName: (tokenId) =>
+          tokens.list().find((item) => item.tokenId === tokenId)?.clientName,
+        revokeToken: (tokenId) =>
+          withFileLock(options.paths.tokens, async () => {
+            await tokens.load();
+            await tokens.revoke(tokenId);
+          }),
+        requestRelease,
+        log: logger.error,
+      });
       const handle = async (
         method: string,
         params: unknown,
         grant: WorkerGrant | null,
         admin: boolean,
+        peer?: WorkerPeer,
       ): Promise<unknown> => {
         if (!admin) {
-          if (!grant || grant.machineId !== machineId)
-            throw new Error('Authentication required');
-          if (method === 'machine.info')
-            return {
-              ...identity,
-              protocol: PROTOCOL_VERSION,
-              grant,
-              readiness,
-            };
-          if (method === 'workspaces.list')
-            return registry
-              .list()
-              .filter((item) => grant.workspaceIds.includes(item.workspaceId));
-          throw new Error('Remote session handler composition is unavailable');
+          if (!grant || !peer) throw new Error('Authentication required');
+          return sessions.handle(method, params, grant, peer);
         }
         if (method === 'admin.pairing.open') {
           const input = params as {
@@ -299,8 +368,9 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         workspacePaths: [],
         argv: options.argv,
         autoApprove: options.autoApprove,
-        driver: { onAppendFailed: async () => undefined },
-        releaseLocks: async () => undefined,
+        // A log append failure aborts that session's turn (W7).
+        driver: { onAppendFailed: sessions.onAppendFailed },
+        releaseLocks: () => sessions.releaseLocks(),
         readiness: async () => {
           readiness = await (options.readiness ?? readReadiness)();
           return readiness;
@@ -314,6 +384,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         handle,
         onSigterm: false,
       });
+      remote = sessions;
       await service.start();
       try {
         if (service.endpoint) options.onReady?.(service.endpoint);
@@ -330,6 +401,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
           if (options.shutdown?.aborted) done();
         });
       } finally {
+        await sessions.abortTurns();
         await service.stop();
       }
     },

@@ -52,6 +52,8 @@ function request(
       try {
         frame = JSON.parse(raw.toString('utf8'));
       } catch {
+        // degradation-audit: reported - a non-JSON frame is not our reply; the
+        // call still settles through its own reply or the 2 s timeout error.
         return;
       }
       if (

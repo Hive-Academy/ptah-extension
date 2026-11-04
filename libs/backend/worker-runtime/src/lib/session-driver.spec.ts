@@ -122,3 +122,46 @@ it('routes pre-resolution events and aborts through chat:abort when a log append
     expect.objectContaining({ method: 'chat:abort' }),
   );
 });
+
+it('starts a session within the shared active-turn limit and delivers early tab events after turn begin', async () => {
+  const { driver, handleMessage, enqueue } = setup();
+  const deliver = jest.fn();
+  driver.route('tab', { type: 'early' }, deliver);
+  const turn = await driver.start(
+    { tabId: 'tab', prompt: 'hello', workspacePath: '/w' },
+    async () => 's1',
+    deliver,
+  );
+  expect(turn.sessionId).toBe('s1');
+  expect(handleMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      method: 'chat:start',
+      params: { tabId: 'tab', prompt: 'hello', workspacePath: '/w' },
+    }),
+  );
+  expect(enqueue.mock.calls.map(([type]) => type)).toEqual([
+    'worker:baseline',
+    'worker:turn.begin',
+  ]);
+  expect(enqueue.mock.calls[0]?.[1]).toEqual({
+    events: [],
+    historyMark: { count: 0, lastEventId: null },
+  });
+  expect(deliver).toHaveBeenCalledWith('s1', { type: 'early' });
+  expect(driver.sessionForTab('tab')).toBe('s1');
+  await expect(
+    driver.start(
+      { tabId: 'tab2', prompt: 'again', workspacePath: '/w' },
+      async () => 's2',
+      deliver,
+    ),
+  ).rejects.toMatchObject({ code: 'WORKER_BUSY' });
+  await expect(driver.continue('s3', 'tab3', 'x')).rejects.toMatchObject({
+    code: 'WORKER_BUSY',
+  });
+  await driver.abort('s1');
+  expect(enqueue).toHaveBeenLastCalledWith('worker:turn.interrupted', {
+    turnId: turn.turnId,
+  });
+  expect(driver.driving('s1')).toBe(false);
+});
