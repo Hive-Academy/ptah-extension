@@ -23,6 +23,11 @@ import {
   type MatrixProfile,
 } from './matrix.types';
 import { AUTOMATIC_MATRIX_MODEL, deriveLocalMatrix } from './local-derivation';
+import {
+  EMPTY_OUTCOME_FIGURES,
+  outcomeFiguresFrom,
+  type OutcomeFigureLookup,
+} from './outcome-figures';
 import { buildSeedMatrix, isStale } from './seed-matrix';
 
 /**
@@ -108,6 +113,7 @@ export interface ResolvedMatrixCell {
 export interface CapabilityMatrixSnapshot {
   /** `matrix-invalid:` entries, then an outcome-reader reason when one applies. */
   readonly reasons: readonly string[];
+  readonly outcomeFigures: OutcomeFigureLookup;
   resolve(
     family: string,
     model: string,
@@ -147,6 +153,10 @@ export interface CapabilityMatrixView {
 interface LayerLoad {
   readonly matrix: CapabilityMatrix;
   readonly reasons: readonly string[];
+}
+
+interface LocalLoad extends LayerLoad {
+  readonly outcomeFigures: OutcomeFigureLookup;
 }
 
 interface ProfileIndex {
@@ -191,6 +201,7 @@ export class CapabilityMatrixStore {
     await this.writeViewIfChanged(layers, input.nowMs);
     return {
       reasons: [...userLoad.reasons, ...localLoad.reasons],
+      outcomeFigures: localLoad.outcomeFigures,
       resolve: (family, model, taskKind) =>
         resolveIndexed(layers, family, model, taskKind, input.nowMs),
     };
@@ -262,21 +273,37 @@ export class CapabilityMatrixStore {
   private async readLocalMatrix(
     nowMs: number,
     queries: readonly MatrixOutcomeQuery[],
-  ): Promise<LayerLoad> {
+  ): Promise<LocalLoad> {
     const reader = this.deps.outcomeReader;
     if (reader === undefined) {
-      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const persistent = this.readPersistent(reader);
     if (persistent === 'unavailable') {
-      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     if (persistent === 'no') {
-      return { matrix: emptyMatrix(), reasons: [NO_OUTCOME_HISTORY_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [NO_OUTCOME_HISTORY_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const laneIds = readerLaneIds(queries);
     if (laneIds.length === 0) {
-      return { matrix: emptyMatrix(), reasons: [] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const sinceMs = nowMs - OUTCOME_WINDOW_MS;
     let summaries: readonly LaneOutcomeSummary[];
@@ -291,9 +318,14 @@ export class CapabilityMatrixStore {
       return {
         matrix: emptyMatrix(),
         reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
       };
     }
-    return { matrix: deriveLocalMatrix(summaries, nowMs), reasons: [] };
+    return {
+      matrix: deriveLocalMatrix(summaries, nowMs),
+      reasons: [],
+      outcomeFigures: outcomeFiguresFrom(summaries),
+    };
   }
 
   private readPersistent(reader: LaneOutcomeReader): Persistence {
