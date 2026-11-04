@@ -571,7 +571,7 @@ phase summary.
   `agent-pack-download.service.spec.ts` A2 no-clobber (not touched; passes alone 29/29). The live-record
   predicate defaults to "live" (operator release refused) until Batch 10 wires the registry.
 
-## Batch 10: C4a-3 registry lifecycle notifications (agent-sdk) (revised Round 6) — PENDING
+## Batch 10: C4a-3 registry lifecycle notifications (agent-sdk) (revised Round 6) — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -583,7 +583,7 @@ phase summary.
 - Phase: C | Phase review: at Batch 13
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
-### Task 10.1: `onRecordRemoved`, `onRealSessionIdBound`, `onRealSessionIdRebound` — PENDING
+### Task 10.1: `onRecordRemoved`, `onRealSessionIdBound`, `onRealSessionIdRebound` — COMPLETE
 
 - Files: W/`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts`
   (+ spec), W/`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`
@@ -600,6 +600,8 @@ phase summary.
 ### Batch 10 verification
 
 - Spec per removal path and the rebound branch; verify passes
+- Result: executor Codex lane. Orchestrator verify 18/18. Removal points: `remove` (only when the
+  record still owns the tab index), `evictStale`, registration displacement. See `batch-10-report.md`.
 
 ## Batch 11: C4a-4 host bindings and DI smoke specs (revised Round 6) — PENDING
 

@@ -225,6 +225,18 @@ export const DEFAULT_SWEEP_TTL_MS = 30 * 60 * 1000;
  */
 export type SessionEvictionListener = (keys: readonly string[]) => void;
 
+export type SessionRecordRemovedListener = (record: SessionRecord) => void;
+export type SessionRealSessionIdBoundListener = (record: SessionRecord) => void;
+export interface SessionRealSessionIdReboundEvent {
+  readonly tabId: string;
+  readonly oldSessionId: string;
+  readonly newSessionId: string;
+  readonly ownerToken: string;
+}
+export type SessionRealSessionIdReboundListener = (
+  event: SessionRealSessionIdReboundEvent,
+) => void;
+
 export class SessionRegistry {
   /**
    * Primary index: tabId → SessionRecord. Always populated at register().
@@ -251,6 +263,12 @@ export class SessionRegistry {
   private _sweepTtlMs = DEFAULT_SWEEP_TTL_MS;
   private _now: () => number = () => Date.now();
   private readonly evictionListeners = new Set<SessionEvictionListener>();
+  private readonly recordRemovedListeners =
+    new Set<SessionRecordRemovedListener>();
+  private readonly realSessionIdBoundListeners =
+    new Set<SessionRealSessionIdBoundListener>();
+  private readonly realSessionIdReboundListeners =
+    new Set<SessionRealSessionIdReboundListener>();
 
   constructor(private readonly logger: Logger) {}
 
@@ -262,6 +280,31 @@ export class SessionRegistry {
     this.evictionListeners.add(listener);
     return () => {
       this.evictionListeners.delete(listener);
+    };
+  }
+
+  onRecordRemoved(listener: SessionRecordRemovedListener): () => void {
+    this.recordRemovedListeners.add(listener);
+    return () => {
+      this.recordRemovedListeners.delete(listener);
+    };
+  }
+
+  onRealSessionIdBound(
+    listener: SessionRealSessionIdBoundListener,
+  ): () => void {
+    this.realSessionIdBoundListeners.add(listener);
+    return () => {
+      this.realSessionIdBoundListeners.delete(listener);
+    };
+  }
+
+  onRealSessionIdRebound(
+    listener: SessionRealSessionIdReboundListener,
+  ): () => void {
+    this.realSessionIdReboundListeners.add(listener);
+    return () => {
+      this.realSessionIdReboundListeners.delete(listener);
     };
   }
 
@@ -383,13 +426,25 @@ export class SessionRegistry {
         // under the id being resumed, and the SDK answers with the forked id.
         // Refusing it here is what left the tab pointing at an id no live
         // process holds.
-        this.bySessionId.delete(rec.realSessionId);
+        const oldSessionId = rec.realSessionId;
+        this.bySessionId.delete(oldSessionId);
         this.logger.info(
           `[SessionRegistry] Rebinding tabId ${tabId} from ${rec.realSessionId} to ${realSessionId} (same record)`,
         );
         rec.realSessionId = realSessionId;
         rec.lastActivityAt = this._now();
         this.bySessionId.set(realSessionId, rec);
+        this.notifyListeners(
+          this.realSessionIdReboundListeners,
+          {
+            tabId,
+            oldSessionId,
+            newSessionId: realSessionId,
+            ownerToken: rec.token,
+          },
+          'real session ID rebound',
+          tabId,
+        );
         return 'rebound';
       }
       this.logger.warn(
@@ -402,6 +457,12 @@ export class SessionRegistry {
     this.bySessionId.set(realSessionId, rec);
     this.logger.info(
       `[SessionRegistry] Bound real session ID: ${tabId} -> ${realSessionId}`,
+    );
+    this.notifyListeners(
+      this.realSessionIdBoundListeners,
+      rec,
+      'real session ID bound',
+      tabId,
     );
     return 'bound';
   }
@@ -453,6 +514,12 @@ export class SessionRegistry {
     }
     if (ownedTabIndex) {
       this.recomputeLastActiveOnRemoval(rec.tabId);
+      this.notifyListeners(
+        this.recordRemovedListeners,
+        rec,
+        'record removed',
+        rec.tabId,
+      );
     }
   }
 
@@ -697,6 +764,12 @@ export class SessionRegistry {
           `(idleMs=${now - rec.lastActivityAt}, realSessionId=${rec.realSessionId ?? 'null'})`,
       );
       this.notifyEvicted(rec);
+      this.notifyListeners(
+        this.recordRemovedListeners,
+        rec,
+        'record removed',
+        rec.tabId,
+      );
     }
     return evicted;
   }
@@ -730,6 +803,24 @@ export class SessionRegistry {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
           `[SessionRegistry] eviction listener threw for ${rec.tabId}: ${message}`,
+        );
+      }
+    }
+  }
+
+  private notifyListeners<T>(
+    listeners: Set<(event: T) => void>,
+    event: T,
+    name: string,
+    tabId: string,
+  ): void {
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `[SessionRegistry] ${name} listener threw for ${tabId}: ${message}`,
         );
       }
     }
@@ -803,6 +894,12 @@ export class SessionRegistry {
           (error instanceof Error ? error.message : String(error)),
       );
     }
+    this.notifyListeners(
+      this.recordRemovedListeners,
+      previous,
+      'record removed',
+      tabId,
+    );
   }
 
   /**

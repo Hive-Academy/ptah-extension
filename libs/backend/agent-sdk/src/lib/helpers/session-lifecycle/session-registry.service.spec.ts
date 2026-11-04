@@ -1158,3 +1158,160 @@ describe('SessionRegistry — turn state owns the idle watchdog hold (TASK_2026_
     expect(rec.turnInFlight).toBe(false);
   });
 });
+
+describe('SessionRegistry lifecycle notifications', () => {
+  it('reports a removed record once from remove, including its bound ID', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_remove',
+      makeConfig(),
+      new AbortController(),
+    );
+    registry.bindRealSessionId('tab_remove', 'real-remove');
+    const listener = jest.fn();
+    registry.onRecordRemoved(listener);
+
+    registry.remove(rec);
+    registry.remove(rec);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(rec);
+    expect(registry.find('tab_remove')).toBeUndefined();
+  });
+
+  it('reports each stale record removed by eviction', () => {
+    const { registry } = makeRegistry();
+    registry.setClockForTesting(() => 0);
+    const first = registry.register(
+      'tab_one',
+      makeConfig(),
+      new AbortController(),
+    );
+    const second = registry.register(
+      'tab_two',
+      makeConfig(),
+      new AbortController(),
+    );
+    const listener = jest.fn();
+    registry.onRecordRemoved(listener);
+
+    expect(registry.evictStale(1_000, 1_000)).toBe(2);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenNthCalledWith(1, first);
+    expect(listener).toHaveBeenNthCalledWith(2, second);
+  });
+
+  it('reports the displaced record and leaves its replacement registered', () => {
+    const { registry } = makeRegistry();
+    const old = registry.register(
+      'tab_restart',
+      makeConfig(),
+      new AbortController(),
+    );
+    registry.bindRealSessionId('tab_restart', 'real-old');
+    const listener = jest.fn();
+    registry.onRecordRemoved(listener);
+
+    const replacement = registry.register(
+      'tab_restart',
+      makeConfig(),
+      new AbortController(),
+    );
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(old);
+    expect(registry.find('tab_restart')).toBe(replacement);
+    expect(registry.find('real-old')).toBeUndefined();
+  });
+
+  it('reports a successful bind only, and supports disposal', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_bind',
+      makeConfig(),
+      new AbortController(),
+    );
+    const listener = jest.fn();
+    const dispose = registry.onRealSessionIdBound(listener);
+
+    expect(registry.bindRealSessionId('tab_bind', 'real-bind')).toBe('bound');
+    expect(registry.bindRealSessionId('tab_bind', 'real-bind')).toBe(
+      'already-bound',
+    );
+    expect(registry.bindRealSessionId('tab_bind', 'other')).toBe(
+      'stale-mismatch',
+    );
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(rec);
+    dispose();
+    const next = registry.register(
+      'tab_next',
+      makeConfig(),
+      new AbortController(),
+    );
+    registry.bindRealSessionId(next.tabId, 'real-next');
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the old ID and owner token on a successful rebound only', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_rebound',
+      makeConfig(),
+      new AbortController(),
+    );
+    registry.bindRealSessionId(rec.tabId, 'real-old');
+    const rebound = jest.fn();
+    const removed = jest.fn();
+    registry.onRealSessionIdRebound(rebound);
+    registry.onRecordRemoved(removed);
+
+    expect(registry.bindRealSessionId(rec.tabId, 'real-new', 'wrong')).toBe(
+      'stale-mismatch',
+    );
+    expect(registry.bindRealSessionId(rec.tabId, 'real-new', rec.token)).toBe(
+      'rebound',
+    );
+    expect(rebound).toHaveBeenCalledTimes(1);
+    expect(rebound).toHaveBeenCalledWith({
+      tabId: rec.tabId,
+      oldSessionId: 'real-old',
+      newSessionId: 'real-new',
+      ownerToken: rec.token,
+    });
+    expect(removed).not.toHaveBeenCalled();
+    expect(registry.find('real-new')).toBe(rec);
+    expect(registry.find('real-old')).toBeUndefined();
+  });
+
+  it('isolates throwing listeners for all three notification types', () => {
+    const { registry, logger } = makeRegistry();
+    const rec = registry.register(
+      'tab_isolation',
+      makeConfig(),
+      new AbortController(),
+    );
+    const thrower = jest.fn(() => {
+      throw new Error('listener failed');
+    });
+    const bound = jest.fn();
+    const rebound = jest.fn();
+    const removed = jest.fn();
+    registry.onRealSessionIdBound(thrower);
+    registry.onRealSessionIdBound(bound);
+    registry.onRealSessionIdRebound(thrower);
+    registry.onRealSessionIdRebound(rebound);
+    registry.onRecordRemoved(thrower);
+    registry.onRecordRemoved(removed);
+
+    expect(registry.bindRealSessionId(rec.tabId, 'real-one')).toBe('bound');
+    expect(registry.bindRealSessionId(rec.tabId, 'real-two', rec.token)).toBe(
+      'rebound',
+    );
+    expect(() => registry.remove(rec)).not.toThrow();
+    expect(bound).toHaveBeenCalledWith(rec);
+    expect(rebound).toHaveBeenCalledTimes(1);
+    expect(removed).toHaveBeenCalledWith(rec);
+    expect(logger.warn).toHaveBeenCalledTimes(3);
+  });
+});

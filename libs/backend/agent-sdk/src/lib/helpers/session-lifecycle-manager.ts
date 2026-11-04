@@ -55,6 +55,9 @@ import {
   type SessionRecord,
   type BindRealSessionIdOutcome,
   type SessionEvictionListener,
+  type SessionRecordRemovedListener,
+  type SessionRealSessionIdBoundListener,
+  type SessionRealSessionIdReboundListener,
 } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import {
@@ -585,6 +588,22 @@ export class SessionLifecycleManager {
    */
   onSessionEvicted(listener: SessionEvictionListener): () => void {
     return this._registry.onEvicted(listener);
+  }
+
+  onRecordRemoved(listener: SessionRecordRemovedListener): () => void {
+    return this._registry.onRecordRemoved(listener);
+  }
+
+  onRealSessionIdBound(
+    listener: SessionRealSessionIdBoundListener,
+  ): () => void {
+    return this._registry.onRealSessionIdBound(listener);
+  }
+
+  onRealSessionIdRebound(
+    listener: SessionRealSessionIdReboundListener,
+  ): () => void {
+    return this._registry.onRealSessionIdRebound(listener);
   }
 
   dispose(): void {
