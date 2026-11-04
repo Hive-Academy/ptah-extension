@@ -77,7 +77,11 @@ export interface RemoteSessionDeps {
   /** `WORKER_CLOSE_CODES.REVOKED`, sent after `token.revokeSelf`. */
   revokedCloseCode: number;
   clientName: (tokenId: string) => string | undefined;
-  revokeToken: (tokenId: string) => Promise<void>;
+  /**
+   * Revokes the token and closes its other live connections; the caller's
+   * own connection (`callerId`) closes after its reply.
+   */
+  revokeToken: (tokenId: string, callerId: string) => Promise<void>;
   requestRelease: (sessionId: string) => Promise<string>;
   log: (message: string) => void;
   /** Test seam; W6 default is 30 s. */
@@ -424,7 +428,7 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
     ),
     'token.revokeSelf': method<'token.revokeSelf'>(async () => {
       if (!peer.tokenId) throw new RemoteMethodError('NOT_FOUND_OR_FORBIDDEN');
-      await deps.revokeToken(peer.tokenId);
+      await deps.revokeToken(peer.tokenId, peer.id);
       peer.afterReply(() => {
         const goodbye: ControlFrame = {
           v: 1,

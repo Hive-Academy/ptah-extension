@@ -41,9 +41,12 @@ it('registers a workspace, writes a private endpoint and removes it on shutdown'
   });
   await service.start();
   expect(registry.list()).toHaveLength(1);
-  expect(JSON.parse(await readFile(paths.endpoint, 'utf8'))).toEqual(
-    service.endpoint,
-  );
+  // The owner PID and machine ID let operator commands verify the listener.
+  expect(JSON.parse(await readFile(paths.endpoint, 'utf8'))).toEqual({
+    ...service.endpoint,
+    pid: process.pid,
+    machineId: 'm',
+  });
   expect((await stat(paths.endpoint)).mode & 0o777).toBe(0o600);
   await service.stop();
   expect(releaseLocks).toHaveBeenCalledTimes(1);
@@ -198,4 +201,80 @@ describe('shutdown goodbye', () => {
     });
     started.socket.terminate();
   });
+});
+
+it('closes every live connection of a revoked token and refreshes the grant of another', async () => {
+  const paths = workerPaths(directory);
+  const registry = new WorkspaceRegistry(paths);
+  const tokens = new TokenStore(paths);
+  const grant = { machineId: 'm', workspaceIds: ['w1'] };
+  const revoked = await tokens.issue('laptop', grant);
+  const kept = await tokens.issue('phone', grant);
+  const seen: unknown[] = [];
+  service = new WorkerService({
+    paths,
+    registry,
+    workspacePaths: [],
+    argv: [],
+    onSigterm: false,
+    driver: { onAppendFailed: jest.fn() },
+    releaseLocks: async () => undefined,
+    readiness: async () => ({ ready: true, checks: [] }),
+    host: '127.0.0.1',
+    port: 0,
+    identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+    pairing: new PairingWindow(registry, 'm'),
+    tokens,
+    handle: async (_method, _params, connectionGrant) => {
+      seen.push(connectionGrant);
+      return [];
+    },
+  });
+  await service.start();
+  const connect = async (token: string) => {
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${service?.endpoint?.port}/rpc`,
+    );
+    const frames: { id?: string; type?: string }[] = [];
+    socket.on('message', (data) => frames.push(JSON.parse(data.toString())));
+    const closed = new Promise<number>((resolve) =>
+      socket.once('close', resolve),
+    );
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const send = (id: string, method: string, params: unknown) =>
+      socket.send(JSON.stringify({ v: 1, kind: 'req', id, method, params }));
+    send('1', 'hello', {
+      protocol: { min: 1, max: 1 },
+      client: { name: 'c', version: '1' },
+    });
+    send('2', 'auth', { token });
+    while (!frames.some((frame) => frame.id === '2'))
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    return { socket, frames, closed, send };
+  };
+  const a = await connect(revoked.token);
+  const b = await connect(revoked.token);
+  const other = await connect(kept.token);
+  try {
+    expect(service.closeTokenConnections(revoked.tokenId, 'another')).toBe(2);
+    expect(await a.closed).toBe(4410);
+    expect(await b.closed).toBe(4410);
+    for (const item of [a, b])
+      expect(item.frames).toContainEqual(
+        expect.objectContaining({ type: 'goodbye' }),
+      );
+    service.refreshGrant(kept.tokenId, {
+      machineId: 'm',
+      workspaceIds: ['w1', 'w2'],
+    });
+    other.send('3', 'workspaces.list', {});
+    while (!other.frames.some((frame) => frame.id === '3'))
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(seen).toEqual([{ machineId: 'm', workspaceIds: ['w1', 'w2'] }]);
+  } finally {
+    for (const item of [a, b, other]) item.socket.terminate();
+  }
 });

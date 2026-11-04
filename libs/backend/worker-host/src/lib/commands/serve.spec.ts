@@ -110,7 +110,13 @@ it.each(['SIGTERM', 'SIGINT'] as const)(
       (options: { pushAdapter?: unknown }) =>
         ({
           container,
-          transport: { call: jest.fn() },
+          transport: {
+            // The only engine call before listening: the autopilot check.
+            call: jest.fn(async () => ({
+              success: true,
+              data: { enabled: false, permissionLevel: 'ask' },
+            })),
+          },
           pushAdapter: options.pushAdapter,
           fireAndForget: { handlePermissionResponse: jest.fn() },
           logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },

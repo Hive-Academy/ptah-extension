@@ -51,6 +51,7 @@ it('maps an internal Codex refusal to fixed INTERNAL copy', async () => {
       Object.assign(new Error('private path'), { code: 'CODEX_UNAVAILABLE' }),
     );
   const tokens = {
+    recordUse: jest.fn(async () => undefined),
     authenticate: () => ({
       tokenId: 't',
       grant: { machineId: 'm', workspaceIds: [] },
@@ -184,6 +185,7 @@ it('gives the handler a peer whose reply tasks run after the response and whose 
     },
   );
   const tokens = {
+    recordUse: jest.fn(async () => undefined),
     authenticate: () => ({
       tokenId: 't',
       grant: { machineId: 'm', workspaceIds: [] },
@@ -231,6 +233,7 @@ it('answers session.stop and permission.respond while a session.start on the sam
     return {};
   });
   const tokens = {
+    recordUse: jest.fn(async () => undefined),
     authenticate: () => ({
       tokenId: 't',
       grant: { machineId: 'm', workspaceIds: ['w'] },
@@ -283,4 +286,112 @@ it('answers session.stop and permission.respond while a session.start on the sam
     order.indexOf('workspaces.list'),
   );
   connection.close();
+});
+
+describe('Batch 21 connection bounds and token state', () => {
+  function authedConnection(handle: jest.Mock) {
+    const socket = new FakeSocket();
+    const recordUse = jest.fn(async () => undefined);
+    const tokens = {
+      recordUse,
+      authenticate: () => ({
+        tokenId: 'tok',
+        grant: { machineId: 'm', workspaceIds: ['w1'] },
+      }),
+    } as unknown as TokenStore;
+    const connection = new WorkerConnection(socket as unknown as WebSocket, {
+      identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+      pairing: {} as PairingWindow,
+      tokens,
+      handle,
+    });
+    socket.emit(
+      'message',
+      frame('h', 'hello', {
+        protocol: { min: 1, max: 1 },
+        client: { name: 'c', version: '1' },
+      }),
+      false,
+    );
+    socket.emit('message', frame('a', 'auth', { token: 't' }), false);
+    return { socket, connection, recordUse };
+  }
+  const responses = (socket: FakeSocket) =>
+    socket.frames.filter(
+      (item) => (item as { kind: string }).kind === 'res',
+    ) as { id: string; ok: boolean; error?: { code: string } }[];
+
+  it('refuses frames past the in-flight cap with WORKER_BUSY instead of queueing them', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const handle = jest.fn(async () => {
+      await blocked;
+      return [];
+    });
+    const { socket, connection } = authedConnection(handle);
+    await new Promise((resolve) => setImmediate(resolve));
+    const max = WORKER_LIMITS.maxInFlightRequests;
+    for (let i = 0; i < max + 2; i += 1)
+      socket.emit('message', frame(`q${i}`, 'workspaces.list', {}), false);
+    await new Promise((resolve) => setImmediate(resolve));
+    const busy = responses(socket).filter(
+      (item) => item.error?.code === 'WORKER_BUSY',
+    );
+    expect(busy.map((item) => item.id)).toEqual([`q${max}`, `q${max + 1}`]);
+    release();
+    for (let i = 0; i < 5; i += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+    expect(handle).toHaveBeenCalledTimes(max);
+    // Room again once the queue drained.
+    socket.emit('message', frame('after', 'workspaces.list', {}), false);
+    for (let i = 0; i < 3; i += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+    expect(responses(socket).find((item) => item.id === 'after')?.ok).toBe(
+      true,
+    );
+    connection.close();
+  });
+
+  it('closes an unauthenticated flood past the cap with THROTTLED', () => {
+    const socket = new FakeSocket();
+    const exchange = jest.fn(() => new Promise(() => undefined));
+    new WorkerConnection(socket as unknown as WebSocket, {
+      identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+      pairing: { exchange } as unknown as PairingWindow,
+      tokens: {} as TokenStore,
+      handle: jest.fn(),
+    });
+    for (let i = 0; i <= WORKER_LIMITS.maxInFlightRequests; i += 1)
+      socket.emit(
+        'message',
+        frame(String(i), 'hello', {
+          protocol: { min: 1, max: 1 },
+          client: { name: 'c', version: '1' },
+        }),
+        false,
+      );
+    expect(socket.code).toBe(4429);
+  });
+
+  it('records the token use on auth and exposes the token for revocation', async () => {
+    const grants: unknown[] = [];
+    const handle = jest.fn(
+      async (_method: string, _params: unknown, grant: unknown) => {
+        grants.push(grant);
+        return [];
+      },
+    );
+    const { socket, connection, recordUse } = authedConnection(handle);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(recordUse).toHaveBeenCalledWith('tok');
+    expect(connection.authenticatedTokenId).toBe('tok');
+    expect(typeof connection.connectionId).toBe('string');
+    connection.refreshGrant({ machineId: 'm', workspaceIds: ['w1', 'w2'] });
+    socket.emit('message', frame('1', 'workspaces.list', {}), false);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(grants).toEqual([{ machineId: 'm', workspaceIds: ['w1', 'w2'] }]);
+    connection.close();
+  });
 });

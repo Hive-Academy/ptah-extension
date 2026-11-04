@@ -102,18 +102,47 @@ export class WorkerConnection {
         return;
       }
       const text = data.toString();
+      // The count covers queued and running requests, so the receive queue
+      // is bounded: past the cap a frame is refused, never buffered.
+      if (this.inFlight >= WORKER_LIMITS.maxInFlightRequests) {
+        this.refuseBusy(text);
+        return;
+      }
+      this.inFlight++;
+      const run = async (): Promise<void> => {
+        try {
+          await this.receive(text);
+        } finally {
+          this.inFlight--;
+        }
+      };
       // Stop and permission answers must not wait behind a long call on the
       // same connection (a `session.start` can wait 30 s for its session ID).
       // They address an existing turn, so arrival order against other calls
       // carries no meaning; every other call keeps its order.
       if (this.state === 'client' && concurrent(text)) {
-        void this.receive(text);
+        void run();
         return;
       }
-      this.receiving = this.receiving.then(() => this.receive(text));
+      this.receiving = this.receiving.then(run);
     });
     socket.on('close', () => this.dispose());
     socket.on('error', (error) => options.onError?.(error));
+  }
+
+  /** This connection's ID, as its peers report it. */
+  get connectionId(): string {
+    return this.id;
+  }
+
+  /** The authenticated client token; null before auth and on the admin channel. */
+  get authenticatedTokenId(): string | null {
+    return this.tokenId;
+  }
+
+  /** Replaces the grant of an authenticated client after an operator change. */
+  refreshGrant(grant: WorkerGrant): void {
+    if (this.state === 'client') this.grant = grant;
   }
 
   sendControl(type: 'goodbye', payload: unknown): void {
@@ -179,6 +208,24 @@ export class WorkerConnection {
     });
   }
 
+  /**
+   * Answers a frame past the in-flight cap. An authenticated caller gets
+   * WORKER_BUSY for its request; before auth, or for a frame that does not
+   * parse, the connection closes.
+   */
+  private refuseBusy(text: string): void {
+    if (this.state !== 'client' && this.state !== 'admin') {
+      this.close(WORKER_CLOSE_CODES.THROTTLED);
+      return;
+    }
+    const parsed = parseClientFrame(text, WORKER_LIMITS.maxPayloadBytes);
+    if (!parsed.ok) {
+      this.close(WORKER_CLOSE_CODES.PROTOCOL_ERROR);
+      return;
+    }
+    this.reject(parsed.frame.id, 'WORKER_BUSY');
+  }
+
   private async receive(text: string): Promise<void> {
     const parsed = parseClientFrame(
       text,
@@ -205,16 +252,11 @@ export class WorkerConnection {
       this.close(WORKER_CLOSE_CODES.METHOD_NOT_ALLOWED);
       return;
     }
-    if (this.inFlight >= WORKER_LIMITS.maxInFlightRequests) {
-      this.reject(id, 'WORKER_BUSY');
-      return;
-    }
     const validated = parseMethodParams(method, params);
     if (!validated.ok) {
       this.reject(id, 'INVALID_PARAMS');
       return;
     }
-    this.inFlight++;
     try {
       if (method === 'hello') {
         if (this.state !== 'new') {
@@ -295,6 +337,15 @@ export class WorkerConnection {
             this.close(WORKER_CLOSE_CODES.NOT_AUTHENTICATED);
             return;
           }
+          // Written before the reply, so no token write outlives the
+          // connection; at most once per token a minute (TokenStore). A
+          // failed write is bookkeeping only: reported, never answered.
+          try {
+            await this.options.tokens.recordUse(token.tokenId);
+          } catch (error) {
+            this.options.onError?.(error);
+          }
+          if (this.closed) return;
           this.grant = token.grant;
           this.tokenId = token.tokenId;
           this.state = 'client';
@@ -350,8 +401,6 @@ export class WorkerConnection {
           ? (code as WorkerErrorCode)
           : 'INTERNAL',
       );
-    } finally {
-      this.inFlight--;
     }
   }
 }

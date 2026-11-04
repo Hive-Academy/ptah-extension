@@ -22,6 +22,28 @@ export function assertManualApproval(
     );
 }
 
+/** Persisted autopilot levels that approve some tool calls with no prompt. */
+const AUTO_APPROVING_LEVELS: ReadonlySet<string> = new Set([
+  'yolo',
+  'auto-edit',
+]);
+
+/**
+ * Refuses a persisted autopilot setting that skips manual approval. The
+ * engine applies `autopilot.permissionLevel` whenever `autopilot.enabled` is
+ * true: `yolo` approves every tool and `auto-edit` approves file edits.
+ * `ask` and `plan` keep every executed tool behind a prompt.
+ */
+export function assertManualApprovalSettings(autopilot: {
+  enabled: boolean;
+  permissionLevel: string;
+}): void {
+  if (autopilot.enabled && AUTO_APPROVING_LEVELS.has(autopilot.permissionLevel))
+    throw new Error(
+      `The worker requires manual approval for remote permission requests, but autopilot is enabled at level "${autopilot.permissionLevel}". Turn autopilot off or set it to "ask" in Ptah settings, then start the worker again.`,
+    );
+}
+
 interface Pending {
   sessionId: string;
   request: PermissionRequest;

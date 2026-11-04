@@ -1,10 +1,20 @@
 import { createServer, type Server } from 'node:http';
 import { WebSocketServer } from 'ws';
+import { WORKER_CLOSE_CODES } from '@ptah-extension/worker-protocol';
 import { WorkerConnection, type ConnectionOptions } from './connection';
+
+/**
+ * Open connections the worker serves at once. Remote desktops arrive through
+ * `ssh -W`, one connection each; past the cap a new connection is closed
+ * with THROTTLED before it can send a frame.
+ */
+export const MAX_WORKER_CONNECTIONS = 64;
 
 export interface WorkerServerOptions extends ConnectionOptions {
   host?: '127.0.0.1' | '::1' | string;
   port?: number;
+  /** Test seam; default {@link MAX_WORKER_CONNECTIONS}. */
+  maxConnections?: number;
 }
 
 export interface WorkerServer {
@@ -21,6 +31,7 @@ export async function createWorkerServer(
   if (host !== '127.0.0.1' && host !== '::1')
     throw new Error('Worker listener requires a loopback literal');
   const requestedPort = options.port ?? 41873;
+  const maxConnections = options.maxConnections ?? MAX_WORKER_CONNECTIONS;
   const server: Server = createServer((request, response) => {
     response.statusCode = 404;
     response.end();
@@ -52,6 +63,10 @@ export async function createWorkerServer(
       return;
     }
     webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+      if (connections.size >= maxConnections) {
+        webSocket.close(WORKER_CLOSE_CODES.THROTTLED);
+        return;
+      }
       const connection = new WorkerConnection(webSocket, options);
       connections.add(connection);
       webSocket.on('close', () => connections.delete(connection));

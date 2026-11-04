@@ -114,6 +114,12 @@ export async function runWorkerCommand(
           result = await (
             await import('./commands/grants')
           ).grantsCommand(await resolvePaths(), 'add', rest[0], rest.slice(1));
+        } else if (action === 'revoke') {
+          if (rest.length !== 1)
+            throw new Error('Usage: grants revoke <tokenId> [--json]');
+          result = await (
+            await import('./commands/grants')
+          ).grantsCommand(await resolvePaths(), 'revoke', rest[0]);
         } else throw new Error('Unknown grants action');
         break;
       case 'locks':

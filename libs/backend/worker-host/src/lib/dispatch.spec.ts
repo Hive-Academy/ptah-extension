@@ -66,6 +66,7 @@ describe('worker command dispatch', () => {
     ['workspace remove', ['workspace', 'remove', '/tmp/project', '--json'], []],
     ['grants', ['grants', '--json'], []],
     ['grants add', ['grants', 'add', 'token-1', 'workspace-1', '--json'], []],
+    ['grants revoke', ['grants', 'revoke', 'token-1', '--json'], []],
   ])('%s emits one JSON line', async (_name, args, expected) => {
     const { io, stdout, stderr } = output();
     expect(await runWorkerCommand(args as string[], io, paths)).toBe(0);
@@ -125,6 +126,28 @@ describe('worker command dispatch', () => {
     ).toBe(1);
     expect(stdout).toEqual([]);
     expect(stderr).toEqual(['Lock release in-use']);
+  });
+
+  it('passes grants revoke its token ID and refuses extra arguments', async () => {
+    const { grantsCommand } = await import('./commands/grants');
+    expect(
+      await runWorkerCommand(
+        ['grants', 'revoke', 'token-1'],
+        output().io,
+        paths,
+      ),
+    ).toBe(0);
+    expect(grantsCommand).toHaveBeenLastCalledWith(paths, 'revoke', 'token-1');
+    const { io, stdout, stderr } = output();
+    expect(
+      await runWorkerCommand(
+        ['grants', 'revoke', 'a', 'b', '--json'],
+        io,
+        paths,
+      ),
+    ).toBe(1);
+    expect(stdout).toEqual([]);
+    expect(stderr).toEqual(['Usage: grants revoke <tokenId> [--json]']);
   });
 
   it('returns non-zero for an invalid command', async () => {

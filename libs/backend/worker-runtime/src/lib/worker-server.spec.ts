@@ -1,6 +1,10 @@
 import { get } from 'node:http';
 import { WebSocket } from 'ws';
-import { createWorkerServer, type WorkerServer } from './worker-server';
+import {
+  createWorkerServer,
+  MAX_WORKER_CONNECTIONS,
+  type WorkerServer,
+} from './worker-server';
 import { PairingWindow } from './pairing-window';
 import { TokenStore } from './token-store';
 import { WorkspaceRegistry } from './workspace-registry';
@@ -99,4 +103,38 @@ it('returns 404 for an ordinary HTTP path', async () => {
     }).on('error', reject);
   });
   expect(status).toBe(404);
+});
+
+it('closes connections past the cap with THROTTLED and accepts again after one leaves', async () => {
+  expect(MAX_WORKER_CONNECTIONS).toBe(64);
+  server = await createWorkerServer({ ...options(), maxConnections: 2 });
+  const port = server.port;
+  const open = async (): Promise<WebSocket> => {
+    const next = new WebSocket(`ws://127.0.0.1:${port}/rpc`);
+    await new Promise<void>((resolve, reject) => {
+      next.once('open', resolve);
+      next.once('error', reject);
+    });
+    return next;
+  };
+  const first = await open();
+  const second = await open();
+  const third = await open();
+  try {
+    const code = await new Promise<number>((resolve) =>
+      third.once('close', resolve),
+    );
+    expect(code).toBe(4429);
+    expect(server.connections.size).toBe(2);
+    const gone = new Promise((resolve) => first.once('close', resolve));
+    first.close();
+    await gone;
+    while (server.connections.size > 1)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    const fourth = await open();
+    expect(server.connections.size).toBe(2);
+    fourth.terminate();
+  } finally {
+    for (const item of [first, second, third]) item.terminate();
+  }
 });

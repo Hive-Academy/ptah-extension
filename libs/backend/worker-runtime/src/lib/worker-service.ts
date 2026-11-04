@@ -1,9 +1,10 @@
-import { readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import type {
-  ReadinessReport,
-  WorkerGrant,
+import { readdir, rm } from 'node:fs/promises';
+import {
+  WORKER_CLOSE_CODES,
+  type ReadinessReport,
+  type WorkerGrant,
 } from '@ptah-extension/worker-protocol';
+import { writeJsonAtomic } from './atomic-file';
 import { SessionEventLog } from './session-event-log';
 import { SessionFanOut } from './fan-out';
 import { SessionLogWriter } from './session-log-writer';
@@ -45,6 +46,14 @@ export interface WorkerServiceOptions extends Omit<
   onSigterm?: boolean;
 }
 
+/** `endpoint.json`: where the running worker listens, and who it is. */
+export interface WorkerEndpointRecord {
+  host: string;
+  port: number;
+  pid: number;
+  machineId: string;
+}
+
 export class WorkerService {
   private server: WorkerServer | undefined;
   private readonly logs = new Map<string, SessionEventLog>();
@@ -84,13 +93,15 @@ export class WorkerService {
             .join(', ')}`,
         );
       this.server = await createWorkerServer(this.options);
-      const temporary = `${this.options.paths.endpoint}.${process.pid}.tmp`;
-      await writeFile(
-        temporary,
-        JSON.stringify({ host: this.server.host, port: this.server.port }),
-        { mode: 0o600, flag: 'wx' },
-      );
-      await rename(temporary, this.options.paths.endpoint);
+      // The PID and machine ID let an operator command confirm that the
+      // listener is this worker before it sends the admin key.
+      const endpoint: WorkerEndpointRecord = {
+        host: this.server.host,
+        port: this.server.port,
+        pid: process.pid,
+        machineId: this.options.identity.machineId,
+      };
+      await writeJsonAtomic(this.options.paths.endpoint, endpoint);
       this.endpointWritten = true;
       if (this.options.onSigterm !== false)
         process.on('SIGTERM', this.onTermination);
@@ -98,6 +109,33 @@ export class WorkerService {
       await this.stop();
       throw error;
     }
+  }
+
+  /**
+   * Closes every live connection authenticated with `tokenId` with REVOKED,
+   * after a goodbye. `exceptConnectionId` is a caller that closes itself
+   * after its reply. Returns how many connections were closed.
+   */
+  closeTokenConnections(tokenId: string, exceptConnectionId?: string): number {
+    let closed = 0;
+    for (const connection of this.server?.connections ?? []) {
+      if (
+        connection.authenticatedTokenId !== tokenId ||
+        connection.connectionId === exceptConnectionId
+      )
+        continue;
+      connection.sendControl('goodbye', { reason: 'revoked' });
+      connection.close(WORKER_CLOSE_CODES.REVOKED);
+      closed++;
+    }
+    return closed;
+  }
+
+  /** Applies a changed grant to the live connections of `tokenId`. */
+  refreshGrant(tokenId: string, grant: WorkerGrant): void {
+    for (const connection of this.server?.connections ?? [])
+      if (connection.authenticatedTokenId === tokenId)
+        connection.refreshGrant(grant);
   }
 
   writer(sessionId: string): SessionLogWriter {
@@ -164,9 +202,5 @@ export class WorkerService {
     await this.options.releaseLocks();
     if (this.endpointWritten)
       await rm(this.options.paths.endpoint, { force: true });
-    await rm(
-      join(this.options.paths.directory, `endpoint.json.${process.pid}.tmp`),
-      { force: true },
-    );
   }
 }

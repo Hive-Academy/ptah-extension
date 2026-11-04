@@ -1,9 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { ensureWorkerDirectory, WorkerPaths } from './paths';
 import type { WorkerGrant } from '@ptah-extension/worker-protocol';
+import { writeJsonAtomic } from './atomic-file';
+import { withFileLock } from './file-lock';
 
 const BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+/** `lastUsedAt` is written at most once per token in this window. */
+const LAST_USED_DEBOUNCE_MS = 60_000;
 
 export interface WorkerTokenRecord {
   tokenId: string;
@@ -23,8 +27,14 @@ export class InsecureTokenFileError extends Error {
   }
 }
 
+/**
+ * The worker's token file. Every writer takes the file lock, reloads the file
+ * under it and writes through one atomic save, so concurrent pairing,
+ * revocation and grant changes never drop each other's records.
+ */
 export class TokenStore {
   private records: WorkerTokenRecord[] = [];
+  private readonly lastRecorded = new Map<string, number>();
   constructor(private readonly paths: WorkerPaths) {}
 
   async load(): Promise<void> {
@@ -38,16 +48,13 @@ export class TokenStore {
         throw new Error('Invalid worker token store');
       this.records = value;
     } catch (error) {
-      if (isMissing(error)) return;
-      throw error;
+      if (!isMissing(error)) throw error;
+      this.records = [];
     }
   }
 
   list(): WorkerTokenRecord[] {
-    return this.records.map((record) => ({
-      ...record,
-      grant: { ...record.grant, workspaceIds: [...record.grant.workspaceIds] },
-    }));
+    return this.records.map(copy);
   }
 
   async issue(
@@ -63,8 +70,8 @@ export class TokenStore {
     }
     const secret = randomBytes(32).toString('base64url');
     const now = new Date().toISOString();
-    await this.save([
-      ...this.records,
+    await this.mutate((records) => [
+      ...records,
       {
         tokenId,
         secretHash: hash(secret),
@@ -88,37 +95,91 @@ export class TokenStore {
     );
     const actual = Buffer.from(hash(match?.[2] ?? ''), 'hex');
     const matches = timingSafeEqual(expected, actual);
-    return found && !found.revokedAt && matches
-      ? {
-          ...found,
-          grant: {
-            ...found.grant,
-            workspaceIds: [...found.grant.workspaceIds],
-          },
-        }
-      : null;
+    return found && !found.revokedAt && matches ? copy(found) : null;
   }
 
-  async revoke(tokenId: string): Promise<void> {
-    await this.save(
-      this.records.map((record) =>
-        record.tokenId === tokenId
-          ? { ...record, revokedAt: new Date().toISOString() }
+  /**
+   * Marks the token revoked. Returns the record, or undefined for an unknown
+   * token. Revoking a revoked token keeps its first `revokedAt`.
+   */
+  async revoke(tokenId: string): Promise<WorkerTokenRecord | undefined> {
+    let revoked: WorkerTokenRecord | undefined;
+    await this.mutate((records) =>
+      records.map((record) => {
+        if (record.tokenId !== tokenId) return record;
+        revoked = record.revokedAt
+          ? record
+          : { ...record, revokedAt: new Date().toISOString() };
+        return revoked;
+      }),
+    );
+    return revoked && copy(revoked);
+  }
+
+  /**
+   * Adds workspace IDs to a live token's grant. Returns the updated record, or
+   * undefined when the token is unknown or revoked.
+   */
+  async addWorkspaces(
+    tokenId: string,
+    workspaceIds: readonly string[],
+  ): Promise<WorkerTokenRecord | undefined> {
+    let updated: WorkerTokenRecord | undefined;
+    await this.mutate((records) =>
+      records.map((record) => {
+        if (record.tokenId !== tokenId || record.revokedAt) return record;
+        updated = {
+          ...record,
+          grant: {
+            ...record.grant,
+            workspaceIds: [
+              ...new Set([...record.grant.workspaceIds, ...workspaceIds]),
+            ],
+          },
+        };
+        return updated;
+      }),
+    );
+    return updated && copy(updated);
+  }
+
+  /**
+   * Records a successful authentication in `lastUsedAt`. Writes at most once
+   * per token per minute; a revoked or unknown token is left alone.
+   */
+  async recordUse(tokenId: string): Promise<void> {
+    const now = Date.now();
+    const last = this.lastRecorded.get(tokenId);
+    if (last !== undefined && now - last < LAST_USED_DEBOUNCE_MS) return;
+    this.lastRecorded.set(tokenId, now);
+    await this.mutate((records) =>
+      records.map((record) =>
+        record.tokenId === tokenId && !record.revokedAt
+          ? { ...record, lastUsedAt: new Date(now).toISOString() }
           : record,
       ),
     );
   }
 
-  private async save(records: WorkerTokenRecord[]): Promise<void> {
+  /** Lock, reload, change and save in one step; the only writer of the file. */
+  private async mutate(
+    change: (records: WorkerTokenRecord[]) => WorkerTokenRecord[],
+  ): Promise<void> {
     await ensureWorkerDirectory(this.paths);
-    const temporary = `${this.paths.tokens}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-    await writeFile(temporary, JSON.stringify(records), {
-      mode: 0o600,
-      flag: 'wx',
+    await withFileLock(this.paths.tokens, async () => {
+      await this.load();
+      const next = change(this.list());
+      await writeJsonAtomic(this.paths.tokens, next);
+      this.records = next;
     });
-    await rename(temporary, this.paths.tokens);
-    this.records = records;
   }
+}
+
+function copy(record: WorkerTokenRecord): WorkerTokenRecord {
+  return {
+    ...record,
+    grant: { ...record.grant, workspaceIds: [...record.grant.workspaceIds] },
+  };
 }
 
 function hash(secret: string): string {

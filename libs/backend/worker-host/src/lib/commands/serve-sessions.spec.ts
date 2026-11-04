@@ -62,6 +62,8 @@ interface EngineBehaviour {
   /** Runs inside `chat:continue`, before it returns. */
   duringContinue?: (emit: Emit, sessionId: string) => void;
   abortRefused?: boolean;
+  /** The persisted autopilot setting `config:autopilot-get` reports. */
+  autopilot?: { enabled: boolean; permissionLevel: string };
 }
 type Emit = (type: string, payload: unknown) => void;
 
@@ -155,6 +157,14 @@ function fakeEngine(behaviour: EngineBehaviour = {}) {
         behaviour.duringContinue?.(emit, String(params['sessionId']));
         return { success: true, data: { success: true } };
       }
+      if (method === 'config:autopilot-get')
+        return {
+          success: true,
+          data: behaviour.autopilot ?? {
+            enabled: false,
+            permissionLevel: 'ask',
+          },
+        };
       if (method === 'chat:abort')
         return behaviour.abortRefused
           ? { success: false, error: 'abort refused' }
@@ -303,7 +313,7 @@ async function startWorker(
   const machineId = `machine_${createHash('sha256').update(hostname()).digest('hex').slice(0, 16)}`;
   const tokens = new runtime.TokenStore(paths);
   await tokens.load();
-  const { token } = await tokens.issue('phone', {
+  const { token, tokenId } = await tokens.issue('phone', {
     machineId,
     workspaceIds: [inside.workspaceId],
   });
@@ -346,7 +356,17 @@ async function startWorker(
     await client.authenticate(token);
     return client;
   };
-  return { paths, inside, outside, engine, endpoint, connect, stop };
+  return {
+    paths,
+    inside,
+    outside,
+    engine,
+    endpoint,
+    connect,
+    stop,
+    token,
+    tokenId,
+  };
 }
 
 it(
@@ -792,6 +812,179 @@ describe('turn lifecycle (Batch 20)', () => {
         prompt: 'after',
       });
       expect(next.ok).toBe(true);
+    },
+    ENGINE_TIMEOUT,
+  );
+});
+
+describe('security and stores (Batch 21)', () => {
+  it.each(['yolo', 'auto-edit'])(
+    'refuses to serve while autopilot is persisted at %s',
+    async (permissionLevel) => {
+      const home = await mkdtemp(join(tmpdir(), 'ptah-worker-sessions-'));
+      homes.push(home);
+      const runtime = await import('@ptah-extension/worker-runtime');
+      const engine = fakeEngine({
+        autopilot: { enabled: true, permissionLevel },
+      });
+      const onReady = jest.fn();
+      await expect(
+        serveCommand({
+          port: 0,
+          maxActiveTurns: 1,
+          paths: runtime.workerPaths(home),
+          argv: [],
+          checks,
+          bootstrap: engine.bootstrap,
+          readiness: async () => ({ ready: true, checks: [] }),
+          onReady,
+        }),
+      ).rejects.toThrow(`autopilot is enabled at level "${permissionLevel}"`);
+      expect(onReady).not.toHaveBeenCalled();
+      expect(engine.call).not.toHaveBeenCalledWith(
+        'chat:start',
+        expect.anything(),
+      );
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'refuses a turn once autopilot is switched to an auto-approving level while serving',
+    async () => {
+      const behaviour: EngineBehaviour = {};
+      const worker = await startWorker(4, behaviour);
+      const client = await worker.connect();
+      behaviour.autopilot = { enabled: true, permissionLevel: 'yolo' };
+      const start = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'hello',
+      });
+      expect(start).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+      expect(worker.engine.call).not.toHaveBeenCalledWith(
+        'chat:start',
+        expect.anything(),
+      );
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'token.revokeSelf closes every live connection of that token',
+    async () => {
+      const worker = await startWorker();
+      const caller = await worker.connect();
+      const other = await worker.connect();
+      const revoke = await caller.call('token.revokeSelf');
+      expect(revoke.ok).toBe(true);
+      expect(await other.closed).toBe(4410);
+      expect(await caller.closed).toBe(4410);
+      const again = await Client.open(worker.endpoint.port);
+      clients.push(again);
+      await again.call('hello', {
+        protocol: { min: 1, max: 1 },
+        client: { name: 'test', version: '1' },
+      });
+      again.send('auth', { token: worker.token });
+      expect(await again.closed).toBe(4401);
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'grants revoke closes the live connections; grants add reaches them without a reconnect',
+    async () => {
+      const worker = await startWorker();
+      const { grantsCommand } = await import('./grants');
+      const client = await worker.connect();
+      const denied = await client.call('sessions.list', {
+        workspaceId: worker.outside.workspaceId,
+      });
+      expect(denied.error?.code).toBe('NOT_FOUND_OR_FORBIDDEN');
+      await expect(
+        grantsCommand(worker.paths, 'add', worker.tokenId, [
+          worker.outside.path,
+        ]),
+      ).resolves.toMatchObject({
+        grant: {
+          workspaceIds: [worker.inside.workspaceId, worker.outside.workspaceId],
+        },
+      });
+      const allowed = await client.call('sessions.list', {
+        workspaceId: worker.outside.workspaceId,
+      });
+      expect(allowed.ok).toBe(true);
+      await expect(
+        grantsCommand(worker.paths, 'revoke', worker.tokenId),
+      ).resolves.toMatchObject({
+        tokenId: worker.tokenId,
+        revokedAt: expect.any(Number),
+        connectionsClosed: 1,
+      });
+      expect(await client.closed).toBe(4410);
+      expect(
+        client.frames.some(
+          (frame) =>
+            frame.type === 'goodbye' && frame.payload?.['reason'] === 'revoked',
+        ),
+      ).toBe(true);
+      await expect(
+        grantsCommand(worker.paths, 'revoke', 'UNKNOWN00000'),
+      ).rejects.toThrow('NOT_FOUND_OR_FORBIDDEN');
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'records lastUsedAt when a token authenticates',
+    async () => {
+      const worker = await startWorker();
+      const { adminCall } = await import('./admin-client');
+      const before = await adminCall(worker.paths, 'admin.grants.list', {});
+      expect(before[0]?.lastUsedAt).toBeNull();
+      await worker.connect();
+      let grants = before;
+      for (let i = 0; i < 200 && grants[0]?.lastUsedAt === null; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        grants = await adminCall(worker.paths, 'admin.grants.list', {});
+      }
+      expect(grants[0]?.lastUsedAt).toEqual(expect.any(Number));
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'workspace remove and add reach the running service at once',
+    async () => {
+      const worker = await startWorker();
+      const { workspaceCommand } = await import('./workspace');
+      const client = await worker.connect();
+      const listed = await client.call('sessions.list', {
+        workspaceId: worker.inside.workspaceId,
+      });
+      expect(listed.ok).toBe(true);
+      await expect(
+        workspaceCommand(worker.paths, 'remove', worker.inside.path),
+      ).resolves.toMatchObject({ workspaceId: worker.inside.workspaceId });
+      const removed = await client.call('sessions.list', {
+        workspaceId: worker.inside.workspaceId,
+      });
+      expect(removed.error?.code).toBe('NOT_FOUND_OR_FORBIDDEN');
+      const workspaces = await client.call('workspaces.list');
+      expect(workspaces.result).toEqual([]);
+      await expect(
+        workspaceCommand(worker.paths, 'add', worker.inside.path),
+      ).resolves.toMatchObject({ workspaceId: worker.inside.workspaceId });
+      const restored = await client.call('sessions.list', {
+        workspaceId: worker.inside.workspaceId,
+      });
+      expect(restored.ok).toBe(true);
+      const file = JSON.parse(
+        await readFile(worker.paths.workspaces, 'utf8'),
+      ) as { workspaceId: string }[];
+      expect(file.map((item) => item.workspaceId).sort()).toEqual(
+        [worker.inside.workspaceId, worker.outside.workspaceId].sort(),
+      );
     },
     ENGINE_TIMEOUT,
   );

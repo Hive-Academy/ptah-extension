@@ -231,6 +231,25 @@ const AdminGrantsAddParamsSchema = z.strictObject({
   workspaces: z.array(z.string().min(1).max(4096)).min(1),
 });
 
+const AdminGrantsRevokeParamsSchema = z.strictObject({ tokenId: IdSchema });
+
+const AdminGrantsRevokeResultSchema = z.object({
+  tokenId: IdSchema,
+  revokedAt: z.number(),
+  /** Live connections of the token the worker closed with REVOKED. */
+  connectionsClosed: z.number().int().min(0),
+});
+
+const AdminWorkspaceAddParamsSchema = z.strictObject({
+  /** Absolute path; the worker registers its `realpath`. */
+  path: z.string().min(1).max(4096),
+});
+
+const AdminWorkspaceRemoveParamsSchema = z.strictObject({
+  /** Registered workspace ID or path. */
+  workspace: z.string().min(1).max(4096),
+});
+
 /**
  * Pairing window state for the SSH-authenticated `ptah worker status --json`
  * (W3). The unauthenticated protocol never carries this.
@@ -333,6 +352,18 @@ export const WORKER_METHOD_SCHEMAS = {
     params: AdminGrantsAddParamsSchema,
     result: z.object({ tokenId: IdSchema, grant: WorkerGrantSchema }),
   },
+  'admin.grants.revoke': {
+    params: AdminGrantsRevokeParamsSchema,
+    result: AdminGrantsRevokeResultSchema,
+  },
+  'admin.workspace.add': {
+    params: AdminWorkspaceAddParamsSchema,
+    result: RemoteWorkspaceSchema,
+  },
+  'admin.workspace.remove': {
+    params: AdminWorkspaceRemoveParamsSchema,
+    result: RemoteWorkspaceSchema,
+  },
   'admin.status': {
     params: EmptyParamsSchema,
     result: AdminStatusResultSchema,
@@ -372,6 +403,9 @@ export const ADMIN_METHODS = [
   'admin.pairing.open',
   'admin.grants.list',
   'admin.grants.add',
+  'admin.grants.revoke',
+  'admin.workspace.add',
+  'admin.workspace.remove',
   'admin.status',
 ] as const satisfies readonly WorkerMethod[];
 

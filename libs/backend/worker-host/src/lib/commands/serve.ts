@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { WithEngineOptions } from '@ptah-extension/cli-engine';
@@ -7,7 +6,11 @@ import type {
   ISessionDriverLock,
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
-import type { ISdkPermissionHandler, SessionId } from '@ptah-extension/shared';
+import type {
+  ConfigAutopilotGetResult,
+  ISdkPermissionHandler,
+  SessionId,
+} from '@ptah-extension/shared';
 import type {
   HistoryReader,
   SessionMetadataReader,
@@ -18,7 +21,6 @@ import type {
   ReadinessReport,
   WorkerGrant,
 } from '@ptah-extension/worker-protocol';
-import { withFileLock } from './file-lock';
 import type { RemoteSessions } from './remote-sessions';
 
 export interface ServeChecks {
@@ -95,14 +97,17 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   const { withEngine, CliWebviewManagerAdapter } =
     await import('@ptah-extension/cli-engine');
   const runtime = await import('@ptah-extension/worker-runtime');
+  const protocolModule = await import('@ptah-extension/worker-protocol');
   const { PROTOCOL_VERSION, WORKER_CLOSE_CODES, FlatStreamEventSchema } =
-    await import('@ptah-extension/worker-protocol');
+    protocolModule;
   const { ClaudeCliDetector, SDK_TOKENS } =
     await import('@ptah-extension/agent-sdk');
   const { CHAT_TOKENS } = await import('@ptah-extension/rpc-handlers');
   const { PLATFORM_TOKENS, listLocalDriverLocks, requestRelease } =
     await import('@ptah-extension/platform-core');
   const { createRemoteSessions } = await import('./remote-sessions');
+  const { AdminPairingStatus, createAdminHandler } =
+    await import('./admin-handlers');
   const logger = {
     error: (message: string) => process.stderr.write(`${message}\n`),
   };
@@ -125,20 +130,31 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
     async (engine) => {
       const registry = new runtime.WorkspaceRegistry(options.paths);
       const tokens = new runtime.TokenStore(options.paths);
-      const machineId = `machine_${createHash('sha256').update(hostname()).digest('hex').slice(0, 16)}`;
+      const machineId = runtime.workerMachineId();
       const identity = { machineId, displayName: hostname(), ptahVersion };
-      let openPairing: { expiresAt: number; attemptsLeft: number } | undefined;
+      const pairingStatus = new AdminPairingStatus();
       const pairing = new runtime.PairingWindow(
         registry,
         machineId,
         undefined,
-        ({ windowOpen, attemptsLeft }) => {
-          if (openPairing)
-            openPairing = windowOpen
-              ? { ...openPairing, attemptsLeft }
-              : undefined;
-        },
+        pairingStatus.changed,
       );
+      // The engine applies a persisted autopilot level to every turn it
+      // runs (ConfigRpcHandlers.register, the Codex profile). The worker
+      // serves remote turns with manual approval only: it refuses to start
+      // on an auto-approving level and re-reads the setting before each turn.
+      const requireManualApproval = async (): Promise<void> => {
+        const response = await engine.transport.call<
+          Record<string, never>,
+          ConfigAutopilotGetResult
+        >('config:autopilot-get', {});
+        if (!response.success || !response.data)
+          throw new Error(
+            'The worker requires manual approval, and the autopilot setting is unreadable.',
+          );
+        runtime.assertManualApprovalSettings(response.data);
+      };
+      await requireManualApproval();
       let adminKey: Buffer;
       try {
         adminKey = await runtime.readAdminKey(options.paths);
@@ -254,113 +270,67 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         revokedCloseCode: WORKER_CLOSE_CODES.REVOKED,
         clientName: (tokenId) =>
           tokens.list().find((item) => item.tokenId === tokenId)?.clientName,
-        revokeToken: (tokenId) =>
-          withFileLock(options.paths.tokens, async () => {
-            await tokens.load();
-            await tokens.revoke(tokenId);
-          }),
+        revokeToken: async (tokenId, callerId) => {
+          await tokens.revoke(tokenId);
+          // The caller closes itself after its reply; every other live
+          // connection of the token closes now.
+          service.closeTokenConnections(tokenId, callerId);
+        },
         requestRelease,
         log: logger.error,
+      });
+      const admin = createAdminHandler({
+        protocol: protocolModule,
+        registry,
+        tokens,
+        pairing,
+        pairingStatus,
+        identity,
+        readiness: () => readiness,
+        locks: async () =>
+          (await listLocalDriverLocks()).flatMap((item) =>
+            item.ok
+              ? item.locks.map((lock) => ({
+                  sessionId: lock.sessionId,
+                  state: lock.state,
+                  label: lock.label,
+                  acquiredAt: Date.parse(lock.acquiredAt),
+                }))
+              : [],
+          ),
+        connections: {
+          closeToken: (tokenId) => service.closeTokenConnections(tokenId),
+          refreshGrant: (tokenId, grant) =>
+            service.refreshGrant(tokenId, grant),
+        },
       });
       const handle = async (
         method: string,
         params: unknown,
         grant: WorkerGrant | null,
-        admin: boolean,
+        isAdmin: boolean,
         peer?: WorkerPeer,
       ): Promise<unknown> => {
-        if (!admin) {
-          if (!grant || !peer) throw new Error('Authentication required');
-          return sessions.handle(method, params, grant, peer);
-        }
-        if (method === 'admin.pairing.open') {
-          const input = params as {
-            ttlSeconds?: number;
-            workspaces?: string[];
-          };
-          const available = registry.list();
-          const ids = input.workspaces?.map((value) => {
-            const found = available.find(
-              (item) => item.workspaceId === value || item.path === value,
+        if (isAdmin) return admin(method, params);
+        if (!grant || !peer) throw new Error('Authentication required');
+        if (method === 'session.start' || method === 'session.continue') {
+          try {
+            await requireManualApproval();
+          } catch (error) {
+            logger.error(
+              error instanceof Error
+                ? error.message
+                : 'Manual approval check failed',
             );
-            if (!found) throw new Error('Unknown workspace');
-            return found.workspaceId;
-          });
-          const opened = pairing.open(input.ttlSeconds, ids);
-          openPairing = { expiresAt: opened.expiresAt, attemptsLeft: 5 };
-          return {
-            ...opened,
-            workspaces: available
-              .filter((item) => opened.workspaces.includes(item.workspaceId))
-              .map((item) => ({
-                workspaceId: item.workspaceId,
-                name: item.name,
-                path: item.path,
-              })),
-          };
+            throw error;
+          }
         }
-        if (method === 'admin.grants.list')
-          return tokens.list().map((item) => ({
-            tokenId: item.tokenId,
-            clientName: item.clientName,
-            createdAt: Date.parse(item.createdAt),
-            lastUsedAt: item.lastUsedAt ? Date.parse(item.lastUsedAt) : null,
-            grant: item.grant,
-            ...(item.revokedAt
-              ? { revokedAt: Date.parse(item.revokedAt) }
-              : {}),
-          }));
-        if (method === 'admin.grants.add') {
-          const input = params as { tokenId: string; workspaces: string[] };
-          const known = registry.list();
-          const ids = input.workspaces.map((value) => {
-            const found = known.find(
-              (item) => item.workspaceId === value || item.path === value,
-            );
-            if (!found) throw new Error('Unknown workspace');
-            return found.workspaceId;
-          });
-          return withFileLock(options.paths.tokens, async () => {
-            await tokens.load();
-            const records = tokens.list();
-            const record = records.find(
-              (item) => item.tokenId === input.tokenId && !item.revokedAt,
-            );
-            if (!record) throw new Error('Unknown token');
-            record.grant.workspaceIds = [
-              ...new Set([...record.grant.workspaceIds, ...ids]),
-            ];
-            const temporary = `${options.paths.tokens}.${process.pid}.tmp`;
-            await writeFile(temporary, JSON.stringify(records), {
-              mode: 0o600,
-            });
-            await rename(temporary, options.paths.tokens);
-            await tokens.load();
-            return { tokenId: record.tokenId, grant: record.grant };
-          });
-        }
-        if (method === 'admin.status')
-          return {
-            ...identity,
-            protocol: PROTOCOL_VERSION,
-            readiness,
-            pairing:
-              openPairing && Date.now() < openPairing.expiresAt
-                ? { open: true, ...openPairing }
-                : { open: false },
-            grants: await handle('admin.grants.list', {}, null, true),
-            locks: (await listLocalDriverLocks()).flatMap((item) =>
-              item.ok
-                ? item.locks.map((lock) => ({
-                    sessionId: lock.sessionId,
-                    state: lock.state,
-                    label: lock.label,
-                    acquiredAt: Date.parse(lock.acquiredAt),
-                  }))
-                : [],
-            ),
-          };
-        throw new Error('Unsupported admin method');
+        // A workspace removed from the registry leaves every grant at once.
+        const effective: WorkerGrant = {
+          ...grant,
+          workspaceIds: grant.workspaceIds.filter((id) => registry.has(id)),
+        };
+        return sessions.handle(method, params, effective, peer);
       };
       const service = new runtime.WorkerService({
         paths: options.paths,

@@ -2,6 +2,7 @@ import {
   PendingPermissionIndex,
   PermissionAnswerError,
   assertManualApproval,
+  assertManualApprovalSettings,
 } from './pending-permissions';
 import type {
   ISdkPermissionHandler,
@@ -13,6 +14,21 @@ it('refuses worker auto-approve flags and environment', () => {
   expect(() => assertManualApproval(['--auto-approve'], undefined)).toThrow();
   expect(() => assertManualApproval([], 'true')).toThrow();
   expect(() => assertManualApproval([], undefined)).not.toThrow();
+});
+
+it('refuses a persisted autopilot level that skips manual approval', () => {
+  for (const permissionLevel of ['yolo', 'auto-edit'])
+    expect(() =>
+      assertManualApprovalSettings({ enabled: true, permissionLevel }),
+    ).toThrow(`autopilot is enabled at level "${permissionLevel}"`);
+  for (const permissionLevel of ['ask', 'plan'])
+    expect(() =>
+      assertManualApprovalSettings({ enabled: true, permissionLevel }),
+    ).not.toThrow();
+  // A disabled autopilot runs every session at `ask`, whatever level is saved.
+  expect(() =>
+    assertManualApprovalSettings({ enabled: false, permissionLevel: 'yolo' }),
+  ).not.toThrow();
 });
 
 it('first answer wins synchronously; auto-approve is refused', async () => {
