@@ -9,6 +9,7 @@ import { ReviewLaneAdmissionService, REVIEW_LANE_TOKENS } from '../lib/lanes/rev
 import { ReviewLaneRunner } from '../lib/lanes/review-lane.runner';
 import { ReviewWorktreeService } from '../lib/context/review-worktree.service';
 import { ReviewContextService } from '../lib/context/review-context.service';
+import { IncrementalScopeService } from '../lib/context/incremental-scope.service';
 import { ReviewDependenciesService } from '../lib/context/review-dependencies.service';
 import { ReviewChecksService } from '../lib/context/review-checks.service';
 import { REVIEW_CORE_TOKENS } from './tokens';
@@ -20,6 +21,10 @@ import { VerificationStageRunner } from '../lib/stages/verification-stage.runner
 import { ReviewOrchestratorService } from '../lib/review-orchestrator.service';
 import { PublicationStageRunner } from '../lib/stages/publication-stage.runner';
 import { ReviewArtifactWriter, type ReviewArtifactFileSystem } from '../lib/lanes/review-artifact.writer';
+import { PublicationOutboxService } from '../lib/publication/publication-outbox.service';
+import { PublicationOutboxRepository } from '../lib/publication/publication-outbox.repository';
+import { PERSISTENCE_TOKENS, type SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import { ReviewPublicationService } from '../lib/publication/review-publication.service';
 
 /**
  * The host registers REVIEW_LANE_TOKENS.GATEWAY, REVIEW_LANE_TOKENS.FILES,
@@ -53,6 +58,7 @@ export function registerReviewCore(container: DependencyContainer): void {
   container.registerSingleton(ReviewLaneRunner);
   container.registerSingleton(ReviewWorktreeService);
   container.registerSingleton(ReviewContextService);
+  container.registerSingleton(IncrementalScopeService);
   container.registerSingleton(ReviewDependenciesService);
   container.registerSingleton(ReviewChecksService);
   container.registerSingleton(DiscoveryStageRunner);
@@ -62,6 +68,10 @@ export function registerReviewCore(container: DependencyContainer): void {
   container.registerSingleton(VerificationStageRunner);
   container.register(REVIEW_CORE_TOKENS.ARTIFACT_WRITER, { useFactory: (provider) =>
     new ReviewArtifactWriter(provider.resolve<ReviewArtifactFileSystem>(REVIEW_CORE_TOKENS.ARTIFACT_FILES)) });
+  container.registerSingleton(PublicationOutboxService);
+  container.register(PublicationOutboxRepository, { useFactory: (provider) =>
+    new PublicationOutboxRepository(provider.resolve<SqliteConnectionService>(PERSISTENCE_TOKENS.SQLITE_CONNECTION).db) });
+  container.registerSingleton(ReviewPublicationService);
   container.registerSingleton(PublicationStageRunner);
   container.registerSingleton(ReviewOrchestratorService);
   container.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useToken: ReviewOrchestratorService });

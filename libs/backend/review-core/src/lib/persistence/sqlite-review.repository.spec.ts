@@ -24,6 +24,26 @@ function setup() {
 }
 
 describe('SqliteReviewRepository', () => {
+  it('reads the last successful head and open failures from shipped review tables', async () => {
+    const { db, repository } = setup();
+    try {
+      const old = head(1, 'a');
+      const attempt = await repository.enqueueDiscovered(old, at(0));
+      const claim = await repository.claimNext('worker', at(1), at(10000));
+      expect(claim?.attemptId).toBe(attempt.attemptId);
+      await repository.release(attempt.attemptId, 'worker', 'succeeded', at(2));
+      await repository.enqueueDiscovered(head(1, 'b'), at(3));
+      const now = Date.UTC(2026, 0, 1);
+      db.prepare(`INSERT INTO review_findings (finding_id, repo_id, pr_number, path, category, status, severity,
+        confidence, payload_json, first_head_sha, last_head_sha, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        'hive-academy/ptahcode', 1, 'src/old.ts', 'functional', 'open', 'Major', 0.9, '{}', old.headSha, old.headSha, now, now);
+      expect(await repository.getLastReviewedHead(old.repo, 1)).toBe(old.headSha);
+      expect(await repository.getOpenFailures(old.repo, 1)).toEqual([{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', path: 'src/old.ts' }]);
+      db.prepare(`UPDATE review_findings SET status = 'reopened' WHERE finding_id = ?`).run('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+      expect(await repository.getOpenFailures(old.repo, 1)).toEqual([{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', path: 'src/old.ts' }]);
+    } finally { db.close(); }
+  });
   it('records failed and recovered polls without advancing the success cursor on failure', async () => {
     const { db, repository } = setup();
     const repo = head(1, 'a').repo;

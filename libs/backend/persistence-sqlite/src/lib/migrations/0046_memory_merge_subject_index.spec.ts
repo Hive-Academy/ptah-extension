@@ -42,8 +42,9 @@ describe('migration 0046_memory_merge_subject_index', () => {
     // 63 since TASK_2026_854 appended 0063_session_auto_links.
     // 64 since TASK_2026_857 appended 0064_lane_outcome_task_kind_source.
     // 65 since TASK_2026_873 appended 0065_ptah_review.
+    // 66 since TASK_2026_873 P2 appended 0066_review_publication.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      65,
+      66,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

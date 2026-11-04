@@ -86,9 +86,14 @@ export class ReviewQueueService {
   /** Caller fetches current open heads; run independently of cron catch-up. */
   async reconcileStartup(heads: ReviewQueueHead[]): Promise<number> {
     await this.repository.reconcileExpiredLeases(this.clock.now().toISOString());
-    for (const head of heads) await this.discover(head);
-    this.logger.info(`Review startup reconciled ${heads.length} heads`);
-    return heads.length;
+    const latest = new Map<string, ReviewQueueHead>();
+    for (const head of heads) {
+      this.validateHead(head);
+      latest.set(`${head.repo.owner}/${head.repo.name}#${head.prNumber}`, head);
+    }
+    for (const head of latest.values()) await this.discover(head);
+    this.logger.info(`Review startup reconciled ${latest.size} heads`);
+    return latest.size;
   }
 
   private validateHead(head: ReviewQueueHead): void {

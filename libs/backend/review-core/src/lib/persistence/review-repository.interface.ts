@@ -29,6 +29,8 @@ export interface ReviewAttemptRecord {
 
 /** A checkpoint is stored as a stage with a JSON outcome, keyed by attempt/stage/ordinal. */
 export interface IReviewRepository extends IReviewQueueRepository {
+  getLastReviewedHead(repo: RepoIdentity, prNumber: number): Promise<string | null>;
+  getOpenFailures(repo: RepoIdentity, prNumber: number): Promise<Array<{ id: string; path: string }>>;
   getLastPollAt(repo: RepoIdentity): Promise<number | null>;
   recordPoll(repo: RepoIdentity, ok: boolean): Promise<void>;
   getAttempt(attemptId: string): Promise<ReviewAttemptRecord | null>;

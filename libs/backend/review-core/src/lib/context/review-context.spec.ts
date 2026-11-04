@@ -11,6 +11,14 @@ const ok = (stdout = ''): ReviewCommandResult => ({ exitCode: 0, stdout, stderr:
 const logger = { error: jest.fn() } as Pick<Logger, 'error'> as Logger;
 
 describe('review exact SHA context', () => {
+  it('diffs only commits after the prior reviewed head', async () => {
+    const runner: IReviewCommandRunner = { run: jest.fn(async () => ok('diff --git a/src/new.ts b/src/new.ts\n+export const changed = true;')) };
+    const context = new ReviewContextService(runner);
+    const result = await context.diffSince(repo, '/repo', 'b'.repeat(40), 'a'.repeat(40));
+    expect(result.changedPaths).toEqual(['src/new.ts']);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'git',
+      ['diff', '--no-ext-diff', '--no-renames', 'b'.repeat(40), 'a'.repeat(40), '--'], '/repo', 30_000, undefined);
+  });
   const files: IReviewContextFiles = {
     mkdir: jest.fn(async () => undefined),
     read: jest.fn(async () => Buffer.from('contents')),
@@ -29,6 +37,7 @@ describe('review exact SHA context', () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async () => ok('src/caller.ts:12:target()\n')) };
     const context = await new ReviewContextService(runner).build(repo, '/repo', ['src/export.ts', 'package-lock.json'], ['target']);
     expect(context.callers).toEqual([{ symbol: 'target', path: 'src/caller.ts', line: 12, outsideDiff: true }]);
+    expect(context.dependentPaths).toEqual(['src/caller.ts']);
     expect(context.changedLockfiles).toEqual(['package-lock.json']);
   });
 

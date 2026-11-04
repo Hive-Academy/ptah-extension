@@ -48,7 +48,7 @@ describe('migration 0065_ptah_review', () => {
   it('registers after 64 and creates every durable table', () => {
     const previous = MIGRATIONS.findIndex((migration) => migration.version === 64);
     expect(MIGRATIONS[previous + 1]).toEqual({ version: 65, name: '0065_ptah_review', sql });
-    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(65);
+    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBeGreaterThanOrEqual(65);
     const rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'review_%'").all() as { name: string }[];
     expect(rows.map((row) => row.name).sort()).toEqual([
       'review_artifacts', 'review_attempts', 'review_finding_events',

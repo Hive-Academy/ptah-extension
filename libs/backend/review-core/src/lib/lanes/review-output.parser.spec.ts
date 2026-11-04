@@ -14,4 +14,17 @@ describe('ReviewOutputParser', () => {
     expect(parser.parseVerdictBatch(JSON.stringify([verdict]), sha, 'same')).toHaveLength(1);
     expect(() => parser.parseVerdictBatch(JSON.stringify([verdict, verdict]), sha, 'same')).toThrow('Duplicate verifier candidate ID');
   });
+  it('validates semantic identity and defaults missing or invalid relations to uncertain', () => {
+    const verdict = { schemaVersion: 1, candidateId: 'c', headSha: sha, verdict: 'accepted',
+      checkedEvidence: [{ path: 'src/a.ts', line: 1, observation: 'Confirmed' }],
+      reason: 'Confirmed', confidence: 0.9, verifierFamily: 'same' };
+    const priorFindingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    expect(parser.parseVerdictBatch(JSON.stringify([{ ...verdict, identity: {
+      relation: 'same', priorFindingId, reason: 'Same behavior after rewording' } }]), sha, 'same')[0].identity)
+      .toMatchObject({ relation: 'same', priorFindingId });
+    expect(parser.parseVerdictBatch(JSON.stringify([verdict]), sha, 'same')[0].identity.relation).toBe('uncertain');
+    expect(parser.parseVerdictBatch(JSON.stringify([{ ...verdict, identity: {
+      relation: 'same', priorFindingId: null, reason: 'Invalid' } }]), sha, 'same')[0].identity.relation)
+      .toBe('uncertain');
+  });
 });

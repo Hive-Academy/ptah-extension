@@ -14,7 +14,10 @@ import { LensStageRunner } from './stages/lens-stage.runner';
 import { VerificationStageRunner } from './stages/verification-stage.runner';
 import { PublicationStageRunner } from './stages/publication-stage.runner';
 
-const ContextSchema = z.object({ attemptRoot: z.string().min(1), baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(), coverage: z.array(z.string()), promptInput: z.object({
+const ContextSchema = z.object({ attemptRoot: z.string().min(1), baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  incrementalScope: z.object({ headSha: z.string(), previousReviewedHeadSha: z.string().nullable(), changedPaths: z.array(z.string()),
+    dependentPaths: z.array(z.string()), recheckFailureIds: z.array(z.string()), reviewPaths: z.array(z.string()),
+    publishNewVerifiedRootsOnly: z.boolean() }).optional(), coverage: z.array(z.string()), promptInput: z.object({
   headSha: z.string(), title: z.string(), body: z.string(), diff: z.string(), comments: z.string(), fileContent: z.string(),
   deterministicEvidence: z.string(), repositoryRules: z.string(),
 }) }).strict();

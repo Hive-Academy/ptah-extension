@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import { z } from 'zod';
-import { RepoIdentitySchema, type RepoIdentity } from '@ptah-extension/review-contracts';
+import { RepoIdentitySchema, ShaSchema, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { PERSISTENCE_TOKENS, SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { ReviewQueueAttempt, ReviewQueueClaim, ReviewQueueHead } from '../review-queue.service';
@@ -27,6 +27,27 @@ export class SqliteReviewRepository implements IReviewRepository {
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: SqliteConnectionService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
+
+  async getLastReviewedHead(repo: RepoIdentity, prNumber: number): Promise<string | null> {
+    RepoIdentitySchema.parse(repo);
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('Invalid PR number');
+    const row = this.sqlite.db.prepare(`SELECT head_sha FROM review_attempts
+      WHERE repo_id = ? AND pr_number = ? AND state = 'completed' AND result_status = 'succeeded'
+      ORDER BY ended_at DESC, attempt_id DESC LIMIT 1`).get(`${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`, prNumber);
+    return row ? z.object({ head_sha: ShaSchema }).parse(row).head_sha : null;
+  }
+
+  async getOpenFailures(repo: RepoIdentity, prNumber: number): Promise<Array<{ id: string; path: string }>> {
+    RepoIdentitySchema.parse(repo);
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('Invalid PR number');
+    return this.sqlite.db.prepare(`SELECT finding_id, path FROM review_findings
+      WHERE repo_id = ? AND pr_number = ? AND status IN ('open', 'reopened') ORDER BY created_at LIMIT 1000`)
+      .all(`${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`, prNumber)
+      .map((row) => {
+        const parsed = z.object({ finding_id: z.string().min(1), path: z.string().min(1) }).parse(row);
+        return { id: parsed.finding_id, path: parsed.path };
+      });
+  }
 
   async getLastPollAt(repo: RepoIdentity): Promise<number | null> {
     const row = this.sqlite.db.prepare('SELECT last_poll_at FROM review_repositories WHERE repo_id = ?')
