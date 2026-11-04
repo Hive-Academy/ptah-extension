@@ -598,6 +598,7 @@ export class ChatStore {
   handleSessionIdResolved(data: {
     tabId: string;
     realSessionId: string;
+    carryOverRequestId?: string;
   }): void {
     this.lifecycle.handleSessionIdResolved(data);
   }

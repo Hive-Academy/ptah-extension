@@ -12,6 +12,11 @@ export const CHAT_TOKENS = {
   SDK_CONTEXT: Symbol.for('ChatSdkContextService'),
   PTAH_CLI: Symbol.for('ChatPtahCliService'),
   SESSION: Symbol.for('ChatSessionService'),
+  /**
+   * Continues a refused session on the active provider
+   * (`chat:carry-over-check`, `chat:carry-over`). Injects `SESSION`.
+   */
+  CARRY_OVER: Symbol.for('ChatCarryOverService'),
   HISTORY_READ: Symbol.for('ChatHistoryReadService'),
   STREAM_BROADCASTER: Symbol.for('ChatStreamBroadcaster'),
   STREAM_DELIVERY_COORDINATOR: Symbol.for('ChatStreamDeliveryCoordinator'),

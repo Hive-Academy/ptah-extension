@@ -30,8 +30,18 @@ import {
   PtahCliStateService,
   VSCodeService,
   AuthStateService,
+  type AuthRequiredBanner,
 } from '@ptah-extension/core';
-import { MessageSenderService } from './message-sender.service';
+import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
+import {
+  CARRY_OVER_CHECK_FAILED_TEXT,
+  MessageSenderService,
+} from './message-sender.service';
+import {
+  CARRY_OVER_BUSY_TEXT,
+  CARRY_OVER_CHECK_TIMEOUT_MS,
+  ProviderCarryOverService,
+} from './provider-carry-over.service';
 import { SessionAgentRosterService } from './session-agents/session-agent-roster.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import {
@@ -126,6 +136,8 @@ describe('MessageSenderService', () => {
   let removeBoundary: jest.Mock;
   let retirePendingPrompt: jest.Mock;
   let flagAuthRequired: jest.Mock;
+  let authBanner: ReturnType<typeof signal<AuthRequiredBanner | null>>;
+  let activeProvider: ReturnType<typeof signal<string | null>>;
   let vscodeConfig: jest.Mock;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
@@ -240,7 +252,9 @@ describe('MessageSenderService', () => {
     recordBoundary = jest.fn();
     removeBoundary = jest.fn();
     retirePendingPrompt = jest.fn();
-    flagAuthRequired = jest.fn();
+    flagAuthRequired = jest.fn(() => 1);
+    authBanner = signal<AuthRequiredBanner | null>(null);
+    activeProvider = signal<string | null>('anthropic');
     vscodeConfig = jest.fn(() => ({ workspaceRoot: 'D:/repo' }));
 
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
@@ -301,7 +315,14 @@ describe('MessageSenderService', () => {
         },
         {
           provide: AuthStateService,
-          useValue: { flagAuthRequired },
+          // The banner and active-provider signals are read by the real
+          // ProviderCarryOverService and the `/compact` fail-closed rule.
+          useValue: {
+            flagAuthRequired,
+            authRequiredBanner: authBanner,
+            activeProviderId: activeProvider,
+            clearAuthRequiredBanner: jest.fn(),
+          },
         },
       ],
     });
@@ -1555,6 +1576,466 @@ describe('MessageSenderService', () => {
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
       expect(payload['prompt']).toBe('ultracode: already tagged');
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // TASK_2026_865: provider carry-over (offer origin, pending guard and the
+  // `/compact` trigger). The real ProviderCarryOverService runs; only the
+  // host RPCs are mocked.
+  // ---------------------------------------------------------------------
+  describe('provider carry-over', () => {
+    let carryOver: ProviderCarryOverService;
+
+    const ELIGIBLE_CODEX = rpcSuccess({
+      eligible: true,
+      providerId: 'openai-codex',
+      providerName: 'Codex',
+    });
+    const STARTED_CODEX = rpcSuccess({
+      success: true,
+      providerId: 'openai-codex',
+      providerName: 'Codex',
+    });
+
+    /** Route each host method; unlisted ones get today's happy replies. */
+    function routeRpc(replies: Record<string, () => Promise<unknown>>): void {
+      rpcCall.mockImplementation((method: string): Promise<unknown> => {
+        const reply = replies[method];
+        if (reply) return reply();
+        if (method === 'session:validate') {
+          return Promise.resolve({ success: true, data: { exists: true } });
+        }
+        if (method === 'chat:continue') {
+          return Promise.resolve({ success: true, data: { success: true } });
+        }
+        return Promise.resolve({ success: true });
+      });
+    }
+
+    const callsOf = (method: string): unknown[][] =>
+      rpcCall.mock.calls.filter((c) => c[0] === method);
+
+    /** `chat:continue` params today's code sends for `prompt` on tab-1. */
+    const todaysContinueParams = (prompt: string): Record<string, unknown> => ({
+      prompt,
+      sessionId: 'sess-X',
+      tabId: 'tab-1',
+      clientMessageId: expect.any(String),
+      name: 'Old chat',
+      workspacePath: 'D:/repo',
+      model: 'claude-opus-4',
+      files: [],
+      effort: 'medium',
+    });
+
+    beforeEach(() => {
+      carryOver = TestBed.inject(ProviderCarryOverService);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-X',
+          name: 'Old chat',
+          providerId: 'anthropic',
+        }),
+        makeTab({ id: 'tab-2', claudeSessionId: 'sess-Y', name: 'Other' }),
+      ]);
+      activeProvider.set('openai-codex');
+    });
+
+    describe('offer origin on a refused continue', () => {
+      const REFUSED = {
+        success: true,
+        data: {
+          success: false,
+          errorCode: 'AUTH_REQUIRED',
+          error: 'Sign in to Claude',
+          providerId: 'anthropic',
+        },
+      };
+
+      it('binds the banner to the chat and asks for one offer (AC 1.1, 7.1)', async () => {
+        const offerFor = jest
+          .spyOn(carryOver, 'offerFor')
+          .mockResolvedValue(undefined);
+        flagAuthRequired.mockReturnValue(7);
+        routeRpc({ 'chat:continue': () => Promise.resolve(REFUSED) });
+
+        const outcome = await service.send('hello', { tabId: 'tab-1' });
+
+        expect(outcome).toEqual({ success: false, error: 'Sign in to Claude' });
+        expect(flagAuthRequired).toHaveBeenCalledWith(
+          'anthropic',
+          'Sign in to Claude',
+          { sessionId: 'sess-X', tabId: 'tab-1', workspacePath: 'D:/repo' },
+        );
+        expect(offerFor).toHaveBeenCalledTimes(1);
+        expect(offerFor).toHaveBeenCalledWith(7);
+      });
+
+      it('keeps the refusal outcome when the offer check fails', async () => {
+        jest
+          .spyOn(carryOver, 'offerFor')
+          .mockRejectedValue(new Error('check failed'));
+        routeRpc({ 'chat:continue': () => Promise.resolve(REFUSED) });
+
+        const outcome = await service.send('hello', { tabId: 'tab-1' });
+        await Promise.resolve();
+
+        expect(outcome).toEqual({ success: false, error: 'Sign in to Claude' });
+        expect(tabsSignal()[0].status).toBe('loaded');
+      });
+
+      it('passes no origin on a refused chat:start', async () => {
+        const offerFor = jest.spyOn(carryOver, 'offerFor');
+        tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: null })]);
+        rpcCall.mockResolvedValue(REFUSED);
+
+        await service.send('hello', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:start')).toHaveLength(1);
+
+        expect(flagAuthRequired).toHaveBeenCalledTimes(1);
+        expect(flagAuthRequired.mock.calls[0]).toHaveLength(2);
+        expect(offerFor).not.toHaveBeenCalled();
+      });
+
+      it('passes no origin and sends today\'s /compact when the workspace is unknown (A4)', async () => {
+        vscodeConfig.mockReturnValue({ workspaceRoot: '' });
+        const offerFor = jest.spyOn(carryOver, 'offerFor');
+        routeRpc({
+          'workspace:getInfo': () => Promise.resolve({ success: false }),
+          'chat:continue': () => Promise.resolve(REFUSED),
+        });
+
+        await service.send('/compact', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:carry-over-check')).toHaveLength(0);
+        expect(callsOf('chat:continue')).toHaveLength(1);
+        expect(flagAuthRequired.mock.calls[0]).toHaveLength(2);
+        expect(offerFor).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('pending guard (F3 Rev 1, AC 5.4)', () => {
+      beforeEach(() => {
+        jest
+          .spyOn(carryOver, 'isPending')
+          .mockImplementation((tabId: string) => tabId === 'tab-1');
+        routeRpc({});
+      });
+
+      it('refuses a continue on the pending tab with no RPC', async () => {
+        await expect(
+          service.send('hello', { tabId: 'tab-1' }),
+        ).resolves.toEqual({ success: false, error: CARRY_OVER_BUSY_TEXT });
+        await expect(service.send('/compact')).resolves.toEqual({
+          success: false,
+          error: CARRY_OVER_BUSY_TEXT,
+        });
+        expect(rpcCall).not.toHaveBeenCalled();
+      });
+
+      it('refuses a start on the pending tab with no RPC', async () => {
+        tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: null })]);
+
+        await expect(
+          service.send('hello', { tabId: 'tab-1' }),
+        ).resolves.toEqual({ success: false, error: CARRY_OVER_BUSY_TEXT });
+        expect(rpcCall).not.toHaveBeenCalled();
+      });
+
+      it('refuses a queue flush on the pending tab with no RPC', async () => {
+        await expect(
+          service.continueExistingSessionForQueueFlush(
+            'queued',
+            'sess-X' as SessionId,
+            { tabId: 'tab-1' },
+          ),
+        ).resolves.toEqual({ success: false, error: CARRY_OVER_BUSY_TEXT });
+        expect(rpcCall).not.toHaveBeenCalled();
+      });
+
+      it('still sends on another tab', async () => {
+        await expect(
+          service.send('hello', { tabId: 'tab-2' }),
+        ).resolves.toEqual({ success: true });
+        expect(callsOf('chat:continue')).toHaveLength(1);
+      });
+    });
+
+    describe('/compact trigger', () => {
+      it('Claude -> Codex: one chat:carry-over, no chat:continue, no bubble (9.1, 9.2, 9.5)', async () => {
+        routeRpc({
+          'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+          'chat:carry-over': () => Promise.resolve(STARTED_CODEX),
+        });
+
+        await expect(
+          service.send('/compact', { tabId: 'tab-1' }),
+        ).resolves.toEqual({ success: true });
+
+        expect(callsOf('chat:carry-over-check')).toEqual([
+          [
+            'chat:carry-over-check',
+            { sessionId: 'sess-X', workspacePath: 'D:/repo' },
+            { timeout: CARRY_OVER_CHECK_TIMEOUT_MS },
+          ],
+        ]);
+        expect(callsOf('chat:carry-over')).toHaveLength(1);
+        expect(callsOf('chat:carry-over')[0][1]).toEqual({
+          sessionId: 'sess-X',
+          tabId: 'tab-1',
+          workspacePath: 'D:/repo',
+          name: 'Old chat',
+          requestId: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+          ),
+        });
+        expect(callsOf('chat:continue')).toHaveLength(0);
+        expect(tabsSignal()[0].messages).toEqual([]);
+        expect(recordBoundary).not.toHaveBeenCalled();
+        expect(tabManager.markResuming).not.toHaveBeenCalled();
+        expect(carryOver.isPending('tab-1')).toBe(true);
+      });
+
+      it('Codex -> Claude: the same path for a native Codex chat (RPC mocked)', async () => {
+        tabsSignal.set([
+          makeTab({
+            id: 'tab-1',
+            claudeSessionId: 'sess-X',
+            name: 'Old chat',
+            providerId: 'openai-codex',
+          }),
+        ]);
+        activeProvider.set('anthropic');
+        routeRpc({
+          'chat:carry-over-check': () =>
+            Promise.resolve(
+              rpcSuccess({
+                eligible: true,
+                providerId: 'anthropic',
+                providerName: 'Claude',
+              }),
+            ),
+          'chat:carry-over': () =>
+            Promise.resolve(
+              rpcSuccess({
+                success: true,
+                providerId: 'anthropic',
+                providerName: 'Claude',
+              }),
+            ),
+        });
+
+        await expect(
+          service.send('/compact', { tabId: 'tab-1' }),
+        ).resolves.toEqual({ success: true });
+
+        expect(callsOf('chat:carry-over')).toHaveLength(1);
+        expect(callsOf('chat:continue')).toHaveLength(0);
+        expect(tabsSignal()[0].messages).toEqual([]);
+      });
+
+      it.each<{ label: string; check: () => Promise<unknown> }>([
+        {
+          label: 'not eligible',
+          check: () => Promise.resolve(rpcSuccess({ eligible: false })),
+        },
+        {
+          label: 'a check RPC error',
+          check: () => Promise.resolve(rpcError('Internal error')),
+        },
+        {
+          label: 'a check timeout',
+          check: () => Promise.resolve(rpcError('Request timed out')),
+        },
+        {
+          label: 'a thrown check',
+          check: () => Promise.reject(new Error('socket closed')),
+        },
+      ])(
+        '$label with no known provider mismatch sends today\'s chat:continue (AC 1.5, 9.3)',
+        async ({ check }) => {
+          tabsSignal.set([
+            makeTab({ id: 'tab-1', claudeSessionId: 'sess-X', name: 'Old chat' }),
+          ]);
+          routeRpc({ 'chat:carry-over-check': check });
+
+          await expect(
+            service.send('/compact', { tabId: 'tab-1' }),
+          ).resolves.toEqual({ success: true });
+
+          expect(callsOf('chat:carry-over')).toHaveLength(0);
+          expect(callsOf('chat:continue')).toHaveLength(1);
+          expect(callsOf('chat:continue')[0][1]).toEqual(
+            todaysContinueParams('/compact'),
+          );
+        },
+      );
+
+      it('not eligible with a known mismatch still runs today\'s /compact', async () => {
+        routeRpc({
+          'chat:carry-over-check': () =>
+            Promise.resolve(rpcSuccess({ eligible: false })),
+        });
+
+        await service.send('/compact', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:continue')).toHaveLength(1);
+        expect(callsOf('chat:continue')[0][1]).toEqual(
+          todaysContinueParams('/compact'),
+        );
+      });
+
+      it.each<{ label: string; check: () => Promise<unknown> }>([
+        {
+          label: 'a check RPC error',
+          check: () => Promise.resolve(rpcError('Internal error')),
+        },
+        {
+          label: 'a check timeout',
+          check: () => Promise.resolve(rpcError('Request timed out')),
+        },
+      ])(
+        '$label with a known provider mismatch fails closed and sends nothing (P4 = A)',
+        async ({ check }) => {
+          routeRpc({ 'chat:carry-over-check': check });
+
+          await expect(
+            service.send('/compact', { tabId: 'tab-1' }),
+          ).resolves.toEqual({
+            success: false,
+            error: CARRY_OVER_CHECK_FAILED_TEXT,
+            errorIsFullText: true,
+          });
+
+          expect(callsOf('chat:continue')).toHaveLength(0);
+          expect(callsOf('chat:carry-over')).toHaveLength(0);
+          expect(tabsSignal()[0].messages).toEqual([]);
+          expect(carryOver.isPending('tab-1')).toBe(false);
+        },
+      );
+
+      it('a failed check with the same known provider runs today\'s /compact', async () => {
+        activeProvider.set('anthropic');
+        routeRpc({
+          'chat:carry-over-check': () =>
+            Promise.resolve(rpcError('Request timed out')),
+        });
+
+        await service.send('/compact', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:continue')).toHaveLength(1);
+      });
+
+      it('a failed check for a background-workspace tab runs today\'s /compact', async () => {
+        backgroundTabsSignal.set([
+          makeTab({
+            id: 'tab-bg',
+            claudeSessionId: 'sess-B',
+            providerId: 'anthropic',
+          }),
+        ]);
+        routeRpc({
+          'chat:carry-over-check': () =>
+            Promise.resolve(rpcError('Request timed out')),
+        });
+
+        await service.send('/compact', { tabId: 'tab-bg' });
+
+        expect(callsOf('chat:continue')).toHaveLength(1);
+      });
+
+      it('redirects /compact with arguments and does not forward them (K21)', async () => {
+        routeRpc({
+          'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+          'chat:carry-over': () => Promise.resolve(STARTED_CODEX),
+        });
+
+        await service.send('/compact focus on tests', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:carry-over')).toHaveLength(1);
+        expect(JSON.stringify(callsOf('chat:carry-over')[0][1])).not.toContain(
+          'focus on tests',
+        );
+        expect(callsOf('chat:continue')).toHaveLength(0);
+      });
+
+      it.each(['/compactx', '/compact\nfoo', 'ultracode: /compact'])(
+        'does not redirect %j',
+        async (prompt) => {
+          routeRpc({
+            'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+          });
+
+          await service.send(prompt, { tabId: 'tab-1' });
+
+          expect(callsOf('chat:carry-over-check')).toHaveLength(0);
+          expect(callsOf('chat:continue')).toHaveLength(1);
+        },
+      );
+
+      it('redirects a queued /compact flushed after the turn (proposed 9.6)', async () => {
+        routeRpc({
+          'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+          'chat:carry-over': () => Promise.resolve(STARTED_CODEX),
+        });
+
+        await expect(
+          service.continueExistingSessionForQueueFlush(
+            '/compact',
+            'sess-X' as SessionId,
+            { tabId: 'tab-1' },
+          ),
+        ).resolves.toEqual({ success: true });
+
+        expect(callsOf('chat:carry-over')).toHaveLength(1);
+        expect(callsOf('chat:continue')).toHaveLength(0);
+      });
+
+      it('gives the busy outcome when the session is already carried over elsewhere', async () => {
+        jest.spyOn(carryOver, 'isBusy').mockReturnValue(true);
+        routeRpc({
+          'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+        });
+
+        await expect(
+          service.send('/compact', { tabId: 'tab-1' }),
+        ).resolves.toEqual({ success: false, error: CARRY_OVER_BUSY_TEXT });
+
+        expect(callsOf('chat:carry-over')).toHaveLength(0);
+        expect(callsOf('chat:continue')).toHaveLength(0);
+      });
+
+      it('returns a carry-over failure as the send failure', async () => {
+        routeRpc({
+          'chat:carry-over-check': () => Promise.resolve(ELIGIBLE_CODEX),
+          'chat:carry-over': () =>
+            Promise.resolve(
+              rpcSuccess({
+                success: false,
+                reason: 'HISTORY_UNREADABLE',
+                error: 'unreadable',
+              }),
+            ),
+        });
+
+        const outcome = await service.send('/compact', { tabId: 'tab-1' });
+
+        expect(outcome.success).toBe(false);
+        expect(outcome.error).toEqual(expect.any(String));
+        expect(callsOf('chat:continue')).toHaveLength(0);
+      });
+
+      it('never checks eligibility for a plain prompt', async () => {
+        routeRpc({});
+
+        await service.send('hello again', { tabId: 'tab-1' });
+
+        expect(callsOf('chat:carry-over-check')).toHaveLength(0);
+        expect(callsOf('chat:continue')).toHaveLength(1);
+      });
     });
   });
 });

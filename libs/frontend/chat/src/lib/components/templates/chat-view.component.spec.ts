@@ -73,6 +73,10 @@ import {
 import { SessionInspectorStore } from '../../services/session-inspector';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
+import {
+  ProviderCarryOverService,
+  type CarryOverOffer,
+} from '../../services/provider-carry-over.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
@@ -80,6 +84,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  type AuthRequiredBanner,
   LoggingService,
   NotificationService,
   PlanLimitsStore,
@@ -519,13 +524,30 @@ function makeHarness(
     getConversationId: jest.fn(() => null),
   } as unknown as TabSessionBinding;
 
+  // The banner carries its generation and origin (TASK_2026_865 Batch 6).
+  const authBannerSig = signal<AuthRequiredBanner | null>(null);
   const authStateStub = {
-    authRequiredBanner: signal(null),
+    authRequiredBanner: authBannerSig,
     authMethodLabel: signal<string | null>(null).asReadonly(),
     loadAuthStatus: jest.fn(async (): Promise<void> => undefined),
     codexLogin: jest.fn(async () => undefined),
     clearAuthRequiredBanner: jest.fn(),
   } as unknown as AuthStateService;
+
+  const carryOverOfferSig = signal<CarryOverOffer | null>(null);
+  const carryOverPendingTabs = new Set<string>();
+  const carryOverBusySessions = new Set<string>();
+  const carryOverStartMock = jest.fn(
+    async (_offer: CarryOverOffer): Promise<void> => undefined,
+  );
+  const carryOverStub = {
+    offer: carryOverOfferSig.asReadonly(),
+    isPending: jest.fn((tabId: string) => carryOverPendingTabs.has(tabId)),
+    isBusy: jest.fn((sessionId: string) =>
+      carryOverBusySessions.has(sessionId),
+    ),
+    start: carryOverStartMock,
+  } as unknown as ProviderCarryOverService;
 
   const displaySidebarWidthSig = signal<number | null>(null);
   const layoutStub = {
@@ -586,6 +608,7 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
+      { provide: ProviderCarryOverService, useValue: carryOverStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
       {
         provide: SessionInspectorStore,
@@ -692,6 +715,11 @@ function makeHarness(
     sessionIdSig,
     messagesSig,
     activeTabIdSig,
+    authBannerSig,
+    carryOverOfferSig,
+    carryOverPendingTabs,
+    carryOverBusySessions,
+    carryOverStartMock,
     tabsSig,
     sessionVisibleSig,
     sessionFocusedSig,
@@ -1843,6 +1871,28 @@ describe('ChatViewComponent — per-tile banner scoping', () => {
     });
     h.realActionBanner.showInfo('rewind complete', 'tile-A');
     expect(h.component.actionInfo()).toBe('rewind complete');
+    h.realActionBanner.clear();
+  });
+
+  it('renders the info notice in base-content text, not text-success (contrast)', () => {
+    // text-success on the bg-success/10 tint is 2.15:1 in anubis-light; the
+    // carry-over notice and the branch/rewind notices share this banner.
+    const h = makeHarness({
+      useRealBanner: true,
+      renderCompactTemplate: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('Continued with Claude in a new chat.', 'tile-A');
+    h.fixture.detectChanges();
+
+    const notice = Array.from(
+      (h.fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[role="status"]',
+      ),
+    ).find((el) => el.textContent?.includes('Continued with Claude'));
+    expect(notice).toBeDefined();
+    expect(notice?.classList.contains('text-base-content')).toBe(true);
+    expect(notice?.classList.contains('text-success')).toBe(false);
     h.realActionBanner.clear();
   });
 
@@ -3377,5 +3427,142 @@ describe('ChatViewComponent — Display sidebar (Electron)', () => {
     expect(separator?.getAttribute('tabindex')).toBe('0');
     expect(separator?.getAttribute('aria-valuenow')).not.toBeNull();
     expect(separator?.getAttribute('aria-valuemin')).not.toBeNull();
+  });
+});
+
+describe('ChatViewComponent — provider carry-over offer binding', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  const OLD_SESSION = 'sess-old' as CarryOverOffer['sessionId'];
+
+  function banner(generation: number, tabId = 'tab-abc'): AuthRequiredBanner {
+    return {
+      providerId: 'anthropic',
+      message: 'This conversation was started with another provider.',
+      generation,
+      origin: { sessionId: OLD_SESSION, tabId, workspacePath: '/ws' },
+    };
+  }
+
+  function offer(generation: number, tabId = 'tab-abc'): CarryOverOffer {
+    return {
+      generation,
+      sessionId: OLD_SESSION,
+      tabId,
+      workspacePath: '/ws',
+      providerId: 'openai-codex',
+      providerName: 'Codex',
+    };
+  }
+
+  type CarryOverView = {
+    carryOverOffer: () => CarryOverOffer | null;
+    carryOverBusy: () => boolean;
+  };
+
+  /** Render the template with child components as plain elements. */
+  function render(options: { sessionContextTabId?: string } = {}) {
+    const h = makeHarness({ ...options, renderCompactTemplate: true });
+    const view = h.component as unknown as CarryOverView;
+    const bannerEl = (): HTMLElement & {
+      carryOverProvider?: string | null;
+      carryOverBusy?: boolean;
+    } =>
+      (h.fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-auth-required-banner',
+      ) as HTMLElement;
+    /** Detect changes and let the banner's `@defer (on immediate)` load. */
+    const showBanner = async (): Promise<void> => {
+      h.fixture.detectChanges();
+      await h.fixture.whenStable();
+      h.fixture.detectChanges();
+    };
+    return { h, view, bannerEl, showBanner };
+  }
+
+  it('binds the offer in the refused tab and the output calls start once', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toEqual(offer(3));
+    expect(view.carryOverBusy()).toBe(false);
+    expect(bannerEl().carryOverProvider).toBe('Codex');
+    expect(bannerEl().carryOverBusy).toBe(false);
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+
+    expect(h.carryOverStartMock).toHaveBeenCalledTimes(1);
+    expect(h.carryOverStartMock).toHaveBeenCalledWith(offer(3));
+  });
+
+  it("gives null and today's banner in a view of another tab (AC 7.3)", async () => {
+    const { h, view, bannerEl, showBanner } = render({
+      sessionContextTabId: 'tab-other',
+    });
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toBeNull();
+    expect(view.carryOverBusy()).toBe(false);
+    expect(bannerEl()).not.toBeNull();
+    expect(bannerEl().carryOverProvider).toBeNull();
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+    expect(h.carryOverStartMock).not.toHaveBeenCalled();
+  });
+
+  it('follows the active tab in the main panel', () => {
+    const { h, view } = render();
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    expect(view.carryOverOffer()).toEqual(offer(3));
+
+    h.activeTabIdSig.set('tab-other');
+    expect(view.carryOverOffer()).toBeNull();
+  });
+
+  it('gives null for a stale generation (AC 7.3)', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.authBannerSig.set(banner(4));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toBeNull();
+    expect(bannerEl().carryOverProvider).toBeNull();
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+    expect(h.carryOverStartMock).not.toHaveBeenCalled();
+  });
+
+  it('gives null without a banner', () => {
+    const { h, view } = render();
+    h.carryOverOfferSig.set(offer(3));
+    expect(view.carryOverOffer()).toBeNull();
+  });
+
+  it('is busy while the refused tab is pending', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.carryOverPendingTabs.add('tab-abc');
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverBusy()).toBe(true);
+    expect(bannerEl().carryOverBusy).toBe(true);
+  });
+
+  it('is busy while a carry-over of the refused session runs elsewhere', () => {
+    const { h, view } = render();
+    h.carryOverBusySessions.add(OLD_SESSION);
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+
+    expect(view.carryOverBusy()).toBe(true);
   });
 });

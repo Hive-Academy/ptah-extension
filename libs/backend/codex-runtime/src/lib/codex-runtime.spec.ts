@@ -719,6 +719,80 @@ describe('CodexRuntime', () => {
     await context.close();
   });
 
+  describe('readHistoryTail', () => {
+    const tailBound = { maxTurns: 200, maxTurnPages: 8, maxItemPages: 16 };
+    const tailIdentity = (): CodexThreadIdentity => ({
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    });
+    const spawnTailChild = (configure: (child: FakeChild) => void = () => undefined) => {
+      jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+        const child = new FakeChild('saved-thread');
+        configure(child);
+        children.push(child);
+        return child;
+      });
+    };
+    const closed = (child: FakeChild) => child.killed || child.exitCode !== null;
+    const methods = (child: FakeChild) => child.frames.map((frame) => frame['method']);
+
+    it('reads the root tail through read methods only and closes the process', async () => {
+      spawnTailChild();
+      const tail = await runtime.readHistoryTail(profile, tailIdentity(), tailBound);
+      expect(tail).toMatchObject({ thread: { id: 'saved-thread', turns: [] }, coversWholeHistory: true });
+      expect(methods(children[0])).toEqual(expect.arrayContaining(['thread/read', 'thread/turns/list']));
+      for (const method of ['thread/list', 'thread/resume', 'turn/start', 'thread/compact'])
+        expect(methods(children[0])).not.toContain(method);
+      const turnList = children[0].frames.find((frame) => frame['method'] === 'thread/turns/list');
+      expect(turnList?.['params']).toMatchObject({ sortDirection: 'desc', itemsView: 'full', limit: 25 });
+      expect(closed(children[0])).toBe(true);
+    });
+
+    it('closes the process when a turn page is rejected', async () => {
+      spawnTailChild((child) => { child.failMethod = 'thread/turns/list'; });
+      await expect(runtime.readHistoryTail(profile, tailIdentity(), tailBound))
+        .rejects.toMatchObject({ code: 'requestRejected' });
+      expect(closed(children[0])).toBe(true);
+    });
+
+    it('closes the process when nothing fits inside the bound', async () => {
+      spawnTailChild();
+      await expect(runtime.readHistoryTail(profile, tailIdentity(), { ...tailBound, maxTurnPages: 0 }))
+        .rejects.toMatchObject({ code: 'pageLimitExceeded' });
+      expect(closed(children[0])).toBe(true);
+    });
+
+    it('aborts and closes an in-flight tail read when its signal fires', async () => {
+      spawnTailChild((child) => { child.holdMethod = 'thread/turns/list'; });
+      const controller = new AbortController();
+      const pending = runtime.readHistoryTail(profile, tailIdentity(), tailBound, controller.signal);
+      const rejection = expect(pending).rejects.toBeDefined();
+      await flush();
+      controller.abort();
+      await rejection;
+      expect(closed(children[0])).toBe(true);
+    });
+
+    it('refuses a tail read under a different home before spawning', async () => {
+      spawnTailChild();
+      await expect(runtime.readHistoryTail({ ...profile, normalizedHome: '/other' }, tailIdentity(), tailBound))
+        .rejects.toMatchObject({ code: 'homeMismatch' });
+      expect(children).toHaveLength(0);
+    });
+
+    it('aborts an in-flight tail read when the runtime closes', async () => {
+      spawnTailChild((child) => { child.holdMethod = 'thread/read'; });
+      const pending = runtime.readHistoryTail(profile, tailIdentity(), tailBound);
+      const rejection = expect(pending).rejects.toBeDefined();
+      await flush();
+      await runtime.close();
+      await rejection;
+      expect(closed(children[0])).toBe(true);
+    });
+  });
+
   async function resumeWithProfile(
     permissionLevel: CodexPermissionLevel,
     initialPermissionLevel: CodexPermissionLevel = 'ask',

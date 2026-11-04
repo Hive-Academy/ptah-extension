@@ -30,6 +30,13 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   SESSION_HANDOFF: Symbol.for('SessionHandoff'),
   /**
+   * `CarryOverResolutionTags` (TASK_2026_865): the request ID of a provider
+   * carry-over launch, stamped on its tab's `SESSION_ID_RESOLVED`. Bound by
+   * the chat services; resolved optionally, so a host without it broadcasts
+   * untagged resolutions.
+   */
+  CARRY_OVER_RESOLUTION_TAGS: Symbol.for('CarryOverResolutionTags'),
+  /**
    * `LaneResumeGate` (TASK_2026_597, R9.1): decides whether a resume spawn
    * resumes the lane or starts a fresh one with a handoff. Injected by the
    * process manager.

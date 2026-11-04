@@ -561,6 +561,93 @@ export class HistoryEventFactory {
     }
     return parts.join('\n');
   }
+
+  /**
+   * Plain-text projection for a provider carry-over. Unlike
+   * {@link extractContentForCuration}, no tool input, tool output, error flag,
+   * attachment body or reasoning survives: each becomes a content-free
+   * placeholder or nothing.
+   *
+   * @param content - A message's `content` (string or block array)
+   * @param toolNamesById - `tool_use` id to tool name, built by the caller from
+   *   the same read window; it names a `tool_result` without reading it
+   */
+  extractContentForCarryOver(
+    content: unknown,
+    toolNamesById: ReadonlyMap<string, string>,
+  ): string {
+    if (typeof content === 'string') return carryOverText(content);
+    if (!Array.isArray(content)) return '';
+    const parts: string[] = [];
+    for (const block of content as ContentBlock[]) {
+      const part = carryOverBlock(block, toolNamesById);
+      if (part) parts.push(part);
+    }
+    return parts.join('\n');
+  }
+}
+
+const SYSTEM_REMINDER_PATTERN = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
+const SELF_CLOSING_FILE_PATTERN =
+  /<(?:file|folder)\b[^>]*?\bpath=(?:"([^"]*)"|'([^']*)')[^>]*?\/>/g;
+const PAIRED_FILE_PATTERN =
+  /<file\b[^>]*?\bpath=(?:"([^"]*)"|'([^']*)')[^>]*>[\s\S]*?<\/file>/g;
+
+function carryOverBlock(
+  block: ContentBlock,
+  toolNamesById: ReadonlyMap<string, string>,
+): string {
+  switch (block.type) {
+    case 'text':
+      return typeof block.text === 'string' ? carryOverText(block.text) : '';
+    case 'tool_use':
+      return `[tool: ${nonEmpty(block.name) ?? 'tool'}]`;
+    case 'tool_result': {
+      // Only the id is read: the result's `content` and `is_error` must never
+      // reach the carried text (AC 3.5).
+      const id = block.tool_use_id;
+      const name =
+        typeof id === 'string' ? nonEmpty(toolNamesById.get(id)) : undefined;
+      return name ? `[tool result: ${name}]` : '[tool result]';
+    }
+    case 'image':
+      return '[image omitted]';
+    case 'document':
+      return `[file: ${baseName(block.title) ?? 'attachment'}]`;
+    default:
+      // thinking, redacted_thinking and unknown blocks carry nothing over.
+      return '';
+  }
+}
+
+/** Removes reminders and reduces inline file and folder tags to a name. */
+function carryOverText(text: string): string {
+  return text
+    .replace(SYSTEM_REMINDER_PATTERN, '')
+    .replace(SELF_CLOSING_FILE_PATTERN, fileLabel)
+    .replace(PAIRED_FILE_PATTERN, fileLabel)
+    .trim();
+}
+
+/** `replace` callback: one of the two path groups holds the quoted path. */
+function fileLabel(
+  _match: string,
+  doubleQuoted: string | undefined,
+  singleQuoted: string | undefined,
+): string {
+  return `[file: ${baseName(doubleQuoted ?? singleQuoted) ?? 'attachment'}]`;
+}
+
+/** Last non-empty segment of a `/` or `\` separated path. */
+function baseName(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const segments = value.split(/[\\/]/).filter((s) => s.trim() !== '');
+  return nonEmpty(segments[segments.length - 1]);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed === '' ? undefined : trimmed;
 }
 
 function truncateBlock(text: string, max: number): string {

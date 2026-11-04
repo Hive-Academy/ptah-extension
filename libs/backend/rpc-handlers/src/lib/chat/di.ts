@@ -18,6 +18,7 @@
  *   MCP_STATUS                ← (no chat deps)
  *   HISTORY_READ              ← (no chat deps)
  *   SESSION                   ← all of the above
+ *   CARRY_OVER                ← SESSION, HISTORY_READ, RUNTIME_PROFILE
  *   SURFACE_SUBMIT_TURN       ← STREAM_BROADCASTER
  *   CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST ← SESSION
  *
@@ -53,6 +54,7 @@ import { ChatStreamDeliveryCoordinator } from './streaming/chat-stream-delivery-
 import { ChatSubagentContextInjectorService } from './session/chat-subagent-context-injector.service';
 import { ChatSlashCommandRouterService } from './session/chat-slash-command-router.service';
 import { ChatSessionService } from './session/chat-session.service';
+import { ChatCarryOverService } from './session/chat-carry-over.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
@@ -99,6 +101,13 @@ export function registerChatServices(container: DependencyContainer): void {
   // same composition, and `registerOutputStyleServices` — which every host
   // already calls — binds it under `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`.
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
+  container.registerSingleton(CHAT_TOKENS.CARRY_OVER, ChatCarryOverService);
+  // The carry-over's request-ID tags for `SESSION_ID_RESOLVED` (TASK_2026_865).
+  // Bound under the `cli-agent-runtime` token because the broadcaster lives
+  // there and cannot import this lib; the same singleton as `CARRY_OVER`.
+  container.register(CLI_AGENT_RUNTIME_TOKENS.CARRY_OVER_RESOLUTION_TAGS, {
+    useToken: CHAT_TOKENS.CARRY_OVER,
+  });
   const surfaceSubmitTurnOptions: SurfaceSubmitTurnOptions = {
     dispatchDeadlineMs: SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
   };

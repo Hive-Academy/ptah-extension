@@ -11,6 +11,10 @@ import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { ConversationService } from './conversation.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { TabState } from '@ptah-extension/chat-types';
+import {
+  ProviderCarryOverService,
+  type CarryOverClaim,
+} from '../provider-carry-over.service';
 
 /**
  * ChatLifecycleService - Cross-cutting reactive lifecycle work.
@@ -39,6 +43,7 @@ export class ChatLifecycleService {
   private readonly livenessReconciler = inject(
     SessionLivenessReconcilerService,
   );
+  private readonly carryOver = inject(ProviderCarryOverService);
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
     null,
   );
@@ -139,8 +144,22 @@ export class ChatLifecycleService {
   handleSessionIdResolved(data: {
     tabId: string;
     realSessionId: string;
+    /** A provider carry-over's request ID, when the host stamped one (R1). */
+    carryOverRequestId?: string;
   }): void {
-    const { tabId, realSessionId } = data;
+    const { tabId, realSessionId, carryOverRequestId } = data;
+
+    // A carry-over pending on this tab decides first (AC 7.6, 7.7): a skipped
+    // resolution binds nothing, not even through the active-tab fallback.
+    const claim = this.claimCarryOver(
+      tabId,
+      realSessionId,
+      carryOverRequestId,
+    );
+    if (claim === 'skip') {
+      this.refreshSessionsAfterResolution();
+      return;
+    }
 
     // Resolve the OWNING tab across ALL workspaces by tab id. Tab ids are
     // global UUIDs, so a background-workspace owner is invisible to the
@@ -152,6 +171,8 @@ export class ChatLifecycleService {
 
     if (owner) {
       this.tabManager.attachSession(owner.tab.id, realSessionId);
+      // The notice and the tab's release follow the attach (AC 4.1, 4.3).
+      if (claim === 'bind') this.carryOver.completeBinding(tabId);
     } else {
       // Last-resort fallback for the genuine "brand-new draft, tab id not yet
       // in any partition" case. Guarded by `!activeTab.claudeSessionId` so it
@@ -171,6 +192,36 @@ export class ChatLifecycleService {
         });
       }
     }
+    this.refreshSessionsAfterResolution();
+  }
+
+  /**
+   * The carry-over claim for a resolution. A throw counts as `'none'`, so a
+   * guard bug can never break normal session resolution.
+   */
+  private claimCarryOver(
+    tabId: string,
+    realSessionId: string,
+    requestId: string | undefined,
+  ): CarryOverClaim {
+    try {
+      return this.carryOver.claimSessionResolution(
+        tabId,
+        realSessionId,
+        requestId,
+      );
+    } catch (error) {
+      // degradation-audit: reported — a claim bug is logged and resolution continues as 'none'.
+      console.warn('[ChatStore] Carry-over claim failed; resolving as usual', {
+        tabId,
+        realSessionId,
+        error: error instanceof Error ? error.name : typeof error,
+      });
+      return 'none';
+    }
+  }
+
+  private refreshSessionsAfterResolution(): void {
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn(
         '[ChatStore] Failed to refresh sessions after ID resolved:',
@@ -205,6 +256,8 @@ export class ChatLifecycleService {
     error: string;
   }): void {
     this.compactionLifecycle.clearCompactionState();
+    // A chat error for the tab ends any carry-over holding it.
+    if (data.tabId) this.carryOver.onChatError(data.tabId);
 
     console.error('[ChatStore] Chat error:', data);
     if (this.settleFailedSessionStart(data)) return;
