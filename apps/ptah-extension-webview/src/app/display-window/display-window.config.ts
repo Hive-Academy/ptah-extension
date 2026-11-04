@@ -2,6 +2,7 @@ import {
   ErrorHandler,
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
+  provideZoneChangeDetection,
   type ApplicationConfig,
 } from '@angular/core';
 import {
@@ -11,6 +12,7 @@ import {
   provideVSCodeService,
 } from '@ptah-extension/core';
 import { DisplayWindowStateHandler } from '@ptah-extension/chat';
+import { useZoneChangeDetectionFallback } from '../zone-change-detection';
 
 // The bootstrap component, re-exported so `main.ts` lazy-imports one module.
 export { DisplayWindowComponent } from '@ptah-extension/chat';
@@ -54,7 +56,7 @@ class DisplayWindowErrorHandler implements ErrorHandler {
 export const displayWindowConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideZonelessChangeDetection(),
+    useZoneChangeDetectionFallback() ? provideZoneChangeDetection() : provideZonelessChangeDetection(),
     { provide: ErrorHandler, useClass: DisplayWindowErrorHandler },
     provideVSCodeService(),
     provideMessageRouter(),
