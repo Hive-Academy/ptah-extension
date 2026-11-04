@@ -23,7 +23,7 @@ import {
   type PermissionRequest,
   type AskUserQuestionRequest,
 } from '@ptah-extension/shared';
-import { VSCodeService } from '@ptah-extension/core';
+import { NotificationService, VSCodeService } from '@ptah-extension/core';
 import { PermissionHandlerService } from './permission-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
@@ -568,12 +568,15 @@ describe('PermissionHandlerService', () => {
 
     it('handleQuestionResponse removes the request and posts ASK_USER_QUESTION_RESPONSE', () => {
       service.handleQuestionRequest(makeQuestionRequest({ id: 'q-1' }));
+      const notifications = TestBed.inject(NotificationService);
+      notifications.upsert({ key: 'question:q-1', generation: 1, kind: 'question', source: 'host', workspacePath: '', workspaceName: '', severity: 'warning', title: 'Question', actions: [], actionable: true, soundEligible: false });
       service.handleQuestionResponse({
         id: 'q-1',
         answers: { a: 'yes' },
       } as never);
 
       expect(service.questionRequests()).toEqual([]);
+      expect(notifications.needsYou()).toEqual([]);
       expect(vscodePostMessage).toHaveBeenCalledWith({
         type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
         payload: { id: 'q-1', answers: { a: 'yes' } },
@@ -902,12 +905,24 @@ describe('PermissionHandlerService', () => {
   describe('TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — cancelQuestion + clearQuestionTargets', () => {
     it('Q10: cancelQuestion removes the question from the queue AND drops its targets', () => {
       service.handleQuestionRequest(makeQuestionRequest({ id: 'q-cancel' }));
+      const notifications = TestBed.inject(NotificationService);
+      notifications.upsert({ key: 'question:q-cancel', generation: 1, kind: 'question', source: 'host', workspacePath: '', workspaceName: '', severity: 'warning', title: 'Question', actions: [], actionable: true, soundEligible: false });
       service.attachQuestionTargets('q-cancel', ['tab-A', 'tab-B']);
 
       service.cancelQuestion('q-cancel', 'tab-A');
 
       expect(service.questionRequests()).toHaveLength(0);
+      expect(notifications.needsYou()).toEqual([]);
       expect(service.questionTargetTabsFor('q-cancel')).toEqual([]);
+    });
+
+    it('clears needsYou when cleaning up a question session', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-cleanup', sessionId: 'session-cleanup' }));
+      const notifications = TestBed.inject(NotificationService);
+      notifications.upsert({ key: 'question:q-cleanup', generation: 1, kind: 'question', source: 'host', workspacePath: '', workspaceName: '', severity: 'warning', title: 'Question', actions: [], actionable: true, soundEligible: false });
+      service.cleanupSession('session-cleanup');
+      expect(service.questionRequests()).toEqual([]);
+      expect(notifications.needsYou()).toEqual([]);
     });
 
     it('Q10: cancelQuestion is idempotent — second call on already-cancelled id is a no-op', () => {

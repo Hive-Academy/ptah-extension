@@ -133,6 +133,7 @@ import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import type { SessionBudgetState } from '@ptah-extension/shared';
+import type { AskUserQuestionRequest } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -268,6 +269,8 @@ function makeHarness(
   const isCompactingForTabMock = jest.fn(
     (_tabId: string | null | undefined): boolean => false,
   );
+  const questionRequestsSig = signal<AskUserQuestionRequest[]>([]);
+  const routingTargetRevision = signal(0);
   const chatStoreStub = {
     isCompactingForTab: isCompactingForTabMock,
     currentSessionId: sessionIdSig.asReadonly(),
@@ -286,7 +289,10 @@ function makeHarness(
     queuedContent: signal<string | null>(null),
     agentPanelOpen: signal(false),
     unmatchedPermissions: signal([]),
-    questionRequests: signal([]),
+    questionRequests: questionRequestsSig.asReadonly(),
+    routingTargetRevision,
+    questionTargetTabsFor: jest.fn((): readonly string[] => []),
+    isQuestionClaimedByWorkflow: jest.fn(() => false),
     resumableSubagents: resumableSubagentsSig.asReadonly(),
     handlePermissionResponse: jest.fn(),
     handleQuestionResponse: jest.fn(),
@@ -793,6 +799,8 @@ function makeHarness(
     sessionIdSig,
     messagesSig,
     activeTabIdSig,
+    questionRequestsSig,
+    chatStoreStub,
     authBannerSig,
     carryOverOfferSig,
     carryOverPendingTabs,
@@ -1209,6 +1217,40 @@ describe('ChatViewComponent — compaction banner source', () => {
     expect(h.component.resolvedIsCompacting()).toBe(false);
     expect(h.isCompactingForTabMock).toHaveBeenCalledWith('tile-unknown');
     expect(h.isCompactingForTabMock).not.toHaveBeenCalledWith('tab-abc');
+  });
+});
+
+describe('ChatViewComponent — question session routing', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('shows a pending question only in its owning session', () => {
+    const h = makeHarness({ sessionId: 'owner-session' });
+    h.questionRequestsSig.set([{
+      id: 'q-owner', sessionId: 'owner-session', toolName: 'AskUserQuestion',
+      questions: [{ question: 'Proceed?', header: 'Choice', options: [], multiSelect: false }],
+      timestamp: Date.now(), timeoutAt: 0,
+    }]);
+    expect(h.component.resolvedQuestionRequests().map(request => request.id)).toEqual(['q-owner']);
+    h.questionRequestsSig.set([{
+      id: 'q-other', sessionId: 'other-session', toolName: 'AskUserQuestion',
+      questions: [{ question: 'Proceed?', header: 'Choice', options: [], multiSelect: false }],
+      timestamp: Date.now(), timeoutAt: 0,
+    }]);
+    expect(h.component.resolvedQuestionRequests()).toEqual([]);
+  });
+
+  it('repaints when a router target attaches after the first projection', () => {
+    const h = makeHarness({ sessionId: 'owner-session' });
+    h.questionRequestsSig.set([{
+      id: 'late-target', sessionId: 'stale-session', toolName: 'AskUserQuestion',
+      questions: [{ question: 'Proceed?', header: 'Choice', options: [], multiSelect: false }],
+      timestamp: Date.now(), timeoutAt: 0,
+    }]);
+    expect(h.component.resolvedQuestionRequests()).toEqual([]);
+    const targetTab = h.activeTabIdSig();
+    h.chatStoreStub.questionTargetTabsFor.mockReturnValue(targetTab ? [targetTab] : []);
+    h.chatStoreStub.routingTargetRevision.update(value => value + 1);
+    expect(h.component.resolvedQuestionRequests().map(request => request.id)).toEqual(['late-target']);
   });
 });
 

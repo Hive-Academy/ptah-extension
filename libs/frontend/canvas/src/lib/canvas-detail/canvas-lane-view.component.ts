@@ -19,13 +19,14 @@ import {
   SubagentLaneComponent,
   ownedBySession,
   parseLaneKey,
+  questionBelongsToTab,
 } from '@ptah-extension/chat';
 import {
   BackgroundAgentStore,
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
 import { NgTemplateOutlet } from '@angular/common';
-import { BackgroundAgentStripComponent } from '@ptah-extension/chat-ui';
+import { BackgroundAgentStripComponent, QuestionCardComponent } from '@ptah-extension/chat-ui';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 import { CanvasDetailService } from './canvas-detail.service';
 
@@ -81,6 +82,7 @@ const LANE_PANEL_CLASS =
     AgentContinueInputComponent,
     SubagentLaneComponent,
     BackgroundAgentStripComponent,
+    QuestionCardComponent,
     CanvasDetailTranscriptComponent,
     NgTemplateOutlet,
   ],
@@ -138,6 +140,11 @@ const LANE_PANEL_CLASS =
           [class.flex]="selectedKind() !== 'orchestrator'"
           [class.hidden]="selectedKind() === 'orchestrator'"
         >
+          @for (request of pendingQuestions(); track request.id) {
+            <div class="mx-auto w-full max-w-[758px] px-2 pb-2">
+              <ptah-question-card [request]="request" (answered)="chatStore.handleQuestionResponse($event)" />
+            </div>
+          }
           @switch (selectedKind()) {
             @case ('cli') {
               @if (selectedCli(); as agent) {
@@ -279,6 +286,21 @@ export class CanvasLaneViewComponent {
   readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
+  readonly pendingQuestions = computed(() => {
+    if (this.selectedKind() === 'orchestrator') return [];
+    const questions = this.chatStore.questionRequests();
+    if (questions.length === 0) return [];
+    this.chatStore.routingTargetRevision();
+    const sessionId = this.sessionId();
+    const tabId = this.tabId();
+    return questions.filter(request => questionBelongsToTab(
+      request,
+      this.chatStore.questionTargetTabsFor(request.id),
+      this.chatStore.isQuestionClaimedByWorkflow(request),
+      tabId,
+      sessionId,
+    ));
+  });
   readonly laneBlocks = computed(() => [
     { key: this.tabId() + ':' + this.laneKey() },
   ]);

@@ -29,12 +29,14 @@ import {
   type AskUserQuestionResponse,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { VSCodeService } from '@ptah-extension/core';
+import { NotificationService, VSCodeService } from '@ptah-extension/core';
+import { attentionRequestKey } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class PermissionHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly notifications = inject(NotificationService);
 
   /**
    * Active permission requests awaiting user response
@@ -576,6 +578,7 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
+    this.notifications.resolve(attentionRequestKey('question', response.id));
 
     if (this._questionTargetTabs.delete(response.id)) {
       this.bumpRoutingTargetRevision();
@@ -660,6 +663,7 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== questionId),
     );
+    this.notifications.resolve(attentionRequestKey('question', questionId));
     if (this._questionTargetTabs.delete(questionId)) {
       this.bumpRoutingTargetRevision();
     }
@@ -677,6 +681,7 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== questionId),
     );
+    this.notifications.resolve(attentionRequestKey('question', questionId));
     if (this._questionTargetTabs.delete(questionId)) {
       this.bumpRoutingTargetRevision();
     }
@@ -732,6 +737,9 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => !owns(r)),
     );
+    for (const id of removedQuestionIds) {
+      this.notifications.resolve(attentionRequestKey('question', id));
+    }
 
     let routingTargetsChanged = false;
     for (const id of removedIds) {
