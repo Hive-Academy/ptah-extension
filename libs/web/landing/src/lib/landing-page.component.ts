@@ -3,6 +3,7 @@ import { SeoService } from '@ptah-web/core';
 import { NavigationComponent } from '@ptah-web/ui';
 import { ComparisonSectionComponent } from './sections/comparison/comparison-section.component';
 import { CTASectionComponent } from './sections/cta/cta-section.component';
+import { DecisionLoopSectionComponent } from './sections/decision-loop/decision-loop-section.component';
 import { FooterComponent } from '@ptah-web/ui';
 import { HeroComponent } from './sections/hero/hero.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
@@ -15,6 +16,7 @@ import { ProviderStripComponent } from './sections/provider-strip/provider-strip
   imports: [
     NavigationComponent,
     HeroComponent,
+    DecisionLoopSectionComponent,
     ProblemSectionComponent,
     PillarsSpineComponent,
     ProviderStripComponent,
@@ -28,6 +30,7 @@ import { ProviderStripComponent } from './sections/provider-strip/provider-strip
 
       <main>
         <ptah-hero />
+        <ptah-decision-loop-section />
         <ptah-problem-section />
 
         <!--
