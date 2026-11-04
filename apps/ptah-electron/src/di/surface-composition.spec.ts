@@ -69,11 +69,15 @@ describe('Electron session driver lock composition', () => {
   it('binds the platform lock for the Electron host', async () => {
     const c = rootContainer.createChildContainer();
     const dataPath = mkdtempSync(join(tmpdir(), 'ptah-electron-lock-'));
+    // The output channel opens its log file asynchronously and has no error
+    // listener, so deleting its folder right after dispose() crashes the Jest
+    // worker with ENOENT. Give it its own temp folder that the test keeps.
+    const logsPath = mkdtempSync(join(tmpdir(), 'ptah-electron-lock-logs-'));
     try {
       registerPlatformElectronServices(c, {
         appPath: dataPath,
         userDataPath: dataPath,
-        logsPath: dataPath,
+        logsPath,
         safeStorage: {
           isEncryptionAvailable: () => false,
           encryptString: (value: string) => Buffer.from(value),
