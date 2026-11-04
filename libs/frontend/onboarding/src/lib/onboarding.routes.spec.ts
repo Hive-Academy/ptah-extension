@@ -24,8 +24,8 @@ function stubPage(selector: string) {
 jest.mock('./home/onboarding-home.component', () => ({
   OnboardingHomeComponent: stubPage('ptah-onboarding-home'),
 }));
-jest.mock('./ready/ready-claude-step.page', () => ({
-  ReadyClaudeStepPage: stubPage('ptah-ready-claude-step'),
+jest.mock('./ready/ready-connection-step.page', () => ({
+  ReadyConnectionStepPage: stubPage('ptah-ready-connection-step'),
 }));
 jest.mock('./ready/ready-settings-step.page', () => ({
   READY_SETTINGS_PROVIDERS: [],

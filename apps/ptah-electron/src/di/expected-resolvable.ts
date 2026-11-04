@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import {
@@ -20,7 +21,12 @@ import {
 import { CHAT_TOKENS } from '@ptah-extension/rpc-handlers';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
-import { REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS } from '@ptah-extension/review-core';
+import {
+  REVIEW_CORE_TOKENS,
+  REVIEW_CONTEXT_TOKENS,
+  REVIEW_LANE_TOKENS,
+} from '@ptah-extension/review-core';
+import { CODEX_SIGN_IN_QUIT_HANDLE } from './codex-login-composition';
 
 export const EXPECTED_RESOLVABLE = [
   AnalyticsRpcHandlers,
@@ -61,6 +67,9 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['REVIEW_LANE_GATEWAY', REVIEW_LANE_TOKENS.GATEWAY],
   ['REVIEW_LANE_FILES', REVIEW_LANE_TOKENS.FILES],
   ['REVIEW_ARTIFACT_FILES', REVIEW_CORE_TOKENS.ARTIFACT_FILES],
+  ['CODEX_SIGN_IN_QUIT_HANDLE', CODEX_SIGN_IN_QUIT_HANDLE],
+  ['SDK_CODEX_LOGIN', AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN],
+  ['SDK_CODEX_READINESS', AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS],
 ] as const;
 
 /**

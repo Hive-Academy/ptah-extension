@@ -42,6 +42,8 @@ import {
 import type {
   CopilotAuthService,
   ICodexAuthService,
+  ICodexLoginService,
+  ICodexReadinessReader,
   IKimiCodeAuthService,
   IKimiCodeLoginService,
   ModelResolver,
@@ -61,6 +63,7 @@ import { ConnectionSettingsMethods } from './auth/connection-settings-methods';
 import { DraftVerificationMethods } from './auth/draft-verification-methods';
 import { EffectiveRouteMethod } from './auth/effective-route-method';
 import { InteractiveLoginMethods } from './auth/interactive-login-methods';
+import { CodexReadinessMethod } from './auth/codex-readiness-method';
 import { KimiCodeLoginMethods } from './auth/kimi-code-login-methods';
 import { WorkspaceScopeMethods } from './auth/workspace-scope-methods';
 
@@ -83,6 +86,8 @@ export class AuthRpcHandlers {
     'auth:copilotLogout',
     'auth:copilotStatus',
     'auth:codexLogin',
+    'auth:codexLoginCancel',
+    'auth:getCodexReadiness',
     'auth:kimiCodeLogin',
     'auth:kimiCodeLoginCancel',
     'auth:getApiKeyStatus',
@@ -103,6 +108,7 @@ export class AuthRpcHandlers {
   private readonly connectionSettingsMethods: ConnectionSettingsMethods;
   private readonly apiKeyMethods: ApiKeyMethods;
   private readonly interactiveLoginMethods: InteractiveLoginMethods;
+  private readonly codexReadinessMethod: CodexReadinessMethod;
   private readonly kimiCodeLoginMethods: KimiCodeLoginMethods;
   private readonly workspaceScopeMethods: WorkspaceScopeMethods;
   private readonly draftVerificationMethods: DraftVerificationMethods;
@@ -160,6 +166,10 @@ export class AuthRpcHandlers {
     private readonly adapterEvents?: SdkAdapterEvents,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER, { isOptional: true })
     private readonly modelResolver?: ModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN, { isOptional: true })
+    private readonly codexLogin?: ICodexLoginService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS, { isOptional: true })
+    private readonly codexReadiness?: ICodexReadinessReader,
   ) {
     this.connectionChecker = new ConnectionChecker({
       recorder: connectionChecks,
@@ -243,7 +253,9 @@ export class AuthRpcHandlers {
       platformAuth,
       invalidateAuthStatusCache,
       webviewManager,
+      codexLogin,
     });
+    this.codexReadinessMethod = new CodexReadinessMethod(rpcHandler, codexReadiness);
     this.kimiCodeLoginMethods = new KimiCodeLoginMethods({
       logger,
       rpcHandler,
@@ -288,6 +300,8 @@ export class AuthRpcHandlers {
     this.interactiveLoginMethods.registerCopilotLogout();
     this.interactiveLoginMethods.registerCopilotStatus();
     this.interactiveLoginMethods.registerCodexLogin();
+    this.interactiveLoginMethods.registerCodexLoginCancel();
+    this.codexReadinessMethod.register();
     this.kimiCodeLoginMethods.registerKimiCodeLogin();
     this.kimiCodeLoginMethods.registerKimiCodeLoginCancel();
     this.apiKeyMethods.registerGetApiKeyStatus();
@@ -316,6 +330,8 @@ export class AuthRpcHandlers {
         'auth:copilotLogout',
         'auth:copilotStatus',
         'auth:codexLogin',
+        'auth:codexLoginCancel',
+        'auth:getCodexReadiness',
         'auth:kimiCodeLogin',
         'auth:kimiCodeLoginCancel',
         'auth:getApiKeyStatus',

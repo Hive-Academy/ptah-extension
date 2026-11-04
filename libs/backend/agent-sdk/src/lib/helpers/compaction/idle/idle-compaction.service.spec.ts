@@ -190,6 +190,19 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
+  it('sends idle compact when the parent turn ends awaiting a background subagent', async () => {
+    const h = harness();
+    h.service.sessionBound('s', 'run');
+    h.service.turnEnded('s', 'turn', request);
+    h.setPhase('awaiting-background');
+    h.service.turnContext('s', 'turn', 250_000);
+    h.advance(DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledWith('s', expect.any(Function));
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
   it('still fires when structured info logging throws', async () => {
     const h = harness();
     h.info.mockImplementation(() => { throw new Error('logger failed'); });
@@ -381,6 +394,26 @@ describe('IdleCompactionService', () => {
     const h = harness(async () => {
       throw new SessionAdmissionRefusedError('busy', 's');
     });
+    h.arm();
+    h.advance(DUE);
+    await settle();
+    expect(h.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'not-idle-at-send' }),
+    );
+    expect(h.coordinator.getIdleClaim('s')).toBeUndefined();
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('skips as not-idle-at-send when a parent turn starts during the send', async () => {
+    let startParentTurn = (): void => undefined;
+    const h = harness(async (_id, before) => {
+      startParentTurn();
+      before();
+    });
+    startParentTurn = () => h.setPhase('generating');
+    h.setPhase('awaiting-background');
     h.arm();
     h.advance(DUE);
     await settle();

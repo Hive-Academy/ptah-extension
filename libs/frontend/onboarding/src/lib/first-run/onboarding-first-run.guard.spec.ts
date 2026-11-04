@@ -85,6 +85,7 @@ describe('onboardingFirstRunGuard', () => {
 
     it.each([
       ['claudeAt', { claudeAt: '2026-10-01T10:00:00.000Z' }],
+      ['connectionAt', { connectionAt: '2026-10-01T10:00:00.000Z' }],
       ['skippedAt', { skippedAt: '2026-10-01T10:00:00.000Z' }],
     ])('redirects to Home when ready.%s is set', (_key, ready) => {
       flag.mockReturnValue({ ready });

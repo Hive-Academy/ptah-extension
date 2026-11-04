@@ -3,6 +3,7 @@ import {
   PROVIDER_AMBIENT_CLAUDE_REASONS,
   PROVIDER_AMBIENT_CLAUDE_STATES,
   type ProviderAmbientClaudeStatus,
+  type ReadinessTrigger,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { VSCodeService } from './vscode.service';
@@ -26,18 +27,21 @@ export interface ClaudeAmbientStatusView {
   readonly status: 'inert' | 'idle' | 'checking' | 'ready';
   readonly result: ProviderAmbientClaudeStatus | null;
   readonly localFailure: boolean;
+  readonly transportTimeout: boolean;
 }
 
 const IDLE: ClaudeAmbientStatusView = {
   status: 'idle',
   result: null,
   localFailure: false,
+  transportTimeout: false,
 };
 const INERT: ClaudeAmbientStatusView = { ...IDLE, status: 'inert' };
 const FAILED: ClaudeAmbientStatusView = {
   status: 'ready',
   result: null,
   localFailure: true,
+  transportTimeout: false,
 };
 
 /**
@@ -68,43 +72,68 @@ export class ClaudeAmbientStatusService {
    * `refresh: false` lets the host answer from its cache (it may probe once when the cache is
    * empty or old, P5-D10); `refresh: true` asks for a new probe. Never throws.
    */
-  async read(refresh: boolean): Promise<void> {
+  async read(refresh: boolean, trigger?: ReadinessTrigger): Promise<void> {
     if (!this.enabled || this.disposed) return;
     const seq = ++this.seq;
     this.viewState.update((view) => ({ ...view, status: 'checking' }));
-    const status = await this.fetch(refresh);
+    const { status, transportTimeout } = await this.fetch(refresh, trigger);
     if (this.disposed || seq !== this.seq) return;
     this.viewState.set(
-      status ? { status: 'ready', result: status, localFailure: false } : FAILED,
+      status
+        ? {
+            status: 'ready',
+            result: status,
+            localFailure: false,
+            transportTimeout: false,
+          }
+        : { ...FAILED, transportTimeout },
     );
   }
 
   /** The host's status, or `null` for a transport failure, refusal or malformed reply. */
   private async fetch(
     refresh: boolean,
-  ): Promise<ProviderAmbientClaudeStatus | null> {
+    trigger?: ReadinessTrigger,
+  ): Promise<{
+    status: ProviderAmbientClaudeStatus | null;
+    transportTimeout: boolean;
+  }> {
     try {
       const response = await this.rpc.call(
         'provider:getAmbientClaudeStatus',
-        { provider: 'claude', refresh },
+        {
+          provider: 'claude',
+          refresh,
+          ...(trigger === undefined ? {} : { trigger }),
+        },
         { timeout: AMBIENT_RPC_TIMEOUT_MS },
       );
-      if (!response.isSuccess() || !response.data.ok) return null;
+      if (!response.isSuccess()) {
+        return {
+          status: null,
+          transportTimeout: response.error?.startsWith('RPC timeout:') ?? false,
+        };
+      }
+      if (!response.data.ok) return { status: null, transportTimeout: false };
       const status: unknown = response.data.status;
-      if (!isAmbientStatus(status)) return null;
+      if (!isAmbientStatus(status)) return { status: null, transportTimeout: false };
       // Copy the three contract fields only, so nothing else a host sends reaches the view.
-      return status.reason === undefined
-        ? { state: status.state, checkedAt: status.checkedAt }
-        : {
-            state: status.state,
-            checkedAt: status.checkedAt,
-            reason: status.reason,
-          };
+      return {
+        status:
+          status.reason === undefined
+            ? { state: status.state, checkedAt: status.checkedAt }
+            : {
+                state: status.state,
+                checkedAt: status.checkedAt,
+                reason: status.reason,
+              },
+        transportTimeout: false,
+      };
     } catch {
       // degradation-audit: reported - the view shows the local failure as "Could not check".
       // A rejected transport promise is a local failure like any other; the caller
       // contract is "never throws", and the view already says "Could not check".
-      return null;
+      return { status: null, transportTimeout: false };
     }
   }
 }

@@ -31,7 +31,7 @@ export const ONBOARDING_CAPTURE_DIR = join(SCREENSHOT_ROOT, 'ready');
 export const ONBOARDING_ANALYZE_CAPTURE_DIR = join(SCREENSHOT_ROOT, 'analyze');
 
 /** Regions whose in-progress state is the thing being captured, so they are never waited on. */
-const READINESS_REGIONS = '[data-testid="ready-claude-panel"], [data-testid="ready-strip"]';
+const READINESS_REGIONS = '[data-testid="ready-claude-panel"], [data-testid="ready-codex-panel"], [data-testid="ready-strip"]';
 const BUSY = '[aria-busy="true"], .loading-spinner, [data-read-loading]';
 
 export interface OnboardingCaptureOptions {
@@ -77,7 +77,7 @@ export async function waitForOnboardingTheme(
   if (accent && accent !== 'gold') await expect(root).toHaveAttribute('data-accent', accent);
 }
 
-/** Waits until no loading region is left outside the readiness panel and the strip. */
+/** Waits until no loading region is left outside the readiness panels and the strip. */
 export async function waitForSettledOutsideReadiness(
   page: Page,
   extraExempt?: string,

@@ -1589,6 +1589,57 @@ describe('TasksViewComponent', () => {
       expect(store.selectedTaskId()).toBeNull();
     });
 
+    it('Escape closes an open status menu first, then the detail', async () => {
+      // The header shows Change status only once `tasks:get` returns a task.
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      const host = fixture.nativeElement as HTMLElement;
+      const fallback = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) =>
+        method === 'tasks:get'
+          ? ok({
+              task: { ...task('TASK_2026_200'), body: '', artifacts: [] },
+            })
+          : fallback?.(method, params),
+      );
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Enter');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const trigger = host.querySelector(
+        '[data-testid="task-detail-status-trigger"]',
+      ) as HTMLElement;
+      expect(trigger).not.toBeNull();
+
+      trigger.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      const item = host.querySelector(
+        '[data-testid="task-detail-status-menu"] [role="menuitem"]',
+      ) as HTMLElement;
+      item.focus();
+
+      key(fixture, item, 'Escape');
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+
+      key(fixture, trigger, 'Escape');
+      expect(store.selectedTaskId()).toBeNull();
+    });
+
+    it('Escape on Back, with the status menu closed, closes the detail', async () => {
+      const { fixture, store, host } = await openDetail();
+      const back = host.querySelector(
+        '[data-testid="task-detail-back"]',
+      ) as HTMLElement;
+
+      key(fixture, back, 'Escape');
+
+      expect(store.selectedTaskId()).toBeNull();
+    });
+
     it('routes the detail Start in chat and Change status to the board actions', async () => {
       const { fixture } = await openDetail();
       const start = jest

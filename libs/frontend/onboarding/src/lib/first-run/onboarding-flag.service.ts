@@ -26,6 +26,7 @@ const onboardingFlagSchema = z.strictObject({
 /** The Get ready pre-step progress slice. Lenient: invalid reads as `{}`. */
 const readySchema = z.object({
   claudeAt: z.iso.datetime().optional(),
+  connectionAt: z.iso.datetime().optional(),
   settingsAt: z.iso.datetime().optional(),
   skippedAt: z.iso.datetime().optional(),
 });
@@ -34,6 +35,8 @@ const readySchema = z.object({
 export interface OnboardingReadyFlag {
   /** Stage 1 was left by Continue while Claude Code was ready. */
   readonly claudeAt?: string;
+  /** Stage 1 was left by Continue while the chosen connection was ready. */
+  readonly connectionAt?: string;
   /** Stage 2 was left by "Continue to setup". */
   readonly settingsAt?: string;
   /** Either stage was left by "Continue anyway" or "Skip for now" (latest wins). */

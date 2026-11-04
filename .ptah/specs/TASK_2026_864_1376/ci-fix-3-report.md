@@ -1,0 +1,17 @@
+# CI fix round 3 — PR #916
+
+## Failures
+
+| Failure | Verdict | Evidence | Change |
+| --- | --- | --- | --- |
+| Codex slow follow-up | Test/capture helper | `provider-panel.component.ts:35-36` assigns Codex `ready-codex-panel` and `aria-busy=true` while slow; `onboarding-ready-capture.ts:34,91-98` exempted only Claude and the strip. The slow state is required by `design-spec.md:129,173` and AC 5.1 (`task-description.md:419-422`). | Added `ready-codex-panel` to `READINESS_REGIONS` in `onboarding-ready-capture.ts:34`; the capture can include the legitimate busy panel. |
+| Stage 1 error-timeout | Test/fixture timing and stale assertion | `onboarding-ready.fixtures.ts:161-164` returns timeout on every ambient read. `provider-readiness.store.ts:17-18,135-155` holds the first two timeouts in slow follow-up, with two 5 s delays. AC 5.1-5.3 (`task-description.md:419-432`) and `design-spec.md:129,173` require that progression. The old expected sentence with `(30 s)` disagreed with `design-spec.md:153` and `provider-panel.component.ts:295`. | In `onboarding-ready-visual.e2e.spec.ts:299-309`, install the harness page clock, assert slow, advance 11 s through both follow-up timers, then assert terminal error and the specified sign-in sentence. The existing timeout fixture supplies all three timeout outcomes. |
+| Stage 1 error-unreadable | Product, with a stale test assertion | `onboarding-ready.fixtures.ts:165-168` supplies Claude `unknown/unreadable`; `provider-readiness.derive.ts:70-71` marks it unreadable. `provider-panel.component.ts:293` incorrectly sent every unreadable cause to Codex home-folder copy. `design-spec.md:153,172` requires Claude's sign-in fact and existing error help; the prototype `stage1-states.html:52` uses the Claude error block. The old test expected “the Claude Code sign-in,” while the defined sign-in fact uses “your Claude Code sign-in” (`provider-panel.component.ts:295`). | Narrowed the Codex home-folder branch and added Codex auth-file copy at `provider-panel.component.ts:293-294`; Claude now reaches the sign-in fact at line 295. Updated the assertion in `onboarding-ready-visual.e2e.spec.ts:83-86`. |
+| Stage 2 Providers error banner | Test/fixture timing, same cause as stage 1 timeout | `connection-readiness-banner.component.ts:57-62` creates a banner for terminal error, while `design-spec.md:344-349` explicitly suppresses it during slow follow-up. `onboarding-ready-visual.e2e.spec.ts:192-195` asserts that banner immediately after entering stage 2; the timeout fixture initially leaves the store slow. | In `onboarding-ready-visual.e2e.spec.ts:381-389`, assert slow and advance the clock through both timeouts before entering stage 2. The existing banner assertion then checks the terminal state. |
+
+## Decisions
+
+- Product change is limited to the proven unreadable copy defect at `libs/frontend/onboarding/src/lib/ready/provider-panel.component.ts:293-294`; follow-up behavior and banner conditions already match the acceptance criteria.
+- The timeout fixture remains unchanged because it already times out every read. The page clock advances 11 s, covering the two configured 5 s waits without a long real-time wait.
+- `git diff --check` passed. CI will run the visual e2e; no test, typecheck, browser, build, or application command was run, as instructed. No rendered screenshot was inspected because the user prohibited the required execution targets.
+- Skill discovery was available, but found no `angular-frontend-patterns` skill. No Git writes were made; the orchestrator owns the commit.

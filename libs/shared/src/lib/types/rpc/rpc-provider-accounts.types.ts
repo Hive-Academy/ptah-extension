@@ -31,6 +31,7 @@ import type {
   ProviderAccountSelection,
   ProviderAccountSummary,
 } from '../provider-account.types';
+import type { ReadinessTrigger } from './rpc-auth.types';
 
 /** Every account method, in registry order. Names stay under `provider:`. */
 export const PROVIDER_ACCOUNT_RPC_METHOD_NAMES = [
@@ -265,6 +266,7 @@ export type ProviderSetAccountDefaultResult =
 export interface ProviderGetAmbientClaudeStatusParams {
   readonly provider: ProviderAccountProvider;
   readonly refresh?: boolean;
+  readonly trigger?: ReadinessTrigger;
 }
 export type ProviderGetAmbientClaudeStatusResult = ProviderAccountRpcResult<{
   readonly status: ProviderAmbientClaudeStatus;

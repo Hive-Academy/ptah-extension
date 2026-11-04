@@ -23,6 +23,7 @@ import { installCspStub } from '../../csp-stub';
 import { rpcError } from '../marketplace/marketplace.fixtures';
 import {
   AGENT_CONFIG_FIXTURE,
+  AUTH_STATUS_FIXTURE,
   baseSettingsFixtures,
   installHost,
   installRpcAutoResponder,
@@ -75,6 +76,34 @@ export const CHECKED_AT = '2026-10-29T09:00:00.000Z';
 export const CLAUDE_PATH =
   'C:\\Users\\ptah-e2e\\AppData\\Roaming\\npm\\claude.cmd';
 export const CLAUDE_VERSION = '2.1.3 (Claude Code)';
+export const CODEX_PATH = '/usr/local/bin/codex';
+export const CODEX_BUNDLED_PATH = '/opt/ptah/resources/codex';
+export const CODEX_SIGN_IN_URL = 'https://auth.openai.com/device';
+export const CODEX_USER_CODE = 'PTAH-864';
+
+export type CodexFixtureId = 'ready' | 'signed-out' | 'bundled' | 'slow';
+export type CodexSignInScene = 'waiting-code' | 'waiting-url' | 'failed' | 'timeout' | 'cancelled' | 'succeeded';
+
+/** Synthetic host snapshots; no CLI process runs in visual fixtures. */
+export const CODEX_READINESS_FIXTURES: Record<CodexFixtureId, unknown> = {
+  ready: { binary: { state: 'found', path: CODEX_PATH, version: '0.46.0', source: 'installed' }, signIn: { outcome: 'signed-in' }, checkedAt: CHECKED_AT },
+  'signed-out': { binary: { state: 'found', path: CODEX_PATH, version: '0.46.0', source: 'installed' }, signIn: { outcome: 'signed-out' }, checkedAt: CHECKED_AT },
+  bundled: { binary: { state: 'found', path: CODEX_BUNDLED_PATH, version: '0.46.0', source: 'bundled' }, signIn: { outcome: 'signed-out' }, checkedAt: CHECKED_AT },
+  slow: { binary: { state: 'found', path: CODEX_PATH, version: '0.46.0', source: 'installed' }, signIn: { outcome: 'timeout' }, checkedAt: CHECKED_AT },
+};
+
+export const CODEX_SIGN_IN_PUSHES: Record<CodexSignInScene, Record<string, unknown>> = {
+  'waiting-code': { attemptId: 'visual-21', mode: 'device', status: 'awaiting-user', verificationUrl: CODEX_SIGN_IN_URL, userCode: CODEX_USER_CODE, browserOpened: true },
+  'waiting-url': { attemptId: 'visual-21', mode: 'browser', status: 'awaiting-user', verificationUrl: CODEX_SIGN_IN_URL },
+  failed: { attemptId: 'visual-21', mode: 'browser', status: 'failed', errorCode: 'exited', exitCode: 1 },
+  timeout: { attemptId: 'visual-21', mode: 'browser', status: 'failed', errorCode: 'timeout' },
+  cancelled: { attemptId: 'visual-21', mode: 'browser', status: 'cancelled' },
+  succeeded: { attemptId: 'visual-21', mode: 'browser', status: 'succeeded' },
+};
+
+export async function pushCodexSignIn(bridge: PostMessageBridge, scene: CodexSignInScene): Promise<void> {
+  await bridge.inject({ type: 'auth:codexLoginStatus', payload: CODEX_SIGN_IN_PUSHES[scene] });
+}
 
 const DETECT_CLIS = 'agent:detectClis';
 const AMBIENT_STATUS = 'provider:getAmbientClaudeStatus';
@@ -171,6 +200,8 @@ export type GlassAccent = 'gold' | 'rose' | 'moonstone';
 export interface BootOnboardingReadyOptions {
   readonly theme: OnboardingTheme;
   readonly readiness: ReadinessFixtureId;
+  readonly codex?: CodexFixtureId;
+  readonly chosen?: 'claude-cli' | 'openai-codex';
   /** Seeded flag. With one the first-run guard does not fire and Home is entered through `switchView`. */
   readonly flag?: OnboardingFlagSeed;
   /** Scene and accent hint keys (`ptah-scene`, `ptah-accent`), for the contrast sweep only. */
@@ -181,9 +212,21 @@ export interface BootOnboardingReadyOptions {
 /** The fixture map for one readiness id, with every never-answered key removed. */
 export function onboardingReadyFixtures(
   readiness: ReadinessFixtureId,
+  codex: CodexFixtureId = 'ready',
+  chosen: 'claude-cli' | 'openai-codex' = 'claude-cli',
 ): Record<string, unknown> {
   const fixtures: Record<string, unknown> = {
     ...baseSettingsFixtures(),
+    'auth:getAuthStatus': {
+      ...AUTH_STATUS_FIXTURE,
+      authMethod: chosen === 'openai-codex' ? 'thirdParty' : 'claudeCli',
+      anthropicProviderId: chosen,
+      codexAuthenticated: codex === 'ready',
+      codexTokenStale: false,
+    },
+    'auth:getCodexReadiness': CODEX_READINESS_FIXTURES[codex],
+    'auth:codexLogin': { success: true, state: { attemptId: 'visual-21', mode: 'browser', status: 'starting' } },
+    'auth:codexLoginCancel': { cancelled: true },
     // A first-run workspace: no agents or analyses yet, so Home shows its path cards instead of
     // the skeleton tiles it keeps until the first status answer.
     'setup-status:get-status': {
@@ -218,7 +261,7 @@ export async function bootOnboardingReady(
   await installHost(page, 'electron', 'chat');
   await installRpcAutoResponder(
     page,
-    onboardingReadyFixtures(options.readiness),
+    onboardingReadyFixtures(options.readiness, options.codex, options.chosen),
   );
   await page.addInitScript(
     (seed: {
@@ -252,7 +295,7 @@ export async function bootOnboardingReady(
     await expect(page.locator('[data-testid="onboarding-home"]')).toBeVisible();
   } else {
     await expect(
-      page.locator('[data-testid="ready-claude-step"]'),
+      page.locator('[data-testid="ready-connection-step"]'),
     ).toBeVisible();
   }
   return bridge;

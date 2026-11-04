@@ -228,6 +228,10 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthCodexLoginCancelParams,
+  AuthCodexLoginCancelResponse,
+  AuthGetCodexReadinessParams,
+  AuthGetCodexReadinessResponse,
   AuthKimiCodeLoginParams,
   AuthKimiCodeLoginResponse,
   AuthKimiCodeLoginCancelParams,
@@ -1270,6 +1274,14 @@ export interface RpcMethodRegistry
   'auth:codexLogin': {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
+  };
+  'auth:codexLoginCancel': {
+    params: AuthCodexLoginCancelParams;
+    result: AuthCodexLoginCancelResponse;
+  };
+  'auth:getCodexReadiness': {
+    params: AuthGetCodexReadinessParams;
+    result: AuthGetCodexReadinessResponse;
   };
   'auth:kimiCodeLogin': {
     params: AuthKimiCodeLoginParams;
@@ -3477,6 +3489,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:codexLoginCancel': true,
+  'auth:getCodexReadiness': true,
   'auth:kimiCodeLogin': true,
   'auth:kimiCodeLoginCancel': true,
   'auth:getEffectiveRoute': true,

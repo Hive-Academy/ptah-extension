@@ -29,6 +29,7 @@ import type {
   KimiCodeLoginErrorCode,
   KimiCodeLoginState,
 } from '@ptah-extension/shared';
+import { extractHttpsUrl, LineSplitter, stripAnsi } from '../cli-login-output';
 import type { KimiCodeCredentialStore } from './kimi-code-credential-store';
 import type { KimiCodeHomeResolver } from './kimi-code-home-resolver';
 import type {
@@ -38,7 +39,6 @@ import type {
 
 /** A sign-in that has not finished after this is stopped. */
 export const KIMI_CODE_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_LINE_CHARS = 8_192;
 
 const ERROR_COPY: Record<KimiCodeLoginErrorCode, string> = {
   'not-installed':
@@ -387,34 +387,6 @@ function failed(errorCode: KimiCodeLoginErrorCode): KimiCodeLoginState {
   return { status: 'failed', errorCode, error: ERROR_COPY[errorCode] };
 }
 
-const ESC = String.fromCharCode(0x1b);
-const BEL = String.fromCharCode(0x07);
-/** OSC sequences (`ESC ] ... BEL` or `ESC ] ... ESC \`), e.g. hyperlinks. */
-const ANSI_OSC = new RegExp(`${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`, 'g');
-/** CSI sequences (`ESC [ ... final`), e.g. colours and cursor moves. */
-const ANSI_CSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g');
-
-/** Strip ANSI CSI/OSC escape sequences. */
-export function stripAnsi(line: string): string {
-  return line.replace(ANSI_OSC, '').replace(ANSI_CSI, '');
-}
-
-/** First `https:` URL in `line`, validated, without trailing punctuation. */
-export function extractHttpsUrl(line: string): string | undefined {
-  const match = /https:\/\/[^\s"'<>`]+/.exec(line);
-  if (!match) return undefined;
-  const candidate = match[0].replace(/[).,;:!?\]]+$/, '');
-  if (candidate.length > 2048) return undefined;
-  try {
-    const url = new URL(candidate);
-    return url.protocol === 'https:' ? url.toString() : undefined;
-  } catch {
-    // degradation-audit: optional-capability - an unparseable URL is not a
-    // verification URL; parsing continues with the next line.
-    return undefined;
-  }
-}
-
 /** Device code from a `code: ABCD-1234` line; upper-case only. */
 export function extractUserCode(line: string): string | undefined {
   const match = /code[:\s]+([A-Za-z0-9-]{4,32})\b/i.exec(line);
@@ -435,20 +407,3 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-/** Decode a stream into lines without keeping more than one line in memory. */
-class LineSplitter {
-  private buffer = '';
-
-  constructor(private readonly onLine: (line: string) => void) {}
-
-  push(chunk: unknown): void {
-    if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk)) return;
-    this.buffer += chunk.toString();
-    const lines = this.buffer.split(/\r?\n|\r/);
-    this.buffer = lines.pop() ?? '';
-    if (this.buffer.length > MAX_LINE_CHARS) this.buffer = '';
-    for (const line of lines) {
-      if (line.length <= MAX_LINE_CHARS) this.onLine(line);
-    }
-  }
-}

@@ -110,12 +110,17 @@ export {
   CodexAuthService,
   CodexHomeResolver,
   CodexAccountUsageService,
+  CodexLoginService,
+  CodexReadinessReader,
+  isCodexHomeExplicitlyEmpty,
   CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/codex';
 export type {
   ICodexAuthService,
+  ICodexLoginService,
+  ICodexReadinessReader,
   CodexAuthFile,
   ICodexAccountUsageService,
   CodexAccountUsageResult,

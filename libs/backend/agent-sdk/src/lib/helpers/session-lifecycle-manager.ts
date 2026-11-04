@@ -872,7 +872,12 @@ export class SessionLifecycleManager {
       '/compact',
       undefined,
       undefined,
-      { origin: IDLE_COMPACT_ORIGIN, admission: 'require-idle', beforeEnqueue },
+      {
+        origin: IDLE_COMPACT_ORIGIN,
+        admission: 'require-idle',
+        beforeEnqueue,
+        background: true,
+      },
     );
   }
 
