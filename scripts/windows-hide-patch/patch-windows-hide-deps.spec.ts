@@ -16,13 +16,11 @@ interface Edit {
 }
 interface PackagePatch {
   readonly name: string;
-  readonly version: string;
   readonly files: readonly { readonly file: string; readonly edits: readonly Edit[] }[];
   readonly shimDirs: readonly string[];
 }
 type PatchState =
   | 'missing'
-  | 'version-mismatch'
   | 'anchor-mismatch'
   | 'unpatched'
   | 'patched';
@@ -214,7 +212,7 @@ describe('patch-windows-hide-deps', () => {
   });
 
   /** A fake install of `patch` whose files hold exactly the anchor text. */
-  function install(patch: PackagePatch, version = patch.version): string {
+  function install(patch: PackagePatch, version = '1.0.0'): string {
     const pkgDir = path.join(tmp, patch.name);
     fs.mkdirSync(pkgDir, { recursive: true });
     fs.writeFileSync(
@@ -272,18 +270,19 @@ describe('patch-windows-hide-deps', () => {
     },
   );
 
-  it('leaves a different version untouched', () => {
+  it('patches any installed version whose anchors match', () => {
     const patch = byName('@openai/codex-sdk');
     const pkgDir = install(patch, '0.999.0');
     const file = path.join(pkgDir, 'dist/index.js');
-    const before = fs.readFileSync(file, 'utf8');
 
     expect(patcher.applyPackagePatch(tmp, patch, __dirname).state).toBe(
-      'version-mismatch',
+      'unpatched',
     );
-    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    expect(fs.readFileSync(file, 'utf8')).toContain(
+      patch.files[0]?.edits[0]?.to ?? '<missing edit>',
+    );
     expect(fs.existsSync(path.join(pkgDir, 'dist', SHIM_NAMES[0] ?? ''))).toBe(
-      false,
+      true,
     );
   });
 
@@ -299,6 +298,23 @@ describe('patch-windows-hide-deps', () => {
       'anchor-mismatch',
     );
     expect(fs.readFileSync(cjs, 'utf8')).toBe(cjsBefore);
+    expect(
+      fs.existsSync(path.join(pkgDir, 'dist/cjs', SHIM_NAMES[0] ?? '')),
+    ).toBe(false);
+  });
+
+  it('reports a missing anchor that shares its replacement with another edit', () => {
+    const patch = byName('@cursor/sdk');
+    const pkgDir = install(patch);
+    const cjs = path.join(pkgDir, 'dist/cjs', 'index.js');
+    fs.writeFileSync(cjs, '/* head */require("child_process")/* tail */');
+
+    expect(patcher.applyPackagePatch(tmp, patch, __dirname).state).toBe(
+      'anchor-mismatch',
+    );
+    expect(fs.readFileSync(cjs, 'utf8')).toBe(
+      '/* head */require("child_process")/* tail */',
+    );
     expect(
       fs.existsSync(path.join(pkgDir, 'dist/cjs', SHIM_NAMES[0] ?? '')),
     ).toBe(false);
