@@ -9,6 +9,12 @@ import { ReviewCommandRunner } from './review-command-runner';
 const repo = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
 
 describe('ElectronReviewEnvironment', () => {
+  it('provides only the stored bot token as a redaction secret', async () => {
+    const environment = new ElectronReviewEnvironment({ getSettings: async () => null },
+      { getWorkspaceRoot: () => '' }, undefined, undefined, undefined,
+      { get: async () => 'secret-canary' });
+    expect(await environment.redactionSecrets()).toEqual(['secret-canary']);
+  });
   it('loads only the requested base SHA and validates bounded YAML policy', async () => {
     const data = await mkdtemp(join(tmpdir(), 'ptah-review-base-config-'));
     try {

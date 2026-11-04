@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, ElementRef, AfterViewInit, OnDestroy, input, output, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, AfterViewInit, OnDestroy, input, output, inject, signal } from '@angular/core';
 import type { ReviewRun, StageRecord } from '@ptah-extension/review-contracts';
+import { ReviewRunsStore } from '../review-runs.store';
+import { ReviewConfirmDialogComponent } from './review-confirm-dialog.component';
 import { ReviewFindingsTableComponent, type ReviewFindingRow } from './review-findings-table.component';
 
 @Component({
-  selector: 'ptah-review-run-detail', standalone: true, imports: [ReviewFindingsTableComponent],
+  selector: 'ptah-review-run-detail', standalone: true, imports: [ReviewFindingsTableComponent, ReviewConfirmDialogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fixed inset-0 z-50 bg-black/60">
@@ -40,17 +42,26 @@ import { ReviewFindingsTableComponent, type ReviewFindingRow } from './review-fi
             <p class="text-sm">Verifier family: {{ family('verification') ?? 'Unavailable' }}</p>
             @if (family('lenses') && family('lenses') === family('verification')) { <span class="badge badge-warning">Weaker evidence · same-family verification</span> }
           </section>
+          <section class="mt-6 space-y-2"><h3 class="font-semibold">Rerun this PR</h3>
+            <p class="text-sm text-base-content-muted">CodeRabbit remains enabled. A dry-run creates a local preview; a live rerun may publish comments.</p>
+            <div class="flex gap-2"><button type="button" class="btn btn-ghost btn-sm" [disabled]="store.rerunState() === 'running'" (click)="store.rerun(run().attemptId, true)">Rerun as dry-run</button>
+              <button type="button" class="btn btn-primary btn-sm" [disabled]="store.rerunState() === 'running' || !store.hasToken() || store.settings()?.globalPublicationPaused" (click)="confirmLive.set(true)">Rerun live</button></div>
+            @if (store.rerunState() === 'error') { <p role="alert" class="text-sm text-error">Rerun could not be started.</p> }
+          </section>
           <section class="mt-6"><h3 class="font-semibold">Findings</h3><ptah-review-findings-table [rows]="findings()" /></section>
           <section class="mt-6"><h3 class="font-semibold">Walkthrough preview</h3><p class="text-sm text-base-content-muted">Walkthrough preview unavailable.</p></section>
           <section class="mt-6"><h3 class="font-semibold">Artifacts</h3><p class="text-sm text-base-content-muted">Artifact list unavailable.</p></section>
         }
       </aside>
+      @if (confirmLive()) { <ptah-review-confirm-dialog dialogId="review-live-rerun-confirm" title="Start live rerun?" description="This rerun can publish a new COMMENT review and verified inline comments on the current PR head. CodeRabbit remains enabled." confirmLabel="Start live rerun" [requirePermissions]="true" (cancelled)="confirmLive.set(false)" (confirmed)="startLiveRerun()" /> }
     </div>
   `,
 })
 export class ReviewRunDetailComponent implements AfterViewInit, OnDestroy {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private returnFocus: HTMLElement | null = null;
+  readonly store = inject(ReviewRunsStore);
+  readonly confirmLive = signal(false);
   readonly run = input.required<ReviewRun>();
   readonly findings = input<readonly ReviewFindingRow[]>([]);
   readonly loadState = input<'loading' | 'ready' | 'error'>('ready');
@@ -58,6 +69,7 @@ export class ReviewRunDetailComponent implements AfterViewInit, OnDestroy {
   readonly retry = output<void>();
   ngAfterViewInit(): void { const doc = this.element.nativeElement.ownerDocument; this.returnFocus = doc.activeElement instanceof HTMLElement ? doc.activeElement : null; this.element.nativeElement.querySelector<HTMLElement>('#review-detail-title')?.focus(); }
   ngOnDestroy(): void { this.returnFocus?.focus(); }
+  startLiveRerun(): void { this.confirmLive.set(false); void this.store.rerun(this.run().attemptId, false); }
   stageLabel(stage: StageRecord): string { return ({ discovery: 'Discovery', context: 'Context', checks: 'Checks', triage: 'Triage', lenses: 'Lenses', verification: 'Verification', identity: 'Identity', publication: 'Publication' })[stage.name]; }
   family(name: StageRecord['name']): string | null { return this.run().stages.find(stage => stage.name === name)?.family ?? null; }
   onKeydown(event: Event): void {

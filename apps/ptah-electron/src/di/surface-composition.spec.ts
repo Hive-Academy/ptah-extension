@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 import { REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS } from '@ptah-extension/review-core';
+import { REVIEW_GITHUB_TOKENS } from '@ptah-extension/review-github';
 /**
  * Electron surface composition — lazy push host across a real registration
  * order, through the real production window getter (TASK_2026_538 Batch 14,
@@ -438,6 +439,13 @@ describe('Electron Codex bootstrap composition', () => {
 });
 
 describe('Electron review composition', () => {
+  it('binds a live publication guard before resolving the publication port', () => {
+    const phase = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    expect(REVIEW_GITHUB_TOKENS.PUBLICATION_GUARD).toBeDefined();
+    expect(phase).toContain('container.register<ReviewPublicationGuard>(REVIEW_GITHUB_TOKENS.PUBLICATION_GUARD,');
+    expect(phase.indexOf('container.register<ReviewPublicationGuard>')).toBeLessThan(
+      phase.indexOf('container.register(REVIEW_CORE_TOKENS.GITHUB'));
+  });
   it('binds each review port and starts its worker before cron', () => {
     const phase = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
     for (const token of [

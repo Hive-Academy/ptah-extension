@@ -7,6 +7,7 @@
 import type { IEvent, SecretChangeEvent } from '../types/platform.types';
 
 export interface ISecretStorage {
+  storageMode?(): 'encrypted' | 'plaintext';
   /**
    * Get a secret by key.
    * Replaces: vscode.SecretStorage.get(key)

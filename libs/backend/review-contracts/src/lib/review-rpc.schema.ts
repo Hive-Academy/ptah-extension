@@ -21,9 +21,12 @@ const result = z
 export const ReviewSettingsReadSchema = z.object({
   settings: OperatorSettingsSchema.nullable(),
   hasToken: z.boolean(),
+  tokenStorage: z.enum(['encrypted', 'plaintext']),
 }).strict();
 export const ReviewSettingsUpdateSchema = z.object({
   settings: OperatorSettingsSchema,
+  attestation: z.object({ who: z.string().min(1).max(39),
+    permissions: z.tuple([z.literal('Pull requests: Read and write'), z.literal('Contents: Read'), z.literal('Metadata: Read')]) }).strict().optional(),
 }).strict();
 export const ReviewRpcSchemas = {
   'review:listRuns': {

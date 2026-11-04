@@ -6,11 +6,12 @@ import { ReviewRepositoriesComponent } from './review-repositories.component';
 import { ReviewRunsListComponent } from './review-runs-list.component';
 import { ReviewRunDetailComponent } from './review-run-detail.component';
 import { ReviewSettingsDrawerComponent } from './review-settings-drawer.component';
+import { ReviewConfirmDialogComponent } from './review-confirm-dialog.component';
 
 @Component({
   selector: 'ptah-review-runs-page',
   standalone: true,
-  imports: [LucideAngularModule, ReviewRepositoriesComponent, ReviewRunsListComponent, ReviewRunDetailComponent, ReviewSettingsDrawerComponent],
+  imports: [LucideAngularModule, ReviewRepositoriesComponent, ReviewRunsListComponent, ReviewRunDetailComponent, ReviewSettingsDrawerComponent, ReviewConfirmDialogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="p-4 md:p-6">
@@ -60,17 +61,29 @@ import { ReviewSettingsDrawerComponent } from './review-settings-drawer.componen
       </div>
       @if (store.selectedRun(); as run) { <ptah-review-run-detail [run]="run" [loadState]="store.detailState()" (retry)="store.loadRun(run.attemptId)" (closed)="store.closeRun()" /> }
       @if (settingsOpen()) { <ptah-review-settings-drawer [repository]="store.repositories()[0] ?? null" [settings]="store.settings()" [draft]="store.draftSettings()" [hasToken]="store.hasToken()" [saving]="store.settingsSaving()" [saveError]="store.settingsSaveError()" [loadState]="store.settingsState()" (changed)="store.updateDraft($event)" (repositoryEnabled)="store.setRepositoryEnabled($event)" (save)="store.saveSettings()" (retry)="store.loadSettings()" (closed)="settingsOpen.set(false)" /> }
+      @if (pauseOffConfirmation()) { <ptah-review-confirm-dialog dialogId="review-page-resume-confirm" title="Resume live publication?" description="Turning pause off can allow eligible pull requests to receive comments. CodeRabbit remains enabled." confirmLabel="Resume publication" (cancelled)="pauseOffConfirmation.set(false)" (confirmed)="confirmPauseOff()" /> }
     </main>
   `,
 })
 export class ReviewRunsPageComponent implements OnInit {
   readonly store = inject(ReviewRunsStore);
   readonly settingsOpen = signal(false);
+  readonly pauseOffConfirmation = signal(false);
   readonly statuses = ReviewStateSchema.options;
   protected readonly icons = { refresh: RefreshCw } as const;
   openSettings(): void { this.settingsOpen.set(true); void this.store.loadSettings(); }
   ngOnInit(): void { void this.store.load(); void this.store.loadSettings(); }
-  setPause(event: Event): void { const target = event.target; if (target instanceof HTMLInputElement) void this.store.setPublicationPause(target.checked); }
+  setPause(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (!target.checked) {
+      target.checked = true;
+      this.pauseOffConfirmation.set(true);
+      return;
+    }
+    void this.store.setPublicationPause(true);
+  }
+  confirmPauseOff(): void { this.pauseOffConfirmation.set(false); void this.store.setPublicationPause(false, true); }
   setRepo(event: Event): void { const target = event.target; if (target instanceof HTMLSelectElement) this.store.setRepoFilter(target.value); }
   setState(event: Event): void {
     const target = event.target;

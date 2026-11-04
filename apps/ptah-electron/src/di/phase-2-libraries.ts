@@ -25,8 +25,9 @@ import {
   type IWorkspaceProvider,
   type ISecretStorage,
 } from '@ptah-extension/platform-core';
-import { registerReviewCore, REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS, ReviewWorktreeService, type IReviewSettingsStore, type ReviewStageEnvironment } from '@ptah-extension/review-core';
-import { registerReviewGithubServices, REVIEW_GITHUB_TOKENS } from '@ptah-extension/review-github';
+import { registerReviewCore, REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS, ReviewWorktreeService, ReviewPolicyService, type IReviewSettingsStore, type ReviewStageEnvironment } from '@ptah-extension/review-core';
+import { registerReviewGithubServices, REVIEW_GITHUB_TOKENS, REVIEW_GITHUB_TOKEN_KEY, type ReviewPublicationGuard } from '@ptah-extension/review-github';
+import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
 import { ReviewSecretPresence } from '../services/review/review-secret-presence';
 import { ElectronReviewEnvironment } from '../services/review/electron-review-environment';
 import { ReviewCommandRunner } from '../services/review/review-command-runner';
@@ -403,6 +404,25 @@ export function registerPhase2Libraries(
     registerPersistenceSqliteServices(container, logger);
     registerReviewCore(container);
     registerReviewGithubServices(container);
+    container.register<ReviewPublicationGuard>(REVIEW_GITHUB_TOKENS.PUBLICATION_GUARD, {
+      useFactory: (provider) => ({ mayPublish: async (target) => {
+        if (!await provider.resolve<ISecretStorage>(PLATFORM_TOKENS.SECRET_STORAGE).get(REVIEW_GITHUB_TOKEN_KEY))
+          return false;
+        const settings = await provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE).getSettings();
+        const gate = await provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE).getLiveGate();
+        if (!gate?.attestation || !gate.verifiedAt || gate.repo.owner !== target.repo.owner || gate.repo.name !== target.repo.name
+          || !settings?.maintainerLogins.some((login) => login.toLowerCase() === gate.attestation?.who.toLowerCase())) return false;
+        const pull = await provider.resolve<IGitHubReviewPort>(REVIEW_GITHUB_TOKENS.REVIEW_PORT).getPull(target.repo, target.number);
+        if (pull.headSha !== target.headSha) return false;
+        const config = await provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT)
+          .baseConfig(target.repo, pull.baseSha);
+        const policy = provider.resolve(ReviewPolicyService);
+        return policy.eligibility({ owner: target.repo.owner, name: target.repo.name,
+          authorLogin: pull.authorLogin, state: pull.state, draft: pull.draft,
+          headIsFork: pull.headIsFork, headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId,
+          settings, baseConfig: config }).eligible && policy.publication(settings, config).allowed;
+      } }),
+    });
     container.register(REVIEW_CORE_TOKENS.GITHUB, { useToken: REVIEW_GITHUB_TOKENS.REVIEW_PORT });
     container.register(REVIEW_CORE_TOKENS.SECRET_PRESENCE, {
       useFactory: (provider) => new ReviewSecretPresence(
@@ -413,6 +433,8 @@ export function registerPhase2Libraries(
       useFactory: (provider) => new ElectronReviewEnvironment(
         provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE),
         provider.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+        undefined, undefined, undefined,
+        provider.resolve<ISecretStorage>(PLATFORM_TOKENS.SECRET_STORAGE),
       ),
     });
     container.register(REVIEW_CONTEXT_TOKENS.COMMAND_RUNNER, {
