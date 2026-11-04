@@ -1154,7 +1154,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /**
    * Agents filtered to the active tab's session, per `agentVisibleInSession`:
-   * a known owner must match, an unknown owner is visible everywhere.
+   * a known owner must match; an unknown owner has no session view.
    * When no tab is active or the active tab has no session, all agents are shown.
    */
   readonly activeTabAgents = computed(() => {
@@ -1171,8 +1171,8 @@ export class AgentMonitorStore implements OnDestroy {
    * Get agents for a specific session (scoped accessor for canvas tiles).
    * Unlike activeTabAgents, this doesn't depend on the global activeTab signal.
    * Uses the SAME `agentVisibleInSession` rule — previously this was strict
-   * `===` while `activeTabAgents` was falsy-tolerant, so an agent with no
-   * resolved owner rendered in every tab by one view and in none by the other.
+   * `===` while `activeTabAgents` was falsy-tolerant. Both now require
+   * exact ownership when a session is selected.
    */
   agentsForSession(sessionId: string): MonitoredAgent[] {
     return this.agents().filter((a) =>
@@ -1185,7 +1185,7 @@ export class AgentMonitorStore implements OnDestroy {
    * {@link agentsForSession}, an agent with no resolved parent belongs to no
    * session yet: per-session quota and lane tiles attribute usage to a
    * session, so an unresolved lane must not appear in every session's tiles.
-   * The monitor UI keeps the tolerant rule above.
+   * The unscoped tray remains the place to inspect ownerless lanes.
    */
   agentsOwnedBySession(sessionId: string): MonitoredAgent[] {
     if (!sessionId) return [];
@@ -1196,7 +1196,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Workflow subagents — SubagentRecords carrying a `workflowRunId` — scoped to
    * the active tab's session. Mirrors {@link activeTabAgents} scoping: when no
    * tab is active all workflow subagents are returned; records without a
-   * `parentSessionId` are shown in every tab. Feeds the monitor panel's
+   * `parentSessionId` appear only in the unscoped view. Feeds the monitor panel's
    * dedicated "watch running workflows" run groups. Unlike the background-agent
    * tray (active-only), ALL statuses are included so a run's completed agents
    * stay visible while it is being watched.
@@ -1233,7 +1233,7 @@ export class AgentMonitorStore implements OnDestroy {
    * is active ('running' | 'pending' | 'paused') — scoped to the active tab's session.
    * Mirrors {@link activeWorkflowSubagents} scoping: when no tab is active all
    * active non-workflow subagents are returned; records without a `parentSessionId`
-   * are shown in every tab.
+   * appear only in the unscoped view.
    */
   readonly activeSessionSubagents = computed<SubagentRecord[]>(() => {
     this.backgroundAgentStore.revision();
@@ -1429,9 +1429,15 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
   onAgentSpawned(info: AgentProcessInfo): void {
-    const current = this._agents().find((agent) => agent.agentId === info.agentId);
-    if (info.turnSeq !== undefined && current?.turnSeq !== undefined &&
-      info.turnSeq < current.turnSeq) return;
+    const current = this._agents().find(
+      (agent) => agent.agentId === info.agentId,
+    );
+    if (
+      info.turnSeq !== undefined &&
+      current?.turnSeq !== undefined &&
+      info.turnSeq < current.turnSeq
+    )
+      return;
     const hadAgents = this._agents().length > 0;
     const wf = readWorkflowFields(info);
     const parentSessionId = knownSessionId(info.parentSessionId);
@@ -1577,7 +1583,6 @@ export class AgentMonitorStore implements OnDestroy {
     if (!hadAgents && !this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
-
   }
 
   /**
@@ -1745,9 +1750,13 @@ export class AgentMonitorStore implements OnDestroy {
       if (foundIndex === -1) return list;
 
       const agent = list[foundIndex];
-      if ((info.turnSeq !== undefined && agent.turnSeq !== undefined &&
+      if (
+        (info.turnSeq !== undefined &&
+          agent.turnSeq !== undefined &&
           info.turnSeq < agent.turnSeq) ||
-        (info.turnSeq === undefined && (agent.turnSeq ?? 1) > 1)) return list;
+        (info.turnSeq === undefined && (agent.turnSeq ?? 1) > 1)
+      )
+        return list;
       const completedAt = info.completedAt
         ? new Date(info.completedAt).getTime()
         : Date.now();
@@ -1783,7 +1792,6 @@ export class AgentMonitorStore implements OnDestroy {
       };
       return this.evictOldCompletedAgents(next);
     });
-
   }
 
   /**
@@ -1935,12 +1943,14 @@ export class AgentMonitorStore implements OnDestroy {
       }
     }
     if (info.cliSessionId) {
-      const candidates = list.filter((a) =>
-        a.cli === info.cli &&
-        a.cliSessionId === info.cliSessionId &&
-        a.status !== 'running' &&
-        (a.parentSessionId === undefined || parentSessionId === undefined ||
-          a.parentSessionId === parentSessionId),
+      const candidates = list.filter(
+        (a) =>
+          a.cli === info.cli &&
+          a.cliSessionId === info.cliSessionId &&
+          a.status !== 'running' &&
+          (a.parentSessionId === undefined ||
+            parentSessionId === undefined ||
+            a.parentSessionId === parentSessionId),
       );
       if (candidates.length > 0) {
         return candidates.reduce((latest, candidate) =>
@@ -2236,8 +2246,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Only agents stamped with THIS tab's id are claimed. Agents with no owner at
    * all are deliberately left alone — with several canvas tiles live, claiming
    * every unattributed agent for whichever tab resolved first would misattribute
-   * them. They stay reachable regardless: `agentVisibleInSession` renders them
-   * in every session, and steer/stop fall back to the active tab.
+   * them. They remain in the unscoped tray; no session action may claim them.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
     this.updateAgents((list) => {
@@ -2275,7 +2284,6 @@ export class AgentMonitorStore implements OnDestroy {
     if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
-
   }
 
   /**
@@ -2294,7 +2302,6 @@ export class AgentMonitorStore implements OnDestroy {
     if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
-
   }
 
   /**
@@ -2311,7 +2318,11 @@ export class AgentMonitorStore implements OnDestroy {
     this._subagents.update((map) => {
       this.claimHistoryCandidate(key);
       const existing = map.get(key);
-      if (existing && this.isTerminal(existing.status) && event.source === 'history') {
+      if (
+        existing &&
+        this.isTerminal(existing.status) &&
+        event.source === 'history'
+      ) {
         const filled: SubagentRecord = {
           ...existing,
           taskId: existing.taskId ?? event.taskId,
@@ -2320,7 +2331,8 @@ export class AgentMonitorStore implements OnDestroy {
           agentType: existing.agentType || event.agentType,
           description: existing.description ?? event.agentDescription,
           taskDescription: existing.taskDescription ?? event.agentDescription,
-          parentSessionId: existing.parentSessionId ?? knownSessionId(event.sessionId),
+          parentSessionId:
+            existing.parentSessionId ?? knownSessionId(event.sessionId),
           workflowRunId: existing.workflowRunId ?? wf.workflowRunId,
           workflowName: existing.workflowName ?? wf.workflowName,
         };
@@ -2329,9 +2341,10 @@ export class AgentMonitorStore implements OnDestroy {
         return next;
       }
       const restart = this.isNewAgentStart(existing, event);
-      const status = existing && this.isTerminal(existing.status) && !restart
-        ? existing.status
-        : 'running';
+      const status =
+        existing && this.isTerminal(existing.status) && !restart
+          ? existing.status
+          : 'running';
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2347,7 +2360,9 @@ export class AgentMonitorStore implements OnDestroy {
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
-        startedAt: restart ? event.timestamp : (existing?.startedAt ?? event.timestamp),
+        startedAt: restart
+          ? event.timestamp
+          : (existing?.startedAt ?? event.timestamp),
         completedAt: this.isTerminal(status)
           ? restart
             ? event.timestamp
@@ -2869,28 +2884,22 @@ export class AgentMonitorStore implements OnDestroy {
    * `sessionId` is the session that OWNS the subagent. Callers that know it
    * (e.g. the background-agent tray, which reads `SubagentRecord.parentSessionId`)
    * must pass it so the RPC targets the right Query when multiple canvas tiles
-   * are live. It falls back to the active tab's session to preserve callers
-   * that render inside the focused session (e.g. inline-agent-bubble).
-   *
-   * The fallback runs through `knownSessionId` because callers hand us
-   * `SubagentRecord.parentSessionId` verbatim. When that was still `''` a plain
-   * `??` skipped the fallback (`''` is not nullish) and the `!sid` guard then
-   * refused the call — "No active session" reported while a perfectly good
-   * active session existed, which is why an interrupted subagent could not be
-   * steered or stopped.
+   * are live. There is no fallback: a missing or empty owner (normalized by
+   * `knownSessionId`, because callers pass `parentSessionId` verbatim) is
+   * refused with a recorded RPC error. It never targets the focused tab.
    */
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,
     sessionId?: string,
   ): Promise<boolean> {
-    const sid =
-      knownSessionId(sessionId) ?? this.tabManager.activeTabSessionId();
+    // The owning session only. A missing owner never becomes the focused tab.
+    const sid = knownSessionId(sessionId);
     if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId,
         method: 'subagent:send-message',
-        message: 'No active session — cannot send message to subagent',
+        message: 'No owning session — cannot send message to subagent',
         timestamp: Date.now(),
       });
       return false;
@@ -2919,17 +2928,16 @@ export class AgentMonitorStore implements OnDestroy {
    *
    * `sessionId` is the OWNING session; callers that know it (background-agent
    * tray) pass it so the stop resolves the right Query when several tiles are
-   * live. Falls back to the active tab's session for focused-surface callers.
+   * live. A missing owner is refused; it never becomes the focused tab.
    */
   async stopAgent(taskId: string, sessionId?: string): Promise<void> {
-    const sid =
-      knownSessionId(sessionId) ?? this.tabManager.activeTabSessionId();
+    const sid = knownSessionId(sessionId);
     const parentToolUseId = this.findParentToolUseIdByTaskId(taskId);
     if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId: parentToolUseId ?? taskId,
         method: 'subagent:stop',
-        message: 'No active session — cannot stop subagent',
+        message: 'No owning session — cannot stop subagent',
         timestamp: Date.now(),
       });
       return;
@@ -2987,9 +2995,9 @@ export class AgentMonitorStore implements OnDestroy {
    * resulting background record.
    *
    * `sessionId` is the OWNING session; callers that know it (background-agent
-   * tray, inline bubble via `SubagentRecord.parentSessionId`) pass it, and it
-   * falls back to the active tab's session like the sibling commands. Returns
-   * `true` when the backend acknowledges the switch.
+   * tray, inline bubble via `SubagentRecord.parentSessionId`) pass it. A
+   * missing owner is refused, like the sibling commands; it never targets the
+   * focused tab. Returns `true` when the backend acknowledges the switch.
    *
    * Contract: RPC `subagent:background` with params `{ sessionId, toolUseId? }`
    * → result `{ backgrounded: boolean }`.
@@ -2998,10 +3006,8 @@ export class AgentMonitorStore implements OnDestroy {
     rawSessionId: string | undefined,
     toolUseId?: string,
   ): Promise<boolean> {
-    const sessionId =
-      knownSessionId(rawSessionId) ??
-      this.tabManager.activeTabSessionId() ??
-      undefined;
+    // The owning session only. A missing owner never becomes the focused tab.
+    const sessionId = knownSessionId(rawSessionId);
     if (!sessionId) {
       this.recordSubagentRpcError({
         parentToolUseId: toolUseId ?? '',

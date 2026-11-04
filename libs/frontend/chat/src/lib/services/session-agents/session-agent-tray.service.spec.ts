@@ -16,14 +16,19 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionAgentTrayService } from './session-agent-tray.service';
 
-/** A resolved session scope: every record below is unattributed, so visible. */
+/** The entry-mapping fixtures belong to this resolved session scope. */
 const SCOPE = 'session-a';
 
 function record(
   parentToolUseId: string,
   overrides: Partial<SubagentRecord> = {},
 ): SubagentRecord {
-  return { parentToolUseId, status: 'running', ...overrides };
+  return {
+    parentToolUseId,
+    status: 'running',
+    parentSessionId: SCOPE,
+    ...overrides,
+  };
 }
 
 function background(
@@ -37,6 +42,7 @@ function background(
     agentType: 'reviewer',
     status: 'running',
     startedAt: 1,
+    sessionId: SCOPE,
     ...overrides,
   } as BackgroundAgentEntry;
 }

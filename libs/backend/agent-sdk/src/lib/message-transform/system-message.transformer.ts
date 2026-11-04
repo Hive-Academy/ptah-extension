@@ -88,19 +88,12 @@ export class SystemMessageTransformer {
     );
     state.clearStreamingState();
 
-    // Order matters and used to be wrong. `activeIds[0]` is just the
-    // most-recently-active session in the process — it sat AHEAD of the id the
-    // SDK put on this very message, so with two live sessions the prune and the
-    // token-snapshot clear below ran against the other one, and the
-    // compaction_complete event was addressed to it too (TASK_2026_295).
-    // The caller's id still wins: for harness and wizard streams it is a
+    // The caller's id wins: for harness and wizard streams it is a
     // HarnessStreamId / WizardPhaseId, i.e. the routing key the frontend
-    // subscribed with, which no SDK payload carries.
-    const activeIds = helpers.sessionLifecycle.getActiveSessionIds();
+    // subscribed with, which no SDK payload carries. If neither identity is
+    // present, skip the event rather than route it to a focused session.
     const resolvedSessionId =
-      sessionId ||
-      (sdkMessage.session_id as SessionId | undefined) ||
-      activeIds[0];
+      sessionId || (sdkMessage.session_id as SessionId | undefined);
 
     if (!resolvedSessionId) {
       helpers.logger.warn(
@@ -108,7 +101,6 @@ export class SystemMessageTransformer {
         {
           callerSessionId: sessionId,
           sdkSessionId: sdkMessage.session_id,
-          activeSessionCount: activeIds.length,
           trigger: sdkMessage.compact_metadata.trigger,
           preTokens: sdkMessage.compact_metadata.pre_tokens,
         },
@@ -237,11 +229,7 @@ export class SystemMessageTransformer {
     }
 
     if (toolUseId) {
-      state.setTaskParent(
-        msg.task_id,
-        toolUseId,
-        sessionId || msg.session_id,
-      );
+      state.setTaskParent(msg.task_id, toolUseId, sessionId || msg.session_id);
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
 
       // A `local_workflow` task_started is the root of a workflow run: its
@@ -720,11 +708,7 @@ export class SystemMessageTransformer {
     const isNonAgentTask = state.isNonAgentTask(msg.task_id);
     const isDuplicateAgentTerminal =
       !isNonAgentTask &&
-      state.isTaskTerminalEmitted(
-        msg.task_id,
-        taskSessionId,
-        msg.tool_use_id,
-      );
+      state.isTaskTerminalEmitted(msg.task_id, taskSessionId, msg.tool_use_id);
 
     state.clearTaskParent(msg.task_id, taskSessionId);
 
@@ -772,11 +756,7 @@ export class SystemMessageTransformer {
       return [event];
     }
 
-    state.markTaskTerminalEmitted(
-      msg.task_id,
-      taskSessionId,
-      parentToolUseId,
-    );
+    state.markTaskTerminalEmitted(msg.task_id, taskSessionId, parentToolUseId);
 
     // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
     // `SdkMessageTransformer.transform` resolves it off this same object before

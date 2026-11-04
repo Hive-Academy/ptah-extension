@@ -1,6 +1,6 @@
 /**
  * Specs for resolveSessionWorkspaceRoot precedence:
- *   declared workspace → caller session → active session → platform provider
+ *   declared workspace → caller session → platform provider
  *   → undefined.
  */
 
@@ -66,7 +66,7 @@ describe('resolveSessionWorkspaceRoot', () => {
         getActiveSessionWorkspace: () => 'D:/ws-A',
       }),
     );
-    expect(result).toBe('D:/ws-A');
+    expect(result).toBeUndefined();
   });
 
   it('degrades to the provider root if the declared-workspace getter throws', () => {
@@ -93,7 +93,7 @@ describe('resolveSessionWorkspaceRoot', () => {
     expect(result).toBe('D:/ws-B');
   });
 
-  it('falls back to the active session when there is no caller id', () => {
+  it('uses the provider when there is no caller id, even with a focused session', () => {
     const result = resolveSessionWorkspaceRoot(
       deps({
         getCallerSessionId: () => undefined,
@@ -101,10 +101,10 @@ describe('resolveSessionWorkspaceRoot', () => {
         getProviderRoot: () => 'D:/ws-global',
       }),
     );
-    expect(result).toBe('D:/ws-A');
+    expect(result).toBe('D:/ws-global');
   });
 
-  it('falls back to active when the caller session has no projectPath', () => {
+  it('does not use another session when the caller has no projectPath', () => {
     const result = resolveSessionWorkspaceRoot(
       deps({
         getCallerSessionId: () => 'sess-unknown',
@@ -112,7 +112,7 @@ describe('resolveSessionWorkspaceRoot', () => {
         getActiveSessionWorkspace: () => 'D:/ws-A',
       }),
     );
-    expect(result).toBe('D:/ws-A');
+    expect(result).toBeUndefined();
   });
 
   it('falls back to the platform provider when no session resolves', () => {

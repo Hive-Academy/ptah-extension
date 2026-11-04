@@ -164,8 +164,11 @@ describe(CompactSessionCardComponent.name, () => {
     compactionMarkerFor: () => marker(),
   };
   const agentStore = {
+    agents,
     agentsForSession: (sessionId: string) =>
-      agents().filter((agent) => agentVisibleInSession(agent.parentSessionId, sessionId)),
+      agents().filter((agent) =>
+        agentVisibleInSession(agent.parentSessionId, sessionId),
+      ),
     agentsOwnedBySession: (sessionId: string) =>
       agents().filter((agent) => agent.parentSessionId === sessionId),
     subagents,
@@ -245,8 +248,9 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.componentRef.setInput('variant', 'rail');
     fixture.componentRef.setInput('focused', true);
     fixture.detectChanges();
-    const card = fixture.debugElement.query(By.directive(chatUi.CompactRailCardComponent))
-      .componentInstance as chatUi.CompactRailCardComponent;
+    const card = fixture.debugElement.query(
+      By.directive(chatUi.CompactRailCardComponent),
+    ).componentInstance as chatUi.CompactRailCardComponent;
     expect(card.focused()).toBe(true);
     expect(card.tabStop()).toBe(false);
     fixture.componentRef.setInput('tabStop', true);
@@ -257,31 +261,63 @@ describe(CompactSessionCardComponent.name, () => {
 
   it('omits repeated title and Full view chrome but keeps status and needs-you count in Canvas', () => {
     TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
-    const fixture = render(tab({ viewMode: 'compact', title: 'Review changes', messages: [{
-      id: 'reply-1', role: 'assistant', timestamp: 1,
-      streamingState: {
-        id: 'node-1', type: 'text', status: 'complete',
-        content: 'The changes are ready to review.', children: [], isCollapsed: false,
-      },
-    }] }));
+    const fixture = render(
+      tab({
+        viewMode: 'compact',
+        title: 'Review changes',
+        messages: [
+          {
+            id: 'reply-1',
+            role: 'assistant',
+            timestamp: 1,
+            streamingState: {
+              id: 'node-1',
+              type: 'text',
+              status: 'complete',
+              content: 'The changes are ready to review.',
+              children: [],
+              isCollapsed: false,
+            },
+          },
+        ],
+      }),
+    );
     fixture.componentRef.setInput('needsYouCount', 2);
     fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector('[data-testid="compact-session-card"]');
-    expect(card.querySelector('[data-testid="compact-session-title"]')).toBeNull();
+    const card = fixture.nativeElement.querySelector(
+      '[data-testid="compact-session-card"]',
+    );
+    expect(
+      card.querySelector('[data-testid="compact-session-title"]'),
+    ).toBeNull();
     expect(card.textContent).not.toContain('Full view');
     expect(card.textContent).toContain('2 needs you');
-    expect(card.querySelector('[data-zone="status"]')?.textContent).toContain('Done');
-    expect(card.querySelector('ptah-compact-session-activity')?.className).not.toContain('[&_[data-zone=status]]:hidden');
+    expect(card.querySelector('[data-zone="status"]')?.textContent).toContain(
+      'Done',
+    );
+    expect(
+      card.querySelector('ptah-compact-session-activity')?.className,
+    ).not.toContain('[&_[data-zone=status]]:hidden');
     expect(card.textContent).toContain('The changes are ready to review.');
   });
 
   it('keeps the empty card status word in the Canvas host', () => {
     TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
     const fixture = render(tab({ viewMode: 'compact' }));
-    const card = fixture.nativeElement.querySelector('[data-testid="compact-session-card"]');
-    expect(card.querySelector('[data-testid="compact-session-empty"]')).not.toBeNull();
-    expect(card.querySelector('[data-testid="compact-session-title"]')).toBeNull();
-    expect(card.querySelector('[data-testid="compact-session-empty"] .text-xs.font-semibold')?.textContent).toContain('Waiting');
+    const card = fixture.nativeElement.querySelector(
+      '[data-testid="compact-session-card"]',
+    );
+    expect(
+      card.querySelector('[data-testid="compact-session-empty"]'),
+    ).not.toBeNull();
+    expect(
+      card.querySelector('[data-testid="compact-session-title"]'),
+    ).toBeNull();
+    expect(
+      card.querySelector(
+        '[data-testid="compact-session-empty"] .text-xs.font-semibold',
+      )?.textContent,
+    ).toContain('Waiting');
     expect(card.textContent).not.toContain('Full view');
   });
 
@@ -305,7 +341,8 @@ describe(CompactSessionCardComponent.name, () => {
 
   it("tracks the session's organization worktree when it has one (TASK_2026_855)", () => {
     const value = tab();
-    if (value.claudeSessionId === null) throw new Error('fixture tab has no session');
+    if (value.claudeSessionId === null)
+      throw new Error('fixture tab has no session');
     organizationWorktrees.set(
       new Map([[value.claudeSessionId, 'C:\\work\\wt\\feature']]),
     );
@@ -532,13 +569,21 @@ describe(CompactSessionCardComponent.name, () => {
     agents.set([lane({ startedAt: 10 })]);
     const fixture = render();
     const first = fixture.componentInstance.laneSummary();
-    agents.set([lane({ startedAt: 10 }), lane({ agentId: 'other', parentSessionId: 'other' })]);
+    agents.set([
+      lane({ startedAt: 10 }),
+      lane({ agentId: 'other', parentSessionId: 'other' }),
+    ]);
     expect(fixture.componentInstance.laneSummary()).toBe(first);
     agents.set([lane({ startedAt: 11 })]);
     const changedStart = fixture.componentInstance.laneSummary();
     expect(changedStart).not.toBe(first);
     expect(changedStart.rows[0].startedAt).toBe(11);
-    const record = { parentToolUseId: 'sub-1', parentSessionId: 'session-1', status: 'running', lastEventAt: 1 } as SubagentRecord;
+    const record = {
+      parentToolUseId: 'sub-1',
+      parentSessionId: 'session-1',
+      status: 'running',
+      lastEventAt: 1,
+    } as SubagentRecord;
     agents.set([]);
     subagents.set(new Map([['sub-1', record]]));
     const subFirst = fixture.componentInstance.laneSummary();
@@ -553,8 +598,17 @@ describe(CompactSessionCardComponent.name, () => {
       useValue: { openLane: jest.fn(), openSession: jest.fn() },
     });
     agents.set([
-      lane({ agentId: 'unowned', displayName: 'Unowned CLI', parentSessionId: undefined, status: 'failed' }),
-      lane({ agentId: 'foreign', displayName: 'Foreign CLI', parentSessionId: 'session-2' }),
+      lane({
+        agentId: 'unowned',
+        displayName: 'Unowned CLI',
+        parentSessionId: undefined,
+        status: 'failed',
+      }),
+      lane({
+        agentId: 'foreign',
+        displayName: 'Foreign CLI',
+        parentSessionId: 'session-2',
+      }),
       // One fixed start time: rows sort newest first, and Date.now() can tick between calls.
       lane({ agentId: 'owned-1', startedAt: 1_000 }),
       lane({ agentId: 'owned-2', startedAt: 1_000 }),
@@ -566,46 +620,85 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.detectChanges();
     const summary = fixture.componentInstance.laneSummary();
     expect(summary.total).toBe(4);
-    expect(summary.counts).toEqual({ waiting: 0, error: 0, running: 4, done: 0, stopped: 0 });
+    expect(summary.counts).toEqual({
+      waiting: 0,
+      error: 0,
+      running: 4,
+      done: 0,
+      stopped: 0,
+    });
     expect(summary.rows.map((row) => row.id)).toEqual([
-      'cli:owned-1', 'cli:owned-2', 'cli:owned-3',
+      'cli:owned-1',
+      'cli:owned-2',
+      'cli:owned-3',
     ]);
     expect(summary.moreCount).toBe(1);
-    expect(fixture.nativeElement.querySelectorAll('button[aria-label^="Open codex output"]')).toHaveLength(3);
+    expect(
+      fixture.nativeElement.querySelectorAll(
+        'button[aria-label^="Open codex output"]',
+      ),
+    ).toHaveLength(3);
     expect(fixture.nativeElement.textContent).toContain('+1 more');
     expect(fixture.nativeElement.textContent).not.toContain('Unowned CLI');
     expect(fixture.nativeElement.textContent).not.toContain('Foreign CLI');
 
     const other = render(tab({ id: 'tab-2', claudeSessionId: 'session-2' }));
-    expect(other.componentInstance.laneSummary().rows.map((row) => row.id))
-      .toEqual(['cli:foreign']);
+    expect(
+      other.componentInstance.laneSummary().rows.map((row) => row.id),
+    ).toEqual(['cli:foreign']);
   });
 
   it('keeps an unresolved CLI agent on an unscoped main-panel compact card', () => {
-    agents.set([lane({ agentId: 'unowned', displayName: 'Unowned CLI', parentSessionId: undefined })]);
+    agents.set([
+      lane({
+        agentId: 'unowned',
+        displayName: 'Unowned CLI',
+        parentSessionId: undefined,
+      }),
+    ]);
     const fixture = render();
-    expect(fixture.componentInstance.laneSummary().rows.map((row) => row.id))
-      .toEqual(['cli:unowned']);
+    expect(
+      fixture.componentInstance.laneSummary().rows.map((row) => row.id),
+    ).toEqual(['cli:unowned']);
     expect(fixture.nativeElement.textContent).toContain('Unowned CLI');
   });
 
   it('identifies equal-text terminal failures by terminal failure sequence', () => {
-    const fixture = render(tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }));
+    const fixture = render(
+      tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }),
+    );
     expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:1');
-    fixture.componentRef.setInput('tab', tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }));
+    fixture.componentRef.setInput(
+      'tab',
+      tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }),
+    );
     fixture.detectChanges();
     expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:1');
-    fixture.componentRef.setInput('tab', tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 2 }));
+    fixture.componentRef.setInput(
+      'tab',
+      tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 2 }),
+    );
     fixture.detectChanges();
     expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:2');
   });
 
   it('refuses a CLI Allow after its request leaves the queue', () => {
-    agents.set([lane({ permissionQueue: [{ requestId: 'cli-1', timestamp: 1, description: 'Allow?' } as MonitoredAgent['permissionQueue'][number]] })]);
+    agents.set([
+      lane({
+        permissionQueue: [
+          {
+            requestId: 'cli-1',
+            timestamp: 1,
+            description: 'Allow?',
+          } as MonitoredAgent['permissionQueue'][number],
+        ],
+      }),
+    ]);
     const fixture = render();
     const stale = jest.fn();
     fixture.componentInstance.staleAction.subscribe(stale);
-    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    const shown =
+      fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
     agents.set([lane()]);
     fixture.componentInstance.respond(shown, 'allow');
     expect(respondLane).not.toHaveBeenCalled();
@@ -619,7 +712,8 @@ describe(CompactSessionCardComponent.name, () => {
     const expanded = jest.fn();
     fixture.componentInstance.staleAction.subscribe(stale);
     fixture.componentInstance.expandToFull.subscribe(expanded);
-    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    const shown =
+      fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
     permissions.set([permission({ id: 'new' })]);
     fixture.componentInstance.respond(shown, 'allow');
     fixture.componentInstance.openRequest(shown);
@@ -632,11 +726,21 @@ describe(CompactSessionCardComponent.name, () => {
 
   it('renders the rail variant with shared state and retains the tile activity', () => {
     const fixture = render();
-    expect(fixture.debugElement.query(By.directive(chatUi.CompactSessionActivityComponent))).not.toBeNull();
+    expect(
+      fixture.debugElement.query(
+        By.directive(chatUi.CompactSessionActivityComponent),
+      ),
+    ).not.toBeNull();
     fixture.componentRef.setInput('variant', 'rail');
     fixture.detectChanges();
-    expect(fixture.debugElement.query(By.directive(chatUi.CompactRailCardComponent))).not.toBeNull();
-    expect(fixture.debugElement.query(By.directive(chatUi.CompactSessionActivityComponent))).toBeNull();
+    expect(
+      fixture.debugElement.query(By.directive(chatUi.CompactRailCardComponent)),
+    ).not.toBeNull();
+    expect(
+      fixture.debugElement.query(
+        By.directive(chatUi.CompactSessionActivityComponent),
+      ),
+    ).toBeNull();
     const lanesRequested = jest.fn();
     const expanded = jest.fn();
     fixture.componentInstance.lanesRequested.subscribe(lanesRequested);
@@ -649,7 +753,9 @@ describe(CompactSessionCardComponent.name, () => {
   it('emits rail state as needs when a permission arrives', () => {
     const fixture = render();
     const states: chatUi.CompactRailState[] = [];
-    fixture.componentInstance.railState.subscribe((state) => states.push(state));
+    fixture.componentInstance.railState.subscribe((state) =>
+      states.push(state),
+    );
     permissions.set([permission()]);
     fixture.detectChanges();
     expect(states).toContain('needs');
@@ -698,7 +804,9 @@ describe(CompactSessionCardComponent.name, () => {
   it('routes the shown question to the orchestrator and rejects a replaced id', () => {
     const openLane = jest.fn();
     TestBed.overrideProvider(SESSION_FORCED_CARD, { useValue: signal(true) });
-    TestBed.overrideProvider(SESSION_CARD_ACTIONS, { useValue: { openLane, openSession: jest.fn() } });
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openLane, openSession: jest.fn() },
+    });
     questions.set([question({ id: 'old' })]);
     const fixture = render();
     const stale = jest.fn();
@@ -719,7 +827,9 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.componentInstance.expandToFull.subscribe(expanded);
     questions.set([question()]);
     fixture.detectChanges();
-    const answer = fixture.nativeElement.querySelector('[data-testid="cs-callout-question"] button') as HTMLButtonElement;
+    const answer = fixture.nativeElement.querySelector(
+      '[data-testid="cs-callout-question"] button',
+    ) as HTMLButtonElement;
     answer.click();
     expect(expanded).toHaveBeenCalledTimes(1);
   });
@@ -760,8 +870,13 @@ describe(CompactSessionCardComponent.name, () => {
   });
 
   const openButton = (root: HTMLElement) =>
-    [...root.querySelectorAll<HTMLButtonElement>('[data-testid="cs-callout-permission"] button')]
-      .find((button) => button.textContent?.trim() === 'Open') as HTMLButtonElement;
+    [
+      ...root.querySelectorAll<HTMLButtonElement>(
+        '[data-testid="cs-callout-permission"] button',
+      ),
+    ].find(
+      (button) => button.textContent?.trim() === 'Open',
+    ) as HTMLButtonElement;
   it('responds with the routed session tab ID and exact CLI IDs', () => {
     const request = permission();
     permissions.set([request]);
@@ -771,7 +886,12 @@ describe(CompactSessionCardComponent.name, () => {
         '[data-testid="cs-callout-permission"] button',
       ) as HTMLButtonElement
     ).click();
-    expect(respondSession).toHaveBeenCalledWith(request, 'allow', 'tab-1', undefined);
+    expect(respondSession).toHaveBeenCalledWith(
+      request,
+      'allow',
+      'tab-1',
+      undefined,
+    );
 
     permissions.set([]);
     agents.set([
@@ -807,11 +927,26 @@ describe(CompactSessionCardComponent.name, () => {
     const request = permission();
     permissions.set([request]);
     const fixture = render();
-    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    const shown =
+      fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
     fixture.componentInstance.respond(shown, 'always_allow');
-    expect(respondSession).toHaveBeenLastCalledWith(request, 'always_allow', 'tab-1', undefined);
-    fixture.componentInstance.respond(shown, 'deny_with_message', 'Use the staging database');
-    expect(respondSession).toHaveBeenLastCalledWith(request, 'deny_with_message', 'tab-1', 'Use the staging database');
+    expect(respondSession).toHaveBeenLastCalledWith(
+      request,
+      'always_allow',
+      'tab-1',
+      undefined,
+    );
+    fixture.componentInstance.respond(
+      shown,
+      'deny_with_message',
+      'Use the staging database',
+    );
+    expect(respondSession).toHaveBeenLastCalledWith(
+      request,
+      'deny_with_message',
+      'tab-1',
+      'Use the staging database',
+    );
   });
 
   it('does not offer a CLI permission whose owner is unresolved', () => {
@@ -908,7 +1043,9 @@ describe(CompactSessionCardComponent.name, () => {
     subagents.set(new Map([['task-1', { ...record, status: 'completed' }]]));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('general-purpose');
-    subagents.set(new Map([['task-1', { ...record, parentSessionId: 'other' }]]));
+    subagents.set(
+      new Map([['task-1', { ...record, parentSessionId: 'other' }]]),
+    );
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).not.toContain('general-purpose');
   });
@@ -948,14 +1085,23 @@ describe(CompactSessionCardComponent.name, () => {
     const fixture = render(tab({ lastTerminalReason: 'api_error' }));
     const expanded = jest.fn();
     fixture.componentInstance.expandToFull.subscribe(expanded);
-    (fixture.nativeElement.querySelector('[data-testid="compact-session-card"] button') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="compact-session-card"] button',
+      ) as HTMLButtonElement
+    ).click();
     expect(expanded).toHaveBeenCalledTimes(1);
     expect(openSession).not.toHaveBeenCalled();
   });
 
   it('shares one wall-clock interval across running cards and releases it when idle', () => {
     jest.useFakeTimers({
-      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+      doNotFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+      ],
     });
     TestBed.overrideProvider(WallClockService, {
       useFactory: () => new WallClockService(),
@@ -966,12 +1112,16 @@ describe(CompactSessionCardComponent.name, () => {
     const clear = jest.spyOn(globalThis, 'clearInterval');
     const realAcquire = clock.acquire.bind(clock);
     const clockIntervals: Array<ReturnType<typeof setInterval>> = [];
-    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
-      const prior = interval.mock.results.length;
-      const release = realAcquire(cadence);
-      clockIntervals.push(...interval.mock.results.slice(prior).map((result) => result.value));
-      return release;
-    });
+    const acquire = jest
+      .spyOn(clock, 'acquire')
+      .mockImplementation((cadence) => {
+        const prior = interval.mock.results.length;
+        const release = realAcquire(cadence);
+        clockIntervals.push(
+          ...interval.mock.results.slice(prior).map((result) => result.value),
+        );
+        return release;
+      });
     try {
       const first = render();
       expect(acquire).not.toHaveBeenCalled();
@@ -999,7 +1149,12 @@ describe(CompactSessionCardComponent.name, () => {
 
   it('acquires the shared wall clock while streaming and releases it on completion', () => {
     jest.useFakeTimers({
-      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+      doNotFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+      ],
     });
     TestBed.overrideProvider(WallClockService, {
       useFactory: () => new WallClockService(),
@@ -1010,14 +1165,16 @@ describe(CompactSessionCardComponent.name, () => {
     const clear = jest.spyOn(globalThis, 'clearInterval');
     const realAcquire = clock.acquire.bind(clock);
     let clockInterval: ReturnType<typeof setInterval> | null = null;
-    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
-      const prior = interval.mock.results.length;
-      const release = realAcquire(cadence);
-      const created = interval.mock.results.slice(prior);
-      expect(created).toHaveLength(1);
-      clockInterval = created[0].value;
-      return release;
-    });
+    const acquire = jest
+      .spyOn(clock, 'acquire')
+      .mockImplementation((cadence) => {
+        const prior = interval.mock.results.length;
+        const release = realAcquire(cadence);
+        const created = interval.mock.results.slice(prior);
+        expect(created).toHaveLength(1);
+        clockInterval = created[0].value;
+        return release;
+      });
     try {
       const fixture = render(
         tab({ streamingState: createEmptyStreamingState() }),
@@ -1102,65 +1259,73 @@ describe(CompactSessionCardComponent.name, () => {
   });
 
   it('shows F2 as 65% from a trusted 200,000-token context window', () => {
-    const fixture = render(tab({
-      liveModelStats: {
-        contextKnown: true,
-        model: 'model',
-        contextUsed: 130_000,
-        contextWindow: 200_000,
-        contextPercent: 0,
-        contextCapacity: {
-          tokens: 200_000,
-          source: 'sdk-native',
-          providerId: null,
+    const fixture = render(
+      tab({
+        liveModelStats: {
+          contextKnown: true,
           model: 'model',
+          contextUsed: 130_000,
+          contextWindow: 200_000,
+          contextPercent: 0,
+          contextCapacity: {
+            tokens: 200_000,
+            source: 'sdk-native',
+            providerId: null,
+            model: 'model',
+          },
         },
-      },
-    }));
+      }),
+    );
     expect(fixture.componentInstance.contextPercent()).toBe(65);
     expect(
-      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')
+        ?.textContent,
     ).toContain('65%');
   });
 
   it('hides context percentage when the live window differs from the trusted window', () => {
-    const fixture = render(tab({
-      liveModelStats: {
-        contextKnown: true,
-        model: 'model',
-        contextUsed: 130_000,
-        contextWindow: 100_000,
-        contextPercent: 65,
-        contextCapacity: {
-          tokens: 200_000,
-          source: 'sdk-native',
-          providerId: null,
+    const fixture = render(
+      tab({
+        liveModelStats: {
+          contextKnown: true,
           model: 'model',
+          contextUsed: 130_000,
+          contextWindow: 100_000,
+          contextPercent: 65,
+          contextCapacity: {
+            tokens: 200_000,
+            source: 'sdk-native',
+            providerId: null,
+            model: 'model',
+          },
         },
-      },
-    }));
+      }),
+    );
     expect(fixture.componentInstance.contextPercent()).toBeNull();
   });
 
   it('hides F6 after resume when the context window is unknown', () => {
-    const fixture = render(tab({
-      liveModelStats: {
-        contextKnown: true,
-        model: 'model',
-        contextUsed: 130_000,
-        contextWindow: 0,
-        contextPercent: 0,
-        contextCapacity: {
-          tokens: null,
-          source: 'unknown',
-          providerId: null,
+    const fixture = render(
+      tab({
+        liveModelStats: {
+          contextKnown: true,
           model: 'model',
+          contextUsed: 130_000,
+          contextWindow: 0,
+          contextPercent: 0,
+          contextCapacity: {
+            tokens: null,
+            source: 'unknown',
+            providerId: null,
+            model: 'model',
+          },
         },
-      },
-    }));
+      }),
+    );
     expect(fixture.componentInstance.contextPercent()).toBeNull();
     expect(
-      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')
+        ?.textContent,
     ).toContain('Context —');
     expect(fixture.nativeElement.textContent).not.toContain('Context 0%');
   });
@@ -1378,44 +1543,72 @@ describe(CompactSessionCardComponent.name, () => {
   });
 
   it('shows a settled session title, reply, activity and status', () => {
-    const fixture = render(tab({
-      title: 'Review changes',
-      viewMode: 'compact',
-      messages: [{
-        id: 'reply-1',
-        role: 'assistant',
-        timestamp: 1,
-        streamingState: {
-          id: 'node-1',
-          type: 'text',
-          status: 'complete',
-          content: 'The changes are ready to review.',
-          children: [],
-          isCollapsed: false,
-        },
-      }],
-    }));
+    const fixture = render(
+      tab({
+        title: 'Review changes',
+        viewMode: 'compact',
+        messages: [
+          {
+            id: 'reply-1',
+            role: 'assistant',
+            timestamp: 1,
+            streamingState: {
+              id: 'node-1',
+              type: 'text',
+              status: 'complete',
+              content: 'The changes are ready to review.',
+              children: [],
+              isCollapsed: false,
+            },
+          },
+        ],
+      }),
+    );
     fixture.componentRef.setInput('needsYouCount', 2);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('[data-testid="compact-session-title"]').textContent).toContain('Review changes');
-    expect(fixture.nativeElement.querySelector('[data-zone="status"]').textContent).toContain('Done');
-    expect(fixture.nativeElement.textContent).toContain('The changes are ready to review.');
-    expect(fixture.nativeElement.querySelector('[data-zone="feed"]').textContent).toContain('EVENTS');
-    expect(fixture.nativeElement.querySelector('[data-zone="lanes"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="compact-session-title"]',
+      ).textContent,
+    ).toContain('Review changes');
+    expect(
+      fixture.nativeElement.querySelector('[data-zone="status"]').textContent,
+    ).toContain('Done');
+    expect(fixture.nativeElement.textContent).toContain(
+      'The changes are ready to review.',
+    );
+    expect(
+      fixture.nativeElement.querySelector('[data-zone="feed"]').textContent,
+    ).toContain('EVENTS');
+    expect(
+      fixture.nativeElement.querySelector('[data-zone="lanes"]'),
+    ).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('2 needs you');
 
     const expanded = jest.fn();
     fixture.componentInstance.expandToFull.subscribe(expanded);
-    (fixture.nativeElement.querySelector('[data-testid="compact-session-card"] button') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="compact-session-card"] button',
+      ) as HTMLButtonElement
+    ).click();
     expect(expanded).toHaveBeenCalledTimes(1);
   });
 
   it('hides empty activity and lanes sections for a compact session with no events', () => {
     const fixture = render(tab({ viewMode: 'compact' }));
-    expect(fixture.nativeElement.querySelector('[data-testid="compact-session-empty"]')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('[data-zone="feed"]')).toBeNull();
-    expect(fixture.nativeElement.querySelector('[data-zone="lanes"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="compact-session-empty"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-zone="feed"]'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-zone="lanes"]'),
+    ).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Waiting');
   });
 

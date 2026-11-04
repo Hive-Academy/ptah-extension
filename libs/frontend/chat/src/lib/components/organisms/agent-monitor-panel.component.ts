@@ -51,7 +51,6 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import {
   AgentMonitorStore,
-  agentVisibleInSession,
   knownSessionId,
   type MonitoredAgent,
   type SubagentRecord,
@@ -718,13 +717,36 @@ export class AgentMonitorPanelComponent {
   private readonly scrollHandler = (): void => this.onScroll();
   private static readonly NEAR_BOTTOM_PX = 80;
 
+  /**
+   * Ownership rule for this panel. A strict session tile shows only records
+   * that this session owns. The global (non-strict) panel also shows ownerless
+   * records: they are listed, never attributed to `sid`, and actions that
+   * need a session target stay disabled for them.
+   */
+  private belongsHere(
+    parentSessionId: string | undefined,
+    sid: string | null,
+  ): boolean {
+    if (parentSessionId && parentSessionId === sid) return true;
+    return !this.strictSessionScope && !parentSessionId;
+  }
+
   readonly effectiveAgents = computed(() => {
     const sid = this.sessionId();
     if (this.strictSessionScope && !sid) return [];
-    const agents = this.embeddedAgents() ?? this.store.activeTabAgents();
-    return !this.strictSessionScope
-      ? agents
-      : agents.filter((agent) => !!sid && agent.parentSessionId === sid);
+    // The global panel is the unscoped home for ownerless lanes. Session
+    // panels below still require exact ownership.
+    const agents =
+      this.embeddedAgents() ??
+      (this.strictSessionScope
+        ? this.store.activeTabAgents()
+        : [
+            ...this.store.activeTabAgents(),
+            ...this.store.agents().filter((agent) => !agent.parentSessionId),
+          ]);
+    return sid === null && !this.strictSessionScope
+      ? [...new Map(agents.map((agent) => [agent.agentId, agent])).values()]
+      : agents.filter((agent) => this.belongsHere(agent.parentSessionId, sid));
   });
 
   readonly effectiveOpen = computed(
@@ -752,11 +774,24 @@ export class AgentMonitorPanelComponent {
   readonly effectiveWorkflowSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
     if (this.strictSessionScope && !sid) return [];
-    if (sid === null) return this.store.activeWorkflowSubagents();
+    if (sid === null) {
+      const active = this.store.activeWorkflowSubagents();
+      const ownerless = [...(this.store.subagents?.().values() ?? [])].filter(
+        (agent) => !!agent.workflowRunId && !agent.parentSessionId,
+      );
+      return [
+        ...new Map(
+          [...active, ...ownerless].map((agent) => [
+            agent.parentToolUseId,
+            agent,
+          ]),
+        ).values(),
+      ];
+    }
     const agents = this.store.workflowSubagentsForSession(sid);
-    return this.strictSessionScope
-      ? agents.filter((agent) => !!sid && agent.parentSessionId === sid)
-      : agents;
+    return agents.filter((agent) =>
+      this.belongsHere(agent.parentSessionId, sid),
+    );
   });
 
   /**
@@ -767,11 +802,29 @@ export class AgentMonitorPanelComponent {
   readonly effectiveSessionSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
     if (this.strictSessionScope && !sid) return [];
-    if (sid === null) return this.store.activeSessionSubagents();
+    if (sid === null) {
+      const active = this.store.activeSessionSubagents();
+      const ownerless = [...(this.store.subagents?.().values() ?? [])].filter(
+        (agent) =>
+          !agent.workflowRunId &&
+          !agent.parentSessionId &&
+          (agent.status === 'running' ||
+            agent.status === 'pending' ||
+            agent.status === 'paused'),
+      );
+      return [
+        ...new Map(
+          [...active, ...ownerless].map((agent) => [
+            agent.parentToolUseId,
+            agent,
+          ]),
+        ).values(),
+      ];
+    }
     const agents = this.store.sessionSubagentsForSession(sid);
-    return this.strictSessionScope
-      ? agents.filter((agent) => !!sid && agent.parentSessionId === sid)
-      : agents;
+    return agents.filter((agent) =>
+      this.belongsHere(agent.parentSessionId, sid),
+    );
   });
 
   /**
@@ -799,20 +852,12 @@ export class AgentMonitorPanelComponent {
       const selectedRec = this.store.getSubagent(selectedId);
       if (selectedRec && !selectedRec.workflowRunId) {
         const sid = this.sessionId();
-        const activeSessionId = this.tabManager.activeTabSessionId?.();
         const isVisible =
           this.strictSessionScope && !sid
             ? false
             : sid === null
-              ? activeSessionId
-                ? agentVisibleInSession(
-                    selectedRec.parentSessionId,
-                    activeSessionId,
-                  )
-                : true
-              : this.strictSessionScope
-                ? !!sid && selectedRec.parentSessionId === sid
-                : agentVisibleInSession(selectedRec.parentSessionId, sid);
+              ? true
+              : this.belongsHere(selectedRec.parentSessionId, sid);
         if (isVisible) {
           result.push(selectedRec);
           seen.add(selectedId);
@@ -914,18 +959,12 @@ export class AgentMonitorPanelComponent {
 
   /**
    * Session for the selected subagent's lane actions and history: its own
-   * `parentSessionId`, else this panel's session, else the active tab's. A
-   * record whose events carried an empty session id still has a lane.
+   * recorded `parentSessionId`. An ownerless record has no session target.
    */
   readonly selectedSubagentSessionId = computed<string | null>(() => {
     const sub = this.selectedWorkflowSubagent();
     if (!sub) return null;
-    return (
-      knownSessionId(sub.parentSessionId) ??
-      knownSessionId(this.sessionId()) ??
-      knownSessionId(this.tabManager.activeTabSessionId?.()) ??
-      null
-    );
+    return knownSessionId(sub.parentSessionId) ?? null;
   });
 
   /** Exact selection only; a removed selection must not open a fallback workflow. */

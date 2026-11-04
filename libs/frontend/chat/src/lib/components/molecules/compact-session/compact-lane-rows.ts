@@ -3,10 +3,7 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import {
-  cliLaneStatusWord,
-  subagentStatusWord,
-} from '@ptah-extension/chat-ui';
+import { cliLaneStatusWord, subagentStatusWord } from '@ptah-extension/chat-ui';
 import type {
   AgentStatusWord,
   CompactLaneKind,
@@ -64,13 +61,15 @@ function toCompactLaneStatus(
     case 'stopped':
       if (status === 'stopped' || status === 'killed') return 'stopped';
       if (status === 'timeout') return 'error';
-      return status === 'pending' || status === 'paused' ? 'waiting' : 'running';
+      return status === 'pending' || status === 'paused'
+        ? 'waiting'
+        : 'running';
     default:
       return word;
   }
 }
 
-/** Use strict ownership for canvas-scoped cards; other callers keep tolerant CLI visibility. */
+/** Canvas cards require ownership; the main-panel summary also shows ownerless lanes. */
 export function buildLaneSummary(
   agents: readonly MonitoredAgent[],
   subagents: readonly SubagentRecord[],
@@ -83,7 +82,8 @@ export function buildLaneSummary(
       .filter((agent) =>
         strictOwnership
           ? Boolean(sessionId) && agent.parentSessionId === sessionId
-          : agentVisibleInSession(agent.parentSessionId, sessionId),
+          : !agent.parentSessionId ||
+            agentVisibleInSession(agent.parentSessionId, sessionId),
       )
       .map((agent): CompactLaneRow => ({
         id: laneKey('cli', agent.agentId),

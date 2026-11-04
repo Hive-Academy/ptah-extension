@@ -26,11 +26,9 @@ describe('agentVisibleInSession — the agent-owner axis', () => {
     expect(agentVisibleInSession(OTHER, VIEWER)).toBe(false);
   });
 
-  it('shows an agent with NO known owner in a resolved view', () => {
-    // The load-bearing case: an unattributed agent that renders nowhere is an
-    // agent the user can neither steer nor stop. It belongs to no session in
-    // particular, so it is reachable from every resolved one.
-    expect(agentVisibleInSession(undefined, VIEWER)).toBe(true);
+  it('hides an agent with no known owner from a session view', () => {
+    // Unattributed agents remain available in the global monitor.
+    expect(agentVisibleInSession(undefined, VIEWER)).toBe(false);
   });
 });
 
@@ -40,9 +38,7 @@ describe('agentVisibleInSession — the viewer axis', () => {
     ['undefined', undefined],
     ['empty string', ''],
   ])('a view scoped to an unresolved session (%s) shows nothing', (_l, sid) => {
-    // It cannot claim a specific session's agents, and it does not need to
-    // catch the unattributed ones — every resolved view already shows those, so
-    // nothing becomes unreachable by hiding them here.
+    // An unresolved session cannot claim another session or an ownerless agent.
     expect(agentVisibleInSession(VIEWER, sid)).toBe(false);
     expect(agentVisibleInSession(OTHER, sid)).toBe(false);
     expect(agentVisibleInSession(undefined, sid)).toBe(false);

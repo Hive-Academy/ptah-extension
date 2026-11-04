@@ -240,6 +240,7 @@ describe('SystemMessageTransformer', () => {
         .mockReturnValue(undefined);
       const [event] = transformer.transformCompactBoundary(
         {
+          session_id: 'sdk-sess',
           compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
         } as never,
         state,
@@ -248,7 +249,7 @@ describe('SystemMessageTransformer', () => {
 
       expect(
         helpers.sessionLifecycle.idleCompactionNoticeFor,
-      ).toHaveBeenCalledWith('active-sess');
+      ).toHaveBeenCalledWith('sdk-sess');
       expect(event).not.toHaveProperty('idleCompaction');
     });
 
@@ -332,6 +333,7 @@ describe('SystemMessageTransformer', () => {
       }
       const [event] = transformer.transformCompactBoundary(
         {
+          session_id: 'sess-418',
           compact_metadata: {
             trigger: 'auto',
             pre_tokens: 1000,
@@ -344,21 +346,18 @@ describe('SystemMessageTransformer', () => {
       expect(event).toHaveProperty('boundaryId', event.id);
       expect(event).toHaveProperty('measurement.boundaryId', event.id);
     });
-    it('emits compaction_complete with sessionId resolved from active lifecycle ids', () => {
+    it('skips a compact boundary with no owner despite an active session', () => {
       const helpers = makeHelpers(['active-sess']);
       const msg = {
         compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
       } as never;
       const events = transformer.transformCompactBoundary(msg, state, helpers);
-      expect(events).toHaveLength(1);
-      expect(events[0].eventType).toBe('compaction_complete');
+      expect(events).toHaveLength(0);
       expect(state.clearStreamingState).toHaveBeenCalled();
-      expect(helpers.subagentRegistry.pruneSession).toHaveBeenCalledWith(
-        'active-sess',
-      );
+      expect(helpers.subagentRegistry.pruneSession).not.toHaveBeenCalled();
       expect(
         helpers.usageTracker.clearSessionTokenSnapshot,
-      ).toHaveBeenCalledWith('active-sess');
+      ).not.toHaveBeenCalled();
     });
 
     // TASK_2026_295: `sessionId || activeIds[0] || sdkMessage.session_id` put
@@ -1356,7 +1355,10 @@ describe('SystemMessageTransformer', () => {
         skip_transcript: true,
       } as never;
       const events = transformer.transformTaskNotification(msg, state, helpers);
-      expect(state.clearTaskParent).toHaveBeenCalledWith('task-skip', undefined);
+      expect(state.clearTaskParent).toHaveBeenCalledWith(
+        'task-skip',
+        undefined,
+      );
       expect(events).toHaveLength(1);
       expect(events[0].eventType).toBe('agent_completed');
       expect(events[0]).toMatchObject({ summary: '', outputFile: '' });
@@ -1466,7 +1468,10 @@ describe('SystemMessageTransformer', () => {
           },
         },
       ]);
-      expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash', undefined);
+      expect(state.clearTaskParent).toHaveBeenCalledWith(
+        'task-bash',
+        undefined,
+      );
     });
 
     it('emits both terminal events without transcript text for a skip_transcript SendMessage notification', () => {

@@ -1198,6 +1198,7 @@ async function handleIndividualTool(
         );
       }
       case 'ptah_agent_spawn': {
+        const callerSessionId = request._callerSessionId?.trim() || undefined;
         const parsed = AgentSpawnArgsSchema.safeParse(
           args !== null && typeof args === 'object' ? args : {},
         );
@@ -1270,7 +1271,7 @@ async function handleIndividualTool(
             model: spawnArgs.model,
             modelTier,
             resumeSessionId: spawnArgs.resume_session_id,
-            parentSessionId: request._callerSessionId,
+            parentSessionId: callerSessionId,
             role: spawnArgs.role,
             effort: spawnArgs.effort,
             taskKind: spawnArgs.taskKind,
@@ -1314,6 +1315,17 @@ async function handleIndividualTool(
           role: result.role,
         });
 
+        if (!callerSessionId) {
+          logger.warn(
+            '[MCP] Lane spawned without parent session',
+            'CodeExecutionMCP',
+            {
+              transport: 'http',
+              agentId: result.agentId,
+            },
+          );
+        }
+
         const limits = target ? preLimits : await lookupAgentLimits(ptahAPI);
         return await createToolSuccessResponse(
           request,
@@ -1324,7 +1336,10 @@ async function handleIndividualTool(
               forced,
             },
             limits,
-          ),
+          ) +
+            (callerSessionId
+              ? ''
+              : '\nNo parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.'),
           deps,
         );
       }
@@ -2985,7 +3000,9 @@ function repeatAgentStatusLine(
   return unchanged === null
     ? null
     : `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
-        'Wait for <agent-lane-completed> instead of polling.';
+        (Array.isArray(result) || !result.parentSessionId
+          ? 'Use ptah_agent_wait or continue status checks.'
+          : 'Wait for <agent-lane-completed> instead of polling.');
 }
 
 /**

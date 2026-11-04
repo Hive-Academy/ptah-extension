@@ -13,8 +13,6 @@ import {
   type TrayAgentContext,
 } from './session-agent-tray';
 
-const NO_CONTEXTS: ReadonlyMap<string, TrayAgentContext> = new Map();
-
 /**
  * The background-agent tray's data and actions, shared by the tray strip and
  * the inspector AGENTS section. Plain signal-reading methods: callers wrap
@@ -31,13 +29,21 @@ export class SessionAgentTrayService {
   private readonly background = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
 
-  /** Tray contexts of the agents visible from `sessionId`, keyed by `toolCallId`; `null` -> empty. */
+  /** Tray contexts keyed by `toolCallId`; `null` is the unscoped main panel. */
   contextsFor(sessionId: string | null): ReadonlyMap<string, TrayAgentContext> {
-    if (sessionId === null) return NO_CONTEXTS;
-    return buildTrayContexts(
+    const contexts = buildTrayContexts(
       this.monitor.subagents(),
       this.background.agents(),
       sessionId,
+    );
+    if (sessionId !== null) return contexts;
+    // The unscoped main tray lists ownerless records and the focused tab's
+    // own records. It never lists records that another session owns.
+    const focused = this.tabManager.activeTabSessionId();
+    return new Map(
+      [...contexts].filter(
+        ([, ctx]) => !ctx.sessionId || ctx.sessionId === focused,
+      ),
     );
   }
 
@@ -79,6 +85,7 @@ export class SessionAgentTrayService {
   }
 
   async steer(ctx: TrayAgentContext, text: string): Promise<boolean> {
+    if (!ctx.sessionId) return false;
     try {
       return await this.monitor.sendMessageToAgent(
         ctx.entry.id,
@@ -91,7 +98,8 @@ export class SessionAgentTrayService {
   }
 
   stop(ctx: TrayAgentContext): void {
-    if (ctx.taskId) void this.monitor.stopAgent(ctx.taskId, ctx.sessionId);
+    if (ctx.taskId && ctx.sessionId)
+      void this.monitor.stopAgent(ctx.taskId, ctx.sessionId);
   }
 
   sendToBackground(ctx: TrayAgentContext): void {

@@ -243,8 +243,7 @@ export class SessionRegistry {
    * Tracks the most recently active tab ID.
    * Updated on session registration and message send.
    * Used by getActiveSessionIds() to return the most recently active
-   * session first, so MCP tool calls (e.g., ptah_agent_spawn) attribute
-   * agents to the correct session in multi-session scenarios.
+   * session first for user-facing active-session selection.
    */
   private _lastActiveTabId: string | null = null;
 
@@ -486,12 +485,19 @@ export class SessionRegistry {
   }
 
   /** An epoch change retires affected queries; immutable bindings are never relabelled. */
-  invalidateAccountRoute(route: Pick<ClaudeAccountNamedRoute, 'provider' | 'routeFingerprint' | 'authEpoch'>): void {
+  invalidateAccountRoute(
+    route: Pick<
+      ClaudeAccountNamedRoute,
+      'provider' | 'routeFingerprint' | 'authEpoch'
+    >,
+  ): void {
     for (const rec of this.byTabId.values()) {
       const binding = rec.accountBinding;
-      if (binding?.provider === route.provider &&
-          binding.routeFingerprint === route.routeFingerprint &&
-          binding.authEpoch < route.authEpoch) {
+      if (
+        binding?.provider === route.provider &&
+        binding.routeFingerprint === route.routeFingerprint &&
+        binding.authEpoch < route.authEpoch
+      ) {
         rec.abortController.abort();
       }
     }
@@ -519,9 +525,8 @@ export class SessionRegistry {
   /**
    * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
-   * The ordering ensures that getActiveSessionIds()[0] returns the session
-   * the user most recently interacted with, which is critical for MCP tools
-   * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
+   * This order supports UI selection and optional foreground quota probes.
+   * Caller-sensitive MCP tools must use request-scoped identity instead.
    */
   getActiveSessionIds(): SessionId[] {
     const keys = Array.from(this.byTabId.keys());
