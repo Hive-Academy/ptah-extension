@@ -1,0 +1,142 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocket } from 'ws';
+import type { CliBootstrapResult } from '@ptah-extension/cli-engine';
+import { serveCommand } from './serve';
+
+const checks = {
+  nodeVersion: () => '22.0.0',
+  sqliteMemory: async () => undefined,
+  ptahVersion: async () => '1.2.3',
+};
+
+it('refuses auto approval, old Node, and SQLite failure before bootstrap', async () => {
+  const bootstrap = jest.fn();
+  const base = {
+    port: 0,
+    maxActiveTurns: 4,
+    paths: {
+      directory: '/tmp/unused',
+      workspaces: '/tmp/unused/workspaces',
+      tokens: '/tmp/unused/tokens',
+      adminKey: '/tmp/unused/key',
+      endpoint: '/tmp/unused/endpoint',
+      events: '/tmp/unused/events',
+    },
+    argv: [],
+    bootstrap,
+  };
+  await expect(
+    serveCommand({ ...base, argv: ['--auto-approve'], checks }),
+  ).rejects.toThrow('manual approval');
+  await expect(
+    serveCommand({ ...base, autoApprove: 'true', checks }),
+  ).rejects.toThrow('manual approval');
+  await expect(
+    serveCommand({
+      ...base,
+      checks: { ...checks, nodeVersion: () => '21.9.0' },
+    }),
+  ).rejects.toThrow('Node 22');
+  await expect(
+    serveCommand({
+      ...base,
+      checks: {
+        ...checks,
+        sqliteMemory: async () => {
+          throw new Error('native load');
+        },
+      },
+    }),
+  ).rejects.toThrow('better-sqlite3');
+  expect(bootstrap).not.toHaveBeenCalled();
+});
+
+it('starts a loopback WebSocket through withEngine and stops on shutdown', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'ptah-worker-host-'));
+  await import('@ptah-extension/platform-core');
+  const { workerPaths } = await import('@ptah-extension/worker-runtime');
+  const paths = workerPaths(home);
+  const shutdown = new AbortController();
+  const sdk = {
+    initialize: jest.fn(async () => true),
+    dispose: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+  const container = {
+    clearInstances: jest.fn(),
+    resolve: jest.fn(() => sdk),
+    isRegistered: jest.fn(() => false),
+  };
+  const bootstrap = jest.fn(
+    (options: { pushAdapter?: unknown }) =>
+      ({
+        container,
+        transport: { call: jest.fn() },
+        pushAdapter: options.pushAdapter,
+        fireAndForget: { handlePermissionResponse: jest.fn() },
+        logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
+      }) as unknown as CliBootstrapResult,
+  );
+  let ready!: (endpoint: { host: string; port: number }) => void;
+  const endpointReady = new Promise<{ host: string; port: number }>(
+    (resolve) => {
+      ready = resolve;
+    },
+  );
+  const serving = serveCommand({
+    port: 0,
+    maxActiveTurns: 4,
+    paths,
+    argv: [],
+    checks,
+    bootstrap,
+    readiness: async () => ({ ready: true, checks: [] }),
+    shutdown: shutdown.signal,
+    onReady: ready,
+  });
+  let socket: WebSocket | undefined;
+  try {
+    const endpoint = await Promise.race([
+      endpointReady,
+      serving.then(() => {
+        throw new Error('Worker stopped before listening');
+      }),
+    ]);
+    socket = new WebSocket(`ws://${endpoint.host}:${endpoint.port}/rpc`);
+    await new Promise<void>((resolve, reject) => {
+      socket?.once('open', resolve);
+      socket?.once('error', reject);
+    });
+    expect(bootstrap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bootstrapMode: 'full',
+        hostProfile: expect.objectContaining({ host: 'worker' }),
+      }),
+    );
+    const response = new Promise<void>((resolve) =>
+      socket?.once('message', () => resolve()),
+    );
+    socket.send(
+      JSON.stringify({
+        v: 1,
+        kind: 'req',
+        id: '1',
+        method: 'hello',
+        params: {
+          protocol: { min: 1, max: 1 },
+          client: { name: 'test', version: '1' },
+        },
+      }),
+    );
+    await response;
+  } finally {
+    shutdown.abort();
+    socket?.terminate();
+    await serving;
+    await rm(home, { recursive: true, force: true });
+  }
+});

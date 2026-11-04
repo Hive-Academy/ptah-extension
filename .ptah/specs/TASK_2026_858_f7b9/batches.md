@@ -1006,7 +1006,7 @@ R6.3 components 1-2, AD-26 … AD-29.
 - Validation notes: A11 (implicit dependency added in 19.3)
 - Implementation details: none
 
-### Task 19.2: Commands, engine composition and entry — PENDING
+### Task 19.2: Commands, engine composition and entry — IN PROGRESS (operator commands + serve boot done; remote session composition open, see batch-19.2-report.md)
 
 - Depends on: Task 19.1
 - Files: W/`libs/backend/worker-host/src/lib/**` (argv dispatch, one file per command group:
