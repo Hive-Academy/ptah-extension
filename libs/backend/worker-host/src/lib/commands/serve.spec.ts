@@ -1,9 +1,25 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import type { CliBootstrapResult } from '@ptah-extension/cli-engine';
-import { serveCommand } from './serve';
+import { bundleVersion, serveCommand } from './serve';
+
+it('reads the package version adjacent to the worker bundle', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ptah-worker-bundle-'));
+  const previous = process.argv[1];
+  try {
+    await writeFile(
+      join(directory, 'package.json'),
+      JSON.stringify({ version: '9.8.7' }),
+    );
+    process.argv[1] = join(directory, 'worker.js');
+    await expect(bundleVersion()).resolves.toBe('9.8.7');
+  } finally {
+    process.argv[1] = previous;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 const checks = {
   nodeVersion: () => '22.0.0',
@@ -53,90 +69,97 @@ it('refuses auto approval, old Node, and SQLite failure before bootstrap', async
   expect(bootstrap).not.toHaveBeenCalled();
 });
 
-it('starts a loopback WebSocket through withEngine and stops on shutdown', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'ptah-worker-host-'));
-  await import('@ptah-extension/platform-core');
-  const { workerPaths } = await import('@ptah-extension/worker-runtime');
-  const paths = workerPaths(home);
-  const shutdown = new AbortController();
-  const sdk = {
-    initialize: jest.fn(async () => true),
-    dispose: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  };
-  const container = {
-    clearInstances: jest.fn(),
-    resolve: jest.fn(() => sdk),
-    isRegistered: jest.fn(() => false),
-  };
-  const bootstrap = jest.fn(
-    (options: { pushAdapter?: unknown }) =>
-      ({
-        container,
-        transport: { call: jest.fn() },
-        pushAdapter: options.pushAdapter,
-        fireAndForget: { handlePermissionResponse: jest.fn() },
-        logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
-      }) as unknown as CliBootstrapResult,
-  );
-  let ready!: (endpoint: { host: string; port: number }) => void;
-  const endpointReady = new Promise<{ host: string; port: number }>(
-    (resolve) => {
-      ready = resolve;
-    },
-  );
-  const serving = serveCommand({
-    port: 0,
-    maxActiveTurns: 4,
-    paths,
-    argv: [],
-    checks,
-    bootstrap,
-    readiness: async () => ({ ready: true, checks: [] }),
-    shutdown: shutdown.signal,
-    onReady: ready,
-  });
-  let socket: WebSocket | undefined;
-  try {
-    const endpoint = await Promise.race([
-      endpointReady,
-      serving.then(() => {
-        throw new Error('Worker stopped before listening');
-      }),
-    ]);
-    socket = new WebSocket(`ws://${endpoint.host}:${endpoint.port}/rpc`);
-    await new Promise<void>((resolve, reject) => {
-      socket?.once('open', resolve);
-      socket?.once('error', reject);
+it.each(['SIGTERM', 'SIGINT'] as const)(
+  'starts a loopback WebSocket and stops on %s',
+  async (signal) => {
+    const home = await mkdtemp(join(tmpdir(), 'ptah-worker-host-'));
+    await import('@ptah-extension/platform-core');
+    const { workerPaths } = await import('@ptah-extension/worker-runtime');
+    const paths = workerPaths(home);
+    const shutdown = new AbortController();
+    const sdk = {
+      initialize: jest.fn(async () => true),
+      dispose: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const container = {
+      clearInstances: jest.fn(),
+      resolve: jest.fn(() => sdk),
+      isRegistered: jest.fn(() => false),
+    };
+    const bootstrap = jest.fn(
+      (options: { pushAdapter?: unknown }) =>
+        ({
+          container,
+          transport: { call: jest.fn() },
+          pushAdapter: options.pushAdapter,
+          fireAndForget: { handlePermissionResponse: jest.fn() },
+          logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
+        }) as unknown as CliBootstrapResult,
+    );
+    let ready!: (endpoint: { host: string; port: number }) => void;
+    const endpointReady = new Promise<{ host: string; port: number }>(
+      (resolve) => {
+        ready = resolve;
+      },
+    );
+    const serving = serveCommand({
+      port: 0,
+      maxActiveTurns: 4,
+      paths,
+      argv: [],
+      checks,
+      bootstrap,
+      readiness: async () => ({ ready: true, checks: [] }),
+      shutdown: shutdown.signal,
+      onReady: ready,
     });
-    expect(bootstrap).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bootstrapMode: 'full',
-        hostProfile: expect.objectContaining({ host: 'worker' }),
-      }),
-    );
-    const response = new Promise<void>((resolve) =>
-      socket?.once('message', () => resolve()),
-    );
-    socket.send(
-      JSON.stringify({
-        v: 1,
-        kind: 'req',
-        id: '1',
-        method: 'hello',
-        params: {
-          protocol: { min: 1, max: 1 },
-          client: { name: 'test', version: '1' },
-        },
-      }),
-    );
-    await response;
-  } finally {
-    shutdown.abort();
-    socket?.terminate();
-    await serving;
-    await rm(home, { recursive: true, force: true });
-  }
-});
+    let socket: WebSocket | undefined;
+    try {
+      const endpoint = await Promise.race([
+        endpointReady,
+        serving.then(() => {
+          throw new Error('Worker stopped before listening');
+        }),
+      ]);
+      socket = new WebSocket(`ws://${endpoint.host}:${endpoint.port}/rpc`);
+      await new Promise<void>((resolve, reject) => {
+        socket?.once('open', resolve);
+        socket?.once('error', reject);
+      });
+      expect(bootstrap).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bootstrapMode: 'full',
+          hostProfile: expect.objectContaining({ host: 'worker' }),
+        }),
+      );
+      const response = new Promise<void>((resolve) =>
+        socket?.once('message', () => resolve()),
+      );
+      socket.send(
+        JSON.stringify({
+          v: 1,
+          kind: 'req',
+          id: '1',
+          method: 'hello',
+          params: {
+            protocol: { min: 1, max: 1 },
+            client: { name: 'test', version: '1' },
+          },
+        }),
+      );
+      await response;
+      process.emit(signal);
+      await serving;
+    } finally {
+      shutdown.abort();
+      socket?.terminate();
+      await serving;
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+  // The first case loads the engine graph; under a shared verify lock it can exceed 5 s.
+  60_000,
+);

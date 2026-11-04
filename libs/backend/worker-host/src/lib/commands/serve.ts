@@ -8,6 +8,7 @@ import type {
   ReadinessReport,
   WorkerGrant,
 } from '@ptah-extension/worker-protocol';
+import { withFileLock } from './file-lock';
 
 export interface ServeChecks {
   nodeVersion(): string;
@@ -85,8 +86,6 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   const runtime = await import('@ptah-extension/worker-runtime');
   const { PROTOCOL_VERSION } = await import('@ptah-extension/worker-protocol');
   const { ClaudeCliDetector } = await import('@ptah-extension/agent-sdk');
-  const { resolveEffectiveAuthRoute } =
-    await import('@ptah-extension/auth-providers');
   const { listLocalDriverLocks } =
     await import('@ptah-extension/platform-core');
   const logger = {
@@ -105,12 +104,23 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
       pushAdapter,
       ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}),
     },
-    async () => {
+    async (engine) => {
       const registry = new runtime.WorkspaceRegistry(options.paths);
       const tokens = new runtime.TokenStore(options.paths);
       const machineId = `machine_${createHash('sha256').update(hostname()).digest('hex').slice(0, 16)}`;
       const identity = { machineId, displayName: hostname(), ptahVersion };
-      const pairing = new runtime.PairingWindow(registry, machineId);
+      let openPairing: { expiresAt: number; attemptsLeft: number } | undefined;
+      const pairing = new runtime.PairingWindow(
+        registry,
+        machineId,
+        undefined,
+        ({ windowOpen, attemptsLeft }) => {
+          if (openPairing)
+            openPairing = windowOpen
+              ? { ...openPairing, attemptsLeft }
+              : undefined;
+        },
+      );
       let adminKey: Buffer;
       try {
         adminKey = await runtime.readAdminKey(options.paths);
@@ -125,7 +135,6 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         adminKey = await runtime.createAdminKey(options.paths);
       }
       let readiness: ReadinessReport = { ready: false, checks: [] };
-      let openPairing: { expiresAt: number; attemptsLeft: number } | undefined;
       const detector = new ClaudeCliDetector();
       const readReadiness = async (): Promise<ReadinessReport> => {
         readiness = await runtime.checkWorkerReadiness({
@@ -145,25 +154,17 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
             };
           },
           authRoute: async () => {
-            const health = await detector.performHealthCheck();
-            const route = resolveEffectiveAuthRoute(
-              {
-                authMethod: 'claude-cli',
-                defaultProvider: null,
-                anthropicProviderId: null,
-              },
-              [
-                {
-                  id: 'claude-cli',
-                  type: 'local-native',
-                  status: health.available ? 'connected' : 'missing',
-                },
-              ],
-            );
+            const response = await engine.transport.call<
+              Record<string, never>,
+              { ready: boolean; blockers: string[] }
+            >('auth:getEffectiveRoute', {});
+            if (!response.success || !response.data)
+              throw new Error('Effective provider route is unavailable');
+            const route = response.data;
             return {
               ready: route.ready,
               detail: route.ready
-                ? 'Claude CLI route is ready.'
+                ? 'Provider route is ready.'
                 : route.blockers.join('; '),
             };
           },
@@ -250,19 +251,24 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
             if (!found) throw new Error('Unknown workspace');
             return found.workspaceId;
           });
-          const records = tokens.list();
-          const record = records.find(
-            (item) => item.tokenId === input.tokenId && !item.revokedAt,
-          );
-          if (!record) throw new Error('Unknown token');
-          record.grant.workspaceIds = [
-            ...new Set([...record.grant.workspaceIds, ...ids]),
-          ];
-          const temporary = `${options.paths.tokens}.${process.pid}.tmp`;
-          await writeFile(temporary, JSON.stringify(records), { mode: 0o600 });
-          await rename(temporary, options.paths.tokens);
-          await tokens.load();
-          return { tokenId: record.tokenId, grant: record.grant };
+          return withFileLock(options.paths.tokens, async () => {
+            await tokens.load();
+            const records = tokens.list();
+            const record = records.find(
+              (item) => item.tokenId === input.tokenId && !item.revokedAt,
+            );
+            if (!record) throw new Error('Unknown token');
+            record.grant.workspaceIds = [
+              ...new Set([...record.grant.workspaceIds, ...ids]),
+            ];
+            const temporary = `${options.paths.tokens}.${process.pid}.tmp`;
+            await writeFile(temporary, JSON.stringify(records), {
+              mode: 0o600,
+            });
+            await rename(temporary, options.paths.tokens);
+            await tokens.load();
+            return { tokenId: record.tokenId, grant: record.grant };
+          });
         }
         if (method === 'admin.status')
           return {
@@ -274,7 +280,16 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
                 ? { open: true, ...openPairing }
                 : { open: false },
             grants: await handle('admin.grants.list', {}, null, true),
-            locks: [],
+            locks: (await listLocalDriverLocks()).flatMap((item) =>
+              item.ok
+                ? item.locks.map((lock) => ({
+                    sessionId: lock.sessionId,
+                    state: lock.state,
+                    label: lock.label,
+                    acquiredAt: Date.parse(lock.acquiredAt),
+                  }))
+                : [],
+            ),
           };
         throw new Error('Unsupported admin method');
       };

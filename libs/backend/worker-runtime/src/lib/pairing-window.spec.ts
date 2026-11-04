@@ -38,6 +38,28 @@ function fixture() {
 }
 
 describe('PairingWindow', () => {
+  it('reports remaining attempts and closes the visible window after success', async () => {
+    const events: { windowOpen: boolean; attemptsLeft: number }[] = [];
+    const sample = fixture();
+    const window = new PairingWindow(
+      sample.registry,
+      'machine',
+      undefined,
+      ({ windowOpen, attemptsLeft }) => {
+        events.push({ windowOpen, attemptsLeft });
+      },
+    );
+    const code = window.open().code;
+    await window.exchange(
+      code === '0000-0000' ? 'ZZZZ-ZZZZ' : '0000-0000',
+      'a',
+    );
+    await window.exchange(code, 'a');
+    expect(events).toEqual([
+      { windowOpen: true, attemptsLeft: 4 },
+      { windowOpen: false, attemptsLeft: 0 },
+    ]);
+  });
   it('uses eight Crockford characters, accepts display and bare forms, and snapshots grants', async () => {
     const sample = fixture();
     const first = sample.window.open();

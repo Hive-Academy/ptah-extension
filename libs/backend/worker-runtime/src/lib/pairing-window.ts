@@ -118,6 +118,7 @@ export class PairingWindow {
         workspaceIds: [...state.grant.workspaceIds],
       };
       this.close();
+      this.log?.({ connectionId, windowOpen: false, attemptsLeft: 0 });
       return { ok: true, grant };
     }
     if (state && this.current === state) {
