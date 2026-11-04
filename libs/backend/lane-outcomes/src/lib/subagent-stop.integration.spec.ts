@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { realpath as fsRealpath, stat as fsStat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import {
   SDK_TOKENS,
@@ -6,7 +10,11 @@ import {
   type SdkAdapterSubagentEndedEvent,
   type SubagentStopPayload,
 } from '@ptah-extension/agent-sdk';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  PLATFORM_TOKENS,
+  type IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import { SUBAGENT_LANE_ID } from '@ptah-extension/shared';
 import { LANE_OUTCOME_PIPELINE, registerLaneOutcomeServices } from './di/register';
 import { startLaneOutcomes } from './di/start';
@@ -16,13 +24,18 @@ import { InMemoryLaneOutcomeStore } from './store/in-memory-lane-outcome.store';
 import { outcomeRow } from './store/store.test-support';
 import { subagentRunId } from './subagent-join';
 import { MemoryState, testLogger } from './write/pipeline.test-support';
+import { hostDeliverablesReportId } from './write/report-effect';
 import { OutcomeWritePipeline } from './write/outcome-write-pipeline';
 
-function fixture() {
+function fixture(
+  fileSystem?: Pick<IFileSystemProvider, 'stat' | 'realpath'>,
+) {
   const logger = testLogger();
   const container = rootContainer.createChildContainer();
   const store = new InMemoryLaneOutcomeStore();
   container.registerInstance(PLATFORM_TOKENS.STATE_STORAGE, new MemoryState());
+  if (fileSystem)
+    container.registerInstance(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, fileSystem);
   registerLaneOutcomeServices(container, logger);
   container.registerInstance(LANE_OUTCOME_TOKENS.STORE, store);
 
@@ -156,6 +169,60 @@ describe('subagent stop producers', () => {
       expect(await run.store.get(target)).toMatchObject({
         finalReview: 'approved',
       });
+    } finally {
+      await run.dispose();
+    }
+  });
+});
+
+describe('host-observed deliverables at the subagent stop', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ptah-stop-wrote-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const nodeFs: Pick<IFileSystemProvider, 'stat' | 'realpath'> = {
+    realpath: (target) => fsRealpath(target),
+    stat: async (target) => {
+      const stat = await fsStat(target);
+      return {
+        type: FileType.File,
+        ctime: stat.ctimeMs,
+        mtime: stat.mtimeMs,
+        size: stat.size,
+      };
+    },
+  };
+
+  it('keeps an explicit report held before the stop over the host report', async () => {
+    const run = fixture(nodeFs);
+    try {
+      const agentId = 'explicit-first';
+      const runId = subagentRunId(agentId);
+      expect(
+        await run.recorder.declareSubagentDeliverables({ runId }, [
+          { exists: true, bytes: 8, mtimeMs: Date.now() },
+        ]),
+      ).toMatchObject({ ok: true, state: 'held' });
+      // The host sees a missing file, which alone would be no-deliverable.
+      run.events.emitSubagentEnded({
+        ...ended(agentId),
+        cwd: dir,
+        lastAssistantMessage: 'WROTE: missing.md',
+      });
+      run.stops.notifyAll(stop(agentId));
+      for (let i = 0; i < 500; i += 1) {
+        await run.pipeline.flush();
+        if (await run.store.hasReceipt(hostDeliverablesReportId(runId))) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 2));
+      }
+      expect(await run.store.hasReceipt(hostDeliverablesReportId(runId))).toBe(
+        true,
+      );
+      expect((await run.store.get(runId))?.verdict).toBe('delivered');
     } finally {
       await run.dispose();
     }

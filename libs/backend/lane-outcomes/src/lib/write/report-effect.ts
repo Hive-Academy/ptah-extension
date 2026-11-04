@@ -21,6 +21,11 @@ export const DeliverablesPayloadSchema = z
     taskKind: z.enum(OUTCOME_TASK_KINDS).optional(),
     taskId: z.string().min(1).max(200).optional(),
     routingSource: z.enum(OUTCOME_ROUTING_SOURCES).optional(),
+    /**
+     * Set only by the host when it stats a subagent's own `WROTE:` lines. The
+     * MCP tool builds its payload field by field, so an agent cannot claim it.
+     */
+    origin: z.literal('host').optional(),
   })
   .strict();
 
@@ -68,6 +73,11 @@ export function deterministicReviewReportId(
   return `review:${reviewedRunId}|${reviewerIdentity(reviewerRunId)}`;
 }
 
+/** One host-observed deliverables report per run, receipted once. */
+export function hostDeliverablesReportId(runId: string): string {
+  return `deliverables:host:${runId}`;
+}
+
 type DeliverableCheck = z.infer<
   typeof DeliverablesPayloadSchema
 >['checks'][number];
@@ -108,6 +118,7 @@ export const reportEffectOf: OutcomeEffectResolver = (row, report) => {
       taskKind: parsed.data.taskKind,
       taskId: parsed.data.taskId,
       routingSource: parsed.data.routingSource,
+      ...(parsed.data.origin === 'host' ? { hostObserved: true } : {}),
     };
   }
   if (report.kind === 'review') {

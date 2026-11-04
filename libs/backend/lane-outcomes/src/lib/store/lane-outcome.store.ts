@@ -48,6 +48,8 @@ export type OutcomeReportEffect =
       readonly taskKind?: OutcomeTaskKind;
       readonly taskId?: string;
       readonly routingSource?: OutcomeRoutingSource;
+      /** The host stated the files; an explicit declaration outranks it. */
+      readonly hostObserved?: true;
     }
   | {
       readonly kind: 'review';
@@ -63,6 +65,9 @@ export function applyOutcomeEffect(
   effect: OutcomeReportEffect,
 ): LaneOutcomeRecord {
   if (effect.kind === 'deliverables') {
+    // Every applied declaration sets deliverablesDeclaredAt, so a host report
+    // never replaces one; the stores call this inside their transaction.
+    if (effect.hostObserved && row.deliverablesDeclaredAt !== null) return row;
     const explicitTaskKind =
       effect.taskKind !== undefined && row.taskKindSource !== 'explicit';
     return {
