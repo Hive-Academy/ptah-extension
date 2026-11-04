@@ -395,13 +395,15 @@ export class ChatSessionService {
     @inject(HarnessProposalTurnAttributionService, { isOptional: true })
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
     @inject(ProviderAccountService, { isOptional: true })
-    private readonly accounts?: ProviderAccountService,
+    private readonly accounts: ProviderAccountService | undefined = undefined,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
       isOptional: true,
     })
-    private readonly activeProvider?: ActiveProviderResolver,
+    private readonly activeProvider:
+      ActiveProviderResolver | undefined = undefined,
     @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
-    private readonly runtimeProfile?: ChatRuntimeProfileService,
+    private readonly runtimeProfile:
+      ChatRuntimeProfileService | undefined = undefined,
     /**
      * Optional, and null on hosts without native runtimes: those keep the
      * broadcaster-only liveness check of {@link hasLiveSessionStream}.
@@ -413,23 +415,20 @@ export class ChatSessionService {
      * VS Code and the CLI it is absent and no turn is admitted.
      */
     @inject(CHAT_TOKENS.HOST_ROUTING_COORDINATOR, { isOptional: true })
-    private readonly hostRouting?: ChatHostRouting,
+    private readonly hostRouting: ChatHostRouting | undefined = undefined,
     @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
       isOptional: true,
     })
-    private readonly sessionIdResolvedEvents?: SessionIdResolvedCallbackRegistry,
+    private readonly sessionIdResolvedEvents:
+      SessionIdResolvedCallbackRegistry | undefined = undefined,
     @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
-    private readonly driverLock: ChatSessionDriverLock = undefined!,
+    private readonly driverLock: ChatSessionDriverLock,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
     this.sessionIdResolvedEvents?.register(({ tabId }) => {
       if (tabId) this.pendingLineage.delete(tabId);
     });
-  }
-
-  private get lockCoordinator(): ChatSessionDriverLock {
-    return this.driverLock;
   }
 
   private canonicalRoot(root: string): string {
@@ -1103,7 +1102,7 @@ export class ChatSessionService {
     launch?: CarryOverLaunch,
   ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
-    this.lockCoordinator.beginRecordAdmission(params.tabId);
+    this.driverLock.beginRecordAdmission(params.tabId);
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -1234,7 +1233,7 @@ export class ChatSessionService {
             }
           : {}),
       });
-      await this.lockCoordinator.assertRecordAdmission(tabId);
+      await this.driverLock.assertRecordAdmission(tabId);
       // Only a plain prompt: a slash command that starts a new query is not
       // an interactive turn to route. A carry-over turn holds the old
       // transcript, which must not reach the routing model (AC 8.1).
@@ -1266,7 +1265,7 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     } finally {
-      this.lockCoordinator.endRecordAdmission(params.tabId);
+      this.driverLock.endRecordAdmission(params.tabId);
     }
   }
 
@@ -1694,7 +1693,7 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      await this.lockCoordinator.beginDrive(sessionId, tabId);
+      await this.driverLock.beginDrive(sessionId, tabId);
       await this.gateAccount({
         sessionId,
         accountSelection: params.accountSelection,
@@ -1762,7 +1761,7 @@ export class ChatSessionService {
           };
         }
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
-        await this.lockCoordinator.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, tabId);
       } else {
         const resumeOutcome = await this.autoResumeIfInactive(
           sessionId,
@@ -1773,7 +1772,7 @@ export class ChatSessionService {
           { deliversFollowUp: true },
         );
         if ('error' in resumeOutcome) {
-          await this.lockCoordinator.abandonDrive(sessionId, tabId);
+          await this.driverLock.abandonDrive(sessionId, tabId);
           return resumeOutcome.error;
         }
         justResumed = resumeOutcome.justResumed;
@@ -1800,7 +1799,7 @@ export class ChatSessionService {
             : params,
         );
       if (slashResult) {
-        await this.lockCoordinator.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, tabId);
         if (slashResult.success && slashLineage?.legacy) {
           await this.upgradeLegacyLineage(sessionId, slashLineage.roots);
         }
@@ -1899,7 +1898,7 @@ export class ChatSessionService {
       }
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
-      await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
+      await this.driverLock.abandonDrive(params.sessionId, params.tabId);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1926,7 +1925,7 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     } finally {
-      await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
+      await this.driverLock.settleDrive(params.sessionId, params.tabId);
     }
   }
 
@@ -2048,7 +2047,7 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        await this.lockCoordinator.beginDrive(sessionId, params.tabId);
+        await this.driverLock.beginDrive(sessionId, params.tabId);
         if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
@@ -2069,10 +2068,10 @@ export class ChatSessionService {
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
           } else if (activateResult.error.cancelled) {
-            await this.lockCoordinator.abandonDrive(sessionId, params.tabId);
+            await this.driverLock.abandonDrive(sessionId, params.tabId);
             return { success: false, cancelled: true };
           } else {
-            await this.lockCoordinator.abandonDrive(sessionId, params.tabId);
+            await this.driverLock.abandonDrive(sessionId, params.tabId);
             activationError =
               activateResult.error.error ?? 'Auto-resume failed';
             activationErrorCode = activateResult.error.errorCode;
@@ -2130,7 +2129,7 @@ export class ChatSessionService {
       };
     } catch (error) {
       if (params.activate && params.tabId)
-        await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
+        await this.driverLock.abandonDrive(params.sessionId, params.tabId);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -2158,7 +2157,7 @@ export class ChatSessionService {
       };
     } finally {
       if (params.activate && params.tabId)
-        await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
+        await this.driverLock.settleDrive(params.sessionId, params.tabId);
     }
   }
 
@@ -2332,7 +2331,7 @@ export class ChatSessionService {
         accountRefusal: refusal.accountRefusal,
       };
     }
-    await this.lockCoordinator.beginDrive(sessionId, tabId);
+    await this.driverLock.beginDrive(sessionId, tabId);
     try {
       if (this.hasLiveSessionStream(sessionId, tabId)) {
         return { alreadyActive: true };
@@ -2346,7 +2345,7 @@ export class ChatSessionService {
       });
 
       if ('error' in outcome) {
-        await this.lockCoordinator.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, tabId);
         return {
           resumed: false,
           error: outcome.error.error ?? 'Auto-resume failed',
@@ -2356,8 +2355,11 @@ export class ChatSessionService {
       // `{ justResumed: false }` it meant "already live", which we already
       // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
       return { resumed: true };
+    } catch (error) {
+      await this.driverLock.abandonDrive(sessionId, tabId);
+      throw error;
     } finally {
-      await this.lockCoordinator.abandonDrive(sessionId, tabId);
+      await this.driverLock.settleDrive(sessionId, tabId);
     }
   }
 
@@ -2612,7 +2614,7 @@ export class ChatSessionService {
               ...(params.images !== undefined ? { images: params.images } : {}),
             }),
       };
-      await this.lockCoordinator.assertDriveHeld(sessionId, tabId);
+      await this.driverLock.assertDriveHeld(sessionId, tabId);
       const stream = await this.sdkAdapter.resumeSession(
         sessionId,
         execution.runtime === 'codex-app-server'

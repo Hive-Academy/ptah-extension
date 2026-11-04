@@ -110,6 +110,7 @@ function makeService(params: {
   driverLock?: {
     beginDrive?: jest.Mock;
     abandonDrive?: jest.Mock;
+    settleDrive?: jest.Mock;
     assertDriveHeld?: jest.Mock;
   };
 }): ChatSessionService {
@@ -617,6 +618,52 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       SESSION_ID,
       expect.objectContaining({ projectPath: worktree }),
     );
+  });
+
+  it('settles, not abandons, the drive after a successful activation (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      resumeSession: jest.fn().mockResolvedValue((async function* () {})()),
+      driverLock: { abandonDrive, settleDrive },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result.activated).toBe(true);
+    expect(settleDrive).toHaveBeenCalledWith(SESSION_ID, TAB_ID);
+    expect(abandonDrive).not.toHaveBeenCalled();
+  });
+
+  it('settles, not abandons, the drive after a successful rewind activation (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      metadata: { workingDirectory: OPEN_FOLDER },
+      resumeSession: jest.fn(async () => (async function* () {})()),
+      driverLock: { abandonDrive, settleDrive },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toEqual({ resumed: true });
+    expect(settleDrive).toHaveBeenCalledWith(SESSION_ID, TAB_ID);
+    expect(abandonDrive).not.toHaveBeenCalled();
+  });
+
+  it('abandons the drive when rewind activation fails (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      metadata: { workingDirectory: `${OPEN_FOLDER}/.claude/worktrees/gone` },
+      fileExists: jest.fn(async (path: string) => path === OPEN_FOLDER),
+      resumeSession: jest.fn(),
+      driverLock: { abandonDrive },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toMatchObject({ resumed: false });
+    expect(abandonDrive).toHaveBeenCalledWith(SESSION_ID, TAB_ID);
   });
 
   it('auto-resume refuses a missing worktree without calling SDK resume', async () => {

@@ -41,14 +41,15 @@ function send(value: unknown): Promise<unknown> {
 (supported ? describe : describe.skip)(
   'session driver control endpoint',
   () => {
-    it('rechecks liveness before an operator release', async () => {
+    it('checks liveness once before an operator release', async () => {
       const lock = new KernelSessionDriverLock();
       const id = `control-race-${process.pid}-${Date.now()}`;
-      let checks = 0;
-      lock.setLiveRecordCheck(() => ++checks >= 2);
+      const liveCheck = jest.fn(() => true);
+      lock.setLiveRecordCheck(liveCheck);
       try {
         expect((await lock.acquire(id, owner)).ok).toBe(true);
         expect(await requestRelease(id)).toBe('in-use');
+        expect(liveCheck).toHaveBeenCalledTimes(1);
         expect(lock.held()).toHaveLength(1);
       } finally {
         await lock.dispose();

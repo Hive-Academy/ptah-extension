@@ -186,8 +186,6 @@ export class ControlEndpoint {
         if (!entry) continue;
         if (await this.hasLiveRecord(source, input.sessionId))
           return { ok: true, result: 'in-use' };
-        if (await this.hasLiveRecord(source, input.sessionId))
-          return { ok: true, result: 'in-use' };
         return {
           ok: true,
           result: await source.release(entry.sessionId, entry.nonce),

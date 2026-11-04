@@ -7,6 +7,7 @@ export type ChatSessionDriverLock = Pick<
   | 'endRecordAdmission'
   | 'beginDrive'
   | 'abandonDrive'
+  | 'settleDrive'
   | 'assertDriveHeld'
   | 'admitNative'
   | 'assertRecordAdmission'

@@ -27,6 +27,8 @@ export class SessionDriverLockCoordinator {
   private readonly failures = new Map<string, RpcUserError>();
   private readonly admissionFailures = new Map<string, RpcUserError>();
   private readonly activeAdmissions = new Set<string>();
+  /** Tab ID to the session a finished attempt left provisional, waiting for its record to bind. */
+  private readonly parked = new Map<string, string>();
 
   constructor(
     @inject(PLATFORM_TOKENS.SESSION_DRIVER_LOCK)
@@ -165,16 +167,42 @@ export class SessionDriverLockCoordinator {
     await this.serial(sessionId, async () => {
       const owner = await this.ensure(sessionId);
       if (!owner.records.size && !owner.natives.size) owner.provisional = tabId;
+      if (this.parked.get(tabId) === sessionId) this.parked.delete(tabId);
     });
   }
 
+  /** Ends a failed attempt: drops its provisional owner and frees an unowned lock. */
   async abandonDrive(sessionId: string, tabId: string): Promise<void> {
     await this.serial(sessionId, async () => {
+      if (this.parked.get(tabId) === sessionId) this.parked.delete(tabId);
       const owner = this.owners.get(sessionId);
       if (owner?.provisional === tabId) {
         owner.provisional = undefined;
         await this.releaseEmpty(sessionId, owner);
       }
+    });
+  }
+
+  /**
+   * Ends an attempt that returned. A Claude record binds its session only on the SDK
+   * `init` message, which can arrive after the RPC returns, so the provisional owner
+   * stays while the tab's record has not bound or is bound to this session. It then
+   * ends when that record binds, when the record is removed, or on `abandonDrive`.
+   */
+  async settleDrive(sessionId: string, tabId: string): Promise<void> {
+    await this.serial(sessionId, async () => {
+      const owner = this.owners.get(sessionId);
+      if (owner?.provisional !== tabId) return;
+      const record = this.lifecycle.find(tabId);
+      if (
+        record?.tabId === tabId &&
+        (record.realSessionId ?? sessionId) === sessionId
+      ) {
+        this.parked.set(tabId, sessionId);
+        return;
+      }
+      owner.provisional = undefined;
+      await this.releaseEmpty(sessionId, owner);
     });
   }
 
@@ -234,8 +262,9 @@ export class SessionDriverLockCoordinator {
     tabId: string,
     sessionId: string,
   ): Promise<boolean> {
+    let admitted: boolean;
     try {
-      return await this.serial(sessionId, async () => {
+      admitted = await this.serial(sessionId, async () => {
         const owner = await this.ensure(sessionId);
         if (this.lifecycle.find(tabId)?.token !== token) {
           await this.releaseEmpty(sessionId, owner);
@@ -254,6 +283,16 @@ export class SessionDriverLockCoordinator {
       await this.failRecord(token, tabId, error);
       return false;
     }
+    if (admitted) await this.unpark(tabId, sessionId);
+    return admitted;
+  }
+
+  /** The tab's record bound: a parked provisional owner on another session ends. */
+  private async unpark(tabId: string, sessionId: string): Promise<void> {
+    const parked = this.parked.get(tabId);
+    if (parked === undefined) return;
+    this.parked.delete(tabId);
+    if (parked !== sessionId) await this.abandonDrive(parked, tabId);
   }
 
   private async rebound(
@@ -291,6 +330,7 @@ export class SessionDriverLockCoordinator {
     for (const [id, owner] of this.owners) {
       if (owner.provisional === tabId) await this.abandonDrive(id, tabId);
     }
+    this.parked.delete(tabId);
     this.failures.delete(token);
     if (!this.activeAdmissions.has(tabId)) this.admissionFailures.delete(tabId);
   }
