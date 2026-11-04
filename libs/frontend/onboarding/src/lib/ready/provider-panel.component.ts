@@ -290,7 +290,8 @@ export class ProviderPanelComponent {
     if (v.state === 'missing') return `Install ${name} first.`;
     if (v.state === 'signed-out') return `No. Sign in to use ${name}.`;
     if (v.state === 'stale') return 'Your Codex sign-in has expired. Sign in again.';
-    if (v.errorCause === 'home' || v.errorCause === 'unreadable') return 'Ptah could not read the Codex home folder, so no sign-in was found. This is not the same as being signed out.';
+    if (v.errorCause === 'home') return 'Ptah could not read the Codex home folder, so no sign-in was found. This is not the same as being signed out.';
+    if (v.errorCause === 'unreadable' && v.provider === 'openai-codex') return 'Ptah could not read the Codex sign-in data.';
     if (v.failedFact === 'sign-in') return v.errorCause === 'timeout' ? `${name} did not answer the sign-in check in time. Your sign-in could not be read.` : `Ptah could not read your ${name} sign-in.`;
     return v.errorCause === 'timeout' ? `${name} did not answer in time. Your sign-in could not be read.` : `Ptah could not ask this computer about ${name}.`;
   });

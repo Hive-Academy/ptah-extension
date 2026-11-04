@@ -78,11 +78,11 @@ const STAGE_ONE_TEXT: Record<
   'signed-out': { chip: 'Not signed in' },
   'error-timeout': {
     chip: 'Could not check',
-    line: 'Claude Code did not answer in time (30 s). Your sign-in could not be read.',
+    line: 'Claude Code did not answer the sign-in check in time. Your sign-in could not be read.',
   },
   'error-unreadable': {
     chip: 'Could not check',
-    line: 'Ptah could not read the Claude Code sign-in.',
+    line: 'Ptah could not read your Claude Code sign-in.',
   },
   'error-local': {
     chip: 'Could not check',
@@ -297,7 +297,12 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
     // Stage 1 in each of the seven stage-1 readiness ids: 7 × 4 = 28.
     for (const id of STAGE_ONE_READINESS_IDS) {
       test(`stage 1 — ${id}`, async ({ page, fixtureServer }) => {
+        if (id === 'error-timeout') await page.clock.install();
         await boot(page, fixtureServer.url, theme, id);
+        if (id === 'error-timeout') {
+          await expect(page.getByTestId('ready-claude-panel')).toHaveAttribute('data-state', 'slow');
+          await page.clock.runFor(11_000);
+        }
         await expectStageOne(page, id);
         await expectStripWord(page, 1, STRIP_WORD[DERIVED_STATE[id]] ?? '');
         await shoot(page, { view: `stage1-${id}`, theme });
@@ -376,7 +381,10 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       page,
       fixtureServer,
     }) => {
+      await page.clock.install();
       await boot(page, fixtureServer.url, theme, 'error-timeout');
+      await expect(page.getByTestId('ready-claude-panel')).toHaveAttribute('data-state', 'slow');
+      await page.clock.runFor(11_000);
       await enterStageTwo(page, 'error-timeout');
       await expectSettingsBanner(page, 'error');
       await shoot(page, { view: 'stage2-providers-error', theme });
