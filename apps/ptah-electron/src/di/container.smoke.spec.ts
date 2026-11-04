@@ -60,6 +60,7 @@ import {
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS, SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
+import { REVIEW_CORE_TOKENS } from '@ptah-extension/review-core';
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
@@ -163,6 +164,12 @@ describe('Electron DI — skill telemetry seam', () => {
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
+  for (const token of [
+    REVIEW_CORE_TOKENS.QUERY_REPOSITORY, REVIEW_CORE_TOKENS.SETTINGS_STORE,
+    REVIEW_CORE_TOKENS.ARTIFACT_READER, REVIEW_CORE_TOKENS.SECRET_PRESENCE,
+    REVIEW_CORE_TOKENS.QUEUE_SERVICE, REVIEW_CORE_TOKENS.ORCHESTRATOR,
+    REVIEW_CORE_TOKENS.GITHUB,
+  ]) c.register(token, { useValue: {} });
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
   c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {

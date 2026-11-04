@@ -226,6 +226,7 @@ async function flushMicrotasks(turns = 30): Promise<void> {
 /** The parts of `QuitSequenceDeps` no ordering test cares about. */
 function inertDeps(order: string[]) {
   return {
+    codexSignIn: { isActive: () => false, stop: async () => undefined },
     abortBoot: jest.fn(),
     isBootRunning: () => false,
     awaitBootCompletion: async () => undefined,

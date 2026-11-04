@@ -24,10 +24,12 @@ import { createEmptyBootRefs } from './boot-coordinator';
 import type { BootRefs } from './boot-coordinator';
 import {
   CHAT_SESSION_DISPOSE_BUDGET_MS,
+  CODEX_SIGN_IN_STOP_BUDGET_MS,
   RUN_CHECK_KILL_BUDGET_MS,
   CODEX_DISPOSE_BUDGET_MS,
   handleWillQuit,
   requiresDeferredDisposal,
+  type QuitSequenceDeps,
 } from './shutdown';
 
 import { disposeElectronCodexBindings, hasElectronCodexBindings } from '../di/codex-binding-registry';
@@ -69,6 +71,10 @@ function minimalRefs(order: string[]): BootRefs {
 function quitDeps(refs: BootRefs) {
   return {
     refs,
+    codexSignIn: {
+      isActive: () => false,
+      stop: async () => undefined,
+    } as QuitSequenceDeps['codexSignIn'],
     abortBoot: jest.fn(),
     isBootRunning: () => false,
     awaitBootCompletion: async () => undefined,
@@ -193,6 +199,106 @@ describe('will-quit — the run-check kill', () => {
       'diagnostics',
     ]);
     expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts and awaits the review worker before SQLite close', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.reviewWorker = {
+      dispose: () => { order.push('review abort'); },
+      awaitStopped: () => new Promise<void>((resolve) => { finish = resolve; order.push('review wait'); }),
+    };
+    const deps = quitDeps(refs);
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['review abort', 'review wait']);
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual(['review abort', 'review wait', 'sqliteConnection', 'diagnostics']);
+  });
+});
+
+describe('will-quit — Codex sign-in stop', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    kill.mockReset().mockResolvedValue(undefined);
+    pids.mockReset().mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('defers an active sign-in and waits for its stop before quitting', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const deps = quitDeps(minimalRefs(order));
+    deps.codexSignIn = {
+      isActive: () => true,
+      stop: jest.fn(() => new Promise<void>((resolve) => {
+        order.push('codexSignIn');
+        finish = resolve;
+      })),
+    };
+
+    expect(handleWillQuit(deps)).toBe(false);
+    expect(deps.deferQuit).toHaveBeenCalledTimes(1);
+    expect(deps.codexSignIn.stop).toHaveBeenCalledTimes(1);
+    expect(order.indexOf('codexSignIn')).toBeLessThan(order.indexOf('sqliteConnection'));
+    await flushMicrotasks();
+    expect(deps.quit).not.toHaveBeenCalled();
+
+    finish();
+    await flushMicrotasks();
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the synchronous path for an inactive sign-in', () => {
+    const deps = quitDeps(minimalRefs([]));
+    const stop = jest.fn(async () => undefined);
+    deps.codexSignIn = { isActive: () => false, stop };
+
+    expect(handleWillQuit(deps)).toBe(true);
+    expect(deps.deferQuit).not.toHaveBeenCalled();
+    expect(deps.quit).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues quitting when stop rejects', async () => {
+    const deps = quitDeps(minimalRefs([]));
+    deps.codexSignIn = {
+      isActive: () => true,
+      stop: jest.fn(async () => { throw new Error('stop failed'); }),
+    };
+
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Codex sign-in stop failed'),
+      expect.any(Error),
+    );
+  });
+
+  it('continues quitting after the two-second stop budget', async () => {
+    const deps = quitDeps(minimalRefs([]));
+    deps.codexSignIn = {
+      isActive: () => true,
+      stop: jest.fn(() => new Promise<void>(() => undefined)),
+    };
+
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(deps.quit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(CODEX_SIGN_IN_STOP_BUDGET_MS);
+    await flushMicrotasks();
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Codex sign-in stop exceeded 2000 ms'),
+    );
   });
 });
 

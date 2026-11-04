@@ -11,6 +11,7 @@ export type RpcUserErrorCode =
   | 'MODEL_NOT_AVAILABLE'
   | 'AUTH_REQUIRED'
   | 'PERSISTENCE_UNAVAILABLE'
+  | 'REVIEW_DISABLED'
   | 'SESSION_NOT_FOUND'
   /** The session exists but none of its saved folders is open, safe and present. */
   | 'SESSION_FOLDER_UNAVAILABLE'

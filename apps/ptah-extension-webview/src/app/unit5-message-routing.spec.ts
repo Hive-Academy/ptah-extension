@@ -64,7 +64,10 @@ import { provideModelRefreshControl } from '@ptah-extension/chat';
 // The three services under test, each imported through the SAME specifier
 // `app.config.ts` uses after Batch 4. If a narrow barrel ever stops exporting
 // one of them, this file fails to compile — the cheapest possible R4 check.
-import { TasksStore } from '@ptah-extension/tasks-ui/services';
+// TASK_2026_871: `TasksStore` is no longer a bootstrap handler (it lives in
+// the lazy board chunk); `tasks:changed` lands on the eager feed, which relays
+// it to the store once the board has opened.
+import { TasksChangedFeed } from '@ptah-extension/tasks-ui/presentation';
 import {
   HarnessWorkflowMessageHandler,
   HarnessWorkflowRequestService,
@@ -148,7 +151,7 @@ describe('initial setup bundle boundary', () => {
 
 describe('Unit 5 push-message delivery with tasks and onboarding never opened (R4)', () => {
   let router: MessageRouterService;
-  let tasks: TasksStore;
+  let tasks: TasksChangedFeed;
   let harness: HarnessWorkflowMessageHandler;
   let wizard: SetupWizardStateService;
   let workflowRequests: {
@@ -158,8 +161,8 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
   let rpcCall: jest.Mock;
 
   beforeEach(() => {
-    // TasksStore reacts to `tasks:changed` by firing a `tasks:get` RPC. Stubbing
-    // the RPC service is what makes that reaction *observable* without a board.
+    // Root services built here (model list, effort) issue RPCs at construction;
+    // the stub keeps them off the wire.
     rpcCall = jest.fn().mockResolvedValue({
       isSuccess: () => false,
       data: null,
@@ -190,11 +193,9 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
           provide: HarnessProposalHydrationService,
           useValue: { handlePush: jest.fn() },
         },
-        // `TasksStore` opens artifacts through this port (TASK_2026_413). It is
-        // required and has no default provider — `app.config.ts` binds it to
-        // `FileLinkRouterService` — so the router is stubbed here rather than
-        // dragged in, which would defeat this spec's "no deferred component"
-        // premise.
+        // Required port with no default provider (`app.config.ts` binds it to
+        // `FileLinkRouterService`); stubbed rather than dragged in, which would
+        // defeat this spec's "no deferred component" premise.
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
         {
           provide: ClaudeRpcService,
@@ -220,7 +221,11 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
         ...provideModelRefreshControl(),
         MessageRouterService,
         // Mirrors app.config.ts exactly — same token, same useExisting shape.
-        { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
+        {
+          provide: MESSAGE_HANDLERS,
+          useExisting: TasksChangedFeed,
+          multi: true,
+        },
         {
           provide: MESSAGE_HANDLERS,
           useExisting: HarnessWorkflowMessageHandler,
@@ -234,18 +239,7 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
       ],
     });
 
-    tasks = TestBed.inject(TasksStore);
-    // The surface gate (tasks-ui guideline 9): `TasksStore` drops a
-    // `tasks:changed` push when no Tasks surface is mounted, because a full
-    // `.ptah/specs` scan to repaint a board nobody is looking at is waste and
-    // the surface re-fetches on mount. That gate would make this file's
-    // delivery assertion unobservable, so the spec stands in for the mount with
-    // the SAME lifecycle call `TasksViewComponent`'s constructor makes —
-    // `attachSurface()` loads nothing and renders nothing. R4 is unharmed: the
-    // deferred component is still never instantiated and the store is still
-    // reached only through `@ptah-extension/tasks-ui/services`, which is exactly
-    // what the lazy-loader + narrow-barrel swap could have broken.
-    tasks.attachSurface();
+    tasks = TestBed.inject(TasksChangedFeed);
     harness = TestBed.inject(HarnessWorkflowMessageHandler);
     wizard = TestBed.inject(SetupWizardStateService);
     // Constructing the router builds the handler map, which reads
@@ -274,25 +268,24 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
     );
   });
 
-  it('routes tasks:changed to TasksStore, which fires the tasks:get refresh', () => {
-    // Other root services (model list, effort) issue their own RPCs at
-    // construction, so clear first and assert on the `tasks:get` method
-    // specifically rather than on "was the mock touched at all".
-    rpcCall.mockClear();
-    expect(
-      rpcCall.mock.calls.filter((c) => c[0] === 'tasks:board'),
-    ).toHaveLength(0);
+  it('routes tasks:changed to the eager TasksChangedFeed, which relays it raw', () => {
+    const relayed: unknown[] = [];
+    tasks.listenRaw((payload) => relayed.push(payload));
 
-    // No `workspaceRoot` in the payload takes TasksStore's "refresh the active
-    // workspace, best effort" branch, which is unconditional — so this asserts
-    // message DELIVERY rather than incidentally asserting workspace state.
+    // No `workspaceRoot`: the feed's validated stream drops it, but the raw
+    // relay (what the lazily constructed `TasksStore` listens on) still gets
+    // it — the store's "refresh the active workspace" branch depends on that.
     dispatch(WIRE.tasksChanged, {});
+    dispatch(WIRE.tasksChanged, { workspaceRoot: '/ws/a', reason: 'watcher' });
 
-    // The push reached TasksStore and it acted on it. Asserting the RPC — not
-    // the provider list — is what proves delivery with the board never opened.
-    expect(
-      rpcCall.mock.calls.filter((c) => c[0] === 'tasks:board').length,
-    ).toBeGreaterThan(0);
+    expect(relayed).toEqual([
+      {},
+      { workspaceRoot: '/ws/a', reason: 'watcher' },
+    ]);
+    expect(tasks.changes()?.change).toEqual({
+      workspaceRoot: '/ws/a',
+      reason: 'watcher',
+    });
   });
 
   it('routes harness:open-workflow to HarnessWorkflowMessageHandler', async () => {
@@ -333,7 +326,8 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
   });
 
   it('keeps every registration live across a second dispatch of each type', async () => {
-    rpcCall.mockClear();
+    const relayed: unknown[] = [];
+    tasks.listenRaw((payload) => relayed.push(payload));
 
     dispatch(WIRE.tasksChanged, {});
     dispatch(WIRE.harnessOpenWorkflow, { mode: 'configure-harness' });
@@ -345,9 +339,7 @@ describe('Unit 5 push-message delivery with tasks and onboarding never opened (R
 
     await flushHarnessHandler(harness);
 
-    expect(
-      rpcCall.mock.calls.filter((c) => c[0] === 'tasks:board').length,
-    ).toBeGreaterThan(0);
+    expect(relayed).toEqual([{}]);
     expect(workflowRequests.requestAndNavigate).toHaveBeenCalledWith({
       mode: 'configure-harness',
     });

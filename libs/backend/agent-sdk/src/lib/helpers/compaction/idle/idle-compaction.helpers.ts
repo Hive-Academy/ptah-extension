@@ -70,7 +70,9 @@ export function resolveIdleSignal(
 }
 
 export class IdleSendVetoedError extends Error {
-  constructor(readonly reason: 'manual-reserved' | 'compaction-state') {
+  constructor(
+    readonly reason: 'manual-reserved' | 'compaction-state' | 'not-idle',
+  ) {
     super(reason);
     this.name = 'IdleSendVetoedError';
   }

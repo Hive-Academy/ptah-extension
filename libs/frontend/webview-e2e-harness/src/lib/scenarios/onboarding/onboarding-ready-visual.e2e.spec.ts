@@ -27,6 +27,10 @@ import { gotoSettingsTab } from '../settings/settings.fixtures';
 import {
   FLAG_DONE,
   FLAG_SKIPPED,
+  CODEX_BUNDLED_PATH,
+  CODEX_SIGN_IN_URL,
+  CODEX_USER_CODE,
+  pushCodexSignIn,
   GLASS_THEMES,
   ONBOARDING_CAPTURE_THEMES,
   STAGE_ONE_READINESS_IDS,
@@ -36,6 +40,8 @@ import {
   type OnboardingFlagSeed,
   type OnboardingTheme,
   type ReadinessFixtureId,
+  type CodexFixtureId,
+  type CodexSignInScene,
 } from './onboarding-ready.fixtures';
 import {
   captureOnboarding,
@@ -49,11 +55,13 @@ const WIDE = { width: 1280, height: 800 } as const;
 // that area at min-w-[400px] between two 32px rail tabs, so the window is 464px wide.
 const NARROW = { width: 464, height: 800 } as const;
 
-const STAGE_ONE = '[data-testid="ready-claude-step"]';
+const STAGE_ONE = '[data-testid="ready-connection-step"]';
 const STAGE_TWO = '[data-testid="ready-settings-step"]';
 const HOME = '[data-testid="onboarding-home"]';
-const BANNER = '[data-testid="claude-readiness-banner"]';
-const BANNER_ACTION = '[data-testid="claude-readiness-banner-action"]';
+const BANNER = '[data-testid="connection-readiness-banner"]';
+const BANNER_ACTION = '[data-testid="connection-readiness-banner-action"]';
+const HOME_BANNER = '[data-testid="onboarding-home"] [data-testid="connection-readiness-banner"]';
+const HOME_BANNER_ACTION = '[data-testid="onboarding-home"] [data-testid="connection-readiness-banner-action"]';
 const DRAWER = '[data-testid="connection-detail-drawer"]';
 
 type StageOneId = (typeof STAGE_ONE_READINESS_IDS)[number];
@@ -69,11 +77,11 @@ const STAGE_ONE_TEXT: Record<
   'signed-out': { chip: 'Not signed in' },
   'error-timeout': {
     chip: 'Could not check',
-    line: 'Claude Code did not answer in time (30 s). Your sign-in could not be read.',
+    line: 'Claude Code did not answer the sign-in check in time. Your sign-in could not be read.',
   },
   'error-unreadable': {
     chip: 'Could not check',
-    line: 'Ptah could not read the Claude Code sign-in.',
+    line: 'Ptah could not read your Claude Code sign-in.',
   },
   'error-local': {
     chip: 'Could not check',
@@ -123,6 +131,8 @@ async function boot(
     readonly viewport?: { readonly width: number; readonly height: number };
     readonly scene?: GlassScene;
     readonly accent?: GlassAccent;
+    readonly codex?: CodexFixtureId;
+    readonly chosen?: 'claude-cli' | 'openai-codex';
   } = {},
 ): ReturnType<typeof bootOnboardingReady> {
   await page.setViewportSize(extra.viewport ?? WIDE);
@@ -132,6 +142,8 @@ async function boot(
     flag: extra.flag,
     scene: extra.scene,
     accent: extra.accent,
+    codex: extra.codex,
+    chosen: extra.chosen,
   });
 }
 
@@ -150,7 +162,7 @@ async function expectStageOne(page: Page, id: StageOneId): Promise<void> {
   await expect(page.locator(STAGE_ONE)).toBeVisible();
   const panel = page.locator('[data-testid="ready-claude-panel"]');
   await expect(panel).toHaveAttribute('data-state', DERIVED_STATE[id]);
-  await expect(page.locator('[data-testid="ready-claude-chip"]')).toHaveText(
+  await expect(panel.locator('header > span')).toContainText(
     STAGE_ONE_TEXT[id].chip,
   );
   const line = STAGE_ONE_TEXT[id].line;
@@ -166,8 +178,8 @@ async function enterStageTwo(
   await page
     .locator(
       readiness === 'ready'
-        ? '[data-testid="ready-continue"]'
-        : '[data-testid="ready-continue-anyway"]',
+        ? 'button:has-text("Continue")'
+        : 'button:has-text("Continue anyway")',
     )
     .click();
   await expect(page.locator(STAGE_TWO)).toBeVisible();
@@ -223,10 +235,73 @@ const HOME_BANNERS: readonly {
 
 for (const theme of ONBOARDING_CAPTURE_THEMES) {
   test.describe(`Get ready captures (${theme})`, () => {
+    test('Codex chosen and ready', async ({ page, fixtureServer }) => {
+      await boot(page, fixtureServer.url, theme, 'missing', { chosen: 'openai-codex', codex: 'ready' });
+      const panel = page.getByTestId('ready-codex-panel');
+      await expect(panel).toHaveAttribute('data-state', 'ready');
+      await expect(panel).toContainText('Main connection');
+      await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
+      await shoot(page, { view: 'stage1-codex-chosen-ready', theme });
+    });
+
+    test('Codex bundled and signed out', async ({ page, fixtureServer }) => {
+      await boot(page, fixtureServer.url, theme, 'ready', { chosen: 'openai-codex', codex: 'bundled' });
+      const panel = page.getByTestId('ready-codex-panel');
+      await expect(panel).toHaveAttribute('data-state', 'signed-out');
+      await expect(panel).toContainText(CODEX_BUNDLED_PATH);
+      await expect(panel).toContainText('bundled copy');
+      await shoot(page, { view: 'stage1-codex-bundled', theme });
+    });
+
+    test('Codex chosen and signed out', async ({ page, fixtureServer }) => {
+      await boot(page, fixtureServer.url, theme, 'ready', { chosen: 'openai-codex', codex: 'signed-out' });
+      const panel = page.getByTestId('ready-codex-panel');
+      await expect(panel).toHaveAttribute('data-state', 'signed-out');
+      await expect(panel).toContainText('Sign in with Codex');
+      await shoot(page, { view: 'stage1-codex-signed-out', theme });
+    });
+
+    test('Codex slow follow-up', async ({ page, fixtureServer }) => {
+      await boot(page, fixtureServer.url, theme, 'ready', { chosen: 'openai-codex', codex: 'slow' });
+      await expect(page.getByTestId('ready-codex-panel')).toHaveAttribute('data-state', 'slow', { timeout: 12_000 });
+      await shoot(page, { view: 'stage1-codex-slow', theme });
+    });
+
+    const signInScenes: readonly { scene: CodexSignInScene; text: string }[] = [
+      { scene: 'waiting-code', text: CODEX_USER_CODE },
+      { scene: 'waiting-url', text: 'Open sign-in page' },
+      { scene: 'failed', text: 'Codex sign-in did not finish.' },
+      { scene: 'timeout', text: 'Codex sign-in timed out.' },
+      { scene: 'cancelled', text: 'Sign-in cancelled.' },
+      { scene: 'succeeded', text: 'Signed in to Codex.' },
+    ];
+    for (const { scene, text } of signInScenes) {
+      test(`Codex sign-in — ${scene}`, async ({ page, fixtureServer }) => {
+        const bridge = await boot(page, fixtureServer.url, theme, 'ready', {
+          chosen: 'openai-codex', codex: 'signed-out',
+        });
+        await expect(page.getByTestId('ready-codex-panel')).toHaveAttribute('data-state', 'signed-out');
+        await pushCodexSignIn(bridge, scene);
+        const block = page.getByTestId('ready-codex-panel').getByTestId('codex-sign-in-block');
+        await expect(block).toContainText(text);
+        if (scene === 'waiting-code' || scene === 'waiting-url') {
+          await expect(block.getByRole('link', { name: 'Open sign-in page' })).toHaveAttribute('href', CODEX_SIGN_IN_URL);
+          if (scene === 'waiting-url') await expect(block.getByRole('button', { name: 'Copy code' })).toHaveCount(0);
+        }
+        if (scene === 'failed' || scene === 'timeout') await expect(block).toHaveAttribute('role', 'alert');
+        await shoot(page, { view: `stage1-codex-signin-${scene}`, theme });
+      });
+    }
+
     // Stage 1 in each of the seven stage-1 readiness ids: 7 × 4 = 28.
     for (const id of STAGE_ONE_READINESS_IDS) {
       test(`stage 1 — ${id}`, async ({ page, fixtureServer }) => {
+        if (id === 'error-timeout') await page.clock.install();
         await boot(page, fixtureServer.url, theme, id);
+        if (id === 'error-timeout') {
+          await expect(page.getByTestId('ready-claude-panel')).toHaveAttribute('data-state', 'slow');
+          await page.clock.runFor(11_000);
+        }
         await expectStageOne(page, id);
         await expectStripWord(page, 1, STRIP_WORD[DERIVED_STATE[id]] ?? '');
         await shoot(page, { view: `stage1-${id}`, theme });
@@ -305,8 +380,14 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       page,
       fixtureServer,
     }) => {
+      await page.clock.install();
       await boot(page, fixtureServer.url, theme, 'error-timeout');
+      await expect(page.getByTestId('ready-claude-panel')).toHaveAttribute('data-state', 'slow');
+      await page.clock.runFor(11_000);
       await enterStageTwo(page, 'error-timeout');
+      // Stage 2 re-reads readiness on entry (no cached mount read), so the
+      // timeout runs its two 5 s follow-ups again before the error banner.
+      await page.clock.runFor(11_000);
       await expectSettingsBanner(page, 'error');
       await shoot(page, { view: 'stage2-providers-error', theme });
     });
@@ -317,15 +398,21 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         page,
         fixtureServer,
       }) => {
+        if (row.readiness === 'error-timeout') await page.clock.install();
         await boot(page, fixtureServer.url, theme, row.readiness, {
           flag: FLAG_SKIPPED,
         });
+        if (row.readiness === 'error-timeout') {
+          await expectStripWord(page, 1, 'Taking longer');
+          await expect(page.locator(HOME_BANNER)).toHaveCount(0);
+          await page.clock.runFor(11_000);
+        }
         await expect(page.locator(HOME)).toBeVisible();
-        await expect(page.locator(BANNER)).toHaveAttribute(
+        await expect(page.locator(HOME_BANNER)).toHaveAttribute(
           'data-state',
           DERIVED_STATE[row.readiness],
         );
-        await expect(page.locator(BANNER_ACTION)).toHaveText(row.action);
+        await expect(page.locator(HOME_BANNER_ACTION)).toHaveText(row.action);
         await expectStripWord(page, 1, row.word);
         await expectStripWord(page, 2, 'Skipped');
         await shoot(page, { view: `home-${row.readiness}`, theme });
@@ -340,7 +427,7 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       await expect(page.locator(HOME)).toBeVisible();
       await expectStripWord(page, 1, 'Ready');
       await expectStripWord(page, 2, 'Done');
-      await expect(page.locator(BANNER)).toHaveCount(0);
+      await expect(page.locator(HOME_BANNER)).toHaveCount(0);
       await shoot(page, { view: 'home-ready', theme });
     });
 
@@ -350,7 +437,7 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       });
       await expect(page.locator(HOME)).toBeVisible();
       await expectStripWord(page, 1, 'Checking');
-      await expect(page.locator(BANNER)).toHaveCount(0);
+      await expect(page.locator(HOME_BANNER)).toHaveCount(0);
       await shoot(page, { view: 'home-checking', theme });
     });
 
@@ -467,7 +554,7 @@ const SWEEP_VIEWS: readonly {
     flag: FLAG_SKIPPED,
     reach: async (page) => {
       await expect(page.locator(HOME)).toBeVisible();
-      await expect(page.locator(BANNER_ACTION)).toHaveText(
+      await expect(page.locator(HOME_BANNER_ACTION)).toHaveText(
         'Install Claude Code',
       );
     },

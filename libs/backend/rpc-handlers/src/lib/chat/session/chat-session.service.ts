@@ -2049,11 +2049,26 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        driveAttempt = await this.driverLock.beginDrive(
-          sessionId,
-          params.tabId,
-        );
-        if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
+        try {
+          driveAttempt = await this.driverLock.beginDrive(
+            sessionId,
+            params.tabId,
+          );
+        } catch (error) {
+          // A lock refusal is an activation failure, not a load failure: the
+          // transcript still reaches the tab, read-only, with the reason.
+          if (!(error instanceof RpcUserError)) throw error;
+          activationError = error.message;
+          activationErrorCode = error.errorCode;
+          this.logger.warn('[RPC] chat:resume activate:true — drive refused', {
+            sessionId,
+            tabId: params.tabId,
+            activationErrorCode,
+          });
+        }
+        if (!driveAttempt) {
+          activated = false;
+        } else if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,

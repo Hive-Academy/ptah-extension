@@ -475,8 +475,10 @@ type _MachinesRegistryNotInNames = Exclude<
   keyof MachinesRpcMethodRegistry,
   MachinesRpcMethodName
 >;
+/** Fails to compile, in this file, unless its argument is `never`. */
+type _RequireNever<T extends never> = T;
 export type MachinesRpcRegistryInSync = [
-  _MachinesNamesNotInRegistry | _MachinesRegistryNotInNames,
+  _RequireNever<_MachinesNamesNotInRegistry | _MachinesRegistryNotInNames>,
 ] extends [never]
   ? true
   : never;

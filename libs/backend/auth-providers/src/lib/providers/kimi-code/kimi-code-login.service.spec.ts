@@ -12,12 +12,8 @@ import type {
 import type { KimiCodeLoginState } from '@ptah-extension/shared';
 import { createMockLogger, type MockLogger } from '@ptah-extension/shared/testing';
 import { KimiCodeHomeResolver } from './kimi-code-home-resolver';
-import {
-  KimiCodeLoginService,
-  extractHttpsUrl,
-  extractUserCode,
-  stripAnsi,
-} from './kimi-code-login.service';
+import { extractHttpsUrl, stripAnsi } from '../cli-login-output';
+import { KimiCodeLoginService, extractUserCode } from './kimi-code-login.service';
 import type { KimiCodeAuthStatus } from './kimi-code-provider.types';
 
 function asLogger(mock: MockLogger): Logger {

@@ -27,6 +27,19 @@ const OpaqueIdSchema = z.string().refine(isProviderAccountOpaqueId);
 const LabelSchema = z.string().refine(isSafeProviderAccountLabel);
 const ProviderSchema = z.enum(PROVIDER_ACCOUNT_PROVIDERS);
 const ScopeSchema = z.enum(PROVIDER_ACCOUNT_SCOPES);
+const ReadinessTriggerSchema = z.enum(['mount', 'follow-up', 'recheck']);
+const OptionalParamsSchema = z.preprocess(value => value === undefined ? {} : value,
+  z.object({}).passthrough());
+export const CodexReadinessParamsSchema = OptionalParamsSchema.pipe(z.object({
+  refresh: z.boolean().optional(),
+  // degradation-audit: optional-capability - this is zod's schema .catch, not a
+  // promise; an unknown trigger value is dropped and the read runs untagged.
+  trigger: ReadinessTriggerSchema.optional().catch(undefined),
+}));
+export const CodexLoginParamsSchema = OptionalParamsSchema.pipe(z.object({
+  mode: z.enum(['browser', 'device']).optional(),
+  restart: z.boolean().optional(),
+}));
 const WorkspaceRootSchema = z
   .string()
   .min(1)
@@ -125,7 +138,11 @@ export const ProviderSetAccountDefaultSchema = z
 
 /** Host-wide read: no workspace root, profile or environment is accepted. */
 export const ProviderGetAmbientClaudeStatusSchema = z
-  .object({ provider: ProviderSchema, refresh: z.boolean().optional() })
+  .object({
+    provider: ProviderSchema,
+    refresh: z.boolean().optional(),
+    trigger: ReadinessTriggerSchema.optional(),
+  })
   .strict();
 
 /**

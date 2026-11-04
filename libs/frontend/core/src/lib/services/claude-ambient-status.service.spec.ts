@@ -62,6 +62,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'inert',
       result: null,
       localFailure: false,
+      transportTimeout: false,
     });
   });
 
@@ -85,6 +86,29 @@ describe('ClaudeAmbientStatusService', () => {
     },
   );
 
+  it('forwards an explicit trigger', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValue(ok(CONNECTED));
+    await service.read(true, 'follow-up');
+    expect(rpc.call).toHaveBeenCalledWith(
+      'provider:getAmbientClaudeStatus',
+      { provider: 'claude', refresh: true, trigger: 'follow-up' },
+      { timeout: 30_000 },
+    );
+  });
+
+  it('marks only RPC timeout errors as transport timeouts', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValueOnce(rpcError('RPC timeout: provider:getAmbientClaudeStatus'));
+    await service.read(true);
+    expect(service.view()).toEqual({
+      status: 'ready', result: null, localFailure: true, transportTimeout: true,
+    });
+    rpc.call.mockResolvedValueOnce(rpcError('Request refused'));
+    await service.read(true);
+    expect(service.view().transportTimeout).toBe(false);
+  });
+
   it('is checking while the latest request is in flight, then ready with the host value', async () => {
     const { rpc, service } = setup();
     const reply = deferred<RpcResult<never>>();
@@ -97,6 +121,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'ready',
       result: CONNECTED,
       localFailure: false,
+      transportTimeout: false,
     });
   });
 
@@ -132,6 +157,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'ready',
       result: SIGNED_OUT,
       localFailure: false,
+      transportTimeout: false,
     });
   });
 
@@ -159,7 +185,7 @@ describe('ClaudeAmbientStatusService', () => {
     rpc.call.mockResolvedValueOnce(rpcError('Request timed out'));
     await service.read(true);
     const view: ClaudeAmbientStatusView = service.view();
-    expect(view).toEqual({ status: 'ready', result: null, localFailure: true });
+    expect(view).toEqual({ status: 'ready', result: null, localFailure: true, transportTimeout: false });
     expect(JSON.stringify(view)).not.toContain('checkedAt');
     expect(JSON.stringify(view)).not.toContain('connected');
   });
@@ -172,6 +198,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'ready',
       result: null,
       localFailure: true,
+      transportTimeout: false,
     });
   });
 
@@ -201,6 +228,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'ready',
       result: null,
       localFailure: true,
+      transportTimeout: false,
     });
   });
 
@@ -233,6 +261,7 @@ describe('ClaudeAmbientStatusService', () => {
       status: 'ready',
       result: CONNECTED,
       localFailure: false,
+      transportTimeout: false,
     });
   });
 

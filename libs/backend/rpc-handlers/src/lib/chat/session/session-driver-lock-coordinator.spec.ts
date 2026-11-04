@@ -1,7 +1,10 @@
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import 'reflect-metadata';
 import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator';
-import type { ISessionDriverLock } from '@ptah-extension/platform-core';
+import {
+  PlatformType,
+  type ISessionDriverLock,
+} from '@ptah-extension/platform-core';
 import type { SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 
 describe('SessionDriverLockCoordinator', () => {
@@ -21,6 +24,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     const context = { consumer: 'chat', kind: 'start' } as const;
     const first = await coordinator.admitNative('session', context);
@@ -32,6 +36,34 @@ describe('SessionDriverLockCoordinator', () => {
     second.release();
     await coordinator.abandonDrive('session', 'unused');
     expect(lock.release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [PlatformType.CLI, 'cli'],
+    [PlatformType.Electron, 'desktop'],
+  ])('records a %s host as a %s holder', async (type, kind) => {
+    const lock = {
+      setLiveRecordCheck: jest.fn(),
+      setReleaseGate: jest.fn(),
+      acquire: jest.fn().mockResolvedValue({ ok: true, nonce: 'n' }),
+      release: jest.fn().mockResolvedValue('released'),
+    } as unknown as ISessionDriverLock;
+    const lifecycle = {
+      onRecordRemoved: jest.fn(),
+      onRealSessionIdBound: jest.fn(),
+      onRealSessionIdRebound: jest.fn(),
+    } as unknown as SessionLifecycleManager;
+    const coordinator = new SessionDriverLockCoordinator(
+      lock,
+      lifecycle,
+      createMockLogger(),
+      { type },
+    );
+    await coordinator.beginDrive('session', 'tab');
+    expect(lock.acquire).toHaveBeenCalledWith(
+      'session',
+      expect.objectContaining({ kind }),
+    );
   });
 
   it('refuses another holder by name and retains no provisional owner', async () => {
@@ -52,6 +84,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     await expect(
       coordinator.beginDrive('session', 'tab'),
@@ -80,6 +113,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     const bound = (lifecycle.onRealSessionIdBound as jest.Mock).mock
       .calls[0][0];
@@ -118,6 +152,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     coordinator.beginRecordAdmission('tab');
     const bound = (lifecycle.onRealSessionIdBound as jest.Mock).mock
@@ -163,6 +198,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     const bound = (lifecycle.onRealSessionIdBound as jest.Mock).mock
       .calls[0][0];
@@ -192,6 +228,7 @@ describe('SessionDriverLockCoordinator', () => {
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     const attempt = await coordinator.beginDrive('session', 'tab');
     await coordinator.abandonDrive('session', attempt);
@@ -233,6 +270,7 @@ describe('SessionDriverLockCoordinator', () => {
         lock,
         lifecycle,
         createMockLogger(),
+        { type: PlatformType.Electron },
       );
       const bound = (lifecycle.onRealSessionIdBound as jest.Mock).mock
         .calls[0][0] as (value: Rec) => void;

@@ -84,6 +84,8 @@ export class ControlEndpoint {
         server.once('error', reject);
         server.listen(controlEndpointName(process.pid), resolve);
       });
+      // Operator control must not keep a finished process alive.
+      server.unref();
       return endpoint;
     } catch (error) {
       process.removeListener('exit', endpoint.onExit);

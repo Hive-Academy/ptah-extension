@@ -33,7 +33,7 @@ import type { SdkAdapterEvents } from '../../sdk-adapter-events.service';
 import type { SessionTurnStateRegistry } from '../../session-turn-state.registry';
 import type { SessionStatsOwnerService } from '../../../session-stats/session-stats-owner.service';
 import type { CompactionCoordinator } from '../compaction-coordinator';
-import { evaluateFireGate } from './idle-fire-gate';
+import { evaluateFireGate, isIdleFirePhase } from './idle-fire-gate';
 import {
   IdleSendVetoedError,
   initialState,
@@ -428,6 +428,11 @@ export class IdleCompactionService implements IdleCompactionSignals {
       ) {
         throw new IdleSendVetoedError('compaction-state');
       }
+      // The message build before this hook is async. A background subagent's
+      // result can start a parent turn in that window; do not queue into it.
+      if (!isIdleFirePhase(this.turns.get(sessionId)?.phase)) {
+        throw new IdleSendVetoedError('not-idle');
+      }
       const claimed = this.coordinator.claimIdle(
         state().sessionId,
         effect.claimId,
@@ -452,7 +457,10 @@ export class IdleCompactionService implements IdleCompactionSignals {
       ),
       catchError((error) => {
         const feedbackId = state().sessionId;
-        if (error instanceof SessionAdmissionRefusedError) {
+        if (
+          error instanceof SessionAdmissionRefusedError ||
+          (error instanceof IdleSendVetoedError && error.reason === 'not-idle')
+        ) {
           this.enqueue({
             type: 'fire-skipped',
             sessionId: feedbackId,

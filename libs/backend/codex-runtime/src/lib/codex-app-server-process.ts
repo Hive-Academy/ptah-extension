@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { CodexStderrTail, redactCodexDiagnostics } from './codex-stderr-tail';
 import { normalizeCodexHomeKey } from './codex-home-path';
-import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import type { ProcessSpawnRequest, SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
   CodexRuntimeLogger,
   CodexExecutableSource,
@@ -166,6 +166,7 @@ export class CodexAppServerProcess {
     private readonly profile: CodexExecutionProfile,
     private readonly handlers: CodexAppServerHandlers,
     private readonly logger?: CodexRuntimeLogger,
+    private readonly wrapSpawnRequest?: (request: ProcessSpawnRequest) => ProcessSpawnRequest,
   ) {}
 
   start(signal?: AbortSignal): Promise<void> {
@@ -187,7 +188,7 @@ export class CodexAppServerProcess {
       accessSync(canonical, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
       const spawnStartedAt = Date.now();
       this.spawnStartedAt = spawnStartedAt;
-      this.child = this.spawner.spawnProcess({
+      const spawnRequest: ProcessSpawnRequest = {
         command: this.executable.path,
         args: ['app-server'],
         cwd: this.profile.cwd,
@@ -211,7 +212,8 @@ export class CodexAppServerProcess {
           ),
           CODEX_HOME: this.profile.normalizedHome,
         },
-      });
+      };
+      this.child = this.spawner.spawnProcess(this.wrapSpawnRequest?.(spawnRequest) ?? spawnRequest);
       this.child.on('close', this.onClose);
       this.child.on('exit', this.onExit);
       // This capture-free listener outlives cleanup: late child errors must not

@@ -25,6 +25,8 @@ import {
 } from './plugin-activation';
 import type { BootCoordinator } from './boot-coordinator';
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
+import { startReviewWorker } from './review-worker.activation';
+import { REVIEW_CORE_TOKENS } from '@ptah-extension/review-core';
 
 /**
  * The heavy half of Electron activation, extracted from `wire-runtime.ts`
@@ -496,6 +498,14 @@ export function createHeavyServicesBooter(
     }
     if (signal.aborted) return;
     coordinator.setPhase('index', 'Starting background services');
+    if (container.isRegistered(REVIEW_CORE_TOKENS.ORCHESTRATOR)) {
+      refs.reviewWorker = await startReviewWorker(
+        container,
+        signal,
+        container.resolve<Logger>(TOKENS.LOGGER),
+      );
+    }
+    if (signal.aborted) return;
     await startThothCron(container, thoth, {
       logPrefix: '[Ptah Electron]',
       // The cron start is what arms the 60 s integrity boot dispatch, and that

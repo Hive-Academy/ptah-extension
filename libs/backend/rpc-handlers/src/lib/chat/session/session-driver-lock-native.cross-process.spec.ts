@@ -6,7 +6,10 @@ jest.mock('node:os', () => ({
   ...jest.requireActual('node:os'),
   homedir: () => process.env['HOME'],
 }));
-import { KernelSessionDriverLock } from '@ptah-extension/platform-core';
+import {
+  KernelSessionDriverLock,
+  PlatformType,
+} from '@ptah-extension/platform-core';
 import { spawnDriverLockHolder } from '@ptah-extension/platform-core/testing';
 import type { SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator';
@@ -28,6 +31,7 @@ import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator'
       lock,
       lifecycle,
       createMockLogger(),
+      { type: PlatformType.Electron },
     );
     const sessionId = `native-${process.pid}-${Date.now()}`;
     try {

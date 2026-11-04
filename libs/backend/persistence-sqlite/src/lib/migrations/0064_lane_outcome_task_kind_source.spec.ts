@@ -25,7 +25,7 @@ describe('migration 0064_lane_outcome_task_kind_source', () => {
 
   afterEach(() => db.close());
 
-  it('registers 0064 immediately after 0063 as the latest migration', () => {
+  it('registers 0064 immediately after 0063 and keeps the latest version current', () => {
     const previousIndex = MIGRATIONS.findIndex((entry) => entry.version === 63);
     expect(previousIndex).toBeGreaterThanOrEqual(0);
     expect(MIGRATIONS[previousIndex + 1]).toEqual({
@@ -33,7 +33,7 @@ describe('migration 0064_lane_outcome_task_kind_source', () => {
       name: '0064_lane_outcome_task_kind_source',
       sql,
     });
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(64);
+    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(65);
   });
 
   it('keeps an existing outcome row without reconstructed provenance', () => {

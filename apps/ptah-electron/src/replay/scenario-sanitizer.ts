@@ -148,6 +148,7 @@ export const DEFAULT_ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set<string>(
     'config:getScopes',
     'auth:getHealth',
     'auth:getAuthStatus',
+    'auth:getCodexReadiness',
     'auth:copilotStatus',
     'auth:getEffectiveRoute',
     'auth:checkConnection',
@@ -292,6 +293,8 @@ export const DEFAULT_ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set<string>(
     'tasks:list',
     'tasks:get',
     'tasks:getArtifact',
+    'tasks:readFolderMarkdown',
+    'tasks:listFolderEntries',
     'tasks:board',
     'tasks:doctorPlan',
     'tasks:getViews',
@@ -1651,7 +1654,7 @@ export function sanitizeScenario(
   // Sanitize RPC map
   const sanitizedRpc: Record<string, unknown> = {};
   for (const [method, data] of Object.entries(rawRpc)) {
-    if (!allowedRpc.has(method)) {
+    if (method === 'auth:codexLogin' || method === 'auth:codexLoginCancel' || !allowedRpc.has(method)) {
       if (strict) {
         throw new Error(
           `Disallowed or unknown RPC method in scenario: ${method}`,
@@ -1712,7 +1715,7 @@ export function sanitizeScenario(
     Array<{ readonly match: Record<string, unknown>; readonly data: unknown }>
   > = {};
   for (const [method, casesValue] of Object.entries(rawRpcCases)) {
-    if (!allowedRpc.has(method)) {
+    if (method === 'auth:codexLogin' || method === 'auth:codexLoginCancel' || !allowedRpc.has(method)) {
       if (strict) {
         throw new Error(
           `Disallowed or unknown RPC method in rpcCases: ${method}`,
@@ -1765,7 +1768,7 @@ export function sanitizeScenario(
     { readonly error: string; readonly errorCode?: string }
   > = {};
   for (const [method, errValue] of Object.entries(rawRpcErrors)) {
-    if (!allowedRpc.has(method)) {
+    if (method === 'auth:codexLogin' || method === 'auth:codexLoginCancel' || !allowedRpc.has(method)) {
       if (strict) {
         throw new Error(
           `Disallowed or unknown RPC method in rpcErrors: ${method}`,
@@ -1821,6 +1824,7 @@ export function sanitizeScenario(
     if (
       type === 'rpc:response' ||
       type === 'rpc:call' ||
+      type === 'auth:codexLoginStatus' ||
       !allowedPush.has(type)
     ) {
       if (strict) {

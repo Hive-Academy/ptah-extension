@@ -22,7 +22,7 @@ test('first run reaches Ready, can be skipped, and the menu reopens Home', async
   await page.evaluate(() => localStorage.removeItem('ptah.onboarding.v1'));
   await ui.prepare();
 
-  await expect(page.getByTestId('ready-claude-step')).toBeVisible();
+  await expect(page.getByTestId('ready-connection-step')).toBeVisible();
   await page.getByTestId('ready-continue-anyway').click();
 
   await expect(page.getByTestId('ready-settings-step')).toBeVisible();
@@ -32,7 +32,7 @@ test('first run reaches Ready, can be skipped, and the menu reopens Home', async
   await page.reload();
   await page.waitForLoadState('domcontentloaded');
   await expect(page.locator('ptah-orchestra-canvas')).toBeVisible();
-  await expect(page.getByTestId('ready-claude-step')).toHaveCount(0);
+  await expect(page.getByTestId('ready-connection-step')).toHaveCount(0);
 
   // Home is deliberately not persisted; reopen it through the shell menu.
   await page.locator('[data-test="config-menu-item-setup-hub"]').click();

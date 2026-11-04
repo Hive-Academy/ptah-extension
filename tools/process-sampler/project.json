@@ -12,7 +12,7 @@
         "default",
         "{workspaceRoot}/eslint.config.mjs",
         {
-          "externalDependencies": ["eslint"]
+          "externalDependencies": ["eslint", "@nx/eslint-plugin"]
         }
       ],
       "options": {

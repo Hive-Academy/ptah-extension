@@ -118,6 +118,8 @@ export interface BootRefs extends ThothRuntimeRefs {
   chatBridge: GatewayChatBridge | null;
   /** GitHub-releases update checker. Created after the window. */
   updateManager: UpdateManager | null;
+  /** Detached review queue worker and its drain interval. */
+  reviewWorker: { dispose: () => void; awaitStopped: () => Promise<void> } | null;
   /**
    * Ptah CLI registry, resolved eagerly while the container is healthy so
    * `will-quit` disposes a captured instance instead of forcing a first-time
@@ -206,6 +208,7 @@ export function createEmptyBootRefs(): BootRefs {
     messagingGateway: null,
     chatBridge: null,
     updateManager: null,
+    reviewWorker: null,
     cliRegistry: null,
     agentProcessManager: null,
     laneOutcomesDisposer: null,

@@ -27,6 +27,7 @@ export function createElectronRpcHostProfile(
       memory: true,
       skillSynthesis: true,
       cron: true,
+      review: true,
       gateway: true,
       voice: true,
       persistence: true,

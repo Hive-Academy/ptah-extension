@@ -77,6 +77,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'capabilities:', // Capability toggles for MCP servers, skills and plugins (getState, getEffective, setEnabled)
   'outputStyle:', // Claude Code output styles (list, get, activate, save, delete, diagnose)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
+  'review:', // Local PR review runs and settings
   'gateway:', // MCP gateway status, bindings, and messages
   'voice:', // Voice input transcription (chat input mic → Whisper)
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)

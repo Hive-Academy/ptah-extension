@@ -84,6 +84,19 @@ export function runFileSystemContract(
       expect(stat.size).toBe(4);
     });
 
+    it('lstat and realpath identify a written file', async () => {
+      await provider.writeFile('/fs/identity.txt', 'abc');
+      expect((await provider.lstat('/fs/identity.txt')).type).toBe(FileType.File);
+      expect(await provider.realpath('/fs/identity.txt')).toContain('identity.txt');
+    });
+
+    it('bounded read returns bytes and signals truncation', async () => {
+      await provider.writeFile('/fs/bounded.txt', 'abc');
+      const read = await provider.readFileBoundedNoFollow('/fs/bounded.txt', 2);
+      expect(Array.from(read.bytes)).toEqual([97, 98]);
+      expect(read.truncated).toBe(true);
+    });
+
     it('readDirectory surfaces direct children with correct FileType', async () => {
       await provider.writeFile('/fs/dir/child.txt', 'a');
       await provider.createDirectory('/fs/dir/sub');

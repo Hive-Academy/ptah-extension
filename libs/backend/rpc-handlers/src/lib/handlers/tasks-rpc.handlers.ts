@@ -73,6 +73,10 @@ import {
   type TasksGetResult,
   type TasksGetArtifactParams,
   type TasksGetArtifactResult,
+  type TasksReadFolderMarkdownParams,
+  type TasksReadFolderMarkdownResult,
+  type TasksListFolderEntriesParams,
+  type TasksListFolderEntriesResult,
   type TasksCreateParams,
   type TasksCreateResult,
   type TasksSweepParams,
@@ -107,6 +111,8 @@ import {
   TasksListParamsSchema,
   TasksGetParamsSchema,
   TasksGetArtifactParamsSchema,
+  TasksReadFolderMarkdownParamsSchema,
+  TasksListFolderEntriesParamsSchema,
   TasksCreateParamsSchema,
   TasksSweepParamsSchema,
   TasksUpdateStatusParamsSchema,
@@ -262,6 +268,8 @@ export class TasksRpcHandlers {
     'tasks:list',
     'tasks:get',
     'tasks:getArtifact',
+    'tasks:readFolderMarkdown',
+    'tasks:listFolderEntries',
     'tasks:create',
     'tasks:sweepFinished',
     'tasks:updateStatus',
@@ -307,6 +315,8 @@ export class TasksRpcHandlers {
     this.registerList();
     this.registerGet();
     this.registerGetArtifact();
+    this.registerReadFolderMarkdown();
+    this.registerListFolderEntries();
     this.registerCreate();
     this.registerSweepFinished();
     this.registerUpdateStatus();
@@ -689,6 +699,26 @@ export class TasksRpcHandlers {
         );
       }
     });
+  }
+
+  private registerReadFolderMarkdown(): void {
+    this.rpcHandler.registerMethod<TasksReadFolderMarkdownParams, TasksReadFolderMarkdownResult>(
+      'tasks:readFolderMarkdown', async (params) => {
+        const parsed = this.parse(TasksReadFolderMarkdownParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        return this.index.readFolderMarkdown(root, parsed.taskId, parsed.file);
+      },
+    );
+  }
+
+  private registerListFolderEntries(): void {
+    this.rpcHandler.registerMethod<TasksListFolderEntriesParams, TasksListFolderEntriesResult>(
+      'tasks:listFolderEntries', async (params) => {
+        const parsed = this.parse(TasksListFolderEntriesParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        return this.index.listFolderEntries(root, parsed.taskId, parsed.directory);
+      },
+    );
   }
 
   /**
@@ -1124,11 +1154,11 @@ export class TasksRpcHandlers {
     written: string[],
   ): Promise<TasksBulkResultItem> {
     try {
-      const detail = await this.index.getDetail(root, taskId);
+      // degradation-audit: optional-capability - a failed detail probe leaves classification to the writer.
+      const detail = await this.index.getDetail(root, taskId).catch(() => null);
 
-      // `getDetail` collapses THREE situations into `null`: no carrier, a
-      // carrier that no longer parses, and a read that failed outright. The
-      // writer distinguishes the first two (`TASK_NOT_FOUND` vs
+      // A missing or unparseable carrier yields `null`, and a failed detail
+      // probe is treated the same way. The writer distinguishes the first two (`TASK_NOT_FOUND` vs
       // `TASK_EXCLUDED`) and refuses without writing in every one of them, so
       // the accurate answer is to let it say which — guessing `TASK_NOT_FOUND`
       // here would tell a user their broken task does not exist.
@@ -1282,8 +1312,13 @@ export class TasksRpcHandlers {
     root: string,
     taskId: string,
   ): Promise<{ currentStatus?: TaskStatus }> {
-    const detail = await this.index.getDetail(root, taskId);
-    return detail ? { currentStatus: detail.status } : {};
+    try {
+      const detail = await this.index.getDetail(root, taskId);
+      return detail ? { currentStatus: detail.status } : {};
+    } catch {
+      // degradation-audit: optional-capability - conflict status enrichment may fail without changing the conflict result.
+      return {};
+    }
   }
 
   private registerGenerateRegistry(): void {

@@ -55,6 +55,7 @@ import type {
   SentryService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   ChatResumeParams,
@@ -285,6 +286,45 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       error: expect.stringContaining('worker A'),
     });
     expect(resumeSession).not.toHaveBeenCalled();
+  });
+  it('keeps the loaded transcript and reports a lock refusal as an activation error', async () => {
+    const resumeSession = jest.fn();
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      resumeSession,
+      readSessionHistory: jest.fn().mockResolvedValue({
+        events: [{ id: 'ev1', eventType: 'message_start' } as never],
+        stats: null,
+      }),
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(
+            new RpcUserError(
+              'Session is being driven by worker A. Stop it there and retry.',
+              'SESSION_DRIVEN_ELSEWHERE',
+            ),
+          ),
+        abandonDrive,
+        settleDrive,
+      },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result).toMatchObject({
+      success: true,
+      activated: false,
+      events: [{ id: 'ev1' }],
+      activationError: expect.stringContaining('worker A'),
+      activationErrorCode: 'SESSION_DRIVEN_ELSEWHERE',
+    });
+    expect(resumeSession).not.toHaveBeenCalled();
+    expect(abandonDrive).not.toHaveBeenCalled();
+    expect(settleDrive).not.toHaveBeenCalled();
   });
   it.each([
     {

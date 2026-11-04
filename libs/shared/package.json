@@ -33,7 +33,8 @@
     }
   },
   "peerDependencies": {
-    "@angular/core": "~22.2.0"
+    "@angular/core": "~22.2.0",
+    "@ptah-extension/review-contracts": "0.0.1"
   },
   "peerDependenciesMeta": {
     "@angular/core": {

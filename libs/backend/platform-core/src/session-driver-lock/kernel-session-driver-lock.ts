@@ -14,6 +14,7 @@ type Entry = HeldDriverLock & {
   closing?: Promise<'released' | 'stranded'>;
 };
 const RETRY_DELAYS = [100, 400, 1600];
+const HOLDER_SOCKET_TIMEOUT_MS = 500;
 const UNKNOWN_HOLDER: DriverHolder = {
   kind: 'desktop',
   hostname: 'unknown',
@@ -117,6 +118,10 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
       return { ok: false, unavailable: String(error) };
     }
     const server = net.createServer((socket) => {
+      // A peer that resets or never closes must neither crash the process nor
+      // hold the connection open and stall server.close() during release.
+      socket.on('error', () => socket.destroy());
+      socket.setTimeout(HOLDER_SOCKET_TIMEOUT_MS, () => socket.destroy());
       const entry = this.entries.get(sessionId);
       const holder = entry
         ? {
@@ -158,6 +163,9 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
       server.close();
       return { ok: false, unavailable: 'Session driver lock disposed' };
     }
+    // The bind is the lock; it must not keep a finished process (e.g. the CLI
+    // benchmark) alive. The OS frees the endpoint when the process exits.
+    server.unref();
     const nonce = `${process.pid}-${Date.now()}-${++this.nextNonce}`;
     this.entries.set(sessionId, {
       sessionId,

@@ -72,6 +72,7 @@ const ALL_DISABLED: HostCapabilities = {
   memory: false,
   skillSynthesis: false,
   cron: false,
+  review: false,
   gateway: false,
   voice: false,
   persistence: false,

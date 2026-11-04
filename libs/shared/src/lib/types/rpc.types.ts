@@ -72,6 +72,8 @@ import type {
 } from './rpc/rpc-lane-plan-limits.types';
 import type { ProviderAccountRpcMethodRegistry } from './rpc/rpc-provider-accounts.types';
 import type { MachinesRpcMethodRegistry } from './rpc/rpc-machines.types';
+export type { ReviewRpcMethodRegistry } from './rpc-review.types';
+import type { ReviewRpcMethodRegistry } from './rpc-review.types';
 import type {
   AttentionGetSnapshotParams,
   AttentionGetSnapshotResult,
@@ -231,6 +233,10 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthCodexLoginCancelParams,
+  AuthCodexLoginCancelResponse,
+  AuthGetCodexReadinessParams,
+  AuthGetCodexReadinessResponse,
   AuthKimiCodeLoginParams,
   AuthKimiCodeLoginResponse,
   AuthKimiCodeLoginCancelParams,
@@ -751,6 +757,10 @@ import type {
   TasksGetResult,
   TasksGetArtifactParams,
   TasksGetArtifactResult,
+  TasksReadFolderMarkdownParams,
+  TasksReadFolderMarkdownResult,
+  TasksListFolderEntriesParams,
+  TasksListFolderEntriesResult,
   TasksCreateParams,
   TasksCreateResult,
   TasksSweepParams,
@@ -1005,6 +1015,7 @@ export interface RpcMethodRegistry
   extends
     ProviderAccountRpcMethodRegistry,
     MachinesRpcMethodRegistry,
+    ReviewRpcMethodRegistry,
     Pick<
       InstallScopeRpcMethodRegistry,
       | 'mcpDirectory:makeGlobal'
@@ -1273,6 +1284,14 @@ export interface RpcMethodRegistry
   'auth:codexLogin': {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
+  };
+  'auth:codexLoginCancel': {
+    params: AuthCodexLoginCancelParams;
+    result: AuthCodexLoginCancelResponse;
+  };
+  'auth:getCodexReadiness': {
+    params: AuthGetCodexReadinessParams;
+    result: AuthGetCodexReadinessResponse;
   };
   'auth:kimiCodeLogin': {
     params: AuthKimiCodeLoginParams;
@@ -2657,6 +2676,14 @@ export interface RpcMethodRegistry
     params: TasksGetArtifactParams;
     result: TasksGetArtifactResult;
   };
+  'tasks:readFolderMarkdown': {
+    params: TasksReadFolderMarkdownParams;
+    result: TasksReadFolderMarkdownResult;
+  };
+  'tasks:listFolderEntries': {
+    params: TasksListFolderEntriesParams;
+    result: TasksListFolderEntriesResult;
+  };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
   'tasks:sweepFinished': {
     params: TasksSweepParams;
@@ -3482,6 +3509,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:codexLoginCancel': true,
+  'auth:getCodexReadiness': true,
   'auth:kimiCodeLogin': true,
   'auth:kimiCodeLoginCancel': true,
   'auth:getEffectiveRoute': true,
@@ -3785,6 +3814,16 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'cron:runNow': true,
   'cron:runs': true,
   'cron:nextFire': true,
+  'review:listRuns': true,
+  'review:getRun': true,
+  'review:listFindings': true,
+  'review:listRepositories': true,
+  'review:getSettings': true,
+  'review:updateSettings': true,
+  'review:setPublicationPause': true,
+  'review:retryHead': true,
+  'review:refresh': true,
+  'review:exportRun': true,
 
   'gateway:status': true,
   'gateway:start': true,
@@ -3848,6 +3887,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:list': true,
   'tasks:get': true,
   'tasks:getArtifact': true,
+  'tasks:readFolderMarkdown': true,
+  'tasks:listFolderEntries': true,
   'tasks:create': true,
   'tasks:sweepFinished': true,
   'tasks:updateStatus': true,
