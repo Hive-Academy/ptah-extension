@@ -12,7 +12,7 @@ declare global {
 // Inlined check: importing the config module here would make it eager.
 // Preserve host pushes while lazy Angular chunks load and the message router
 // attaches. RPC responses must reach the RPC client during bootstrap.
-const earlyHostMessages: unknown[] = [];
+const earlyHostMessages: object[] = [];
 const captureHostMessage = (event: MessageEvent): void => {
   const value: unknown = event.data;
   if (
@@ -41,7 +41,14 @@ async function bootstrapRenderer(): Promise<void> {
       await bootstrapApplication(App, appConfig);
     }
     window.removeEventListener('message', captureHostMessage, { capture: true });
-    for (const data of earlyHostMessages) window.dispatchEvent(new MessageEvent('message', { data }));
+    // `replayed` marks a push that predates any RPC answered during bootstrap.
+    // BootStatusService reads it so a stale readiness push cannot rewind a
+    // newer pulled snapshot. Literal key: importing core here would load
+    // Angular before the optional Zone.js fallback.
+    for (const value of earlyHostMessages) {
+      const data = { ...value, replayed: true };
+      window.dispatchEvent(new MessageEvent('message', { data }));
+    }
   } catch (err) {
     window.removeEventListener('message', captureHostMessage, { capture: true });
     console.error('=== PTAH WEBVIEW BOOTSTRAP FAILED ===', err);
