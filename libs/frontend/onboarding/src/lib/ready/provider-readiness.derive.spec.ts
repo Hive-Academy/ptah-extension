@@ -41,6 +41,36 @@ describe('provider readiness derivation', () => {
   });
 
   it.each([
+    ['uninstalled row with ambient timeout', { ...detection, data: [{ ...row, installed: false }] }, ambient({ state: 'unknown', reason: 'timeout', checkedAt: null })],
+    ['uninstalled row with local failure', { ...detection, data: [{ ...row, installed: false }] }, ambient(null, { localFailure: true })],
+    ['ambient cli-missing with detection error', { status: 'error' as const, data: null, error: 'Could not load this section. Retry.' as const }, ambient({ state: 'unknown', reason: 'cli-missing', checkedAt: null })],
+  ])('(parity row 2) missing wins over error: %s', (_label, rows, status) => {
+    expect(deriveClaudeReadiness({ detection: rows, ambient: status })).toMatchObject({
+      state: 'missing', errorCause: null,
+    });
+  });
+
+  it('(parity row 2) detection error gives a local error even when ambient is connected', () => {
+    expect(deriveClaudeReadiness({
+      detection: { status: 'error', data: null, error: 'Could not load this section. Retry.' },
+      ambient: ambient({ state: 'connected', checkedAt: null }),
+    })).toMatchObject({ state: 'error', errorCause: 'local', failedFact: 'binary' });
+  });
+
+  it('(parity row 2) absent Claude row gives a local error', () => {
+    expect(deriveClaudeReadiness({
+      detection: { ...detection, data: [] },
+      ambient: ambient({ state: 'connected', checkedAt: null }),
+    })).toMatchObject({ state: 'error', errorCause: 'local', failedFact: 'binary' });
+  });
+
+  it('(parity row 2) ambient local failure gives a local error', () => {
+    expect(deriveClaudeReadiness({
+      detection, ambient: ambient(null, { localFailure: true }),
+    })).toMatchObject({ state: 'error', errorCause: 'local', failedFact: 'sign-in' });
+  });
+
+  it.each([
     ['signed-in', 'ready'], ['signed-out', 'signed-out'], ['stale', 'stale'],
     ['timeout', 'error'], ['unreadable', 'error'],
   ] as const)('derives Codex %s', (outcome, expected) => {

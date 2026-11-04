@@ -83,6 +83,42 @@ describe('ReadyConnectionStepPage parity rows 20–38', () => {
   it('row 38: Continue anyway writes skippedAt and opens settings', () => { const el = render('missing'); button(el, 'Continue anyway')?.click(); expect(markReady).toHaveBeenCalledWith('skippedAt'); expect(navigate).toHaveBeenCalled(); });
 
   it('Re-check announces Claude then Codex and refreshes both', async () => { const el = render('missing', 'ready'); button(el, 'Re-check')?.click(); await fixture.whenStable(); expect(refresh).toHaveBeenCalledWith('recheck'); expect(announce.mock.calls.map(([message]) => message)).toEqual(['Claude Code is still not installed.', 'Codex is ready.']); });
+  it.each([
+    ['Claude', 'claude-cli'],
+    ['Codex', 'openai-codex'],
+  ] as const)('(parity row 39) Re-check focuses Continue when chosen %s becomes ready', async (_name, provider) => {
+    const el = render('missing', 'missing', { kind: provider });
+    const recheckButton = button(el, 'Re-check');
+    expect(recheckButton).toBeDefined();
+    expect(button(el, 'Continue')).toBeUndefined();
+    refresh.mockImplementation(async (reason) => {
+      if (reason === 'recheck') {
+        if (provider === 'claude-cli') claude.set(view('claude-cli', 'ready'));
+        else codex.set(view('openai-codex', 'ready'));
+      }
+    });
+    recheckButton?.focus();
+    recheckButton?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const continueButton = button(el, 'Continue');
+    expect(continueButton).toBeDefined();
+    expect(document.activeElement).toBe(continueButton);
+  });
+
+  it('(parity row 39) Re-check keeps focus when the chosen provider stays unready', async () => {
+    const el = render('missing');
+    const recheckButton = button(el, 'Re-check');
+    expect(recheckButton).toBeDefined();
+    recheckButton?.focus();
+    recheckButton?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(button(el, 'Continue')).toBeUndefined();
+    expect(document.activeElement).toBe(recheckButton);
+  });
   it('Codex sign-in success starts a Codex recheck', async () => { render('missing', 'signed-out', { kind: 'openai-codex' }); signIn.set({ status: 'succeeded' }); fixture.detectChanges(); await fixture.whenStable(); expect(recheckCodex).toHaveBeenCalledTimes(1); });
   it('shows two panels in fixed Claude then Codex order', () => { const el = render('ready', 'missing'); expect([...el.querySelectorAll('[data-testid$="-panel"]')].map(node => node.getAttribute('data-testid'))).toEqual(['ready-claude-panel', 'ready-codex-panel']); });
   it('does not offer Continue for an unconfirmed or unready selection', () => { const el = render('ready', 'ready', { kind: 'unreadable' }); expect(button(el, 'Continue')).toBeUndefined(); expect(button(el, 'Continue anyway')).toBeDefined(); });
