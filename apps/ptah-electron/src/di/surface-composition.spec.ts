@@ -1,6 +1,7 @@
 import 'reflect-metadata';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 /**
  * Electron surface composition — lazy push host across a real registration
@@ -35,7 +36,14 @@ import {
   RpcHandler,
   type Logger,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  KernelSessionDriverLock,
+  NullSessionDriverLock,
+  type ISessionDriverLock,
+  type IOutputChannel,
+} from '@ptah-extension/platform-core';
+import { registerPlatformElectronServices } from '@ptah-extension/platform-electron';
 import {
   registerVsCodeLmToolsServices,
   VSCODE_LM_TOOLS_TOKENS,
@@ -56,6 +64,40 @@ import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { registerArtifactNotification } from './phase-3-storage';
+
+describe('Electron session driver lock composition', () => {
+  it('binds the platform lock for the Electron host', async () => {
+    const c = rootContainer.createChildContainer();
+    const dataPath = mkdtempSync(join(tmpdir(), 'ptah-electron-lock-'));
+    try {
+      registerPlatformElectronServices(c, {
+        appPath: dataPath,
+        userDataPath: dataPath,
+        logsPath: dataPath,
+        safeStorage: {
+          isEncryptionAvailable: () => false,
+          encryptString: (value: string) => Buffer.from(value),
+          decryptString: (value: Buffer) => value.toString(),
+        },
+        dialog: {} as never,
+        getWindow: () => null,
+      });
+      const lock = c.resolve<ISessionDriverLock>(
+        PLATFORM_TOKENS.SESSION_DRIVER_LOCK,
+      );
+      expect(lock).toBeInstanceOf(
+        process.platform === 'darwin'
+          ? NullSessionDriverLock
+          : KernelSessionDriverLock,
+      );
+      expect(c.resolve(PLATFORM_TOKENS.SESSION_DRIVER_LOCK)).toBe(lock);
+      await lock.dispose();
+    } finally {
+      c.resolve<IOutputChannel>(PLATFORM_TOKENS.OUTPUT_CHANNEL).dispose();
+      rmSync(dataPath, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Electron artifact notification composition', () => {
   const notification: ArtifactPublishedNotification = {

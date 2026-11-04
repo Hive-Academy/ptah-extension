@@ -603,7 +603,7 @@ phase summary.
 - Result: executor Codex lane. Orchestrator verify 18/18. Removal points: `remove` (only when the
   record still owns the tab index), `evictStale`, registration displacement. See `batch-10-report.md`.
 
-## Batch 11: C4a-4 host bindings and DI smoke specs (revised Round 6) — PENDING
+## Batch 11: C4a-4 host bindings and DI smoke specs (revised Round 6) — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -618,7 +618,7 @@ phase summary.
 - Phase: C | Phase review: at Batch 13
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-electron,@ptah-extension/platform-cli,@ptah-extension/cli-engine,ptah-electron,mcp-bench`
 
-### Task 11.1: Bind the lock per host — PENDING
+### Task 11.1: Bind the lock per host — COMPLETE
 
 - Files: W/`libs/backend/platform-electron/src/registration.ts`,
   W/`libs/backend/platform-cli/src/registration.ts`,
@@ -635,6 +635,9 @@ phase summary.
 ### Batch 11 verification
 
 - Smoke specs assert the class on Electron and CLI; verify passes
+- Result: executor Codex lane. Orchestrator verify 21/21. For Phase C review: the lock is bound
+  with `useValue` (instance created at registration); check that the constructor does not open the
+  control endpoint or any socket before first use.
 
 ## Batch 12: C4b driver lock enforcement (rpc-handlers) (revised Round 6) — PENDING
 

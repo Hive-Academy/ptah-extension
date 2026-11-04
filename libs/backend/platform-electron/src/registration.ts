@@ -12,6 +12,8 @@ import type { DependencyContainer } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
+  KernelSessionDriverLock,
+  NullSessionDriverLock,
 } from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
@@ -109,6 +111,11 @@ export function registerPlatformElectronServices(
   };
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, {
     useValue: platformInfo,
+  });
+  container.register(PLATFORM_TOKENS.SESSION_DRIVER_LOCK, {
+    useValue: process.platform === 'darwin'
+      ? new NullSessionDriverLock()
+      : new KernelSessionDriverLock(),
   });
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new ElectronFileSystemProvider(),
