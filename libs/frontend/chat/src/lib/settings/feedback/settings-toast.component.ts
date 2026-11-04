@@ -77,8 +77,9 @@ const ANNOUNCE_DELAY_MS = 50;
 
     <ng-template #body let-toast>
       <div
-        class="flex items-center gap-3 rounded-lg border bg-base-300 px-4 py-2.5 text-sm text-base-content"
+        class="relative flex items-center gap-3 rounded-lg border bg-base-300 px-4 py-2.5 text-sm text-base-content"
         [class.shadow-lg]="!inline()"
+        [attr.data-glass-surface]="inline() ? null : 'overlay'"
         [class.border-base-content/15]="toast.tone === 'status'"
         [class.border-error/40]="toast.tone === 'alert'"
         [attr.data-testid]="testId('settings-toast')"
