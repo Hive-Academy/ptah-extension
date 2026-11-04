@@ -39,6 +39,7 @@ describe('ProviderReadinessStore', () => {
   let redetectClis: jest.Mock;
   let claudeRead: jest.Mock;
   let codexRead: jest.Mock;
+  let refreshAuthStatus: jest.Mock;
 
   function create(isElectron = true): ProviderReadinessStore {
     ambientView.set(connected);
@@ -46,6 +47,7 @@ describe('ProviderReadinessStore', () => {
     redetectClis = jest.fn().mockResolvedValue(true);
     claudeRead = jest.fn().mockResolvedValue(undefined);
     codexRead = jest.fn().mockResolvedValue(undefined);
+    refreshAuthStatus = jest.fn().mockResolvedValue(true);
     TestBed.configureTestingModule({
       providers: [
         { provide: VSCodeService, useValue: { isElectron } },
@@ -57,7 +59,7 @@ describe('ProviderReadinessStore', () => {
         { provide: AuthStateService, useValue: {
           isLoading: signal(false), isLoaded: signal(true),
           persistedAuthMethod: signal('thirdParty'), persistedProviderId: signal('openai-codex'),
-          availableProviders: signal([]), refreshAuthStatus: jest.fn().mockResolvedValue(undefined),
+          availableProviders: signal([]), refreshAuthStatus,
         } },
       ],
     });
@@ -67,17 +69,53 @@ describe('ProviderReadinessStore', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => { TestBed.resetTestingModule(); jest.useRealTimers(); });
 
-  it('joins repeated mounts without starting extra probes (AC 5.9)', async () => {
+  it('joins concurrent mounts and reads again on a later mount (AC 5.9)', async () => {
     const store = create();
     const first = store.refresh('mount');
     const second = store.refresh('mount');
     expect(second).toBe(first);
     await first;
     await store.refresh('mount');
-    expect(redetectClis).toHaveBeenCalledTimes(1);
-    expect(claudeRead).toHaveBeenCalledTimes(1);
-    expect(codexRead).toHaveBeenCalledTimes(1);
+    expect(redetectClis).toHaveBeenCalledTimes(2);
+    expect(claudeRead).toHaveBeenCalledTimes(2);
+    expect(codexRead).toHaveBeenCalledTimes(2);
     expect(store.rechecking()).toBe(false);
+  });
+
+  it('keeps selection unconfirmed when refresh returns false after an earlier load', async () => {
+    const store = create();
+    store.markSelectionNotConfirmed();
+    refreshAuthStatus.mockResolvedValue(false);
+    expect(await store.retrySelection()).toBe(false);
+    expect(store.selection().kind).toBe('not-confirmed');
+  });
+
+  it('keeps slow visible while a Claude follow-up read is pending', async () => {
+    const store = create();
+    let finishFollowUp!: () => void;
+    claudeRead.mockImplementationOnce(async () => { ambientView.set(timeout); })
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finishFollowUp = resolve; }))
+      .mockImplementationOnce(async () => { ambientView.set(timeout); });
+    const cycle = store.refresh('mount');
+    await Promise.resolve(); await Promise.resolve();
+    expect(store.claude().state).toBe('slow');
+    ambientView.set({ ...timeout, status: 'checking' });
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(store.claude().state).toBe('slow');
+    ambientView.set(timeout);
+    finishFollowUp();
+    await jest.advanceTimersByTimeAsync(5_000);
+    await cycle;
+    expect(store.claude()).toMatchObject({ state: 'error', errorCause: 'timeout' });
+  });
+
+  it('turns a rejected core read into a terminal local error', async () => {
+    const store = create();
+    codexView.set({ ...signedIn, status: 'checking' });
+    codexRead.mockRejectedValue(new Error('read failed'));
+    await store.refresh('mount');
+    expect(store.codex()).toMatchObject({ state: 'error', errorCause: 'local' });
+    expect(store.claude().state).toBe('ready');
   });
 
   it('runs at most two 5 s fresh Claude follow-ups then settles', async () => {

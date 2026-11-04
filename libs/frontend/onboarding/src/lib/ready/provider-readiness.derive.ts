@@ -53,7 +53,7 @@ export function deriveClaudeReadiness(input: ClaudeReadinessInputs): ProviderRea
 
   if (detection.status === 'unloaded' || detection.status === 'loading' ||
       ambient.status === 'checking' || ambient.status === 'idle' || ambient.status === 'inert') {
-    return view('claude-cli', 'checking');
+    return view('claude-cli', retrying ? 'slow' : 'checking');
   }
   if ((detection.status === 'ready' && row?.installed === false) ||
       (result?.state === 'unknown' && result.reason === 'cli-missing')) {
@@ -86,7 +86,7 @@ export function deriveCodexReadiness(
     fact: 'binary' | 'sign-in' | null = null) =>
     view('openai-codex', state, path, version, source, cause, fact);
 
-  if (input.status !== 'ready') return make('checking');
+  if (input.status !== 'ready') return make(retrying ? 'slow' : 'checking');
   if (binary?.state === 'missing') return make('missing');
   if (binary?.state === 'unknown') {
     const cause = binary.reason;

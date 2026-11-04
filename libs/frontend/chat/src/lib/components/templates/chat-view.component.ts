@@ -294,6 +294,8 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+  protected readonly codexReauthVisible = computed(() =>
+    this.codexReauthStarted() && this.authRequiredBanner() === this.codexReauthBanner);
   private completeCodexReauth(): void {
     if (!this.codexReauthStarted() || this.authRequiredBanner() !== this.codexReauthBanner) return;
     const confirmation = this.codexSignIn.confirmation();
@@ -1414,6 +1416,14 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   constructor() {
+    effect(() => {
+      const banner = this.authRequiredBanner();
+      if (this.codexReauthStarted() && banner !== this.codexReauthBanner) {
+        this.codexReauthStarted.set(false);
+        this.codexReauthFailure.set(null);
+        this.codexReauthBanner = null;
+      }
+    });
     effect(() => {
       if (!this.codexReauthStarted()) return;
       if (this.codexSignIn.state()?.status !== 'succeeded') return;

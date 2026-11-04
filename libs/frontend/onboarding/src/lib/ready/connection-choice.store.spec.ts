@@ -46,6 +46,12 @@ describe('ConnectionChoiceStore', () => {
     expect(activateConnection).toHaveBeenCalledWith('openai-codex', popoverTarget, state.reviewContext());
     expect(choice.notice()).toBe(6);
   });
+  it('shows the failed retry notice when selection is still not confirmed', async () => {
+    const choice = TestBed.inject(ConnectionChoiceStore);
+    retrySelection.mockResolvedValueOnce(false);
+    await choice.retry();
+    expect(choice.notice()).toBe(12);
+  });
   it.each([
     [{ started: false, selectionReread: 'not-run' } as const, 'saving', 8],
     [{ started: true, selectionReread: 'not-run' } as const, 'failed', 9],

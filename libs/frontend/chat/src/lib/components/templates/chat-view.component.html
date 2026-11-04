@@ -160,7 +160,7 @@
               (carryOver)="onCarryOver()"
             />
           }
-          @if (authBanner.providerId === 'openai-codex' && codexReauthStarted()) {
+          @if (authBanner.providerId === 'openai-codex' && codexReauthVisible()) {
             <div class="mt-2">
               <ptah-codex-sign-in-block layout="compact" connectionRole="chosen" />
               @if (codexReauthFailure(); as failure) {

@@ -26,6 +26,8 @@ export class ProviderReadinessStore {
   readonly available = inject(VSCodeService).isElectron;
   private readonly claudeRetrying = signal(false);
   private readonly codexRetrying = signal(false);
+  private readonly claudeReadFailed = signal(false);
+  private readonly codexReadFailed = signal(false);
   private readonly activeRechecks = signal(0);
   private readonly notConfirmed = signal(false);
   private readonly _slowStarted = signal<{ provider: ProviderKind; mountId: number } | null>(null);
@@ -36,12 +38,18 @@ export class ProviderReadinessStore {
   private readonly epochs = new Map<ProviderKind, number>();
   private mountPromise: Promise<void> | null = null;
 
-  readonly claude = computed(() => deriveClaudeReadiness({
+  readonly claude = computed(() => this.claudeReadFailed() ? {
+    provider: 'claude-cli' as const, state: 'error' as const, errorCause: 'local' as const,
+    failedFact: 'sign-in' as const, path: null, version: null, source: null,
+  } : deriveClaudeReadiness({
     detection: this.providers.cliDetection(),
     ambient: this.ambient.view(),
     retrying: this.claudeRetrying(),
   }));
-  readonly codex = computed(() => deriveCodexReadiness(this.codexService.view(), this.codexRetrying()));
+  readonly codex = computed(() => this.codexReadFailed() ? {
+    provider: 'openai-codex' as const, state: 'error' as const, errorCause: 'local' as const,
+    failedFact: 'sign-in' as const, path: null, version: null, source: null,
+  } : deriveCodexReadiness(this.codexService.view(), this.codexRetrying()));
   readonly selection = computed(() => this.notConfirmed() ? { kind: 'not-confirmed' as const } :
     deriveSelection({
       isLoading: this.auth.isLoading(),
@@ -69,8 +77,8 @@ export class ProviderReadinessStore {
   async retrySelection(): Promise<boolean> {
     if (!this.available || this.destroyed) return false;
     try {
-      await this.auth.refreshAuthStatus();
-      if (!this.auth.isLoaded()) return false;
+      const ok = await this.auth.refreshAuthStatus();
+      if (!ok) return false;
       this.notConfirmed.set(false);
       return true;
     } catch {
@@ -86,10 +94,11 @@ export class ProviderReadinessStore {
     if (kind === 'mount') {
       if (this.mountPromise) return this.mountPromise;
       const id = ++this.mountId;
-      this.mountPromise = Promise.all([
+      const mount = Promise.all([
         this.start('claude-cli', 'mount', id),
         this.start('openai-codex', 'mount', id),
       ]).then(() => undefined);
+      this.mountPromise = mount.finally(() => { this.mountPromise = null; });
       return this.mountPromise;
     }
     return this.recheckBoth();
@@ -115,16 +124,16 @@ export class ProviderReadinessStore {
     if (kind === 'mount' && active) return active;
     this.pendingTimers.get(provider)?.cancel();
     const retrying = provider === 'claude-cli' ? this.claudeRetrying : this.codexRetrying;
+    const readFailed = provider === 'claude-cli' ? this.claudeReadFailed : this.codexReadFailed;
     const epoch = (this.epochs.get(provider) ?? 0) + 1;
     this.epochs.set(provider, epoch);
     retrying.set(false);
+    readFailed.set(false);
     if (kind === 'recheck') this.activeRechecks.update((count) => count + 1);
     const cycle = this.run(provider, kind, mountId, epoch).catch(() => {
-      // degradation-audit: reported - the core read services record read failures in
-      // their own state, which the provider panel shows; a rejection ends only this
-      // provider's cycle and finally() clears the retrying flag.
+      if (!this.destroyed && this.epochs.get(provider) === epoch) readFailed.set(true);
     }).finally(() => {
-      retrying.set(false);
+      if (this.epochs.get(provider) === epoch) retrying.set(false);
       if (kind === 'recheck') this.activeRechecks.update((count) => count - 1);
       if (this.cycles.get(provider) === cycle) this.cycles.delete(provider);
     });
@@ -148,13 +157,20 @@ export class ProviderReadinessStore {
           attempt > 0 ? 'follow-up' : kind);
       }
       if (this.destroyed || this.epochs.get(provider) !== epoch) return;
-      const state = provider === 'claude-cli' ? this.claude() : this.codex();
-      if (kind === 'recheck' || state.errorCause !== 'timeout' || attempt === MAX_FOLLOW_UPS) return;
+      const claudeView = this.ambient.view();
+      const codexView = this.codexService.view();
+      const codexBinary = codexView.result?.binary;
+      const timedOut = provider === 'claude-cli'
+        ? claudeView.transportTimeout ||
+          (claudeView.result?.state === 'unknown' && claudeView.result.reason === 'timeout')
+        : codexView.transportTimeout ||
+          (codexBinary?.state === 'unknown' && codexBinary.reason === 'timeout') ||
+          codexView.result?.signIn.outcome === 'timeout';
+      if (kind === 'recheck' || !timedOut || attempt === MAX_FOLLOW_UPS) return;
       retrying.set(true);
       if (attempt === 0) this._slowStarted.set({ provider, mountId });
       const continued = await this.delay(provider);
       if (!continued || this.epochs.get(provider) !== epoch) return;
-      retrying.set(false);
     }
   }
 

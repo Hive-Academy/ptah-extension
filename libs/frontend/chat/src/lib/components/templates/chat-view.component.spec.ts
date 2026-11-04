@@ -842,6 +842,33 @@ describe('ChatViewComponent — Codex re-auth', () => {
     expect(h.fixture.nativeElement.querySelector('button[data-testid="codex-reauth-cancel"]')).toBeNull();
   });
 
+  it('hides the sign-in block when another Codex banner replaces the active one', async () => {
+    const h = makeHarness({ renderAuthBannerTemplate: true });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'First refusal', generation: 1, origin: null });
+    h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'running' });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('[data-testid="codex-sign-in-block"]')).not.toBeNull();
+
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Second refusal', generation: 2, origin: null });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('[data-testid="codex-sign-in-block"]')).toBeNull();
+    expect((h.component as unknown as { codexReauthStarted(): boolean }).codexReauthStarted()).toBe(false);
+  });
+
+  it('does not reuse old sign-in state after the banner is cleared elsewhere', async () => {
+    const h = makeHarness({ renderAuthBannerTemplate: true });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'First refusal', generation: 1, origin: null });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.authRequiredBannerSig.set(null);
+    h.fixture.detectChanges();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Later refusal', generation: 2, origin: null });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('[data-testid="codex-sign-in-block"]')).toBeNull();
+    expect((h.component as unknown as { codexReauthStarted(): boolean; codexReauthFailure(): string | null }).codexReauthStarted()).toBe(false);
+    expect((h.component as unknown as { codexReauthFailure(): string | null }).codexReauthFailure()).toBeNull();
+  });
+
   it('refreshes auth before clearing the banner after sign-in succeeds', async () => {
     const h = makeHarness();
     h.codexAuthenticatedSig.set(true);
