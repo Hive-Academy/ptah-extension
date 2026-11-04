@@ -46,7 +46,7 @@ const v2Schema = z.strictObject({
 const boardFields = {
   mode: z.enum(['rail', 'grid']).catch('rail').transform(() => 'rail' as const),
   railCollapsed: z.boolean().catch(false),
-  railDensity: z.enum(['comfortable', 'dense']).catch('comfortable'),
+  railDensity: z.enum(['comfortable', 'dense']).catch('dense'),
   railScrollTop: z.number().int().nonnegative().max(1_000_000).catch(0),
 };
 

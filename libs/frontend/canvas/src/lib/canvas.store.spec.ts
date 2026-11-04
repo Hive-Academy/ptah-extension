@@ -363,11 +363,11 @@ describe('CanvasStore', () => {
     const tileSignal = store.tilesFor('/ws/a');
     const revision = store.workspaceRevision('/ws/a');
     store.setRailCollapsed('/ws/a', true);
-    store.setRailDensity('/ws/a', 'dense');
+    store.setRailDensity('/ws/a', 'comfortable');
     store.setRailScrollTop('/ws/a', 12.6);
     store.setRailSort('/ws/a', 'manual');
     expect(persistence.schedule).toHaveBeenCalledTimes(4);
-    expect(store.boardFor('/ws/a')).toEqual({ ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'dense', railSort: 'manual', railScrollTop: 13 });
+    expect(store.boardFor('/ws/a')).toEqual({ ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'comfortable', railSort: 'manual', railScrollTop: 13 });
     store.setRailScrollTop('/ws/a', 13);
     store.setRailSort('/ws/a', 'manual');
     expect(persistence.schedule).toHaveBeenCalledTimes(4);

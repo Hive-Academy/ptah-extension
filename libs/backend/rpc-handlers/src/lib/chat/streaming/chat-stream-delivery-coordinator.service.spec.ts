@@ -68,6 +68,28 @@ function makeBlockedCoordinator() {
 }
 
 describe('ChatStreamDeliveryCoordinator', () => {
+  it('delivers hidden terminal status while retaining text and ordered terminal for reveal', async () => {
+    const { coordinator, sent } = makeCoordinator();
+    await coordinator.updateViewport({ protocolVersion: 2, visibleTabIds: [] });
+    coordinator.publish(TAB_ID, SESSION_ID, event(1));
+    const terminal: FlatStreamEventUnion = {
+      id: 'terminal-1', eventType: 'turn_state', sessionId: SESSION_ID,
+      timestamp: 2, messageId: `turn-state-${SESSION_ID}`,
+      phase: 'idle', revision: 2, backgroundTasks: [], sessionCrons: [],
+      terminalReason: 'completed',
+    };
+    coordinator.publish(TAB_ID, SESSION_ID, terminal);
+    await coordinator.flushBeforeTerminal(TAB_ID);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload).toMatchObject({
+      tabId: TAB_ID, statusOnly: true, event: terminal,
+    });
+    await coordinator.updateViewport({ protocolVersion: 2, focusedTabId: TAB_ID, visibleTabIds: [TAB_ID] });
+    expect(sent[1]).toMatchObject({
+      type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+      payload: { events: [expect.objectContaining({ eventType: 'text_delta' }), terminal] },
+    });
+  });
   it('keeps v1 clients legacy-visible and preserves batch-before-terminal order', async () => {
     const { coordinator, sent } = makeCoordinator();
 

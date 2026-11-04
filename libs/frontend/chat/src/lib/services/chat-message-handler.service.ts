@@ -542,12 +542,20 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
 
-    const { tabId, sessionId, event, surfaceMode } = payload as {
+    const { tabId, sessionId, event, surfaceMode, statusOnly } = payload as {
       tabId?: string;
       sessionId?: string;
       event: FlatStreamEventUnion;
       surfaceMode?: boolean;
+      statusOnly?: boolean;
     };
+
+    if (statusOnly === true) {
+      if (tabId && event && isTurnStateEvent(event)) {
+        this.tabManager.applyHiddenTurnStateStatus(tabId, event, sessionId ?? event.sessionId);
+      }
+      return;
+    }
 
     const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {

@@ -1992,6 +1992,20 @@ export class TabManagerService {
     }
   }
 
+  /** Update rail status for a hidden terminal while content awaits reveal.
+   * Leave the revision untouched so the retained turn_state can finalize the
+   * message in order after the hidden text deltas are replayed.
+   */
+  applyHiddenTurnStateStatus(
+    tabId: string,
+    state: SessionTurnState,
+    sessionId?: string,
+  ): void {
+    if ((state.phase !== 'idle' && state.phase !== 'failed') ||
+        !this.canApplyTurnState(tabId, sessionId, state.revision, state.phase, false)) return;
+    this.updateTabInternal(tabId, { status: 'loaded' });
+  }
+
   takeTerminalTurnPulses(): readonly TerminalTurnPulse[] {
     const pulses = this._terminalTurnPulses();
     if (pulses.length > 0) this._terminalTurnPulses.set([]);

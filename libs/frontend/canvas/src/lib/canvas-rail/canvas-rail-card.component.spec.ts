@@ -99,7 +99,6 @@ class CardStub {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly tabStop = input(false);
-  readonly holdText = input(false);
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
@@ -170,7 +169,6 @@ const RAIL_SUMMARY: CompactSessionSummary = {
     [focused]="focused()"
     [tabStop]="tabStop()"
     [innerTabbable]="tabStop()"
-    [holdText]="holdText()"
     [reserveActionCorner]="reserveActionCorner()"
     (selectRequested)="expandToFull.emit()"
     (moreLanes)="lanesRequested.emit()"
@@ -184,7 +182,6 @@ class RealRailCardHost {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly tabStop = input(false);
-  readonly holdText = input(false);
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
