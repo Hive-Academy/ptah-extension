@@ -14,7 +14,10 @@ export type ControlReleaseResult =
 export interface ControlLockSource {
   held(): HeldDriverLock[];
   hasLiveRecord(sessionId: string): boolean | Promise<boolean>;
-  release(sessionId: string, nonce: string): Promise<'released' | 'stranded'>;
+  releaseIfIdle(
+    sessionId: string,
+    nonce: string,
+  ): Promise<'in-use' | 'released' | 'stranded'>;
 }
 export interface ListedControlLock {
   sessionId: string;
@@ -184,11 +187,9 @@ export class ControlEndpoint {
           .held()
           .find((item) => item.sessionId === input.sessionId);
         if (!entry) continue;
-        if (await this.hasLiveRecord(source, input.sessionId))
-          return { ok: true, result: 'in-use' };
         return {
           ok: true,
-          result: await source.release(entry.sessionId, entry.nonce),
+          result: await source.releaseIfIdle(entry.sessionId, entry.nonce),
         };
       }
       return { ok: true, result: 'not-held' };

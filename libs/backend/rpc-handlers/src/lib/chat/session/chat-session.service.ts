@@ -1682,6 +1682,7 @@ export class ChatSessionService {
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    let driveAttempt: string | undefined;
     try {
       const { prompt, sessionId, tabId, name } = params;
       this.logger.debug('RPC: chat:continue called', {
@@ -1693,7 +1694,7 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      await this.driverLock.beginDrive(sessionId, tabId);
+      driveAttempt = await this.driverLock.beginDrive(sessionId, tabId);
       await this.gateAccount({
         sessionId,
         accountSelection: params.accountSelection,
@@ -1761,7 +1762,7 @@ export class ChatSessionService {
           };
         }
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
-        await this.driverLock.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
       } else {
         const resumeOutcome = await this.autoResumeIfInactive(
           sessionId,
@@ -1772,7 +1773,7 @@ export class ChatSessionService {
           { deliversFollowUp: true },
         );
         if ('error' in resumeOutcome) {
-          await this.driverLock.abandonDrive(sessionId, tabId);
+          await this.driverLock.abandonDrive(sessionId, driveAttempt);
           return resumeOutcome.error;
         }
         justResumed = resumeOutcome.justResumed;
@@ -1799,7 +1800,7 @@ export class ChatSessionService {
             : params,
         );
       if (slashResult) {
-        await this.driverLock.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
         if (slashResult.success && slashLineage?.legacy) {
           await this.upgradeLegacyLineage(sessionId, slashLineage.roots);
         }
@@ -1898,7 +1899,7 @@ export class ChatSessionService {
       }
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
-      await this.driverLock.abandonDrive(params.sessionId, params.tabId);
+      await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1925,7 +1926,7 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     } finally {
-      await this.driverLock.settleDrive(params.sessionId, params.tabId);
+      await this.driverLock.settleDrive(params.sessionId, driveAttempt);
     }
   }
 
@@ -1939,6 +1940,7 @@ export class ChatSessionService {
     params: ChatResumeParams & MainSessionAccountSelection,
   ): Promise<ChatResumeResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    let driveAttempt: string | undefined;
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
@@ -2047,7 +2049,10 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        await this.driverLock.beginDrive(sessionId, params.tabId);
+        driveAttempt = await this.driverLock.beginDrive(
+          sessionId,
+          params.tabId,
+        );
         if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
@@ -2068,10 +2073,10 @@ export class ChatSessionService {
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
           } else if (activateResult.error.cancelled) {
-            await this.driverLock.abandonDrive(sessionId, params.tabId);
+            await this.driverLock.abandonDrive(sessionId, driveAttempt);
             return { success: false, cancelled: true };
           } else {
-            await this.driverLock.abandonDrive(sessionId, params.tabId);
+            await this.driverLock.abandonDrive(sessionId, driveAttempt);
             activationError =
               activateResult.error.error ?? 'Auto-resume failed';
             activationErrorCode = activateResult.error.errorCode;
@@ -2128,8 +2133,8 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
-      if (params.activate && params.tabId)
-        await this.driverLock.abandonDrive(params.sessionId, params.tabId);
+      if (driveAttempt)
+        await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -2156,8 +2161,8 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     } finally {
-      if (params.activate && params.tabId)
-        await this.driverLock.settleDrive(params.sessionId, params.tabId);
+      if (driveAttempt)
+        await this.driverLock.settleDrive(params.sessionId, driveAttempt);
     }
   }
 
@@ -2331,7 +2336,7 @@ export class ChatSessionService {
         accountRefusal: refusal.accountRefusal,
       };
     }
-    await this.driverLock.beginDrive(sessionId, tabId);
+    const driveAttempt = await this.driverLock.beginDrive(sessionId, tabId);
     try {
       if (this.hasLiveSessionStream(sessionId, tabId)) {
         return { alreadyActive: true };
@@ -2345,7 +2350,7 @@ export class ChatSessionService {
       });
 
       if ('error' in outcome) {
-        await this.driverLock.abandonDrive(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
         return {
           resumed: false,
           error: outcome.error.error ?? 'Auto-resume failed',
@@ -2356,10 +2361,10 @@ export class ChatSessionService {
       // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
       return { resumed: true };
     } catch (error) {
-      await this.driverLock.abandonDrive(sessionId, tabId);
+      await this.driverLock.abandonDrive(sessionId, driveAttempt);
       throw error;
     } finally {
-      await this.driverLock.settleDrive(sessionId, tabId);
+      await this.driverLock.settleDrive(sessionId, driveAttempt);
     }
   }
 

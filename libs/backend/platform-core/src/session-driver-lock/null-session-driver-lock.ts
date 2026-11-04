@@ -1,6 +1,7 @@
 import type {
   DriverHolder,
   DriverLockAcquisition,
+  DriverLockReleaseGate,
   HeldDriverLock,
   ISessionDriverLock,
 } from '../interfaces/session-driver-lock.interface';
@@ -10,6 +11,9 @@ export class NullSessionDriverLock implements ISessionDriverLock {
   setLiveRecordCheck(
     _check: (sessionId: string) => boolean | Promise<boolean>,
   ): void {
+    /* no kernel control endpoint */
+  }
+  setReleaseGate(_gate: DriverLockReleaseGate): void {
     /* no kernel control endpoint */
   }
   private readonly entries = new Map<string, HeldDriverLock>();

@@ -21,10 +21,21 @@ export interface HeldDriverLock {
   state: 'held' | 'releasing' | 'stranded';
 }
 
+/**
+ * Decides an operator release for the process that owns the session's drivers.
+ * It calls `release` only while no owner exists, and holds off new owners until
+ * `release` settles, so liveness and release form one step.
+ */
+export type DriverLockReleaseGate = (
+  sessionId: string,
+  release: () => Promise<'released' | 'stranded'>,
+) => Promise<'in-use' | 'released' | 'stranded'>;
+
 export interface ISessionDriverLock {
   setLiveRecordCheck(
     check: (sessionId: string) => boolean | Promise<boolean>,
   ): void;
+  setReleaseGate(gate: DriverLockReleaseGate): void;
   acquire(
     sessionId: string,
     owner: DriverHolder,

@@ -4,7 +4,7 @@ export function createFakeDriverLockCoordinator(): jest.Mocked<ChatSessionDriver
   return {
     beginRecordAdmission: jest.fn(),
     endRecordAdmission: jest.fn(),
-    beginDrive: jest.fn().mockResolvedValue(undefined),
+    beginDrive: jest.fn().mockResolvedValue('drive-attempt'),
     abandonDrive: jest.fn().mockResolvedValue(undefined),
     settleDrive: jest.fn().mockResolvedValue(undefined),
     admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),

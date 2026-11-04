@@ -2,6 +2,7 @@ import * as net from 'node:net';
 import type {
   DriverHolder,
   DriverLockAcquisition,
+  DriverLockReleaseGate,
   HeldDriverLock,
   ISessionDriverLock,
 } from '../interfaces/session-driver-lock.interface';
@@ -43,6 +44,19 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
     check: (sessionId: string) => boolean | Promise<boolean>,
   ): void {
     this.liveRecordCheck = check;
+  }
+  /** Without a gate no owner can appear between the check and the release. */
+  private releaseGate: DriverLockReleaseGate = async (sessionId, release) =>
+    (await this.liveRecordCheck(sessionId)) ? 'in-use' : release();
+  setReleaseGate(gate: DriverLockReleaseGate): void {
+    this.releaseGate = gate;
+  }
+  /** Operator release: the gate decides liveness and releases in one step. */
+  releaseIfIdle(
+    sessionId: string,
+    nonce: string,
+  ): Promise<'in-use' | 'released' | 'stranded'> {
+    return this.releaseGate(sessionId, () => this.release(sessionId, nonce));
   }
   private disposed = false;
   private readonly onExit = (): void => {

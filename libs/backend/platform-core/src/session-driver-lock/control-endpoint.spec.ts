@@ -41,15 +41,17 @@ function send(value: unknown): Promise<unknown> {
 (supported ? describe : describe.skip)(
   'session driver control endpoint',
   () => {
-    it('checks liveness once before an operator release', async () => {
+    it('decides an operator release in the gate, not on an earlier liveness read', async () => {
       const lock = new KernelSessionDriverLock();
       const id = `control-race-${process.pid}-${Date.now()}`;
-      const liveCheck = jest.fn(() => true);
-      lock.setLiveRecordCheck(liveCheck);
+      // A liveness read says idle; an owner arrives before the release step.
+      lock.setLiveRecordCheck(() => false);
+      const gate = jest.fn(async () => 'in-use' as const);
+      lock.setReleaseGate(gate);
       try {
         expect((await lock.acquire(id, owner)).ok).toBe(true);
         expect(await requestRelease(id)).toBe('in-use');
-        expect(liveCheck).toHaveBeenCalledTimes(1);
+        expect(gate).toHaveBeenCalledWith(id, expect.any(Function));
         expect(lock.held()).toHaveLength(1);
       } finally {
         await lock.dispose();

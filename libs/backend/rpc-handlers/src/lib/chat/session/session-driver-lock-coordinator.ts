@@ -9,12 +9,25 @@ import {
   type ISessionDriverLock,
 } from '@ptah-extension/platform-core';
 
+/**
+ * One drive attempt (continue, resume activation, rewind). `record` is set once the
+ * attempt returned while the tab's record had not bound: the attempt then waits for
+ * that record, by token, to bind or be removed.
+ */
+type DriveAttempt = { tabId: string; record?: string };
+
 type Ownership = {
   nonce: string;
   records: Set<string>;
   natives: Set<string>;
-  provisional?: string;
+  attempts: Map<string, DriveAttempt>;
 };
+
+function owned(owner: Ownership | undefined): boolean {
+  return Boolean(
+    owner && (owner.records.size || owner.natives.size || owner.attempts.size),
+  );
+}
 
 /** Serializes ownership changes for each kernel lock name. */
 @injectable()
@@ -27,8 +40,6 @@ export class SessionDriverLockCoordinator {
   private readonly failures = new Map<string, RpcUserError>();
   private readonly admissionFailures = new Map<string, RpcUserError>();
   private readonly activeAdmissions = new Set<string>();
-  /** Tab ID to the session a finished attempt left provisional, waiting for its record to bind. */
-  private readonly parked = new Map<string, string>();
 
   constructor(
     @inject(PLATFORM_TOKENS.SESSION_DRIVER_LOCK)
@@ -37,13 +48,17 @@ export class SessionDriverLockCoordinator {
     private readonly lifecycle: SessionLifecycleManager,
     @inject(TOKENS.LOGGER) private readonly logger: Pick<Logger, 'error'>,
   ) {
-    lock.setLiveRecordCheck((sessionId) => {
-      const owner = this.owners.get(sessionId);
-      return Boolean(
-        owner &&
-        (owner.records.size || owner.natives.size || owner.provisional),
-      );
-    });
+    lock.setLiveRecordCheck((sessionId) => owned(this.owners.get(sessionId)));
+    // Operator release runs in the session's queue, so no owner can be admitted
+    // between the liveness decision and the kernel release.
+    lock.setReleaseGate((sessionId, release) =>
+      this.serial(sessionId, async () => {
+        const owner = this.owners.get(sessionId);
+        if (owned(owner)) return 'in-use';
+        if (owner) this.owners.delete(sessionId);
+        return release();
+      }),
+    );
     lifecycle.onRecordRemoved((record) => {
       void this.removed(record.token, record.tabId).catch((error: unknown) => {
         this.logger.error(
@@ -138,6 +153,7 @@ export class SessionDriverLockCoordinator {
       nonce: result.nonce,
       records: new Set(),
       natives: new Set(),
+      attempts: new Map(),
     };
     this.owners.set(sessionId, ownership);
     return ownership;
@@ -147,7 +163,7 @@ export class SessionDriverLockCoordinator {
     sessionId: string,
     owner: Ownership,
   ): Promise<void> {
-    if (owner.provisional || owner.records.size || owner.natives.size) return;
+    if (owned(owner)) return;
     if (this.owners.get(sessionId) !== owner) return;
     this.owners.delete(sessionId);
     await this.lock.release(sessionId, owner.nonce);
@@ -163,45 +179,46 @@ export class SessionDriverLockCoordinator {
     this.admissionFailures.delete(tabId);
   }
 
-  async beginDrive(sessionId: string, tabId: string): Promise<void> {
+  /** Starts a drive attempt and returns its token for `settleDrive` / `abandonDrive`. */
+  async beginDrive(sessionId: string, tabId: string): Promise<string> {
+    const attempt = `attempt:${randomUUID()}`;
     await this.serial(sessionId, async () => {
       const owner = await this.ensure(sessionId);
-      if (!owner.records.size && !owner.natives.size) owner.provisional = tabId;
-      if (this.parked.get(tabId) === sessionId) this.parked.delete(tabId);
+      owner.attempts.set(attempt, { tabId });
     });
+    return attempt;
   }
 
-  /** Ends a failed attempt: drops its provisional owner and frees an unowned lock. */
-  async abandonDrive(sessionId: string, tabId: string): Promise<void> {
+  /** Ends a failed attempt: drops only its own ownership and frees an unowned lock. */
+  async abandonDrive(sessionId: string, attempt?: string): Promise<void> {
     await this.serial(sessionId, async () => {
-      if (this.parked.get(tabId) === sessionId) this.parked.delete(tabId);
       const owner = this.owners.get(sessionId);
-      if (owner?.provisional === tabId) {
-        owner.provisional = undefined;
-        await this.releaseEmpty(sessionId, owner);
-      }
+      if (!owner || !attempt || !owner.attempts.delete(attempt)) return;
+      await this.releaseEmpty(sessionId, owner);
     });
   }
 
   /**
    * Ends an attempt that returned. A Claude record binds its session only on the SDK
-   * `init` message, which can arrive after the RPC returns, so the provisional owner
-   * stays while the tab's record has not bound or is bound to this session. It then
-   * ends when that record binds, when the record is removed, or on `abandonDrive`.
+   * `init` message, which can arrive after the RPC returns. While the tab's record has
+   * not bound, or is about to bind this session, the attempt keeps the lock and waits
+   * for that record: it ends when the record binds or is removed.
    */
-  async settleDrive(sessionId: string, tabId: string): Promise<void> {
+  async settleDrive(sessionId: string, attempt?: string): Promise<void> {
     await this.serial(sessionId, async () => {
       const owner = this.owners.get(sessionId);
-      if (owner?.provisional !== tabId) return;
-      const record = this.lifecycle.find(tabId);
+      const state = attempt ? owner?.attempts.get(attempt) : undefined;
+      if (!owner || !attempt || !state) return;
+      const record = this.lifecycle.find(state.tabId);
       if (
-        record?.tabId === tabId &&
+        record?.tabId === state.tabId &&
+        !owner.records.has(record.token) &&
         (record.realSessionId ?? sessionId) === sessionId
       ) {
-        this.parked.set(tabId, sessionId);
+        state.record = record.token;
         return;
       }
-      owner.provisional = undefined;
+      owner.attempts.delete(attempt);
       await this.releaseEmpty(sessionId, owner);
     });
   }
@@ -209,11 +226,14 @@ export class SessionDriverLockCoordinator {
   async assertDriveHeld(sessionId: string, tabId?: string): Promise<void> {
     await this.serial(sessionId, async () => {
       const owner = this.owners.get(sessionId);
+      const attemptHeld =
+        tabId !== undefined &&
+        Array.from(owner?.attempts.values() ?? []).some(
+          (attempt) => attempt.tabId === tabId,
+        );
       if (
         !owner ||
-        (!owner.records.size &&
-          !owner.natives.size &&
-          owner.provisional !== tabId)
+        (!owner.records.size && !owner.natives.size && !attemptHeld)
       ) {
         throw this.refusal({
           unavailable: 'this process does not hold the session lock',
@@ -238,8 +258,6 @@ export class SessionDriverLockCoordinator {
     await this.serial(sessionId, async () => {
       const owner = await this.ensure(sessionId);
       owner.natives.add(key);
-      if (context.tabId && owner.provisional === context.tabId)
-        owner.provisional = undefined;
     });
     let released = false;
     return {
@@ -271,7 +289,6 @@ export class SessionDriverLockCoordinator {
           return false;
         }
         owner.records.add(token);
-        if (owner.provisional === tabId) owner.provisional = undefined;
         this.heldByRecord.set(token, sessionId);
         return true;
       });
@@ -283,16 +300,25 @@ export class SessionDriverLockCoordinator {
       await this.failRecord(token, tabId, error);
       return false;
     }
-    if (admitted) await this.unpark(tabId, sessionId);
+    if (admitted) await this.endWaitingAttempts(token);
     return admitted;
   }
 
-  /** The tab's record bound: a parked provisional owner on another session ends. */
-  private async unpark(tabId: string, sessionId: string): Promise<void> {
-    const parked = this.parked.get(tabId);
-    if (parked === undefined) return;
-    this.parked.delete(tabId);
-    if (parked !== sessionId) await this.abandonDrive(parked, tabId);
+  /** The record with this token bound or was removed: attempts waiting on it end. */
+  private async endWaitingAttempts(token: string): Promise<void> {
+    const waiting = (owner: Ownership): string[] =>
+      Array.from(owner.attempts)
+        .filter(([, attempt]) => attempt.record === token)
+        .map(([key]) => key);
+    for (const [sessionId, owner] of Array.from(this.owners)) {
+      if (!waiting(owner).length) continue;
+      await this.serial(sessionId, async () => {
+        const current = this.owners.get(sessionId);
+        if (!current) return;
+        for (const key of waiting(current)) current.attempts.delete(key);
+        await this.releaseEmpty(sessionId, current);
+      });
+    }
   }
 
   private async rebound(
@@ -327,10 +353,7 @@ export class SessionDriverLockCoordinator {
   private async removed(token: string, tabId: string): Promise<void> {
     const sessionId = this.heldByRecord.get(token);
     if (sessionId) await this.dropRecord(token, sessionId);
-    for (const [id, owner] of this.owners) {
-      if (owner.provisional === tabId) await this.abandonDrive(id, tabId);
-    }
-    this.parked.delete(tabId);
+    await this.endWaitingAttempts(token);
     this.failures.delete(token);
     if (!this.activeAdmissions.has(tabId)) this.admissionFailures.delete(tabId);
   }
