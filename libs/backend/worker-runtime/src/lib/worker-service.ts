@@ -1,0 +1,159 @@
+import { readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type {
+  ReadinessReport,
+  WorkerGrant,
+} from '@ptah-extension/worker-protocol';
+import { SessionEventLog } from './session-event-log';
+import { SessionFanOut } from './fan-out';
+import { SessionLogWriter } from './session-log-writer';
+import type { SessionDriver } from './session-driver';
+import { assertManualApproval } from './pending-permissions';
+import { ensureWorkerDirectory, type WorkerPaths } from './paths';
+import {
+  createWorkerServer,
+  type WorkerServer,
+  type WorkerServerOptions,
+} from './worker-server';
+import type { WorkspaceRegistry } from './workspace-registry';
+
+export interface WorkerServiceOptions extends Omit<
+  WorkerServerOptions,
+  'handle'
+> {
+  paths: WorkerPaths;
+  registry: WorkspaceRegistry;
+  workspacePaths: readonly string[];
+  argv?: readonly string[];
+  autoApprove?: string;
+  driver: Pick<SessionDriver, 'onAppendFailed'>;
+  handle: (
+    method: string,
+    params: unknown,
+    grant: WorkerGrant | null,
+    admin: boolean,
+  ) => Promise<unknown>;
+  releaseLocks: () => Promise<void>;
+  readiness: () => Promise<ReadinessReport>;
+  onSigterm?: boolean;
+}
+
+export class WorkerService {
+  private server: WorkerServer | undefined;
+  private readonly logs = new Map<string, SessionEventLog>();
+  private readonly writers = new Map<string, SessionLogWriter>();
+  private stopping: Promise<void> | undefined;
+  private endpointWritten = false;
+  private readonly onTermination = (): void => {
+    void this.stop();
+  };
+
+  constructor(private readonly options: WorkerServiceOptions) {}
+
+  get endpoint(): { host: string; port: number } | undefined {
+    return this.server
+      ? { host: this.server.host, port: this.server.port }
+      : undefined;
+  }
+
+  async start(): Promise<void> {
+    assertManualApproval(
+      this.options.argv ?? process.argv,
+      this.options.autoApprove,
+    );
+    await ensureWorkerDirectory(this.options.paths);
+    await this.options.registry.load();
+    await this.options.tokens.load();
+    try {
+      await this.recoverLogs();
+      for (const path of this.options.workspacePaths)
+        await this.options.registry.register(path);
+      const readiness = await this.options.readiness();
+      if (!readiness.ready)
+        throw new Error(
+          `Worker is not ready: ${readiness.checks
+            .filter((check) => check.status === 'fail')
+            .map((check) => check.id)
+            .join(', ')}`,
+        );
+      this.server = await createWorkerServer(this.options);
+      const temporary = `${this.options.paths.endpoint}.${process.pid}.tmp`;
+      await writeFile(
+        temporary,
+        JSON.stringify({ host: this.server.host, port: this.server.port }),
+        { mode: 0o600, flag: 'wx' },
+      );
+      await rename(temporary, this.options.paths.endpoint);
+      this.endpointWritten = true;
+      if (this.options.onSigterm !== false)
+        process.on('SIGTERM', this.onTermination);
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
+  }
+
+  writer(sessionId: string): SessionLogWriter {
+    const writer = this.writers.get(sessionId);
+    if (!writer) throw new Error('Session log is not open');
+    return writer;
+  }
+
+  async openSession(sessionId: string): Promise<SessionLogWriter> {
+    if (this.writers.has(sessionId)) return this.writer(sessionId);
+    const log = await SessionEventLog.open(this.options.paths, sessionId);
+    this.logs.set(sessionId, log);
+    const writer = new SessionLogWriter(log, new SessionFanOut(), {
+      onAppendFailed: (id) => this.options.driver.onAppendFailed(id),
+    });
+    this.writers.set(sessionId, writer);
+    return writer;
+  }
+
+  async stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
+    this.stopping = this.shutdown();
+    return this.stopping;
+  }
+
+  private async recoverLogs(): Promise<void> {
+    let names: string[];
+    try {
+      names = await readdir(this.options.paths.events);
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      )
+        return;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      await this.openSession(name.slice(0, -6));
+    }
+  }
+
+  private async shutdown(): Promise<void> {
+    process.off('SIGTERM', this.onTermination);
+    this.options.pairing.close();
+    for (const connection of this.server?.connections ?? [])
+      connection.sendControl('goodbye', { reason: 'shutdown' });
+    if (this.server) await this.server.close();
+    for (const log of this.logs.values()) {
+      await log.sync();
+      await log.close();
+    }
+    this.logs.clear();
+    this.writers.clear();
+    await this.options.releaseLocks();
+    if (this.endpointWritten)
+      await rm(this.options.paths.endpoint, { force: true });
+    await rm(
+      join(this.options.paths.directory, `endpoint.json.${process.pid}.tmp`),
+      { force: true },
+    );
+  }
+}

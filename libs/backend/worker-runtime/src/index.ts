@@ -17,3 +17,7 @@ export * from './lib/capabilities/worker-capabilities';
 export * from './lib/session-driver';
 export * from './lib/transcript';
 export * from './lib/pending-permissions';
+export * from './lib/connection';
+export * from './lib/worker-server';
+export * from './lib/readiness';
+export * from './lib/worker-service';

@@ -933,7 +933,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 18.1: Server, connection state machine, readiness — PENDING
+### Task 18.1: Server, connection state machine, readiness — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{worker-server,connection,readiness}.ts` (+ specs)
 - Plan reference: W2 :228-238; C6 :1142-1144, :1162-1170; AD-4, AD-14
@@ -949,7 +949,7 @@ phase summary.
 - Validation notes: `EADDRINUSE` names the port
 - Implementation details: none
 
-### Task 18.2: Worker service — PENDING
+### Task 18.2: Worker service — COMPLETE
 
 - Depends on: Task 18.1
 - Files: W/`libs/backend/worker-runtime/src/lib/worker-service.ts` (+ spec),
