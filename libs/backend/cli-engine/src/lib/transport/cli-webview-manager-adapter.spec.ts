@@ -20,7 +20,10 @@ import {
   type DashboardSurfaceHost,
 } from '@ptah-extension/vscode-lm-tools';
 
-import { CliWebviewManagerAdapter } from './cli-webview-manager-adapter';
+import {
+  CliWebviewManagerAdapter,
+  type CliWebviewManagerAdapterOptions,
+} from './cli-webview-manager-adapter';
 
 describe('CliWebviewManagerAdapter attention ingress', () => {
   it('observes a send before delivery even with zero views', async () => {
@@ -203,11 +206,14 @@ describe('CliWebviewManagerAdapter — batch unwrapping', () => {
  * synchronous tap that sees each de-batched event before local listeners do.
  */
 describe('CliWebviewManagerAdapter — push tap (TASK_2026_858 C5)', () => {
+  const logger = { error: jest.fn() };
+
   it('taps a plain event before emitting it', async () => {
     const order: string[] = [];
     const adapter = new CliWebviewManagerAdapter({
       tap: (type, payload) =>
         order.push(`tap:${type}:${JSON.stringify(payload)}`),
+      logger,
     });
     adapter.on('session:stats', (payload) =>
       order.push(`emit:session:stats:${JSON.stringify(payload)}`),
@@ -226,6 +232,7 @@ describe('CliWebviewManagerAdapter — push tap (TASK_2026_858 C5)', () => {
     const adapter = new CliWebviewManagerAdapter({
       tap: (type, payload) =>
         order.push(`tap:${type}:${(payload as { i: number }).i}`),
+      logger,
     });
     adapter.on('chat:chunk', (payload: { i: number }) =>
       order.push(`emit:chat:chunk:${payload.i}`),
@@ -255,7 +262,7 @@ describe('CliWebviewManagerAdapter — push tap (TASK_2026_858 C5)', () => {
 
   it('never taps the batch wrapper itself', async () => {
     const tap = jest.fn();
-    const adapter = new CliWebviewManagerAdapter({ tap });
+    const adapter = new CliWebviewManagerAdapter({ tap, logger });
 
     await adapter.broadcastMessage(MESSAGE_TYPES.BATCH, {
       events: [{ type: 'chat:chunk', payload: {} }],
@@ -267,11 +274,18 @@ describe('CliWebviewManagerAdapter — push tap (TASK_2026_858 C5)', () => {
 
   it('runs synchronously inside the send call', () => {
     const tap = jest.fn();
-    const adapter = new CliWebviewManagerAdapter({ tap });
+    const adapter = new CliWebviewManagerAdapter({ tap, logger });
 
     void adapter.sendMessage('view', 'session:stats', {});
 
     expect(tap).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a tap without a logger at compile time', () => {
+    const tap = jest.fn();
+    // @ts-expect-error A throwing tap must have a logger to report to.
+    const options: CliWebviewManagerAdapterOptions = { tap };
+    expect(options.tap).toBe(tap);
   });
 
   it('isolates a throwing tap: emit and later events still run, only the name is logged', async () => {
@@ -306,27 +320,20 @@ describe('CliWebviewManagerAdapter — push tap (TASK_2026_858 C5)', () => {
     expect(JSON.stringify(error.mock.calls)).not.toContain('secret');
   });
 
-  it('logs a non-Error throw as UnknownError and still emits without a logger', async () => {
+  it('logs a non-Error throw as UnknownError and still emits', async () => {
     const error = jest.fn();
-    const withLogger = new CliWebviewManagerAdapter({
+    const deliver = jest.fn();
+    const adapter = new CliWebviewManagerAdapter({
       tap: () => {
         throw 'raw string';
       },
       logger: { error },
     });
-    await withLogger.sendMessage('view', 'session:stats', {});
+    adapter.on('session:stats', deliver);
+    await adapter.sendMessage('view', 'session:stats', {});
     expect(error).toHaveBeenCalledWith(
       '[CliWebviewManagerAdapter] Push tap failed: UnknownError',
     );
-
-    const deliver = jest.fn();
-    const noLogger = new CliWebviewManagerAdapter({
-      tap: () => {
-        throw new Error('x');
-      },
-    });
-    noLogger.on('session:stats', deliver);
-    await noLogger.sendMessage('view', 'session:stats', {});
     expect(deliver).toHaveBeenCalledTimes(1);
   });
 });

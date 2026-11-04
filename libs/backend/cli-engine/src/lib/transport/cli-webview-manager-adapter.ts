@@ -34,24 +34,32 @@ import type { Logger } from '@ptah-extension/vscode-core';
  */
 export type CliPushTap = (type: string, payload: unknown) => void;
 
-export interface CliWebviewManagerAdapterOptions {
-  /** See {@link CliPushTap}. */
-  readonly tap?: CliPushTap;
-  /** Receives the tap-failure line (error name only — never message or payload). */
-  readonly logger?: Pick<Logger, 'error'>;
-}
+/**
+ * A tap comes with the logger that receives its failure line (error name
+ * only — never message or payload), so a throwing tap is never silent.
+ */
+export type CliWebviewManagerAdapterOptions =
+  | { readonly tap?: undefined; readonly logger?: undefined }
+  | {
+      /** See {@link CliPushTap}. */
+      readonly tap: CliPushTap;
+      readonly logger: Pick<Logger, 'error'>;
+    };
 
 export class CliWebviewManagerAdapter
   extends EventEmitter
   implements IHostAttentionObserverHost
 {
-  private readonly tap?: CliPushTap;
-  private readonly tapLogger?: Pick<Logger, 'error'>;
+  private readonly tap?: {
+    readonly observe: CliPushTap;
+    readonly logger: Pick<Logger, 'error'>;
+  };
 
   constructor(options: CliWebviewManagerAdapterOptions = {}) {
     super();
-    this.tap = options.tap;
-    this.tapLogger = options.logger;
+    if (options.tap !== undefined) {
+      this.tap = { observe: options.tap, logger: options.logger };
+    }
   }
 
   private attentionRegistration?: {
@@ -159,13 +167,13 @@ export class CliWebviewManagerAdapter
   private observeTap(type: string, payload: unknown): void {
     if (!this.tap) return;
     try {
-      this.tap(type, payload);
+      this.tap.observe(type, payload);
     } catch (error: unknown) {
       // Isolated on purpose: a failing observer must not silence the local
       // listeners. Only the error name is logged, because a message could
       // carry payload text.
       const name = error instanceof Error ? error.name : 'UnknownError';
-      this.tapLogger?.error(
+      this.tap.logger.error(
         `[CliWebviewManagerAdapter] Push tap failed: ${name}`,
       );
     }
