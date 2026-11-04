@@ -1,0 +1,50 @@
+{
+  "name": "process-sampler",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/process-sampler/src",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.mjs",
+        {
+          "externalDependencies": ["eslint", "@nx/eslint-plugin"]
+        }
+      ],
+      "options": {
+        "cwd": "tools/process-sampler",
+        "command": "eslint ."
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/jest.preset.js"],
+      "outputs": ["{workspaceRoot}/coverage/tools/process-sampler"],
+      "options": {
+        "cwd": "tools/process-sampler",
+        "env": {
+          "TS_NODE_COMPILER_OPTIONS": "{\"moduleResolution\":\"node10\",\"module\":\"commonjs\",\"customConditions\":null}"
+        },
+        "command": "jest"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        {
+          "externalDependencies": ["typescript"]
+        }
+      ],
+      "options": {
+        "command": "tsc --noEmit --project tools/process-sampler/tsconfig.json"
+      }
+    }
+  }
+}

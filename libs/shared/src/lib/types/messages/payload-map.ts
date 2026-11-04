@@ -134,6 +134,10 @@ import type {
   BootReadinessChangedPayload,
 } from '../rpc/rpc-readiness.types';
 import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
+import type {
+  MachinesEventPayload,
+  MachinesStatePayload,
+} from '../rpc/rpc-machines.types';
 import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { DashboardSpecEnvelope } from '../../../mcp-apps-contracts/dashboard-spec.types';
@@ -476,6 +480,8 @@ export interface MessagePayloadMap {
   'git:operationOutput': GitOperationOutputPayload;
   'file:content-changed': FileContentChangedPayload;
   'library:changed': LibraryChangedPayload;
+  'machines:event': MachinesEventPayload;
+  'machines:state': MachinesStatePayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

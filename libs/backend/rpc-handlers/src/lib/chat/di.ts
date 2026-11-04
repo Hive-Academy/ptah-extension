@@ -54,6 +54,7 @@ import { ChatStreamDeliveryCoordinator } from './streaming/chat-stream-delivery-
 import { ChatSubagentContextInjectorService } from './session/chat-subagent-context-injector.service';
 import { ChatSlashCommandRouterService } from './session/chat-slash-command-router.service';
 import { ChatSessionService } from './session/chat-session.service';
+import { SessionDriverLockCoordinator } from './session/session-driver-lock-coordinator';
 import { ChatCarryOverService } from './session/chat-carry-over.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
@@ -96,6 +97,10 @@ export function registerChatServices(container: DependencyContainer): void {
   // registry must exist by the time that resolution happens.
   container.registerSingleton(CHAT_TOKENS.MCP_STATUS, SessionMcpStatusRegistry);
   container.registerSingleton(CHAT_TOKENS.HISTORY_READ, ChatHistoryReadService);
+  container.registerSingleton(
+    CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR,
+    SessionDriverLockCoordinator,
+  );
   // No output-style registration here. `OutputStyleSessionActivationService`
   // moved to `output-styles` when the CLI-agent spawn path started needing the
   // same composition, and `registerOutputStyleServices` — which every host

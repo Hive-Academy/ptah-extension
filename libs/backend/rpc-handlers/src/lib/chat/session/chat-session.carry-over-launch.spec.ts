@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — carry-over launch option (TASK_2026_865, Component 5).
  *
@@ -63,7 +64,11 @@ const SENTINEL = 'TRANSCRIPT-SENTINEL-7f3a the customer list and api plan';
 const PROMPT = `Summarize the earlier conversation.\n${SENTINEL}`;
 
 type Execution =
-  | { runtime: 'claude-sdk'; model: string; providerProfile: { providerId: string } | undefined }
+  | {
+      runtime: 'claude-sdk';
+      model: string;
+      providerProfile: { providerId: string } | undefined;
+    }
   | {
       runtime: 'codex-app-server';
       seed: { providerId: 'openai-codex'; model: string };
@@ -188,7 +193,9 @@ function makeHarness(opts: HarnessOptions) {
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as never,
-    { intercept: jest.fn().mockReturnValue({ action: 'passthrough' }) } as never,
+    {
+      intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
+    } as never,
     metadataStore as never,
     createMockWorkspaceProvider({ folders: [WORKSPACE] }) as never,
     {
@@ -202,7 +209,10 @@ function makeHarness(opts: HarnessOptions) {
       resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     } as never,
     { handleStart: jest.fn() } as never,
-    { streamEventsToWebview, isStreaming: jest.fn().mockReturnValue(false) } as never,
+    {
+      streamEventsToWebview,
+      isStreaming: jest.fn().mockReturnValue(false),
+    } as never,
     { injectInterruptedAgentsContext: jest.fn() } as never,
     { routeFollowUpSlashCommand: jest.fn() } as never,
     createMockModelSettings() as never,
@@ -225,6 +235,8 @@ function makeHarness(opts: HarnessOptions) {
     runtimeProfile as never,
     undefined,
     undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
   jest
     .spyOn(
@@ -329,7 +341,10 @@ describe('ChatSessionService carry-over launch', () => {
 
   describe('R1: the admission hook', () => {
     it('runs once after the pin, before the adapter starts the session', async () => {
-      const h = makeHarness({ active: 'openrouter', execution: claude('openrouter') });
+      const h = makeHarness({
+        active: 'openrouter',
+        execution: claude('openrouter'),
+      });
       const onAdmitted = jest.fn();
 
       await expect(
@@ -357,7 +372,10 @@ describe('ChatSessionService carry-over launch', () => {
           expectedProviderId: 'openrouter',
           onAdmitted,
         }),
-      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      ).resolves.toEqual({
+        success: false,
+        error: CARRY_OVER_PROVIDER_CHANGED,
+      });
       expect(onAdmitted).not.toHaveBeenCalled();
       expectNothingLaunched(h);
     });
@@ -368,23 +386,30 @@ describe('ChatSessionService carry-over launch', () => {
       ['Claude with a matching profile', 'openrouter', claude('openrouter')],
       ['Claude with an undefined profile', 'openrouter', claude(undefined)],
       ['Codex whose seed matches', 'openai-codex', codex()],
-    ] as const)('%s: creates nothing (AC 2.3, 2.5)', async (_label, pin, execution) => {
-      const h = makeHarness({ active: pin, switchTo: 'anthropic', execution });
+    ] as const)(
+      '%s: creates nothing (AC 2.3, 2.5)',
+      async (_label, pin, execution) => {
+        const h = makeHarness({
+          active: pin,
+          switchTo: 'anthropic',
+          execution,
+        });
 
-      const result = await h.service.startSession(params(), {
-        expectedProviderId: pin,
-      });
+        const result = await h.service.startSession(params(), {
+          expectedProviderId: pin,
+        });
 
-      expect(result).toEqual({
-        success: false,
-        error: CARRY_OVER_PROVIDER_CHANGED,
-      });
-      expect(h.prepare).toHaveBeenCalledTimes(1);
-      expectNothingLaunched(h);
-      expect(h.captureException).not.toHaveBeenCalled();
-      expect(h.logger.warn).not.toHaveBeenCalled();
-      expect(h.logger.error).not.toHaveBeenCalled();
-    });
+        expect(result).toEqual({
+          success: false,
+          error: CARRY_OVER_PROVIDER_CHANGED,
+        });
+        expect(h.prepare).toHaveBeenCalledTimes(1);
+        expectNothingLaunched(h);
+        expect(h.captureException).not.toHaveBeenCalled();
+        expect(h.logger.warn).not.toHaveBeenCalled();
+        expect(h.logger.error).not.toHaveBeenCalled();
+      },
+    );
 
     it('the no-runtime-profile branch: creates nothing', async () => {
       const h = makeHarness({
@@ -395,7 +420,10 @@ describe('ChatSessionService carry-over launch', () => {
 
       await expect(
         h.service.startSession(params(), { expectedProviderId: 'openrouter' }),
-      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      ).resolves.toEqual({
+        success: false,
+        error: CARRY_OVER_PROVIDER_CHANGED,
+      });
       expect(h.resolveProviderProfileForWorkspace).toHaveBeenCalledTimes(1);
       expectNothingLaunched(h);
     });
@@ -403,11 +431,17 @@ describe('ChatSessionService carry-over launch', () => {
 
   describe('refuses a launch it cannot pin', () => {
     it('a Claude profile that serves another provider', async () => {
-      const h = makeHarness({ active: 'anthropic', execution: claude('openrouter') });
+      const h = makeHarness({
+        active: 'anthropic',
+        execution: claude('openrouter'),
+      });
 
       await expect(
         h.service.startSession(params(), { expectedProviderId: 'anthropic' }),
-      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      ).resolves.toEqual({
+        success: false,
+        error: CARRY_OVER_PROVIDER_CHANGED,
+      });
       expectNothingLaunched(h);
     });
 
@@ -416,7 +450,10 @@ describe('ChatSessionService carry-over launch', () => {
 
       await expect(
         h.service.startSession(params(), { expectedProviderId: 'anthropic' }),
-      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      ).resolves.toEqual({
+        success: false,
+        error: CARRY_OVER_PROVIDER_CHANGED,
+      });
       expectNothingLaunched(h);
     });
 
@@ -429,7 +466,10 @@ describe('ChatSessionService carry-over launch', () => {
 
       await expect(
         h.service.startSession(params(), { expectedProviderId: 'anthropic' }),
-      ).resolves.toEqual({ success: false, error: CARRY_OVER_PROVIDER_CHANGED });
+      ).resolves.toEqual({
+        success: false,
+        error: CARRY_OVER_PROVIDER_CHANGED,
+      });
       expectNothingLaunched(h);
     });
   });
@@ -446,17 +486,24 @@ describe('ChatSessionService carry-over launch', () => {
         expectedProviderId: 'anthropic',
       });
 
-      expect(result).toEqual({ success: false, error: CARRY_OVER_START_FAILED });
+      expect(result).toEqual({
+        success: false,
+        error: CARRY_OVER_START_FAILED,
+      });
       expectNothingLaunched(h);
       expectNoSentinel(h, result);
       expect(h.logger.warn).toHaveBeenCalledWith(
         '[carry-over] start failed',
-        expect.objectContaining({ message: 'carry-over start threw TypeError' }),
+        expect.objectContaining({
+          message: 'carry-over start threw TypeError',
+        }),
         { tabId: TAB_ID },
       );
       expect(h.captureException).toHaveBeenCalledTimes(1);
       expect(h.captureException).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'carry-over start threw TypeError' }),
+        expect.objectContaining({
+          message: 'carry-over start threw TypeError',
+        }),
         { errorSource: 'ChatSessionService.carryOverStart' },
       );
       expect(h.logger.error).not.toHaveBeenCalled();
@@ -473,7 +520,10 @@ describe('ChatSessionService carry-over launch', () => {
         expectedProviderId: 'anthropic',
       });
 
-      expect(result).toEqual({ success: false, error: CARRY_OVER_START_FAILED });
+      expect(result).toEqual({
+        success: false,
+        error: CARRY_OVER_START_FAILED,
+      });
       expect(h.startChatSession).toHaveBeenCalledTimes(1);
       expect(h.pendingLineage.has(TAB_ID)).toBe(false);
       expectNoSentinel(h, result);
@@ -493,7 +543,10 @@ describe('ChatSessionService carry-over launch', () => {
       const result = await h.service.startSession(params());
 
       expect(result).toEqual({ success: false, error: error.message });
-      expect(h.logger.error).toHaveBeenCalledWith('RPC: chat:start failed', error);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: chat:start failed',
+        error,
+      );
       expect(h.captureException).toHaveBeenCalledWith(error, {
         errorSource: 'ChatRpcHandlers.registerChatStart',
       });

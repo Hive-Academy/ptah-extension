@@ -12,6 +12,9 @@ export const CHAT_TOKENS = {
   SDK_CONTEXT: Symbol.for('ChatSdkContextService'),
   PTAH_CLI: Symbol.for('ChatPtahCliService'),
   SESSION: Symbol.for('ChatSessionService'),
+  SESSION_DRIVER_LOCK_COORDINATOR: Symbol.for(
+    'ChatSessionDriverLockCoordinator',
+  ),
   /**
    * Continues a refused session on the active provider
    * (`chat:carry-over-check`, `chat:carry-over`). Injects `SESSION`.

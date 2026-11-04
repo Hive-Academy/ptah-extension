@@ -51,4 +51,26 @@ export type RpcUserErrorCode =
    * `skillSynthesis.enabled`) is off, so a manual run that would do the same
    * model work is refused until the user resumes it.
    */
-  | 'PAUSED';
+  | 'PAUSED'
+  /**
+   * Another process (the desktop app, a worker or the CLI) holds the
+   * session's driver lock, so this one may watch but not drive it.
+   */
+  | 'SESSION_DRIVEN_ELSEWHERE'
+  /**
+   * The session driver lock could not be taken because the platform refused
+   * the lock endpoint; turns are refused until it is fixed (readiness check).
+   */
+  | 'SESSION_DRIVER_LOCK_UNAVAILABLE'
+  /** A `machines:*` call needs a connection the remote machine does not have now. */
+  | 'MACHINE_UNREACHABLE'
+  /** The remote worker shares no protocol version with this app. */
+  | 'MACHINE_VERSION_MISMATCH'
+  /**
+   * The machine, or the workspace or session named on it, is not registered
+   * here or is outside the machine's grant. One code for both, so a call
+   * cannot probe what exists outside the grant.
+   */
+  | 'MACHINE_NOT_FOUND_OR_FORBIDDEN'
+  /** The worker refused the pairing code (wrong, expired or window closed). */
+  | 'MACHINE_PAIRING_REJECTED';

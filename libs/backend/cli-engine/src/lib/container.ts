@@ -147,6 +147,7 @@ import {
   registerHarnessServices,
   registerRpcSurface,
   registerSharedRpcHandlers,
+  type HostProfile,
 } from '@ptah-extension/rpc-handlers';
 import {
   CliOutputManagerAdapter,
@@ -196,6 +197,13 @@ export interface CliBootstrapOptions {
    * the only headless profile with the `filePicker` capability on.
    */
   filePicker?: IFileDialog;
+  /**
+   * RPC host profile for Phase 4. When given it is used as-is in place of
+   * `createCliRpcHostProfile(host)` (the remote worker supplies its own
+   * profile); when omitted the CLI/TUI profile for `host` is derived as
+   * before. Ignored under `bootstrapMode: 'minimal'`.
+   */
+  hostProfile?: HostProfile;
   /**
    * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
    * start AND end of every numbered DI phase. Consumed by the JSON-RPC
@@ -293,7 +301,9 @@ export function attachCliHostAttention(
     // degradation-audit: optional-capability - CLI host attention is an
     // optional notification channel; the failure is warned and the CLI
     // runs without it (undefined means "nothing to dispose").
-    warn(`Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+    warn(
+      `Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`,
+    );
     return undefined;
   }
 }
@@ -702,7 +712,10 @@ export class CliDIContainer {
     registerSdkServices(container, logger);
     CliDIContainer._attentionRegistration?.dispose();
     CliDIContainer._attentionRegistration = attachCliHostAttention(
-      () => container.resolve<IHostAttentionIngress>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR),
+      () =>
+        container.resolve<IHostAttentionIngress>(
+          SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+        ),
       (observer) => pushAdapter.setAttentionObserver(observer, logger),
       (message) => logger.warn(message),
     );
@@ -981,7 +994,10 @@ export class CliDIContainer {
           });
           container.registerSingleton(FilePickerRpcHandlers);
         }
-        registerRpcSurface(container, createCliRpcHostProfile(host));
+        registerRpcSurface(
+          container,
+          options.hostProfile ?? createCliRpcHostProfile(host),
+        );
       } catch (error) {
         logger.error(
           '[CLI DI] RPC method registration failed',

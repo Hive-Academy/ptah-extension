@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * chat:continue delivers a Codex follow-up once (GAP-I).
  *
@@ -55,7 +56,11 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
-import type { ChatContinueParams, FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
+import type {
+  ChatContinueParams,
+  FlatStreamEventUnion,
+  SessionId,
+} from '@ptah-extension/shared';
 import { ChatSessionService } from './chat-session.service';
 
 // A real folder: the merged session-folder check resolves it on disk.
@@ -108,6 +113,7 @@ function harness(
   const service: ChatSessionService = Object.assign(
     Object.create(ChatSessionService.prototype),
     {
+      driverLock: createFakeDriverLockCoordinator(),
       logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -118,7 +124,10 @@ function harness(
         handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }),
       },
       sessionMetadataStore: { get: async () => null },
-      subagentRegistry: { isResumeStateHydrated: () => true, getInterruptedBySession: () => [] },
+      subagentRegistry: {
+        isResumeStateHydrated: () => true,
+        getInterruptedBySession: () => [],
+      },
       historyRead: { resolveSessionFolder: async () => OPEN_FOLDER },
       sdkContext: {
         isMcpServerRunning: () => false,
@@ -148,12 +157,15 @@ function harness(
             }
           : undefined,
       workspaceProviderProfileResolver: {
-        resolveStoredModel: (_workspace: string, model: string) => model || 'default',
+        resolveStoredModel: (_workspace: string, model: string) =>
+          model || 'default',
         resolveProviderProfileForWorkspace: async () => undefined,
       },
       outputStyleActivation: { resolveSessionFields: async () => ({}) },
       modelSettings: { selectedModel: { get: () => 'default' } },
-      workspaceProvider: createMockWorkspaceProvider({ folders: [OPEN_FOLDER] }),
+      workspaceProvider: createMockWorkspaceProvider({
+        folders: [OPEN_FOLDER],
+      }),
       platformInfo: {
         type: 'cli',
         extensionPath: join(tmpdir(), 'ptah-app'),
@@ -179,8 +191,12 @@ function harness(
     routeFollowUpSlashCommand,
     streamEventsToWebview,
     admitUserTurn,
-    startStream: () => { streamAttached = true; },
-    completeStream: () => { streamAttached = false; },
+    startStream: () => {
+      streamAttached = true;
+    },
+    completeStream: () => {
+      streamAttached = false;
+    },
   };
 }
 
@@ -217,7 +233,11 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       model: 'gpt',
       permissionLevel: 'ask',
       approvalPolicy: 'on-request',
-      sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
+      sandboxPolicy: {
+        mode: 'read-only',
+        networkAccess: false,
+        writableRoots: [],
+      },
       instructionSources: [],
       mcpServers: [],
       attachments: [],
@@ -244,7 +264,11 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       events: jest.fn<
         ReturnType<CodexContext['events']>,
         Parameters<CodexContext['events']>
-      >(() => (async function* () { yield terminal; })()),
+      >(() =>
+        (async function* () {
+          yield terminal;
+        })(),
+      ),
       startTurn: jest.fn<
         ReturnType<CodexContext['startTurn']>,
         Parameters<CodexContext['startTurn']>
@@ -264,35 +288,64 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       compact: jest.fn(async () => undefined),
       close: jest.fn(async () => undefined),
     };
-    scope.register(CODEX_RUNTIME_TOKENS.Logger, { useValue: { warn: jest.fn() } });
+    scope.register(CODEX_RUNTIME_TOKENS.Logger, {
+      useValue: { warn: jest.fn() },
+    });
     scope.register(CODEX_RUNTIME_TOKENS.Runtime, {
       useValue: { open: jest.fn(async () => context) },
     });
     const ports: CodexChatAdapterPorts = {
-      logger: Object.assign(Object.create(Logger.prototype), createMockLogger()),
+      driver: { admit: jest.fn(async () => ({ release: jest.fn() })) },
+      logger: Object.assign(
+        Object.create(Logger.prototype),
+        createMockLogger(),
+      ),
       info: {
-        id: 'ptah-cli', name: 'Codex', vendor: 'OpenAI', version: '1',
+        id: 'ptah-cli',
+        name: 'Codex',
+        vendor: 'OpenAI',
+        version: '1',
         description: 'Native chat',
         capabilities: {
-          streaming: true, fileAttachments: true, contextManagement: true,
-          sessionPersistence: true, multiTurn: true, codeGeneration: true,
-          imageAnalysis: true, functionCalling: true,
+          streaming: true,
+          fileAttachments: true,
+          contextManagement: true,
+          sessionPersistence: true,
+          multiTurn: true,
+          codeGeneration: true,
+          imageAnalysis: true,
+          functionCalling: true,
         },
       },
       checkOptions: jest.fn(),
       profile: async () => ({ profile }),
-      createScope: () => ({ container: scope, dispose: async () => { await scope.dispose(); } }),
-      metadata: { save: async () => undefined, completedTurn: async () => undefined },
+      createScope: () => ({
+        container: scope,
+        dispose: async () => {
+          await scope.dispose();
+        },
+      }),
+      metadata: {
+        save: async () => undefined,
+        completedTurn: async () => undefined,
+      },
       approvals: {
         register: () => () => undefined,
         respond: () => false,
         cancelPrompt: () => undefined,
       },
-      presentation: { present: jest.fn(), dismiss: jest.fn(), cancelPrompt: jest.fn() },
+      presentation: {
+        present: jest.fn(),
+        dismiss: jest.fn(),
+        cancelPrompt: jest.fn(),
+      },
       replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
       callbacks: () => ({
-        result: jest.fn(), content: jest.fn(), live: jest.fn(),
-        compaction: jest.fn(), error: jest.fn(),
+        result: jest.fn(),
+        content: jest.fn(),
+        live: jest.fn(),
+        compaction: jest.fn(),
+        error: jest.fn(),
       }),
       publish: async (_id, stream) => {
         h.startStream();
@@ -300,9 +353,15 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
           for await (const event of stream) publishedEvents.push(event);
         } catch (error) {
           // The host has already published the failure notice in the stream.
-          if (error instanceof Error && 'webviewReported' in error &&
-              error.webviewReported === true) return;
-          chatErrors.push(error instanceof Error ? error : new Error(String(error)));
+          if (
+            error instanceof Error &&
+            'webviewReported' in error &&
+            error.webviewReported === true
+          )
+            return;
+          chatErrors.push(
+            error instanceof Error ? error : new Error(String(error)),
+          );
         } finally {
           h.completeStream();
           finishPublish();
@@ -310,24 +369,45 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       },
     };
     const adapter = new CodexChatAdapter(ports, new SessionTurnStateRegistry());
-    const first = await adapter.startChatSession({ tabId: TAB_ID as SessionId });
+    const first = await adapter.startChatSession({
+      tabId: TAB_ID as SessionId,
+    });
     for await (const event of first) void event;
-    context.events.mockImplementation(() => (async function* () {
-      await turnHeld;
-      yield terminal;
-    })());
-    Object.defineProperty(h.service, 'sdkAdapter', { value: adapter, configurable: true });
+    context.events.mockImplementation(() =>
+      (async function* () {
+        await turnHeld;
+        yield terminal;
+      })(),
+    );
+    Object.defineProperty(h.service, 'sdkAdapter', {
+      value: adapter,
+      configurable: true,
+    });
 
-    return { h, context, adapter, releaseTurn, published, publishedEvents, chatErrors };
+    return {
+      h,
+      context,
+      adapter,
+      releaseTurn,
+      published,
+      publishedEvents,
+      chatErrors,
+    };
   }
 
   it('returns enqueued while a real Codex adapter is still publishing the follow-up', async () => {
     const { h, adapter, releaseTurn, published } = await liveAdapterHarness();
     const reply = h.service.continueSession(params('long running follow-up'));
-    const tick = new Promise<'held'>((resolve) => setImmediate(() => resolve('held')));
+    const tick = new Promise<'held'>((resolve) =>
+      setImmediate(() => resolve('held')),
+    );
     const outcome = await Promise.race([reply, tick]);
     try {
-      expect(outcome).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
+      expect(outcome).toEqual({
+        success: true,
+        sessionId: SESSION_ID,
+        enqueued: true,
+      });
       expect(adapter.canSendFollowUp(SESSION_ID)).toBe(false);
     } finally {
       releaseTurn();
@@ -343,17 +423,26 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       await liveAdapterHarness();
     context.startTurn.mockRejectedValueOnce(new Error('turn/start refused'));
     try {
-      await expect(h.service.continueSession(params('refused follow-up'))).resolves.toEqual({
+      await expect(
+        h.service.continueSession(params('refused follow-up')),
+      ).resolves.toEqual({
         success: true,
         sessionId: SESSION_ID,
         settled: true,
       });
-      expect(publishedEvents.filter((event) =>
-        event.eventType === 'text_delta' && event.delta === 'Codex reported a runtime error.',
-      )).toHaveLength(1);
-      expect(publishedEvents.filter((event) =>
-        event.eventType === 'turn_state' && event.phase === 'failed',
-      )).toHaveLength(1);
+      expect(
+        publishedEvents.filter(
+          (event) =>
+            event.eventType === 'text_delta' &&
+            event.delta === 'Codex reported a runtime error.',
+        ),
+      ).toHaveLength(1);
+      expect(
+        publishedEvents.filter(
+          (event) =>
+            event.eventType === 'turn_state' && event.phase === 'failed',
+        ),
+      ).toHaveLength(1);
       expect(chatErrors).toHaveLength(0);
     } finally {
       releaseTurn();
@@ -366,7 +455,11 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      settled: true,
+    });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).toHaveBeenCalledWith(
       SESSION_ID,
@@ -395,7 +488,11 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params(''));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      settled: true,
+    });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).toHaveBeenCalledWith(
       SESSION_ID,
@@ -409,17 +506,27 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      enqueued: true,
+    });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     const resumeConfig: object = h.resumeSession.mock.calls[0][1];
-    expect(resumeConfig).toEqual(expect.objectContaining({ prompt: 'follow up' }));
+    expect(resumeConfig).toEqual(
+      expect.objectContaining({ prompt: 'follow up' }),
+    );
     expect(resumeConfig).not.toHaveProperty('files');
     expect(resumeConfig).not.toHaveProperty('images');
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
-    expect(h.sendMessageToSession).toHaveBeenCalledWith(SESSION_ID, 'follow up', {
-      files: FILES,
-      images: IMAGES,
-    });
+    expect(h.sendMessageToSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      'follow up',
+      {
+        files: FILES,
+        images: IMAGES,
+      },
+    );
   });
 
   it('(c) sends once into a live Codex session and does not resume', async () => {
@@ -427,13 +534,21 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      enqueued: true,
+    });
     expect(h.resumeSession).not.toHaveBeenCalled();
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
-    expect(h.sendMessageToSession).toHaveBeenCalledWith(SESSION_ID, 'follow up', {
-      files: FILES,
-      images: IMAGES,
-    });
+    expect(h.sendMessageToSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      'follow up',
+      {
+        files: FILES,
+        images: IMAGES,
+      },
+    );
   });
 
   it('returns settled after a failed Codex stream was consumed by the send', async () => {
@@ -446,7 +561,11 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      settled: true,
+    });
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).not.toHaveBeenCalled();
   });
@@ -458,7 +577,9 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       h.completeStream();
     });
 
-    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+    await expect(
+      h.service.continueSession(params('follow up')),
+    ).resolves.toEqual({
       success: true,
       sessionId: SESSION_ID,
       settled: true,
@@ -470,7 +591,9 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
   it('keeps Claude enqueued while its broadcast loop remains attached', async () => {
     const h = harness('claude-sdk', true);
 
-    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+    await expect(
+      h.service.continueSession(params('follow up')),
+    ).resolves.toEqual({
       success: true,
       sessionId: SESSION_ID,
       enqueued: true,
@@ -519,7 +642,9 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       h.completeStream();
     });
 
-    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+    await expect(
+      h.service.continueSession(params('follow up')),
+    ).resolves.toEqual({
       success: true,
       sessionId: SESSION_ID,
       settled: true,

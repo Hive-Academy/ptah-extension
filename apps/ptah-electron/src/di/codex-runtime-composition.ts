@@ -77,7 +77,9 @@ import type {
 } from './codex-binding.types';
 
 /** Native Codex is available to every Electron platform. */
-export function createElectronCodexRouting(_input: ElectronCodexRoutingInput): ElectronCodexRouting {
+export function createElectronCodexRouting(
+  _input: ElectronCodexRoutingInput,
+): ElectronCodexRouting {
   const capabilities = Object.freeze({
     nativeCodex: true,
     nativeCodexGateway: true,
@@ -117,7 +119,9 @@ export function resolveElectronCodexBundledRoot(
 }
 
 /** Resolve the host bundle only; installed candidates come from the shared probes. */
-export function createElectronCodexBundledCandidate(bundledRoot: string): string | undefined {
+export function createElectronCodexBundledCandidate(
+  bundledRoot: string,
+): string | undefined {
   const detectedPath = resolveCodexNativeBinaryPath();
   if (!detectedPath) return undefined;
   if (!isAbsolute(bundledRoot))
@@ -145,18 +149,33 @@ export function createElectronCodexBundledCandidate(bundledRoot: string): string
 }
 
 export function createElectronCodexSelectionSnapshot(
-  bundledRoot: string, logger: Logger,
+  bundledRoot: string,
+  logger: Logger,
 ): CodexSelectionSnapshotPort {
-  const snapshot = new CodexSelectionSnapshot(createNodeCodexExecutableProbes(
-    async () => createElectronCodexBundledCandidate(bundledRoot),
-  ));
+  const snapshot = new CodexSelectionSnapshot(
+    createNodeCodexExecutableProbes(async () =>
+      createElectronCodexBundledCandidate(bundledRoot),
+    ),
+  );
   let lastLoggedSelection: string | undefined;
-  const logSelection = (selected: NonNullable<ReturnType<CodexSelectionSnapshotPort['current']>>) => {
-    const key = JSON.stringify([selected.source, selected.version, selected.path]);
-    const log = key === lastLoggedSelection ? logger.debug.bind(logger) : logger.info.bind(logger);
+  const logSelection = (
+    selected: NonNullable<ReturnType<CodexSelectionSnapshotPort['current']>>,
+  ) => {
+    const key = JSON.stringify([
+      selected.source,
+      selected.version,
+      selected.path,
+    ]);
+    const log =
+      key === lastLoggedSelection
+        ? logger.debug.bind(logger)
+        : logger.info.bind(logger);
     lastLoggedSelection = key;
     log('Codex executable selected', {
-      source: selected.source, version: selected.version, path: selected.path, reason: selected.reason,
+      source: selected.source,
+      version: selected.version,
+      path: selected.path,
+      reason: selected.reason,
     });
   };
   return {
@@ -166,7 +185,8 @@ export function createElectronCodexSelectionSnapshot(
       return selection;
     },
     current: () => snapshot.current(),
-    markUnsupported: (failed, method) => snapshot.markUnsupported(failed, method),
+    markUnsupported: (failed, method) =>
+      snapshot.markUnsupported(failed, method),
     activateFallback: async (failed, method) => {
       const selected = await snapshot.activateFallback(failed, method);
       logSelection(selected);
@@ -181,10 +201,7 @@ type CodexRateLimitsUpdate = Parameters<
 
 export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
   readonly parent: DependencyContainer;
-  readonly ports: Omit<
-    CodexRuntimeRegistrationPorts,
-    'sink'
-  >;
+  readonly ports: Omit<CodexRuntimeRegistrationPorts, 'sink'>;
   readonly sharedUsage?: { client: CodexAccountUsageClient | null };
   readonly usageNotifications?: {
     readonly onRateLimitsUpdated: (
@@ -298,7 +315,9 @@ function createElectronCodexBindingContext(
     lookup,
     record,
     routing,
-    store: createElectronCodexShutdownStore(createCodexThreadIdentityStore(lookup, metadataStore)),
+    store: createElectronCodexShutdownStore(
+      createCodexThreadIdentityStore(lookup, metadataStore),
+    ),
     scopes: new Set<CodexChatScope>(),
     disposed: false,
     state: createElectronCodexSessionState(container),
@@ -306,8 +325,14 @@ function createElectronCodexBindingContext(
 }
 
 interface HostDependencies {
-  readonly deps: Pick<CodexChatHostPortsDeps,
-    'resolver' | 'workspaceProvider' | 'platformInfo' | 'hostCapabilities' | 'webviewManager'>;
+  readonly deps: Pick<
+    CodexChatHostPortsDeps,
+    | 'resolver'
+    | 'workspaceProvider'
+    | 'platformInfo'
+    | 'hostCapabilities'
+    | 'webviewManager'
+  >;
   readonly broadcaster: CodexChatHostPortsDeps['broadcaster'];
 }
 
@@ -317,7 +342,9 @@ interface ScopePorts {
   closeSharedUsage(): Promise<void>;
 }
 
-function createElectronCodexHostDependencies(context: BindingContext): HostDependencies {
+function createElectronCodexHostDependencies(
+  context: BindingContext,
+): HostDependencies {
   const { container, routing } = context;
   const broadcaster: CodexChatHostPortsDeps['broadcaster'] = {
     streamEventsToWebview: (...args) =>
@@ -338,9 +365,9 @@ function createElectronCodexHostDependencies(context: BindingContext): HostDepen
       PLATFORM_TOKENS.PLATFORM_INFO,
     ),
     hostCapabilities: routing.capabilities,
-    webviewManager: container.resolve<
-      CodexChatHostPortsDeps['webviewManager']
-    >(TOKENS.WEBVIEW_MANAGER),
+    webviewManager: container.resolve<CodexChatHostPortsDeps['webviewManager']>(
+      TOKENS.WEBVIEW_MANAGER,
+    ),
   };
   return { deps, broadcaster };
 }
@@ -368,8 +395,7 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
     }
   };
   const createScope = (sink: ApprovalSink): CodexChatScope => {
-    if (context.disposed)
-      throw new Error('Native Codex chat is disabled');
+    if (context.disposed) throw new Error('Native Codex chat is disabled');
     const scope = createElectronCodexScopeFactory({
       ...input,
       parent: container,
@@ -478,16 +504,24 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
 }
 
 export type ElectronCodexHistoryErrorCode =
-  | 'invalidIdentity' | 'homeMismatch' | 'binaryUnavailable'
-  | 'threadNotFound' | 'timeout' | 'cancelled' | 'runtimeFailed'
-  | 'pathUnavailable' | 'busy' | 'malformedPage';
+  | 'invalidIdentity'
+  | 'homeMismatch'
+  | 'binaryUnavailable'
+  | 'threadNotFound'
+  | 'timeout'
+  | 'cancelled'
+  | 'runtimeFailed'
+  | 'pathUnavailable'
+  | 'busy'
+  | 'malformedPage';
 
 /** Only fixed text crosses the RPC boundary. */
 export class ElectronCodexHistoryError extends Error {
   constructor(readonly code: ElectronCodexHistoryErrorCode) {
     const messages: Record<ElectronCodexHistoryErrorCode, string> = {
       invalidIdentity: 'Saved Codex session identity is incomplete.',
-      homeMismatch: 'The saved Codex session belongs to a different Codex home.',
+      homeMismatch:
+        'The saved Codex session belongs to a different Codex home.',
       binaryUnavailable: 'The Codex executable is unavailable.',
       threadNotFound: 'The saved Codex thread could not be found.',
       timeout: 'Reading Codex history timed out.',
@@ -514,11 +548,18 @@ export interface ElectronCodexHistoryDeps {
   readonly logger: Pick<Logger, 'error'>;
 }
 
-type CodexHistoryTailBound = Parameters<CodexHistoryReader['readHistoryTail']>[2];
-type CodexHistoryTail = Awaited<ReturnType<CodexHistoryReader['readHistoryTail']>>;
+type CodexHistoryTailBound = Parameters<
+  CodexHistoryReader['readHistoryTail']
+>[2];
+type CodexHistoryTail = Awaited<
+  ReturnType<CodexHistoryReader['readHistoryTail']>
+>;
 
 export interface ElectronCodexHistoryPort extends NativeSessionHistoryPort {
-  readHistory(session: SessionMetadata, signal?: AbortSignal): Promise<CodexSessionHistory>;
+  readHistory(
+    session: SessionMetadata,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory>;
   readHistoryTail(
     session: SessionMetadata,
     bound: CodexHistoryTailBound,
@@ -526,7 +567,9 @@ export interface ElectronCodexHistoryPort extends NativeSessionHistoryPort {
   ): Promise<CodexHistoryTail>;
 }
 
-type ElectronCodexHistoryRuntime = ReturnType<ElectronCodexHistoryDeps['resolveRuntime']>;
+type ElectronCodexHistoryRuntime = ReturnType<
+  ElectronCodexHistoryDeps['resolveRuntime']
+>;
 
 /** One runtime read; it throws `runtimeFailed` when the runtime lacks the method it needs. */
 type ElectronCodexHistoryRead<T> = (
@@ -552,16 +595,28 @@ export function createElectronCodexHistoryPort(
     try {
       if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
       const execution = session.codexExecution;
-      if (!execution || execution.runtime !== 'codex-app-server' ||
-          execution.sessionId !== session.sessionId ||
-          execution.providerId !== 'openai-codex')
+      if (
+        !execution ||
+        execution.runtime !== 'codex-app-server' ||
+        execution.sessionId !== session.sessionId ||
+        execution.providerId !== 'openai-codex'
+      )
         throw new ElectronCodexHistoryError('invalidIdentity');
-      const savedHome = normalizeCodexHomeKey(execution.codex.normalizedHome, process.platform);
-      const currentHome = normalizeCodexHomeKey(deps.currentHome(), process.platform);
+      const savedHome = normalizeCodexHomeKey(
+        execution.codex.normalizedHome,
+        process.platform,
+      );
+      const currentHome = normalizeCodexHomeKey(
+        deps.currentHome(),
+        process.platform,
+      );
       if (savedHome !== currentHome)
         throw new ElectronCodexHistoryError('homeMismatch');
       const workspace = session.codexThread?.workspaceId ?? session.workspaceId;
-      if (normalizeCodexWorkspaceKey(workspace, process.platform) !== execution.workspaceId)
+      if (
+        normalizeCodexWorkspaceKey(workspace, process.platform) !==
+        execution.workspaceId
+      )
         throw new ElectronCodexHistoryError('invalidIdentity');
       let homePath: string;
       let cwd: string;
@@ -572,9 +627,12 @@ export function createElectronCodexHistoryPort(
         throw new ElectronCodexHistoryError('pathUnavailable');
       }
       const candidate = deps.liveProfiles.get(execution.sessionId)?.profile;
-      const live = candidate?.normalizedHome === savedHome &&
-        normalizeCodexWorkspaceKey(candidate.workspaceId, process.platform) === execution.workspaceId
-        ? candidate : undefined;
+      const live =
+        candidate?.normalizedHome === savedHome &&
+        normalizeCodexWorkspaceKey(candidate.workspaceId, process.platform) ===
+          execution.workspaceId
+          ? candidate
+          : undefined;
       // The read-only process also loads the unchanged config in CODEX_HOME.
       // When the live profile still exists, carry its explicit MCP references too.
       const profile = buildCodexExecutionProfile({
@@ -587,11 +645,19 @@ export function createElectronCodexHistoryPort(
           cwd,
           model: live?.model ?? 'history-read',
           permissionLevel: live?.permissionLevel ?? 'ask',
-          mcpServers: live?.mcpServers.map((server) =>
-            server.transport === 'stdio'
-              ? { ...server, args: [...server.args], envReferences: { ...server.envReferences } }
-              : { ...server, headerReferences: { ...server.headerReferences } },
-          ) ?? [],
+          mcpServers:
+            live?.mcpServers.map((server) =>
+              server.transport === 'stdio'
+                ? {
+                    ...server,
+                    args: [...server.args],
+                    envReferences: { ...server.envReferences },
+                  }
+                : {
+                    ...server,
+                    headerReferences: { ...server.headerReferences },
+                  },
+            ) ?? [],
         },
         paths: {
           platform: process.platform === 'win32' ? 'win32' : 'posix',
@@ -609,7 +675,8 @@ export function createElectronCodexHistoryPort(
         normalizedHome: savedHome,
         workspaceId: workspace,
         providerId: execution.providerId,
-        profileFingerprint: session.codexThread?.profileFingerprint ?? profile.profileFingerprint,
+        profileFingerprint:
+          session.codexThread?.profileFingerprint ?? profile.profileFingerprint,
       };
       try {
         await deps.verifyBinary();
@@ -619,7 +686,8 @@ export function createElectronCodexHistoryPort(
       if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
       const scope = deps.createScope({ request: async () => 'decline' });
       const controller = new AbortController();
-      let rejectCancellation: (error: ElectronCodexHistoryError) => void = () => undefined;
+      let rejectCancellation: (error: ElectronCodexHistoryError) => void = () =>
+        undefined;
       const cancelled = new Promise<never>((_resolve, reject) => {
         rejectCancellation = reject;
       });
@@ -640,7 +708,10 @@ export function createElectronCodexHistoryPort(
       try {
         if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
         const runtime = deps.resolveRuntime(scope.container, 'chat');
-        return await Promise.race([read(runtime, profile, resume, controller.signal), cancelled]);
+        return await Promise.race([
+          read(runtime, profile, resume, controller.signal),
+          cancelled,
+        ]);
       } finally {
         clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
@@ -648,8 +719,12 @@ export function createElectronCodexHistoryPort(
         try {
           await scope.dispose();
         } catch (error) {
-          deps.logger.error('Codex history scope disposal failed',
-            error instanceof Error ? error : new Error('Codex history scope disposal failed'));
+          deps.logger.error(
+            'Codex history scope disposal failed',
+            error instanceof Error
+              ? error
+              : new Error('Codex history scope disposal failed'),
+          );
         }
       }
     } catch (error) {
@@ -672,18 +747,39 @@ export function createElectronCodexHistoryPort(
   };
   return {
     readHistory: (session, signal) =>
-      runHistoryRead(session, signal, (runtime, profile, resume, readSignal) => {
-        if (typeof runtime.readHistory !== 'function')
-          throw new ElectronCodexHistoryError('runtimeFailed');
-        return runtime.readHistory(profile, resume, readSignal);
-      }),
+      runHistoryRead(
+        session,
+        signal,
+        (runtime, profile, resume, readSignal) => {
+          if (typeof runtime.readHistory !== 'function')
+            throw new ElectronCodexHistoryError('runtimeFailed');
+          return runtime.readHistory(profile, resume, readSignal);
+        },
+      ),
     readHistoryTail: (session, bound, signal) =>
-      runHistoryRead(session, signal, (runtime, profile, resume, readSignal) => {
-        // A runtime built before tail reads existed still serves readHistory.
-        if (typeof runtime.readHistoryTail !== 'function')
-          throw new ElectronCodexHistoryError('runtimeFailed');
-        return runtime.readHistoryTail(profile, resume, bound, readSignal);
-      }),
+      runHistoryRead(
+        session,
+        signal,
+        (runtime, profile, resume, readSignal) => {
+          // A runtime built before tail reads existed still serves readHistory.
+          if (typeof runtime.readHistoryTail !== 'function')
+            throw new ElectronCodexHistoryError('runtimeFailed');
+          return runtime.readHistoryTail(profile, resume, bound, readSignal);
+        },
+      ),
+  };
+}
+
+export function createElectronCodexDriverGate(
+  container: DependencyContainer,
+): CodexChatAdapterPorts['driver'] {
+  return {
+    admit: (sessionId, admissionContext) =>
+      container
+        .resolve<{
+          admitNative: CodexChatAdapterPorts['driver']['admit'];
+        }>(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
+        .admitNative(sessionId, admissionContext),
   };
 }
 
@@ -692,7 +788,7 @@ function createElectronCodexAdapterPorts(
   host: HostDependencies,
   scope: ScopePorts,
   sessions: NonNullable<CodexChatAdapterPorts['sessions']>,
-): CodexChatHostPorts {
+): CodexChatHostPorts & Pick<CodexChatAdapterPorts, 'driver'> {
   const { container, input, logger, metadataStore, store, lookup } = context;
   const { tabId, preparedTabs } = context.state;
   const { deps, broadcaster } = host;
@@ -702,7 +798,9 @@ function createElectronCodexAdapterPorts(
     readSavedPermissionLevel: (workspacePath) =>
       resolveSavedCodexPermissionLevel(
         (name) => input.scopeResolver.readForPath(name, workspacePath, true),
-        () => { throw new CodexSessionSettingsError('invalid-settings'); },
+        () => {
+          throw new CodexSessionSettingsError('invalid-settings');
+        },
       ),
     logger,
     createScope,
@@ -779,15 +877,14 @@ function createElectronCodexAdapterPorts(
     resolveRuntime: (scope, _consumer) => {
       return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
     },
-    profile: async (
-      ...args: Parameters<CodexChatAdapterPorts['profile']>
-    ) => {
+    profile: async (...args: Parameters<CodexChatAdapterPorts['profile']>) => {
       const prepared = await ports.profile(...args);
       const tab = args[0].tabId;
       if (tab) preparedTabs.set(prepared, tab);
       return prepared;
     },
     sessions,
+    driver: createElectronCodexDriverGate(container),
   };
 }
 
@@ -832,7 +929,10 @@ export async function bindElectronCodexChat(
   const metadataStore = container.resolve<SessionMetadataStore>(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
   );
-  const lookup = await initializeSessionRuntimeIdentityLookup(metadataStore, logger);
+  const lookup = await initializeSessionRuntimeIdentityLookup(
+    metadataStore,
+    logger,
+  );
   let record: ElectronCodexSettingsRecord | undefined;
   let binding: ElectronCodexBinding | undefined;
   try {
@@ -841,18 +941,34 @@ export async function bindElectronCodexChat(
       scopeResolver: input.scopeResolver,
     });
     const context = createElectronCodexBindingContext(
-      container, input, logger, metadataStore, lookup, record,
+      container,
+      input,
+      logger,
+      metadataStore,
+      lookup,
+      record,
     );
     const host = createElectronCodexHostDependencies(context);
     const scope = createElectronCodexScopePorts(context);
     const sessionControls = createElectronCodexControls(
-      container, input, context.state, record, lookup, host.broadcaster,
+      container,
+      input,
+      context.state,
+      record,
+      lookup,
+      host.broadcaster,
     );
     const lifecycle = createElectronCodexSessionLifecycle(
-      record, context.state, lookup, sessionControls.controls,
+      record,
+      context.state,
+      lookup,
+      sessionControls.controls,
     );
     const adapterPorts = createElectronCodexAdapterPorts(
-      context, host, scope, lifecycle,
+      context,
+      host,
+      scope,
+      lifecycle,
     );
     const admission = createCodexRuntimeAdmission(host.deps);
     const baseBinding = createElectronCodexBindingHandle(context);
@@ -867,9 +983,10 @@ export async function bindElectronCodexChat(
       },
     };
     const historyPort = createElectronCodexHistoryPort({
-      currentHome: () => container.resolve<CodexHomeResolver>(
-        AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
-      ).path,
+      currentHome: () =>
+        container.resolve<CodexHomeResolver>(
+          AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
+        ).path,
       verifyBinary: scope.verifyBinary,
       createScope: scope.createScope,
       resolveRuntime: (child, consumer) => {
@@ -880,7 +997,13 @@ export async function bindElectronCodexChat(
       liveProfiles: context.state.profiles,
       logger,
     });
-    registerElectronCodexBinding(context, adapterPorts, admission, sessionControls, historyPort);
+    registerElectronCodexBinding(
+      context,
+      adapterPorts,
+      admission,
+      sessionControls,
+      historyPort,
+    );
     return binding;
   } catch (error) {
     if (binding) {

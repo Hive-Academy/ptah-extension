@@ -15,6 +15,7 @@ import {
   PLATFORM_TOKENS,
   ContentDownloadService,
   DesktopOnlyDisplayWindowHost,
+  createSessionDriverLock,
 } from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
@@ -63,6 +64,9 @@ export function registerPlatformCliServices(
   };
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, {
     useValue: platformInfo,
+  });
+  container.register(PLATFORM_TOKENS.SESSION_DRIVER_LOCK, {
+    useValue: createSessionDriverLock(),
   });
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new CliFileSystemProvider(),

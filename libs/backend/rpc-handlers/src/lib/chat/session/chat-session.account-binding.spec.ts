@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -257,6 +258,11 @@ function harness(bound = false) {
     null,
     accounts as unknown as Args[27],
     activeProvider as unknown as Args[28],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
   return {
     service,
