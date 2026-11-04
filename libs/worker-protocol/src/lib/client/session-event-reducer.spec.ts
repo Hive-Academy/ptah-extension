@@ -15,7 +15,7 @@ const SESSION = 's-1';
 function historyEvent(id: string) {
   return {
     id,
-    eventType: 'text_delta',
+    eventType: 'text_delta' as const,
     timestamp: 1_700_000_000_000,
     sessionId: SESSION,
     messageId: 'm-1',
@@ -411,6 +411,91 @@ describe('SessionEventReducer connect', () => {
     expect(run([frame(4)], caughtUp).attaches).toEqual([
       { sessionId: SESSION, afterSeq: 2, epoch: 'e-1' },
     ]);
+  });
+});
+
+describe('SessionEventReducer snapshot attach', () => {
+  function snapshot(state: SessionEventState, ids: string[], token?: number) {
+    return dispatch(state, {
+      kind: 'attach-succeeded',
+      token: token ?? currentToken(state),
+      result: {
+        mode: 'snapshot',
+        events: ids.map(historyEvent),
+        live: false,
+      },
+    });
+  }
+
+  it('shows a snapshot returned by the first attach as a non-live view', () => {
+    const connected = dispatch(initialSessionEventState(SESSION), {
+      kind: 'connected',
+    }).state;
+    const step = snapshot(connected, ['s-1', 's-2']);
+
+    expect(step.attach).toBeNull();
+    expect(step.state.recovery).toBeNull();
+    expect(sessionView(step.state)).toEqual({
+      source: 'snapshot',
+      baseline: ['s-1', 's-2'].map(historyEvent),
+      baselineSeq: null,
+      records: [],
+    });
+  });
+
+  it('ends a resync after overflow with the snapshot as the view (regression)', () => {
+    const start = run([baseline(1, ['h-1'])]).state;
+    const overflow = run(
+      Array.from({ length: MAX_HELD_FRAMES + 1 }, (_, i) => frame(i + 3)),
+      start,
+    ).state;
+    expect(overflow.target).toBe(1_003);
+
+    const { state } = snapshot(overflow, ['saved']);
+    expect(state.recovery).toBeNull();
+    expect(state.held).toEqual([]);
+    expect(state.target).toBe(0);
+    expect(state.last).toBe(0);
+    expect(sessionView(state).source).toBe('snapshot');
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual(['saved']);
+  });
+
+  it('ignores a snapshot whose token is stale', () => {
+    const start = run([baseline(1, ['h-1']), frame(2), frame(4)]).state;
+    const stale = currentToken(start);
+    const retried = dispatch(start, {
+      kind: 'attach-failed',
+      token: stale,
+    }).state;
+
+    const step = snapshot(retried, ['saved'], stale);
+    expect(step.state).toBe(retried);
+    expect(sessionView(step.state).source).toBe('log');
+  });
+
+  it('resumes live from a later log attach after a snapshot', () => {
+    const connected = dispatch(initialSessionEventState(SESSION), {
+      kind: 'connected',
+    }).state;
+    const shown = snapshot(connected, ['saved']).state;
+
+    const reconnect = dispatch(shown, { kind: 'connected' });
+    expect(reconnect.attach?.params).toEqual({ sessionId: SESSION });
+    const settled = succeeded(reconnect.state, 6, 'e-9').state;
+
+    const { state, attaches } = run(
+      [
+        baseline(5, ['h-1', 'h-2'], 'e-9'),
+        frame(6, 'chat:chunk', undefined, 'e-9'),
+      ],
+      settled,
+    );
+    expect(attaches).toEqual([]);
+    expect(sessionView(state).source).toBe('log');
+    expect(sessionView(state).baselineSeq).toBe(5);
+    expect(renderedSeqs(state)).toEqual([6]);
+    expect(state.epoch).toBe('e-9');
+    expect(state.recovery).toBeNull();
   });
 });
 

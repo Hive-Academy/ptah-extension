@@ -35,6 +35,9 @@
  * - The recovery ends only after its attach succeeded and the view reached
  *   `target` with nothing held. A frame that happens to fill `last + 1`
  *   meanwhile does not end it.
+ * - An attach that succeeds with a snapshot (W8: no log, or another process
+ *   drives the session) ends recovery at once: the view becomes that saved,
+ *   non-live transcript (`source: 'snapshot'`) until a log streams again.
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -57,10 +60,19 @@ export interface SessionRecord {
   readonly payload: unknown;
 }
 
+/**
+ * Where the view comes from: `log` follows the worker's event log; `snapshot`
+ * is a saved transcript an attach returned for a session it cannot stream
+ * (not logged, or another process drives it). A snapshot never updates.
+ */
+export type SessionViewSource = 'log' | 'snapshot';
+
 /** What the transcript shows: the latest baseline plus the records after it. */
 export interface SessionView {
+  readonly source: SessionViewSource;
+  /** The baseline in use, or the snapshot's events. */
   readonly baseline: readonly FlatStreamEventUnion[];
-  /** `seq` of the baseline in use, or `null` before the first baseline. */
+  /** `seq` of the baseline in use; `null` before the first one and for a snapshot. */
   readonly baselineSeq: number | null;
   readonly records: readonly SessionRecord[];
 }
@@ -97,6 +109,7 @@ export class SessionRecordLog {
 
 /** The rendered transcript in its internal form; read it with {@link sessionView}. */
 export interface SessionTranscript {
+  readonly source: SessionViewSource;
   readonly baseline: readonly FlatStreamEventUnion[];
   readonly baselineSeq: number | null;
   readonly records: SessionRecordLog;
@@ -163,6 +176,7 @@ export interface SessionEventStep {
 export const MAX_HELD_FRAMES = 1_000;
 
 const EMPTY_TRANSCRIPT: SessionTranscript = Object.freeze({
+  source: 'log',
   baseline: Object.freeze([]) as readonly FlatStreamEventUnion[],
   baselineSeq: null,
   records: SessionRecordLog.EMPTY,
@@ -195,6 +209,7 @@ export function sessionView(state: SessionEventState): SessionView {
     return cached;
   }
   const view: SessionView = {
+    source: transcript.source,
     baseline: transcript.baseline,
     baselineSeq: transcript.baselineSeq,
     records: transcript.records.toArray(),
@@ -254,17 +269,37 @@ function attachSucceeded(
   if (attempt === null) {
     return { state, attach: null };
   }
-  // A snapshot means the session has no log to follow: nothing more streams.
+  if (result.mode === 'snapshot') {
+    return { state: showSnapshot(state, result.events), attach: null };
+  }
   // A log in another epoch is adopted when its first frame arrives.
-  const head =
-    result.mode === 'log' && result.epoch === state.epoch
-      ? result.headSeq
-      : state.target;
+  const head = result.epoch === state.epoch ? result.headSeq : state.target;
   return checkRecovery({
     ...state,
     target: Math.max(state.target, head),
     recovery: { ...attempt, settled: true },
   });
+}
+
+/**
+ * The attach returned a saved transcript instead of a log: show it and stop
+ * recovering, since no frame will follow. Sequence tracking starts over, so
+ * the next `connected` asks for a fresh attach, and a log that streams later
+ * (its baseline first) replaces the snapshot.
+ */
+function showSnapshot(
+  state: SessionEventState,
+  events: readonly FlatStreamEventUnion[],
+): SessionEventState {
+  return {
+    ...resetForNewLog(state, null, false),
+    transcript: {
+      source: 'snapshot',
+      baseline: events,
+      baselineSeq: null,
+      records: SessionRecordLog.EMPTY,
+    },
+  };
 }
 
 function applyEvent(
@@ -417,6 +452,7 @@ function applyFrame(
       ...state,
       last: frame.seq,
       transcript: {
+        source: 'log',
         baseline: baseline.data.events,
         baselineSeq: frame.seq,
         records: SessionRecordLog.EMPTY,
