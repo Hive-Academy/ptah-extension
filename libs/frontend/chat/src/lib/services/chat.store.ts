@@ -556,6 +556,12 @@ export class ChatStore {
     return this.permissionHandler.questionTargetTabsFor(questionId);
   }
 
+  readonly routingTargetRevision = this.permissionHandler.routingTargetRevision;
+
+  isQuestionClaimedByWorkflow(request: { readonly tabId?: string; readonly sessionId?: string }): boolean {
+    return this.streamRouter.interactiveSurfaceOwning(request) !== null;
+  }
+
   /**
    * Drop a pending question from the UI without sending a response. Used by
    * the backend's idle-timeout auto-resolve broadcast — backend already
