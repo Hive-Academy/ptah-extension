@@ -20,7 +20,11 @@ export function readControlKey(pid: number): ControlDiscovery | null {
     const value = data as Partial<ControlDiscovery>;
     if (value.pid !== pid || !['desktop', 'worker', 'cli'].includes(value.kind ?? '') || typeof value.key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.key)) return null;
     return value as ControlDiscovery;
-  } catch { return null; }
+  } catch {
+    // degradation-audit: optional-capability — a missing, unreadable or
+    // malformed discovery file means no discoverable holder (W10 stale discovery).
+    return null;
+  }
 }
 
 export function writeControlKey(kind: ControlDiscovery['kind']): ControlDiscovery {

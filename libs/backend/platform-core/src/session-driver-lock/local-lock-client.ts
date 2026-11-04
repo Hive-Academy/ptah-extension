@@ -20,8 +20,14 @@ function request(endpoint: string, value?: unknown): Promise<{ value: unknown | 
       socket.destroy();
       resolve(result);
     };
-    try { socket = net.createConnection(endpoint); }
-    catch (error) { resolve({ value: null, error: (error as NodeJS.ErrnoException).code }); return; }
+    try {
+      socket = net.createConnection(endpoint);
+    } catch (error) {
+      // degradation-audit: reported — the error code goes back to the caller
+      // in the result.
+      resolve({ value: null, error: (error as NodeJS.ErrnoException).code });
+      return;
+    }
     socket.setTimeout(500, () => finish({ value: null, error: 'TIMEOUT' }));
     socket.on('connect', () => { if (value) socket.write(`${JSON.stringify(value)}\n`); });
     socket.on('data', (chunk: Buffer) => {

@@ -157,7 +157,13 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
     const own = this.entries.get(sessionId);
     if (own) return { ...own.owner, label: own.state === 'held' ? own.owner.label : `${own.owner.label} (release pending)` };
     let endpoint: string;
-    try { endpoint = sessionDriverEndpoint(sessionId); } catch { return null; }
+    try {
+      endpoint = sessionDriverEndpoint(sessionId);
+    } catch {
+      // degradation-audit: optional-capability — a session ID that cannot form
+      // an endpoint name cannot have a holder.
+      return null;
+    }
     return this.query(endpoint);
   }
 
