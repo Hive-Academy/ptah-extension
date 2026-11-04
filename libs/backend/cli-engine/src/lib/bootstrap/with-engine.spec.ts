@@ -944,6 +944,25 @@ describe('withEngine', () => {
     });
 
     // The bootstrap-FAILURE teardown, which is a different code path from the
+    it('waits for SDK disposal before draining session usage', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.dispose = jest.fn(async () => { order.push('sdk dispose'); });
+        c.isRegistered = jest.fn((token: symbol) => token === PLATFORM_TOKENS.SESSION_USAGE_SINK);
+        c.resolve = jest.fn((token: symbol) => token === PLATFORM_TOKENS.SESSION_USAGE_SINK
+          ? { flush: async () => { order.push('usage flush'); } }
+          : c.__sdkAdapter);
+        return result;
+      };
+
+      await withEngine(baseGlobals, { mode: 'full', bootstrap: wrapped }, async () => undefined);
+      expect(order).toEqual(['sdk dispose', 'usage flush']);
+    });
+
+    // The bootstrap-FAILURE teardown, which is a different code path from the
     // success one: it throws before reaching the `try/finally` that owns the
     // single dispose site, so for a while it disposed the container and left
     // the adapter alone. An adapter that returned `false` from `initialize()`
@@ -952,12 +971,17 @@ describe('withEngine', () => {
     // nobody left to close it.
     it('calls SDK adapter dispose() when initialize() returns false', async () => {
       const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
       let captured: FakeContainer | undefined;
       const wrapped: typeof bootstrap = (options) => {
         const result = bootstrap(options);
         const c = result.container as unknown as FakeContainer;
         c.__sdkAdapter.initialize = jest.fn(async () => false);
-        c.resolve = jest.fn(() => c.__sdkAdapter);
+        c.__sdkAdapter.dispose = jest.fn(async () => { order.push('sdk dispose'); });
+        c.isRegistered = jest.fn((token: symbol) => token === PLATFORM_TOKENS.SESSION_USAGE_SINK);
+        c.resolve = jest.fn((token: symbol) => token === PLATFORM_TOKENS.SESSION_USAGE_SINK
+          ? { flush: async () => { order.push('usage flush'); } }
+          : c.__sdkAdapter);
         captured = c;
         return result;
       };
@@ -976,6 +1000,7 @@ describe('withEngine', () => {
 
       stderrSpy.mockRestore();
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(['sdk dispose', 'usage flush']);
     });
 
     it('calls SDK adapter dispose() when initialize() throws', async () => {

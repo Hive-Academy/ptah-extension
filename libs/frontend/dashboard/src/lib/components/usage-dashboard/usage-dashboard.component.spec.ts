@@ -369,6 +369,18 @@ describe('UsageDashboardComponent', () => {
     expect(count('[data-testid="usage-total-cost"]')).toBe(0);
   });
 
+  it('labels ledger coverage and explains partial empty usage', async () => {
+    answerUsage(usageCall(0), usageSummary([], { sources: [
+      { sourceId: 'claude-ledger', status: 'partial', coverageStart: '2026-10-19',
+        reason: 'Historical sessions were not backfilled' },
+      { sourceId: 'codex', status: 'unavailable' },
+    ] }));
+    await settle();
+    expect(text('usage-coverage-start')).toContain('Ledger captured since 2026-10-19');
+    expect(text('usage-empty')).toContain('Usage before 2026-10-19 was not captured');
+    expect(text('usage-empty')).toContain('Some usage sources are unavailable for this range');
+  });
+
   it('toggles the daily chart between cost and tokens', async () => {
     answerUsage(usageCall(0), usageSummary([
       factSonnetDay18,

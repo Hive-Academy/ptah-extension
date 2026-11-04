@@ -47,8 +47,18 @@ export interface UsageActivity {
 
 export interface UsageTotals {
   readonly tokens: number;
-  /** `null` when every fact is unpriced (or there are none). */
+  /**
+   * Sum of full prices and known-cost lower bounds in the window.
+   * `null` when every contributing cost is unknown (or there are no facts).
+   * A known zero stays `0`.
+   */
   readonly costUsd: number | null;
+  /**
+   * Set when a fact in the window has `costUsd === null`. A non-null
+   * `costUsd` is then a lower bound, not a complete total. Omitted when
+   * every fact in the window has a full price.
+   */
+  readonly unpriced?: true;
 }
 
 const DAY_MS = 86_400_000;
@@ -76,6 +86,34 @@ const USD = new Intl.NumberFormat('en-US', {
 /** A dollar amount with cents, e.g. "$27.10": the one spend format of the empty screens. */
 export function formatUsd(value: number): string {
   return USD.format(value);
+}
+
+/** Tooltip and accessible name when a shown cost is only a lower bound. */
+export const UNPRICED_SPEND_NOTE = 'Some usage has no price';
+
+/** Visible spend text. `text` is null when no known cost exists (a dash, never $0). */
+export interface SpendAmountText {
+  readonly text: string | null;
+  /** Set only for a lower bound, so a tooltip or aria-label can explain it. */
+  readonly note: typeof UNPRICED_SPEND_NOTE | null;
+}
+
+/**
+ * A full price is "$2.50". A known cost with `unpriced` is "≥ $2.50" and
+ * carries {@link UNPRICED_SPEND_NOTE}. No finite known cost is `text: null`.
+ * Null is never formatted as $0; a known zero stays a zero.
+ */
+export function formatSpendAmount(
+  totals: Pick<UsageTotals, 'costUsd' | 'unpriced'>,
+): SpendAmountText {
+  const cost = totals.costUsd;
+  if (typeof cost !== 'number' || !Number.isFinite(cost)) {
+    return { text: null, note: null };
+  }
+  if (totals.unpriced === true) {
+    return { text: `≥ ${formatUsd(cost)}`, note: UNPRICED_SPEND_NOTE };
+  }
+  return { text: formatUsd(cost), note: null };
 }
 
 /** Local calendar day of `date` as `YYYY-MM-DD`. */
@@ -131,10 +169,19 @@ function factTokens(fact: UsageFact): number {
   );
 }
 
-function pricedCost(fact: UsageFact): number | null {
-  return fact.costUsd !== null && Number.isFinite(fact.costUsd)
-    ? fact.costUsd
-    : null;
+/**
+ * One fact's cost, matching `foldUsageSummary`: `costUsd`, else
+ * `knownCostUsd` while the fact stays unpriced. A null or non-finite known
+ * sum stays unknown. It is never coerced to 0.
+ */
+function pricedCost(fact: UsageFact): {
+  readonly cost: number | null;
+  readonly unpriced: boolean;
+} {
+  const unpriced = fact.costUsd === null;
+  const raw = fact.costUsd ?? fact.knownCostUsd ?? null;
+  const cost = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+  return { cost, unpriced };
 }
 
 function factsInWindow(
@@ -177,9 +224,10 @@ export function hasUsage(summary: UsageSummary): boolean {
 }
 
 /**
- * Token total over the 4 token fields and the priced cost total, over the
- * facts inside `window`: pass the window the bars or the grid draw, so the
- * totals and the chart count the same facts.
+ * Token total over the 4 token fields and the cost total, over the facts
+ * inside `window`: pass the window the bars or the grid draw, so the totals
+ * and the chart count the same facts. An unpriced fact contributes
+ * `knownCostUsd` and sets `unpriced`, so a missing known sum stays `null`.
  */
 export function totals(
   summary: UsageSummary,
@@ -187,20 +235,22 @@ export function totals(
 ): UsageTotals {
   let tokens = 0;
   let costUsd: number | null = null;
+  let unpriced = false;
   for (const facts of factsInWindow(summary, window).values()) {
     for (const fact of facts) {
       tokens += factTokens(fact);
-      const cost = pricedCost(fact);
-      if (cost !== null) costUsd = (costUsd ?? 0) + cost;
+      const priced = pricedCost(fact);
+      if (priced.unpriced) unpriced = true;
+      if (priced.cost !== null) costUsd = (costUsd ?? 0) + priced.cost;
     }
   }
-  return { tokens, costUsd };
+  return unpriced ? { tokens, costUsd, unpriced } : { tokens, costUsd };
 }
 
 /**
  * Spend for each day of `window` (the bars use
- * `usageDayWindow(now, SPEND_DAY_COUNT)`), oldest first. A day without a
- * priced fact is `null` (the spend bars draw a dot for it).
+ * `usageDayWindow(now, SPEND_DAY_COUNT)`), oldest first. A day with no finite
+ * price or known-cost lower bound is `null` (the spend bars draw a dot).
  */
 export function lastNDays(
   summary: UsageSummary,
@@ -210,7 +260,7 @@ export function lastNDays(
   return window.map((date) => {
     let cost: number | null = null;
     for (const fact of byDay.get(date) ?? []) {
-      const priced = pricedCost(fact);
+      const priced = pricedCost(fact).cost;
       if (priced !== null) cost = (cost ?? 0) + priced;
     }
     return cost;

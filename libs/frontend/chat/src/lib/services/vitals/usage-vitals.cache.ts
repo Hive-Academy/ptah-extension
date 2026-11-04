@@ -20,8 +20,8 @@ import {
 export type UsageVitalsRange = 7 | 90;
 
 /**
- * The host's log scan has a 30-second budget; leave transport room for its
- * final partial summary (same budget as `analytics-usage.store.ts`).
+ * Allow the host's external-source reads and transport to return a partial
+ * summary (same budget as `analytics-usage.store.ts`).
  */
 export const USAGE_VITALS_TIMEOUT_MS = 40_000;
 

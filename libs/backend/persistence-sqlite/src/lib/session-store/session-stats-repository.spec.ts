@@ -66,6 +66,199 @@ const contribution: SessionUsageContribution = {
 };
 
 describe('SessionStatsRepository', () => {
+  it('pages through more than 32 idle startup rows while preserving a live id', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      const ids = Array.from({ length: 70 }, (_, index) => `idle-${index}`);
+      for (const sessionId of [...ids, 'live']) {
+        await repository.recordUsage({ ...contribution, sessionId, workspaceKey: '/work/a' });
+      }
+      (await store.ready()).prepare('UPDATE session_stats SET updated_at_ms = ?')
+        .run(86_400_000);
+      const sink = new SqliteSessionUsageSink(repository, { error: jest.fn() });
+      sink.setLiveSessionIdsProvider(() => ['live']);
+      sink.startFinalizer();
+      await sink.flush();
+      for (const sessionId of ids) {
+        expect((await repository.getSessionStats(sessionId, '/work/a'))?.status)
+          .toBe('finalized');
+      }
+      expect((await repository.getSessionStats('live', '/work/a'))?.status).toBe('active');
+    } finally {
+      store.close();
+    }
+  });
+
+  it.each(['provider-first', 'timer-first'])('runs one guarded startup scan: %s', async (order) => {
+    jest.useFakeTimers();
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      for (const sessionId of ['idle', 'live']) {
+        await repository.recordUsage({ ...contribution, sessionId, workspaceKey: '/work/a' });
+      }
+      (await store.ready()).prepare('UPDATE session_stats SET updated_at_ms = ?')
+        .run(86_400_000);
+      const sink = new SqliteSessionUsageSink(repository, { error: jest.fn() });
+      sink.startFinalizer();
+      if (order === 'provider-first') sink.setLiveSessionIdsProvider(() => ['live']);
+      jest.advanceTimersByTime(0);
+      if (order === 'timer-first') sink.setLiveSessionIdsProvider(() => ['live']);
+      await sink.flush();
+      expect((await repository.getSessionStats('idle', '/work/a'))?.status).toBe('finalized');
+      expect((await repository.getSessionStats('live', '/work/a'))?.status).toBe('active');
+    } finally {
+      store.close();
+      jest.useRealTimers();
+    }
+  });
+
+  it('re-seals a higher late revision without resuming and ignores older revisions', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await repository.requestFinalization('session-a', 90_000_000);
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalize_pending');
+      await repository.reconcileFinalizations(90_000_001);
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.finalized_at_ms).toBe(90_000_001);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a', eventKey: 'resumed', revision: 2 });
+      const late = await repository.getSessionStats('session-a', '/work/a');
+      expect(late?.status).toBe('finalize_pending');
+      expect(late?.finalized_at_ms).toBeNull();
+      expect(late?.revision).toBe(2);
+      expect(late?.finalize_revision).toBe(2);
+      expect(await repository.reconcileFinalizations(Date.now() + 1)).toBe(1);
+      const resealed = await repository.getSessionStats('session-a', '/work/a');
+      expect(resealed?.status).toBe('finalized');
+      expect(resealed?.finalize_revision).toBe(2);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a',
+        eventKey: 'older', revision: 1 });
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a',
+        eventKey: 'equal', revision: 2 });
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+      await repository.resumeSession('session-a');
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('active');
+      await repository.requestFinalization('session-a', 90_000_002);
+      expect(await repository.reconcileFinalizations(90_000_003)).toBe(1);
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('seals queued finalization during flush and isolates reconcile failure', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      const logger = { error: jest.fn() };
+      const sink = new SqliteSessionUsageSink(repository, logger);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await sink.requestFinalization('session-a');
+      await sink.flush();
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+      const failed = new SqliteSessionUsageSink(
+        new SessionStatsRepository({ ready: async () => { throw new Error('SQLITE_BUSY'); } }), logger);
+      await expect(failed.flush()).resolves.toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith(
+        '[persistence-sqlite] shutdown finalization pass failed', expect.any(Error));
+    } finally {
+      store.close();
+    }
+  });
+
+  it('reconciles a pending row after repository restart and an idle row', async () => {
+    const store = openTestStore();
+    try {
+      const first = new SessionStatsRepository(store);
+      await first.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await first.requestFinalization('session-a', 90_000_000);
+      const restarted = new SessionStatsRepository(store);
+      expect(await restarted.reconcileFinalizations(90_000_001)).toBe(1);
+      expect(await restarted.reconcileFinalizations(90_000_002)).toBe(0);
+      await restarted.recordUsage({ ...contribution, sessionId: 'idle', workspaceKey: '/work/a' });
+      expect(await restarted.reconcileFinalizations(90_000_000)).toBe(0);
+      expect(await restarted.reconcileFinalizations(Date.now() + 31 * 60_000,
+        30 * 60_000, true, ['idle'])).toBe(0);
+      expect(await restarted.reconcileFinalizations(Date.now() + 31 * 60_000,
+        30 * 60_000, true)).toBe(1);
+      expect((await restarted.getSessionStats('idle', '/work/a'))?.status).toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('keeps a true end pending for a late write below the captured revision', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a', revision: 3 });
+      await repository.requestFinalization('session-a', 90_000_000);
+      await repository.recordUsage({ ...contribution, eventKey: 'late',
+        workspaceKey: '/work/a', revision: 2 });
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status)
+        .toBe('finalize_pending');
+      await repository.reconcileFinalizations(90_000_001);
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status)
+        .toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
+  it('clears pending finalization when a transcript resumes before new usage', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await repository.requestFinalization('session-a', 90_000_000);
+      await repository.resumeSession('session-a');
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status)
+        .toBe('active');
+      expect(await repository.reconcileFinalizations(90_000_001)).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('keeps a pending row when SQLite is busy so a later pass can seal it', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      await repository.recordUsage({ ...contribution, workspaceKey: '/work/a' });
+      await repository.requestFinalization('session-a', 90_000_000);
+      const busy = new SessionStatsRepository({ ready: async () => { throw new Error('SQLITE_BUSY'); } });
+      await expect(busy.reconcileFinalizations(90_000_001)).rejects.toThrow('SQLITE_BUSY');
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalize_pending');
+      await repository.reconcileFinalizations(90_000_002);
+      expect((await repository.getSessionStats('session-a', '/work/a'))?.status).toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
+  it('continues after one row fails and counts only sealed rows', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      for (const sessionId of ['a-bad', 'z-good']) {
+        await repository.recordUsage({ ...contribution, sessionId,
+          workspaceKey: '/work/a' });
+        await repository.requestFinalization(sessionId, 90_000_000);
+      }
+      (await store.ready()).exec(`CREATE TRIGGER fail_bad_seal
+        BEFORE UPDATE ON session_stats
+        WHEN NEW.session_id = 'a-bad' AND NEW.status = 'finalized'
+        BEGIN SELECT RAISE(FAIL, 'SQLITE_BUSY'); END`);
+      expect(await repository.reconcileFinalizations(90_000_001)).toBe(1);
+      expect((await repository.getSessionStats('a-bad', '/work/a'))?.status)
+        .toBe('finalize_pending');
+      expect((await repository.getSessionStats('z-good', '/work/a'))?.status)
+        .toBe('finalized');
+    } finally {
+      store.close();
+    }
+  });
   it('matches native Codex thread identities only within their workspace and time range', async () => {
     const store = openTestStore();
     try {

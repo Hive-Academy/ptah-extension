@@ -37,11 +37,38 @@ import {
 } from '@ptah-extension/skill-synthesis';
 
 import {
+  captureShutdownHandles,
   isBackgroundLearningPaused,
   logBootDegradationSummary,
   reportStartupBootFailure,
   runEmbedderWarmup,
 } from './wire-runtime';
+import { BootCoordinator } from './boot-coordinator';
+
+describe('shutdown handle capture', () => {
+  it('continues capturing after SDK adapter resolution fails', () => {
+    const failure = new Error('adapter unavailable');
+    const logger = { warn: jest.fn() };
+    const disposer = { dispose: jest.fn() };
+    const container = rootContainer.createChildContainer();
+    container.register(SDK_TOKENS.SDK_AGENT_ADAPTER, {
+      useFactory: () => {
+        throw failure;
+      },
+    });
+    // Same global key as CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY. Importing
+    // that lib here loads `marked`, which this Jest config does not map.
+    container.register(Symbol.for('SdkPtahCliRegistry'), { useValue: disposer });
+    container.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: disposer });
+    const coordinator = new BootCoordinator();
+    captureShutdownHandles(container, coordinator, logger);
+    expect(coordinator.refs.sdkAdapter).toBeNull();
+    expect(coordinator.refs.cliRegistry).toBe(disposer);
+    expect(coordinator.refs.agentProcessManager).toBe(disposer);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[Ptah Electron] SDK adapter eager resolve failed (non-fatal)', failure);
+  });
+});
 
 function buildTestContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();

@@ -122,8 +122,7 @@ export class AnalyticsUsageStore {
       const result = await this.rpc.call(
         'analytics:spendSummary',
         { range, ...(workspace ? { workspace } : {}) },
-        // The host's scan has a 30-second budget; leave transport and startup
-        // scheduling room for its final partial summary to reach the UI.
+        // Allow external-source reads and transport to return a partial summary.
         { signal: controller.signal, timeout: 40_000 },
       );
       if (generation !== this.generation) return;

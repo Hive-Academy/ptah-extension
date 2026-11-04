@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 const safeInteger = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -50,6 +51,9 @@ const statsRowSchema = z.object({
   pricing_version: z.string().nullable(),
   revision: safeInteger,
   updated_at_ms: safeInteger,
+  finalize_revision: safeInteger.nullable(),
+  finalize_attempts: safeInteger,
+  finalize_retry_at_ms: safeInteger,
 });
 export type SessionStatsRow = z.infer<typeof statsRowSchema>;
 
@@ -108,6 +112,7 @@ export class SessionStatsRepository {
     private readonly store: {
       ready(): Promise<Pick<SqliteDatabase, 'exec' | 'prepare'>>;
     },
+    private readonly logger?: Pick<Logger, 'error'>,
   ) {}
 
   async recordUsage(value: SessionUsageContribution): Promise<void> {
@@ -196,8 +201,17 @@ export class SessionStatsRepository {
       ON CONFLICT (session_id) DO UPDATE SET
         host = excluded.host, workspace_key = excluded.workspace_key,
         provider_id = excluded.provider_id, started_at_ms = excluded.started_at_ms,
-        last_usage_at_ms = excluded.last_usage_at_ms, finalized_at_ms = NULL,
-        status = 'active', input_tokens = excluded.input_tokens,
+        last_usage_at_ms = excluded.last_usage_at_ms,
+        finalized_at_ms = CASE WHEN session_stats.finalize_revision IS NULL
+          OR (session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision) THEN NULL
+          ELSE session_stats.finalized_at_ms END,
+        status = CASE WHEN session_stats.finalize_revision IS NULL THEN 'active'
+          WHEN session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision THEN 'finalize_pending'
+          ELSE session_stats.status END,
+        finalize_revision = CASE WHEN session_stats.finalize_revision IS NULL THEN NULL
+          WHEN session_stats.status = 'finalized' AND excluded.revision > session_stats.finalize_revision THEN excluded.revision
+          ELSE session_stats.finalize_revision END, finalize_attempts = 0,
+        finalize_retry_at_ms = 0, input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens, cache_read_tokens = excluded.cache_read_tokens,
         cache_write_tokens = excluded.cache_write_tokens,
         known_cost_micro_usd = excluded.known_cost_micro_usd,
@@ -226,6 +240,92 @@ export class SessionStatsRepository {
       db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  async requestFinalization(sessionId: string, nowMs = Date.now()): Promise<void> {
+    const db = await this.store.ready();
+    db.prepare(`UPDATE session_stats SET status = 'finalize_pending',
+      finalize_revision = revision, finalize_retry_at_ms = ?, finalize_attempts = 0,
+      updated_at_ms = ? WHERE session_id = ? AND status != 'finalized'`)
+      .run(safeInteger.parse(nowMs), nowMs, text.parse(sessionId));
+  }
+
+  async resumeSession(sessionId: string): Promise<void> {
+    const db = await this.store.ready();
+    db.prepare(`UPDATE session_stats SET status = 'active', finalized_at_ms = NULL,
+      finalize_revision = NULL, finalize_attempts = 0, finalize_retry_at_ms = 0,
+      updated_at_ms = ? WHERE session_id = ? AND status != 'active'`)
+      .run(Date.now(), text.parse(sessionId));
+  }
+
+  /** A fixed pending batch. An idle scan is allowed only on the startup pass. */
+  async reconcileFinalizations(nowMs = Date.now(), idleMs = 30 * 60_000,
+    startup = false, liveSessionIds: readonly string[] = [], deadlineMs = Number.POSITIVE_INFINITY): Promise<number> {
+    return (await this.reconcilePage(nowMs, idleMs, startup, liveSessionIds, null, deadlineMs)).changed;
+  }
+
+  async reconcileStartupPage(cursor: { updatedAtMs: number; sessionId: string } | null,
+    liveSessionIds: readonly string[]): Promise<{
+      changed: number;
+      nextCursor: { updatedAtMs: number; sessionId: string } | null;
+      full: boolean;
+    }> {
+    return this.reconcilePage(Date.now(), 30 * 60_000, true, liveSessionIds, cursor);
+  }
+
+  private async reconcilePage(nowMs: number, idleMs: number, startup: boolean,
+    liveSessionIds: readonly string[], cursor: { updatedAtMs: number; sessionId: string } | null,
+    deadlineMs = Number.POSITIVE_INFINITY) {
+    const now = safeInteger.parse(nowMs);
+    const idleBefore = safeInteger.parse(Math.max(0, now - idleMs));
+    const db = await this.store.ready();
+    const candidates = z.array(z.object({ session_id: text, revision: safeInteger,
+      status: z.string(), finalize_attempts: safeInteger, updated_at_ms: safeInteger })).parse(
+      db.prepare(`SELECT session_id, revision, status, finalize_attempts, updated_at_ms
+        FROM session_stats WHERE
+        ((status = 'finalize_pending' AND finalize_retry_at_ms <= ?)
+        OR (? = 1 AND status = 'active' AND last_usage_at_ms <= ?
+          AND updated_at_ms <= ?))
+        AND (? = 0 OR updated_at_ms > ? OR
+          (updated_at_ms = ? AND session_id > ?))
+        ORDER BY updated_at_ms, session_id LIMIT 32`).all(now, startup ? 1 : 0,
+        idleBefore, idleBefore, cursor === null ? 0 : 1,
+        cursor?.updatedAtMs ?? 0, cursor?.updatedAtMs ?? 0, cursor?.sessionId ?? ''));
+    let changed = 0;
+    for (const row of candidates) {
+      if (Date.now() >= deadlineMs) break;
+      if (liveSessionIds.includes(row.session_id)) continue;
+      try {
+        const result = db.prepare(`UPDATE session_stats SET status = 'finalized', finalized_at_ms = ?,
+          finalize_revision = revision, finalize_attempts = 0, finalize_retry_at_ms = 0,
+          updated_at_ms = ? WHERE session_id = ? AND revision = ? AND status = ?
+          AND (status = 'finalize_pending' OR (? = 1 AND last_usage_at_ms <= ?
+            AND updated_at_ms <= ?))
+          AND revision = (SELECT MAX(revision) FROM session_usage_turns
+            WHERE session_id = session_stats.session_id)`)
+          .run(now, now, row.session_id, row.revision, row.status,
+            startup ? 1 : 0, idleBefore, idleBefore);
+        changed += result.changes;
+      } catch (error: unknown) {
+        this.logger?.error('[persistence-sqlite] session finalization row failed',
+          error instanceof Error ? error : new Error(String(error)));
+        const attempts = row.finalize_attempts + 1;
+        const delay = Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6));
+        try {
+          db.prepare(`UPDATE session_stats SET status = 'finalize_pending',
+            finalize_revision = revision, finalize_attempts = ?, finalize_retry_at_ms = ?
+            WHERE session_id = ? AND revision = ? AND status = ?`)
+            .run(attempts, now + delay, row.session_id, row.revision, row.status);
+        } catch (retryError: unknown) {
+          this.logger?.error('[persistence-sqlite] session finalization retry update failed',
+            retryError instanceof Error ? retryError : new Error(String(retryError)));
+        }
+        // A single failed row must not starve the rest of this bounded batch.
+      }
+    }
+    const last = candidates.at(-1);
+    return { changed, full: candidates.length === 32,
+      nextCursor: last ? { updatedAtMs: last.updated_at_ms, sessionId: last.session_id } : null };
   }
 
   async getSessionStats(sessionId: string, workspaceKey: string): Promise<SessionStatsRow | null> {

@@ -29,7 +29,10 @@ import {
   LucideAngularModule,
 } from 'lucide-angular';
 import { ChatVitalsStore } from '../../../services/vitals/chat-vitals.store';
-import { formatUsd } from '../../../services/vitals/usage-vitals.model';
+import {
+  formatSpendAmount,
+  formatUsd,
+} from '../../../services/vitals/usage-vitals.model';
 
 @Component({
   selector: 'ptah-chat-empty-state-view',
@@ -88,7 +91,13 @@ import { formatUsd } from '../../../services/vitals/usage-vitals.model';
             [state]="spend().state"
             caption="last 7 days"
           >
-            <ptah-stat-value size="md" [text]="spend().text">
+            <ptah-stat-value
+              size="md"
+              [text]="spend().text"
+              [attr.title]="spend().note"
+              [attr.aria-label]="spend().note"
+              [attr.role]="spend().note ? 'group' : null"
+            >
               <ptah-spend-bars
                 [values]="spend().bars"
                 ariaLabel="Spend over the last seven days"
@@ -190,16 +199,18 @@ export class ChatEmptyStateViewComponent {
         state: 'ready' as const,
         text: formatUsd(0),
         bars: [0, 0, 0, 0, 0, 0, 0],
+        note: null,
       };
     if (load.status !== 'ready')
-      return { state: load.status, text: '', bars: [] };
-    const cost = load.value.totals.costUsd;
-    return cost === null
-      ? { state: 'empty' as const, text: '', bars: [] }
+      return { state: load.status, text: '', bars: [], note: null };
+    const amount = formatSpendAmount(load.value.totals);
+    return amount.text === null
+      ? { state: 'empty' as const, text: '', bars: [], note: null }
       : {
           state: 'ready' as const,
-          text: formatUsd(cost),
+          text: amount.text,
           bars: load.value.days,
+          note: amount.note,
         };
   });
   protected readonly checks = computed<readonly ReadinessCheck[]>(() => [

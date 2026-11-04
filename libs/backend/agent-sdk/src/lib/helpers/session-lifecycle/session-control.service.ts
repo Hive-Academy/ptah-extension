@@ -439,6 +439,10 @@ export class SessionControl {
     }
   }
 
+  getLiveSessionIds(): string[] {
+    return Array.from(this.registry.entries(), ([, record]) => record.tabId);
+  }
+
   /**
    * Tab ids of the live sessions whose auth workspace is `workspacePath`
    * (compared through `normalizeWorkspaceRoot`, so separator, trailing-slash
