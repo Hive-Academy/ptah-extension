@@ -25,8 +25,8 @@ import {
   WandSparkles,
 } from 'lucide-angular';
 import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
-import { ClaudeReadinessBannerComponent } from '../ready/claude-readiness-banner.component';
-import { ClaudeReadinessStore } from '../ready/claude-readiness.store';
+import { ConnectionReadinessBannerComponent } from '../ready/connection-readiness-banner.component';
+import { ProviderReadinessStore } from '../ready/provider-readiness.store';
 import { ReadyStripComponent } from '../ready/ready-strip.component';
 import { readyStripSettingsWord } from '../ready/ready-strip-state';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
@@ -64,7 +64,7 @@ interface StatusChip {
     LucideAngularModule,
     OnboardingPathTileComponent,
     ReadyStripComponent,
-    ClaudeReadinessBannerComponent,
+    ConnectionReadinessBannerComponent,
     ResumeBannerComponent,
     WorkspaceHeaderComponent,
     AnalysisFoundCardComponent,
@@ -77,7 +77,7 @@ interface StatusChip {
         <ptah-ready-strip
           class="mb-5"
           [current]="3"
-          [claude]="readiness().state"
+          [connection]="chosen()"
           [settings]="settingsWord()"
         />
       }
@@ -109,10 +109,10 @@ interface StatusChip {
       <ptah-analysis-found-card />
 
       @if (readyAvailable) {
-        <ptah-claude-readiness-banner
+        <ptah-connection-readiness-banner
           class="mt-5"
           placement="home"
-          [state]="readiness().state"
+          [chosen]="chosen()"
         />
       }
 
@@ -303,7 +303,7 @@ interface StatusChip {
               class="link"
               routerLink="/onboarding/ready"
               data-testid="onboarding-review-ready"
-              >Review Claude Code and settings</a
+              >Review your connection and settings</a
             >
           }
         </span>
@@ -323,14 +323,14 @@ export class OnboardingHomeComponent {
   protected readonly status = inject(SetupStatusStore);
   private readonly flag = inject(OnboardingFlagService);
   private readonly appState = inject(AppStateManager);
-  private readonly readinessStore = inject(ClaudeReadinessStore);
+  private readonly readinessStore = inject(ProviderReadinessStore);
   protected readonly resume = inject(OnboardingResumeStore);
   private readonly router = inject(Router);
   private readonly workspace = inject(OnboardingWorkspaceStore);
 
   /** The Get ready strip, banner and footer link exist only in Electron. */
   protected readonly readyAvailable = this.readinessStore.available;
-  protected readonly readiness = this.readinessStore.view;
+  protected readonly chosen = this.readinessStore.chosen;
   protected readonly settingsWord = computed(() =>
     readyStripSettingsWord(this.flag.flag().ready, true),
   );
@@ -416,9 +416,9 @@ export class OnboardingHomeComponent {
     // The store refreshes on workspace changes itself; Home asks once more on
     // entry so the chips are current. Concurrent reads are de-duplicated.
     void this.status.refresh();
-    // Re-read Claude Code on every visit so the banner is never stale; it
-    // clears without a flag write once the read returns ready.
-    if (this.readyAvailable) void this.readinessStore.refresh(false);
+    // Read provider readiness on entry; the banner clears when the chosen
+    // connection becomes ready without a flag write.
+    if (this.readyAvailable) void this.readinessStore.refresh('mount');
     effect(() => {
       const path = this.workspace.activePath();
       if (!path || !this.workspace.readyForActivePath()) {

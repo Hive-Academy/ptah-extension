@@ -60,9 +60,8 @@ const STAGE_TWO = '[data-testid="ready-settings-step"]';
 const HOME = '[data-testid="onboarding-home"]';
 const BANNER = '[data-testid="connection-readiness-banner"]';
 const BANNER_ACTION = '[data-testid="connection-readiness-banner-action"]';
-// Home keeps these test IDs while Batch 22 replaces its banner component.
-const HOME_BANNER = '[data-testid="onboarding-home"] [data-testid="claude-readiness-banner"]';
-const HOME_BANNER_ACTION = '[data-testid="onboarding-home"] [data-testid="claude-readiness-banner-action"]';
+const HOME_BANNER = '[data-testid="onboarding-home"] [data-testid="connection-readiness-banner"]';
+const HOME_BANNER_ACTION = '[data-testid="onboarding-home"] [data-testid="connection-readiness-banner-action"]';
 const DRAWER = '[data-testid="connection-detail-drawer"]';
 
 type StageOneId = (typeof STAGE_ONE_READINESS_IDS)[number];
@@ -396,9 +395,15 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         page,
         fixtureServer,
       }) => {
+        if (row.readiness === 'error-timeout') await page.clock.install();
         await boot(page, fixtureServer.url, theme, row.readiness, {
           flag: FLAG_SKIPPED,
         });
+        if (row.readiness === 'error-timeout') {
+          await expectStripWord(page, 1, 'Taking longer');
+          await expect(page.locator(HOME_BANNER)).toHaveCount(0);
+          await page.clock.runFor(11_000);
+        }
         await expect(page.locator(HOME)).toBeVisible();
         await expect(page.locator(HOME_BANNER)).toHaveAttribute(
           'data-state',
