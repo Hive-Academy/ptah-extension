@@ -32,12 +32,14 @@ import {
   NEAR_LIMIT_PERCENT,
   windowObservedAt,
 } from '@ptah-extension/shared';
-import { groupLaneRuns, laneTile, subtotalTile } from './lane-tiles';
+import { groupLaneRuns, laneTile, runRow, subtotalTile } from './lane-tiles';
 import { sessionPlan } from './plan-limit-tiles';
 import type {
   StatsLimitContext,
   StatsLimitViewModel,
   StatsLimitViewModelInput,
+  ProviderLaneLimitModel,
+  InspectorLaneRunDetail,
 } from './stats-limit-view-model.types';
 
 export function buildStatsLimitViewModel(
@@ -57,11 +59,79 @@ export function buildStatsLimitViewModel(
     laneTile(runs, input.owners, session, ctx),
   );
   const refreshNotice = refreshFailedNotice(input);
+  const inspectorRuns: InspectorLaneRunDetail[] = input.laneRuns.map(run => {
+    const tile = laneTile([run], input.owners, session, ctx);
+    const subgroup = tile.subgroups[0];
+    return {
+      runId: run.runId,
+      cliLabel: run.cliLabel,
+      role: run.role ?? null,
+      row: runRow(run, 0, ctx),
+      ownerText: subgroup?.ownerText ?? 'Unknown owner',
+      notes: subgroup?.notes.map(note => note.text) ?? [],
+      evidenceLines: [
+        ...(subgroup?.evidenceLines ?? []),
+        ...(subgroup?.cooldownLine ? [subgroup.cooldownLine] : []),
+        ...(subgroup?.planTileChips.map(ref => {
+          const planTile = session.tiles.find(tile => tile.id === ref.planTileId);
+          return planTile ? `${planTile.label}: ${planTile.value} · ${planTile.resetLine} · ${planTile.sourceChips.join(', ')}` : ref.chip.text;
+        }) ?? []),
+      ],
+      windows: subgroup?.windows ?? [],
+    };
+  });
+  const providers = new Map<string, StatsLimitViewModelInput['laneRuns'][number][]>();
+  for (const run of input.laneRuns) {
+    const group = providers.get(run.cli) ?? [];
+    group.push(run);
+    providers.set(run.cli, group);
+  }
+  const providerLimits: ProviderLaneLimitModel[] = [...providers].map(([cli, runs]) => {
+    const ownerKeys = [...new Set(runs.map(run => run.quotaOwner?.key).filter((key): key is string => !!key))];
+    const ownerDetails = ownerKeys.flatMap(key => {
+      const owner = input.owners.find(snapshot => snapshot.owner.key === key);
+      if (!owner) return [`${key} · Usage unknown`];
+      const plan = sessionPlan({ ...input, sessionOwnerKey: key, sessionModelScope: null }, ctx);
+      const windows = plan.tiles.filter(tile => tile.kind === 'window');
+      return windows.length
+        ? windows.map(tile => `${owner.owner.label} · ${tile.label}: ${tile.value} · ${tile.resetLine} · ${tile.sourceChips.join(', ')}`)
+        : [`${owner.owner.label} · Limits not tracked`];
+    });
+    const hasUnownedRun = runs.some(run => !run.quotaOwner);
+    if (ownerKeys.length !== 1 || hasUnownedRun) return {
+      id: `provider:${cli}`, label: runs[0].cliLabel,
+      ownerState: ownerKeys.length > 1 || ownerKeys.length > 0 && hasUnownedRun ? 'multiple' as const : 'untracked' as const,
+      windows: [],
+      message: ownerKeys.length > 1 || ownerKeys.length > 0 && hasUnownedRun ? 'Multiple accounts' : 'Limits not tracked',
+      ownerDetails: hasUnownedRun ? [...ownerDetails, 'Unknown owner · Limits not tracked'] : ownerDetails,
+    };
+    const ownerKey = ownerKeys[0];
+    const ownerSnapshot = input.owners.find(snapshot => snapshot.owner.key === ownerKey);
+    const scopes = [...new Set(runs.filter(run => run.quotaOwner?.key === ownerKey).map(run => run.modelScope ?? null))];
+    if (scopes.length > 1) return {
+      id: `provider:${cli}`, label: runs[0].cliLabel,
+      ownerState: 'single' as const, windows: [], message: 'Multiple scopes · Usage unknown',
+      ownerDetails,
+    };
+    const ownerPlan = sessionPlan({ ...input, sessionOwnerKey: ownerKey, sessionModelScope: scopes.length === 1 ? scopes[0] : null }, ctx);
+    const windows = ownerPlan.tiles.filter(tile => tile.kind === 'window' || tile.kind === 'cooldown' || tile.kind === 'evidence');
+    return {
+      id: `provider:${cli}`, label: runs[0].cliLabel,
+      ownerState: 'single' as const, windows,
+      message: windows.some(tile => tile.kind === 'window') ? ''
+        : ownerSnapshot?.status === 'no-usage-source' || ownerSnapshot?.status === 'provider-unsupported'
+          || ownerSnapshot?.status === 'unsupported-auth' || ownerSnapshot?.status === 'unsupported-config'
+          ? 'Limits not tracked' : 'Usage unknown',
+      ownerDetails,
+    };
+  });
   return {
     ...(session.indicator && { indicator: session.indicator }),
     ...(refreshNotice !== undefined && { refreshNotice }),
     planTiles: session.tiles,
     laneTiles,
+    inspectorRuns,
+    providerLimits,
     ...(input.laneRuns.length > 0 && {
       subtotal: subtotalTile(input.laneRuns, laneTiles.length),
     }),

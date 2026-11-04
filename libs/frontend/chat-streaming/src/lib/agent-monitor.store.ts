@@ -449,6 +449,29 @@ const CLI_LANE_CACHE_FIELDS = {
   cacheReported: false,
 } as const satisfies Pick<MonitoredAgent, 'cacheState' | 'cacheReported'>;
 
+/**
+ * What a finished card watched live in this app run carries into its rebuilt
+ * copy when a session resume or resync hands the same run back. Its usage was
+ * folded from every segment before any cap, so it is the run's real total,
+ * not the unknown a cold restore has (Req 8.4). Only the same run qualifies:
+ * same CLI and the same continuation turn. Its model rides along because the
+ * persisted reference does not record one. Empty for anything else.
+ */
+function liveUsageOf(
+  card: MonitoredAgent | undefined,
+  ref: CliSessionReference,
+): Partial<Pick<MonitoredAgent, 'usageTotals' | 'model' | 'cacheReported'>> {
+  if (!card || card.usageTotals == null) return {};
+  if (card.cli !== ref.cli) return {};
+  // A missing turn is the first turn, as everywhere else in this store.
+  if ((card.turnSeq ?? 1) !== (ref.turnSeq ?? 1)) return {};
+  return {
+    usageTotals: card.usageTotals,
+    cacheReported: card.cacheReported,
+    ...(card.model ? { model: card.model } : {}),
+  };
+}
+
 export interface MonitoredAgent {
   readonly agentId: string;
   /** Latest lifecycle turn for a same-id CLI continuation. */
@@ -531,8 +554,9 @@ export interface MonitoredAgent {
    * Usage of this run, folded with `addCliUsage` from every incoming segment
    * BEFORE `capSegments` drops old ones, so long lanes keep exact totals.
    * `null` (or absent) means no usage is known — never read it as 0. A card
-   * rebuilt by `loadCliSessions` is always `null`: restored tokens and cost
-   * are unknown (Decision 8, Req 8.4).
+   * rebuilt by `loadCliSessions` is `null`: restored tokens and cost are
+   * unknown (Decision 8, Req 8.4), unless this app run watched the same run
+   * live and folded its total (see `liveUsageOf`).
    */
   usageTotals?: CliUsageTotals | null;
   /** Workspace role name the lane was spawned as. */
@@ -1943,16 +1967,22 @@ export class AgentMonitorStore implements OnDestroy {
     const parentSessionId = knownSessionId(rawParentSessionId);
 
     this.updateAgents((list) => {
+      // Finished cards of this session are rebuilt from `cliSessions`. A card
+      // this app run watched live keeps what it folded (see liveUsageOf).
+      const rebuilt = new Map<string, MonitoredAgent>();
       let next: MonitoredAgent[] = list.filter((a) => {
         if (parentSessionId === undefined) return true;
         if (a.parentSessionId !== parentSessionId) return true;
-        return a.status === 'running';
+        if (a.status === 'running') return true;
+        rebuilt.set(a.agentId, a);
+        return false;
       });
 
       const existingIds = new Set(next.map((a) => a.agentId));
 
       for (const ref of cliSessions) {
         if (existingIds.has(ref.agentId)) continue;
+        const live = liveUsageOf(rebuilt.get(ref.agentId), ref);
 
         const ts = new Date(ref.startedAt).getTime();
         const completedAt =
@@ -1970,6 +2000,7 @@ export class AgentMonitorStore implements OnDestroy {
         next = insertAgentSorted(next, {
           agentId: ref.agentId,
           cli: ref.cli,
+          model: ref.model,
           task: ref.task,
           status: ref.status,
           startedAt: Number.isNaN(ts) ? Date.now() : ts,
@@ -1997,6 +2028,7 @@ export class AgentMonitorStore implements OnDestroy {
           accountProfileId: laneAccountProfileId(ref),
           restored: true,
           ...CLI_LANE_CACHE_FIELDS,
+          ...live,
         });
         existingIds.add(ref.agentId);
       }

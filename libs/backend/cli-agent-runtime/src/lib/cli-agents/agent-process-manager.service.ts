@@ -49,7 +49,9 @@ import { killProcessTree } from '@ptah-extension/platform-core';
 import {
   claudeModelFamily,
   SDK_TOKENS,
+  SESSION_USAGE_SINK,
   type HostAttentionCoordinator,
+  type SessionUsageSink,
 } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
@@ -82,6 +84,7 @@ import {
 import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import { recordLaneUsageOutcome } from './lane-completion-outcome';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import {
   buildLaneHandoffTask,
@@ -393,6 +396,13 @@ export class AgentProcessManager {
       isOptional: true,
     })
     private readonly accountSelections?: ClaudeAccountSelectionReader,
+    /**
+     * Durable usage capture port (TASK_2026_870 Phase 1). Optional: without
+     * the host binding, a lane's completion usage is not mirrored to the
+     * usage ledger and the completion path is unchanged.
+     */
+    @inject(SESSION_USAGE_SINK, { isOptional: true })
+    private readonly usageSink?: SessionUsageSink | null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -3152,6 +3162,20 @@ export class AgentProcessManager {
     const toolCalls =
       this.laneGuards.get(info.agentId)?.toolCallCount ??
       tracked.guardToolCalls;
+    if (tracked.outcomeUsage) {
+      // Durable usage capture (TASK_2026_870 Phase 1): the same turn total
+      // the outcome recorder reads, recorded before the signal so a lane
+      // whose chat parent is gone still lands its usage. Keyed by the same
+      // agent id and completion stamp the notifier's duplicate guard uses,
+      // so a repeated terminal call converges to the same rows.
+      recordLaneUsageOutcome(
+        this.usageSink,
+        this.logger,
+        info,
+        info.completedAt ?? new Date().toISOString(),
+        tracked.outcomeUsage,
+      );
+    }
     void this.laneCompletion.signal(info, {
       reportsDelivered,
       ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),

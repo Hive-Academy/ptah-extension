@@ -24,6 +24,7 @@ import { join, resolve } from 'path';
 import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type { SessionUsageSink } from '@ptah-extension/agent-sdk';
 import { FileType } from '@ptah-extension/platform-core';
 import {
   LaneCompletionNotifier,
@@ -35,6 +36,7 @@ import type {
   SessionChildCompletionSubject,
   SessionChildSettle,
 } from '../session-children/session-spawner.port';
+import { recordLaneUsageOutcome } from './lane-completion-outcome';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -150,6 +152,16 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('records orphan lane usage with its workspace and execution host', () => {
+    const recordUsage = jest.fn();
+    const sink: SessionUsageSink = { recordUsage };
+    recordLaneUsageOutcome(sink, createLogger(), createInfo({ workingDirectory: 'C:/Workspace/Root', cliSessionId: 'native-thread', providerId: 'codex' }), COMPLETED_AT,
+      { inputTokens: 8, outputTokens: 2 });
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'native-thread', producer: 'cli-lane', providerId: 'codex',
+      workspaceKey: 'c:/workspace/root', host: 'cli',
+    }));
+  });
   it('writes provider usage to the lane outcome without estimating cost', async () => {
     const h = createHarness();
     await h.notifier.signal(createInfo(), {

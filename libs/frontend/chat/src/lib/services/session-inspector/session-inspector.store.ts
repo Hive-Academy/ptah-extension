@@ -38,10 +38,14 @@ const BUSY_STATUSES: ReadonlySet<SessionStatus> = new Set([
   'resuming',
 ]);
 
-/** Row order bucket: needs attention, then live, then finished. */
-function rowBucket(agent: SessionAgent): 0 | 1 | 2 {
+/**
+ * Row order bucket: needs attention, then live, then finished, then failed
+ * (grouped at the end). The Orchestrator never moves to the failed bucket.
+ */
+function rowBucket(agent: SessionAgent): 0 | 1 | 2 | 3 {
   if (agent.openRequestIds.length > 0 || agent.status === 'waiting') return 0;
   if (agent.status === 'running' || agent.status === 'queued') return 1;
+  if (agent.status === 'failed' && agent.kind !== 'orchestrator') return 3;
   return 2;
 }
 
@@ -55,7 +59,8 @@ function newestFirst(a: number | null, b: number | null): number {
 
 /**
  * AGENTS rows: open requests or `waiting` first, then running / queued by
- * newest start, then done / failed / stopped by most recent end. Stable, so
+ * newest start, then done / stopped by most recent end, then failed by most
+ * recent end. Stable, so
  * equal rows keep roster order.
  */
 function orderAgentRows(rows: readonly InspectorAgentRow[]): InspectorAgentRow[] {
@@ -64,7 +69,7 @@ function orderAgentRows(rows: readonly InspectorAgentRow[]): InspectorAgentRow[]
     if (bucket !== 0) return bucket;
     if (rowBucket(a.agent) === 1)
       return newestFirst(a.agent.startedAt, b.agent.startedAt);
-    if (rowBucket(a.agent) === 2)
+    if (rowBucket(a.agent) >= 2)
       return newestFirst(a.agent.endedAt, b.agent.endedAt);
     return 0;
   });

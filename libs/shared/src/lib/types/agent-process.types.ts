@@ -538,6 +538,8 @@ export interface CliSessionReference {
   readonly replacesCliSessionIds?: readonly string[];
   /** Which CLI produced this session */
   readonly cli: CliType;
+  /** Model selected for this lane, when known. */
+  readonly model?: string;
   /** Ptah's branded AgentId that ran this session */
   readonly agentId: AgentId;
   /** Task description the agent was given */

@@ -40,7 +40,7 @@ describe('AgentDockMenuComponent', () => {
       const rows = [...root.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
       expect(rows).toHaveLength(hidden.length);
       expect(rows.map((row) => row.getAttribute('aria-label')?.split(',')[0])).toEqual(
-        ['Runner', 'Waiting', 'Failed', 'Queued', 'Done', 'Stopped'],
+        ['Runner', 'Waiting', 'Queued', 'Failed', 'Done', 'Stopped'],
       );
       for (const agent of hidden) {
         const row = rows.find((item) => item.getAttribute('aria-label')?.startsWith(agent.name + ','))!;

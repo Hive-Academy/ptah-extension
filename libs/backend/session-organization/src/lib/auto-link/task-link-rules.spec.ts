@@ -90,9 +90,9 @@ function permutations<T>(items: readonly T[]): T[][] {
 }
 
 describe('precedence table', () => {
-  it('ranks R3 < R4 < R5 < R7 < R6 below the explicit sources', () => {
+  it('ranks R3 < R8 < R4 < R5 < R7 < R6 below the explicit sources', () => {
     const order = [...AUTO_RULES].sort((a, b) => rankOfRule(a) - rankOfRule(b));
-    expect(order).toEqual(['R3', 'R4', 'R5', 'R7', 'R6']);
+    expect(order).toEqual(['R3', 'R8', 'R4', 'R5', 'R7', 'R6']);
     expect(rankOfRule('R3')).toBeGreaterThan(1);
   });
 
@@ -107,6 +107,7 @@ describe('precedence table', () => {
   it('maps each rule to its stored source', () => {
     expect(AUTO_RULES.map(sourceOfRule)).toEqual([
       'orchestrate',
+      'worktree',
       'worktree',
       'worktree',
       'inherited',

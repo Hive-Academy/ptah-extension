@@ -15,6 +15,7 @@ import {
   instanceCachingFactory,
   Lifecycle,
 } from 'tsyringe';
+import { readDevOverrides, type DevOverrides } from './dev-overrides';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -178,6 +179,7 @@ const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
 function createIdleCompactionService(
   c: DependencyContainer,
   logger: Logger,
+  overrides: DevOverrides,
 ): IdleCompactionService {
   const workspace = c.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)
     ? c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -213,7 +215,7 @@ function createIdleCompactionService(
     ),
     events,
     workspace,
-    { scheduler: createUnrefScheduler(), now: () => Date.now() },
+    { scheduler: createUnrefScheduler(), now: () => Date.now(), cacheTtlMs: overrides.idleCacheTtlMs },
     c.resolve<SessionStatsOwnerService>(SDK_TOKENS.SDK_SESSION_STATS_OWNER),
   );
 }
@@ -238,7 +240,9 @@ function createIdleCompactionService(
 export function registerSdkServices(
   container: DependencyContainer,
   logger: Logger,
+  options: { readonly devHost?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
 ): void {
+  const overrides = readDevOverrides(options.devHost === true, options.env ?? process.env, logger);
   logger.info('[AgentSDK] Registering SDK services...');
   registerCodexChatServices(container);
   // Product hosts do not consume model-dispatch provenance. Benchmark record
@@ -572,8 +576,7 @@ export function registerSdkServices(
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
-    { useClass: CompactionConfigProvider },
-    { lifecycle: Lifecycle.Singleton },
+    { useFactory: instanceCachingFactory((c) => new CompactionConfigProvider(c.resolve(TOKENS.CONFIG_MANAGER), logger, overrides.idleMinTokens)) },
   );
 
   // A factory rather than `useClass`: `SDK_CODE_OUTLINER` is optional and is
@@ -620,7 +623,7 @@ export function registerSdkServices(
     useFactory: instanceCachingFactory((c) => {
       if (idleCompactionFailed) return undefined;
       try {
-        return createIdleCompactionService(c, logger);
+        return createIdleCompactionService(c, logger, overrides);
       } catch (cause) {
         idleCompactionFailed = true;
         logger.error(
@@ -955,7 +958,11 @@ export function registerSdkServices(
 
   // Session budget (TASK_2026_597 N7), advisory only. The service injects its
   // provider by class token. Before the adapter, which injects the service.
-  container.registerSingleton(SessionBudgetConfigProvider);
+  container.register(SessionBudgetConfigProvider, {
+    useFactory: instanceCachingFactory((c) => new SessionBudgetConfigProvider(
+      c.resolve(TOKENS.CONFIG_MANAGER), logger, overrides.sessionBudgetTokens,
+    )),
+  });
   container.registerSingleton(SessionRotationAdvisor);
   // The lifecycle manager reads the budget at turn-end and the budget applies
   // compact windows through lifecycle. Resolve the latter only when budget work

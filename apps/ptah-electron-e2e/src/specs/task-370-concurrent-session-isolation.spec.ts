@@ -131,6 +131,9 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
     const cards = page.locator('ptah-canvas-rail [data-rail-card]');
     await expect(cards).toHaveCount(2);
     await expect(ui.canvasPanes()).toHaveCount(1);
+    // Keep the stored card order, so the first card is the first session (A).
+    // The default recent order puts the new, focused session first.
+    await ui.setRailSort('manual');
 
     // Show both sessions at once: open the first card beside the new one. Its
     // session (A) takes the opposite pane and becomes the active one; the new

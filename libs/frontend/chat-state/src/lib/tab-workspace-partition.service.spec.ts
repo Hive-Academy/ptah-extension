@@ -159,6 +159,73 @@ describe('TabWorkspacePartitionService', () => {
     });
   });
 
+  describe('findBackgroundTabs', () => {
+    it('returns the matching tab objects of background workspaces only', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace(
+        '/ws/b',
+        [makeTab('a-1', 'sess-a'), makeTab('a-2')],
+        'a-1',
+      );
+      expect(
+        svc.findBackgroundTabs((tab) => tab.id === 'a-2').map((t) => t.id),
+      ).toEqual(['a-2']);
+      expect(svc.findBackgroundTabs(() => true).map((t) => t.id).sort()).toEqual(
+        ['a-1', 'a-2'],
+      );
+    });
+  });
+
+  describe('removeBackgroundTab', () => {
+    it('selects the adjacent tab when removing the background active tab', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1'), makeTab('a-2')], 'a-1');
+      svc.removeBackgroundTab('a-1', '/ws/a');
+      const restored = svc.switchWorkspace('/ws/a', [], null);
+      expect(restored?.activeTabId).toBe('a-2');
+      svc.switchWorkspace('/ws/b', restored?.tabs ?? [], restored?.activeTabId ?? null);
+      svc.removeBackgroundTab('a-2', '/ws/a');
+      expect(svc.switchWorkspace('/ws/a', [], null)?.activeTabId).toBeNull();
+    });
+    it('removes a background tab and drops its session index entry', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace(
+        '/ws/b',
+        [makeTab('a-1', 'sess-a'), makeTab('a-2', 'sess-b')],
+        'a-1',
+      );
+      expect(
+        svc.findTabBySessionIdAcrossWorkspaces('sess-a', [])?.tab.id,
+      ).toBe('a-1');
+
+      const removed = svc.removeBackgroundTab('a-1', '/ws/a');
+
+      expect(removed?.id).toBe('a-1');
+      expect(
+        svc.findBackgroundTabs((tab) => tab.id === 'a-1'),
+      ).toEqual([]);
+      expect(
+        svc.findBackgroundTabIds((tab) => true),
+      ).toEqual(['a-2']);
+      expect(svc.findTabBySessionIdAcrossWorkspaces('sess-a', [])).toBeNull();
+      expect(
+        svc.findTabBySessionIdAcrossWorkspaces('sess-b', [])?.tab.id,
+      ).toBe('a-2');
+    });
+
+    it('refuses the active workspace, an unknown workspace and a missing tab', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1', 'sess-a')], 'a-1');
+
+      // Active path: its tab set belongs to TabManagerService's signal.
+      expect(svc.removeBackgroundTab('a-1', '/ws/b')).toBeNull();
+      expect(svc.removeBackgroundTab('a-1', '/ws/none')).toBeNull();
+      expect(svc.removeBackgroundTab('a-missing', '/ws/a')).toBeNull();
+      // Nothing above touched the background set.
+      expect(svc.findBackgroundTabIds(() => true)).toEqual(['a-1']);
+    });
+  });
+
   describe('removeWorkspaceState', () => {
     it('clears in-memory state and reports active==true when removing the active ws', () => {
       svc.switchWorkspace('/ws/a', [], null);

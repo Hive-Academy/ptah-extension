@@ -382,7 +382,7 @@ describe('CanvasLaneTabsComponent', () => {
         expect(tab.classList.contains('border-secondary')).toBe(false);
         expect(tab.classList.contains('hover:bg-base-200')).toBe(true);
         expect(tab.classList.contains('max-w-[140px]')).toBe(true);
-        expect(tab.classList.contains('size-7')).toBe(false);
+        expect(tab.classList.contains('size-8')).toBe(false);
         expect(tab.tabIndex).toBe(-1);
         expect(
           tab.querySelector('[data-testid="dock-chip-name"]')?.classList.contains('truncate'),
@@ -429,7 +429,7 @@ describe('CanvasLaneTabsComponent', () => {
       expect(circles).toHaveLength(4);
       expect(root.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agent');
       for (const circle of circles) {
-        expect(circle.classList.contains('size-7')).toBe(true);
+        expect(circle.classList.contains('size-8')).toBe(true);
         expect(circle.querySelector('[data-testid="dock-chip-name"]')).toBeNull();
       }
       circles[0].dispatchEvent(mousePointer('pointerenter'));
@@ -488,9 +488,9 @@ describe('CanvasLaneTabsComponent', () => {
     expect(dock.classList.contains('bg-surface-1')).toBe(true);
     expect(tabLabels(fixture.nativeElement)).toEqual([
       'Orchestrator, done',
-      'Worker, Sub-agent, done',
-      'Codex, CLI lane, done',
-      'Review, Background, done',
+      'Worker, Sub-agent, done, finished agents',
+      'Codex, CLI lane, done, finished agents',
+      'Review, Background, done, finished agents',
     ]);
     expect(fixture.nativeElement.querySelectorAll('[data-testid="dock-divider"]')).toHaveLength(0);
 
@@ -623,7 +623,7 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
     TestBed.tick();
-    fireResize(measuredResize, 270);
+    fireResize(measuredResize, 340);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -685,13 +685,13 @@ describe('CanvasLaneTabsComponent', () => {
     try {
       const finished = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
       finished.focus();
-      finished.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      finished.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
       fixture.detectChanges();
       await fixture.whenStable();
       const running = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c1')!;
       expect(document.activeElement).toBe(running);
       expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c0')).not.toBeNull();
-      running.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      running.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
       fixture.detectChanges();
       await fixture.whenStable();
       expect(document.activeElement?.id).toBe('canvas-lane-panel-tab-cli:c0');
@@ -849,7 +849,7 @@ describe('CanvasLaneTabsComponent', () => {
     const tabs = [...fixture.nativeElement.querySelectorAll('[role="tab"]')] as HTMLElement[];
     expect(tabLabels(fixture.nativeElement)).toEqual([
       'Orchestrator, done',
-      'Owned, CLI lane, running',
+      'Owned, CLI lane, running, active agents',
     ]);
     expect(tabs.filter((tab) => tab.id.includes('cli:owned'))).toHaveLength(1);
   });
@@ -884,7 +884,7 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.destroy();
   });
 
-  it('keeps a waiting agent in the five-chip 360px plan and disconnects the observer', async () => {
+  it('keeps a waiting agent in the five-chip 450px plan and disconnects the observer', async () => {
     const original = globalThis.ResizeObserver;
     let resize: ResizeObserverCallback = () => undefined;
     const disconnect = jest.fn();
@@ -934,13 +934,14 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       await fixture.whenStable();
       expect(observe).toHaveBeenCalledTimes(1);
-      fireResize(resize, 360);
+      fireResize(resize, 450);
       fixture.detectChanges();
       const labels = tabLabels(fixture.nativeElement);
       expect(labels).toHaveLength(5);
       expect(labels.some((label) => label.includes('Waiter'))).toBe(true);
-      expect(labels.some((label) => label.includes('Finished'))).toBe(true);
-      expect(labels.some((label) => label.includes('Extra'))).toBe(false);
+      expect(labels.some((label) => label.includes('Runner'))).toBe(true);
+      expect(labels.some((label) => label.includes('Extra'))).toBe(true);
+      expect(labels.some((label) => label.includes('Broken'))).toBe(false);
       const selected = jest.fn();
       fixture.componentInstance.laneSelected.subscribe(selected);
       fixture.nativeElement
@@ -951,22 +952,22 @@ describe('CanvasLaneTabsComponent', () => {
       expect(selected).not.toHaveBeenCalled();
       fireResize(resize, 0);
       fixture.detectChanges();
-      expect(tabLabels(fixture.nativeElement)).toEqual([]);
+      expect(tabLabels(fixture.nativeElement)).toEqual([expect.stringContaining('Orchestrator')]);
       expect(
         fixture.nativeElement
           .querySelector('[aria-haspopup="menu"]')
           .getAttribute('aria-label'),
-      ).toBe('6 more agents, 1 waiting, needs you, 1 failed');
+      ).toBe('5 more agents, 1 waiting, needs you, 1 failed');
       const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
       trigger.click();
       fixture.detectChanges();
       const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
       expect(rows.map((row) => row.querySelector('.truncate')?.textContent?.trim())).toEqual([
-        'Runner', 'Waiter', 'Broken', 'Orchestrator', 'Finished', 'Extra',
+        'Waiter', 'Runner', 'Finished', 'Extra', 'Broken',
       ]);
       expect(rows).toHaveLength(Number(trigger.getAttribute('aria-label')?.match(/^\d+/)?.[0]));
-      expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(true);
-      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]')).toHaveLength(0);
+      expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(false);
+      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]')).toHaveLength(1);
       fixture.destroy();
       expect(disconnect).toHaveBeenCalledTimes(1);
     } finally {
@@ -1012,7 +1013,7 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
       await fixture.whenStable();
-      fireResize(resize, 240);
+      fireResize(resize, 340);
       fixture.detectChanges();
       expect(tabLabels(fixture.nativeElement).some((label) => label.includes('Finished'))).toBe(
         false,
@@ -1040,7 +1041,7 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
     TestBed.tick();
-    fireResize(measuredResize, 270);
+    fireResize(measuredResize, 340);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -1082,7 +1083,7 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
     TestBed.tick();
-    fireResize(measuredResize, 270);
+    fireResize(measuredResize, 340);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -1398,32 +1399,88 @@ function fireResize(callback: ResizeObserverCallback, width: number): void {
     expect(tabs(root).length).toBeLessThanOrEqual(3);
     fireResize(resize, 0);
     fixture.detectChanges();
-    expect(tabs(root)).toHaveLength(0);
-    expect(trigger(root)?.getAttribute('aria-label')).toBe('10 more agents');
+    // The orchestrator never moves into the overflow menu.
+    expect(ids(root)).toEqual(['canvas-lane-panel-tab-orchestrator']);
+    expect(trigger(root)?.getAttribute('aria-label')).toBe('9 more agents');
     trigger(root)?.click();
     fixture.detectChanges();
-    expect(root.querySelectorAll('[role="menuitemradio"]')).toHaveLength(10);
-    expect(root.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain('Orchestrator');
+    expect(root.querySelectorAll('[role="menuitemradio"]')).toHaveLength(9);
+    expect(root.querySelector('[role="menuitemradio"][aria-checked="true"]')).toBeNull();
     fixture.destroy();
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('renders selected non-running first, then running chips across kinds in roster order', async () => {
-    agents.set([cli(0), cli(1, 'failed'), cli(2)]);
+  it('pins the orchestrator first, then active agents in roster order, then finished ones', async () => {
+    agents.set([cli(0, 'completed'), cli(1, 'failed'), cli(2)]);
     subagents.set(new Map([['s', { parentToolUseId: 's', parentSessionId: 'owner', status: 'running', agentType: 'Worker' }]]));
-    background.set([{ toolCallId: 'b', sessionId: 'owner', agentType: 'Review', status: 'running' }]);
     const fixture = create();
     await fixture.whenStable();
     fireResize(resize, 760);
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
-    const shown = tabs(root);
-    expect(shown.length).toBeLessThanOrEqual(5);
-    expect(shown[0].id).toContain('orchestrator');
-    const statuses = shown.slice(1).map((tab) => tab.getAttribute('aria-label') ?? '');
-    const firstNonRunning = statuses.findIndex((label) => !label.includes('running'));
-    if (firstNonRunning >= 0) expect(statuses.slice(firstNonRunning).every((label) => !label.includes('running'))).toBe(true);
-    expect(shown.some((tab) => tab.id.includes('cli:c0'))).toBe(true);
+    const shown = ids(root);
+    expect(shown).toHaveLength(5);
+    expect(shown[0]).toBe('canvas-lane-panel-tab-orchestrator');
+    expect(shown.slice(3)).toEqual(['canvas-lane-panel-tab-cli:c0', 'canvas-lane-panel-tab-cli:c1']);
+    expect(shown.slice(1, 3)).toContain('canvas-lane-panel-tab-cli:c2');
+    fixture.destroy();
+  });
+
+  it('keeps the dock order when the selection or an active status changes', async () => {
+    agents.set(cliRoster(4));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const before = ids(root);
+    expect(before[0]).toBe('canvas-lane-panel-tab-orchestrator');
+    fixture.componentRef.setInput('laneKey', 'cli:c2');
+    fixture.detectChanges();
+    expect(ids(root)).toEqual(before);
+    agents.set(cliRoster(4).map((item) => item.agentId === 'c3'
+      ? { ...item, permissionQueue: [{ requestId: 'pending' }] } : item));
+    fixture.detectChanges();
+    expect(ids(root)).toEqual(before);
+    fixture.componentRef.setInput('laneKey', 'cli:c3');
+    fixture.detectChanges();
+    expect(ids(root)).toEqual(before);
+    fixture.destroy();
+  });
+
+  it('renders a group marker only for non-empty groups, outside the tab sequence', async () => {
+    agents.set(cliRoster(2));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const active = root.querySelector<HTMLElement>('[data-testid="dock-group-active"]');
+    expect(active).not.toBeNull();
+    expect(active?.getAttribute('aria-hidden')).toBe('true');
+    expect(active?.getAttribute('role')).toBe('presentation');
+    expect(active?.getAttribute('title')).toBe('Active agents');
+    expect(tabs(root).map((tab) => tab.getAttribute('aria-label'))).toEqual([
+      'Orchestrator, done',
+      'CLI 0, CLI lane, running, active agents',
+      'CLI 1, CLI lane, running, active agents',
+    ]);
+    expect(root.querySelector('[data-testid="dock-group-finished"]')).toBeNull();
+    // Marker sits between the orchestrator and the first active chip.
+    expect(active?.previousElementSibling?.id).toBe('canvas-lane-panel-tab-orchestrator');
+    expect(active?.nextElementSibling?.id).toBe('canvas-lane-panel-tab-cli:c0');
+
+    agents.set([cli(0), cli(1, 'completed')]);
+    fixture.detectChanges();
+    const finished = root.querySelector<HTMLElement>('[data-testid="dock-group-finished"]');
+    expect(finished?.getAttribute('title')).toBe('Finished agents');
+    expect(finished?.nextElementSibling?.id).toBe('canvas-lane-panel-tab-cli:c1');
+
+    agents.set([cli(0, 'completed')]);
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="dock-group-active"]')).toBeNull();
+    expect(root.querySelector('[data-testid="dock-group-finished"]')).not.toBeNull();
+    expect(root.querySelectorAll('[role="tablist"] [role="presentation"] [role="tab"]')).toHaveLength(0);
     fixture.destroy();
   });
 
@@ -1475,9 +1532,19 @@ function fireResize(callback: ResizeObserverCallback, width: number): void {
       fixture.detectChanges();
       expect(ids(root)).toEqual(before);
       expect(tabs(root)).toHaveLength(5);
+      // A frozen dock keeps c1 in place, so each group change gets its own marker.
+      const markers = [...root.querySelectorAll<HTMLElement>('[data-testid^="dock-group-"]')];
+      expect(markers.map((marker) => [marker.dataset['testid'], marker.nextElementSibling?.id])).toEqual(
+        status === 'waiting'
+          ? [['dock-group-active', 'canvas-lane-panel-tab-cli:c0']]
+          : [['dock-group-active', 'canvas-lane-panel-tab-cli:c0'],
+            ['dock-group-finished', 'canvas-lane-panel-tab-cli:c1'],
+            ['dock-group-active', 'canvas-lane-panel-tab-cli:c2']],
+      );
       outside.focus();
       fixture.detectChanges();
-      expect(ids(root)).not.toEqual(before);
+      if (status === 'waiting') expect(ids(root)).toEqual(before);
+      else expect(ids(root)).toEqual([...before.filter((id) => !id.endsWith('cli:c1')), 'canvas-lane-panel-tab-cli:c4']);
       expect(tabs(root)).toHaveLength(5);
       expect(root.querySelector('[aria-selected="true"]')?.id).toContain('orchestrator');
     } finally { outside.remove(); root.remove(); fixture.destroy(); }
@@ -1496,9 +1563,9 @@ function fireResize(callback: ResizeObserverCallback, width: number): void {
       fireResize(resize, 0);
       fixture.detectChanges();
       await fixture.whenStable();
-      expect(tabs(root)).toHaveLength(0);
+      expect(ids(root)).toEqual(['canvas-lane-panel-tab-orchestrator']);
       expect(document.activeElement).toBe(trigger(root));
-      expect(trigger(root)?.getAttribute('aria-label')).toBe('7 more agents');
+      expect(trigger(root)?.getAttribute('aria-label')).toBe('6 more agents');
     } finally { root.remove(); fixture.destroy(); }
   });
 

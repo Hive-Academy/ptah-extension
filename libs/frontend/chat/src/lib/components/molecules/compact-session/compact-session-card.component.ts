@@ -41,11 +41,13 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 import {
   contextFillPercent,
+  isAgentTaskType,
   trustedContextWindow,
   type AskUserQuestionRequest,
   type PermissionRequest,
@@ -219,6 +221,7 @@ export class CompactSessionCardComponent {
   private readonly sessionBinding = inject(TabSessionBinding);
   private readonly conversations = inject(ConversationRegistry);
   private readonly agentStore = inject(AgentMonitorStore);
+  private readonly backgroundTasks = inject(BackgroundTaskStore);
   private readonly responder = inject(AgentPermissionResponder);
   private readonly gitStore = inject(SessionGitStatsStore);
   private readonly worktrees = inject(SessionWorktreeLookup);
@@ -558,12 +561,24 @@ export class CompactSessionCardComponent {
     if (this.summary().status.tone === 'error') return 'error';
     if (
       this.sessionStatus() === 'streaming' ||
-      this.sessionStatus() === 'resuming' ||
-      this.laneSummary().counts.running > 0
+      this.sessionStatus() === 'resuming'
     )
       return 'running';
+    if (this.laneSummary().counts.running > 0 || this.hasRunningBackgroundTask())
+      return 'background';
     return this.messages().length > 0 ? 'done' : 'idle';
   });
+
+  /**
+   * Running background commands of this session, resolved the way the
+   * composer's background-task chips resolve them: by `claudeSessionId`,
+   * agent task types excluded (those already count as lanes).
+   */
+  private readonly hasRunningBackgroundTask = computed(() =>
+    this.backgroundTasks
+      .tasksForSession(this.tab().claudeSessionId ?? null)
+      .some((task) => task.status === 'running' && !isAgentTaskType(task.taskType)),
+  );
 
   constructor() {
     effect((onCleanup) => {

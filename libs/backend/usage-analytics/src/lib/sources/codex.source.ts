@@ -40,7 +40,7 @@ export class CodexSource implements UsageSource {
   }
 
   private async parse(lines: AsyncIterable<string>, file: string): Promise<ParsedFile> {
-    const facts: UsageContribution[] = []; let malformed = 0; let partial = false;
+    const facts: UsageContribution[] = []; let malformed = 0; const partial = false;
     let model = 'unknown'; let cwd: string | undefined; let sessionId: string | undefined;
     for await (const line of lines) {
       let raw: unknown;

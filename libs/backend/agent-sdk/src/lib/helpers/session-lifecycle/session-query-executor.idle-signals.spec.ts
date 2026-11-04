@@ -127,6 +127,14 @@ const assistant = (id: string, sessionId = 'sdk') =>
   });
 
 describe('SessionQueryExecutor idle signal producers', () => {
+  it('releases idle ownership when debug logging throws', async () => {
+    const h = harness();
+    const run = await h.executor.executeQuery(h.config);
+    run.onMessage(init());
+    jest.spyOn(h.logger, 'debug').mockImplementation(() => { throw new Error('logger failed'); });
+    run.onStreamEnd();
+    expect(h.idle.sessionReleased).toHaveBeenCalledWith('sdk');
+  });
   it('binds once, tracks main requests and usage, and ignores same-id init and user echoes', async () => {
     const h = harness();
     const run = await h.executor.executeQuery(h.config);

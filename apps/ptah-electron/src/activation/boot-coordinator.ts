@@ -135,6 +135,8 @@ export interface BootRefs extends ThothRuntimeRefs {
    * Awaited after the agent reap and before SQLite close; it bounds itself.
    */
   laneOutcomesDisposer: LaneOutcomesDisposer | null;
+  /** Captured usage write drain, awaited before the session database closes. */
+  sessionUsageSink: { flush: () => Promise<void> } | null;
   /**
    * Child chat session spawner (TASK_2026_584). `dispose()` is synchronous and
    * idempotent: it ends every live child (`host-shutdown`), clears its timers
@@ -205,6 +207,7 @@ export function createEmptyBootRefs(): BootRefs {
     cliRegistry: null,
     agentProcessManager: null,
     laneOutcomesDisposer: null,
+    sessionUsageSink: null,
     sessionSpawner: null,
     chatSessions: null,
     hostRouting: null,

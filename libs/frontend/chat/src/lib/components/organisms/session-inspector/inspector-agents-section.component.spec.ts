@@ -11,6 +11,7 @@ import { SessionAgentTrayService } from '../../../services/session-agents/sessio
 import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
+import type { InspectorLaneRunDetail } from '@ptah-extension/chat-ui';
 
 function agent(
   overrides: Partial<SessionAgent> = {},
@@ -55,6 +56,12 @@ const CARD: OrchestratorCardModel = {
 };
 
 describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
+  const detail: InspectorLaneRunDetail = {
+    runId: 'lane-1', cliLabel: 'Codex', role: 'backend-developer',
+    row: { runId: 'lane-1', index: 1, model: 'gpt-5', tokensText: '100', costText: '$0.01',
+      status: { tone: 'success', text: 'Completed' }, started: { short: '1 Jan', full: '1 Jan 2026' } },
+    ownerText: 'Unknown owner', notes: ['Limits not tracked'], evidenceLines: [], windows: [],
+  };
   const fixedNow = signal(10_000);
 
   beforeEach(() => {
@@ -140,6 +147,20 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       row.getAttribute('data-agent-key'),
     );
 
+  it('expands run facts independently of row selection', () => {
+    const fixture = mount([agent()]);
+    fixture.componentRef.setInput('laneRuns', [detail]);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).toContain('Codex · backend-developer');
+    expect(root.querySelector('[data-testid="agent-run-detail"]')).toBeNull();
+    const toggle = root.querySelector<HTMLButtonElement>('[aria-label="Expand Codex · backend-developer details"]');
+    toggle?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="agent-run-detail"]')?.textContent).toContain('Unknown owner');
+    expect(root.querySelector('[data-testid="agent-row-time"]')?.textContent).toBeTruthy();
+  });
+
   it('lists every agent with running first, then the Orchestrator, then the rest', () => {
     const el: HTMLElement = mount([
       agent({ key: 'cli:done', status: 'done' }),
@@ -155,7 +176,7 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     expect(el.querySelector('h3')?.textContent?.trim()).toBe('AGENTS');
     expect(
       el.querySelector('[data-testid="agents-count"]')?.textContent?.trim(),
-    ).toBe('1 running · 4');
+    ).toBe('1 running · 4 · 0 CLI runs');
     expect(el.textContent).not.toContain('ACTIVE SUBAGENTS');
     expect(el.textContent).not.toContain('Usage: 2284653');
   });
@@ -490,9 +511,8 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
         .querySelector('[data-testid="agent-row-model"]')
         ?.getAttribute('title'),
     ).toBe('Sub-agent · test-model');
-    expect(row.getAttribute('aria-label')).toContain(
-      'Model test-model. 2.4k tokens (In 1.2k · Out 300)',
-    );
+    expect(row.getAttribute('aria-label')).toContain('Model test-model.');
+    expect(row.getAttribute('aria-label')).toContain('2.4k tokens (In 1.2k · Out 300)');
     expect(
       row
         .querySelector('[data-testid="agent-row-tokens"]')

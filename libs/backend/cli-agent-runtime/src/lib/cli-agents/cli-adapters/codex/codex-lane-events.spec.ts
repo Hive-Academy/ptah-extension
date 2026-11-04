@@ -190,6 +190,27 @@ describe('CodexLaneEvents', () => {
     ]);
   });
 
+  it('carries reported cache-write tokens so an estimate can split input', () => {
+    const map = mapper();
+    expect(
+      map({
+        type: 'terminal',
+        status: 'completed',
+        usage: {
+          inputTokens: 10,
+          cachedInputTokens: 4,
+          cacheWriteInputTokens: 3,
+          outputTokens: 2,
+        },
+      }).segments[0]?.usage,
+    ).toEqual({
+      inputTokens: 10,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 3,
+      outputTokens: 2,
+    });
+  });
+
   it('prefers terminal usage and preserves missing counters and reported zero cost', () => {
     const map = mapper();
     map({ type: 'usage', usage: { inputTokens: 10 } });

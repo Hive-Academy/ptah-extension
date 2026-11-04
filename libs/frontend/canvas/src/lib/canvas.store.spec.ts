@@ -365,10 +365,12 @@ describe('CanvasStore', () => {
     store.setRailCollapsed('/ws/a', true);
     store.setRailDensity('/ws/a', 'dense');
     store.setRailScrollTop('/ws/a', 12.6);
-    expect(persistence.schedule).toHaveBeenCalledTimes(3);
-    expect(store.boardFor('/ws/a')).toEqual({ ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'dense', railScrollTop: 13 });
+    store.setRailSort('/ws/a', 'manual');
+    expect(persistence.schedule).toHaveBeenCalledTimes(4);
+    expect(store.boardFor('/ws/a')).toEqual({ ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'dense', railSort: 'manual', railScrollTop: 13 });
     store.setRailScrollTop('/ws/a', 13);
-    expect(persistence.schedule).toHaveBeenCalledTimes(3);
+    store.setRailSort('/ws/a', 'manual');
+    expect(persistence.schedule).toHaveBeenCalledTimes(4);
     expect(store.tilesFor('/ws/a')).toBe(tileSignal);
     expect(store.tilesFor('/ws/a')()).toBe(tiles);
     expect(store.workspaceRevision('/ws/a')).toBe(revision);

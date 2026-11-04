@@ -367,6 +367,60 @@ export class TabWorkspacePartitionService {
   }
 
   /**
+   * The tabs in background (non-active) workspaces that match `predicate`.
+   *
+   * The array form of `findBackgroundTabIds`, for callers that need the tab
+   * state itself (e.g. the auto-handoff coordinator, which reads each
+   * candidate's budget) without one cross-workspace lookup per tab.
+   */
+  findBackgroundTabs(predicate: (tab: TabState) => boolean): TabState[] {
+    const activePath = this._activeWorkspacePath();
+    const found: TabState[] = [];
+    for (const [wsPath, tabSet] of this._workspaceTabSets) {
+      if (wsPath === activePath) continue;
+      for (const tab of tabSet.tabs) {
+        if (predicate(tab)) found.push(tab);
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Remove one tab from a BACKGROUND workspace partition (TASK_2026_863).
+   *
+   * The background counterpart of filtering `TabManagerService._tabs`. The
+   * caller owns the safety checks (busy, dirty, session id) and the
+   * session-abort side effects; this only removes, indexes, and persists.
+   *
+   * Refuses (returns `null`) when `workspacePath` is the active workspace —
+   * that tab set belongs to `TabManagerService`'s signal — or when no tab with
+   * that id is in the partition. On success returns the removed tab.
+   */
+  removeBackgroundTab(
+    tabId: string,
+    workspacePath: string,
+  ): TabState | null {
+    if (workspacePath === this._activeWorkspacePath()) return null;
+    const tabSet = this._workspaceTabSets.get(workspacePath);
+    if (!tabSet) return null;
+    const index = tabSet.tabs.findIndex((t) => t.id === tabId);
+    if (index === -1) return null;
+    const removed = tabSet.tabs[index];
+    // Same immutable swap as `updateBackgroundTab`: holders of the old array
+    // (e.g. an in-flight `getWorkspaceTabs` result) keep a stable view.
+    tabSet.tabs = tabSet.tabs.filter((_, i) => i !== index);
+    if (tabSet.activeTabId === tabId) {
+      tabSet.activeTabId = tabSet.tabs[Math.min(index, tabSet.tabs.length - 1)]?.id ?? null;
+    }
+    if (removed.claudeSessionId) {
+      this._sessionToWorkspace.delete(removed.claudeSessionId);
+    }
+    this._backgroundRevision.update((revision) => revision + 1);
+    this._debouncedBackgroundSave(workspacePath, tabSet);
+    return removed;
+  }
+
+  /**
    * Update a tab in a background workspace (streaming in non-active workspace).
    * Mutates the tab directly in _workspaceTabSets without touching signals.
    *

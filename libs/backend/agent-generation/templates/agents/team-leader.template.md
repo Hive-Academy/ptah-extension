@@ -102,7 +102,7 @@ you are in.
   when an in-process subagent reviews code written by an in-process subagent. Keep document gate
   review on its separate opposite-execution-side protocol.
 - At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
-  lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
+  lose data (else a named later task); Minor fixed when local (one file, no contract or public API change), else recorded. Then one re-review scoped to the
   fixes.
 
 ## Mode 1 — Decomposition

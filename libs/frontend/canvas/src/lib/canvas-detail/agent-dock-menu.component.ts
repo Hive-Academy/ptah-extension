@@ -16,13 +16,13 @@ import {
 import type { SessionAgent } from '@ptah-extension/chat';
 import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
-import { agentDurationText, agentStatusInk, orderDockMenuAgents } from './dock-overflow';
+import { agentDurationText, agentStatusInk, orderDockAgents } from './dock-overflow';
 
 let nextMenuId = 0;
 
 /**
- * `N more ›` overflow menu. Lists hidden agents by status, retaining dock
- * order within a status. The parent only renders it when agents are hidden.
+ * `N more ›` overflow menu. Lists hidden agents in dock group order (active,
+ * then finished), retaining roster order within a group. The parent only renders it when agents are hidden.
  */
 @Component({
   selector: 'ptah-agent-dock-menu',
@@ -42,7 +42,7 @@ let nextMenuId = 0;
         #trigger
         trigger
         type="button"
-        class="relative inline-flex h-7 min-w-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+        class="relative inline-flex h-8 min-w-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         aria-haspopup="menu"
         [attr.aria-expanded]="open()"
         [attr.aria-label]="triggerLabel()"
@@ -153,7 +153,7 @@ export class AgentDockMenuComponent {
     return null;
   });
 
-  protected readonly orderedAgents = computed(() => orderDockMenuAgents(this.hidden()));
+  protected readonly orderedAgents = computed(() => orderDockAgents(this.hidden()));
   protected readonly rovingKey = computed(() => {
     const active = this.activeKey();
     return this.orderedAgents().some((agent) => agent.key === active)

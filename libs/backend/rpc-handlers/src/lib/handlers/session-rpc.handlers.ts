@@ -8,6 +8,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import { SYSTEM_PROMPT_MAX_LENGTH } from './chat-rpc.schema';
 import {
   Logger,
@@ -69,6 +70,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import type { AgentProcessManager } from '@ptah-extension/cli-agent-runtime';
+import { SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
@@ -109,6 +111,7 @@ import {
   SessionMessageCounter,
   type SessionTranscriptRef,
 } from './session-message-count';
+import { readSessionStatsRangeFromLedger } from './session-stats-ledger-reader';
 
 /**
  * Abort budget for one `session:stats-batch` page — well inside the renderer's
@@ -263,6 +266,8 @@ export class SessionRpcHandlers {
      */
     @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
     private readonly webviewManager: WebviewManager | null = null,
+    @inject(SessionStatsRepository, { isOptional: true })
+    private readonly statsRepository: SessionStatsRepository | null = null,
   ) {
     this.messageCounter = new SessionMessageCounter(jsonlReader, logger);
   }
@@ -1302,11 +1307,44 @@ export class SessionRpcHandlers {
       timer.unref?.();
       let entries: SessionStatsReadEntry[];
       try {
-        entries = await this.statsReader.readStats({
-          sessionIds,
+        const fromLedger = new Map<string, SessionStatsReadEntry>();
+        const fallbackIds: string[] = [];
+        if (scope.kind === 'range' && this.statsRepository) {
+          for (const sessionId of sessionIds) {
+            try {
+              const entry = await readSessionStatsRangeFromLedger(this.statsRepository, sessionId, normalizeWorkspaceRoot(workspacePath), scope.since, scope.until);
+              if (entry) fromLedger.set(sessionId, entry);
+              else if (await this.statsRepository.hasSessionStats(sessionId)) {
+                fromLedger.set(sessionId, {
+                  sessionId, model: null, totalCost: null,
+                  tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+                  messageCount: 0, status: 'error', coverage: 'partial', scope: 'range',
+                });
+              } else fallbackIds.push(sessionId);
+            } catch (error: unknown) {
+              const failure = error instanceof Error ? error : new Error(String(error));
+              this.logger.error('RPC: session ledger read failed', failure);
+              fromLedger.set(sessionId, {
+                sessionId, model: null, totalCost: null,
+                tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+                messageCount: 0, status: 'error', coverage: 'partial', scope: 'range',
+              });
+            }
+          }
+        } else {
+          fallbackIds.push(...sessionIds);
+        }
+        const fallback = fallbackIds.length > 0 ? await this.statsReader.readStats({
+          sessionIds: fallbackIds,
           workspacePath,
           scope,
           signal: budget.signal,
+        }) : [];
+        const fallbackById = new Map(fallback.map((entry) => [entry.sessionId, entry]));
+        entries = sessionIds.map((sessionId) => fromLedger.get(sessionId) ?? fallbackById.get(sessionId) ?? {
+          sessionId, model: null, totalCost: null,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+          messageCount: 0, status: 'error', coverage: 'partial', scope: scope.kind,
         });
       } catch (error: unknown) {
         // A deliberate refusal keeps its code and its (already safe) message.

@@ -60,6 +60,14 @@ import {
 import { SdkError } from './errors';
 import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
+import {
+  parseSessionUsageContribution,
+  usdToMicroUsd,
+  SESSION_USAGE_SINK,
+  type SessionUsageContribution,
+  type SessionUsageModelDelta,
+  type SessionUsageSink,
+} from './session-stats/session-usage-sink';
 import type {
   CliOutputSegment,
   CliSessionReference,
@@ -206,6 +214,112 @@ function nativeCheckpointCost(checkpoint: CodexUsageCheckpoint): number | null {
     checkpoint.coverage === 'complete' && price?.complete &&
     basis !== 'unknown' &&
     price.throughRevision === checkpoint.revision ? price.knownCost : null;
+}
+
+/**
+ * The accepted checkpoint revision as a sink contribution (TASK_2026_870
+ * Phase 1): per-thread accrued counters NOW minus the previously stored
+ * checkpoint's, grouped to one row per model. A thread that moved nothing
+ * emits no row; a replay of the stored checkpoint (same counters, same
+ * price) yields `null`.
+ *
+ * The checkpoint prices the SESSION as a whole, so every row is
+ * `'unpriced'` and the event total — the checkpoint cost delta through
+ * `nativeCheckpointCost`, the same authority the sidebar total uses — is
+ * what the adapter attributes to the session-level residual. A cost that
+ * arrives at an UNCHANGED revision is a price correction: counters cannot
+ * change there (that is a regression), so it gets its own
+ * content-derived event key and telescopes across corrections.
+ */
+function checkpointTurnContribution(
+  sessionId: string,
+  previous: CodexUsageCheckpoint | undefined,
+  accepted: CodexUsageCheckpoint,
+  providerId: string | null,
+): SessionUsageContribution | null {
+  const previousThreads = new Map(
+    (previous?.threads ?? []).map((thread) => [thread.threadId, thread]),
+  );
+  const rowsByModel = new Map<
+    string | null,
+    { input: number; output: number; cacheRead: number; cacheCreation: number }
+  >();
+  for (const thread of accepted.threads) {
+    const was = previousThreads.get(thread.threadId);
+    const input =
+      thread.accrued.uncachedInputTokens -
+      (was?.accrued.uncachedInputTokens ?? 0);
+    const output =
+      thread.accrued.outputTokens - (was?.accrued.outputTokens ?? 0);
+    const cacheRead =
+      thread.accrued.cacheReadTokens - (was?.accrued.cacheReadTokens ?? 0);
+    const cacheCreation =
+      thread.accrued.cacheCreationTokens -
+      (was?.accrued.cacheCreationTokens ?? 0);
+    if (input === 0 && output === 0 && cacheRead === 0 && cacheCreation === 0) {
+      continue;
+    }
+    const key = thread.modelId ?? null;
+    const row =
+      rowsByModel.get(key) ??
+      { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+    row.input += input;
+    row.output += output;
+    row.cacheRead += cacheRead;
+    row.cacheCreation += cacheCreation;
+    rowsByModel.set(key, row);
+  }
+  const models: SessionUsageModelDelta[] = [...rowsByModel.entries()].map(
+    ([modelId, row]) => ({
+      modelId,
+      inputTokens: row.input,
+      outputTokens: row.output,
+      cacheReadTokens: row.cacheRead,
+      cacheCreationTokens: row.cacheCreation,
+      // Per-model cost is honestly unknown — see the doc above.
+      knownCostMicroUsd: null,
+      costAuthority: 'unpriced' as const,
+    }),
+  );
+  const previousCost =
+    previous === undefined ? null : nativeCheckpointCost(previous);
+  const acceptedCost = nativeCheckpointCost(accepted);
+  const costDeltaUsd =
+    previous === undefined
+      ? acceptedCost
+      : previousCost !== null && acceptedCost !== null
+        ? acceptedCost - previousCost
+        : previousCost === null ? acceptedCost : null;
+  const totalCostMicroUsd =
+    costDeltaUsd === null ? null : usdToMicroUsd(costDeltaUsd);
+  if (models.length === 0 && (totalCostMicroUsd ?? 0) === 0) return null;
+  const priceCorrection =
+    previous !== undefined && previous.revision === accepted.revision;
+  return {
+    sessionId,
+    producer: 'codex-checkpoint',
+    runId: accepted.rootThreadId,
+    // A revision may span several threads' turns, so no single turn id.
+    turnId: null,
+    eventKey: priceCorrection
+      ? `${accepted.revision}#price#${acceptedCost === null ? 'unknown' : usdToMicroUsd(acceptedCost)}`
+      : String(accepted.revision),
+    parentSessionId: null,
+    subagentId: null,
+    providerId,
+    occurredAtMs: Date.now(),
+    revision: accepted.revision,
+    models,
+    totalCostMicroUsd,
+    // `nativeCheckpointCost` is non-null only on a catalog-priced basis;
+    // the provider never reports dollars on a native checkpoint.
+    totalCostAuthority:
+      totalCostMicroUsd === null ? 'unpriced' : 'model-priced',
+    pricingVersion:
+      accepted.pricing?.provenance.at(-1)?.catalogVersion ??
+      accepted.catalogVersion ??
+      null,
+  };
 }
 
 export class SessionAccountBindingError extends Error {
@@ -926,6 +1040,13 @@ export class SessionMetadataStore {
     private readonly blobs?: ISessionBlobStore,
     @inject(PLATFORM_TOKENS.SESSION_STORE_GATE, { isOptional: true })
     private readonly gate?: ISessionStoreGate,
+    /**
+     * Durable usage capture port (TASK_2026_870 Phase 1). Optional: without
+     * the host binding, accepted native checkpoints are not mirrored to the
+     * usage ledger and the store behaves exactly as before.
+     */
+    @inject(SESSION_USAGE_SINK, { isOptional: true })
+    private readonly usageSink?: SessionUsageSink | null,
   ) {
     LIVE_STORES.add(new WeakRef(this));
   }
@@ -1285,8 +1406,55 @@ export class SessionMetadataStore {
         },
       });
       await this.flush();
+      // After the write commits and still inside the queue, so the stored
+      // checkpoint is in scope: a failed write captures nothing, and the
+      // next delivery of the same checkpoint recomputes the same deltas
+      // against the old base. Capture never undoes the write above.
+      this.captureCheckpointUsage(sessionId, current, validated, stored);
     });
     if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
+  }
+
+  /**
+   * Mirror one accepted native usage revision to the durable usage sink
+   * (TASK_2026_870 Phase 1). Best effort by contract: the sink never throws
+   * and owns the logging of every real write failure, so this synchronous
+   * backstop only guarantees that capture can never undo the metadata write
+   * it follows. A contribution the boundary schema rejects is a bug in this
+   * module's normalization: it is logged and skipped, never thrown.
+   */
+  private captureCheckpointUsage(
+    sessionId: SessionId,
+    current: SessionMetadata,
+    accepted: CodexUsageCheckpoint,
+    stored: CodexUsageCheckpoint | undefined,
+  ): void {
+    if (!this.usageSink) return;
+    try {
+      const built = checkpointTurnContribution(
+        sessionId,
+        stored,
+        accepted,
+        current.codexExecution?.providerId ?? null,
+      );
+      if (built === null) return;
+      const contribution = parseSessionUsageContribution(built);
+      if (contribution === null) {
+        this.logger.warn(
+          '[SessionMetadataStore] Native usage contribution rejected at the capture boundary',
+          { sessionId },
+        );
+        return;
+      }
+      void Promise.resolve(this.usageSink.recordUsage(contribution)).catch((error: unknown) => {
+        this.logger.error('[SessionMetadataStore] Native usage capture failed', error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        '[SessionMetadataStore] Native usage capture failed; the checkpoint write is unaffected',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   /** Serialize native turn counts with all other metadata writes. Legacy rows start at zero. */

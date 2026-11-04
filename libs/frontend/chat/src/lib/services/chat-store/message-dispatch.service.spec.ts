@@ -33,6 +33,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
+import type { QueuedCommand } from './conversation.service';
 import {
   AgentMonitorStore,
   MessageFinalizationService,
@@ -75,6 +76,7 @@ describe('MessageDispatchService', () => {
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
   let releaseHeldCommandMock: jest.Mock;
+  let queuedCommandForFlushMock: jest.Mock;
   let continueConversationMock: jest.Mock;
   let continueExistingSessionForQueueFlushMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
@@ -104,6 +106,7 @@ describe('MessageDispatchService', () => {
     sendMock = jest.fn().mockResolvedValue(undefined);
     queueOrAppendMock = jest.fn(() => null);
     releaseHeldCommandMock = jest.fn();
+    queuedCommandForFlushMock = jest.fn(() => null);
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     continueExistingSessionForQueueFlushMock = jest
       .fn()
@@ -167,6 +170,8 @@ describe('MessageDispatchService', () => {
       queueOrAppendMessage: queueOrAppendMock,
       continueConversation: continueConversationMock,
       releaseHeldCommand: releaseHeldCommandMock,
+      queuedCommandForFlush: queuedCommandForFlushMock,
+      isQueuedCommand: jest.fn(() => false),
     } as unknown as ConversationService;
     promptTargets = new Map<string, string[]>();
     const permissionHandlerMock = {
@@ -223,6 +228,20 @@ describe('MessageDispatchService', () => {
 
     expect(tabs[0].queuedContent).toBe('new draft');
     expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles only the queue head captured before a flush', async () => {
+    const first: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
+    const later: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
+    const firstListener = jest.fn();
+    const laterListener = jest.fn();
+    tabs = [makeTab({ queuedContent: '/handoff' })];
+    queuedCommandForFlushMock.mockReturnValue(first);
+    service.onQueuedCommandOutcome(first, firstListener);
+    service.onQueuedCommandOutcome(later, laterListener);
+    await service.sendQueuedMessage('tab-1', '/handoff');
+    expect(firstListener).toHaveBeenCalledWith(true);
+    expect(laterListener).not.toHaveBeenCalled();
   });
 
   it('a failed flush with no new draft restores the original once', async () => {

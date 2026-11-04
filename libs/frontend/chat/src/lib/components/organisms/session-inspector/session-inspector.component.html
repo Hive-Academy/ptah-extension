@@ -189,6 +189,8 @@
       [tabId]="tabId()"
       [sessionId]="m.sessionId"
       [agents]="m.agents"
+      [laneRuns]="s?.limits?.inspectorRuns ?? []"
+      [laneSubtotal]="s?.limits?.subtotal ?? null"
       [orchestrator]="m.orchestrator"
       [sessionTokens]="sessionTokens()"
       [selectedAgentKey]="selectedAgentKey()"
