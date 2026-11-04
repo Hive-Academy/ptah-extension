@@ -34,6 +34,13 @@ function normalizeTable(table: string): string {
 }
 
 describe('worker operator guide', () => {
+  // Warm the runtime barrel (it loads the engine graph) outside the case
+  // timeout; platform-core loads first.
+  beforeAll(async () => {
+    await import('@ptah-extension/platform-core');
+    await import('@ptah-extension/worker-runtime');
+  }, 180_000);
+
   it('keeps the capability table equal to the runtime data', async () => {
     await import('@ptah-extension/platform-core');
     const { WORKER_CAPABILITIES } =

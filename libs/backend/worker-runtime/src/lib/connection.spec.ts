@@ -214,3 +214,73 @@ it('gives the handler a peer whose reply tasks run after the response and whose 
   connection.close();
   expect(closed).toHaveBeenCalledTimes(1);
 });
+
+it('answers session.stop and permission.respond while a session.start on the same connection is pending, and keeps order otherwise', async () => {
+  const socket = new FakeSocket();
+  let finishStart!: () => void;
+  const order: string[] = [];
+  const handle = jest.fn(async (method: string) => {
+    order.push(method);
+    if (method === 'session.start')
+      await new Promise<void>((resolve) => {
+        finishStart = resolve;
+      });
+    if (method === 'session.start') return { sessionId: 's', turnId: 't' };
+    if (method === 'session.stop') return { stopped: true };
+    if (method === 'permission.respond') return { applied: true };
+    return {};
+  });
+  const tokens = {
+    authenticate: () => ({
+      tokenId: 't',
+      grant: { machineId: 'm', workspaceIds: ['w'] },
+    }),
+  } as unknown as TokenStore;
+  const connection = new WorkerConnection(socket as unknown as WebSocket, {
+    identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+    pairing: {} as PairingWindow,
+    tokens,
+    handle,
+  });
+  socket.emit(
+    'message',
+    frame('1', 'hello', {
+      protocol: { min: 1, max: 1 },
+      client: { name: 'c', version: '1' },
+    }),
+    false,
+  );
+  socket.emit('message', frame('2', 'auth', { token: 't' }), false);
+  await new Promise((resolve) => setImmediate(resolve));
+  socket.emit(
+    'message',
+    frame('3', 'session.start', { workspaceId: 'w', prompt: 'p' }),
+    false,
+  );
+  socket.emit('message', frame('4', 'workspaces.list', {}), false);
+  socket.emit('message', frame('5', 'session.stop', { sessionId: 's' }), false);
+  socket.emit(
+    'message',
+    frame('6', 'permission.respond', {
+      sessionId: 's',
+      requestId: 'r',
+      decision: 'allow',
+    }),
+    false,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const answered = () =>
+    socket.frames
+      .filter((item) => (item as { kind: string }).kind === 'res')
+      .map((item) => (item as { id: string }).id);
+  expect(answered()).toEqual(['1', '2', '5', '6']);
+  finishStart();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(answered()).toEqual(['1', '2', '5', '6', '3', '4']);
+  // The serialized calls keep their order; the two concurrent ones overtook.
+  expect(order.indexOf('session.start')).toBeLessThan(
+    order.indexOf('workspaces.list'),
+  );
+  connection.close();
+});

@@ -46,6 +46,19 @@ export interface ConnectionOptions {
   onError?: (error: unknown) => void;
 }
 
+const CONCURRENT_METHODS: ReadonlySet<string> = new Set([
+  'session.stop',
+  'permission.respond',
+]);
+/** Their params are small; a larger frame is never one of them. */
+const CONCURRENT_MAX_BYTES = 8 * 1024;
+
+function concurrent(text: string): boolean {
+  if (text.length > CONCURRENT_MAX_BYTES) return false;
+  const parsed = parseClientFrame(text, CONCURRENT_MAX_BYTES);
+  return parsed.ok && CONCURRENT_METHODS.has(parsed.frame.method);
+}
+
 export class WorkerConnection {
   private state: 'new' | 'hello' | 'client' | 'admin' = 'new';
   private failures = 0;
@@ -61,21 +74,7 @@ export class WorkerConnection {
   private grant: WorkerGrant | null = null;
   private tokenId: string | null = null;
   private closed = false;
-  private replyTasks: (() => void)[] = [];
   private readonly closeListeners: (() => void)[] = [];
-  private readonly peer: WorkerPeer = {
-    id: this.id,
-    tokenId: null,
-    send: (frame) => this.send(frame),
-    afterReply: (task) => {
-      this.replyTasks.push(task);
-    },
-    onClose: (listener) => {
-      if (this.closed) listener();
-      else this.closeListeners.push(listener);
-    },
-    close: (code) => this.close(code),
-  };
 
   constructor(
     private readonly socket: WebSocket,
@@ -102,7 +101,16 @@ export class WorkerConnection {
         this.close(WORKER_CLOSE_CODES.PROTOCOL_ERROR);
         return;
       }
-      this.receiving = this.receiving.then(() => this.receive(data.toString()));
+      const text = data.toString();
+      // Stop and permission answers must not wait behind a long call on the
+      // same connection (a `session.start` can wait 30 s for its session ID).
+      // They address an existing turn, so arrival order against other calls
+      // carries no meaning; every other call keeps its order.
+      if (this.state === 'client' && concurrent(text)) {
+        void this.receive(text);
+        return;
+      }
+      this.receiving = this.receiving.then(() => this.receive(text));
     });
     socket.on('close', () => this.dispose());
     socket.on('error', (error) => options.onError?.(error));
@@ -133,6 +141,23 @@ export class WorkerConnection {
         this.options.onError?.(error);
       }
     }
+  }
+
+  /** The peer of one request; its reply tasks belong to that request only. */
+  private peerFor(replyTasks: (() => void)[]): WorkerPeer {
+    return {
+      id: this.id,
+      tokenId: this.tokenId,
+      send: (frame) => this.send(frame),
+      afterReply: (task) => {
+        replyTasks.push(task);
+      },
+      onClose: (listener) => {
+        if (this.closed) listener();
+        else this.closeListeners.push(listener);
+      },
+      close: (code) => this.close(code),
+    };
   }
 
   private send(frame: unknown): void {
@@ -281,17 +306,17 @@ export class WorkerConnection {
         }
         clearTimeout(this.authTimer);
       } else {
-        this.replyTasks = [];
+        const replyTasks: (() => void)[] = [];
         const result = await this.options.handle(
           method,
           validated.value,
           this.grant,
           this.state === 'admin',
-          { ...this.peer, tokenId: this.tokenId },
+          this.peerFor(replyTasks),
         );
         this.respond(id, result);
         // The response is already sent: a failing task must not answer twice.
-        for (const task of this.replyTasks.splice(0)) {
+        for (const task of replyTasks) {
           try {
             task();
           } catch (taskError) {
@@ -300,7 +325,6 @@ export class WorkerConnection {
         }
       }
     } catch (error) {
-      this.replyTasks = [];
       this.options.onError?.(error);
       const code =
         typeof error === 'object' && error !== null && 'code' in error

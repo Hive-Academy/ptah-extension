@@ -5,6 +5,19 @@ import { WebSocket } from 'ws';
 import type { CliBootstrapResult } from '@ptah-extension/cli-engine';
 import { bundleVersion, serveCommand } from './serve';
 
+// Warm the engine module graph once, so the 60 s case timeouts measure the
+// case and not the cold import (88.8 s on a CI shard). Same order as serve.ts:
+// platform-core first.
+beforeAll(async () => {
+  await import('@ptah-extension/platform-core');
+  await import('@ptah-extension/cli-agent-runtime');
+  await import('@ptah-extension/cli-engine');
+  await import('@ptah-extension/worker-runtime');
+  await import('@ptah-extension/worker-protocol');
+  await import('@ptah-extension/agent-sdk');
+  await import('@ptah-extension/rpc-handlers');
+}, 180_000);
+
 it('reads the package version adjacent to the worker bundle', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ptah-worker-bundle-'));
   const previous = process.argv[1];

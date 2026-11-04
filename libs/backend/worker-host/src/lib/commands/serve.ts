@@ -370,6 +370,8 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
         autoApprove: options.autoApprove,
         // A log append failure aborts that session's turn (W7).
         driver: { onAppendFailed: sessions.onAppendFailed },
+        // Shutdown order: listener closed, turns drained, logs closed, locks released.
+        drainTurns: () => sessions.drain(),
         releaseLocks: () => sessions.releaseLocks(),
         readiness: async () => {
           readiness = await (options.readiness ?? readReadiness)();
@@ -401,7 +403,6 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
           if (options.shutdown?.aborted) done();
         });
       } finally {
-        await sessions.abortTurns();
         await service.stop();
       }
     },

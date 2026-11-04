@@ -1,11 +1,15 @@
 import { InProcessRpc } from './in-process-rpc';
-import { SessionDriver, SessionDriverError } from './session-driver';
+import {
+  SessionDriver,
+  SessionDriverError,
+  type SessionDriverOptions,
+} from './session-driver';
 import { SessionLogWriter } from './session-log-writer';
 import { SessionEventLog } from './session-event-log';
 import { SessionFanOut } from './fan-out';
 import { Transcript } from './transcript';
 
-function setup(runtime?: string) {
+function setup(runtime?: string, options?: SessionDriverOptions) {
   const handleMessage = jest
     .fn()
     .mockResolvedValue({ success: true, data: { success: true } });
@@ -27,6 +31,7 @@ function setup(runtime?: string) {
     () => writer,
     () => true,
     1,
+    options,
   );
   return { driver, handleMessage, metadata, enqueue, baseline, mark };
 }
@@ -123,26 +128,31 @@ it('routes pre-resolution events and aborts through chat:abort when a log append
   );
 });
 
-it('starts a session within the shared active-turn limit and delivers early tab events after turn begin', async () => {
+type Message = { method: string; params: Record<string, unknown> };
+const ok = { success: true, data: { success: true } };
+const refused = { success: false, error: 'refused' };
+const start = { tabId: 'tab', prompt: 'hello', workspacePath: '/w' };
+const types = (enqueue: jest.Mock): unknown[] =>
+  enqueue.mock.calls.map(([type]) => type);
+
+it('starts a session within the shared limit and delivers early tab events after turn begin', async () => {
   const { driver, handleMessage, enqueue } = setup();
   const deliver = jest.fn();
-  driver.route('tab', { type: 'early' }, deliver);
-  const turn = await driver.start(
-    { tabId: 'tab', prompt: 'hello', workspacePath: '/w' },
-    async () => 's1',
-    deliver,
-  );
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') {
+      driver.route('tab', { type: 'early' }, deliver);
+      driver.tabResolved('tab', 's1');
+    }
+    return ok;
+  });
+  const open = jest.fn(async () => undefined);
+  const turn = await driver.start(start, open, deliver);
   expect(turn.sessionId).toBe('s1');
+  expect(open).toHaveBeenCalledWith('s1');
   expect(handleMessage).toHaveBeenCalledWith(
-    expect.objectContaining({
-      method: 'chat:start',
-      params: { tabId: 'tab', prompt: 'hello', workspacePath: '/w' },
-    }),
+    expect.objectContaining({ method: 'chat:start', params: start }),
   );
-  expect(enqueue.mock.calls.map(([type]) => type)).toEqual([
-    'worker:baseline',
-    'worker:turn.begin',
-  ]);
+  expect(types(enqueue)).toEqual(['worker:baseline', 'worker:turn.begin']);
   expect(enqueue.mock.calls[0]?.[1]).toEqual({
     events: [],
     historyMark: { count: 0, lastEventId: null },
@@ -150,18 +160,183 @@ it('starts a session within the shared active-turn limit and delivers early tab 
   expect(deliver).toHaveBeenCalledWith('s1', { type: 'early' });
   expect(driver.sessionForTab('tab')).toBe('s1');
   await expect(
-    driver.start(
-      { tabId: 'tab2', prompt: 'again', workspacePath: '/w' },
-      async () => 's2',
-      deliver,
-    ),
+    driver.start({ ...start, tabId: 'tab2' }, open, deliver),
   ).rejects.toMatchObject({ code: 'WORKER_BUSY' });
   await expect(driver.continue('s3', 'tab3', 'x')).rejects.toMatchObject({
     code: 'WORKER_BUSY',
   });
-  await driver.abort('s1');
+  await expect(driver.abort('s1')).resolves.toBe(true);
   expect(enqueue).toHaveBeenLastCalledWith('worker:turn.interrupted', {
     turnId: turn.turnId,
   });
   expect(driver.driving('s1')).toBe(false);
+});
+
+it('waits for a delayed session:id-resolved after chat:start', async () => {
+  const { driver } = setup(undefined, { resolveTimeoutMs: 1_000 });
+  setTimeout(() => driver.tabResolved('tab', 's1'), 20);
+  const turn = await driver.start(start, async () => undefined, jest.fn());
+  expect(turn.sessionId).toBe('s1');
+});
+
+it('keeps the slot of a start whose session never resolved, then aborts it when the ID arrives', async () => {
+  const onAbandoned = jest.fn();
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onAbandoned,
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  // The engine turn may still run: no new turn is admitted past the limit.
+  await expect(
+    driver.start({ ...start, tabId: 'tab2' }, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'WORKER_BUSY' });
+  driver.tabResolved('tab', 's1');
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(handleMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      method: 'chat:abort',
+      params: { sessionId: 's1' },
+    }),
+  );
+  expect(onAbandoned).toHaveBeenCalledWith('s1');
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') driver.tabResolved('tab3', 's3');
+    return ok;
+  });
+  await expect(
+    driver.start({ ...start, tabId: 'tab3' }, async () => undefined, jest.fn()),
+  ).resolves.toMatchObject({ sessionId: 's3' });
+});
+
+it('aborts an admitted start whose log cannot open before freeing the slot', async () => {
+  const onAbandoned = jest.fn();
+  const { driver, handleMessage } = setup(undefined, { onAbandoned });
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') driver.tabResolved('tab', 's1');
+    return ok;
+  });
+  await expect(
+    driver.start(
+      start,
+      async () => {
+        throw new Error('disk full');
+      },
+      jest.fn(),
+    ),
+  ).rejects.toThrow('disk full');
+  expect(handleMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      method: 'chat:abort',
+      params: { sessionId: 's1' },
+    }),
+  );
+  expect(onAbandoned).toHaveBeenCalledWith('s1');
+  expect(driver.driving('s1')).toBe(false);
+});
+
+it('ends a start whose terminal event arrived during admission, once, after turn begin', async () => {
+  const { driver, handleMessage, enqueue, mark } = setup();
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') {
+      driver.tabResolved('tab', 's1');
+      void driver.terminal('s1');
+      void driver.terminal(undefined, 'tab');
+    }
+    return ok;
+  });
+  await driver.start(start, async () => undefined, jest.fn());
+  expect(types(enqueue)).toEqual([
+    'worker:baseline',
+    'worker:turn.begin',
+    'worker:turn.end',
+  ]);
+  expect(mark).toHaveBeenCalledTimes(1);
+  expect(driver.driving('s1')).toBe(false);
+});
+
+it('ends a continue whose terminal event arrived during admission and buffers its events after turn begin', async () => {
+  const { driver, handleMessage, enqueue, mark } = setup();
+  const order: string[] = [];
+  enqueue.mockImplementation(async (type: string) => {
+    order.push(type);
+    return { seq: order.length };
+  });
+  const deliver = jest.fn((_id: string, event: unknown) =>
+    order.push(String((event as { type: string }).type)),
+  );
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:continue') {
+      driver.routeSession('s1', { type: 'chat:chunk' }, deliver);
+      driver.routeSession('s1', { type: 'session:turnEnded' }, deliver);
+      void driver.terminal('s1');
+    }
+    return ok;
+  });
+  await driver.continue('s1', 'tab', 'hello');
+  expect(order).toEqual([
+    'worker:turn.begin',
+    'chat:chunk',
+    'session:turnEnded',
+    'worker:turn.end',
+  ]);
+  expect(mark).toHaveBeenCalledTimes(1);
+  expect(driver.driving('s1')).toBe(false);
+  // The slot is free again.
+  await expect(driver.continue('s2', 'tab2', 'x')).resolves.toMatchObject({
+    sessionId: 's2',
+  });
+});
+
+it('keeps the turn, its slot and its log when chat:abort is refused', async () => {
+  const { driver, handleMessage, enqueue } = setup();
+  await driver.continue('s1', 'tab', 'hello');
+  handleMessage.mockResolvedValue(refused);
+  await expect(driver.abort('s1')).resolves.toBe(false);
+  expect(driver.driving('s1')).toBe(true);
+  expect(types(enqueue)).not.toContain('worker:turn.interrupted');
+  await expect(driver.continue('s2', 'tab2', 'x')).rejects.toMatchObject({
+    code: 'WORKER_BUSY',
+  });
+});
+
+it('drops an overflowing admission queue without throwing and refuses that turn', async () => {
+  const { driver, handleMessage } = setup();
+  const deliver = jest.fn();
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') {
+      for (let i = 0; i <= 10_000; i += 1)
+        driver.route('tab', { type: 'chat:chunk' }, deliver);
+      driver.tabResolved('tab', 's1');
+    }
+    return ok;
+  });
+  await expect(
+    driver.start(start, async () => undefined, deliver),
+  ).rejects.toMatchObject({ code: 'SESSION_LOG_FAILED' });
+  expect(deliver).not.toHaveBeenCalled();
+  expect(handleMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'chat:abort' }),
+  );
+  expect(() =>
+    driver.route('other', { type: 'chat:chunk' }, deliver),
+  ).not.toThrow();
+});
+
+it('drain cancels a start waiting for its session, refuses new turns and aborts admitted ones', async () => {
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 60_000,
+  });
+  const pending = driver.start(start, async () => undefined, jest.fn());
+  await new Promise((resolve) => setImmediate(resolve));
+  const result = await driver.drain();
+  await expect(pending).rejects.toMatchObject({ code: 'INTERNAL' });
+  expect(result).toEqual({ unresolvedTabs: ['tab'], failedAborts: [] });
+  await expect(driver.continue('s9', 'tab9', 'x')).rejects.toMatchObject({
+    code: 'WORKER_BUSY',
+  });
+  expect(handleMessage).not.toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'chat:continue' }),
+  );
 });

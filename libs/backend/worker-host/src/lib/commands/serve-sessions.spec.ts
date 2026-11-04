@@ -19,6 +19,19 @@ jest.mock('@ptah-extension/platform-core', () => ({
 // Loading the engine graph under a shared verify lock can exceed 5 s.
 const ENGINE_TIMEOUT = 60_000;
 
+// Warm the engine module graph once, so the 60 s case timeouts measure the
+// case and not the cold import (88.8 s on a CI shard). Same order as serve.ts:
+// platform-core first.
+beforeAll(async () => {
+  await import('@ptah-extension/platform-core');
+  await import('@ptah-extension/cli-agent-runtime');
+  await import('@ptah-extension/cli-engine');
+  await import('@ptah-extension/worker-runtime');
+  await import('@ptah-extension/worker-protocol');
+  await import('@ptah-extension/agent-sdk');
+  await import('@ptah-extension/rpc-handlers');
+}, 180_000);
+
 const checks = {
   nodeVersion: () => '22.0.0',
   sqliteMemory: async () => undefined,
@@ -39,7 +52,20 @@ interface Frame {
 }
 
 /** The engine seams serve composes: transport, push adapter, DI container. */
-function fakeEngine() {
+interface EngineBehaviour {
+  /** ms before `session:id-resolved`; null never sends it. */
+  resolveDelayMs?: number | null;
+  /** Runs right after `session:id-resolved` is sent, in the same tick. */
+  afterResolved?: (emit: Emit, tabId: string, sessionId: string) => void;
+  /** Runs inside `chat:start`, before it returns. */
+  duringStart?: (emit: Emit, tabId: string, sessionId: string) => void;
+  /** Runs inside `chat:continue`, before it returns. */
+  duringContinue?: (emit: Emit, sessionId: string) => void;
+  abortRefused?: boolean;
+}
+type Emit = (type: string, payload: unknown) => void;
+
+function fakeEngine(behaviour: EngineBehaviour = {}) {
   let push: CliWebviewManagerAdapter | undefined;
   const emit = (type: string, payload: unknown): void => {
     if (!push) throw new Error('Push adapter not bootstrapped');
@@ -114,14 +140,25 @@ function fakeEngine() {
         const tabId = String(params['tabId']);
         // As in the engine, the session ID resolves after the RPC returns,
         // and a tab-keyed event can precede it.
-        setImmediate(() => {
+        const resolve = () => {
           emit('chat:chunk', { tabId, delta: 'early' });
           emit('session:id-resolved', { tabId, realSessionId: sessionId });
-        });
+          behaviour.afterResolved?.(emit, tabId, sessionId);
+        };
+        const delay = behaviour.resolveDelayMs;
+        if (delay === undefined) setImmediate(resolve);
+        else if (delay !== null) setTimeout(resolve, delay);
+        behaviour.duringStart?.(emit, tabId, sessionId);
         return { success: true, data: { success: true } };
       }
-      if (method === 'chat:continue' || method === 'chat:abort')
+      if (method === 'chat:continue') {
+        behaviour.duringContinue?.(emit, String(params['sessionId']));
         return { success: true, data: { success: true } };
+      }
+      if (method === 'chat:abort')
+        return behaviour.abortRefused
+          ? { success: false, error: 'abort refused' }
+          : { success: true, data: { success: true } };
       return { success: false, error: `unexpected ${method}` };
     },
   );
@@ -248,7 +285,10 @@ afterEach(async () => {
     await rm(home, { recursive: true, force: true });
 });
 
-async function startWorker(maxActiveTurns = 4) {
+async function startWorker(
+  maxActiveTurns = 4,
+  behaviour: EngineBehaviour = {},
+) {
   const home = await mkdtemp(join(tmpdir(), 'ptah-worker-sessions-'));
   homes.push(home);
   await mkdir(join(home, 'project'));
@@ -267,7 +307,7 @@ async function startWorker(maxActiveTurns = 4) {
     machineId,
     workspaceIds: [inside.workspaceId],
   });
-  const engine = fakeEngine();
+  const engine = fakeEngine(behaviour);
   const shutdown = new AbortController();
   let ready!: (endpoint: { host: string; port: number }) => void;
   const endpointReady = new Promise<{ host: string; port: number }>(
@@ -534,3 +574,225 @@ it(
   },
   ENGINE_TIMEOUT,
 );
+
+describe('turn lifecycle (Batch 20)', () => {
+  const seqTypes = (client: Client, sessionId: string) =>
+    client.events(sessionId).map((frame) => frame.type);
+
+  it(
+    'answers session.start after a delayed session:id-resolved',
+    async () => {
+      const worker = await startWorker(4, { resolveDelayMs: 300 });
+      const client = await worker.connect();
+      const start = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'hello',
+      });
+      expect(start).toMatchObject({
+        ok: true,
+        result: { sessionId: 'sess-new-1' },
+      });
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'ends a turn whose terminal event arrives during start, once, and frees the slot',
+    async () => {
+      const worker = await startWorker(1, {
+        afterResolved: (emit, _tabId, sessionId) =>
+          emit('session:turnEnded', { sessionId }),
+      });
+      const client = await worker.connect();
+      const start = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'quick',
+      });
+      expect(start.ok).toBe(true);
+      await client.call('session.attach', { sessionId: 'sess-new-1' });
+      await client.waitFor((frame) => frame.type === 'worker:history-mark');
+      const types = seqTypes(client, 'sess-new-1');
+      expect(types.filter((type) => type === 'worker:turn.end')).toHaveLength(
+        1,
+      );
+      expect(types.indexOf('worker:turn.begin')).toBeLessThan(
+        types.indexOf('session:turnEnded'),
+      );
+      expect(types.indexOf('session:turnEnded')).toBeLessThan(
+        types.indexOf('worker:turn.end'),
+      );
+      const next = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'again',
+      });
+      expect(next.ok).toBe(true);
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'ends a turn whose terminal event arrives during continue, after the baseline and turn begin',
+    async () => {
+      const worker = await startWorker(1, {
+        duringContinue: (emit, sessionId) => {
+          emit('chat:chunk', { sessionId, delta: 'fast' });
+          emit('session:turnEnded', { sessionId });
+        },
+      });
+      worker.engine.sessionsByPath.set(worker.inside.path, ['sess-old']);
+      const client = await worker.connect();
+      const turn = await client.call('session.continue', {
+        sessionId: 'sess-old',
+        prompt: 'quick',
+      });
+      expect(turn.ok).toBe(true);
+      await client.call('session.attach', { sessionId: 'sess-old' });
+      await client.waitFor((frame) => frame.type === 'worker:history-mark');
+      expect(seqTypes(client, 'sess-old')).toEqual([
+        'worker:baseline',
+        'worker:turn.begin',
+        'chat:chunk',
+        'session:turnEnded',
+        'worker:turn.end',
+        'worker:history-mark',
+      ]);
+      const again = await client.call('session.continue', {
+        sessionId: 'sess-old',
+        prompt: 'again',
+      });
+      expect(again.ok).toBe(true);
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'reports a refused chat:abort from session.stop and keeps the slot',
+    async () => {
+      const worker = await startWorker(1, { abortRefused: true });
+      const client = await worker.connect();
+      await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'long',
+      });
+      const stop = await client.call('session.stop', {
+        sessionId: 'sess-new-1',
+      });
+      expect(stop).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+      const busy = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'next',
+      });
+      expect(busy).toMatchObject({
+        ok: false,
+        error: { code: 'WORKER_BUSY' },
+      });
+      const log = await readFile(
+        join(worker.paths.events, 'sess-new-1.jsonl'),
+        'utf8',
+      );
+      expect(log).not.toContain('worker:turn.interrupted');
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'binds a tab-only permission request to its session on resolution and refuses another session',
+    async () => {
+      const worker = await startWorker(4, {
+        duringStart: (emit, tabId) =>
+          emit('permission:request', {
+            id: 'req-tab',
+            toolName: 'Bash',
+            toolInput: {},
+            tabId,
+          }),
+      });
+      worker.engine.sessionsByPath.set(worker.inside.path, ['sess-old']);
+      const client = await worker.connect();
+      await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'run',
+      });
+      const wrong = await client.call('permission.respond', {
+        sessionId: 'sess-old',
+        requestId: 'req-tab',
+        decision: 'allow',
+      });
+      expect(wrong).toMatchObject({
+        ok: false,
+        error: { code: 'ALREADY_ANSWERED' },
+      });
+      const answer = await client.call('permission.respond', {
+        sessionId: 'sess-new-1',
+        requestId: 'req-tab',
+        decision: 'allow',
+      });
+      expect(answer).toMatchObject({ ok: true, result: { applied: true } });
+      expect(worker.engine.permissions.handleResponse).toHaveBeenCalledWith(
+        'req-tab',
+        { id: 'req-tab', decision: 'allow' },
+      );
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'shuts down promptly with a start still waiting for its session and releases its lock',
+    async () => {
+      const worker = await startWorker(4, { resolveDelayMs: null });
+      const client = await worker.connect();
+      client.send('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'never resolves',
+      });
+      await new Promise<void>((resolve) => {
+        const poll = () =>
+          worker.engine.call.mock.calls.some(([m]) => m === 'chat:start')
+            ? resolve()
+            : setTimeout(poll, 10);
+        poll();
+      });
+      const began = Date.now();
+      await worker.stop();
+      expect(Date.now() - began).toBeLessThan(10_000);
+      expect(worker.engine.lock.release).toHaveBeenCalledWith(
+        'sess-new-1',
+        'nonce-sess-new-1',
+      );
+      expect(worker.engine.lock.held()).toEqual([]);
+    },
+    ENGINE_TIMEOUT,
+  );
+
+  it(
+    'refuses a start whose early-event queue overflows without failing the push tap',
+    async () => {
+      const worker = await startWorker(1, {
+        // Only the first start floods its queue.
+        duringStart: (emit, tabId, sessionId) => {
+          if (sessionId !== 'sess-new-1') return;
+          for (let i = 0; i <= 10_000; i += 1)
+            emit('chat:chunk', { tabId, delta: String(i) });
+        },
+      });
+      const client = await worker.connect();
+      const start = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'flood',
+      });
+      expect(start).toMatchObject({
+        ok: false,
+        error: { code: 'SESSION_LOG_FAILED' },
+      });
+      expect(worker.engine.call).toHaveBeenCalledWith('chat:abort', {
+        sessionId: 'sess-new-1',
+      });
+      const next = await client.call('session.start', {
+        workspaceId: worker.inside.workspaceId,
+        prompt: 'after',
+      });
+      expect(next.ok).toBe(true);
+    },
+    ENGINE_TIMEOUT,
+  );
+});

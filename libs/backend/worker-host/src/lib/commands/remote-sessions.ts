@@ -42,6 +42,8 @@ const TURN_END_EVENTS = new Set([
 ]);
 /** W6: `session.start` answers after `session:id-resolved` or fails. */
 const RESOLUTION_TIMEOUT_MS = 30_000;
+/** Tab-only permission requests held per starting tab. */
+const HELD_PERMISSIONS_LIMIT = 100;
 const SESSION_LIST_LIMIT = 500;
 
 /** A refusal whose code the connection maps to fixed wire copy. */
@@ -78,6 +80,8 @@ export interface RemoteSessionDeps {
   revokeToken: (tokenId: string) => Promise<void>;
   requestRelease: (sessionId: string) => Promise<string>;
   log: (message: string) => void;
+  /** Test seam; W6 default is 30 s. */
+  resolveTimeoutMs?: number;
 }
 
 export interface RemoteSessions {
@@ -89,8 +93,11 @@ export interface RemoteSessions {
     grant: WorkerGrant,
     peer: WorkerPeer,
   ): Promise<unknown>;
-  /** Interrupts every turn this worker drives, while the logs are still open. */
-  abortTurns(): Promise<void>;
+  /**
+   * Shutdown, after the listener closed and before the logs close: refuses
+   * new turns, cancels or awaits pending starts and aborts admitted turns.
+   */
+  drain(): Promise<void>;
   /** Frees every driver lock this process holds. */
   releaseLocks(): Promise<void>;
   /** Wire into `SessionLogWriterOptions.onAppendFailed`. */
@@ -151,6 +158,26 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
     if (!writer) throw new runtime.SessionLogFailedError();
     return writer;
   };
+  const errorName = (error: unknown): string =>
+    error instanceof Error ? error.name : 'unknown';
+  /** Releases one session's driver lock: the gated operator path, then directly. */
+  const releaseLock = async (sessionId: string): Promise<void> => {
+    try {
+      await deps.requestRelease(sessionId);
+    } catch (error) {
+      deps.log(
+        `[ptah-worker] lock release request failed: ${errorName(error)}`,
+      );
+    }
+    for (const held of deps.lock.held()) {
+      if (held.sessionId !== sessionId) continue;
+      try {
+        await deps.lock.release(held.sessionId, held.nonce);
+      } catch (error) {
+        deps.log(`[ptah-worker] lock release failed: ${errorName(error)}`);
+      }
+    }
+  };
   const transcript = new runtime.Transcript(deps.history, deps.lock, owner);
   const driver = new runtime.SessionDriver(
     rpc,
@@ -159,6 +186,11 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
     writerOf,
     deps.providerReady,
     deps.maxActiveTurns,
+    {
+      resolveTimeoutMs: deps.resolveTimeoutMs ?? RESOLUTION_TIMEOUT_MS,
+      // An admitted turn that never registered was aborted: free its lock.
+      onAbandoned: (sessionId) => void releaseLock(sessionId),
+    },
   );
   const workspaceById = (workspaceId: string) =>
     deps.registry.list().find((item) => item.workspaceId === workspaceId);
@@ -185,9 +217,8 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
   /** requestId → sessionId, so `permission:auto-resolved` reaches its log. */
   const permissionSessions = new Map<string, string>();
   const tabsBySession = new Map<string, string>();
-  const startingTabs = new Set<string>();
-  const resolvedTabs = new Map<string, string>();
-  const waiters = new Map<string, (sessionId: string) => void>();
+  /** Permission requests that carry only the tab of a start not yet resolved. */
+  const heldPermissions = new Map<string, PermissionRequest[]>();
   /** peer id → session id → unsubscribe. */
   const subscriptions = new Map<string, Map<string, () => void>>();
 
@@ -207,7 +238,7 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
     if (tabId) {
       const fromTab = driver.sessionForTab(tabId);
       if (fromTab) return fromTab;
-      if (startingTabs.has(tabId)) return `${TAB_KEY}${tabId}`;
+      if (driver.admittingTab(tabId)) return `${TAB_KEY}${tabId}`;
     }
     const sessionId = text(record, 'sessionId');
     if (sessionId) return sessionId;
@@ -218,26 +249,8 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
   const capture = new runtime.WorkerEventCapture(routeKey, (key, event) => {
     if (key.startsWith(TAB_KEY))
       driver.route(key.slice(TAB_KEY.length), event, deliver);
-    else deliver(key, event);
+    else driver.routeSession(key, event, deliver);
   });
-
-  const waitForSession = (tabId: string): Promise<string> =>
-    new Promise<string>((resolve, reject) => {
-      const known = resolvedTabs.get(tabId);
-      if (known) {
-        resolve(known);
-        return;
-      }
-      const timer = setTimeout(() => {
-        waiters.delete(tabId);
-        reject(new RemoteMethodError('INTERNAL'));
-      }, RESOLUTION_TIMEOUT_MS);
-      waiters.set(tabId, (sessionId) => {
-        clearTimeout(timer);
-        waiters.delete(tabId);
-        resolve(sessionId);
-      });
-    });
 
   const unsubscribe = (peerId: string, sessionId: string): void => {
     const peerSubscriptions = subscriptions.get(peerId);
@@ -355,27 +368,19 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
         if (!workspace) throw new RemoteMethodError('NOT_FOUND_OR_FORBIDDEN');
         deps.workspaces.addFolder(workspace.path);
         const tabId = `worker-${randomUUID()}`;
-        startingTabs.add(tabId);
         try {
           const turn = await driver.start(
             { tabId, prompt, workspacePath: workspace.path, name },
-            async () => {
-              const sessionId = await waitForSession(tabId);
+            async (sessionId) => {
               await deps.logs.openSession(sessionId);
               sessionIndex.remember(sessionId, workspaceId);
               tabsBySession.set(sessionId, tabId);
-              return sessionId;
             },
             deliver,
           );
           return { sessionId: turn.sessionId, turnId: turn.turnId };
-        } catch (error) {
-          driver.forgetTab(tabId);
-          throw error;
         } finally {
-          startingTabs.delete(tabId);
-          resolvedTabs.delete(tabId);
-          waiters.delete(tabId);
+          heldPermissions.delete(tabId);
         }
       },
     ),
@@ -396,7 +401,9 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
     ),
     'session.stop': method<'session.stop'>(async ({ sessionId }) => {
       if (!driver.driving(sessionId)) return { stopped: false };
-      await driver.abort(sessionId);
+      // A refused chat:abort leaves the turn running: report it, keep the slot.
+      if (!(await driver.abort(sessionId)))
+        throw new RemoteMethodError('INTERNAL');
       return { stopped: true };
     }),
     'permission.respond': method<'permission.respond'>(
@@ -442,10 +449,19 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
         isPermissionRequest(record)
       ) {
         const tabId = text(record, 'tabId');
-        const tabSession = tabId ? driver.sessionForTab(tabId) : undefined;
-        pending.add(record, tabSession);
-        const sessionId = text(record, 'sessionId') ?? tabSession;
-        if (sessionId) permissionSessions.set(record.id, sessionId);
+        const sessionId =
+          text(record, 'sessionId') ??
+          (tabId ? driver.knownSession(tabId) : undefined);
+        if (sessionId) {
+          pending.add(record, sessionId);
+          permissionSessions.set(record.id, sessionId);
+        } else if (tabId && driver.admittingTab(tabId)) {
+          // Bound to its session when `session:id-resolved` arrives.
+          const held = heldPermissions.get(tabId) ?? [];
+          if (held.length < HELD_PERMISSIONS_LIMIT) held.push(record);
+          else deps.log('[ptah-worker] held permission request dropped');
+          heldPermissions.set(tabId, held);
+        }
       } else if (type === 'permission:auto-resolved') {
         const requestId = text(record, 'id');
         if (requestId) pending.remove(requestId);
@@ -455,9 +471,13 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
       } else if (type === 'session:id-resolved') {
         const tabId = text(record, 'tabId');
         const sessionId = text(record, 'realSessionId');
-        if (tabId && sessionId && startingTabs.has(tabId)) {
-          resolvedTabs.set(tabId, sessionId);
-          waiters.get(tabId)?.(sessionId);
+        if (tabId && sessionId) {
+          driver.tabResolved(tabId, sessionId);
+          for (const request of heldPermissions.get(tabId) ?? []) {
+            pending.add(request, sessionId);
+            permissionSessions.set(request.id, sessionId);
+          }
+          heldPermissions.delete(tabId);
         }
       }
       capture.capture(type, payload);
@@ -465,17 +485,16 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
         const requestId = text(record, 'id');
         if (requestId) permissionSessions.delete(requestId);
       }
-      if (TURN_END_EVENTS.has(type)) {
-        const sessionId = routeKey(payload);
-        if (sessionId && driver.driving(sessionId))
-          driver
-            .end(sessionId)
-            .catch((error: unknown) =>
-              deps.log(
-                `[ptah-worker] turn end record failed: ${error instanceof Error ? error.name : 'unknown'}`,
-              ),
-            );
-      }
+      // After capture, so the terminal event precedes the end record. A turn
+      // still being admitted ends right after it registers.
+      if (TURN_END_EVENTS.has(type))
+        driver
+          .terminal(text(record, 'sessionId'), text(record, 'tabId'))
+          .catch((error: unknown) =>
+            deps.log(
+              `[ptah-worker] turn end record failed: ${errorName(error)}`,
+            ),
+          );
     },
 
     async handle(name, params, grant, peer) {
@@ -490,41 +509,22 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
       return outcome.value;
     },
 
-    async abortTurns() {
-      for (const sessionId of tabsBySession.keys()) {
-        if (!driver.driving(sessionId)) continue;
-        try {
-          await driver.abort(sessionId);
-        } catch (error) {
-          deps.log(
-            `[ptah-worker] turn abort failed: ${error instanceof Error ? error.name : 'unknown'}`,
-          );
-        }
-      }
+    async drain() {
+      const { unresolvedTabs, failedAborts } = await driver.drain();
+      if (unresolvedTabs.length > 0)
+        deps.log(
+          `[ptah-worker] ${unresolvedTabs.length} started turn(s) never reported a session and could not be aborted`,
+        );
+      if (failedAborts.length > 0)
+        deps.log(
+          `[ptah-worker] chat:abort was refused for ${failedAborts.length} turn(s)`,
+        );
     },
 
     async releaseLocks() {
-      // The operator path first: it goes through the chat coordinator's
-      // release gate, as `ptah-worker locks release` does.
-      for (const held of deps.lock.held()) {
-        try {
-          await deps.requestRelease(held.sessionId);
-        } catch (error) {
-          deps.log(
-            `[ptah-worker] lock release request failed: ${error instanceof Error ? error.name : 'unknown'}`,
-          );
-        }
-      }
       // The process is stopping: a lock still held now would be stranded.
-      for (const held of deps.lock.held()) {
-        try {
-          await deps.lock.release(held.sessionId, held.nonce);
-        } catch (error) {
-          deps.log(
-            `[ptah-worker] lock release failed: ${error instanceof Error ? error.name : 'unknown'}`,
-          );
-        }
-      }
+      const sessions = new Set(deps.lock.held().map((held) => held.sessionId));
+      for (const sessionId of sessions) await releaseLock(sessionId);
     },
   };
 }

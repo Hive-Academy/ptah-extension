@@ -35,6 +35,11 @@ export interface WorkerServiceOptions extends Omit<
     admin: boolean,
     peer: WorkerPeer,
   ) => Promise<unknown>;
+  /**
+   * Runs after the listener has closed and before the logs close: stops
+   * pending admissions and aborts admitted turns while their logs are open.
+   */
+  drainTurns?: () => Promise<void>;
   releaseLocks: () => Promise<void>;
   readiness: () => Promise<ReadinessReport>;
   onSigterm?: boolean;
@@ -149,6 +154,7 @@ export class WorkerService {
     for (const connection of this.server?.connections ?? [])
       connection.sendControl('goodbye', { reason: 'shutdown' });
     if (this.server) await this.server.close();
+    await this.options.drainTurns?.();
     for (const log of this.logs.values()) {
       await log.sync();
       await log.close();

@@ -35,13 +35,54 @@ export interface DriverStart {
   workspacePath: string;
   name?: string;
 }
+export interface SessionDriverOptions {
+  /** W6: how long `start` waits for `session:id-resolved` (default 30 s). */
+  resolveTimeoutMs?: number;
+  /** Called after an admitted turn that never registered was aborted. */
+  onAbandoned?: (sessionId: string) => void;
+}
+/** What `drain` could not stop: tab-only orphans and refused aborts. */
+export interface DrainResult {
+  unresolvedTabs: string[];
+  failedAborts: string[];
+}
+
+type Deliver = (sessionId: string, event: unknown) => void;
+const QUEUE_LIMIT = 10_000;
+
+/**
+ * One turn between admission and registration. `admitting` counts against the
+ * active-turn limit until it registers or fails. An `orphan` is an engine turn
+ * that was admitted but could not be registered or aborted yet: it keeps its
+ * slot until its session ID is known and `chat:abort` succeeds.
+ */
+interface Admission {
+  readonly key: string;
+  readonly tabId: string;
+  state: 'admitting' | 'orphan';
+  sessionId?: string;
+  /** A terminal engine event arrived before registration. */
+  ended: boolean;
+  /** Events for this turn that arrived before `worker:turn.begin`. */
+  readonly buffer: unknown[];
+  deliver?: Deliver;
+  overflowed: boolean;
+  waiter?: { resolve(id: string): void; reject(error: Error): void };
+  readonly settled: Promise<void>;
+  settle(): void;
+}
 
 /** The local chat RPC is the only turn admission path; its coordinator owns the lock. */
 export class SessionDriver {
+  /** Events routed to an early tab queue that overflowed. */
+  dropped = 0;
   private readonly tabs = new Map<string, string>();
   private readonly early = new Map<string, unknown[]>();
   private readonly turns = new Map<string, DriverTurn>();
-  private readonly reservations = new Set<string>();
+  private readonly ending = new Set<string>();
+  private readonly admissions = new Map<string, Admission>();
+  private closing = false;
+  private readonly resolveTimeoutMs: number;
   constructor(
     private readonly rpc: InProcessRpc,
     private readonly transcript: Transcript,
@@ -49,33 +90,58 @@ export class SessionDriver {
     private readonly writerFor: (sessionId: string) => SessionLogWriter,
     private readonly providerReady: () => boolean,
     private readonly maxActiveTurns: number,
-  ) {}
+    private readonly options: SessionDriverOptions = {},
+  ) {
+    this.resolveTimeoutMs = options.resolveTimeoutMs ?? 30_000;
+  }
 
-  resolveTab(
-    tabId: string,
-    sessionId: string,
-    deliver: (sessionId: string, event: unknown) => void,
-  ): void {
+  resolveTab(tabId: string, sessionId: string, deliver: Deliver): void {
     this.tabs.set(tabId, sessionId);
     for (const event of this.early.get(tabId) ?? []) deliver(sessionId, event);
     this.early.delete(tabId);
   }
-  route(
-    tabId: string,
-    event: unknown,
-    deliver: (sessionId: string, event: unknown) => void,
-  ): void {
+
+  /**
+   * Routes a tab-keyed event. A tab that is being admitted buffers it until
+   * its turn begins. Never throws: it runs inside the synchronous push tap.
+   */
+  route(tabId: string, event: unknown, deliver: Deliver): void {
     const sessionId = this.tabs.get(tabId);
-    if (sessionId) deliver(sessionId, event);
-    else {
-      const queue = this.early.get(tabId) ?? [];
-      if (queue.length >= 10_000) throw new SessionDriverError('WORKER_BUSY');
-      queue.push(event);
-      this.early.set(tabId, queue);
+    if (sessionId) {
+      this.routeSession(sessionId, event, deliver);
+      return;
     }
+    const admission = this.byTab(tabId);
+    if (admission) {
+      this.hold(admission, event, deliver);
+      return;
+    }
+    const queue = this.early.get(tabId) ?? [];
+    if (queue.length >= QUEUE_LIMIT) {
+      this.dropped += 1;
+      return;
+    }
+    queue.push(event);
+    this.early.set(tabId, queue);
   }
+
+  /** Routes a session-keyed event; a turn still being admitted buffers it (W7 order). */
+  routeSession(sessionId: string, event: unknown, deliver: Deliver): void {
+    const admission = this.bySession(sessionId);
+    if (admission) this.hold(admission, event, deliver);
+    else deliver(sessionId, event);
+  }
+
   sessionForTab(tabId: string): string | undefined {
     return this.tabs.get(tabId);
+  }
+  /** The session of a tab, including one resolved while its start is admitting. */
+  knownSession(tabId: string): string | undefined {
+    return this.tabs.get(tabId) ?? this.byTab(tabId)?.sessionId;
+  }
+  /** True while a `start` on this tab waits for registration. */
+  admittingTab(tabId: string): boolean {
+    return this.byTab(tabId) !== undefined;
   }
   driving(sessionId: string): boolean {
     return this.turns.has(sessionId);
@@ -83,6 +149,32 @@ export class SessionDriver {
   forgetTab(tabId: string): void {
     this.tabs.delete(tabId);
     this.early.delete(tabId);
+  }
+
+  /** The backend reported the session of a tab (`session:id-resolved`). */
+  tabResolved(tabId: string, sessionId: string): void {
+    for (const admission of this.admissions.values()) {
+      if (admission.tabId !== tabId || admission.sessionId) continue;
+      admission.sessionId = sessionId;
+      if (admission.state === 'admitting') admission.waiter?.resolve(sessionId);
+      else void this.retire(admission);
+    }
+  }
+
+  /**
+   * A terminal engine event (`session:turnEnded`, ...). A registered turn ends
+   * now; a turn still being admitted ends right after it registers.
+   */
+  async terminal(sessionId?: string, tabId?: string): Promise<void> {
+    const id = sessionId ?? (tabId ? this.knownSession(tabId) : undefined);
+    if (id && this.turns.has(id)) {
+      await this.end(id);
+      return;
+    }
+    const admission =
+      (id ? this.bySession(id) : undefined) ??
+      (tabId ? this.byTab(tabId) : undefined);
+    if (admission) admission.ended = true;
   }
 
   async attach(
@@ -123,11 +215,15 @@ export class SessionDriver {
       throw new SessionDriverError('CODEX_UNAVAILABLE');
     if (!this.providerReady())
       throw new SessionDriverError('NO_PROVIDER_READY');
-    if (this.turns.has(sessionId) || this.reservations.has(sessionId))
+    if (
+      this.turns.has(sessionId) ||
+      [...this.admissions.values()].some(
+        (admission) => admission.sessionId === sessionId,
+      )
+    )
       throw new SessionDriverError('TURN_IN_FLIGHT');
-    if (this.turns.size + this.reservations.size >= this.maxActiveTurns)
-      throw new SessionDriverError('WORKER_BUSY');
-    this.reservations.add(sessionId);
+    const admission = this.admit(sessionId, tabId);
+    admission.sessionId = sessionId;
     try {
       const result = await this.rpc.call(
         'chat:continue',
@@ -141,41 +237,30 @@ export class SessionDriver {
           throw new SessionDriverError('DRIVER_LOCK_UNAVAILABLE');
         throw new SessionDriverError('INTERNAL');
       }
-      const writer = this.writerFor(sessionId);
       // Admission has acquired the coordinator lock. Only now may history be read.
-      try {
+      return await this.register(admission, sessionId, async (writer) => {
         await this.transcript.baseline(sessionId, writer);
-        const turn: DriverTurn = { sessionId, tabId, turnId: randomUUID() };
-        await writer.enqueue('worker:turn.begin', { turnId: turn.turnId });
-        this.turns.set(sessionId, turn);
-        this.tabs.set(tabId, sessionId);
-        return turn;
-      } catch (error) {
-        await this.abort(sessionId);
-        throw error;
-      }
+      });
     } finally {
-      this.reservations.delete(sessionId);
+      this.release(admission);
     }
   }
 
   /**
-   * Starts a new session on a worker tab. `resolved` yields the session ID once
-   * the backend reports it and its log is open. Tab events that arrived first are
+   * Starts a new session on a worker tab. The session ID comes from
+   * `tabResolved`; `open` opens its log. Tab events that arrived first are
    * delivered after the empty baseline and `worker:turn.begin`, in arrival order.
    */
   async start(
     params: DriverStart,
-    resolved: () => Promise<string>,
-    deliver: (sessionId: string, event: unknown) => void,
+    open: (sessionId: string) => Promise<void>,
+    deliver: Deliver,
   ): Promise<DriverTurn> {
     if (!this.providerReady())
       throw new SessionDriverError('NO_PROVIDER_READY');
-    if (this.turns.size + this.reservations.size >= this.maxActiveTurns)
-      throw new SessionDriverError('WORKER_BUSY');
-    // Session IDs never contain ':', so a tab reservation cannot collide.
-    const reservation = `tab:${params.tabId}`;
-    this.reservations.add(reservation);
+    // Session IDs never contain ':', so a tab key cannot collide.
+    const admission = this.admit(`tab:${params.tabId}`, params.tabId);
+    admission.deliver = deliver;
     try {
       const result = await this.rpc.call(
         'chat:start',
@@ -194,58 +279,68 @@ export class SessionDriver {
           throw new SessionDriverError('DRIVER_LOCK_UNAVAILABLE');
         throw new SessionDriverError('INTERNAL');
       }
-      const sessionId = await resolved();
-      const writer = this.writerFor(sessionId);
+      let sessionId: string;
       try {
-        // A new session has no history before its first turn.
-        await writer.enqueue('worker:baseline', {
-          events: [],
-          historyMark: historyMark([]),
-        });
-        const turn: DriverTurn = {
-          sessionId,
-          tabId: params.tabId,
-          turnId: randomUUID(),
-        };
-        await writer.enqueue('worker:turn.begin', { turnId: turn.turnId });
-        this.turns.set(sessionId, turn);
-        this.resolveTab(params.tabId, sessionId, deliver);
-        return turn;
-      } catch (error) {
-        await this.abort(sessionId);
-        throw error;
+        sessionId = await this.sessionOf(admission);
+      } catch {
+        // The engine turn runs without a known session: keep the slot and
+        // abort it when `session:id-resolved` arrives (see tabResolved).
+        admission.state = 'orphan';
+        admission.buffer.length = 0;
+        throw new SessionDriverError('INTERNAL');
       }
+      return await this.register(
+        admission,
+        sessionId,
+        async (writer) => {
+          // A new session has no history before its first turn.
+          await writer.enqueue('worker:baseline', {
+            events: [],
+            historyMark: historyMark([]),
+          });
+        },
+        open,
+      );
     } finally {
-      this.reservations.delete(reservation);
+      this.release(admission);
     }
   }
 
   async end(sessionId: string): Promise<void> {
     const turn = this.turns.get(sessionId);
-    if (!turn) return;
+    // Two terminal events for one turn write one end record.
+    if (!turn || this.ending.has(sessionId)) return;
+    this.ending.add(sessionId);
     const writer = this.writerFor(sessionId);
     try {
       await writer.enqueue('worker:turn.end', { turnId: turn.turnId });
       await this.transcript.mark(sessionId, turn.turnId, writer);
     } finally {
-      this.turns.delete(sessionId);
+      this.ending.delete(sessionId);
+      if (this.turns.get(sessionId) === turn) this.turns.delete(sessionId);
     }
   }
 
-  async abort(sessionId: string): Promise<void> {
+  /**
+   * Aborts the session's engine turn. Returns false when `chat:abort` was
+   * refused: the turn, its slot and its log stay as they are.
+   */
+  async abort(sessionId: string): Promise<boolean> {
     const turn = this.turns.get(sessionId);
+    if (!(await this.chatAbort(sessionId))) return false;
+    if (!turn || this.turns.get(sessionId) !== turn) return true;
     this.turns.delete(sessionId);
-    await this.rpc.call(
-      'chat:abort',
-      { sessionId: sessionId as SessionId },
-      IN_PROCESS_SPECS['chat:abort'] as unknown as RpcSpec<
-        RpcMethodResult<'chat:abort'>
-      >,
-    );
-    if (!turn) return;
+    await this.interrupted(sessionId, turn);
+    return true;
+  }
+
+  /** Closes a begun turn in the log. */
+  private async interrupted(
+    sessionId: string,
+    turn: DriverTurn,
+  ): Promise<void> {
     const writer = this.writerFor(sessionId);
     if (writer.degraded) return;
-    // Close the open turn in the log.
     // degradation-audit: reported - a failed append degrades the writer, which
     // sends subscribers ctl session-state; log recovery closes the turn on restart.
     await writer
@@ -253,8 +348,174 @@ export class SessionDriver {
       .catch(() => undefined);
   }
 
+  /**
+   * Shutdown: refuse new turns, cancel starts waiting for their session ID,
+   * wait for the other admissions, then abort every admitted turn.
+   */
+  async drain(): Promise<DrainResult> {
+    this.closing = true;
+    const pending = [...this.admissions.values()].filter(
+      (admission) => admission.state === 'admitting',
+    );
+    for (const admission of pending)
+      admission.waiter?.reject(new Error('Worker is shutting down'));
+    await Promise.all(pending.map((admission) => admission.settled));
+    const failedAborts: string[] = [];
+    for (const sessionId of [...this.turns.keys()])
+      if (!(await this.abort(sessionId))) failedAborts.push(sessionId);
+    const unresolvedTabs: string[] = [];
+    for (const admission of [...this.admissions.values()]) {
+      if (!admission.sessionId) unresolvedTabs.push(admission.tabId);
+      else if (!(await this.retire(admission)))
+        failedAborts.push(admission.sessionId);
+    }
+    return { unresolvedTabs, failedAborts };
+  }
+
   /** Wire this callback into SessionLogWriterOptions.onAppendFailed. */
   onAppendFailed = (sessionId: string): void => {
     void this.abort(sessionId);
   };
+
+  private admit(key: string, tabId: string): Admission {
+    if (this.closing) throw new SessionDriverError('WORKER_BUSY');
+    if (this.turns.size + this.admissions.size >= this.maxActiveTurns)
+      throw new SessionDriverError('WORKER_BUSY');
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const admission: Admission = {
+      key,
+      tabId,
+      state: 'admitting',
+      ended: false,
+      buffer: [],
+      overflowed: false,
+      settled,
+      settle,
+    };
+    this.admissions.set(key, admission);
+    return admission;
+  }
+
+  /** Ends an admission; an orphan keeps its slot until it is retired. */
+  private release(admission: Admission): void {
+    admission.waiter = undefined;
+    if (admission.state === 'admitting') this.admissions.delete(admission.key);
+    admission.settle();
+  }
+
+  /**
+   * Writes the baseline and `worker:turn.begin`, registers the turn, flushes
+   * the events that arrived during admission, and ends it if a terminal event
+   * came first. A failure aborts the engine turn before it is reported.
+   */
+  private async register(
+    admission: Admission,
+    sessionId: string,
+    baseline: (writer: SessionLogWriter) => Promise<void>,
+    open?: (sessionId: string) => Promise<void>,
+  ): Promise<DriverTurn> {
+    let turn: DriverTurn | undefined;
+    try {
+      if (open) await open(sessionId);
+      const writer = this.writerFor(sessionId);
+      await baseline(writer);
+      turn = { sessionId, tabId: admission.tabId, turnId: randomUUID() };
+      await writer.enqueue('worker:turn.begin', { turnId: turn.turnId });
+      if (admission.overflowed)
+        throw new SessionDriverError('SESSION_LOG_FAILED');
+      // Registration and the flush are one synchronous step, so no event
+      // can overtake the buffered ones.
+      this.turns.set(sessionId, turn);
+      this.admissions.delete(admission.key);
+      const deliver = admission.deliver;
+      if (deliver) this.resolveTab(admission.tabId, sessionId, deliver);
+      else this.tabs.set(admission.tabId, sessionId);
+      for (const event of admission.buffer.splice(0))
+        deliver?.(sessionId, event);
+    } catch (error) {
+      if (!(await this.chatAbort(sessionId))) {
+        // Still running in the engine: keep the slot, retry at shutdown.
+        admission.state = 'orphan';
+        admission.sessionId = sessionId;
+        admission.buffer.length = 0;
+      } else {
+        if (turn) await this.interrupted(sessionId, turn);
+        this.options.onAbandoned?.(sessionId);
+      }
+      throw error;
+    }
+    if (admission.ended) await this.end(sessionId);
+    return turn;
+  }
+
+  /** Aborts an orphan whose session is known; frees its slot when that worked. */
+  private async retire(admission: Admission): Promise<boolean> {
+    const sessionId = admission.sessionId;
+    if (!sessionId || !(await this.chatAbort(sessionId))) return false;
+    this.admissions.delete(admission.key);
+    this.options.onAbandoned?.(sessionId);
+    return true;
+  }
+
+  private sessionOf(admission: Admission): Promise<string> {
+    if (admission.sessionId) return Promise.resolve(admission.sessionId);
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        admission.waiter = undefined;
+        reject(new Error('session:id-resolved did not arrive'));
+      }, this.resolveTimeoutMs);
+      admission.waiter = {
+        resolve: (id) => {
+          clearTimeout(timer);
+          admission.waiter = undefined;
+          resolve(id);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          admission.waiter = undefined;
+          reject(error);
+        },
+      };
+    });
+  }
+
+  private async chatAbort(sessionId: string): Promise<boolean> {
+    const result = await this.rpc.call(
+      'chat:abort',
+      { sessionId: sessionId as SessionId },
+      IN_PROCESS_SPECS['chat:abort'] as unknown as RpcSpec<
+        RpcMethodResult<'chat:abort'>
+      >,
+    );
+    return result.ok;
+  }
+
+  private hold(admission: Admission, event: unknown, deliver: Deliver): void {
+    if (admission.state !== 'admitting' || admission.overflowed) return;
+    admission.deliver ??= deliver;
+    if (admission.buffer.length >= QUEUE_LIMIT) {
+      // Registration refuses an overflowed turn (SESSION_LOG_FAILED).
+      admission.overflowed = true;
+      admission.buffer.length = 0;
+      return;
+    }
+    admission.buffer.push(event);
+  }
+
+  private byTab(tabId: string): Admission | undefined {
+    for (const admission of this.admissions.values())
+      if (admission.tabId === tabId && admission.state === 'admitting')
+        return admission;
+    return undefined;
+  }
+
+  private bySession(sessionId: string): Admission | undefined {
+    for (const admission of this.admissions.values())
+      if (admission.sessionId === sessionId && admission.state === 'admitting')
+        return admission;
+    return undefined;
+  }
 }
