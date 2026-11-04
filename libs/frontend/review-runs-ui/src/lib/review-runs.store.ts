@@ -138,7 +138,11 @@ export class ReviewRunsStore {
       await this.loadBotIdentity();
       this.credentialState.set('idle');
       return true;
-    } catch { this.credentialState.set('error'); return false; }
+    } catch {
+      // degradation-audit: reported — credentialState 'error' shows the failure in the drawer.
+      this.credentialState.set('error');
+      return false;
+    }
   }
   async clearBotToken(): Promise<void> {
     this.credentialState.set('saving');
