@@ -809,7 +809,7 @@ phase summary.
 
 - Pairing and grant specs pass; verify passes
 
-## Batch 15: C6b event log and fan-out — PENDING
+## Batch 15: C6b event log and fan-out — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -821,7 +821,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 15.1: Event capture, writer, log, fan-out — PENDING
+### Task 15.1: Event capture, writer, log, fan-out — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{event-capture,session-log-writer,session-event-log,fan-out}.ts`
   (+ specs), W/`libs/backend/worker-runtime/src/index.ts`

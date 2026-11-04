@@ -4,3 +4,7 @@ export * from './lib/token-store';
 export * from './lib/pairing-window';
 export * from './lib/admin-key';
 export * from './lib/redact';
+export * from './lib/event-capture';
+export * from './lib/session-event-log';
+export * from './lib/session-log-writer';
+export * from './lib/fan-out';
