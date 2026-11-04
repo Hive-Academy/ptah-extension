@@ -11,10 +11,11 @@ const isRunning = (state: CodexLoginState | null): boolean =>
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rounded-xl border p-3 text-sm" [class.border-error]="failure() && role() === 'chosen'"
-      [class.border-dashed]="failure() && role() === 'information'"
-      [class.border-base-300]="!failure() || role() === 'information'"
-      [attr.role]="failure() && role() === 'chosen' ? 'alert' : phase() === 'ready' ? null : 'status'"
+    @if (phase() !== 'ready' || layout() === 'panel' || copyMessage()) {
+    <div class="rounded-xl border p-3 text-sm" [class.border-error]="failure() && connectionRole() === 'chosen'"
+      [class.border-dashed]="failure() && connectionRole() === 'information'"
+      [class.border-base-300]="!failure() || connectionRole() === 'information'"
+      [attr.role]="failure() && connectionRole() === 'chosen' ? 'alert' : phase() === 'ready' ? null : 'status'"
       data-testid="codex-sign-in-block">
       @switch (phase()) {
         @case ('ready') {
@@ -86,13 +87,13 @@ const isRunning = (state: CodexLoginState | null): boolean =>
         }
         @case ('failed') {
           <p class="font-semibold">Codex sign-in did not finish.</p>
-          <p class="text-base-content-muted">{{ failureCopy() }}@if (role() === 'information') { Your main connection is not affected. }</p>
-          <button type="button" [class]="role() === 'chosen' ? 'btn btn-primary btn-sm mt-2' : 'btn btn-outline btn-sm mt-2'" (click)="restart()">Try again</button>
+          <p class="text-base-content-muted">{{ failureCopy() }}@if (connectionRole() === 'information') { Your main connection is not affected. }</p>
+          <button type="button" [class]="connectionRole() === 'chosen' ? 'btn btn-primary btn-sm mt-2' : 'btn btn-outline btn-sm mt-2'" (click)="restart()">Try again</button>
         }
         @case ('timed-out') {
           <p class="font-semibold">Codex sign-in timed out.</p>
-          <p class="text-base-content-muted">Ptah stopped waiting after 10 minutes. The page or code may have expired. Start a new sign-in.@if (role() === 'information') { Your main connection is not affected. }</p>
-          <button type="button" [class]="role() === 'chosen' ? 'btn btn-primary btn-sm mt-2' : 'btn btn-outline btn-sm mt-2'" (click)="restart()">Try again</button>
+          <p class="text-base-content-muted">Ptah stopped waiting after 10 minutes. The page or code may have expired. Start a new sign-in.@if (connectionRole() === 'information') { Your main connection is not affected. }</p>
+          <button type="button" [class]="connectionRole() === 'chosen' ? 'btn btn-primary btn-sm mt-2' : 'btn btn-outline btn-sm mt-2'" (click)="restart()">Try again</button>
         }
         @case ('cancelled') {
           <p class="font-semibold">Sign-in cancelled.</p>
@@ -108,11 +109,12 @@ const isRunning = (state: CodexLoginState | null): boolean =>
       }
       @if (copyMessage(); as message) { <p role="status" class="mt-1 text-xs">{{ message }}</p> }
     </div>
+    }
   `,
   styles: [`@media (prefers-reduced-motion: no-preference) { .codex-loader { animation: spin 1s linear infinite; } }`],
 })
 export class CodexSignInBlockComponent {
-  readonly role = input<'chosen' | 'information'>('chosen');
+  readonly connectionRole = input<'chosen' | 'information'>('chosen');
   readonly layout = input<'panel' | 'compact'>('panel');
   readonly terminalCommand = input<string | null>(null);
   readonly bundledNote = input(false);

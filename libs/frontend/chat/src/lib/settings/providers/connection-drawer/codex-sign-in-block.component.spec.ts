@@ -17,9 +17,9 @@ describe('CodexSignInBlockComponent', () => {
   let fixture: ComponentFixture<CodexSignInBlockComponent>;
   let element: HTMLElement;
   const button = (label: string) => [...element.querySelectorAll('button')].find(node => node.textContent?.trim() === label);
-  const render = (next: CodexLoginState | null, role: 'chosen' | 'information' = 'chosen') => {
+  const render = (next: CodexLoginState | null, connectionRole: 'chosen' | 'information' = 'chosen') => {
     state.set(next);
-    fixture.componentRef.setInput('role', role);
+    fixture.componentRef.setInput('connectionRole', connectionRole);
     fixture.detectChanges();
   };
 
@@ -48,6 +48,19 @@ describe('CodexSignInBlockComponent', () => {
     expect(element.textContent).toContain('bundled copy');
     button('Sign in with Codex')?.click();
     expect(start).toHaveBeenCalled();
+  });
+
+  it('renders no bordered container when compact and ready', () => {
+    fixture.componentRef.setInput('layout', 'compact');
+    render(null);
+    expect(element.querySelector('[data-testid="codex-sign-in-block"]')).toBeNull();
+    expect(element.querySelector('.border')).toBeNull();
+  });
+
+  it('does not put a role attribute on the component host', () => {
+    render({ ...base, status: 'failed' });
+    expect(element.hasAttribute('role')).toBe(false);
+    expect(element.querySelector('[data-testid="codex-sign-in-block"]')?.getAttribute('role')).toBe('alert');
   });
 
   it('keeps starting and empty running states neutral about the browser', () => {

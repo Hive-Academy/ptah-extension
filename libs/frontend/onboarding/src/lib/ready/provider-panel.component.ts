@@ -243,7 +243,7 @@ const CHIP: Record<ProviderReadinessState, { label: string; icon: LucideIconData
           } @else if (showCodexSignIn()) {
             <div class="mt-5 border-t border-base-300 pt-4" data-testid="ready-sign-in-block">
               <h3 class="font-semibold">{{ view().state === 'stale' ? 'Sign in to Codex again' : 'Sign in to Codex' }}</h3>
-              <ptah-codex-sign-in-block layout="panel" [role]="role() === 'main' ? 'chosen' : 'information'"
+              <ptah-codex-sign-in-block layout="panel" [connectionRole]="role() === 'main' ? 'chosen' : 'information'"
                 [terminalCommand]="terminalCommand()" [bundledNote]="view().source === 'bundled'" [executablePath]="view().path" />
             </div>
           } @else if (view().state === 'error') {
