@@ -131,7 +131,7 @@ async function expectCompleted(page: Page): Promise<void> {
   await expect(page.locator(ANALYZE)).toContainText('Analysis complete');
   await expect(
     page.getByRole('button', { name: 'Manual adjust' }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 }
 
 async function expectCatalogBanner(page: Page): Promise<void> {

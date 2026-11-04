@@ -144,15 +144,16 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         );
         await expect(page.getByTestId('proposal-panel')).toBeVisible();
         await expect(
-          page.getByText('Revision 1', { exact: true }),
+          page.getByTestId('proposal-panel').getByText('Revision 1', { exact: true }),
         ).toBeVisible();
         await expect(
           page.getByRole('heading', { name: 'From your intake' }),
         ).toBeVisible();
-        await expect(page.getByText('ptah-nx-saas')).toBeVisible();
+        await expect(page.getByTestId('proposal-panel').getByText('ptah-nx-saas')).toBeVisible();
         await shoot(page, {
           view: `${size.prefix}workspace-first-revision`,
           theme,
+          busyExempt: '[data-testid="details-log-body"]',
         });
       });
 
@@ -170,15 +171,18 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         );
         await expect(page.getByTestId('proposal-panel')).toBeVisible();
         await expect(
-          page.getByText('Revision 2', { exact: true }),
+          page.getByTestId('proposal-panel').getByText('Revision 2', { exact: true }),
         ).toBeVisible();
-        await expect(page.getByText('New', { exact: true })).toBeVisible();
-        await expect(page.getByText('Changed', { exact: true })).toBeVisible();
-        await page.getByText('Revision history · 2').click();
-        await expect(page.getByText('Revision 1 · In progress')).toBeVisible();
+        await expect(page.getByTestId('proposal-panel').getByText('New', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('proposal-panel').getByText('Changed', { exact: true })).toBeVisible();
+        await page.getByText('Revision history', { exact: true }).click();
+        await expect(
+          page.locator('ptah-revision-history li').filter({ hasText: 'Rev 1' }),
+        ).toContainText('Config incomplete');
         await shoot(page, {
           view: `${size.prefix}workspace-second-revision`,
           theme,
+          busyExempt: '[data-testid="details-log-body"]',
         });
       });
 
@@ -203,6 +207,7 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         await shoot(page, {
           view: `${size.prefix}workspace-unavailable`,
           theme,
+          busyExempt: '[data-testid="details-log-body"]',
         });
       });
 
@@ -267,7 +272,8 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         // Re-enter review: the receipt is persisted, and the result opens with full details.
         await page.getByRole('button', { name: 'Back to proposal' }).click();
         await expect(page.getByTestId('proposal-panel')).toBeVisible();
-        await page.getByRole('button', { name: 'Review', exact: true }).click();
+        await page.getByRole('region', { name: 'Proposal ready' })
+          .getByRole('button', { name: 'Review', exact: true }).click();
         await expect(
           page.getByRole('heading', { name: 'Applied revision' }),
         ).toBeVisible();
@@ -307,7 +313,11 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       await expect(
         sheet.getByRole('textbox', { name: 'Reply to the agent' }),
       ).toBeFocused();
-      await shoot(page, { view: 'narrow-workspace-answer-sheet', theme });
+      await shoot(page, {
+        view: 'narrow-workspace-answer-sheet',
+        theme,
+        busyExempt: '[data-testid="details-log-body"]',
+      });
     });
   });
 }

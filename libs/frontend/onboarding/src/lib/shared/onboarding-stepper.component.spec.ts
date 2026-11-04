@@ -31,7 +31,7 @@ describe('OnboardingStepperComponent', () => {
     const completed = (fixture.nativeElement as HTMLElement).querySelector('li[data-state="completed"]') as HTMLLIElement;
     expect(completed.querySelector('a')).toBeNull();
     expect(completed.querySelector('span')?.textContent?.trim()).toBe('Analyze, completed');
-    expect(completed.querySelector('span span')?.className).toContain('max-[720px]:sr-only');
+    expect(completed.querySelector(':scope > span > span:last-child')?.className).toContain('max-[720px]:sr-only');
   });
 
   it('collapses noncurrent labels in the narrow strip', () => {
@@ -40,14 +40,16 @@ describe('OnboardingStepperComponent', () => {
     fixture.componentRef.setInput('steps', steps);
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('ol')?.className).toContain('min-[720px]:flex-col');
-    expect(el.querySelector('li[data-state="completed"] a span')?.className).toContain('max-[720px]:sr-only');
-    expect(el.querySelector('li[data-state="upcoming"] span span')?.className).toContain('max-[720px]:sr-only');
-    expect(el.querySelector('li[data-state="current"] span span')?.className).not.toContain('max-[720px]:sr-only');
+    expect(el.querySelector('ol')?.className).toContain('flex');
+    expect(el.querySelector('ol')?.className).not.toContain('flex-col');
+    expect(el.querySelector('nav')?.className).not.toContain('sticky');
+    expect(el.querySelector('li[data-state="completed"] a > span:last-child')?.className).toContain('max-[720px]:sr-only');
+    expect(el.querySelector('li[data-state="upcoming"] > span > span:last-child')?.className).toContain('max-[720px]:sr-only');
+    expect(el.querySelector('li[data-state="current"] > span > span:last-child')?.className).not.toContain('max-[720px]:sr-only');
     expect(el.querySelector('li[data-state="current"]')?.className).toContain('min-w-0');
     expect(el.querySelector('li[data-state="current"]')?.className).toContain('flex-1');
-    expect(el.querySelector('li[data-state="current"] span span')?.className).toContain('whitespace-nowrap');
-    expect(el.querySelector('li[data-state="current"] span span')?.className).not.toContain('truncate');
+    expect(el.querySelector('li[data-state="current"] > span > span:last-child')?.className).toContain('whitespace-nowrap');
+    expect(el.querySelector('li[data-state="current"] > span > span:last-child')?.className).not.toContain('truncate');
     expect(el.querySelector('li[data-state="upcoming"]')?.className).toContain('shrink');
   });
 
@@ -71,6 +73,6 @@ describe('OnboardingStepperComponent', () => {
     expect(skipped.textContent?.trim()).toBe('Analyze, skipped');
     expect(skipped.querySelector('svg')).not.toBeNull();
     expect(skipped.querySelector('svg path')?.getAttribute('d')).toBe('M12 6a2 2 0 0 1 3.414-1.414l6 6a2 2 0 0 1 0 2.828l-6 6A2 2 0 0 1 12 18z');
-    expect(skipped.querySelector('span span')?.className).toContain('max-[720px]:sr-only');
+    expect(skipped.querySelector(':scope > span > span:last-child')?.className).toContain('max-[720px]:sr-only');
   });
 });

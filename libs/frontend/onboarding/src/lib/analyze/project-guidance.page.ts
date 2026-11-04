@@ -26,6 +26,7 @@ import {
   safeFailureCopy,
 } from '@ptah-extension/setup-wizard';
 import { DetailsLogComponent } from '../shared/details-log.component';
+import { LiveRunLayoutComponent } from '../shared/live-run-layout.component';
 import {
   OnboardingStepperComponent,
   type OnboardingStep,
@@ -44,6 +45,7 @@ import { GenerationStepStore } from './generation-step.store';
   standalone: true,
   imports: [
     DetailsLogComponent,
+    LiveRunLayoutComponent,
     GuidanceResultPanelComponent,
     OnboardingStepperComponent,
     RecoveryScreenComponent,
@@ -73,7 +75,10 @@ import { GenerationStepStore } from './generation-step.store';
   ],
   template: `
     <section
-      class="mx-auto max-w-[760px] space-y-5 p-4"
+      class="mx-auto space-y-5"
+      [class.max-w-[1120px]]="binding() && !recovery() && !workflow.runMismatch() && !workflow.lookupExhausted() && !lookupError()"
+      [class.max-w-[760px]]="!binding() || recovery() || workflow.runMismatch() || workflow.lookupExhausted() || lookupError()"
+      [class.p-4]="!binding() || recovery() || workflow.runMismatch() || workflow.lookupExhausted() || lookupError()"
       aria-labelledby="project-guidance-title"
       data-testid="project-guidance-page"
     >
@@ -130,6 +135,12 @@ import { GenerationStepStore } from './generation-step.store';
           </button>
         </section>
       } @else {
+        <ptah-live-run-layout [hasLog]="!!binding()">
+          @if (binding(); as bound) {
+            <ptah-details-log runLog variant="pane" mode="tab" [tabId]="bound.tabId"
+              [liveState]="panelState() === 'running' ? 'live' : panelState() === 'cancelling' ? 'stopped' : 'idle'"
+              footerNote="Session output. Read-only." />
+          }
         <div
           data-testid="guidance-state-chip"
           [attr.data-state]="workflow.state()"
@@ -302,9 +313,7 @@ import { GenerationStepStore } from './generation-step.store';
             Skip to Done
           </button>
         }
-        @if (binding(); as bound) {
-          <ptah-details-log mode="tab" [tabId]="bound.tabId" />
-        }
+        </ptah-live-run-layout>
       }
     </section>
   `,

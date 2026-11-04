@@ -5,6 +5,7 @@ import {
   effect,
   ElementRef,
   inject,
+  input,
   signal,
   viewChild,
 } from '@angular/core';
@@ -44,11 +45,19 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
   standalone: true,
   imports: [LucideAngularModule, ExecutionNodeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.block]': 'paneMode()',
+    '[class.h-full]': 'paneMode()',
+    '[class.min-h-0]': 'paneMode()',
+  },
   template: `
     <div
-      class="bg-base-200 rounded-lg overflow-hidden h-full max-h-[70vh] flex flex-col"
+      class="bg-base-200 rounded-lg overflow-hidden h-full flex flex-col"
+      [class.max-h-[70vh]]="!paneMode()"
+      [class.min-h-0]="paneMode()"
     >
       <!-- Header with toggle -->
+      @if (!paneMode()) {
       <button
         type="button"
         class="w-full flex items-center justify-between p-3 hover:bg-base-300 transition-colors"
@@ -73,9 +82,10 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
           aria-hidden="true"
         />
       </button>
+      }
 
       <!-- Scrollable content -->
-      @if (isExpanded()) {
+      @if (paneMode() || isExpanded()) {
         <div
           id="analysis-transcript-content"
           #scrollContainer
@@ -109,6 +119,14 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
   `,
 })
 export class AnalysisTranscriptComponent {
+  readonly variant = input<'standalone' | 'pane'>('standalone');
+  private readonly hostElement = inject(ElementRef<HTMLElement>);
+  // The onboarding page marks its nested DetailsLog host; the transcript is
+  // projected by DetailsLog, so the page cannot bind this input directly.
+  protected readonly paneMode = computed(() =>
+    this.variant() === 'pane' ||
+    this.hostElement.nativeElement.closest('[data-transcript-variant="pane"]') !== null,
+  );
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   protected readonly TerminalIcon = Terminal;

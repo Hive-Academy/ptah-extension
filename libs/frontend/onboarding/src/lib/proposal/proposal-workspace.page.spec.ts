@@ -5,6 +5,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { BehaviorSubject } from 'rxjs';
 import { ProposalFlowStore } from './proposal-flow.store';
 import { ProposalWorkspacePage } from './proposal-workspace.page';
+import { ReplyDraftStore } from './reply-draft.store';
 
 describe('ProposalWorkspacePage', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -29,11 +30,13 @@ describe('ProposalWorkspacePage', () => {
             leaveCurrent,
             records: { replaceDraft },
             actionError,
+            restoreState: signal('idle'),
           },
         },
+        { provide: ReplyDraftStore, useValue: { setReply: jest.fn() } },
         { provide: ActivatedRoute, useValue: {} },
         { provide: Router, useValue: { navigate } },
-        { provide: TabManagerService, useValue: { tabs: signal([]) } },
+        { provide: TabManagerService, useValue: { backgroundTabsRevision: signal(0), findTabByIdAcrossWorkspaces: jest.fn() } },
       ],
     });
     const page = TestBed.runInInjectionContext(
@@ -74,8 +77,9 @@ describe('ProposalWorkspacePage', () => {
           provide: ActivatedRoute,
           useValue: { queryParamMap: params.asObservable() },
         },
+        { provide: ReplyDraftStore, useValue: { setReply: jest.fn() } },
         { provide: Router, useValue: { navigate: jest.fn() } },
-        { provide: TabManagerService, useValue: { tabs: signal([]) } },
+        { provide: TabManagerService, useValue: { backgroundTabsRevision: signal(0), findTabByIdAcrossWorkspaces: jest.fn() } },
       ],
     });
     const page = TestBed.runInInjectionContext(

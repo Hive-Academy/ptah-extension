@@ -13,6 +13,7 @@
 export * from './lib/components';
 export * from './lib/settings';
 export * from './lib/services';
+export { isTabBusyGenerating } from './lib/services/chat-store/message-dispatch.service';
 export * from './lib/directives';
 export { ComposerAttachmentsService, type ComposerImage } from './lib/services/composer-attachments.service';
 export { AttachmentTrayComponent } from './lib/components/molecules/attachment-tray/attachment-tray.component';

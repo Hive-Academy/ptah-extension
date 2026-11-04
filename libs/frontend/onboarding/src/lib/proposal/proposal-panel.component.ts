@@ -27,24 +27,21 @@ const FIELDS = [
   standalone: true,
   imports: [ProposalSectionComponent, BuilderStackProfileSectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div class="space-y-5" data-testid="proposal-panel">
+  template: `<div class="space-y-3" data-testid="proposal-panel">
     <section
-      class="space-y-3 rounded-[22px] border border-base-300 p-5"
+      class="space-y-3 rounded-[16px] border border-base-300 bg-base-100 p-4"
       data-glass-surface="content"
       aria-labelledby="proposal-config-title"
     >
-      <div class="flex flex-wrap justify-between gap-2">
-        <div>
-          <h2 id="proposal-config-title" class="text-lg font-semibold">
+      <div class="flex flex-wrap items-center gap-2">
+          <h2 id="proposal-config-title" class="mr-auto text-base font-semibold">
             Configuration proposal
           </h2>
-          <p class="text-sm text-base-content-muted">
-            Revision {{ ordinal() }}
-          </p>
-        </div>
-        <span class="badge badge-outline">{{
-          complete() ? 'Complete' : 'In progress'
-        }}</span>
+          <span class="badge badge-outline badge-sm text-base-content">Revision {{ ordinal() }}</span>
+        <span class="inline-flex items-center gap-1 rounded-md border border-base-300 bg-base-200 px-2 py-1 text-xs font-medium text-base-content" data-testid="config-completeness">
+          <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="4" width="12" height="18" rx="2"/><path d="M8 7H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h9M12 4.5h4M12 14l2 2 4-4"/></svg>
+          {{ complete() ? 'Config complete' : 'Config incomplete' }}
+        </span>
       </div>
       @if (items().length) {
         <ptah-proposal-section title="Configuration" [items]="items()" />
@@ -56,16 +53,13 @@ const FIELDS = [
     </section>
     @if (mode() === 'new-project' && tabId() && showIntakeFacts()) {
       <section
-        class="rounded-[22px] border border-base-300 p-5"
-        data-glass-surface="content"
+        class="rounded-[12px] border border-base-300 bg-base-200 p-3"
+        data-glass-surface="tile"
         aria-labelledby="proposal-intake-title"
       >
-        <h2 id="proposal-intake-title" class="text-lg font-semibold">
+        <h2 id="proposal-intake-title" class="text-sm font-semibold">
           From your intake
         </h2>
-        <p class="text-sm text-base-content-muted">
-          Plugins and toolchain facts from project setup.
-        </p>
         <ptah-builder-stack-profile-section
           [initialized]="true"
           mode="new-project"
@@ -76,27 +70,26 @@ const FIELDS = [
     }
     @if (document(); as content) {
       <section
-        class="rounded-[22px] border border-base-300 p-5"
-        data-glass-surface="content"
+        class="rounded-[12px] border border-base-300 bg-base-200 p-3"
+        data-glass-surface="tile"
         aria-labelledby="proposal-document-title"
       >
         <div class="flex items-center justify-between gap-2">
-          <h2 id="proposal-document-title" class="text-lg font-semibold">
+          <h2 id="proposal-document-title" class="text-sm font-semibold">
             Generated document
-            <span class="text-sm font-normal text-base-content-muted"
-              >(helper output)</span
-            >
           </h2>
           <button
             type="button"
-            class="btn btn-sm"
+            class="btn btn-ghost btn-xs"
             (click)="copyDocument.emit(content)"
           >
             Copy
           </button>
         </div>
         <pre
-          class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm"
+          tabindex="0"
+          aria-label="Generated document"
+          class="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-base-300 bg-base-100 p-3 font-mono text-xs"
           >{{ content }}</pre>
       </section>
     }
