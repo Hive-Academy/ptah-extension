@@ -300,6 +300,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       useValue: { open: jest.fn(async () => context) },
     });
     const ports: CodexChatAdapterPorts = {
+      driver: { admit: jest.fn(async () => ({ release: jest.fn() })) },
       logger: Object.assign(
         Object.create(Logger.prototype),
         createMockLogger(),

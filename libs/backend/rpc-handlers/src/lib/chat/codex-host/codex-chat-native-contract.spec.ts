@@ -90,18 +90,31 @@ it('resolves billing mode separately for two CODEX_HOME directories', async () =
   try {
     await Promise.all([mkdir(keyHome), mkdir(planHome)]);
     await Promise.all([
-      writeFile(join(keyHome, 'auth.json'), JSON.stringify({
-        auth_mode: 'ApiKey', OPENAI_API_KEY: 'test-key',
-      })),
-      writeFile(join(planHome, 'auth.json'), JSON.stringify({
-        auth_mode: 'Chatgpt', OPENAI_API_KEY: 'stale-key',
-        tokens: { access_token: 'test-token' },
-      })),
+      writeFile(
+        join(keyHome, 'auth.json'),
+        JSON.stringify({
+          auth_mode: 'ApiKey',
+          OPENAI_API_KEY: 'test-key',
+        }),
+      ),
+      writeFile(
+        join(planHome, 'auth.json'),
+        JSON.stringify({
+          auth_mode: 'Chatgpt',
+          OPENAI_API_KEY: 'stale-key',
+          tokens: { access_token: 'test-token' },
+        }),
+      ),
     ]);
-    const logger = Object.assign(Object.create(Logger.prototype), createMockLogger());
+    const logger = Object.assign(
+      Object.create(Logger.prototype),
+      createMockLogger(),
+    );
     expect(await resolveBillingMode(keyHome, logger)).toBe('api-key');
     expect(await resolveBillingMode(planHome, logger)).toBe('subscription');
-    expect(await resolveBillingMode(join(root, 'missing'), logger)).toBe('unknown');
+    expect(await resolveBillingMode(join(root, 'missing'), logger)).toBe(
+      'unknown',
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -451,7 +464,13 @@ function codexHarness() {
       ...(sessionId ? { resume: identity } : {}),
     }),
   };
-  const adapter = new CodexChatAdapter(ports, turnState);
+  const adapter = new CodexChatAdapter(
+    {
+      ...ports,
+      driver: { admit: jest.fn(async () => ({ release: jest.fn() })) },
+    },
+    turnState,
+  );
   const {
     broadcaster,
     logger: streamLogger,
@@ -856,43 +875,54 @@ describe('Native Codex chat contracts end to end', () => {
         h.server.notify(turnStarted());
         turnBegun = true;
       };
-      const tool = kind === 'commandExecution'
-        ? {
-            type: kind,
-            id: 'call-1',
-            ...command,
-            commandActions: [],
-          }
-        : {
-            type: kind,
-            id: 'call-1',
-            changes: [{
-              path: '/workspace/example.txt',
-              diff: '+approved edit',
-              kind: { type: 'add' },
-            }],
-          };
+      const tool =
+        kind === 'commandExecution'
+          ? {
+              type: kind,
+              id: 'call-1',
+              ...command,
+              commandActions: [],
+            }
+          : {
+              type: kind,
+              id: 'call-1',
+              changes: [
+                {
+                  path: '/workspace/example.txt',
+                  diff: '+approved edit',
+                  kind: { type: 'add' },
+                },
+              ],
+            };
       try {
         const streaming = h.start();
         await eventually(() => turnBegun, 'turn started before approval');
-        const reply = h.bridge().handle({
-          id: 7,
-          method: `item/${kind}/requestApproval`,
-          params: {
-            threadId: THREAD,
-            turnId: TURN,
-            itemId: 'call-1',
-            startedAtMs: 1,
-            ...(kind === 'commandExecution' ? command : { grantRoot: '/workspace' }),
+        const reply = h.bridge().handle(
+          {
+            id: 7,
+            method: `item/${kind}/requestApproval`,
+            params: {
+              threadId: THREAD,
+              turnId: TURN,
+              itemId: 'call-1',
+              startedAtMs: 1,
+              ...(kind === 'commandExecution'
+                ? command
+                : { grantRoot: '/workspace' }),
+            },
           },
-        }, TURN, new AbortController().signal);
-        const permissions = () => h.view.messages().filter(
-          ({ type }) => type === MESSAGE_TYPES.PERMISSION_REQUEST,
+          TURN,
+          new AbortController().signal,
         );
+        const permissions = () =>
+          h.view
+            .messages()
+            .filter(({ type }) => type === MESSAGE_TYPES.PERMISSION_REQUEST);
         await eventually(() => permissions().length > 0, 'pre-start approval');
         expect(permissions()).toHaveLength(1);
-        expect(h.view.chunks().filter((event) => event.eventType === 'tool_start'))
-          .toHaveLength(0);
+        expect(
+          h.view.chunks().filter((event) => event.eventType === 'tool_start'),
+        ).toHaveLength(0);
         const parsed = parsePermissionRequest(permissions()[0].payload);
         expect(parsed).not.toBeNull();
         expect(parsed).toMatchObject({
@@ -900,13 +930,15 @@ describe('Native Codex chat contracts end to end', () => {
           tabId: TAB,
           toolUseId: 'call-1',
         });
-        expect(h.ports.handlePermissionResponse({
-          id: parsed?.id ?? '',
-          // Plain deny cancels the Codex turn; the refusal flow below (the
-          // server reports the item declined and the turn continues) is
-          // deny_with_message, which the host maps to the decline decision.
-          decision: decision === 'allow' ? 'allow' : 'deny_with_message',
-        })).toBe(true);
+        expect(
+          h.ports.handlePermissionResponse({
+            id: parsed?.id ?? '',
+            // Plain deny cancels the Codex turn; the refusal flow below (the
+            // server reports the item declined and the turn continues) is
+            // deny_with_message, which the host maps to the decline decision.
+            decision: decision === 'allow' ? 'allow' : 'deny_with_message',
+          }),
+        ).toBe(true);
         await expect(reply).resolves.toMatchObject({
           response: { decision: decision === 'allow' ? 'accept' : 'decline' },
         });
@@ -920,16 +952,21 @@ describe('Native Codex chat contracts end to end', () => {
         h.server.notify(turnCompleted());
         await streaming;
         expect(permissions()).toHaveLength(1);
-        const starts = h.view.chunks().filter((event) => event.eventType === 'tool_start');
-        const results = h.view.chunks().filter((event) => event.eventType === 'tool_result');
+        const starts = h.view
+          .chunks()
+          .filter((event) => event.eventType === 'tool_start');
+        const results = h.view
+          .chunks()
+          .filter((event) => event.eventType === 'tool_result');
         expect(starts).toHaveLength(decision === 'allow' ? 1 : 0);
         expect(results).toHaveLength(1);
         expect(results[0]).toMatchObject({
           toolCallId: parsed?.toolUseId,
           isError: decision === 'deny',
         });
-        expect(results.filter((event) => !event.isError))
-          .toHaveLength(decision === 'allow' ? 1 : 0);
+        expect(results.filter((event) => !event.isError)).toHaveLength(
+          decision === 'allow' ? 1 : 0,
+        );
       } finally {
         h.dispose();
       }
@@ -1214,20 +1251,40 @@ describe('Native Codex chat sessions across turns', () => {
   it('turns native requestUserInput into the Claude question wire contract and returns id-keyed answers', async () => {
     const logger = mockLogger();
     const sent: Array<{ type: string; payload: unknown }> = [];
-    const registry = new PendingResponseRegistry<AskUserQuestionResponse, AskUserQuestionRequest>(logger);
-    const service = new AskUserQuestionService({
-      sendMessage: async (_view, type, payload) => {
-        sent.push({ type, payload });
-        return true;
+    const registry = new PendingResponseRegistry<
+      AskUserQuestionResponse,
+      AskUserQuestionRequest
+    >(logger);
+    const service = new AskUserQuestionService(
+      {
+        sendMessage: async (_view, type, payload) => {
+          sent.push({ type, payload });
+          return true;
+        },
       },
-    }, logger, registry);
-    const permissionHandler: Pick<SdkPermissionHandler, 'createCallback' | 'cleanupPendingPermissions'> = {
-      createCallback: (sessionId, _agent, tabId) =>
-        async (_tool, input, options) =>
-          service.handleAskUserQuestion(input, options.toolUseID, sessionId, options.signal, tabId),
+      logger,
+      registry,
+    );
+    const permissionHandler: Pick<
+      SdkPermissionHandler,
+      'createCallback' | 'cleanupPendingPermissions'
+    > = {
+      createCallback:
+        (sessionId, _agent, tabId) => async (_tool, input, options) =>
+          service.handleAskUserQuestion(
+            input,
+            options.toolUseID,
+            sessionId,
+            options.signal,
+            tabId,
+          ),
       cleanupPendingPermissions: jest.fn(),
     };
-    const ask = createCodexChatUserQuestions({ permissionHandler, tabId: () => TAB, logger });
+    const ask = createCodexChatUserQuestions({
+      permissionHandler,
+      tabId: () => TAB,
+      logger,
+    });
     const clock: CodexClock = {
       now: Date.now,
       setTimeout: (callback, ms) => {
@@ -1248,25 +1305,45 @@ describe('Native Codex chat sessions across turns', () => {
       requestUserInput: ask,
     });
     try {
-      const pending = bridge.handle({
-        id: 42,
-        method: 'item/tool/requestUserInput',
-        params: {
-          threadId: THREAD,
-          turnId: TURN,
-          itemId: 'question-item',
-          isBlocking: true,
-          questions: [{ id: 'model', header: 'Model', question: 'Pick a model',
-            options: [{ label: 'Fast', description: 'Quick response' }], isOther: true }],
+      const pending = bridge.handle(
+        {
+          id: 42,
+          method: 'item/tool/requestUserInput',
+          params: {
+            threadId: THREAD,
+            turnId: TURN,
+            itemId: 'question-item',
+            isBlocking: true,
+            questions: [
+              {
+                id: 'model',
+                header: 'Model',
+                question: 'Pick a model',
+                options: [{ label: 'Fast', description: 'Quick response' }],
+                isOther: true,
+              },
+            ],
+          },
         },
-      }, TURN, new AbortController().signal);
-      await eventually(() => sent.length === 1, 'shared AskUserQuestion request');
+        TURN,
+        new AbortController().signal,
+      );
+      await eventually(
+        () => sent.length === 1,
+        'shared AskUserQuestion request',
+      );
       expect(sent[0].type).toBe(MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST);
       expect(sent[0].payload).toEqual({
         id: expect.any(String),
         toolName: 'AskUserQuestion',
-        questions: [{ question: 'Pick a model', header: 'Model',
-          options: [{ label: 'Fast', description: 'Quick response' }], multiSelect: false }],
+        questions: [
+          {
+            question: 'Pick a model',
+            header: 'Model',
+            options: [{ label: 'Fast', description: 'Quick response' }],
+            multiSelect: false,
+          },
+        ],
         toolUseId: '42',
         timestamp: expect.any(Number),
         timeoutAt: 0,
@@ -1275,32 +1352,57 @@ describe('Native Codex chat sessions across turns', () => {
       });
       const wire = parseAskUserQuestionRequest(sent[0].payload);
       expect(wire).toMatchObject({
-        toolName: 'AskUserQuestion', sessionId: THREAD, tabId: TAB,
-        questions: [{ question: 'Pick a model', header: 'Model',
-          options: [{ label: 'Fast', description: 'Quick response' }], multiSelect: false }],
+        toolName: 'AskUserQuestion',
+        sessionId: THREAD,
+        tabId: TAB,
+        questions: [
+          {
+            question: 'Pick a model',
+            header: 'Model',
+            options: [{ label: 'Fast', description: 'Quick response' }],
+            multiSelect: false,
+          },
+        ],
       });
       expect(wire).not.toBeNull();
       expect(service.listPendingBySession(THREAD)).toEqual([wire]);
-      service.handleQuestionResponse({ id: wire?.id ?? '', answers: { 'Pick a model': 'Fast' } });
+      service.handleQuestionResponse({
+        id: wire?.id ?? '',
+        answers: { 'Pick a model': 'Fast' },
+      });
       await expect(pending).resolves.toMatchObject({
         response: { answers: { model: { answers: ['Fast'] } } },
       });
       expect(registry.size).toBe(0);
 
       const controller = new AbortController();
-      const cancelled = bridge.handle({
-        id: 43,
-        method: 'item/tool/requestUserInput',
-        params: {
-          threadId: THREAD, turnId: TURN, itemId: 'second-question',
-          isBlocking: true,
-          questions: [{ id: 'confirm', header: 'Confirm', question: 'Continue?',
-            options: [{ label: 'Yes', description: 'Continue' }] }],
+      const cancelled = bridge.handle(
+        {
+          id: 43,
+          method: 'item/tool/requestUserInput',
+          params: {
+            threadId: THREAD,
+            turnId: TURN,
+            itemId: 'second-question',
+            isBlocking: true,
+            questions: [
+              {
+                id: 'confirm',
+                header: 'Confirm',
+                question: 'Continue?',
+                options: [{ label: 'Yes', description: 'Continue' }],
+              },
+            ],
+          },
         },
-      }, TURN, controller.signal);
+        TURN,
+        controller.signal,
+      );
       await eventually(() => registry.size === 1, 'second pending question');
       controller.abort();
-      await expect(cancelled).resolves.toMatchObject({ response: { answers: {} } });
+      await expect(cancelled).resolves.toMatchObject({
+        response: { answers: {} },
+      });
       expect(registry.size).toBe(0);
     } finally {
       bridge.dispose();

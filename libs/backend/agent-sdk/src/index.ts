@@ -194,6 +194,8 @@ export {
   type CodexChatAdapterPorts,
   type CodexChatScope,
   type CodexChatSessionLifecycle,
+  type CodexChatDriverGate,
+  type CodexChatDriverLease,
 } from './lib/codex-app-server/codex-chat-adapter';
 export {
   CodexChatAdapterError,

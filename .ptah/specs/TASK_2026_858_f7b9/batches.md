@@ -696,7 +696,7 @@ phase summary.
   `SessionRegistry` is now exported from the agent-sdk barrel (cross-process spec).
   For Phase C review: the cross-process child start timeout is 5 s with ts-node; fragile under load.
 
-## Batch 13: C4c native Codex driver gate (revised Round 6) — PENDING
+## Batch 13: C4c native Codex driver gate (revised Round 6) — COMPLETE (NEEDS REVIEW for Phase C)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -709,7 +709,7 @@ phase summary.
 - Phase: C (last) | Phase review: **code-logic + style for Phase C (Batches 8-13)**
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench`
 
-### Task 13.1: Gate port and adapter calls (agent-sdk) — PENDING
+### Task 13.1: Gate port and adapter calls (agent-sdk) — COMPLETE
 
 - Files: W/`libs/backend/agent-sdk/src/lib/codex-app-server/{codex-chat-adapter.ts,codex-chat-session-controls.ts}`,
   W/`libs/backend/agent-sdk/src/index.ts`,
@@ -725,7 +725,7 @@ phase summary.
 - Validation notes: R-I; call-order and exactly-once release specs per removal path
 - Implementation details: agent-sdk knows nothing of the lock
 
-### Task 13.2: Host port type and rpc-handlers specs — PENDING
+### Task 13.2: Host port type and rpc-handlers specs — COMPLETE
 
 - Depends on: Task 13.1
 - Files: W/`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts`,
@@ -739,7 +739,7 @@ phase summary.
 - Validation notes: R-A (plan defect)
 - Implementation details: native cross-process spec per W10
 
-### Task 13.3: Electron wiring — PENDING
+### Task 13.3: Electron wiring — COMPLETE
 
 - Depends on: Task 13.2
 - Files: W/`apps/ptah-electron/src/di/codex-runtime-composition.ts` (+ `codex-runtime-composition.spec.ts`)
@@ -755,6 +755,11 @@ phase summary.
 
 - Gate specs, native cross-process spec, Electron assertion pass; verify passes; then NEEDS
   REVIEW for Phase C
+- Result: executor Codex lane. Orchestrator verify (agent-sdk, rpc-handlers, ptah-electron, mcp-bench,
+  degradation-audit) 17/19: rpc-handlers failed only on the two cross-process specs ("Driver lock
+  holder timed out"), which pass alone 2/2; mcp-bench failed only on `snapshot-audits`.
+  REQUIRED for the Phase C fix round: the cross-process child start (ts-node) timeout is too short
+  under load in three specs (platform-core control-endpoint, rpc-handlers coordinator and native).
 
 ---
 

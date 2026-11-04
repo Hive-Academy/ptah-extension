@@ -11,8 +11,10 @@ import { SDK_TOKENS } from './tokens';
 import { CodexRuntimeCompositionError } from '../wiring/codex-runtime-composition-error';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { RoutingAgentAdapter } from '../codex-app-server/routing-agent-adapter';
-import { CodexChatAdapter, type CodexChatAdapterPorts } from
-  '../codex-app-server/codex-chat-adapter';
+import {
+  CodexChatAdapter,
+  type CodexChatAdapterPorts,
+} from '../codex-app-server/codex-chat-adapter';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
 function mockLogger(): Logger {
@@ -34,8 +36,10 @@ describe('Codex runtime composition', () => {
     };
     scope.registerInstance(TOKENS.LOGGER, mockLogger());
     scope.registerInstance(SDK_TOKENS.SDK_PERMISSION_HANDLER, {});
-    scope.registerInstance(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
-      new SessionTurnStateRegistry());
+    scope.registerInstance(
+      SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+      new SessionTurnStateRegistry(),
+    );
     scope.registerInstance(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, {
       updateCodexExecution: jest.fn(async () => undefined),
       incrementCodexMessageCount: jest.fn(async () => undefined),
@@ -44,6 +48,7 @@ describe('Codex runtime composition', () => {
       throw new Error('Unexpected call to an unused Codex adapter port');
     };
     const ports: CodexChatAdapterPorts = {
+      driver: { admit: jest.fn(async () => ({ release: jest.fn() })) },
       logger: mockLogger(),
       info: {
         id: 'ptah-cli',
@@ -85,19 +90,29 @@ describe('Codex runtime composition', () => {
     };
     scope.registerInstance(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, ports);
     registerCodexChatServices(scope);
-    const adapter = scope.resolve<CodexChatAdapter>(SDK_TOKENS.CODEX_CHAT_ADAPTER);
+    const adapter = scope.resolve<CodexChatAdapter>(
+      SDK_TOKENS.CODEX_CHAT_ADAPTER,
+    );
     expect(adapter).toBeInstanceOf(CodexChatAdapter);
     expect(adapter).toHaveProperty('ports.metadata.readUsage', readUsage);
     expect(adapter).toHaveProperty('ports.metadata.persistUsage', persistUsage);
     const registeredPorts: unknown = Reflect.get(adapter, 'ports');
-    if (!registeredPorts || typeof registeredPorts !== 'object' ||
-      !('metadata' in registeredPorts)) {
+    if (
+      !registeredPorts ||
+      typeof registeredPorts !== 'object' ||
+      !('metadata' in registeredPorts)
+    ) {
       throw new Error('Registered adapter has no metadata port');
     }
     const wired: unknown = registeredPorts.metadata;
-    if (!wired || typeof wired !== 'object' ||
-      !('readUsage' in wired) || typeof wired.readUsage !== 'function' ||
-      !('persistUsage' in wired) || typeof wired.persistUsage !== 'function') {
+    if (
+      !wired ||
+      typeof wired !== 'object' ||
+      !('readUsage' in wired) ||
+      typeof wired.readUsage !== 'function' ||
+      !('persistUsage' in wired) ||
+      typeof wired.persistUsage !== 'function'
+    ) {
       throw new Error('Registered adapter has no usage persistence');
     }
     await wired.readUsage(sessionId);

@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
-import {
-  PTAH_MCP_PORT,
-  PTAH_UI_HINT_CODEX,
-} from '@ptah-extension/agent-sdk';
+import { PTAH_MCP_PORT, PTAH_UI_HINT_CODEX } from '@ptah-extension/agent-sdk';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
@@ -57,12 +54,7 @@ export interface CodexChatHostPortsDeps
     CodexRuntimeAdmissionDeps,
     Pick<
       CodexChatAdapterPorts,
-      | 'logger'
-      | 'info'
-      | 'createScope'
-      | 'metadata'
-      | 'approvals'
-      | 'callbacks'
+      'logger' | 'info' | 'createScope' | 'metadata' | 'approvals' | 'callbacks'
     > {
   /** Resolve by chat session id; the runtime identity store itself is keyed by context id. */
   readResumeIdentity(
@@ -82,7 +74,10 @@ export interface CodexChatHostPortsDeps
   };
 }
 
-export interface CodexChatHostPorts extends CodexChatAdapterPorts {
+export interface CodexChatHostPorts extends Omit<
+  CodexChatAdapterPorts,
+  'driver'
+> {
   /** Host permission bridge must try this before the Claude permission handler. */
   handlePermissionResponse(response: PermissionResponse): boolean;
 }
@@ -124,15 +119,18 @@ export class CodexChatMcpServerUrlError extends Error {
 }
 
 /** `consumer` selects the runtime route. It is not a Codex thread option, so classification must not reject it. */
-function withoutRuntimeConsumer<T extends { readonly consumer?: 'chat' | 'gateway' }>(
-  config: T,
-): Omit<T, 'consumer'> {
+function withoutRuntimeConsumer<
+  T extends { readonly consumer?: 'chat' | 'gateway' },
+>(config: T): Omit<T, 'consumer'> {
   if (config.consumer === undefined) return config;
   const { consumer: _consumer, ...options } = config;
   return options;
 }
 
-type CodexHttpMcpServer = Extract<CodexMcpServer, { readonly transport: 'http' | 'sse' }>;
+type CodexHttpMcpServer = Extract<
+  CodexMcpServer,
+  { readonly transport: 'http' | 'sse' }
+>;
 
 interface CodexUserMcpServers {
   readonly servers: readonly CodexHttpMcpServer[];
@@ -205,13 +203,18 @@ function profiles(deps: CodexRuntimeAdmissionDeps) {
   );
 }
 
-const billingAuthSchema = z.object({
-  auth_mode: z.string().nullable().optional(),
-  OPENAI_API_KEY: z.string().nullable().optional(),
-  openai_api_key: z.string().nullable().optional(),
-  tokens: z.object({ access_token: z.string().nullable().optional() })
-    .passthrough().nullable().optional(),
-}).passthrough();
+const billingAuthSchema = z
+  .object({
+    auth_mode: z.string().nullable().optional(),
+    OPENAI_API_KEY: z.string().nullable().optional(),
+    openai_api_key: z.string().nullable().optional(),
+    tokens: z
+      .object({ access_token: z.string().nullable().optional() })
+      .passthrough()
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
 
 export async function resolveBillingMode(
   home: string,
@@ -221,7 +224,9 @@ export async function resolveBillingMode(
     const raw = await readFile(join(home, 'auth.json'), 'utf8');
     const auth = billingAuthSchema.parse(JSON.parse(raw));
     const mode = auth.auth_mode?.toLowerCase();
-    const hasKey = !!(auth.OPENAI_API_KEY?.trim() || auth.openai_api_key?.trim());
+    const hasKey = !!(
+      auth.OPENAI_API_KEY?.trim() || auth.openai_api_key?.trim()
+    );
     const hasPlanToken = !!auth.tokens?.access_token?.trim();
     if (mode === 'apikey') return hasKey ? 'api-key' : 'unknown';
     if (mode === 'chatgpt') return hasPlanToken ? 'subscription' : 'unknown';
@@ -283,21 +288,28 @@ export function createCodexChatHostPorts(
     approvals: deps.approvals,
     callbacks: (id, turn) => deps.callbacks(id, turn),
     checkOptions(config) {
-      const { rejected } = classifyCodexChatOptions(withoutRuntimeConsumer(config));
+      const { rejected } = classifyCodexChatOptions(
+        withoutRuntimeConsumer(config),
+      );
       if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);
       // Classification strips ambient inputs; active turns consume only the prompt.
       // Profile notices belong to session preparation and must not repeat per turn.
     },
     async profile(input, sessionId) {
       const consumer = input.consumer ?? 'chat';
-      const { supported: config, rejected, stripped } = classifyCodexChatOptions(
-        withoutRuntimeConsumer(input),
-      );
+      const {
+        supported: config,
+        rejected,
+        stripped,
+      } = classifyCodexChatOptions(withoutRuntimeConsumer(input));
       const attachPtahMcp = input.mcpServerRunning === true;
       if (stripped.includes('thinking')) {
-        deps.logger.info('Thinking is not applied to Codex chat; Codex uses native effort.', {
-          code: 'codex-thinking-not-applied',
-        });
+        deps.logger.info(
+          'Thinking is not applied to Codex chat; Codex uses native effort.',
+          {
+            code: 'codex-thinking-not-applied',
+          },
+        );
       }
       if (stripped.includes('outputStyleName')) {
         deps.logger.info('Output style by name is not applied to Codex chat.', {
@@ -322,7 +334,9 @@ export function createCodexChatHostPorts(
         deps.logger.info('User MCP servers are configured for Codex chat.', {
           code: 'codex-user-mcp-configured',
           serverNames: user.servers.map((server) => server.name).sort(),
-          transports: [...new Set(user.servers.map((server) => server.transport))],
+          transports: [
+            ...new Set(user.servers.map((server) => server.transport)),
+          ],
         });
       }
       const resume = sessionId
@@ -419,7 +433,9 @@ export function createCodexChatHostPorts(
           cwd,
           model: seed.model,
           effort: config.effort,
-          permissionLevel: config.permissionLevel ?? deps.readSavedPermissionLevel(workspacePath),
+          permissionLevel:
+            config.permissionLevel ??
+            deps.readSavedPermissionLevel(workspacePath),
           systemPrompt: config.systemPrompt,
           enhancedPrompt: config.enhancedPromptsContent,
           outputStyle: config.outputStyleBody,
@@ -432,7 +448,9 @@ export function createCodexChatHostPorts(
               (image) => ({ type: 'image' as const, ...image }),
             ),
           ],
-          ...(mcpServers.size > 0 ? { mcpServers: [...mcpServers.values()] } : {}),
+          ...(mcpServers.size > 0
+            ? { mcpServers: [...mcpServers.values()] }
+            : {}),
         },
       };
       let developerPrompt = profileInput.session.developerPrompt;
@@ -440,10 +458,9 @@ export function createCodexChatHostPorts(
         config.ptahUiFence === true &&
         (config.mcpToolProfile ?? 'coding') === 'coding'
       ) {
-        developerPrompt = [
-          developerPrompt,
-          PTAH_UI_HINT_CODEX,
-        ].filter((part) => part !== undefined).join('\n\n');
+        developerPrompt = [developerPrompt, PTAH_UI_HINT_CODEX]
+          .filter((part) => part !== undefined)
+          .join('\n\n');
       }
       const profile = buildCodexExecutionProfile({
         ...profileInput,
@@ -457,7 +474,10 @@ export function createCodexChatHostPorts(
           resume.providerId !== profile.providerId)
       )
         throw new Error('Native resume identity mismatch');
-      const billingMode = await resolveBillingMode(profile.normalizedHome, deps.logger);
+      const billingMode = await resolveBillingMode(
+        profile.normalizedHome,
+        deps.logger,
+      );
       return user.secrets.size > 0
         ? { profile, resume, secrets: user.secrets, billingMode }
         : { profile, resume, billingMode };
