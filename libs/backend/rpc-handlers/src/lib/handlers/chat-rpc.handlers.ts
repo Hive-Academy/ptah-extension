@@ -12,6 +12,7 @@
  *   - `ChatPtahCliService`        — Ptah CLI dispatch + the two private session maps.
  *   - `ChatStreamBroadcaster`     — webview event loop + background-agent subscription.
  *   - `ChatSessionService`        — SDK orchestration for the six chat methods.
+ *   - `ChatCarryOverService`      — `chat:carry-over-check` / `chat:carry-over`.
  *
  * The METHODS tuple is the manifest's source of truth for this namespace, so
  * `SHARED_HANDLERS` coverage + runtime disjoint-ness keep working.
@@ -67,6 +68,10 @@ import type {
   ChatHistoryPageResult,
   ChatSetStreamViewportParams,
   ChatSetStreamViewportResult,
+  ChatCarryOverCheckParams,
+  ChatCarryOverCheckResult,
+  ChatCarryOverParams,
+  ChatCarryOverResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
@@ -80,6 +85,7 @@ import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadc
 import type { ChatStreamDeliveryCoordinator } from '../chat/streaming/chat-stream-delivery-coordinator.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
+import type { ChatCarryOverService } from '../chat/session/chat-carry-over.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
 import {
   ChatStartParamsSchema,
@@ -89,6 +95,8 @@ import {
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
   ChatSetStreamViewportParamsSchema,
+  ChatCarryOverCheckParamsSchema,
+  ChatCarryOverParamsSchema,
 } from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
@@ -125,6 +133,8 @@ export class ChatRpcHandlers {
     'chat:running-agents',
     'chat:agent-sessions',
     'agent:backgroundList',
+    'chat:carry-over-check',
+    'chat:carry-over',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -144,6 +154,8 @@ export class ChatRpcHandlers {
     private readonly attachmentGuard: ISessionAttachmentGuard,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
+    @inject(CHAT_TOKENS.CARRY_OVER)
+    private readonly carryOver: Pick<ChatCarryOverService, 'check' | 'carryOver'>,
     /**
      * Optional: a host that never registers the spawner has no child sessions,
      * so `chat:agent-sessions` answers an empty list there (TASK_2026_584).
@@ -403,6 +415,29 @@ export class ChatRpcHandlers {
     >('agent:backgroundList', 'registerBackgroundAgentHandlers', (params) =>
       this.session.listBackgroundAgents(params),
     );
+    // Both carry-over methods answer every host refusal as a result. Only a
+    // malformed request is an RPC error, with fixed text: the zod issues
+    // would echo the rejected values back to the caller.
+    this.wire<ChatCarryOverCheckParams, ChatCarryOverCheckResult>(
+      'chat:carry-over-check',
+      'registerChatCarryOverCheck',
+      (params) => {
+        if (!ChatCarryOverCheckParamsSchema.safeParse(params).success) {
+          throw new RpcUserError('Invalid carry-over request', 'INVALID_PARAMS');
+        }
+        return this.carryOver.check(params);
+      },
+    );
+    this.wire<ChatCarryOverParams, ChatCarryOverResult>(
+      'chat:carry-over',
+      'registerChatCarryOver',
+      (params) => {
+        if (!ChatCarryOverParamsSchema.safeParse(params).success) {
+          throw new RpcUserError('Invalid carry-over request', 'INVALID_PARAMS');
+        }
+        return this.carryOver.carryOver(params);
+      },
+    );
 
     this.logger.debug('Chat RPC handlers registered', {
       methods: [
@@ -417,6 +452,8 @@ export class ChatRpcHandlers {
         'chat:agent-sessions',
         'agent:backgroundList',
         'agent:backgroundStop',
+        'chat:carry-over-check',
+        'chat:carry-over',
       ],
     });
   }

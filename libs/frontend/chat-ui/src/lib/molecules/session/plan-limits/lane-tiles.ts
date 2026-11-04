@@ -696,7 +696,7 @@ function laneRunStatusText(runs: readonly StatsLimitLaneRun[], chip: StatsChip):
   return capitalise(statuses.size === 1 ? STATUS_WORDS[runs[0].status] : 'finished');
 }
 
-function runRow(
+export function runRow(
   run: StatsLimitLaneRun,
   index: number,
   ctx: Ctx,

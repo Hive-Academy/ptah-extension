@@ -36,3 +36,30 @@ describe('CLI roster activity', () => {
     expect(rows[1].activity).toBe('Reading files');
   });
 });
+
+describe('roster order', () => {
+  function laneWith(agentId: string, status: MonitoredAgent['status']): MonitoredAgent {
+    return { ...lane([]), agentId, status };
+  }
+
+  it('keeps the Orchestrator first and moves failed agents to the end in stable order', () => {
+    const rows = buildSessionAgentRoster({
+      sessionId: 'session-1', tabStatus: 'streaming', subagents: [],
+      cliAgents: [
+        laneWith('lane-a', 'failed'),
+        laneWith('lane-b', 'completed'),
+        laneWith('lane-c', 'failed'),
+        laneWith('lane-d', 'running'),
+      ],
+      backgroundAgents: [], permissions: [], questions: [],
+    });
+    expect(rows.map((row) => row.key)).toEqual([
+      'orchestrator',
+      expect.stringContaining('lane-b'),
+      expect.stringContaining('lane-d'),
+      expect.stringContaining('lane-a'),
+      expect.stringContaining('lane-c'),
+    ]);
+    expect(rows.slice(-2).map((row) => row.status)).toEqual(['failed', 'failed']);
+  });
+});

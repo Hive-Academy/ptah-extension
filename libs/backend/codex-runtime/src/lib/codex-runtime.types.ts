@@ -349,6 +349,27 @@ export interface CodexHistoryReader {
     resume: CodexThreadIdentity,
     signal?: AbortSignal,
   ): Promise<CodexSessionHistory>;
+  /** Newest complete root turns only, inside `bound`; never reads descendant threads. */
+  readHistoryTail(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    bound: CodexHistoryTailBound,
+    signal?: AbortSignal,
+  ): Promise<CodexHistoryTail>;
+}
+export interface CodexHistoryTailBound {
+  /** Most complete turns returned. */
+  readonly maxTurns: number;
+  /** Most `thread/turns/list` requests. */
+  readonly maxTurnPages: number;
+  /** Most `thread/items/list` requests, shared by every turn of the read. */
+  readonly maxItemPages: number;
+}
+export interface CodexHistoryTail {
+  /** The root thread with its newest complete turns, ascending; items ascending. */
+  readonly thread: CodexHistoryThread;
+  /** False when older turns exist that the bound left unread. */
+  readonly coversWholeHistory: boolean;
 }
 export interface CodexSessionHistory {
   readonly rootThreadId: string;

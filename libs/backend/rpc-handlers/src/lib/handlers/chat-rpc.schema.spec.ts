@@ -22,6 +22,7 @@ import {
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
   ChatHistoryPageParamsSchema,
+  ChatCarryOverParamsSchema,
 } from './chat-rpc.schema';
 
 // UUID v4 fixtures — these PASS the shared `UUID_REGEX` (see
@@ -31,6 +32,38 @@ const VALID_SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 const LEGACY_TAB_ID = 'tab_1778939573732_w43e75q'; // the original Sentry crash payload
 
 describe('chat-rpc.schema', () => {
+  describe('ChatCarryOverParamsSchema requestId (TASK_2026_865 R1)', () => {
+    const base = {
+      sessionId: VALID_SESSION_UUID,
+      tabId: VALID_TAB_UUID,
+      workspacePath: '/work/project',
+    };
+    const REQUEST_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+
+    it('accepts a UUID v4 request ID', () => {
+      expect(
+        ChatCarryOverParamsSchema.parse({ ...base, requestId: REQUEST_ID })
+          .requestId,
+      ).toBe(REQUEST_ID);
+    });
+
+    it('accepts params without a request ID (older renderer)', () => {
+      const parsed = ChatCarryOverParamsSchema.parse(base);
+      expect(parsed).not.toHaveProperty('requestId');
+    });
+
+    it.each([
+      ['a non-UUID string', 'launch-1'],
+      ['an empty string', ''],
+      ['a number', 42],
+      ['null', null],
+    ])('rejects %s', (_label, requestId) => {
+      expect(
+        ChatCarryOverParamsSchema.safeParse({ ...base, requestId }).success,
+      ).toBe(false);
+    });
+  });
+
   it('accepts a native Codex UUID v7 session id for history paging', () => {
     const sessionId = '0190b6a8-3c4e-7a1b-8c2d-1e2f3a4b5c6d';
     expect(

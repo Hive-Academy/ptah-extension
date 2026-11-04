@@ -29,6 +29,7 @@ import type {
   AuthMethod,
   CustomProviderEntry,
   EffortLevel,
+  SessionId,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
@@ -242,8 +243,56 @@ describe('AuthStateService', () => {
       expect(service.authRequiredBanner()).toEqual({
         providerId: 'openai-codex',
         message: 'token expired',
+        generation: 1,
+        origin: null,
       });
       expect(service.codexTokenStale()).toBe(true);
+    });
+
+    it('flagAuthRequired returns an incrementing generation', () => {
+      const service = createService();
+      const first = service.flagAuthRequired(null, 'first');
+      const second = service.flagAuthRequired('anthropic', 'second');
+      expect(second).toBe(first + 1);
+      expect(service.authRequiredBanner()?.generation).toBe(second);
+      service.clearAuthRequiredBanner();
+      const third = service.flagAuthRequired(null, 'third');
+      expect(third).toBe(second + 1);
+    });
+
+    it('flagAuthRequired stores the refusal origin', () => {
+      const service = createService();
+      const origin = {
+        sessionId: '11111111-1111-4111-8111-111111111111' as SessionId,
+        tabId: 'tab-1',
+        workspacePath: '/ws',
+      };
+      service.flagAuthRequired('anthropic', 'sign in', origin);
+      expect(service.authRequiredBanner()?.origin).toEqual(origin);
+      expect(service.codexTokenStale()).toBe(false);
+    });
+
+    it('a guarded clear with a stale generation leaves the newer banner (AC 7.5)', () => {
+      const service = createService();
+      const stale = service.flagAuthRequired(null, 'old refusal');
+      const current = service.flagAuthRequired(null, 'new refusal');
+      service.clearAuthRequiredBanner(stale);
+      expect(service.authRequiredBanner()).toEqual(
+        expect.objectContaining({ generation: current, message: 'new refusal' }),
+      );
+    });
+
+    it('a guarded clear with the current generation clears the banner', () => {
+      const service = createService();
+      const current = service.flagAuthRequired(null, 'refusal');
+      service.clearAuthRequiredBanner(current);
+      expect(service.authRequiredBanner()).toBeNull();
+    });
+
+    it('a guarded clear with no banner showing is a no-op', () => {
+      const service = createService();
+      service.clearAuthRequiredBanner(3);
+      expect(service.authRequiredBanner()).toBeNull();
     });
 
     it('clearAuthRequiredBanner removes the banner', () => {
@@ -268,6 +317,44 @@ describe('AuthStateService', () => {
       await service.refreshAuthStatus();
 
       expect(service.authRequiredBanner()).toBeNull();
+    });
+
+    it('clears a codex banner that carries an origin once auth refresh reports healthy', async () => {
+      const service = createService();
+      service.flagAuthRequired('openai-codex', 'token expired', {
+        sessionId: '11111111-1111-4111-8111-111111111111' as SessionId,
+        tabId: 'tab-1',
+        workspacePath: '/ws',
+      });
+
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess(
+          makeAuthStatusResponse({
+            codexAuthenticated: true,
+            codexTokenStale: false,
+          }),
+        ),
+      );
+      await service.refreshAuthStatus();
+
+      expect(service.authRequiredBanner()).toBeNull();
+    });
+
+    it('keeps a non-codex banner on a healthy codex auth refresh', async () => {
+      const service = createService();
+      const generation = service.flagAuthRequired('anthropic', 'sign in');
+
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess(
+          makeAuthStatusResponse({
+            codexAuthenticated: true,
+            codexTokenStale: false,
+          }),
+        ),
+      );
+      await service.refreshAuthStatus();
+
+      expect(service.authRequiredBanner()?.generation).toBe(generation);
     });
   });
 

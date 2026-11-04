@@ -467,3 +467,78 @@ export interface ChatHistoryPageResult {
   readonly olderCursor: string | null;
   readonly resumableSubagents: readonly SubagentRecord[];
 }
+
+/** Parameters for chat:carry-over-check RPC method. */
+export interface ChatCarryOverCheckParams {
+  sessionId: SessionId;
+  workspacePath: string;
+}
+
+/** Response from chat:carry-over-check RPC method. */
+export type ChatCarryOverCheckResult =
+  | { eligible: true; providerId: string; providerName: string }
+  | { eligible: false };
+
+/** Parameters for chat:carry-over RPC method. */
+export interface ChatCarryOverParams {
+  sessionId: SessionId;
+  tabId: string;
+  workspacePath: string;
+  name?: string;
+  ptahUiFence?: boolean;
+  /**
+   * UUID the renderer mints per launch. The host stamps it on the first
+   * `SESSION_ID_RESOLVED` of this tab after the launch's start, as
+   * `carryOverRequestId`, so only the matching launch binds the tab.
+   * Optional: a launch without it keeps the untagged resolution.
+   */
+  requestId?: string;
+}
+
+/**
+ * How long a launch the host accepted keeps its tab while it waits for the
+ * new session's `SESSION_ID_RESOLVED`. The accepted RPC means the adapter
+ * already started the query, so the SDK `init` normally follows in seconds;
+ * the bound is the host's own admission budget, which covers a cold CLI
+ * spawn with slow MCP servers. Past it the tab is released for a retry.
+ */
+export const CARRY_OVER_RESOLUTION_DEADLINE_MS = 90_000;
+
+/**
+ * How long after a launch's wait ended its late resolution is still
+ * recognised as that launch's. The renderer skips and aborts such a
+ * resolution for this long after it released the tab. The host refuses a
+ * new carry-over launch on the tab for this long after the launch's tag
+ * lapsed unclaimed (the tag itself lapses before the renderer's release;
+ * see `ChatCarryOverService`), so a late init of the old launch can never
+ * take a retry's request ID. The tab's next resolution ends both early.
+ */
+export const CARRY_OVER_LATE_RESOLUTION_MS = CHAT_ADMISSION_RPC_TIMEOUT_MS;
+
+/**
+ * Host port read by the `SESSION_ID_RESOLVED` broadcaster: the request ID of
+ * the carry-over launch that started a session on `tabId`, claimed once.
+ * `undefined` when no carry-over launch is waiting on the tab.
+ */
+export interface CarryOverResolutionTags {
+  claimResolutionRequestId(tabId: string): string | undefined;
+}
+
+/** Reason a chat:carry-over RPC request did not start a session. */
+export type ChatCarryOverFailureReason =
+  | 'NOT_ELIGIBLE'
+  | 'IN_FLIGHT'
+  | 'HISTORY_UNREADABLE'
+  | 'START_FAILED';
+
+/** Response from chat:carry-over RPC method. */
+export type ChatCarryOverResult =
+  | { success: true; providerId: string; providerName: string }
+  | {
+      success: false;
+      reason: ChatCarryOverFailureReason;
+      /** Fixed host text; never contains transcript content. */
+      error: string;
+      errorCode?: RpcUserErrorCode;
+      providerId?: string;
+    };

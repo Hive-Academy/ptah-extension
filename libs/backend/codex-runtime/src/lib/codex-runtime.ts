@@ -10,7 +10,12 @@ import {
 } from './codex-app-server-process';
 import { buildCodexThreadConfig } from './codex-mcp-config';
 import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
-import { CodexSessionHistoryError, readCodexSessionHistory } from './codex-session-history';
+import {
+  CodexSessionHistoryError,
+  readCodexSessionHistory,
+  readCodexSessionTail,
+  type CodexHistoryRequest,
+} from './codex-session-history';
 import { CodexPermissionRuleStore } from './codex-permission-rule-store';
 import { CodexProtocolError, codexNotificationSchemas } from './codex-protocol-validator';
 import { RuntimeContext, type CodexRuntimeOptions } from './codex-context';
@@ -24,7 +29,12 @@ import type {
   CodexThreadIdentity,
   CodexSessionHistory,
   CodexHistoryReader,
+  CodexHistoryTail,
+  CodexHistoryTailBound,
 } from './codex-runtime.types';
+
+/** One read over a verified, read-only history process. */
+type HistoryProcessRead<T> = (request: CodexHistoryRequest, assertOpen: () => void) => Promise<T>;
 
 /** Safe, pre-model signal that a lane's thread config was refused. */
 export class CodexPreTurnConfigRejectedError extends Error {
@@ -184,27 +194,49 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     resume: CodexThreadIdentity,
     signal?: AbortSignal,
   ): Promise<CodexSessionHistory> {
+    return this.runHistoryRead(profile, resume, signal, (request, assertOpen) =>
+      readCodexSessionHistory(resume.threadId, request, assertOpen, this.options.logger));
+  }
+
+  async readHistoryTail(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    bound: CodexHistoryTailBound,
+    signal?: AbortSignal,
+  ): Promise<CodexHistoryTail> {
+    return this.runHistoryRead(profile, resume, signal, (request, assertOpen) =>
+      readCodexSessionTail(resume.threadId, request, assertOpen, bound));
+  }
+
+  /** Shared abort wiring and tracking for every read-only history read. */
+  private async runHistoryRead<T>(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal: AbortSignal | undefined,
+    read: HistoryProcessRead<T>,
+  ): Promise<T> {
     if (this.closed) throw new Error('Codex runtime is closed');
     if (signal?.aborted) throw new Error('Codex history read aborted');
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) controller.abort();
-    const read = this.readHistoryProcess(profile, resume, controller.signal);
-    this.historyReads.set(controller, read.then(() => undefined, () => undefined));
+    const pending = this.readHistoryProcess(profile, resume, controller.signal, read);
+    this.historyReads.set(controller, pending.then(() => undefined, () => undefined));
     try {
-      return await read;
+      return await pending;
     } finally {
       signal?.removeEventListener('abort', onAbort);
       this.historyReads.delete(controller);
     }
   }
 
-  private async readHistoryProcess(
+  private async readHistoryProcess<T>(
     profile: CodexExecutionProfile,
     resume: CodexThreadIdentity,
     signal: AbortSignal,
-  ): Promise<CodexSessionHistory> {
+    read: HistoryProcessRead<T>,
+  ): Promise<T> {
     if (profile.normalizedHome !== resume.normalizedHome)
       throw new CodexSessionHistoryError('homeMismatch');
     const executable = (await this.options.selectionSnapshot.selectForOpen()).selected;
@@ -222,11 +254,9 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
       await process.start(signal);
       if (process.verifiedCodexHome !== profile.normalizedHome)
         throw new CodexHomeMismatchError();
-      return await readCodexSessionHistory(
-        resume.threadId,
+      return await read(
         (method, params) => process.request(method, params),
         () => { if (this.closed || signal.aborted) throw new Error('Codex history read aborted'); },
-        this.options.logger,
       );
     } catch (error) {
       throw CodexSessionHistoryError.from(error);

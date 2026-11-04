@@ -132,6 +132,33 @@ export interface ContentBlock {
   tool_use_id?: string;
   content?: string | unknown[];
   is_error?: boolean;
+  /** `document` blocks only: the attachment's display name. */
+  title?: string;
+}
+
+/**
+ * One plain-text turn of a conversation carried over to another provider.
+ * Tool calls, attachments and system content are already reduced to
+ * placeholders; nothing here is raw tool input or output.
+ */
+export interface CarryOverTurn {
+  readonly role: 'user' | 'assistant';
+  readonly text: string;
+  /** True only on the compaction summary that starts the transcript. */
+  readonly compactionSummary: boolean;
+}
+
+/**
+ * The newest part of a session, projected to plain turns for a carry-over.
+ * Both session kinds (Claude JSONL and native) produce this one shape.
+ */
+export interface CarryOverTranscript {
+  /** Oldest first. */
+  readonly turns: readonly CarryOverTurn[];
+  /** True when the read window held the whole stored history. */
+  readonly windowCoversWholeHistory: boolean;
+  /** True when `turns[0]` is an in-window compaction summary. */
+  readonly startsAtCompactionSummary: boolean;
 }
 
 /**

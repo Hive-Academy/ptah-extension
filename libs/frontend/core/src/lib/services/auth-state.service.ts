@@ -24,6 +24,7 @@ import type {
   CustomProviderEntry,
   CustomProviderEntryInput,
   CustomProviderEntryChanges,
+  SessionId,
 } from '@ptah-extension/shared';
 
 type ApplyTo = 'global' | 'app' | 'workspace';
@@ -97,6 +98,26 @@ const CUSTOM_ENTRY_TEST_TIMEOUT_MS = 20000;
  */
 /** Marks a failed first auth read: the next successful read always re-syncs. */
 const UNSYNCED_PROVIDER_IDENTITY = 'unsynced';
+
+/**
+ * The chat refusal an auth-required banner was raised for. Set only when the
+ * caller knows all three ids (a refused `chat:continue`), so a provider
+ * carry-over offer can be bound to it (TASK_2026_865).
+ */
+export interface AuthRequiredBannerOrigin {
+  sessionId: SessionId;
+  tabId: string;
+  workspacePath: string;
+}
+
+/** The auth-required banner shown on the chat surface. */
+export interface AuthRequiredBanner {
+  providerId: string | null;
+  message: string;
+  /** Increments on every `flagAuthRequired`; identifies this refusal. */
+  generation: number;
+  origin: AuthRequiredBannerOrigin | null;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthStateService {
@@ -183,10 +204,12 @@ export class AuthStateService {
    * Active auth-required banner, set when a chat operation fails because the
    * provider needs (re-)authentication. Null when there is nothing to show.
    */
-  private readonly _authRequiredBanner = signal<{
-    providerId: string | null;
-    message: string;
-  } | null>(null);
+  private readonly _authRequiredBanner = signal<AuthRequiredBanner | null>(
+    null,
+  );
+
+  /** Last generation handed out by `flagAuthRequired` (TASK_2026_865). */
+  private authRequiredGeneration = 0;
 
   /** Whether Claude CLI is installed and detected on the system */
   private readonly _claudeCliInstalled = signal(false);
@@ -1206,15 +1229,36 @@ export class AuthStateService {
    * (re-)authentication. Surfaces an inline banner on the chat surface. Called
    * from the chat orchestrator when an RPC returns errorCode 'AUTH_REQUIRED'.
    */
-  flagAuthRequired(providerId: string | null, message: string): void {
+  flagAuthRequired(
+    providerId: string | null,
+    message: string,
+    origin?: AuthRequiredBannerOrigin,
+  ): number {
     if (providerId === 'openai-codex') {
       this._codexTokenStale.set(true);
     }
-    this._authRequiredBanner.set({ providerId, message });
+    const generation = ++this.authRequiredGeneration;
+    this._authRequiredBanner.set({
+      providerId,
+      message,
+      generation,
+      origin: origin ?? null,
+    });
+    return generation;
   }
 
-  /** Dismiss the auth-required banner (user acknowledged or re-authenticated). */
-  clearAuthRequiredBanner(): void {
+  /**
+   * Dismiss the auth-required banner (user acknowledged or re-authenticated).
+   * With a `generation`, clears only while that banner is still the one
+   * showing, so a late caller never removes a newer refusal (TASK_2026_865).
+   */
+  clearAuthRequiredBanner(generation?: number): void {
+    if (
+      generation !== undefined &&
+      this._authRequiredBanner()?.generation !== generation
+    ) {
+      return;
+    }
     this._authRequiredBanner.set(null);
   }
 

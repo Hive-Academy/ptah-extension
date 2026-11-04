@@ -1,4 +1,8 @@
-import { readCodexSessionHistory, type CodexHistoryRequest } from './codex-session-history';
+import {
+  readCodexSessionHistory,
+  readCodexSessionTail,
+  type CodexHistoryRequest,
+} from './codex-session-history';
 import { CodexRequestRejectedError } from './codex-app-server-process';
 import { CodexProtocolError, validateCodexResult } from './codex-protocol-validator';
 
@@ -355,5 +359,289 @@ describe('readCodexSessionHistory', () => {
         { archived: false, reason: code, issues: '[]' },
       ],
     });
+  });
+});
+
+// Synthetic tail fixture: turn `t${i}` is the i-th oldest; no user session data.
+interface TailCall { method: string; params: Record<string, unknown>; bytes: number }
+interface TailFixture {
+  count: number;
+  historyMode?: 'paginated' | 'legacy';
+  /** Item pages a turn needs; such a turn is listed as a `summary` turn. */
+  itemPages?: Record<number, number>;
+  text?: (index: number) => string;
+  itemText?: string;
+  rejectDesc?: boolean;
+  rejectTurns?: boolean;
+  repeatCursor?: boolean;
+  blankCursor?: boolean;
+  duplicateTurn?: boolean;
+  duplicateItem?: boolean;
+  rootId?: string;
+}
+
+const TAIL_BOUND = { maxTurns: 200, maxTurnPages: 8, maxItemPages: 16 };
+const TAIL_MAX_BYTES = 8 * 1024 * 1024;
+const FRAME_LIMIT = 16 * 1024 * 1024;
+const READ_METHODS = ['thread/read', 'thread/turns/list', 'thread/items/list'];
+
+function tailTurn(config: TailFixture, index: number) {
+  const id = config.duplicateTurn && index === config.count - 26 ? `t${config.count - 1}` : `t${index}`;
+  return config.itemPages?.[index] !== undefined
+    ? { id, status: 'completed', items: [], itemsView: 'summary' }
+    : {
+        id, status: 'completed', itemsView: 'full',
+        items: [{ type: 'agentMessage', id: `${id}-m`, text: config.text?.(index) ?? id }],
+      };
+}
+
+function tailServer(config: TailFixture): { request: CodexHistoryRequest; calls: TailCall[] } {
+  const calls: TailCall[] = [];
+  const rootThread: Record<string, unknown> = { ...root, id: config.rootId ?? 'root' };
+  if (config.historyMode) rootThread['historyMode'] = config.historyMode;
+  else delete rootThread['historyMode'];
+  const request: CodexHistoryRequest = async (method, params) => {
+    const record: TailCall = { method, params: { ...params }, bytes: 0 };
+    calls.push(record);
+    const cursor = 'cursor' in params && typeof params.cursor === 'string' ? params.cursor : undefined;
+    const direction = 'sortDirection' in params ? params.sortDirection : undefined;
+    let result: unknown;
+    switch (method) {
+      case 'thread/read':
+        result = { thread: rootThread };
+        break;
+      case 'thread/turns/list': {
+        if (config.rejectTurns || (config.rejectDesc && direction === 'desc'))
+          throw new CodexRequestRejectedError(
+            'thread/turns/list', config.rejectTurns ? -32600 : -32602, 'codexRequestRejected');
+        const offset = cursor === 'same' ? 25 : Number(cursor ?? 0);
+        const end = Math.min(offset + 25, config.count);
+        const indexes = Array.from({ length: end - offset }, (_, k) =>
+          direction === 'asc' ? offset + k : config.count - 1 - offset - k);
+        const data = indexes.map((index) => tailTurn(config, index));
+        record.bytes = Buffer.byteLength(JSON.stringify(data), 'utf8');
+        result = {
+          data,
+          nextCursor: end >= config.count ? null
+            : config.repeatCursor ? 'same' : config.blankCursor ? ' ' : String(end),
+        };
+        break;
+      }
+      case 'thread/items/list': {
+        const turnId = 'turnId' in params && typeof params.turnId === 'string' ? params.turnId : '';
+        const pagesNeeded = config.itemPages?.[Number(turnId.slice(1))] ?? 1;
+        const page = Number(cursor ?? 0);
+        const itemIndex = pagesNeeded - 1 - page;
+        const data = [{
+          turnId, startedAtMs: 10, completedAtMs: 11,
+          item: {
+            type: 'agentMessage',
+            id: config.duplicateItem ? `${turnId}-dup` : `${turnId}-i${itemIndex}`,
+            text: config.itemText ?? `${turnId}-i${itemIndex}`,
+          },
+        }];
+        record.bytes = Buffer.byteLength(JSON.stringify(data), 'utf8');
+        result = { data, nextCursor: page + 1 < pagesNeeded ? String(page + 1) : null };
+        break;
+      }
+      default:
+        throw new Error(`unexpected method ${method}`);
+    }
+    return validateCodexResult(method, result);
+  };
+  return { request, calls };
+}
+
+const tailIds = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, k) => `t${from + k}`);
+const callsOf = (calls: TailCall[], method: string) => calls.filter((call) => call.method === method);
+const expectReadOnly = (calls: TailCall[]) => {
+  expect(calls.every((call) => READ_METHODS.includes(call.method))).toBe(true);
+  expect(callsOf(calls, 'thread/list')).toHaveLength(0);
+  expect(calls.some((call) => 'includeTurns' in call.params)).toBe(false);
+};
+
+describe('readCodexSessionTail', () => {
+  it.each([
+    ['paginated', 'paginated'],
+    ['legacy', 'legacy'],
+    ['absent', undefined],
+  ] as const)('bounds a 2,000-turn %s thread by the turn cap (AC 3.10, AC 3.9)', async (_label, historyMode) => {
+    const server = tailServer({ count: 2_000, historyMode });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    const turnLists = callsOf(server.calls, 'thread/turns/list');
+    expect(turnLists).toHaveLength(8);
+    for (const call of turnLists)
+      expect(call.params).toMatchObject({ threadId: 'root', sortDirection: 'desc', itemsView: 'full', limit: 25 });
+    expect(server.calls.length).toBeLessThanOrEqual(25);
+    expect(callsOf(server.calls, 'thread/read')).toHaveLength(1);
+    expectReadOnly(server.calls);
+    expect(tail.thread.id).toBe('root');
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(tailIds(1_800, 1_999));
+    expect(tail.thread.turns.at(-1)?.id).toBe('t1999');
+    expect(tail.coversWholeHistory).toBe(false);
+  });
+
+  it('stops on the byte total alone for 1,500 turns of about 60 KB (row 41)', async () => {
+    const text = (index: number) => `${index}:`.padEnd(60_000, 'x');
+    const config: TailFixture = { count: 1_500, text };
+    let fixtureBytes = 0;
+    for (let index = 0; index < config.count; index++)
+      fixtureBytes += Buffer.byteLength(JSON.stringify(tailTurn(config, index)), 'utf8');
+    expect(fixtureBytes).toBeGreaterThan(10 * TAIL_MAX_BYTES);
+
+    const server = tailServer(config);
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    const turnLists = callsOf(server.calls, 'thread/turns/list');
+    expect(turnLists.every((call) => call.bytes < FRAME_LIMIT)).toBe(true);
+    expect(turnLists).toHaveLength(6);
+    expect(server.calls).toHaveLength(7);
+    expect(server.calls.at(-1)).toBe(turnLists[5]);
+    const received = turnLists.reduce((sum, call) => sum + call.bytes, 0);
+    expect(received).toBeLessThanOrEqual(TAIL_MAX_BYTES + Math.max(...turnLists.map((call) => call.bytes)));
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(tailIds(1_350, 1_499));
+    expect(tail.thread.turns.at(-1)?.id).toBe('t1499');
+    expect(tail.coversWholeHistory).toBe(false);
+    expectReadOnly(server.calls);
+  });
+
+  it('fails closed when the server refuses to page a legacy thread (F1 (a))', async () => {
+    const server = tailServer({ count: 10, historyMode: 'legacy', rejectTurns: true });
+    await expect(readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND))
+      .rejects.toMatchObject({ code: 'requestRejected' });
+    expect(server.calls.map((call) => call.method)).toEqual(['thread/read', 'thread/turns/list']);
+    expectReadOnly(server.calls);
+  });
+
+  it('falls back to bounded ascending pages when desc is refused (A8)', async () => {
+    const server = tailServer({ count: 30, rejectDesc: true });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(tailIds(0, 29));
+    expect(tail.coversWholeHistory).toBe(false);
+    expect(callsOf(server.calls, 'thread/turns/list').map((call) => call.params['sortDirection']))
+      .toEqual(['desc', 'asc', 'asc']);
+    expectReadOnly(server.calls);
+  });
+
+  it('keeps the newest maxTurns in the ascending fallback', async () => {
+    const server = tailServer({ count: 30, rejectDesc: true });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, { ...TAIL_BOUND, maxTurns: 10 });
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(tailIds(20, 29));
+    expect(tail.coversWholeHistory).toBe(false);
+  });
+
+  it('fails closed when the ascending fallback cannot reach the newest turns', async () => {
+    const server = tailServer({ count: 2_000, rejectDesc: true });
+    await expect(readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND))
+      .rejects.toMatchObject({ code: 'pageLimitExceeded' });
+    expect(callsOf(server.calls, 'thread/turns/list')).toHaveLength(TAIL_BOUND.maxTurnPages);
+    expect(server.calls.length).toBeLessThanOrEqual(25);
+  });
+
+  it('throws pageLimitExceeded when the newest turn needs 17 item pages (F3)', async () => {
+    const server = tailServer({ count: 3, itemPages: { 2: 17 } });
+    await expect(readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND))
+      .rejects.toMatchObject({ code: 'pageLimitExceeded' });
+    const itemLists = callsOf(server.calls, 'thread/items/list');
+    expect(itemLists).toHaveLength(16);
+    for (const call of itemLists)
+      expect(call.params).toMatchObject({ turnId: 't2', sortDirection: 'desc', limit: 25 });
+  });
+
+  it('drops a second-newest turn that exceeds the remaining item pages (F3)', async () => {
+    const server = tailServer({ count: 3, itemPages: { 2: 10, 1: 10, 0: 1 } });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(['t2']);
+    expect(tail.thread.turns[0].items.map((item) => item.id)).toEqual(tailIds(0, 9).map((id) => `t2-i${id.slice(1)}`));
+    expect(tail.thread.turns[0].itemsView).toBe('full');
+    expect(tail.coversWholeHistory).toBe(false);
+    const itemLists = callsOf(server.calls, 'thread/items/list');
+    expect(itemLists).toHaveLength(16);
+    expect(itemLists.filter((call) => call.params['turnId'] === 't0')).toHaveLength(0);
+    expect(JSON.stringify(tail)).not.toContain('t1-i');
+  });
+
+  it('drops a turn whose item pages cross the byte total (F3, bytes)', async () => {
+    const server = tailServer({ count: 2, itemPages: { 1: 1, 0: 5 }, itemText: 'y'.repeat(3_000_000) });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(['t1']);
+    expect(tail.coversWholeHistory).toBe(false);
+    const itemLists = callsOf(server.calls, 'thread/items/list');
+    // t1: one 3 MB page; t0: two more pages reach about 9 MB, so its third page is never requested.
+    expect(itemLists).toHaveLength(3);
+    expect(JSON.stringify(tail.thread.turns)).not.toContain('t0-i');
+  });
+
+  it('covers the whole history for a short thread', async () => {
+    const server = tailServer({ count: 3 });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(['t0', 't1', 't2']);
+    expect(tail.coversWholeHistory).toBe(true);
+    expect(callsOf(server.calls, 'thread/turns/list')).toHaveLength(1);
+  });
+
+  it('covers the whole history when maxTurns is met by the last turn', async () => {
+    const server = tailServer({ count: 25 });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, { ...TAIL_BOUND, maxTurns: 25 });
+    expect(tail.thread.turns).toHaveLength(25);
+    expect(tail.coversWholeHistory).toBe(true);
+  });
+
+  it('stops inside a page at maxTurns without requesting more pages', async () => {
+    const server = tailServer({ count: 100 });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, { ...TAIL_BOUND, maxTurns: 30 });
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(tailIds(70, 99));
+    expect(tail.coversWholeHistory).toBe(false);
+    expect(callsOf(server.calls, 'thread/turns/list')).toHaveLength(2);
+  });
+
+  it('returns an empty thread as covering the whole history', async () => {
+    const server = tailServer({ count: 0 });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail).toMatchObject({ thread: { id: 'root', turns: [] }, coversWholeHistory: true });
+  });
+
+  it('hydrates summary turns newest-first and returns items ascending', async () => {
+    const server = tailServer({ count: 2, itemPages: { 1: 3 } });
+    const tail = await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect(tail.thread.turns.map((turn) => turn.id)).toEqual(['t0', 't1']);
+    expect(tail.thread.turns[1].items.map((item) => item.id)).toEqual(['t1-i0', 't1-i1', 't1-i2']);
+    expect(tail.thread.turns[1].itemEntries?.[0].startedAtMs).toBe(10);
+    expect(tail.coversWholeHistory).toBe(true);
+    expectReadOnly(server.calls);
+  });
+
+  it.each([
+    [{ repeatCursor: true }, 'stalledCursor'],
+    [{ blankCursor: true }, 'stalledCursor'],
+    [{ duplicateTurn: true }, 'malformedPage'],
+    [{ duplicateItem: true, itemPages: { 59: 2 } }, 'malformedPage'],
+    [{ rootId: 'other' }, 'malformedPage'],
+  ] as const)('rejects a malformed or stalled tail (%j)', async (overrides, code) => {
+    const server = tailServer({ count: 60, ...overrides });
+    await expect(readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND))
+      .rejects.toMatchObject({ code });
+  });
+
+  it('requests only read methods (A7, AC 6.1)', async () => {
+    const server = tailServer({ count: 80, itemPages: { 79: 2, 60: 1 } });
+    await readCodexSessionTail('root', server.request, () => undefined, TAIL_BOUND);
+    expect([...new Set(server.calls.map((call) => call.method))].sort())
+      .toEqual(['thread/items/list', 'thread/read', 'thread/turns/list']);
+    expectReadOnly(server.calls);
+  });
+
+  it('stops when the read is no longer open', async () => {
+    const server = tailServer({ count: 60 });
+    let open = true;
+    const request: CodexHistoryRequest = async (method, params) => {
+      const result = await server.request(method, params);
+      if (method === 'thread/turns/list') open = false;
+      return result;
+    };
+    await expect(readCodexSessionTail('root', request, () => {
+      if (!open) throw new Error('Codex history read aborted');
+    }, TAIL_BOUND)).rejects.toThrow('aborted');
+    expect(callsOf(server.calls, 'thread/turns/list')).toHaveLength(1);
   });
 });

@@ -208,6 +208,18 @@ export function buildSessionAgentRoster(
       ),
       orchestratorRequestIds,
     ),
-    ...agents,
+    ...failedLast(agents),
+  ];
+}
+
+/**
+ * Stable partition: failed agents move to the end of the dock and the
+ * inspector AGENTS list, each group keeping its own order. The Orchestrator
+ * is not passed in, so it always stays first.
+ */
+function failedLast(agents: readonly SessionAgent[]): SessionAgent[] {
+  return [
+    ...agents.filter((agent) => agent.status !== 'failed'),
+    ...agents.filter((agent) => agent.status === 'failed'),
   ];
 }

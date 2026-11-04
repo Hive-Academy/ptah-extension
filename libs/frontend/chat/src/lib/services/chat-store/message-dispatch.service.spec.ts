@@ -209,6 +209,30 @@ describe('MessageDispatchService', () => {
     );
   });
 
+  it('shows a full-text failure verbatim, with no delivery prefix (P4)', async () => {
+    const text = "Couldn't check this conversation. Try /compact again.";
+    sendMock.mockResolvedValue({
+      success: false,
+      error: text,
+      errorIsFullText: true,
+    });
+    await service.sendOrQueueMessage('/compact');
+    const raw = tabs[0].messages.map((m) => m.rawContent);
+    expect(raw).toEqual([text]);
+  });
+
+  it('keeps the delivery prefix for any other send failure', async () => {
+    sendMock.mockResolvedValue({
+      success: false,
+      error: 'Your follow-up was not sent.',
+    });
+    await service.sendOrQueueMessage('stop');
+    const raw = tabs[0].messages.map((m) => m.rawContent);
+    expect(raw).toEqual([
+      'Message delivery failed. Your follow-up was not sent.',
+    ]);
+  });
+
   it('typing during a successful flush leaves only the new draft', async () => {
     tabs = [makeTab({ queuedContent: 'original' })];
     let resolveFlush!: (outcome: { success: boolean }) => void;

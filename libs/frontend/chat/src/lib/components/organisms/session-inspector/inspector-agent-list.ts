@@ -39,6 +39,7 @@ export interface AgentListRow {
   /** Tokens tooltip: `In 1.1M · Out 48.0k`; `not reported` when unknown. */
   readonly tokensTitle: string;
   readonly cost: string;
+  readonly time: string;
   readonly usageLabel: string;
   readonly ariaLabel: string;
   readonly requests: readonly InspectorRequest[];
@@ -60,6 +61,7 @@ export interface AgentUsageFigures {
 
 export interface AgentRowInput {
   readonly agent: SessionAgent;
+  readonly name?: string;
   readonly secondary: string;
   readonly secondaryTitle: string | null;
   readonly usage: AgentUsageFigures;
@@ -98,19 +100,21 @@ export function inOutText(
 /** One list row. */
 export function agentListRow(input: AgentRowInput): AgentListRow {
   const { agent, usage } = input;
+  const name = input.name ?? agent.name;
   const tokens = tokensText(usage.tokens, usage.tokensPartial);
   const cost = costText(usage);
   const inOut = inOutText(usage.input, usage.output);
-  const usageLabel = `${
+  const usageFacts = `${
     tokens === null
       ? 'Tokens not reported'
       : `${tokens} tokens${inOut === null ? '' : ` (${inOut})`}`
   }; ${cost === null ? 'Cost not reported' : `cost ${cost}`}`;
+  const usageLabel = input.name ? `${name}. ${usageFacts}` : usageFacts;
   // The second line shows a model only when one is known (it has a title).
   const model =
     input.secondaryTitle === null ? '' : `Model ${input.secondary}. `;
   const label = agentAccessibleLabel({
-    name: agent.name,
+    name,
     kind: agent.kind,
     status: agent.status,
     durationMs: input.durationMs,
@@ -118,7 +122,7 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
   return {
     key: agent.key,
     agent,
-    name: agent.name,
+    name,
     secondary: input.secondary,
     secondaryTitle: input.secondaryTitle,
     statusText: agent.status ?? NOT_REPORTED_VALUE,
@@ -128,12 +132,19 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
     tokens: tokens ?? NOT_REPORTED_VALUE,
     tokensTitle: inOut ?? NOT_REPORTED_TITLE,
     cost: cost ?? NOT_REPORTED_VALUE,
+    time: input.durationMs === null ? NOT_REPORTED_VALUE : formatDuration(input.durationMs),
     usageLabel,
     ariaLabel: `${label}. ${model}${usageLabel}`,
     requests: input.requests,
     tray: input.tray,
     hasActions: input.hasActions,
   };
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`;
 }
 
 /** The kind label shown on the second line of a non-Orchestrator row. */

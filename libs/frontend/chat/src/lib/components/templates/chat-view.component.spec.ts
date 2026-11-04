@@ -73,6 +73,10 @@ import {
 import { SessionInspectorStore } from '../../services/session-inspector';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
+import {
+  ProviderCarryOverService,
+  type CarryOverOffer,
+} from '../../services/provider-carry-over.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
@@ -81,6 +85,7 @@ import {
   AppStateManager,
   AuthStateService,
   CodexSignInService,
+  type AuthRequiredBanner,
   LoggingService,
   NotificationService,
   PlanLimitsStore,
@@ -525,7 +530,9 @@ function makeHarness(
     getConversationId: jest.fn(() => null),
   } as unknown as TabSessionBinding;
 
-  const authRequiredBannerSig = signal<{ providerId: string | null; message: string } | null>(null);
+  // The banner carries its generation and origin (TASK_2026_865 Batch 6).
+  const authBannerSig = signal<AuthRequiredBanner | null>(null);
+  const authRequiredBannerSig = authBannerSig;
   const codexAuthenticatedSig = signal(false);
   const codexTokenStaleSig = signal(false);
   const codexStateSig = signal<{ attemptId: string; mode: 'browser'; status: 'starting' | 'running' | 'awaiting-user' | 'succeeded' } | null>(null);
@@ -564,6 +571,21 @@ function makeHarness(
     restart: codexRestartMock,
     cancel: codexCancelMock,
   } as unknown as CodexSignInService;
+
+  const carryOverOfferSig = signal<CarryOverOffer | null>(null);
+  const carryOverPendingTabs = new Set<string>();
+  const carryOverBusySessions = new Set<string>();
+  const carryOverStartMock = jest.fn(
+    async (_offer: CarryOverOffer): Promise<void> => undefined,
+  );
+  const carryOverStub = {
+    offer: carryOverOfferSig.asReadonly(),
+    isPending: jest.fn((tabId: string) => carryOverPendingTabs.has(tabId)),
+    isBusy: jest.fn((sessionId: string) =>
+      carryOverBusySessions.has(sessionId),
+    ),
+    start: carryOverStartMock,
+  } as unknown as ProviderCarryOverService;
 
   const displaySidebarWidthSig = signal<number | null>(null);
   const layoutStub = {
@@ -625,6 +647,7 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: CodexSignInService, useValue: codexSignInStub },
+      { provide: ProviderCarryOverService, useValue: carryOverStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
       {
         provide: SessionInspectorStore,
@@ -749,6 +772,11 @@ function makeHarness(
     sessionIdSig,
     messagesSig,
     activeTabIdSig,
+    authBannerSig,
+    carryOverOfferSig,
+    carryOverPendingTabs,
+    carryOverBusySessions,
+    carryOverStartMock,
     tabsSig,
     sessionVisibleSig,
     sessionFocusedSig,
@@ -780,7 +808,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('starts in-app sign-in from the Codex auth banner', async () => {
     const h = makeHarness();
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
 
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
 
@@ -790,7 +818,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('renders the compact block and Cancel while banner sign-in is active', async () => {
     const h = makeHarness({ renderAuthBannerTemplate: true });
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'running' });
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
     h.fixture.detectChanges();
@@ -804,10 +832,10 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('does not render Codex controls for another provider', async () => {
     const h = makeHarness({ renderAuthBannerTemplate: true });
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     h.codexStateSig.set({ attemptId: 'attempt-2', mode: 'browser', status: 'running' });
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
-    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again', generation: 1, origin: null });
     h.fixture.detectChanges();
 
     expect(h.fixture.nativeElement.querySelector('ptah-codex-sign-in-block')).toBeNull();
@@ -817,7 +845,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
   it('refreshes auth before clearing the banner after sign-in succeeds', async () => {
     const h = makeHarness();
     h.codexAuthenticatedSig.set(true);
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     let resolveRefresh!: (value: boolean) => void;
     h.refreshAuthStatusMock.mockReturnValue(new Promise<boolean>((resolve) => { resolveRefresh = resolve; }));
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
@@ -837,7 +865,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('keeps the banner when the post-sign-in auth refresh fails', async () => {
     const h = makeHarness();
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     h.refreshAuthStatusMock.mockResolvedValue(false);
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
 
@@ -854,7 +882,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
     const h = makeHarness();
     h.codexAuthenticatedSig.set(true);
     h.codexTokenStaleSig.set(true);
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
     h.codexStateSig.set({ attemptId: 'attempt-3', mode: 'browser', status: 'succeeded' });
     await h.codexCheckAuthStatusMock();
@@ -865,7 +893,7 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('clears the banner and failure after Check again confirms sign-in', async () => {
     const h = makeHarness();
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     h.refreshAuthStatusMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
     h.codexStateSig.set({ attemptId: 'attempt-4', mode: 'browser', status: 'succeeded' });
@@ -882,10 +910,10 @@ describe('ChatViewComponent — Codex re-auth', () => {
 
   it('does not clear a later unrelated banner when Codex confirms', async () => {
     const h = makeHarness();
-    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again', generation: 1, origin: null });
     await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
     h.codexStateSig.set({ attemptId: 'attempt-5', mode: 'browser', status: 'succeeded' });
-    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again' });
+    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again', generation: 1, origin: null });
     h.codexAuthenticatedSig.set(true);
     await h.codexCheckAuthStatusMock();
     h.fixture.detectChanges();
@@ -2019,6 +2047,28 @@ describe('ChatViewComponent — per-tile banner scoping', () => {
     });
     h.realActionBanner.showInfo('rewind complete', 'tile-A');
     expect(h.component.actionInfo()).toBe('rewind complete');
+    h.realActionBanner.clear();
+  });
+
+  it('renders the info notice in base-content text, not text-success (contrast)', () => {
+    // text-success on the bg-success/10 tint is 2.15:1 in anubis-light; the
+    // carry-over notice and the branch/rewind notices share this banner.
+    const h = makeHarness({
+      useRealBanner: true,
+      renderCompactTemplate: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('Continued with Claude in a new chat.', 'tile-A');
+    h.fixture.detectChanges();
+
+    const notice = Array.from(
+      (h.fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[role="status"]',
+      ),
+    ).find((el) => el.textContent?.includes('Continued with Claude'));
+    expect(notice).toBeDefined();
+    expect(notice?.classList.contains('text-base-content')).toBe(true);
+    expect(notice?.classList.contains('text-success')).toBe(false);
     h.realActionBanner.clear();
   });
 
@@ -3553,5 +3603,142 @@ describe('ChatViewComponent — Display sidebar (Electron)', () => {
     expect(separator?.getAttribute('tabindex')).toBe('0');
     expect(separator?.getAttribute('aria-valuenow')).not.toBeNull();
     expect(separator?.getAttribute('aria-valuemin')).not.toBeNull();
+  });
+});
+
+describe('ChatViewComponent — provider carry-over offer binding', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  const OLD_SESSION = 'sess-old' as CarryOverOffer['sessionId'];
+
+  function banner(generation: number, tabId = 'tab-abc'): AuthRequiredBanner {
+    return {
+      providerId: 'anthropic',
+      message: 'This conversation was started with another provider.',
+      generation,
+      origin: { sessionId: OLD_SESSION, tabId, workspacePath: '/ws' },
+    };
+  }
+
+  function offer(generation: number, tabId = 'tab-abc'): CarryOverOffer {
+    return {
+      generation,
+      sessionId: OLD_SESSION,
+      tabId,
+      workspacePath: '/ws',
+      providerId: 'openai-codex',
+      providerName: 'Codex',
+    };
+  }
+
+  type CarryOverView = {
+    carryOverOffer: () => CarryOverOffer | null;
+    carryOverBusy: () => boolean;
+  };
+
+  /** Render the template with child components as plain elements. */
+  function render(options: { sessionContextTabId?: string } = {}) {
+    const h = makeHarness({ ...options, renderCompactTemplate: true });
+    const view = h.component as unknown as CarryOverView;
+    const bannerEl = (): HTMLElement & {
+      carryOverProvider?: string | null;
+      carryOverBusy?: boolean;
+    } =>
+      (h.fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-auth-required-banner',
+      ) as HTMLElement;
+    /** Detect changes and let the banner's `@defer (on immediate)` load. */
+    const showBanner = async (): Promise<void> => {
+      h.fixture.detectChanges();
+      await h.fixture.whenStable();
+      h.fixture.detectChanges();
+    };
+    return { h, view, bannerEl, showBanner };
+  }
+
+  it('binds the offer in the refused tab and the output calls start once', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toEqual(offer(3));
+    expect(view.carryOverBusy()).toBe(false);
+    expect(bannerEl().carryOverProvider).toBe('Codex');
+    expect(bannerEl().carryOverBusy).toBe(false);
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+
+    expect(h.carryOverStartMock).toHaveBeenCalledTimes(1);
+    expect(h.carryOverStartMock).toHaveBeenCalledWith(offer(3));
+  });
+
+  it("gives null and today's banner in a view of another tab (AC 7.3)", async () => {
+    const { h, view, bannerEl, showBanner } = render({
+      sessionContextTabId: 'tab-other',
+    });
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toBeNull();
+    expect(view.carryOverBusy()).toBe(false);
+    expect(bannerEl()).not.toBeNull();
+    expect(bannerEl().carryOverProvider).toBeNull();
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+    expect(h.carryOverStartMock).not.toHaveBeenCalled();
+  });
+
+  it('follows the active tab in the main panel', () => {
+    const { h, view } = render();
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    expect(view.carryOverOffer()).toEqual(offer(3));
+
+    h.activeTabIdSig.set('tab-other');
+    expect(view.carryOverOffer()).toBeNull();
+  });
+
+  it('gives null for a stale generation (AC 7.3)', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.authBannerSig.set(banner(4));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverOffer()).toBeNull();
+    expect(bannerEl().carryOverProvider).toBeNull();
+
+    bannerEl().dispatchEvent(new CustomEvent('carryOver'));
+    expect(h.carryOverStartMock).not.toHaveBeenCalled();
+  });
+
+  it('gives null without a banner', () => {
+    const { h, view } = render();
+    h.carryOverOfferSig.set(offer(3));
+    expect(view.carryOverOffer()).toBeNull();
+  });
+
+  it('is busy while the refused tab is pending', async () => {
+    const { h, view, bannerEl, showBanner } = render();
+    h.carryOverPendingTabs.add('tab-abc');
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+    await showBanner();
+
+    expect(view.carryOverBusy()).toBe(true);
+    expect(bannerEl().carryOverBusy).toBe(true);
+  });
+
+  it('is busy while a carry-over of the refused session runs elsewhere', () => {
+    const { h, view } = render();
+    h.carryOverBusySessions.add(OLD_SESSION);
+    h.authBannerSig.set(banner(3));
+    h.carryOverOfferSig.set(offer(3));
+
+    expect(view.carryOverBusy()).toBe(true);
   });
 });
