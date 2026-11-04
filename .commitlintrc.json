@@ -103,7 +103,12 @@
         "web-landing",
         "web-legal",
         "migration",
-        "di-lint"
+        "di-lint",
+        "review-contracts",
+        "review-core",
+        "review-github",
+        "review-runs-ui",
+        "review-eval"
       ]
     ],
     "scope-case": [2, "always", "lower-case"],

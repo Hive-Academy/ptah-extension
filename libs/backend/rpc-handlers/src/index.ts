@@ -48,6 +48,7 @@ export {
   CorpusRpcHandlers,
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
+  ReviewRpcHandlers,
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
   VoiceRpcHandlers,

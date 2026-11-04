@@ -24,6 +24,7 @@ import {
   SessionLifecycleNotifier,
   GitChangeSetRpcHandlers,
   PlanLimitsBroadcaster,
+  ReviewRpcHandlers,
 } from './handlers';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -85,6 +86,7 @@ import { InstallScopeNoticeRpcHandlers } from './install-scope/install-scope-not
 export function registerSharedRpcHandlers(
   container: DependencyContainer,
 ): void {
+  container.registerSingleton(ReviewRpcHandlers);
   container.registerSingleton(CliModelListService);
   container.registerSingleton(GuidanceGenerationRunSupervisor);
   container.registerSingleton(GenerationRunSupervisor);

@@ -1,0 +1,849 @@
+{
+    "schemaVersion":  1,
+    "adjudicationVersion":  "research-2026-11-03-v1-pending",
+    "source":  {
+                   "url":  "https://github.com/Hive-Academy/PtahCode",
+                   "status":  "pending"
+               },
+    "expectedRoots":  108,
+    "expectedMajors":  31,
+    "prs":  [
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  730,
+                    "expectedRoots":  12,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4277283797
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4277283912
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4277283760
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  8,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  9,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  10,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  11,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  12,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  735,
+                    "expectedRoots":  11,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4299377620
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4299377677
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4299377552
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  8,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  9,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  10,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  11,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  889,
+                    "expectedRoots":  8,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  8,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  763,
+                    "expectedRoots":  8,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  8,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  879,
+                    "expectedRoots":  7,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  844,
+                    "expectedRoots":  7,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4408188332
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4408188360
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  808,
+                    "expectedRoots":  7,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  803,
+                    "expectedRoots":  7,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4332578901
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  795,
+                    "expectedRoots":  7,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  7,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  900,
+                    "expectedRoots":  6,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  780,
+                    "expectedRoots":  6,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  751,
+                    "expectedRoots":  6,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  720,
+                    "expectedRoots":  6,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4262189863
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4262189935
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  6,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  871,
+                    "expectedRoots":  5,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export",
+                                      "id":  4440311816
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                },
+                {
+                    "repo":  "Hive-Academy/PtahCode",
+                    "number":  835,
+                    "expectedRoots":  5,
+                    "head":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain pre-fix head SHA and source checksum from API export"
+                             },
+                    "base":  {
+                                 "status":  "pending",
+                                 "reason":  "TODO: obtain base SHA and source checksum from API export"
+                             },
+                    "snapshot":  {
+                                     "status":  "pending",
+                                     "reason":  "TODO: build bounded snapshot after head verification"
+                                 },
+                    "roots":  [
+                                  {
+                                      "status":  "pending",
+                                      "slot":  1,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  2,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  3,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  4,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  },
+                                  {
+                                      "status":  "pending",
+                                      "slot":  5,
+                                      "reason":  "TODO: confirm root ID, category, severity, evidence and source checksum from API export"
+                                  }
+                              ]
+                }
+            ]
+}

@@ -200,6 +200,23 @@ describe('will-quit — the run-check kill', () => {
     ]);
     expect(deps.quit).toHaveBeenCalledTimes(1);
   });
+
+  it('aborts and awaits the review worker before SQLite close', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.reviewWorker = {
+      dispose: () => { order.push('review abort'); },
+      awaitStopped: () => new Promise<void>((resolve) => { finish = resolve; order.push('review wait'); }),
+    };
+    const deps = quitDeps(refs);
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['review abort', 'review wait']);
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual(['review abort', 'review wait', 'sqliteConnection', 'diagnostics']);
+  });
 });
 
 describe('will-quit — Codex sign-in stop', () => {

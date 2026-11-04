@@ -1,0 +1,105 @@
+import 'reflect-metadata';
+import type { RpcHandler, Logger } from '@ptah-extension/vscode-core';
+import type {
+  IReviewArtifactReader, IReviewQueryRepository, IReviewSecretPresence,
+  IReviewSettingsStore, ReviewQueueService, ReviewOrchestratorService,
+} from '@ptah-extension/review-core';
+import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
+import { ReviewPollDisabledError } from '@ptah-extension/review-core';
+import { ReviewRpcHandlers } from './review-rpc.handlers';
+
+const settings = {
+  repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
+  maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: true,
+  laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
+} as const;
+
+function suite() {
+  const rpc = { registerMethod: jest.fn() } as Pick<RpcHandler, 'registerMethod'>;
+  const logger = { info: jest.fn() } as Pick<Logger, 'info'>;
+  const query = {
+    listRuns: jest.fn().mockResolvedValue({ runs: [], nextCursor: null }),
+    getRun: jest.fn().mockResolvedValue(null),
+    listFindings: jest.fn().mockResolvedValue([]),
+  } as IReviewQueryRepository;
+  const store = {
+    getSettings: jest.fn().mockResolvedValue(settings),
+    updateSettings: jest.fn().mockResolvedValue(settings),
+    listRepositories: jest.fn().mockResolvedValue(settings.repositories),
+    setPublicationPause: jest.fn().mockResolvedValue(undefined),
+  } as IReviewSettingsStore;
+  const artifacts = { exportRun: jest.fn() } as IReviewArtifactReader;
+  const secrets = { hasToken: jest.fn().mockResolvedValue(true) } as IReviewSecretPresence;
+  const queue = { retry: jest.fn() } as Pick<ReviewQueueService, 'retry'>;
+  const orchestrator = { pollAndRecord: jest.fn() } as Pick<ReviewOrchestratorService, 'pollAndRecord'>;
+  const github = { getPull: jest.fn() } as Pick<IGitHubReviewPort, 'getPull'>;
+  new ReviewRpcHandlers(logger, rpc, query, store, artifacts, secrets, queue, orchestrator, github).register();
+  const calls = (rpc.registerMethod as jest.Mock).mock.calls as Array<[string, (params: unknown) => Promise<unknown>]>;
+  const invoke = (name: string, params: unknown): Promise<unknown> => {
+    const handler = calls.find(([method]) => method === name)?.[1];
+    if (!handler) throw new Error(`Missing ${name}`);
+    return handler(params);
+  };
+  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github, orchestrator };
+}
+
+describe('ReviewRpcHandlers', () => {
+  it('clears a failed poll after successful Refresh', async () => {
+    const { invoke, orchestrator } = suite();
+    (orchestrator.pollAndRecord as jest.Mock).mockRejectedValueOnce(new Error('secret remote error'))
+      .mockResolvedValueOnce(0);
+    const params = { repo: { owner: 'Hive-Academy', name: 'PtahCode' } };
+    await expect(invoke('review:refresh', params)).rejects.toThrow('Review service is unavailable');
+    expect(await invoke('review:refresh', params)).toEqual({ ok: true });
+    expect(orchestrator.pollAndRecord).toHaveBeenCalledWith(params.repo);
+  });
+
+  it('rejects manual Refresh while disabled without changing poll state', async () => {
+    const { invoke, orchestrator } = suite();
+    (orchestrator.pollAndRecord as jest.Mock).mockRejectedValue(new ReviewPollDisabledError());
+    await expect(invoke('review:refresh', { repo: { owner: 'Hive-Academy', name: 'PtahCode' } }))
+      .rejects.toThrow('Review repository is disabled');
+    expect(orchestrator.pollAndRecord).toHaveBeenCalledTimes(1);
+  });
+  it('returns the queued manual attempt id', async () => {
+    const { invoke, github, queue } = suite();
+    (github.getPull as jest.Mock).mockResolvedValue({ headSha: 'a'.repeat(40) });
+    const result = await invoke('review:retryHead', { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1 });
+    expect(result).toEqual({ ok: true, attemptId: expect.any(String) });
+    expect(queue.retry).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'a'.repeat(40) }),
+      (result as { attemptId: string }).attemptId);
+  });
+  it('registers exactly the P1 review methods', () => {
+    const { calls } = suite();
+    expect(calls.map(([name]) => name)).toEqual([...ReviewRpcHandlers.METHODS]);
+  });
+
+  it.each(ReviewRpcHandlers.METHODS)('%s rejects invalid params at the boundary', async (method) => {
+    const { invoke } = suite();
+    await expect(invoke(method, { unexpected: 'secret' })).rejects.toThrow('Invalid review request');
+  });
+
+  it('never returns or logs a token and rejects one in settings updates', async () => {
+    const { invoke, logger, store } = suite();
+    const result = await invoke('review:getSettings', {});
+    expect(result).toEqual({ settings, hasToken: true });
+    expect(JSON.stringify(result)).not.toContain('ghp_secret');
+    await expect(invoke('review:updateSettings', { settings, token: 'ghp_secret' })).rejects.toThrow('Invalid review request');
+    expect(store.updateSettings).not.toHaveBeenCalled();
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain('ghp_secret');
+  });
+
+  it('returns unconfigured settings so the first save can proceed', async () => {
+    const { invoke, store } = suite();
+    (store.getSettings as jest.Mock).mockResolvedValue(null);
+    expect(await invoke('review:getSettings', {})).toEqual({ settings: null, hasToken: true });
+  });
+
+  it('treats an unknown attempt safely', async () => {
+    const { invoke, artifacts } = suite();
+    expect(await invoke('review:getRun', { attemptId: 'missing' })).toBeNull();
+    expect(await invoke('review:listFindings', { attemptId: 'missing' })).toEqual({ findings: [] });
+    await expect(invoke('review:exportRun', { attemptId: 'missing' })).rejects.toThrow('Review run not found');
+    expect(artifacts.exportRun).not.toHaveBeenCalled();
+  });
+});

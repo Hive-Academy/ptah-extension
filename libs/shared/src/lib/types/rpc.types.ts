@@ -67,6 +67,8 @@ import type {
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
 import type { ProviderAccountRpcMethodRegistry } from './rpc/rpc-provider-accounts.types';
+export type { ReviewRpcMethodRegistry } from './rpc-review.types';
+import type { ReviewRpcMethodRegistry } from './rpc-review.types';
 import type {
   AttentionGetSnapshotParams,
   AttentionGetSnapshotResult,
@@ -1003,6 +1005,7 @@ export interface InstallScopeRpcMethodRegistry {
 export interface RpcMethodRegistry
   extends
     ProviderAccountRpcMethodRegistry,
+    ReviewRpcMethodRegistry,
     Pick<
       InstallScopeRpcMethodRegistry,
       | 'mcpDirectory:makeGlobal'
@@ -3791,6 +3794,16 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'cron:runNow': true,
   'cron:runs': true,
   'cron:nextFire': true,
+  'review:listRuns': true,
+  'review:getRun': true,
+  'review:listFindings': true,
+  'review:listRepositories': true,
+  'review:getSettings': true,
+  'review:updateSettings': true,
+  'review:setPublicationPause': true,
+  'review:retryHead': true,
+  'review:refresh': true,
+  'review:exportRun': true,
 
   'gateway:status': true,
   'gateway:start': true,

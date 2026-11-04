@@ -65,6 +65,7 @@ import {
 
 import { appRoutes } from './app.routes';
 import { electronOnlySurface } from './electron-only-surface.guard';
+import { reviewOnlySurface } from './review-only-surface.guard';
 import { injectInitialNavigation } from './initial-navigation';
 
 interface HostWindow {
@@ -85,7 +86,7 @@ interface HostWindow {
  * loops drive them on the Electron host; the VS Code refusal is pinned by its
  * own describe block, never by dropping them from a loop.
  */
-const ELECTRON_ONLY_SURFACES: readonly string[] = ['apps', 'command-center'];
+const ELECTRON_ONLY_SURFACES: readonly string[] = ['apps', 'command-center', 'review-runs'];
 
 /**
  * Pin which host the renderer believes it is running in.
@@ -268,7 +269,7 @@ describe('webview routing composition', () => {
       }
       await settle();
 
-      expect(surfaceRouter.currentSurface()).toBe('command-center');
+      expect(surfaceRouter.currentSurface()).toBe('review-runs');
       for (const [name, spy] of Object.entries(history)) {
         expect(spy).not.toHaveBeenCalled();
         expect(name).toBeTruthy();
@@ -893,6 +894,7 @@ describe('webview routing composition', () => {
   describe('Electron-only surfaces (canMatch: electronOnlySurface)', () => {
     let loadApps: jest.SpyInstance;
     let loadCommandCenter: jest.SpyInstance;
+    let loadReviewRuns: jest.SpyInstance;
 
     beforeEach(() => {
       // Installed before anything injects the Router, so the Router's copy of
@@ -903,6 +905,7 @@ describe('webview routing composition', () => {
         routeFor('command-center'),
         'loadComponent',
       );
+      loadReviewRuns = jest.spyOn(routeFor('review-runs'), 'loadComponent');
       TestBed.inject(MessageRouterService);
       TestBed.inject(AppStateManager);
     });
@@ -933,6 +936,13 @@ describe('webview routing composition', () => {
         expect(TestBed.inject(Router).url).toBe('/chat');
         expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
         expect(loadCommandCenter).not.toHaveBeenCalled();
+      });
+
+      it('redirects review runs to chat without loading the page', async () => {
+        Object.assign(window, { ptahConfig: { initialView: 'review-runs' } });
+        await bootWithInitialView('review-runs');
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(loadReviewRuns).not.toHaveBeenCalled();
       });
 
       it('lands SWITCH_VIEW "apps" on chat without loading the chunk', async () => {
@@ -1016,6 +1026,13 @@ describe('webview routing composition', () => {
           'command-center',
         );
         expect(loadCommandCenter).toHaveBeenCalledTimes(1);
+      }, 30_000);
+
+      it('opens review runs through its lazy page', async () => {
+        Object.assign(window, { ptahConfig: { initialView: 'review-runs' } });
+        await bootWithInitialView('review-runs');
+        expect(TestBed.inject(Router).url).toBe('/review-runs');
+        expect(loadReviewRuns).toHaveBeenCalledTimes(1);
       }, 30_000);
 
       it('lands SWITCH_VIEW "apps" on the apps route', async () => {
@@ -1146,7 +1163,7 @@ describe('app.routes', () => {
     },
   );
 
-  it.each(['tasks', 'apps', 'command-center'])(
+  it.each(['tasks', 'apps', 'command-center', 'review-runs'])(
     'defers %s with loadComponent',
     (path) => {
       const route = appRoutes.find((candidate) => candidate.path === path);
@@ -1186,25 +1203,27 @@ describe('app.routes', () => {
     expect(typeof loaded[0]?.component).toBe('function');
   }, 30_000);
 
-  it('guards exactly the Electron-only surfaces with electronOnlySurface', () => {
+  it('guards exactly the Electron-only surfaces', () => {
     const guarded = appRoutes
       .filter((route) => route.canMatch !== undefined)
       .map((route) => route.path);
 
     expect(guarded).toEqual([...ELECTRON_ONLY_SURFACES]);
-    for (const path of ELECTRON_ONLY_SURFACES) {
+    for (const path of ['apps', 'command-center']) {
       expect(routeFor(path).canMatch).toEqual([electronOnlySurface]);
     }
+    expect(routeFor('review-runs').canMatch).toEqual([reviewOnlySurface]);
   });
 
-  it('places command-center after apps and before the fallbacks', () => {
+  it('places review runs after command-center and before the fallbacks', () => {
     const order = appRoutes.map((route) => route.path);
     expect(order.indexOf('apps')).toBe(order.indexOf('tasks') + 1);
     expect(order.indexOf('command-center')).toBe(order.indexOf('apps') + 1);
-    expect(order.indexOf('command-center')).toBe(appRoutes.length - 3);
+    expect(order.indexOf('review-runs')).toBe(order.indexOf('command-center') + 1);
+    expect(order.indexOf('review-runs')).toBe(appRoutes.length - 3);
   });
 
-  it.each(['tasks', 'apps', 'command-center'])(
+  it.each(['tasks', 'apps', 'command-center', 'review-runs'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would

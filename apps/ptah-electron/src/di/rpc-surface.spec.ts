@@ -81,6 +81,13 @@ describe('Electron RPC surface', () => {
     );
   });
 
+  it('serves all ten P1 review methods', () => {
+    const methods = RPC_HANDLER_MANIFEST.find((entry) => entry.key === 'review')?.methods ?? [];
+    expect(methods).toHaveLength(10);
+    expect(surface.registered).toEqual(expect.arrayContaining(methods));
+    expect(surface.excluded).toEqual(expect.not.arrayContaining(methods));
+  });
+
   it('serves git:watchRoots behind the gitRootWatch capability (TASK_2026_855 D20)', () => {
     expect(surface.registered).toContain('git:watchRoots');
     expect(surface.excluded).not.toContain('git:watchRoots');
