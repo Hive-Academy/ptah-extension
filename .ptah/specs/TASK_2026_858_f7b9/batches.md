@@ -480,6 +480,23 @@ phase summary.
 
 ---
 
+## Batch 7.9: Phase B carry-over — fence late frames after a snapshot attach — PENDING (do first)
+
+- Source: `fix-bounded-correction-review.md` new defect 1 (Major, Codex). Decision row 23.
+- Defect: `libs/worker-protocol/src/lib/client/session-event-reducer.ts:290-341`. After an
+  overflow, an older replay can still stream when a newer fresh attach returns `mode: 'snapshot'`.
+  `showSnapshot` resets `epoch`/`last` and clears recovery, and event frames carry no attach token,
+  so a late baseline replaces the saved snapshot and a late non-baseline frame is held as a gap
+  and can request another attach.
+- Fix: fence frames after a snapshot until the next `connected` action (or tag frames with the
+  attach that started them). Tests: late baseline after snapshot ignored; late non-baseline frame
+  after snapshot requests no attach; `connected` after snapshot resumes the log.
+- Files: `session-event-reducer.ts` and its spec only.
+- Executor: backend-developer subagent (Claude). Review: Codex lane (different family).
+- Verify: `npm run verify -- -p @ptah-extension/worker-protocol`
+
+---
+
 ## Batch 8: C4a-1 driver lock port and kernel lock (revised Round 6) — PENDING
 
 - Recommended executor: CLI lane backend capability
