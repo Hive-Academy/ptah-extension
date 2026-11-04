@@ -480,7 +480,7 @@ phase summary.
 
 ---
 
-## Batch 7.9: Phase B carry-over — fence late frames after a snapshot attach — PENDING (do first)
+## Batch 7.9: Phase B carry-over — fence late frames after a snapshot attach — COMPLETE
 
 - Source: `fix-bounded-correction-review.md` new defect 1 (Major, Codex). Decision row 23.
 - Defect: `libs/worker-protocol/src/lib/client/session-event-reducer.ts:290-341`. After an
@@ -494,6 +494,10 @@ phase summary.
 - Files: `session-event-reducer.ts` and its spec only.
 - Executor: backend-developer subagent (Claude). Review: Codex lane (different family).
 - Verify: `npm run verify -- -p @ptah-extension/worker-protocol`
+- Result: commit ddc4b67a8 (`fenced` flag, cleared only by `connected`); verify 3/3. Codex review
+  `batch-7.9-review.md` APPROVED 8/10, no new defect. Host contract (W8, C8 machine connection):
+  leave a snapshot only by replacing the socket and dispatching `connected`; documented on
+  `SessionViewSource`.
 
 ---
 
