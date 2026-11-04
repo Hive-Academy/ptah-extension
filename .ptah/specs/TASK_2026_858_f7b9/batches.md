@@ -836,7 +836,7 @@ phase summary.
 
 - The two bold W7 specs exist and pass; verify passes
 
-## Batch 16: C6c in-process RPC, method table, authorizer, capabilities (revised Round 6) — PENDING
+## Batch 16: C6c in-process RPC, method table, authorizer, capabilities (revised Round 6) — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -848,7 +848,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 16.1: Methods, authorizer, session index, in-process RPC — PENDING
+### Task 16.1: Methods, authorizer, session index, in-process RPC — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{worker-methods,worker-authorizer,worker-session-index,in-process-rpc}.ts` (+ specs)
 - Plan reference: W6 :288-317, W12 :873-894; C6 :1145-1153; AD-19
@@ -858,7 +858,7 @@ phase summary.
 - Validation notes: R-N
 - Implementation details: none
 
-### Task 16.2: Worker host profile and capability document — PENDING
+### Task 16.2: Worker host profile and capability document — COMPLETE
 
 - Depends on: Task 16.1
 - Files: W/`libs/backend/worker-runtime/src/lib/worker-host-profile.ts`,

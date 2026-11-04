@@ -11,6 +11,13 @@ export default {
       },
     ],
   },
+  // The rpc-handlers barrel (host profile, capability rows) pulls
+  // tsyringe-decorated services, so the reflect polyfill loads first.
+  setupFiles: ['reflect-metadata'],
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../../coverage/libs/backend/worker-runtime',
+  moduleNameMapper: {
+    '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
+    '(^|/)wasm-bundle-dir(\\.js)?$': '<rootDir>/__mocks__/wasm-bundle-dir.ts',
+  },
 };
