@@ -188,11 +188,11 @@ export class ProposalWorkspacePage implements OnInit {
     const tabId = this.store.session.record()?.tabId;
     return tabId ? this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null : null;
   });
-  private focusedReady = false;
+  private focusedLog = false;
   constructor() {
     effect(() => {
-      if (this.store.restoreState() !== 'ready' || this.focusedReady) return;
-      this.focusedReady = true;
+      if (this.store.restoreState() === 'loading' || this.focusedLog) return;
+      this.focusedLog = true;
       afterNextRender(() => {
         const active = typeof document === 'undefined' ? null : document.activeElement;
         const heading = this.pageHeader()?.nativeElement.querySelector('h1');
@@ -211,7 +211,7 @@ export class ProposalWorkspacePage implements OnInit {
         distinctUntilChanged(),
       )
       .subscribe((tab) => {
-        if (this.requestedTab !== tab) this.focusedReady = false;
+        if (this.requestedTab !== tab) this.focusedLog = false;
         this.requestedTab = tab;
         if (tab)
           this.loadQueue = this.loadQueue.then(() =>

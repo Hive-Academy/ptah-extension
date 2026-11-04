@@ -105,6 +105,25 @@ describe('ProposalWorkspacePage rendered parity', () => {
     sessionStatus.set('waiting'); fixture.detectChanges(); await fixture.whenStable();
     expect(document.activeElement).toBe(other); other.remove();
   });
+  it('focuses the log on first render when the proposal is unavailable', async () => {
+    bind(); restoreState.set('proposal-unavailable');
+    const { fixture, root } = render();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(document.activeElement).toBe(root.querySelector('[role="log"]'));
+  });
+  it('focuses the log on first render when the proposal record is missing', async () => {
+    restoreState.set('missing');
+    const { fixture, root } = render();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(document.activeElement).toBe(root.querySelector('[role="log"]'));
+  });
+  it('does not move focus to the log while the proposal is loading', async () => {
+    const { fixture, root } = render();
+    const heading = root.querySelector<HTMLElement>('#proposal-workspace-title')!;
+    heading.focus();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(document.activeElement).toBe(heading);
+  });
   it('case 3: keeps loading status in the right status area', () => {
     const { root } = render(); expect(root.querySelector('ptah-proposal-status-card')?.textContent).toContain('loading');
   });
