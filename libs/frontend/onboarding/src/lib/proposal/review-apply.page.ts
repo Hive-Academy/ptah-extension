@@ -29,6 +29,8 @@ import {
   type ChangeTag,
 } from './proposal-flow.store';
 import { ReviewSummaryComponent } from './review-summary.component';
+import { ProposalStatusCardComponent } from './proposal-status-card.component';
+import { StatusCardComponent } from '../shared/status-card.component';
 
 @Component({
   selector: 'ptah-review-apply-page',
@@ -38,20 +40,27 @@ import { ReviewSummaryComponent } from './review-summary.component';
     ReviewSummaryComponent,
     ApplyResultComponent,
     OnboardingStepperComponent,
+    ProposalStatusCardComponent,
+    StatusCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<section
-    class="mx-auto max-w-[960px] space-y-5 p-4"
+    class="review-page mx-auto max-w-[960px] space-y-5 p-4"
     aria-labelledby="review-apply-title"
     data-testid="review-apply"
   >
-    <header>
-      <h1 id="review-apply-title" class="text-2xl font-semibold" tabindex="-1">
-        Review and apply
-      </h1>
-      <p class="text-sm text-base-content-muted">
-        Review the configuration before writing it to your workspace.
-      </p>
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 id="review-apply-title" class="text-2xl font-semibold" tabindex="-1">
+          Review and apply
+        </h1>
+        <p class="text-sm text-base-content-muted">
+          Review the configuration before writing it to your workspace.
+        </p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm border border-base-300" (click)="back()">
+        Back to proposal
+      </button>
     </header>
     <ptah-onboarding-stepper [steps]="steps" />
     @if (store.restoreState() === 'loading') {
@@ -60,6 +69,7 @@ import { ReviewSummaryComponent } from './review-summary.component';
       @if (newer(); as later) {
         <div
           class="rounded-[14px] border border-state-need p-4"
+          style="background: color-mix(in oklab, var(--state-ink-need) 8%, transparent)"
           role="status"
           data-testid="newer-revision-banner"
         >
@@ -83,19 +93,6 @@ import { ReviewSummaryComponent } from './review-summary.component';
           again
         </p>
       }
-      <ptah-review-summary
-        [config]="reviewedConfig()"
-        [tags]="tags()"
-        [ordinal]="revision.ordinal"
-        [previousOrdinal]="revision.ordinal - 1"
-        [complete]="revision.isConfigComplete"
-        [mode]="store.mode"
-        [tabId]="store.session.record()?.tabId ?? ''"
-        [workspaceRoot]="store.workspaceRoot()"
-        [showIntakeFacts]="showIntakeFacts()"
-        [document]="store.generatedDocument()"
-        (copyDocument)="copy($event)"
-      />
       @if (!revision.isConfigComplete) {
         <p
           class="rounded-[10px] border border-state-need p-3 text-sm"
@@ -105,21 +102,56 @@ import { ReviewSummaryComponent } from './review-summary.component';
           {{ revision.ordinal }}.
         </p>
       }
-      <div
-        class="rounded-[22px] border border-base-300 p-4"
-        data-glass-surface="content"
-      >
-        <ptah-builder-apply-section
-          [initialized]="true"
-          [workspaceRoot]="store.session.record()?.workspacePath ?? ''"
-          [agentBusy]="busy()"
+      <div class="review-grid grid min-w-0 gap-4" data-testid="review-layout">
+        <ptah-review-summary
+          class="min-w-0"
           [config]="reviewedConfig()"
+          [tags]="tags()"
+          [ordinal]="revision.ordinal"
+          [previousOrdinal]="revision.ordinal - 1"
+          [complete]="revision.isConfigComplete"
+          [mode]="store.mode"
+          [tabId]="store.session.record()?.tabId ?? ''"
+          [workspaceRoot]="store.workspaceRoot()"
+          [showIntakeFacts]="showIntakeFacts()"
           [document]="store.generatedDocument()"
-          (applyStarted)="captureApplyStart()"
-          (applied)="onApplied($event)"
-          (applyFailed)="onApplyFailed()"
-          (openDashboard)="openDashboard()"
+          (copyDocument)="copy($event)"
         />
+        <div class="min-w-0 space-y-4" data-testid="review-actions">
+          @if (sessionStatus() === 'waiting' || sessionStatus() === 'ready') {
+            <ptah-status-card tone="idle" label="Session status">
+              <span statusIcon aria-hidden="true">●</span>
+              <span statusTitle>Agent idle</span>
+              <span statusSub>Safe to apply. The agent is not running.</span>
+            </ptah-status-card>
+          } @else {
+            <ptah-proposal-status-card
+              [status]="sessionStatus()"
+              [showActions]="false"
+            />
+          }
+          <section
+            class="rounded-[22px] border border-base-300 bg-base-200 p-4"
+            data-glass-surface="content"
+            aria-labelledby="review-apply-card-title"
+          >
+            <h2 id="review-apply-card-title" class="text-base font-semibold">Apply</h2>
+            <p class="mt-1 text-sm text-base-content-muted">
+              Writes the agents, skills and MCP entries to your workspace.
+            </p>
+            <ptah-builder-apply-section
+              [initialized]="true"
+              [workspaceRoot]="store.session.record()?.workspacePath ?? ''"
+              [agentBusy]="busy()"
+              [config]="reviewedConfig()"
+              [document]="store.generatedDocument()"
+              (applyStarted)="captureApplyStart()"
+              (applied)="onApplied($event)"
+              (applyFailed)="onApplyFailed()"
+              (openDashboard)="openDashboard()"
+            />
+          </section>
+        </div>
       </div>
       @if (visibleReceipt(); as receipt) {
         <ptah-apply-result
@@ -146,9 +178,6 @@ import { ReviewSummaryComponent } from './review-summary.component';
       @if (store.actionError(); as error) {
         <p role="alert" class="text-sm text-state-err">{{ error }}</p>
       }
-      <button type="button" class="btn btn-sm" (click)="back()">
-        Back to proposal
-      </button>
     } @else {
       <section
         class="rounded-[22px] border border-base-300 p-5"
@@ -162,6 +191,14 @@ import { ReviewSummaryComponent } from './review-summary.component';
       </section>
     }
   </section>`,
+  styles: [`
+    .review-page { container-type: inline-size; }
+    @media (min-width: 768px) {
+      @container (min-width: 716px) {
+        .review-grid { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+      }
+    }
+  `],
 })
 export class ReviewApplyPage implements OnInit {
   protected readonly store = inject(ProposalFlowStore);
@@ -221,8 +258,10 @@ export class ReviewApplyPage implements OnInit {
       ? diffHarnessConfig(prior.config, revision.config)
       : new Map<string, ChangeTag>();
   });
-  readonly busy = () =>
-    ['busy', 'sending', 'cancelling'].includes(this.store.session.phase());
+  readonly sessionStatus = this.store.sessionStatus;
+  readonly busy = computed(() =>
+    this.sessionStatus() === 'working' || this.sessionStatus() === 'stopping',
+  );
   ngOnInit(): void {
     const subscription = this.route.queryParamMap
       .pipe(

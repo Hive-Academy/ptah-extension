@@ -6,6 +6,8 @@ import { AppStateManager } from '@ptah-extension/core';
 import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
 import { ProposalFlowStore } from './proposal-flow.store';
 import { ReviewApplyPage } from './review-apply.page';
+import { ProposalStatusCardComponent } from './proposal-status-card.component';
+import { StatusCardComponent } from '../shared/status-card.component';
 
 describe('ReviewApplyPage', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -30,6 +32,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus: signal<'waiting' | 'working'>('waiting'),
             revisions,
             current: () => revisions().at(-1),
             session: {
@@ -99,6 +102,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus: signal<'waiting' | 'working'>('waiting'),
             revisions,
             current: () => revisions().at(-1),
             session: {
@@ -160,6 +164,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus: signal<'waiting' | 'working'>('waiting'),
             revisions,
             current: () => revisions().at(-1),
             restore: jest.fn().mockResolvedValue(undefined),
@@ -227,6 +232,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus: signal<'waiting' | 'working'>('waiting'),
             revisions: signal([
               { id: 'one', ordinal: 1, config: { name: 'One' } },
             ]),
@@ -268,6 +274,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus: signal<'waiting' | 'working'>('waiting'),
             revisions,
             current: () => revisions().at(-1),
             restore,
@@ -306,12 +313,13 @@ describe('ReviewApplyPage', () => {
     expect(page.reviewedId()).toBe('r1');
   });
   it('renders the newer banner and an old receipt note without showing the stale result', async () => {
+    const sessionStatus = signal<'waiting' | 'working'>('waiting');
     const revisions = signal([
       {
         id: 'one',
         ordinal: 1,
         config: { name: 'One' },
-        isConfigComplete: true,
+        isConfigComplete: false,
       },
       {
         id: 'two',
@@ -339,6 +347,7 @@ describe('ReviewApplyPage', () => {
           provide: ProposalFlowStore,
           useValue: {
             mode: 'new-project',
+            sessionStatus,
             revisions,
             current: () => revisions().at(-1),
             restore: jest.fn().mockResolvedValue(undefined),
@@ -366,7 +375,10 @@ describe('ReviewApplyPage', () => {
       ],
     });
     TestBed.overrideComponent(ReviewApplyPage, {
-      set: { imports: [], schemas: [NO_ERRORS_SCHEMA] },
+      set: {
+        imports: [StatusCardComponent, ProposalStatusCardComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
     });
     const fixture = TestBed.createComponent(ReviewApplyPage);
     fixture.detectChanges();
@@ -377,6 +389,22 @@ describe('ReviewApplyPage', () => {
       element.querySelector('[data-testid="newer-revision-banner"]')
         ?.textContent,
     ).toContain('Revision 2 is available');
+    const layout = element.querySelector('[data-testid="review-layout"]');
+    expect(layout?.querySelector('ptah-review-summary')).not.toBeNull();
+    expect(layout?.querySelector('[data-testid="review-actions"]')).not.toBeNull();
+    expect(element.textContent).toContain('Agent idle');
+    expect(fixture.componentInstance.busy()).toBe(false);
+    const applySection = element.querySelector('ptah-builder-apply-section') as
+      | (HTMLElement & { agentBusy?: boolean })
+      | null;
+    expect(applySection?.agentBusy).toBe(false);
+    expect(element.querySelector('[data-testid="incomplete-note"]')).not.toBeNull();
+    sessionStatus.set('working');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.busy()).toBe(true);
+    expect(applySection?.agentBusy).toBe(true);
+    expect(element.textContent).toContain('Working');
+    expect(element.textContent).not.toContain('Agent idle');
     expect(element.querySelector('ptah-apply-result')).not.toBeNull();
     params.next(convertToParamMap({ tab: 'tab', rev: 'two' }));
     fixture.detectChanges();

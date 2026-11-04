@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { ArrowRight, LucideAngularModule, Users } from 'lucide-angular';
 import { AttachmentTrayComponent, ComposerAttachmentsService } from '@ptah-extension/chat';
 import { HarnessBuilderLeaveDialogComponent } from '@ptah-extension/harness-builder';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
@@ -26,6 +27,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
     FormsModule,
     AttachmentTrayComponent,
     WorkspaceHeaderComponent,
+    LucideAngularModule,
   ],
   providers: [ComposerAttachmentsService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -35,36 +37,33 @@ import { ProposalFlowStore } from './proposal-flow.store';
       aria-labelledby="team-builder-start-title"
       data-testid="team-builder-start"
     >
-      <header>
-        <h1
-          id="team-builder-start-title"
-          class="text-2xl font-semibold"
-          tabindex="-1"
-        >
-          AI team builder
-        </h1>
-        <p class="text-sm text-base-content-muted">
-          Describe the team you want.
-        </p>
+      <header class="flex items-center gap-3">
+        <span class="flex size-11 shrink-0 items-center justify-center rounded-xl border border-base-300 text-state-need" data-glass-surface="tile">
+          <lucide-angular [img]="icons.users" class="size-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h1 id="team-builder-start-title" class="text-2xl font-semibold" tabindex="-1">AI team builder</h1>
+          <p class="text-sm text-base-content-muted">Describe the team you want. The agent proposes it.</p>
+        </div>
       </header>
       <ptah-workspace-header [canSwitch]="true" />
       <ptah-onboarding-stepper [steps]="steps" />
       <form
-        class="space-y-5 rounded-[22px] border border-base-300 p-5"
+        class="space-y-4 rounded-[22px] border border-base-300 p-4"
         data-glass-surface="content"
         (ngSubmit)="submit($event)"
         novalidate
       >
-        <p class="text-sm text-base-content-muted">
-          Workspace: {{ store.workspaceRoot() || 'Open a workspace' }}
+        <p class="text-xs text-base-content-muted">
+          Workspace <span class="font-mono">{{ store.workspaceRoot() || 'Open a workspace' }}</span>
         </p>
         <div>
-          <label for="team-intent" class="block font-medium"
-            >Describe the team you want</label
+          <label for="team-intent" class="block text-sm font-semibold"
+            >What should the team do?</label
           ><textarea
             id="team-intent"
             name="intent"
-            class="textarea textarea-bordered mt-2 min-h-32 w-full"
+            class="textarea textarea-bordered mt-2 min-h-[140px] w-full"
             [ngModel]="intent()"
             (ngModelChange)="intent.set($event)"
             (blur)="touched.set(true)"
@@ -75,33 +74,35 @@ import { ProposalFlowStore } from './proposal-flow.store';
             [attr.aria-describedby]="invalid() ? 'team-attachment-hint team-intent-error' : 'team-attachment-hint'"
           ></textarea>
           <ptah-attachment-tray />
-          <p id="team-attachment-hint" class="mt-1 text-xs text-base-content-muted">Attachments are not saved if you leave this page</p>
+          <p id="team-attachment-hint" class="mt-1 text-xs text-base-content-muted">Required. Attachments are not saved if you leave this page.</p>
           @if (invalid()) {
             <p id="team-intent-error" class="text-sm text-state-err">
               Describe the team you want.
             </p>
           }
         </div>
-        <details class="rounded-[10px] border border-base-300 p-3">
-          <summary class="cursor-pointer">
+        <details class="rounded-[14px] border border-base-300 p-3" data-glass-surface="tile">
+          <summary class="cursor-pointer text-sm font-semibold">
             Advanced · provider and model
           </summary>
           <p class="mt-2 text-sm text-base-content-muted">
             The session uses your current provider and model.
           </p>
         </details>
-        @if (draftTab()) {
-          <button type="button" class="btn btn-sm" (click)="continueDraft()">
-            Load saved draft
-          </button>
-        }
         @if (store.actionError(); as error) {
           <p role="alert" class="text-sm text-state-err">{{ error }}</p>
         }
-        <div class="flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary" [disabled]="starting() || attachments.pendingReads() > 0">
-            {{ starting() ? 'Starting…' : 'Start team builder' }}</button
-          ><button type="button" class="btn" (click)="back()">Back</button>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap gap-2">
+            @if (draftTab()) {
+              <button type="button" class="btn btn-ghost" (click)="continueDraft()">Load saved draft</button>
+            }
+            <button type="button" class="btn btn-ghost" (click)="back()">Back</button>
+          </div>
+          <button type="submit" class="btn btn-primary grow sm:grow-0" [disabled]="starting() || attachments.pendingReads() > 0">
+            {{ starting() ? 'Starting…' : 'Start team builder' }}
+            <lucide-angular [img]="icons.next" class="size-4" aria-hidden="true" />
+          </button>
         </div>
       </form>
       @if (store.leaveOpen()) {
@@ -119,6 +120,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
   `,
 })
 export class TeamBuilderStartPage {
+  protected readonly icons = { users: Users, next: ArrowRight };
   readonly attachments = inject(ComposerAttachmentsService);
   protected readonly store = inject(ProposalFlowStore);
   protected readonly steps: readonly OnboardingStep[] = [

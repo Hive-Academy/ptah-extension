@@ -116,6 +116,9 @@ describe('ProposalFlowStore', () => {
       sessionId: 'session-1',
     });
     expect(store.reviewEligible()).toBe(true);
+    expect(store.sessionStatus()).toBe('working');
+    phase.set('done');
+    expect(store.sessionStatus()).toBe('ready');
   });
   it.each(['reused', 'started'] as const)(
     'stops a conflicting %s session before its first proposal exists',
