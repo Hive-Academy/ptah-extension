@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WebSocket } from 'ws';
 import { PairingWindow } from './pairing-window';
 import { TokenStore } from './token-store';
 import { WorkspaceRegistry } from './workspace-registry';
@@ -121,4 +122,80 @@ it('refuses readiness failure before binding', async () => {
   });
   await expect(service.start()).rejects.toThrow('runtime');
   expect(service.endpoint).toBeUndefined();
+});
+
+describe('shutdown goodbye', () => {
+  async function startWithClient(): Promise<{
+    frames: Promise<unknown>;
+    socket: WebSocket;
+  }> {
+    const paths = workerPaths(directory);
+    const registry = new WorkspaceRegistry(paths);
+    service = new WorkerService({
+      paths,
+      registry,
+      workspacePaths: [],
+      argv: [],
+      driver: { onAppendFailed: jest.fn() },
+      releaseLocks: async () => undefined,
+      readiness: async () => ({ ready: true, checks: [] }),
+      host: '127.0.0.1',
+      port: 0,
+      identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+      pairing: new PairingWindow(registry, 'm'),
+      tokens: new TokenStore(paths),
+      handle: async () => ({}),
+    });
+    await service.start();
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${service.endpoint?.port}/rpc`,
+    );
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const frames = new Promise<unknown>((resolve) =>
+      socket.once('message', (data) => resolve(JSON.parse(data.toString()))),
+    );
+    return { frames, socket };
+  }
+
+  it('sends ctl goodbye to connected clients on stop', async () => {
+    const { frames, socket } = await startWithClient();
+    await service?.stop();
+    expect(await frames).toMatchObject({
+      kind: 'ctl',
+      type: 'goodbye',
+      payload: { reason: 'shutdown' },
+    });
+    socket.terminate();
+  });
+
+  it('sends ctl goodbye and removes the endpoint when SIGTERM arrives', async () => {
+    let onTerm: (() => void) | undefined;
+    const spy = jest.spyOn(process, 'on').mockImplementation(((
+      event: string,
+      listener: () => void,
+    ) => {
+      if (event === 'SIGTERM') onTerm = listener;
+      return process;
+    }) as unknown as typeof process.on);
+    let started: Awaited<ReturnType<typeof startWithClient>>;
+    try {
+      started = await startWithClient();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(onTerm).toBeDefined();
+    onTerm?.();
+    expect(await started.frames).toMatchObject({
+      kind: 'ctl',
+      type: 'goodbye',
+    });
+    await service?.stop();
+    await expect(stat(workerPaths(directory).endpoint)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    started.socket.terminate();
+  });
 });

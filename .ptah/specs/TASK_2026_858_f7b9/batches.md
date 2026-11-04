@@ -921,7 +921,7 @@ phase summary.
 
 - Approval, turn, transcript and native-limit specs pass; verify passes
 
-## Batch 18: C6e server, connection, readiness, service (revised Round 6) — PENDING
+## Batch 18: C6e server, connection, readiness, service (revised Round 6) — COMPLETE (Codex 18.1-18.2, Claude 18.3; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability (security specs pinned by a test-capability lane, Task 18.3)
 - Execution mode: sequential
@@ -960,7 +960,7 @@ phase summary.
 - Validation notes: A2 spec
 - Implementation details: `createWorkerServer` is consumed by Batch 21's A1 spec
 
-### Task 18.3: Security spec suite — PENDING
+### Task 18.3: Security spec suite — COMPLETE
 
 - Depends on: Task 18.2
 - File: W/`libs/backend/worker-runtime/src/lib/worker-security.spec.ts` (create)

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { WebSocket } from 'ws';
 import { WorkerConnection } from './connection';
+import { WORKER_LIMITS } from '@ptah-extension/worker-protocol';
 import type { PairingWindow } from './pairing-window';
 import type { TokenStore } from './token-store';
 import { PAIRING_REJECTION } from './pairing-window';
@@ -118,4 +119,42 @@ it('throttles pairing on the third failure with the same wire rejection', async 
     ),
   ).toHaveLength(3);
   connection.close();
+});
+
+describe('liveness timers', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  function make(socket: FakeSocket): WorkerConnection {
+    return new WorkerConnection(socket as unknown as WebSocket, {
+      identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+      pairing: {} as PairingWindow,
+      tokens: {} as TokenStore,
+      handle: jest.fn(),
+    });
+  }
+
+  it('holds the auth and ping timers while open and releases them on close', () => {
+    const connection = make(new FakeSocket());
+    expect(jest.getTimerCount()).toBe(2);
+    connection.close();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('releases every timer including a pending pong deadline when the peer closes', () => {
+    const socket = new FakeSocket();
+    make(socket);
+    jest.advanceTimersByTime(WORKER_LIMITS.pingIntervalMs);
+    // auth timer already fired (authTimeoutMs < pingIntervalMs); pong deadline pending
+    socket.emit('close');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('closes an unauthenticated connection when the auth timeout elapses', () => {
+    const socket = new FakeSocket();
+    make(socket);
+    jest.advanceTimersByTime(WORKER_LIMITS.authTimeoutMs);
+    expect(socket.code).toBe(4401);
+    expect(jest.getTimerCount()).toBe(0);
+  });
 });
