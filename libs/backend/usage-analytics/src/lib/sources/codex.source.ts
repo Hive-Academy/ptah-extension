@@ -14,21 +14,23 @@ export class CodexSource implements UsageSource {
   private readonly cache = new FileFactsCache();
   constructor(private readonly home = process.env['CODEX_HOME'] || path.join(os.homedir(), '.codex')) {}
 
-  async read(workspacePath: string, since: number, until: number): Promise<UsageSourceResult> {
+  async read(workspacePath: string, since: number, until: number, signal?: AbortSignal): Promise<UsageSourceResult> {
     const root = path.join(this.home, 'sessions');
     try { await fs.access(root); } catch { return { contributions: [], status: { sourceId: 'codex', status: 'unavailable', reason: 'Codex session store missing' } }; }
     const facts: UsageContribution[] = [];
     let malformed = 0; let partial = false; let scannedFiles = 0;
     for (let day = Math.floor(since / 86_400_000) * 86_400_000; day < until; day += 86_400_000) {
+      if (signal?.aborted || scannedFiles >= 10_000) { partial = true; break; }
       const date = new Date(day);
       const folder = path.join(root, String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0'));
       let names: string[];
       try { names = (await fs.readdir(folder)).filter((n) => /^rollout-.*\.jsonl$/.test(n)); } catch { continue; }
       for (const name of names) {
+        if (signal?.aborted) { partial = true; break; }
         if (scannedFiles >= 10_000) { partial = true; break; }
         try {
           const file = path.join(folder, name);
-          const parsed = await this.cache.read(file, (lines) => this.parse(lines, file));
+          const parsed = await this.cache.read(file, (lines) => this.parse(lines, file, signal), signal);
           scannedFiles++; malformed += parsed.malformed; partial ||= parsed.partial;
           const dated = inRange(parsed.facts, since, until);
           if (workspacePath && dated.some((f) => !f.workspaceRoot)) partial = true;
@@ -36,13 +38,14 @@ export class CodexSource implements UsageSource {
         } catch { partial = true; malformed++; }
       }
     }
-    return { contributions: facts, status: { sourceId: 'codex', status: partial || malformed ? 'partial' : 'complete', scannedFiles, malformedRecords: malformed, ...(partial ? { reason: 'Some files or workspace metadata were unavailable' } : {}) } };
+    return { contributions: facts, status: { sourceId: 'codex', status: partial || malformed ? 'partial' : 'complete', scannedFiles, malformedRecords: malformed, ...(partial ? { reason: signal?.aborted ? 'time-budget' : 'Some files or workspace metadata were unavailable' } : {}) } };
   }
 
-  private async parse(lines: AsyncIterable<string>, file: string): Promise<ParsedFile> {
-    const facts: UsageContribution[] = []; let malformed = 0; const partial = false;
+  private async parse(lines: AsyncIterable<string>, file: string, signal?: AbortSignal): Promise<ParsedFile> {
+    const facts: UsageContribution[] = []; let malformed = 0;
     let model = 'unknown'; let cwd: string | undefined; let sessionId: string | undefined;
     for await (const line of lines) {
+      if (signal?.aborted) break;
       let raw: unknown;
       try { raw = JSON.parse(line); } catch { malformed++; continue; }
       const entry = lineSchema.safeParse(raw);
@@ -63,6 +66,6 @@ export class CodexSource implements UsageSource {
       const eventId = createHash('sha256').update(JSON.stringify([entry.data.timestamp, model, tokens.data])).digest('hex');
       facts.push({ key: `${sessionId ?? path.basename(file)}:${eventId}`, timestampMs, sessionId: sessionId ?? path.basename(file), sessionTitle: "Session " + (sessionId ?? path.basename(file)).slice(0, 8), providerId: 'codex', modelId: model, workspaceRoot: cwd, inputUncachedTokens: tokens.data.input_tokens - tokens.data.cached_input_tokens, cacheReadTokens: tokens.data.cached_input_tokens, cacheWriteTokens: tokens.data.cache_write_input_tokens, outputTokens: tokens.data.output_tokens, sourceId: 'codex', requestCount: 1 });
     }
-    return { facts, malformed, partial };
+    return { facts, malformed, partial: signal?.aborted ?? false };
   }
 }

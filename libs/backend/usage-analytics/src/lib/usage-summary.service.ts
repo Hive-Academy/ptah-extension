@@ -13,6 +13,7 @@ import { UsagePricingService } from './usage-pricing.service';
 import type { UsageContribution, UsageSource } from './usage-source.types';
 
 const DAY_MS = 86_400_000;
+const LEDGER_SLICE_MS = 3_600_000;
 const MAX_FACTS = 100_000;
 /** Source ids in the same order as `UsageAnalyticsService.sources`. */
 const EXTERNAL_SOURCE_IDS = ['codex', 'opencode', 'grok', 'antigravity', 'ollama-cloud'] as const;
@@ -56,9 +57,14 @@ export class UsageAnalyticsService {
     if (this.statsRepository) {
       try {
         workspaceKey = normalizeWorkspaceRoot(workspacePath);
+        if (signal?.aborted) throw new Error('time-budget');
         const coverage = await this.statsRepository.getWorkspaceCoverage(workspaceKey);
-        const ledgerGroups = await this.statsRepository.getWorkspaceUsageGroups(workspaceKey, since, until);
-        for (const row of ledgerGroups.slice(0, MAX_FACTS)) {
+        let factLimitReached = false;
+        for (let cursor = since; cursor < until; cursor += signal ? LEDGER_SLICE_MS : until - since) {
+          if (signal?.aborted) break;
+          const ledgerGroups = await this.statsRepository.getWorkspaceUsageGroups(workspaceKey, cursor, Math.min(until, cursor + (signal ? LEDGER_SLICE_MS : until - since)));
+          for (const row of ledgerGroups) {
+          if (signal?.aborted) break;
           const costSource = row.has_unpriced === 0 && (row.cost_authority === 'provider-reported' || row.cost_authority === 'model-priced')
             ? row.cost_authority : 'unpriced';
           const fact: UsageFact = {
@@ -70,10 +76,26 @@ export class UsageAnalyticsService {
             ...(row.known_cost_micro_usd !== null ? { knownCostUsd: row.known_cost_micro_usd / 1_000_000 } : {}),
             cacheSavingsUsd: null,
           };
-          groups.set(JSON.stringify([fact.day, fact.providerId, fact.modelId, fact.sourceId, fact.costSource, row.source]), fact);
+          const key = JSON.stringify([fact.day, fact.providerId, fact.modelId, fact.sourceId, fact.costSource, row.source]);
+          const prior = groups.get(key);
+          if (!prior && groups.size >= MAX_FACTS) { factLimitReached = true; continue; }
+          groups.set(key, prior ? {
+            ...fact,
+            inputUncachedTokens: prior.inputUncachedTokens + fact.inputUncachedTokens,
+            outputTokens: prior.outputTokens + fact.outputTokens,
+            cacheReadTokens: prior.cacheReadTokens + fact.cacheReadTokens,
+            cacheWriteTokens: prior.cacheWriteTokens + fact.cacheWriteTokens,
+            costUsd: prior.costUsd === null || fact.costUsd === null ? null : prior.costUsd + fact.costUsd,
+            ...mergeKnownCost(prior.knownCostUsd, fact.knownCostUsd),
+          } : fact);
+          }
+          if (signal) await new Promise<void>((resolve) => setImmediate(resolve));
         }
+        if (!signal?.aborted) {
         ledgerSessionCount = await this.statsRepository.getWorkspaceSessionCount(workspaceKey, since, until);
+        if (signal?.aborted) throw new Error('time-budget');
         messageCount += await this.statsRepository.getWorkspaceMessageCount(workspaceKey, since, until);
+        if (signal?.aborted) throw new Error('time-budget');
         const topRows = await this.statsRepository.getWorkspaceTopSessions(workspaceKey, since, until);
         for (const row of topRows) {
           ledgerTopSessions.push(UsageTopSessionSchema.parse({
@@ -89,13 +111,18 @@ export class UsageAnalyticsService {
             lastActive: new Date(row.last_active_ms).toISOString(),
           }));
         }
-        statuses.push({ sourceId: 'claude-ledger', status: 'partial', ...(coverage ? { coverageStart: new Date(coverage.first_captured_at_ms).toISOString().slice(0, 10) } : {}), reason: ledgerGroups.length > MAX_FACTS
+        }
+        statuses.push({ sourceId: 'claude-ledger', status: 'partial', ...(coverage ? { coverageStart: new Date(coverage.first_captured_at_ms).toISOString().slice(0, 10) } : {}), reason: signal?.aborted ? 'time-budget' : factLimitReached
           ? 'fact-limit' : coverage
             ? `Historical sessions were not backfilled; data starts ${new Date(coverage.first_captured_at_ms).toISOString()}; subagent counts unavailable`
             : 'Historical sessions were not backfilled; no live usage captured yet' });
       } catch (error: unknown) {
+        if (signal?.aborted) {
+          statuses.push({ sourceId: 'claude-ledger', status: 'partial', reason: 'time-budget' });
+        } else {
         this.logger.warn('[UsageAnalytics] Session ledger unavailable', { reason: error instanceof Error ? error.name : 'unknown' });
         statuses.push({ sourceId: 'claude-ledger', status: 'unavailable', reason: 'Session ledger unavailable' });
+        }
       }
     }
     for (const [sourceIndex, source] of this.sources.entries()) {
@@ -213,6 +240,18 @@ export class UsageAnalyticsService {
     const checked = UsageSummarySchema.parse(summary);
     return checked;
   }
+}
+
+/**
+ * Sum two optional known costs across ledger slices. When neither slice had a
+ * known cost the field stays absent, so the UI shows "no data" and not $0.00.
+ */
+export function mergeKnownCost(
+  prior: number | undefined,
+  next: number | undefined,
+): { knownCostUsd?: number } {
+  if (prior === undefined && next === undefined) return {};
+  return { knownCostUsd: (prior ?? 0) + (next ?? 0) };
 }
 
 function validContribution(row: UsageContribution, since: number, until: number): boolean {

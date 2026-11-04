@@ -144,6 +144,57 @@ describe('BootStatusService', () => {
     expect(service.phase()).toBe('sessions');
   });
 
+  describe('replayed early pushes (renderer bootstrap buffer)', () => {
+    function replay(service: BootStatusService, payload: unknown): void {
+      service.handleMessage({
+        type: MESSAGE_TYPES.BOOT_READINESS_CHANGED,
+        payload,
+        replayed: true,
+      });
+    }
+
+    it('does not let a replayed stale push rewind a newer pulled snapshot', async () => {
+      const rpc: RpcStub = {
+        call: jest.fn().mockResolvedValue(
+          new RpcResult(true, { readiness: 'ready', phase: 'settled', startedAt: 10 }),
+        ),
+      };
+      const { service } = configure({ isElectron: true, rpc });
+      await flushMicrotasks();
+
+      replay(service, { readiness: 'warming', phase: 'database', startedAt: 10 });
+
+      expect(service.readiness()).toBe('ready');
+      expect(service.isBooting()).toBe(false);
+    });
+
+    it('adopts a replayed push when no snapshot has arrived yet', () => {
+      const { service } = configure({
+        isElectron: true,
+        rpc: { call: jest.fn().mockReturnValue(new Promise(() => undefined)) },
+      });
+
+      replay(service, { readiness: 'warming', phase: 'database', startedAt: 10 });
+
+      expect(service.isBooting()).toBe(true);
+      expect(service.phase()).toBe('database');
+    });
+
+    it('still lets a live push move the state backwards', async () => {
+      const rpc: RpcStub = {
+        call: jest.fn().mockResolvedValue(
+          new RpcResult(true, { readiness: 'ready', phase: 'settled', startedAt: 10 }),
+        ),
+      };
+      const { service } = configure({ isElectron: true, rpc });
+      await flushMicrotasks();
+
+      push(service, { readiness: 'warming', phase: 'database', startedAt: 10 });
+
+      expect(service.isBooting()).toBe(true);
+    });
+  });
+
   it('flips isBooting on a warming push and clears it on a ready push', () => {
     const { service } = configure({ isElectron: true });
 

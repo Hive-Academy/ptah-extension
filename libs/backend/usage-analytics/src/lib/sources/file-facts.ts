@@ -15,7 +15,7 @@ export class FileFactsCache {
   private readonly entries = new Map<string, ParsedFile>();
   private factCount = 0;
 
-  async read(file: string, parse: (lines: AsyncIterable<string>, mtimeMs: number) => Promise<ParsedFile>): Promise<ParsedFile> {
+  async read(file: string, parse: (lines: AsyncIterable<string>, mtimeMs: number) => Promise<ParsedFile>, signal?: AbortSignal): Promise<ParsedFile> {
     const stat = await fs.stat(file);
     if (stat.size > MAX_FILE_BYTES) return { facts: [], malformed: 0, partial: true };
     const key = `${file}\0${stat.size}\0${stat.mtimeMs}`;
@@ -26,16 +26,15 @@ export class FileFactsCache {
     try {
       const lines = boundedLines(reader);
       const parsed = await parse(lines, stat.mtimeMs);
+      if (signal?.aborted || parsed.facts.length > MAX_CACHED_FACTS) return parsed;
       while (this.entries.size >= MAX_ENTRIES || this.factCount + parsed.facts.length > MAX_CACHED_FACTS) {
         const oldest = this.entries.keys().next().value;
         if (oldest === undefined) break;
         this.factCount -= this.entries.get(oldest)?.facts.length ?? 0;
         this.entries.delete(oldest);
       }
-      if (parsed.facts.length <= MAX_CACHED_FACTS) {
-        this.entries.set(key, parsed);
-        this.factCount += parsed.facts.length;
-      }
+      this.entries.set(key, parsed);
+      this.factCount += parsed.facts.length;
       return parsed;
     } finally { reader.close(); stream.destroy(); }
   }

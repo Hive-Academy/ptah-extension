@@ -15,12 +15,14 @@ export class GrokSource implements UsageSource {
   private readonly cache = new FileFactsCache();
   constructor(private readonly home = process.env['GROK_HOME'] || path.join(os.homedir(), '.grok')) {}
 
-  async read(workspacePath: string, since: number, until: number): Promise<UsageSourceResult> {
+  async read(workspacePath: string, since: number, until: number, signal?: AbortSignal): Promise<UsageSourceResult> {
     const root = path.join(this.home, 'sessions');
     let workspaces: string[];
     try { workspaces = await fs.readdir(root); } catch { return { contributions: [], status: { sourceId: 'grok', status: 'unavailable', reason: 'Grok session store missing' } }; }
     const facts: UsageContribution[] = []; let malformed = 0; let partial = false; let scannedFiles = 0;
     for (const encoded of workspaces) {
+      if (scannedFiles >= 10_000) { partial = true; break; }
+      if (signal?.aborted) { partial = true; break; }
       let cwd: string | undefined;
       try { cwd = decodeURIComponent(encoded); } catch { partial = true; }
       if (!cwd && workspacePath) partial = true;
@@ -28,21 +30,23 @@ export class GrokSource implements UsageSource {
       let sessions: string[];
       try { sessions = await fs.readdir(path.join(root, encoded)); } catch { partial = true; continue; }
       for (const session of sessions) {
+        if (signal?.aborted) { partial = true; break; }
         if (scannedFiles >= 10_000) { partial = true; break; }
         const file = path.join(root, encoded, session, 'updates.jsonl');
         try {
-          const parsed = await this.cache.read(file, (lines, mtime) => this.parse(lines, file, mtime));
+          const parsed = await this.cache.read(file, (lines, mtime) => this.parse(lines, file, mtime, signal), signal);
           scannedFiles++; malformed += parsed.malformed; partial ||= parsed.partial;
           facts.push(...inRange(parsed.facts, since, until));
         } catch { partial = true; malformed++; }
       }
     }
-    return { contributions: facts, status: { sourceId: 'grok', status: partial || malformed ? 'partial' : 'complete', scannedFiles, malformedRecords: malformed, ...(partial ? { reason: 'Some session timestamps or files were unavailable' } : {}) } };
+    return { contributions: facts, status: { sourceId: 'grok', status: partial || malformed ? 'partial' : 'complete', scannedFiles, malformedRecords: malformed, ...(partial ? { reason: signal?.aborted ? 'time-budget' : 'Some session timestamps or files were unavailable' } : {}) } };
   }
 
-  private async parse(lines: AsyncIterable<string>, file: string, mtimeMs: number): Promise<ParsedFile> {
+  private async parse(lines: AsyncIterable<string>, file: string, mtimeMs: number, signal?: AbortSignal): Promise<ParsedFile> {
     const facts: UsageContribution[] = []; let malformed = 0; let partial = false; let index = 0;
     for await (const line of lines) {
+      if (signal?.aborted) { partial = true; break; }
       index++;
       let raw: unknown;
       try { raw = JSON.parse(line); } catch { malformed++; continue; }

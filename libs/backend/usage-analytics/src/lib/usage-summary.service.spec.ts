@@ -1,5 +1,17 @@
 import 'reflect-metadata';
-import { UsageAnalyticsService } from './usage-summary.service';
+import { UsageAnalyticsService, mergeKnownCost } from './usage-summary.service';
+
+describe('mergeKnownCost', () => {
+  it('keeps the known cost absent when no ledger slice had one', () => {
+    expect(mergeKnownCost(undefined, undefined)).toEqual({});
+  });
+
+  it('sums known costs across slices', () => {
+    expect(mergeKnownCost(1.5, undefined)).toEqual({ knownCostUsd: 1.5 });
+    expect(mergeKnownCost(undefined, 2)).toEqual({ knownCostUsd: 2 });
+    expect(mergeKnownCost(1.5, 2)).toEqual({ knownCostUsd: 3.5 });
+  });
+});
 import { CodexSource } from './sources/codex.source';
 import { OpenCodeSource } from './sources/opencode.source';
 import { GrokSource } from './sources/grok.source';
@@ -9,6 +21,51 @@ import { SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
 
 describe('UsageAnalyticsService', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('does not start ledger SQL when the budget has expired', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    const groups = jest.spyOn(repository, 'getWorkspaceUsageGroups');
+    const budget = new AbortController();
+    budget.abort();
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace', budget.signal);
+    expect(groups).not.toHaveBeenCalled();
+    expect(summary.sources[0]).toMatchObject({ sourceId: 'claude-ledger', status: 'partial', reason: 'time-budget' });
+  });
+
+  it('stops ledger slices after abort without running count or ranking queries', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    const budget = new AbortController();
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
+    const groups = jest.spyOn(repository, 'getWorkspaceUsageGroups').mockImplementation(async () => { budget.abort(); return []; });
+    const count = jest.spyOn(repository, 'getWorkspaceSessionCount');
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace', budget.signal);
+    expect(groups).toHaveBeenCalledTimes(1);
+    expect(count).not.toHaveBeenCalled();
+    expect(summary.sources[0]).toMatchObject({ status: 'partial', reason: 'time-budget' });
+  });
+
+  it('keeps ledger counts on a completed RPC budget', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
+    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue([]);
+    const sessions = jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(4);
+    const messages = jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(9);
+    jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    for (const source of [CodexSource, OpenCodeSource, GrokSource, CliSessionSource]) {
+      jest.spyOn(source.prototype, 'read').mockResolvedValue(empty);
+    }
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace', new AbortController().signal);
+    expect(sessions).toHaveBeenCalledTimes(1);
+    expect(messages).toHaveBeenCalledTimes(1);
+    expect(summary.sessionCount).toBe(4);
+    expect(summary.messageCount).toBe(9);
+  });
 
   it('marks an empty ledger partial because historical sessions were not backfilled', async () => {
     const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
@@ -33,7 +90,10 @@ describe('UsageAnalyticsService', () => {
     jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
     const day = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000).toISOString().slice(0, 10);
     const row = { day, provider_id: 'openai', model_id: 'm', source: 'live', cost_authority: 'unpriced', input_tokens: 1, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, known_cost_micro_usd: null, has_unpriced: 1, session_count: 1 };
-    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue(Array.from({ length: 100_001 }, (_, i) => ({ ...row, model_id: `m${i}` })));
+    jest.spyOn(repository, 'getWorkspaceUsageGroups')
+      .mockResolvedValueOnce(Array.from({ length: 100_001 }, (_, i) => ({ ...row, model_id: `m${i}` })))
+      .mockResolvedValueOnce([{ ...row, model_id: 'm0' }])
+      .mockResolvedValue([]);
     jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(1);
     jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(1);
     jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
@@ -43,8 +103,9 @@ describe('UsageAnalyticsService', () => {
     jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
     jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
     const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
-    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace', new AbortController().signal);
     expect(summary.facts).toHaveLength(100_000);
+    expect(summary.facts.find((fact) => fact.modelId === 'm0')?.inputUncachedTokens).toBe(2);
     expect(summary.sources[0]).toMatchObject({ status: 'partial', reason: 'fact-limit' });
   });
 
