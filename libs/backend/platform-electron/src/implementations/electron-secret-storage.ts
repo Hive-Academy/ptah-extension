@@ -36,6 +36,9 @@ export interface SafeStorageApi {
 }
 
 export class ElectronSecretStorage implements ISecretStorage {
+  storageMode(): 'encrypted' | 'plaintext' {
+    return this.safeStorage.isEncryptionAvailable() ? 'encrypted' : 'plaintext';
+  }
   public readonly onDidChange: IEvent<SecretChangeEvent>;
   private readonly fireChange: (data: SecretChangeEvent) => void;
   private secrets: Record<string, string> = {}; // key -> base64-encoded encrypted buffer

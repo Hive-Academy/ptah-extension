@@ -96,6 +96,22 @@ describe('ElectronSecretStorage — Electron-specific behaviour', () => {
     storage = await makeTempDir();
   });
 
+  it('reports whether the current adapter can encrypt secrets', () => {
+    expect(new ElectronSecretStorage(storage, createEncryptingSafeStorage()).storageMode()).toBe('encrypted');
+    expect(new ElectronSecretStorage(storage, createPlainSafeStorage()).storageMode()).toBe('plaintext');
+  });
+
+  it('persists the review bot credential across adapter restarts and removes it durably', async () => {
+    const key = 'ptah.review.githubToken';
+    const first = new ElectronSecretStorage(storage, createEncryptingSafeStorage());
+    await first.store(key, 'github-token-value');
+    expect(await fs.readFile(path.join(storage, 'secrets.json'), 'utf8')).not.toContain('github-token-value');
+    const restarted = new ElectronSecretStorage(storage, createEncryptingSafeStorage());
+    expect(await restarted.get(key)).toBe('github-token-value');
+    await restarted.delete(key);
+    expect(await new ElectronSecretStorage(storage, createEncryptingSafeStorage()).get(key)).toBeUndefined();
+  });
+
   it('encrypts values via safeStorage.encryptString when encryption is available', async () => {
     const safeStorage = createEncryptingSafeStorage();
     const encryptSpy = jest.spyOn(safeStorage, 'encryptString');

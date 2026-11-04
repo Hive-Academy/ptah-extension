@@ -12,6 +12,7 @@
     "ulid": "3.0.2",
     "@ptah-extension/review-contracts": "0.0.1",
     "@ptah-extension/review-core": "0.0.1",
+    "@ptah-extension/review-github": "0.0.1",
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/agent-sdk": "0.0.1",

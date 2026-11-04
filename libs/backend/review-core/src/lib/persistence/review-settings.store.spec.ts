@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { MIGRATIONS, SqliteConnectionService, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { Logger } from '@ptah-extension/vscode-core';
-import { ReviewSettingsStore } from './review-settings.store';
+import { ReviewSettingsStore, type LiveGateRecord } from './review-settings.store';
 
 describe('ReviewSettingsStore', () => {
   it('round trips validated operator and repository settings in migration 0065', async () => {
@@ -23,6 +23,17 @@ describe('ReviewSettingsStore', () => {
       await store.updateSettings({ ...settings, repositories: [...settings.repositories],
         maintainerLogins: [...settings.maintainerLogins], fallbackFamilies: [] });
       expect(await store.getSettings()).toEqual(settings);
+      const gate: LiveGateRecord = { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, login: 'ptah-bot',
+        connectedAt: '2026-11-04T00:00:00.000Z', verifiedAt: '2026-11-04T00:00:00.000Z',
+        attestation: { who: 'maintainer', when: '2026-11-04T00:01:00.000Z',
+          permissions: ['Pull requests: Read and write', 'Contents: Read', 'Metadata: Read'] } };
+      await store.setLiveGate(gate);
+      expect(await store.getLiveGate()).toEqual(gate);
+      await store.updateSettings({ ...settings, repositories: [...settings.repositories],
+        maintainerLogins: [...settings.maintainerLogins], fallbackFamilies: [] });
+      expect(await store.getLiveGate()).toEqual(gate);
+      await store.setLiveGate(null);
+      expect(await store.getLiveGate()).toBeNull();
       expect(await store.listRepositories()).toEqual(settings.repositories);
       await store.setPublicationPause(true, { owner: 'Hive-Academy', name: 'PtahCode' });
       expect((await store.getSettings())?.repositories[0].publicationPaused).toBe(true);

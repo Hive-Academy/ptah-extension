@@ -10,6 +10,8 @@ import type { ReviewQueueClaim } from '../review-queue.service';
 import type { ContextStageResult } from './context-stage.runner';
 import type { LensStageResult } from './lens-stage.runner';
 import { PublicationStageRunner } from './publication-stage.runner';
+import { ReviewPublicationService } from '../publication/review-publication.service';
+import { PublicationOutboxService } from '../publication/publication-outbox.service';
 import type { VerificationResult } from './verification-stage.runner';
 
 const sha = 'a'.repeat(40);
@@ -67,6 +69,9 @@ describe('PublicationStageRunner', () => {
     const migration = MIGRATIONS.find((entry) => entry.version === 65);
     if (!migration?.sql?.includes('payload_json')) throw new Error('Review finding payload column missing');
     db.exec(migration.sql);
+    const publicationMigration = MIGRATIONS.find((entry) => entry.version === 66);
+    if (!publicationMigration?.sql) throw new Error('Review publication migration missing');
+    db.exec(publicationMigration.sql);
     const repoId = 'hive-academy/ptahcode';
     db.prepare(`INSERT INTO review_repositories (repo_id, owner, name, created_at, updated_at) VALUES (?, ?, ?, 1, 1)`)
       .run(repoId, 'Hive-Academy', 'PtahCode');
@@ -93,7 +98,13 @@ describe('PublicationStageRunner', () => {
     const testContext = { ...context, attemptRoot };
     await runner.run(claim, testContext, [], [accepted, suppressed]);
     stored.confidence = 0.4;
-    const publication = await runner.run(claim, testContext, [], [accepted, suppressed]);
+    const livePublisher = new ReviewPublicationService({ db },
+      new PublicationOutboxService({ db }, { publish: jest.fn() }), new ReviewPolicyService());
+    const injectedRunner = new PublicationStageRunner(new ReviewArtifactWriter(fs), new ReviewPolicyService(), {
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings,
+      baseConfig: async () => null,
+    }, { db }, livePublisher);
+    const publication = await injectedRunner.run(claim, testContext, [], [accepted, suppressed]);
     const exportBytes = await readFile(publication.exportPath);
     expect(db.prepare('SELECT content_hash, size_bytes FROM review_artifacts WHERE attempt_id = ?').get(claim.attemptId))
       .toEqual({ content_hash: createHash('sha256').update(exportBytes).digest('hex'), size_bytes: exportBytes.length });

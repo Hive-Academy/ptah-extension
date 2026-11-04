@@ -68,4 +68,10 @@ describe('ReviewQueueService', () => {
     expect(repo.expired).toBe(1);
     expect(repo.attempts).toHaveLength(1);
   });
+  it('queues only the latest supplied head for each PR after an outage', async () => {
+    const repo = new FakeRepository();
+    const queue = new ReviewQueueService(repo, { now: () => new Date('2026-01-01T00:00:00Z') }, logger);
+    expect(await queue.reconcileStartup([first, second])).toBe(1);
+    expect(repo.attempts.map((attempt) => attempt.headSha)).toEqual([second.headSha]);
+  });
 });

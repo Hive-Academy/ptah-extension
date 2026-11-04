@@ -1,5 +1,8 @@
 export { REVIEW_CORE_TOKENS } from './di/tokens';
 export { registerReviewCore } from './di/registration';
+export { PublicationOutboxRepository } from './lib/publication/publication-outbox.repository';
+export { PublicationOutboxService } from './lib/publication/publication-outbox.service';
+export { ReviewPublicationService } from './lib/publication/review-publication.service';
 export { ReviewPolicyService } from './lib/review-policy.service';
 export type { EligibilityInput, EligibilityDecision, EligibilityReason, PublicationDecision, EffectiveReviewSettings } from './lib/review-policy.service';
 export { ReviewQueueService } from './lib/review-queue.service';
@@ -41,3 +44,7 @@ export { LensStageRunner } from './lib/stages/lens-stage.runner';
 export { VerificationStageRunner } from './lib/stages/verification-stage.runner';
 export { PublicationStageRunner } from './lib/stages/publication-stage.runner';
 export type { PublicationResult } from './lib/stages/publication-stage.runner';
+export { FindingIdentityService } from './lib/publication/finding-identity.service';
+export type { FindingIdentityCandidate, PriorFindingIdentity, IdentityDecision } from './lib/publication/finding-identity.service';
+export { FindingRecheckService } from './lib/publication/finding-recheck.service';
+export type { FindingRecheckInput, FindingRecheckDecision } from './lib/publication/finding-recheck.service';

@@ -1,12 +1,15 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import { OperatorSettingsSchema, ReviewRpcSchemas, ReviewStateSchema, type OperatorSettings, type RepositorySettings, type ReviewRun } from '@ptah-extension/review-contracts';
-import type { z } from 'zod';
+import { z } from 'zod';
+import type { RpcMethodParams } from '@ptah-extension/shared';
 
 export type ReviewListState = 'loading' | 'ready' | 'offline' | 'error' | 'no-lanes';
 export type ReviewStateFilter = 'all' | z.infer<typeof ReviewStateSchema>;
 /** Allows several 15-second GitHub GET attempts plus per-pull base-config reads. */
 const REVIEW_REFRESH_TIMEOUT_MS = 120_000;
+const botIdentitySchema = z.object({ login: z.string(), scopes: z.array(z.string()), connectedAt: z.string(), verifiedAt: z.string().nullable(), tokenStorage: z.enum(['encrypted', 'plaintext']) }).nullable();
+export type ReviewBotIdentity = z.infer<typeof botIdentitySchema>;
 const defaultSettings: OperatorSettings = {
   repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: false, dryRun: true, publicationPaused: false }],
   maintainerLogins: [], pollMinutes: 10, globalPublicationPaused: false, laneCapPerPr: 6,
@@ -16,6 +19,7 @@ const defaultSettings: OperatorSettings = {
 @Injectable({ providedIn: 'root' })
 export class ReviewRunsStore {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly logger = inject(LoggingService);
   readonly runs = signal<ReviewRun[]>([]);
   readonly poll = signal<{ status: 'succeeded' | 'failed' | null; error: string | null;
     lastSuccessAt: string | null; lastErrorAt: string | null } | null>(null);
@@ -30,6 +34,12 @@ export class ReviewRunsStore {
   readonly settings = signal<OperatorSettings | null>(null);
   readonly draftSettings = signal<OperatorSettings>(defaultSettings);
   readonly hasToken = signal(false);
+  readonly tokenStorage = signal<'encrypted' | 'plaintext'>('encrypted');
+  readonly liveAttested = signal(false);
+  readonly attestorLogin = signal('');
+  readonly botIdentity = signal<ReviewBotIdentity>(null);
+  readonly credentialState = signal<'idle' | 'saving' | 'error'>('idle');
+  readonly rerunState = signal<'idle' | 'running' | 'error'>('idle');
   readonly settingsSaving = signal(false);
   readonly settingsSaveError = signal<string | null>(null);
   readonly settingsState = signal<'loading' | 'ready' | 'error'>('loading');
@@ -109,8 +119,46 @@ export class ReviewRunsStore {
       this.settings.set(response.settings);
       this.draftSettings.set(response.settings ?? defaultSettings);
       this.hasToken.set(response.hasToken);
+      this.tokenStorage.set(response.tokenStorage);
       this.settingsState.set('ready');
+      await this.loadBotIdentity();
     } catch { this.settingsState.set('error'); }
+  }
+  async loadBotIdentity(): Promise<void> {
+    try { this.botIdentity.set(await this.request('review:getBotIdentity', {}, botIdentitySchema)); }
+    catch { this.botIdentity.set(null); }
+  }
+  async setBotToken(token: string): Promise<boolean> {
+    if (!token.trim() || this.credentialState() === 'saving') return false;
+    this.credentialState.set('saving');
+    try {
+      await this.request('review:setBotToken', { token }, z.object({ ok: z.literal(true) }));
+      this.hasToken.set(true);
+      this.liveAttested.set(false);
+      await this.loadBotIdentity();
+      this.credentialState.set('idle');
+      return true;
+    } catch {
+      // degradation-audit: reported — credentialState 'error' shows the failure in the drawer.
+      this.credentialState.set('error');
+      return false;
+    }
+  }
+  async clearBotToken(): Promise<void> {
+    this.credentialState.set('saving');
+    try {
+      await this.request('review:clearBotToken', {}, z.object({ ok: z.literal(true) }));
+      this.hasToken.set(false); this.botIdentity.set(null); this.credentialState.set('idle');
+      this.liveAttested.set(false);
+    } catch { this.credentialState.set('error'); }
+  }
+  async rerun(attemptId: string, dryRun: boolean): Promise<void> {
+    this.rerunState.set('running');
+    try {
+      await this.request('review:rerun', { attemptId, dryRun }, z.object({ attemptId: z.string() }));
+      await this.load();
+      this.rerunState.set('idle');
+    } catch { this.rerunState.set('error'); }
   }
   updateDraft(patch: Partial<OperatorSettings>): void {
     this.draftSettings.update((current) => ({ ...current, ...patch }));
@@ -126,15 +174,19 @@ export class ReviewRunsStore {
     this.settingsSaveError.set(null);
     try {
       const saved = await this.request('review:updateSettings',
-        ReviewRpcSchemas['review:updateSettings'].params.parse({ settings: parsed.data }),
+        ReviewRpcSchemas['review:updateSettings'].params.parse({ settings: parsed.data,
+          attestation: this.liveAttested() && this.botIdentity() ? { who: (this.attestorLogin().trim() || parsed.data.maintainerLogins[0] || ''),
+            permissions: ['Pull requests: Read and write', 'Contents: Read', 'Metadata: Read'] } : undefined }),
         ReviewRpcSchemas['review:updateSettings'].result);
       this.settings.set(saved);
       this.draftSettings.set(saved);
       this.repositories.set(saved.repositories);
+      this.liveAttested.set(false);
     } catch { this.settingsSaveError.set('Review settings could not be saved.'); }
     finally { this.settingsSaving.set(false); }
   }
-  async setPublicationPause(paused: boolean): Promise<void> {
+  async setPublicationPause(paused: boolean, confirmed = false): Promise<void> {
+    if (!paused && !confirmed) return;
     if (!this.settings() || this.pauseSaving()) return;
     this.pauseSaving.set(true);
     this.pauseError.set(false);
@@ -144,16 +196,17 @@ export class ReviewRunsStore {
         ReviewRpcSchemas['review:setPublicationPause'].result);
       if (!result.ok) throw new Error('Publication pause update failed');
       this.settings.update((current) => current ? { ...current, globalPublicationPaused: paused } : current);
-    } catch { this.pauseError.set(true); }
+    } catch (error: unknown) {
+      this.logger.error('ReviewRunsStore', 'Publication pause update failed', error);
+      this.pauseError.set(true);
+    }
     finally { this.pauseSaving.set(false); }
   }
   /** Integration may report lane availability independently of the list RPC. */
   setNoLanesAvailable(): void { this.state.set('no-lanes'); }
 
-  private async request<T>(method: 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings' | 'review:updateSettings' | 'review:setPublicationPause' | 'review:refresh', params: object, schema: z.ZodType<T>): Promise<T> {
-    // P1-16 adds review methods to the shared RPC method union. Parse results meanwhile.
-    const call = this.rpc.call as (method: string, params: object, options: { timeout: number }) => Promise<{ isSuccess(): boolean; data: unknown }>;
-    const response = await call.call(this.rpc, method, params,
+  private async request<M extends 'review:listRepositories' | 'review:listRuns' | 'review:getRun' | 'review:getSettings' | 'review:updateSettings' | 'review:setPublicationPause' | 'review:refresh' | 'review:getBotIdentity' | 'review:setBotToken' | 'review:clearBotToken' | 'review:rerun', T = unknown>(method: M, params: RpcMethodParams<M>, schema: z.ZodType<T>): Promise<T> {
+    const response = await this.rpc.call(method, params,
       { timeout: method === 'review:refresh' ? REVIEW_REFRESH_TIMEOUT_MS : 5_000 });
     if (!response.isSuccess()) throw new Error('Review data is unavailable');
     return schema.parse(response.data);

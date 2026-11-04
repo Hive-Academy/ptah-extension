@@ -77,5 +77,37 @@ describe('ReviewRunsPageComponent', () => {
     buttons().find((button) => button.textContent?.trim() === 'Retry')?.click();
     expect(load).toHaveBeenCalledTimes(1);
   });
+  it('confirms before turning the header publication pause off', async () => {
+    const call = jest.fn().mockImplementation((method: string) => Promise.resolve({ isSuccess: () => true,
+      data: method === 'review:listRepositories' ? [] : method === 'review:listRuns'
+        ? { runs: [], nextCursor: null, poll: { status: null, error: null, lastSuccessAt: null, lastErrorAt: null } }
+        : method === 'review:setPublicationPause' ? { ok: true } : { settings: null, hasToken: false } }));
+    TestBed.configureTestingModule({ imports: [ReviewRunsPageComponent], providers: [{ provide: ClaudeRpcService, useValue: { call } }] });
+    const fixture = TestBed.createComponent(ReviewRunsPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const store = TestBed.inject(ReviewRunsStore);
+    store.settings.set({ repositories: [], maintainerLogins: ['maintainer'], pollMinutes: 10,
+      globalPublicationPaused: true, laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [] });
+    fixture.detectChanges();
+    const toggle = fixture.nativeElement.querySelector('header input[type="checkbox"]') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    call.mockClear();
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(call).not.toHaveBeenCalled();
+    expect(toggle.checked).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Resume live publication?');
+    fixture.nativeElement.querySelector('#review-page-resume-confirm')?.parentElement?.querySelectorAll('button')[0]?.click();
+    fixture.detectChanges();
+    expect(call).not.toHaveBeenCalled();
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('#review-page-resume-confirm')?.parentElement?.querySelectorAll('button')[1]?.click();
+    await fixture.whenStable();
+    expect(call).toHaveBeenCalledWith('review:setPublicationPause', { paused: false }, { timeout: 5_000 });
+  });
 });
 

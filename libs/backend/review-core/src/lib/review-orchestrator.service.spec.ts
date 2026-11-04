@@ -27,6 +27,7 @@ function fixture() {
   const checkpoints = new Map<string, unknown>();
   const key = (name: string, ordinal: number) => `${name}:${ordinal}`;
   const repository: IReviewRepository = {
+    getLastReviewedHead: jest.fn().mockResolvedValue(null), getOpenFailures: jest.fn().mockResolvedValue([]),
     getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(),
     enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(),
     claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
@@ -60,7 +61,7 @@ function fixture() {
   const logger = Object.create(Logger.prototype) as Logger;
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   const settingsStore = { getSettings: jest.fn().mockResolvedValue(settings), updateSettings: jest.fn(), listRepositories: jest.fn(),
-    setPublicationPause: jest.fn() } as jest.Mocked<IReviewSettingsStore>;
+    setPublicationPause: jest.fn(), getLiveGate: jest.fn(), setLiveGate: jest.fn() } as jest.Mocked<IReviewSettingsStore>;
   const coordinator = new ReviewOrchestratorService(discovery, context, triage, lenses, verification, publication, queue,
     new ReviewPolicyService(), repository, github,
     { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger,

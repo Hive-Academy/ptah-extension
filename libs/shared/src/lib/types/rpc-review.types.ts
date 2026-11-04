@@ -10,3 +10,9 @@ export type ReviewRpcMethodRegistry = {
     result: z.output<(typeof ReviewRpcSchemas)[M]['result']>;
   };
 };
+export type ReviewP2RpcMethodRegistry = {
+  'review:getBotIdentity': { params: Record<string, never>; result: { login: string; scopes: string[]; connectedAt: string; verifiedAt: string | null; tokenStorage: 'encrypted' | 'plaintext' } | null };
+  'review:setBotToken': { params: { token: string }; result: { ok: true } };
+  'review:clearBotToken': { params: Record<string, never>; result: { ok: true } };
+  'review:rerun': { params: { attemptId: string; dryRun: boolean }; result: { attemptId: string } };
+};

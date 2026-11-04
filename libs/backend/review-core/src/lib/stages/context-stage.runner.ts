@@ -3,6 +3,9 @@ import { RepoIdentitySchema, RepoReviewConfigV1Schema, type IGitHubReviewPort, t
 import { REVIEW_CORE_TOKENS } from '../../di/tokens';
 import { ReviewWorktreeService } from '../context/review-worktree.service';
 import { ReviewContextService } from '../context/review-context.service';
+import { IncrementalScopeService } from '../context/incremental-scope.service';
+import type { IncrementalScope } from '../context/incremental-scope.service';
+import type { IReviewRepository } from '../persistence/review-repository.interface';
 import { ReviewDependenciesService } from '../context/review-dependencies.service';
 import { ReviewChecksService } from '../context/review-checks.service';
 import type { ReviewCheckDefinition } from '../context/review-checks.service';
@@ -34,7 +37,8 @@ export async function resolveReviewRoots(environment: ReviewStageEnvironment, re
   const roots = await environment.resolve(identity.data);
   return ReviewRootsSchema.parse(roots);
 }
-export interface ContextStageResult { attemptRoot: string; baseSha?: string; promptInput: ReviewPromptInput; coverage: string[] }
+export interface ContextStageResult { attemptRoot: string; baseSha?: string; promptInput: ReviewPromptInput; coverage: string[];
+  incrementalScope?: IncrementalScope }
 
 function changedExports(patch: string): string[] {
   const names = new Set<string>();
@@ -68,6 +72,8 @@ export class ContextStageRunner {
     @inject(ReviewContextService) private readonly context: ReviewContextService,
     @inject(ReviewDependenciesService) private readonly dependencies: ReviewDependenciesService,
     @inject(ReviewChecksService) private readonly checks: ReviewChecksService,
+    @inject(REVIEW_CORE_TOKENS.REVIEW_REPOSITORY) private readonly repository: IReviewRepository,
+    @inject(IncrementalScopeService) private readonly incremental: IncrementalScopeService,
   ) {}
 
   async run(claim: ReviewQueueClaim, deadlineMs = Date.now() + 30 * 60_000, signal?: AbortSignal): Promise<ContextStageResult> {
@@ -88,8 +94,20 @@ export class ContextStageRunner {
     check();
     const source = await this.worktree.snapshot(claim.repo, paths.src, claim.headSha, workSignal);
     check();
-    const changedPaths = [...diff.patch.matchAll(/^diff --git a\/.+? b\/(.+)$/gm)].map((match) => match[1]);
-    const context = await this.context.build(claim.repo, paths.src, changedPaths, changedExports(diff.patch), workSignal);
+    const previousHead = await this.repository.getLastReviewedHead(claim.repo, claim.prNumber);
+    check();
+    const openFailures = await this.repository.getOpenFailures(claim.repo, claim.prNumber);
+    check();
+    const incrementalDiff = previousHead ? previousHead === claim.headSha ? { patch: '', changedPaths: [] }
+      : await this.context.diffSince(claim.repo, paths.src, previousHead, claim.headSha, workSignal) : null;
+    check();
+    const reviewPatch = incrementalDiff?.patch ?? diff.patch;
+    const changedPaths = incrementalDiff?.changedPaths ?? [...diff.patch.matchAll(/^diff --git a\/.+? b\/(.+)$/gm)].map((match) => match[1]);
+    const context = await this.context.build(claim.repo, paths.src, changedPaths, changedExports(reviewPatch), workSignal);
+    check();
+    const scope = this.incremental.plan({ headSha: claim.headSha, previousReviewedHeadSha: previousHead,
+      newCommitPaths: [...context.changedPaths], touchedCallers: context.callers.map(({ path, outsideDiff }) => ({ path, outsideDiff })),
+      openFailures });
     check();
     const dependency = await this.dependencies.prepare(claim.repo, paths.src, context.changedLockfiles, false, workSignal);
     check();
@@ -97,10 +115,11 @@ export class ContextStageRunner {
     check();
     const text = await this.environment.pullText?.(claim.prNumber);
     check();
-    return { attemptRoot: paths.root, baseSha: diff.baseSha, coverage: [diff.truncated ? 'diff-truncated' : 'diff-complete',
+    return { attemptRoot: paths.root, baseSha: diff.baseSha, incrementalScope: scope,
+      coverage: [!incrementalDiff && diff.truncated ? 'diff-truncated' : 'diff-complete',
       `dependencies:${dependency.status}`, ...checks.map((check) => `${check.name}:${check.status}`)],
-      promptInput: { headSha: claim.headSha, title: text?.title ?? '', body: text?.body ?? '', diff: diff.patch, comments: '', fileContent: JSON.stringify(context.callers),
-        deterministicEvidence: JSON.stringify({ context, checks, sourceChecksum: source.checksum }),
+      promptInput: { headSha: claim.headSha, title: text?.title ?? '', body: text?.body ?? '', diff: reviewPatch, comments: '', fileContent: JSON.stringify(context.callers),
+        deterministicEvidence: JSON.stringify({ context, checks, incrementalScope: scope, sourceChecksum: source.checksum }),
         repositoryRules: JSON.stringify({ include: config.include, exclude: config.exclude, pathInstructions: config.pathInstructions }) } };
   }
 }

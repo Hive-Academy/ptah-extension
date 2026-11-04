@@ -88,7 +88,7 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
       const coordinator = new ReviewOrchestratorService(new DiscoveryStageRunner(github, queue, policy, environment),
         context, triage, lens, verification, publication, queue, policy, first.repository, github, environment, logger,
         { getSettings: jest.fn().mockResolvedValue(settings), updateSettings: jest.fn(), listRepositories: jest.fn(),
-          setPublicationPause: jest.fn() } as IReviewSettingsStore);
+          setPublicationPause: jest.fn(), getLiveGate: jest.fn(), setLiveGate: jest.fn() } as IReviewSettingsStore);
       expect((await coordinator.discoveryHandler()).summary).toContain('Enqueued 1');
       const discovered = await first.repository.enqueueDiscovered({ repo: REVIEW_REPO, prNumber: 1, headSha: sha }, new Date().toISOString());
       expect(await coordinator.drain('worker', Date.now() + 60_000)).toBe(1);

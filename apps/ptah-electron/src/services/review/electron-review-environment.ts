@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { RepoIdentitySchema, RepoReviewConfigV1Schema, type RepoIdentity, type RepositorySettings } from '@ptah-extension/review-contracts';
 import { ReviewRepositoryUnavailableError, type IReviewSettingsStore, type ReviewRoots, type ReviewStageEnvironment } from '@ptah-extension/review-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { ISecretStorage } from '@ptah-extension/platform-core';
+import { REVIEW_GITHUB_TOKEN_KEY } from '@ptah-extension/review-github';
 import { ReviewCommandRunner } from './review-command-runner';
 
 const execFileAsync = promisify(execFile);
@@ -25,7 +27,13 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
     private readonly userDataRoot: () => string = () => app.getPath('userData'),
     private readonly inspect: (cwd: string) => Promise<{ topLevel: string; origin: string }> = ReviewCommandRunner.inspectCheckout,
     private readonly readConfig: (cwd: string, baseSha: string) => Promise<string | null> = ElectronReviewEnvironment.readBaseConfig,
+    private readonly secretStorage?: Pick<ISecretStorage, 'get'>,
   ) {}
+
+  async redactionSecrets(): Promise<string[]> {
+    const token = await this.secretStorage?.get(REVIEW_GITHUB_TOKEN_KEY);
+    return token ? [token] : [];
+  }
 
   private static async readBaseConfig(cwd: string, baseSha: string): Promise<string | null> {
     const { stdout: names } = await execFileAsync('git', ['ls-tree', '--name-only', baseSha, '--', '.ptah-review.yaml'],

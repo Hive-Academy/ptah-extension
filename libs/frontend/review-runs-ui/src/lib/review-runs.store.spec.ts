@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import type { ReviewRun } from '@ptah-extension/review-contracts';
 import { ReviewRunsStore } from './review-runs.store';
 
@@ -94,7 +94,7 @@ describe('ReviewRunsStore', () => {
       maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: true,
       laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
     };
-    call.mockResolvedValue({ isSuccess: () => true, data: { settings, hasToken: true } });
+    call.mockResolvedValue({ isSuccess: () => true, data: { settings, hasToken: true, tokenStorage: 'encrypted' } });
     await store.loadSettings();
     expect(store.settingsState()).toBe('ready');
     expect(store.settings()).toEqual(settings);
@@ -106,7 +106,8 @@ describe('ReviewRunsStore', () => {
       maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: false,
       laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
     };
-    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true } })
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true, tokenStorage: 'encrypted' } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: null })
       .mockResolvedValueOnce({ isSuccess: () => true, data: { ok: true } });
     await store.loadSettings();
     await store.setPublicationPause(true);
@@ -121,15 +122,37 @@ describe('ReviewRunsStore', () => {
       maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: false,
       laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
     };
-    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true } })
+    const logger = TestBed.inject(LoggingService);
+    const logged = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true, tokenStorage: 'encrypted' } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: null })
       .mockRejectedValueOnce(new Error('offline'));
     await store.loadSettings();
     await store.setPublicationPause(true);
     expect(store.settings()?.globalPublicationPaused).toBe(false);
     expect(store.pauseError()).toBe(true);
+    expect(logged).toHaveBeenCalledWith('ReviewRunsStore', 'Publication pause update failed', expect.any(Error));
+  });
+  it('does not turn publication pause off without explicit confirmation', async () => {
+    const settings = {
+      repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
+      maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: true,
+      laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
+    };
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings, hasToken: true, tokenStorage: 'encrypted' } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: null })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: { ok: true } });
+    await store.loadSettings();
+    call.mockClear();
+    await store.setPublicationPause(false);
+    expect(call).not.toHaveBeenCalled();
+    expect(store.settings()?.globalPublicationPaused).toBe(true);
+    await store.setPublicationPause(false, true);
+    expect(call).toHaveBeenCalledWith('review:setPublicationPause', { paused: false }, { timeout: 5_000 });
+    expect(store.settings()?.globalPublicationPaused).toBe(false);
   });
   it('saves first-run settings without sending a token', async () => {
-    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings: null, hasToken: false } });
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { settings: null, hasToken: false, tokenStorage: 'encrypted' } });
     await store.loadSettings();
     expect(store.settingsState()).toBe('ready');
     expect(store.hasToken()).toBe(false);
@@ -142,4 +165,21 @@ describe('ReviewRunsStore', () => {
     expect(store.settings()).toEqual(saved);
     expect(JSON.stringify(call.mock.calls)).not.toContain('token');
   });
+  it('sends a token only to the write RPC and keeps it out of read state', async () => {
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { ok: true } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: { login: 'ptah-bot', scopes: ['pull_requests:read', 'issues:write'], connectedAt: '2026-11-04T00:00:00Z', verifiedAt: null, tokenStorage: 'encrypted' } });
+    expect(await store.setBotToken('secret-token')).toBe(true);
+    expect(call.mock.calls[0][0]).toBe('review:setBotToken');
+    expect(call.mock.calls[0][1]).toEqual({ token: 'secret-token' });
+    expect(store.botIdentity()?.login).toBe('ptah-bot');
+    expect(JSON.stringify({ identity: store.botIdentity(), settings: store.settings() })).not.toContain('secret-token');
+  });
+  it('requests a rerun with an explicit dry-run choice', async () => {
+    call.mockResolvedValueOnce({ isSuccess: () => true, data: { attemptId: 'next-attempt' } })
+      .mockRejectedValueOnce(new Error('offline'));
+    await store.rerun('old-attempt', false);
+    expect(call.mock.calls[0][0]).toBe('review:rerun');
+    expect(call.mock.calls[0][1]).toEqual({ attemptId: 'old-attempt', dryRun: false });
+  });
 });
+

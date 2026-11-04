@@ -6,6 +6,8 @@ import type {
 } from '@ptah-extension/review-core';
 import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
 import { ReviewPollDisabledError } from '@ptah-extension/review-core';
+import { ReviewPolicyService, type ReviewStageEnvironment } from '@ptah-extension/review-core';
+import type { ISecretStorage } from '@ptah-extension/platform-core';
 import { ReviewRpcHandlers } from './review-rpc.handlers';
 
 const settings = {
@@ -27,23 +29,57 @@ function suite() {
     updateSettings: jest.fn().mockResolvedValue(settings),
     listRepositories: jest.fn().mockResolvedValue(settings.repositories),
     setPublicationPause: jest.fn().mockResolvedValue(undefined),
+    getLiveGate: jest.fn().mockResolvedValue(null),
+    setLiveGate: jest.fn().mockResolvedValue(undefined),
   } as IReviewSettingsStore;
   const artifacts = { exportRun: jest.fn() } as IReviewArtifactReader;
   const secrets = { hasToken: jest.fn().mockResolvedValue(true) } as IReviewSecretPresence;
   const queue = { retry: jest.fn() } as Pick<ReviewQueueService, 'retry'>;
   const orchestrator = { pollAndRecord: jest.fn() } as Pick<ReviewOrchestratorService, 'pollAndRecord'>;
   const github = { getPull: jest.fn() } as Pick<IGitHubReviewPort, 'getPull'>;
-  new ReviewRpcHandlers(logger, rpc, query, store, artifacts, secrets, queue, orchestrator, github).register();
+  const tokenStorage = { get: jest.fn().mockResolvedValue(undefined), store: jest.fn(), delete: jest.fn() } as Pick<ISecretStorage, 'get' | 'store' | 'delete'>;
+  const fetcher = jest.fn() as typeof fetch;
+  const environment = { baseConfig: jest.fn().mockResolvedValue(null) } as Pick<ReviewStageEnvironment, 'baseConfig'>;
+  new ReviewRpcHandlers(logger, rpc, query, store, artifacts, secrets, queue, orchestrator, github,
+    tokenStorage as ISecretStorage, fetcher, new ReviewPolicyService(), environment as ReviewStageEnvironment).register();
   const calls = (rpc.registerMethod as jest.Mock).mock.calls as Array<[string, (params: unknown) => Promise<unknown>]>;
   const invoke = (name: string, params: unknown): Promise<unknown> => {
     const handler = calls.find(([method]) => method === name)?.[1];
     if (!handler) throw new Error(`Missing ${name}`);
     return handler(params);
   };
-  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github, orchestrator };
+  return { invoke, calls, logger, query, store, artifacts, secrets, queue, github, orchestrator, tokenStorage, fetcher };
 }
 
 describe('ReviewRpcHandlers', () => {
+  it('verifies a bot on a fresh install using the default repository', async () => {
+    const { invoke, store, tokenStorage, fetcher } = suite();
+    (store.getSettings as jest.Mock).mockResolvedValue(null);
+    (tokenStorage.get as jest.Mock).mockResolvedValue('secret');
+    (fetcher as jest.Mock).mockResolvedValue({ ok: true, text: async () => JSON.stringify({ login: 'ptah-bot' }),
+      headers: { get: () => null } });
+    expect(await invoke('review:getBotIdentity', {})).toMatchObject({ login: 'ptah-bot' });
+    expect(store.setLiveGate).toHaveBeenCalledWith(expect.objectContaining({
+      repo: { owner: 'Hive-Academy', name: 'PtahCode' }, attestation: null,
+    }));
+  });
+
+  it('persists first live settings before recording attestation', async () => {
+    const { invoke, store, tokenStorage, fetcher } = suite();
+    const gate = { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, login: 'ptah-bot',
+      connectedAt: '2026-11-04T00:00:00.000Z', verifiedAt: '2026-11-04T00:00:00.000Z', attestation: null };
+    (store.getSettings as jest.Mock).mockResolvedValue(null);
+    (store.getLiveGate as jest.Mock).mockResolvedValue(gate);
+    (tokenStorage.get as jest.Mock).mockResolvedValue('secret');
+    (fetcher as jest.Mock).mockResolvedValue({ ok: true, text: async () => JSON.stringify({ login: 'ptah-bot' }) });
+    const live = { ...settings, globalPublicationPaused: false,
+      repositories: [{ ...settings.repositories[0], dryRun: false }] };
+    await invoke('review:updateSettings', { settings: live, attestation: { who: 'maintainer',
+      permissions: ['Pull requests: Read and write', 'Contents: Read', 'Metadata: Read'] } });
+    expect((store.updateSettings as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (store.setLiveGate as jest.Mock).mock.invocationCallOrder[0]);
+    expect(store.setLiveGate).toHaveBeenCalledWith(expect.objectContaining({ attestation: expect.objectContaining({ who: 'maintainer' }) }));
+  });
   it('clears a failed poll after successful Refresh', async () => {
     const { invoke, orchestrator } = suite();
     (orchestrator.pollAndRecord as jest.Mock).mockRejectedValueOnce(new Error('secret remote error'))
@@ -69,9 +105,23 @@ describe('ReviewRpcHandlers', () => {
     expect(queue.retry).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'a'.repeat(40) }),
       (result as { attemptId: string }).attemptId);
   });
-  it('registers exactly the P1 review methods', () => {
+  it('registers exactly the review methods', () => {
     const { calls } = suite();
     expect(calls.map(([name]) => name)).toEqual([...ReviewRpcHandlers.METHODS]);
+  });
+  it('refuses live settings without a verified identity and attestation', async () => {
+    const { invoke, store } = suite();
+    await expect(invoke('review:updateSettings', { settings: { ...settings, globalPublicationPaused: false,
+      repositories: [{ ...settings.repositories[0], dryRun: false }] } })).rejects.toThrow('attestation required');
+    expect(store.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('clears the live gate when the token changes', async () => {
+    const { invoke, store } = suite();
+    await invoke('review:setBotToken', { token: 'new-secret' });
+    expect(store.setLiveGate).toHaveBeenCalledWith(null);
+    await invoke('review:clearBotToken', {});
+    expect(store.setLiveGate).toHaveBeenCalledTimes(2);
   });
 
   it.each(ReviewRpcHandlers.METHODS)('%s rejects invalid params at the boundary', async (method) => {
@@ -79,10 +129,29 @@ describe('ReviewRpcHandlers', () => {
     await expect(invoke(method, { unexpected: 'secret' })).rejects.toThrow('Invalid review request');
   });
 
+  it('stores and removes a bot token without echoing it', async () => {
+    const { invoke, tokenStorage, logger } = suite();
+    expect(await invoke('review:setBotToken', { token: 'ghp_secret' })).toEqual({ ok: true });
+    expect(tokenStorage.store).toHaveBeenCalledWith('ptah.review.githubToken', 'ghp_secret');
+    expect(await invoke('review:clearBotToken', {})).toEqual({ ok: true });
+    expect(tokenStorage.delete).toHaveBeenCalledWith('ptah.review.githubToken');
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain('ghp_secret');
+  });
+
+  it('blocks live rerun while publication is paused and does not queue', async () => {
+    const { invoke, query, github, queue } = suite();
+    (query.getRun as jest.Mock).mockResolvedValue({ attemptId: 'prior', repo: { owner: 'Hive-Academy', name: 'PtahCode' },
+      prNumber: 1, headSha: 'a'.repeat(40) });
+    (github.getPull as jest.Mock).mockResolvedValue({ headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40), state: 'open',
+      draft: false, authorLogin: 'maintainer', headIsFork: false, headRepoId: 1, baseRepoId: 1 });
+    await expect(invoke('review:rerun', { attemptId: 'prior', dryRun: false })).rejects.toThrow('unavailable');
+    expect(queue.retry).not.toHaveBeenCalled();
+  });
+
   it('never returns or logs a token and rejects one in settings updates', async () => {
     const { invoke, logger, store } = suite();
     const result = await invoke('review:getSettings', {});
-    expect(result).toEqual({ settings, hasToken: true });
+    expect(result).toEqual({ settings, hasToken: true, tokenStorage: 'encrypted' });
     expect(JSON.stringify(result)).not.toContain('ghp_secret');
     await expect(invoke('review:updateSettings', { settings, token: 'ghp_secret' })).rejects.toThrow('Invalid review request');
     expect(store.updateSettings).not.toHaveBeenCalled();
@@ -92,7 +161,7 @@ describe('ReviewRpcHandlers', () => {
   it('returns unconfigured settings so the first save can proceed', async () => {
     const { invoke, store } = suite();
     (store.getSettings as jest.Mock).mockResolvedValue(null);
-    expect(await invoke('review:getSettings', {})).toEqual({ settings: null, hasToken: true });
+    expect(await invoke('review:getSettings', {})).toEqual({ settings: null, hasToken: true, tokenStorage: 'encrypted' });
   });
 
   it('treats an unknown attempt safely', async () => {
