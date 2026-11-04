@@ -6,9 +6,6 @@ import { By } from '@angular/platform-browser';
 import { DisplayPanelComponent, type DisplayPanelViewStateChange } from '@ptah-extension/chat-ui/display-panel';
 import type { DisplaySurface } from '@ptah-extension/chat-ui/display-panel';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
-import type { TurnChangeSet } from '@ptah-extension/shared';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
-import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { DisplaySheetComponent } from './display-sheet.component';
 import { ArtifactStore, panelArtifactsFrom } from '../../../services/artifact.store';
@@ -28,32 +25,22 @@ const tabButton = (fixture: ComponentFixture<DisplaySheetComponent>): HTMLButton
 const title = (fixture: ComponentFixture<DisplaySheetComponent>): string =>
   (fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-title"]')?.textContent?.trim() ?? '';
 
-@Component({ selector: 'ptah-display-panel', standalone: true, template: '<span role="alert">{{ actionError() }}</span>' })
+@Component({ selector: 'ptah-display-panel', standalone: true, template: '' })
 class StubPanel {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly artifacts = input<readonly typeof artifact[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
-  readonly summary = input<TurnSummaryModel | null>(null);
-  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
-  readonly actionError = input<string | null>(null);
   readonly selectedKeyChange = output<string>();
   readonly viewStateChange = output<DisplayPanelViewStateChange>();
-  readonly openFile = output<string>();
-  readonly review = output<void>();
   readonly openExternal = output<string>();
 }
 
-const changeSet: TurnChangeSet = {
-  sessionId: 'session-1', workspaceRoot: '/repo', turnStartedAt: 1, turnEndedAt: 2,
-  files: [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 0 }],
-  truncatedCount: 0, totals: { files: 1, additions: 1, deletions: 0 }, countsUnavailable: false,
-};
 const surface: DisplaySurface = {
   key: 'id:a', displayId: 'a', content: {} as DisplaySurface['content'], title: 'A',
   description: null, turnKey: 'turn-1', fenceKey: 'fence-a', createdSeq: 1,
@@ -76,8 +63,7 @@ describe('DisplaySheetComponent', () => {
       imports: [DisplaySheetComponent],
       providers: [DisplayDockState,
         { provide: ArtifactStore, useValue: artifactStoreStub },
-        { provide: ClaudeRpcService, useValue: { call: openLink } },
-        { provide: ChangeSetActionsService, useValue: { openFile: jest.fn(), review: jest.fn() } }],
+        { provide: ClaudeRpcService, useValue: { call: openLink } }],
     });
     TestBed.overrideComponent(DisplaySheetComponent, {
       remove: { imports: [DisplayPanelComponent] }, add: { imports: [StubPanel] },
@@ -174,18 +160,6 @@ describe('DisplaySheetComponent', () => {
     fixture.destroy();
   });
 
-  it('shows the bar for a summary without surfaces', () => {
-    const fixture = TestBed.createComponent(DisplaySheetComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    TestBed.inject(DisplayDockState).setSummaries('tab-1', new Map([['turn-1', { model: {} as TurnSummaryModel, changeSet: null }]]));
-    fixture.detectChanges();
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.style.display).not.toBe('none');
-    expect(tabButton(fixture)?.getAttribute('aria-label')).toBe('Toggle Display · 1 panel');
-    expect(tabButton(fixture)?.textContent).toContain('Display · 1');
-    fixture.destroy();
-  });
-
   it('includes the new-item count in the bar name only when it is above zero', () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
@@ -233,9 +207,14 @@ describe('DisplaySheetComponent', () => {
     expect(host.querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
     expect(host.classList.contains('sheet-open')).toBe(true);
     expect(host.querySelector('[data-testid="display-sheet-height"]')).toBeNull();
-    host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-pin"]')!.click();
+    const pin = host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-pin"]')!;
+    expect(pin.textContent?.trim()).toBe('Keep current view');
+    expect(pin.getAttribute('aria-label')).toBe('Keep current view');
+    expect(pin.getAttribute('title')).toBe('New or updated displays will not switch items or scroll this panel.');
+    expect(pin.getAttribute('aria-description')).toBe('New or updated displays will not switch items or scroll this panel.');
+    pin.click();
     fixture.detectChanges();
-    expect(host.querySelector('[data-testid="display-sheet-pin"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(pin.getAttribute('aria-pressed')).toBe('true');
     host.querySelector('[data-testid="display-sheet-region"]')!
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     fixture.detectChanges();
@@ -332,42 +311,6 @@ describe('DisplaySheetComponent', () => {
     const reopened = await mountedPanel(fixture);
     expect(reopened).not.toBe(first);
     expect(reopened.viewStates()).toBe(dock.tab('tab-1').viewStates);
-    fixture.destroy();
-  });
-
-  it('routes summary actions and shows the service error or the missing-change message', async () => {
-    const fixture = TestBed.createComponent(DisplaySheetComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    const dock = TestBed.inject(DisplayDockState);
-    const actions = TestBed.inject(ChangeSetActionsService);
-    const openFile = actions.openFile as jest.Mock;
-    const review = actions.review as jest.Mock;
-    const model = {} as TurnSummaryModel;
-    dock.setSummaries('tab-1', new Map([['turn-1', { model, changeSet }]]));
-    dock.openSummary('tab-1', 'turn-1');
-    fixture.detectChanges();
-    const child = await mountedPanel(fixture);
-    expect(child.summary()).toBe(model);
-    expect(child.summaryTurnKey()).toBe('turn-1');
-    expect(child.selectedKey()).toBe('summary');
-    child.selectedKeyChange.emit('id:a');
-    expect(dock.tab('tab-1').selection).toEqual({ kind: 'surface', surfaceKey: 'id:a' });
-    child.selectedKeyChange.emit('summary');
-    expect(dock.tab('tab-1').selection).toEqual({ kind: 'summary' });
-    child.openFile.emit('src/a.ts');
-    child.review.emit();
-    await Promise.resolve();
-    expect(openFile).toHaveBeenCalledWith(changeSet, 'src/a.ts');
-    expect(review).toHaveBeenCalledWith(changeSet);
-    review.mockRejectedValueOnce(new Error('Review service unavailable'));
-    child.review.emit();
-    await Promise.resolve();
-    fixture.detectChanges();
-    expect(child.actionError()).toBe('Review service unavailable');
-    dock.setSummaries('tab-1', new Map([['turn-1', { model, changeSet: null }]]));
-    child.review.emit();
-    fixture.detectChanges();
-    expect(child.actionError()).toContain('no recorded file changes');
     fixture.destroy();
   });
 

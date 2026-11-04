@@ -94,17 +94,12 @@ class RailTileStub {
 @Component({ selector: 'ptah-display-panel', standalone: true, template: '' })
 class RailDisplayPanelStub {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
-  readonly summary = input<unknown>(null);
-  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
-  readonly actionError = input<string | null>(null);
   readonly selectedKeyChange = output<string>();
   readonly viewStateChange = output<unknown>();
-  readonly openFile = output<string>();
-  readonly review = output<void>();
   readonly artifacts = input<readonly unknown[]>([]);
   readonly open = input(false);
   readonly fullscreenArtifactId = input<string | null>(null);

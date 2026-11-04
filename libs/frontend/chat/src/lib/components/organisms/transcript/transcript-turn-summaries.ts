@@ -15,26 +15,18 @@ import type {
 } from '@ptah-extension/shared';
 import type { ChangeSetMarks } from '../../../services/change-set/change-set.store';
 import {
-  DisplayDockState,
-  type DisplayDockSummary,
-} from '../../../services/display-dock/display-dock.state';
-import {
   TRANSCRIPT_TURN_RECAP_LOADER,
   type TranscriptTurnRecap,
 } from './transcript-turn-recap-loader';
 import type { TurnSnapshots } from './transcript-turn-snapshots';
 
-/** One built turn summary: the chip's model and the dock entry's change set. */
+/** One built turn summary chip. */
 export interface TranscriptTurnSummary {
-  /** The id of the user message that opened the turn (a candidate's `turnKey`). */
-  readonly turnKey: string;
   readonly model: TurnSummaryModel;
-  readonly changeSet: TurnChangeSet | null;
 }
 
 /** What the transcript hands its turn summaries. */
 export interface TranscriptTurnSummariesInput {
-  readonly tabId: Signal<string>;
   /** The transcript's slots (`vm().slots`); each record is read per slot. */
   readonly slots: Signal<readonly { readonly record: () => ExecutionChatMessage }[]>;
   /** The transcript's `ptahUiSnapshots` (Electron only, empty elsewhere). */
@@ -55,52 +47,36 @@ interface TurnSummaryInput {
   readonly marks: ChangeSetMarks | null;
 }
 
-interface BuiltTurnSummaries {
-  /** By the turn's last assistant message id: where each chip renders. */
-  readonly byEndMessage: ReadonlyMap<string, TranscriptTurnSummary>;
-  /** By turn key, in turn order: what the dock's Displays tab shows. */
-  readonly byTurn: ReadonlyMap<string, DisplayDockSummary>;
-}
-
 const NO_INPUTS: readonly TurnSummaryInput[] = [];
-const NO_SUMMARIES: BuiltTurnSummaries = {
-  byEndMessage: new Map(),
-  byTurn: new Map(),
-};
+const NO_SUMMARIES: ReadonlyMap<string, TranscriptTurnSummary> = new Map();
 
 /**
  * The host-built turn summaries of one transcript (TASK_2026_623, R6,
- * component 7; decisions #67, #101, #104): the chip per turn-ending message
- * and the dock's per-turn map.
+ * component 7; decisions #67, #101, #104): one chip per turn-ending message.
  *
  * - Inputs: each finalized turn's turn-end snapshot (data-flow step 7). A turn
  *   opens at a user message and ends at its last assistant message
  *   (`groupTurns`); one before the first user message has no turn key.
  * - `buildTurnSummaryModel` is a value of the lazy `turn-recap` entry, loaded
  *   through `TRANSCRIPT_TURN_RECAP_LOADER` once a turn may have a summary.
- *   Until it resolves nothing is published and no chip mounts; a failed load
- *   leaves both absent, and the next change of the inputs tries again (one
- *   attempt in flight, no retry inside a reactive tick).
+ *   Until it resolves no chip mounts; a failed load leaves the chips absent,
+ *   and the next change of the inputs tries again (one attempt in flight, no
+ *   retry inside a reactive tick).
  * - A completion after destroy is dropped. A resolved load stores only the
  *   module namespace, and the summaries are derived from the inputs current
  *   when they run, so a load that started for older turns or another tab id
- *   cannot publish them. Summary data lives only in these derived signals and
- *   `DisplayDockState`'s tab-keyed state.
+ *   cannot supply them. Summary data lives only in these derived signals.
  *
  * Construct in an injection context (a component field initializer).
  */
 export class TranscriptTurnSummaries {
-  private readonly dock = inject(DisplayDockState, { optional: true });
   private readonly loadTurnRecap = inject(TRANSCRIPT_TURN_RECAP_LOADER);
   private readonly recap = signal<TranscriptTurnRecap | null>(null);
   private loading = false;
   private destroyed = false;
 
-  /** "Open in panel" works only with a dock to open (decision #67). */
-  readonly openable = this.dock !== null;
-
   private readonly inputs: Signal<readonly TurnSummaryInput[]>;
-  private readonly built: Signal<BuiltTurnSummaries>;
+  private readonly built: Signal<ReadonlyMap<string, TranscriptTurnSummary>>;
 
   /** The summary chip of each turn-ending message id. */
   readonly chips: Signal<ReadonlyMap<string, TranscriptTurnSummary>>;
@@ -110,27 +86,13 @@ export class TranscriptTurnSummaries {
       equal: sameInputs,
     });
     this.built = computed(() => this.build());
-    this.chips = computed(() => this.built().byEndMessage);
+    this.chips = computed(() => this.built());
 
     effect(() => {
       if (this.recap() !== null || this.inputs().length === 0) return;
       untracked(() => this.requestRecap());
     });
-    const dock = this.dock;
-    if (dock !== null) {
-      effect(() => {
-        if (this.recap() === null) return;
-        const tabId = source.tabId();
-        const summaries = this.built().byTurn;
-        untracked(() => dock.setSummaries(tabId, summaries));
-      });
-    }
     inject(DestroyRef).onDestroy(() => (this.destroyed = true));
-  }
-
-  /** The chip's "Open in panel": the dock opens at this turn's summary. */
-  open(turnKey: string): void {
-    this.dock?.openSummary(this.source.tabId(), turnKey);
   }
 
   private collectInputs(): readonly TurnSummaryInput[] {
@@ -168,20 +130,16 @@ export class TranscriptTurnSummaries {
   }
 
   /** One model per turn; `null` (no files, no tests: R6.4) has no entry. */
-  private build(): BuiltTurnSummaries {
+  private build(): ReadonlyMap<string, TranscriptTurnSummary> {
     const recap = this.recap();
     const inputs = this.inputs();
     if (recap === null || inputs.length === 0) return NO_SUMMARIES;
     const byEndMessage = new Map<string, TranscriptTurnSummary>();
-    const byTurn = new Map<string, DisplayDockSummary>();
     for (const input of inputs) {
       const model = recap.buildTurnSummaryModel(input.snapshot, input.marks);
-      if (model === null) continue;
-      const { turnKey, changeSet } = input;
-      byEndMessage.set(input.endMessageId, { turnKey, model, changeSet });
-      byTurn.set(turnKey, { model, changeSet });
+      if (model !== null) byEndMessage.set(input.endMessageId, { model });
     }
-    return byTurn.size === 0 ? NO_SUMMARIES : { byEndMessage, byTurn };
+    return byEndMessage.size === 0 ? NO_SUMMARIES : byEndMessage;
   }
 
   private requestRecap(): void {
@@ -195,7 +153,7 @@ export class TranscriptTurnSummaries {
       (error: unknown) => {
         this.loading = false;
         if (this.destroyed) return;
-        // The chunk is optional: no chip and no summaries, transcript intact.
+        // The chunk is optional: no chip, transcript intact.
         console.warn(
           '[ChatTranscript] The turn summary chunk failed to load; turn summaries are unavailable.',
           error,

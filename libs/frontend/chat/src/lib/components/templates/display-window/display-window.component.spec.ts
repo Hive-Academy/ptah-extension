@@ -6,7 +6,6 @@ import {
   type DisplayPanelViewStateChange,
   type DisplaySurface,
 } from '@ptah-extension/chat-ui/display-panel';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ArtifactRecord } from '@ptah-extension/shared';
@@ -33,17 +32,12 @@ class StubPanel {
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
-  readonly summary = input<TurnSummaryModel | null>(null);
-  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<ReadonlyMap<string, SurfaceViewState>>(new Map());
-  readonly actionError = input<string | null>(null);
   readonly selectedKeyChange = output<string>();
   readonly viewStateChange = output<DisplayPanelViewStateChange>();
-  readonly openFile = output<string>();
-  readonly review = output<void>();
   readonly openExternal = output<string>();
   readonly retryArtifacts = output<void>();
 }
@@ -57,12 +51,9 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
     selectedKey: `artifact:${artifact.id}`,
     scrollToSelectedOnMount: true,
     fullscreenArtifactId: null,
-    summary: null,
-    summaryTurnKey: '',
     surfaces: [],
     viewStates: new Map(),
     artifacts: [artifact],
-    actionError: null,
     notice: null,
     ...partial,
   };
@@ -159,11 +150,11 @@ describe('DisplayWindowComponent', () => {
       payload: {
         tabId: 'tab-1',
         revision: 4,
-        state: toWire(view({ selectedKey: 'summary', artifacts: [] })),
+        state: toWire(view({ selectedKey: null, artifacts: [] })),
       },
     });
     await settle(fixture);
-    expect(panel(fixture).selectedKey()).toBe('summary');
+    expect(panel(fixture).selectedKey()).toBeNull();
     expect(panel(fixture).artifacts()).toEqual([]);
   });
 
@@ -194,9 +185,7 @@ describe('DisplayWindowComponent', () => {
   it('turns panel outputs into displayWindow:action for the snapshot tab', async () => {
     const fixture = await render();
     const stub = panel(fixture);
-    stub.selectedKeyChange.emit('summary');
-    stub.openFile.emit('src/a.ts');
-    stub.review.emit();
+    stub.selectedKeyChange.emit('id:stats');
     stub.fullscreenChange.emit(true);
     stub.fullscreenChange.emit(false);
     const viewState: SurfaceViewState = {
@@ -209,9 +198,7 @@ describe('DisplayWindowComponent', () => {
       .filter(([method]) => method === 'displayWindow:action')
       .map(([, params]) => params);
     expect(actions).toEqual([
-      { tabId: 'tab-1', action: { type: 'select', key: 'summary' } },
-      { tabId: 'tab-1', action: { type: 'open-file', path: 'src/a.ts' } },
-      { tabId: 'tab-1', action: { type: 'review' } },
+      { tabId: 'tab-1', action: { type: 'select', key: 'id:stats' } },
       { tabId: 'tab-1', action: { type: 'fullscreen-closed' } },
       {
         tabId: 'tab-1',

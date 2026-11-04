@@ -1,8 +1,7 @@
 /**
- * The Turn summary mini-card look, shared by the in-chat summary chip
- * (`turn-summary-chip.component.ts`) and the display panel's Turn summary
- * (`turn-summary.component.ts`) so the two never drift (TASK_2026_629 R9o,
- * decision 76; design section 7 collapse pattern; decision #70 flat chip).
+ * The Turn summary mini-card look of the in-chat summary chip
+ * (`turn-summary-chip.component.ts`; TASK_2026_629 R9o, decision 76; design
+ * section 7 collapse pattern; decision #70 flat chip).
  *
  * Only DaisyUI/Tailwind theme tokens: both `anubis` and `anubis-light` render
  * from the same classes. Class strings are literal so Tailwind keeps them.

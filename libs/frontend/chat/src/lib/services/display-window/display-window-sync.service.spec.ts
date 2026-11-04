@@ -10,7 +10,6 @@ import {
   type ArtifactRecord,
 } from '@ptah-extension/shared';
 import { ArtifactStore } from '../artifact.store';
-import { ChangeSetActionsService } from '../change-set/change-set-actions.service';
 import { DisplayDockState } from '../display-dock/display-dock.state';
 import { DisplayWindowSync } from './display-window-sync.service';
 
@@ -38,7 +37,6 @@ describe('DisplayWindowSync', () => {
   let isElectron: boolean;
   const theme = signal('ptah-glass');
   const artifacts = signal<readonly ArtifactRecord[]>([]);
-  const review = jest.fn();
 
   beforeEach(() => {
     frames = new Map();
@@ -46,7 +44,6 @@ describe('DisplayWindowSync', () => {
     isElectron = true;
     theme.set('ptah-glass');
     artifacts.set([]);
-    review.mockReset().mockResolvedValue(undefined);
     replies = {
       'displayWindow:status': {
         success: true,
@@ -99,10 +96,6 @@ describe('DisplayWindowSync', () => {
         {
           provide: ArtifactStore,
           useValue: { panelArtifacts: () => artifacts() },
-        },
-        {
-          provide: ChangeSetActionsService,
-          useValue: { review, openFile: jest.fn() },
         },
       ],
     });
@@ -312,7 +305,7 @@ describe('DisplayWindowSync', () => {
 
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-2', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-2', action: { type: 'select', key: 'id:other' } },
     });
     expect(dock.tab('tab-2').selection).toBeNull();
     expect(dock.tab('tab-1').selection).toEqual({
@@ -328,7 +321,7 @@ describe('DisplayWindowSync', () => {
     expect(publishCalls()).toHaveLength(1);
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-old', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-old', action: { type: 'select', key: 'id:old' } },
     });
     await flushFrame();
     expect(publishCalls()).toHaveLength(2);
@@ -379,20 +372,6 @@ describe('DisplayWindowSync', () => {
     expect(sync.detached()).toBe(false);
   });
 
-  it('review without a change set reports the error in the next snapshot', async () => {
-    const { sync } = setup();
-    await sync.detach();
-    sync.handleMessage({
-      type: 'displayWindow:action',
-      payload: { tabId: 'tab-1', action: { type: 'review' } },
-    });
-    await flushFrame();
-    expect(review).not.toHaveBeenCalled();
-    expect(lastPublished().state['actionError']).toBe(
-      'This turn has no recorded file changes to open.',
-    );
-  });
-
   it('unbinding stops the actions and the snapshot', async () => {
     TestBed.configureTestingModule({
       providers: [
@@ -411,7 +390,7 @@ describe('DisplayWindowSync', () => {
     unbind();
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-1', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-1', action: { type: 'select', key: 'id:stats' } },
     });
     expect(dock.tab('tab-1').selection).toBeNull();
     expect(sync.count()).toBe(0);

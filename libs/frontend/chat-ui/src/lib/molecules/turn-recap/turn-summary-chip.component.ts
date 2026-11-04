@@ -3,7 +3,6 @@ import {
   Component,
   computed,
   input,
-  output,
   signal,
   viewChild,
   type ElementRef,
@@ -12,7 +11,6 @@ import {
   ChevronDown,
   LayoutDashboard,
   LucideAngularModule,
-  PanelRight,
 } from 'lucide-angular';
 import {
   MINI_CAPTION_CLASS,
@@ -67,9 +65,8 @@ function shown(value: number | string, format: (n: number) => string): string {
  *   "3 files", "+42", "−7", "2 tests passed", "incomplete". Pills wrap under
  *   the title at narrow widths instead of truncating (R9.6).
  * - Expanded: mini cards (Files, Lines, Tokens, Cost, Time, Tests; Files,
- *   Lines and Tests only when the model has them) and "Open in panel".
- * - Totals only, never a file list (R6.9): the panel's Files card is the one
- *   per-turn file listing.
+ *   Lines and Tests only when the model has them).
+ * - Totals only, never a file list (R6.9).
  *
  * Not a live region: a historical chip must not be announced again on reload
  * or a lazy mount. Escape inside an expanded chip collapses it and returns
@@ -159,34 +156,6 @@ function shown(value: number | string, format: (n: number) => string): string {
                 </div>
               }
             </div>
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <button
-                type="button"
-                class="btn btn-xs btn-outline rounded-full"
-                data-testid="turn-summary-chip-open"
-                [disabled]="!openable()"
-                [attr.aria-describedby]="openable() ? null : unavailableId"
-                (click)="openInPanel()"
-              >
-                <lucide-angular
-                  [img]="PanelRightIcon"
-                  class="h-3.5 w-3.5"
-                  aria-hidden="true"
-                />
-                Open in panel
-              </button>
-              @if (openable()) {
-                <span class="text-xs text-base-content-muted"
-                  >Details and per-file changes live in the panel</span
-                >
-              } @else {
-                <span
-                  class="text-xs text-base-content-muted"
-                  [id]="unavailableId"
-                  >Display panel unavailable</span
-                >
-              }
-            </div>
           </div>
         </div>
       </div>
@@ -196,15 +165,10 @@ function shown(value: number | string, format: (n: number) => string): string {
 export class TurnSummaryChipComponent {
   /** The turn's summary; the transcript mounts the chip only when it exists. */
   readonly summary = input.required<TurnSummaryModel>();
-  /** False on a host without the display dock: "Open in panel" is disabled. */
-  readonly openable = input(true);
-  /** "Open in panel": the caller opens the dock at this turn's summary. */
-  readonly open = output<void>();
 
   private readonly instanceId = `ptah-turn-summary-chip-${nextSummaryChipInstance++}`;
   protected readonly toggleId = `${this.instanceId}-toggle`;
   protected readonly regionId = `${this.instanceId}-region`;
-  protected readonly unavailableId = `${this.instanceId}-unavailable`;
 
   /** The inline chip keeps its `my-2` margin on top of the shared section look. */
   protected readonly SECTION_CLASS = `my-2 ${MINI_SECTION_CLASS}`;
@@ -214,7 +178,6 @@ export class TurnSummaryChipComponent {
   protected readonly MINI_PILL_CLASS = MINI_PILL_CLASS;
   protected readonly LayoutDashboardIcon = LayoutDashboard;
   protected readonly ChevronDownIcon = ChevronDown;
-  protected readonly PanelRightIcon = PanelRight;
 
   /** Chips start collapsed (R9.4). */
   protected readonly expanded = signal(false);
@@ -358,9 +321,5 @@ export class TurnSummaryChipComponent {
     event.stopPropagation();
     this.expanded.set(false);
     toggle.nativeElement.focus();
-  }
-
-  protected openInPanel(): void {
-    if (this.openable()) this.open.emit();
   }
 }

@@ -19,7 +19,6 @@
  */
 export {
   DisplayPanelComponent,
-  DISPLAY_PANEL_SUMMARY_KEY,
   type DisplayPanelViewStateChange,
 } from './lib/organisms/display-panel/display-panel.component';
 export { DisplaySurfaceSyncComponent } from './lib/organisms/display-panel/display-surface-sync.component';

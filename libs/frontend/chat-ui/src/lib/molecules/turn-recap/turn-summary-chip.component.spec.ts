@@ -102,9 +102,8 @@ describe('TurnSummaryChipComponent', () => {
   const toggle = (): HTMLButtonElement =>
     query('turn-summary-chip-toggle') as HTMLButtonElement;
 
-  function render(summary: TurnSummaryModel, openable = true): void {
+  function render(summary: TurnSummaryModel): void {
     fixture.componentRef.setInput('summary', summary);
-    fixture.componentRef.setInput('openable', openable);
     fixture.detectChanges();
   }
 
@@ -236,10 +235,9 @@ describe('TurnSummaryChipComponent', () => {
     it('Escape collapses an expanded chip and returns focus to the toggle', () => {
       render(model());
       expand();
-      const button = query('turn-summary-chip-open') as HTMLButtonElement;
-      button.focus();
+      const region = native().querySelector('[role="region"]') as HTMLElement;
 
-      button.dispatchEvent(
+      region.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
       fixture.detectChanges();
@@ -389,31 +387,12 @@ describe('TurnSummaryChipComponent', () => {
       }
     });
 
-    it('"Open in panel" emits open', () => {
+    it('has no display-panel control', () => {
       render(model());
-      const emitted = jest.fn();
-      fixture.componentInstance.open.subscribe(emitted);
       expand();
 
-      (query('turn-summary-chip-open') as HTMLButtonElement).click();
-
-      expect(emitted).toHaveBeenCalledTimes(1);
-    });
-
-    it('disables "Open in panel" with a reason on a host without the dock', () => {
-      render(model(), false);
-      const emitted = jest.fn();
-      fixture.componentInstance.open.subscribe(emitted);
-      expand();
-
-      const button = query('turn-summary-chip-open') as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
-      const reason = native().querySelector(
-        `#${button.getAttribute('aria-describedby')}`,
-      );
-      expect(text(reason)).toBe('Display panel unavailable');
-      button.click();
-      expect(emitted).not.toHaveBeenCalled();
+      expect(query('turn-summary-chip-open')).toBeNull();
+      expect(native().textContent).not.toContain('Open in panel');
     });
   });
 
@@ -454,7 +433,7 @@ describe('TurnSummaryChipComponent', () => {
     expect(source).not.toMatch(/linear-gradient|ts-hero/);
   });
 
-  it('shares the mini-card look with the panel Turn summary (decision 76)', () => {
+  it('uses the transcript mini-card styles (decision 76)', () => {
     render(model());
     expand();
     const section = query('turn-summary-chip') as HTMLElement;

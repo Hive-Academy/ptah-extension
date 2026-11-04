@@ -1,9 +1,8 @@
 import { z } from 'zod';
 // Type-only: the eager sync service imports this module, so it holds no
-// runtime import of the lazy `display-panel` / `turn-recap` entries. The
-// artifact record schema is loaded on demand (the `artifact.store.ts` rule).
+// runtime import of the lazy `display-panel` entry. The artifact record schema
+// is loaded on demand (the `artifact.store.ts` rule).
 import type { DisplaySurface } from '@ptah-extension/chat-ui/display-panel';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import type {
   ArtifactRecord,
@@ -25,10 +24,9 @@ import type { DisplayDockSelection } from '../display-dock/display-dock.state';
  */
 
 /** Bumped when the wire shape changes; a mismatched snapshot is refused. */
-export const DISPLAY_WINDOW_WIRE_VERSION = 1;
+export const DISPLAY_WINDOW_WIRE_VERSION = 2;
 
-/** Same strings as the display panel's strip keys (see `display-sheet.component.ts`). */
-export const DISPLAY_WINDOW_SUMMARY_KEY = 'summary';
+/** Same strings as the display panel's artifact strip keys. */
 export const DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX = 'artifact:';
 
 export type DisplayWindowThemeMode = 'dark' | 'light';
@@ -41,17 +39,14 @@ export interface DisplayWindowView {
   };
   readonly open: boolean;
   readonly pinned: boolean;
-  /** Strip items in the panel: summary (when present), surfaces and artifacts. */
+  /** Strip items in the panel: surfaces and artifacts. */
   readonly count: number;
   readonly selectedKey: string | null;
   readonly scrollToSelectedOnMount: boolean;
   readonly fullscreenArtifactId: string | null;
-  readonly summary: TurnSummaryModel | null;
-  readonly summaryTurnKey: string;
   readonly surfaces: readonly DisplaySurface[];
   readonly viewStates: ReadonlyMap<string, SurfaceViewState>;
   readonly artifacts: readonly ArtifactRecord[];
-  readonly actionError: string | null;
   /**
    * Shown in place of the panel when the main renderer cannot send content
    * (the snapshot is too large, or no chat tab is bound); `null` otherwise.
@@ -73,7 +68,6 @@ export interface DisplayWindowParsedSnapshot {
 /** The panel strip key of a dock selection; `null` lets the panel pick. */
 export function selectionKey(selection: DisplayDockSelection): string | null {
   if (selection === null) return null;
-  if (selection.kind === 'summary') return DISPLAY_WINDOW_SUMMARY_KEY;
   if (selection.kind === 'artifact') {
     return `${DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX}${selection.artifactId}`;
   }
@@ -82,7 +76,6 @@ export function selectionKey(selection: DisplayDockSelection): string | null {
 
 /** The dock selection a panel strip key denotes. */
 export function selectionForKey(key: string): DisplayDockSelection {
-  if (key === DISPLAY_WINDOW_SUMMARY_KEY) return { kind: 'summary' };
   if (key.startsWith(DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX)) {
     return {
       kind: 'artifact',
@@ -157,8 +150,6 @@ export function toWire(view: DisplayWindowView): DisplayWindowJsonObject {
     selectedKey: view.selectedKey,
     scrollToSelectedOnMount: view.scrollToSelectedOnMount,
     fullscreenArtifactId: view.fullscreenArtifactId,
-    summary: view.summary === null ? null : toJsonObject(view.summary),
-    summaryTurnKey: view.summaryTurnKey,
     surfaces: view.surfaces.map((surface) => ({
       key: surface.key,
       displayId: surface.displayId,
@@ -179,7 +170,6 @@ export function toWire(view: DisplayWindowView): DisplayWindowJsonObject {
       toJsonObject(state),
     ]),
     artifacts: view.artifacts.map((record) => toJsonObject(record)),
-    actionError: view.actionError,
     notice: view.notice,
   };
 }
@@ -242,20 +232,6 @@ const SurfaceContentSchema = z.custom<DisplaySurface['content']>(
         isPlainObject(value['spec']))),
 );
 
-/** The summary model: plain JSON with its card list; rendered as text. */
-const TurnSummaryModelSchema = z.custom<TurnSummaryModel>(
-  (value) =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value['incomplete'] === 'boolean' &&
-    typeof value['testsInBackground'] === 'boolean' &&
-    Array.isArray(value['cards']) &&
-    value['cards'].every(
-      (card: unknown) =>
-        isPlainObject(card) && typeof card['kind'] === 'string',
-    ),
-);
-
 const SurfaceComponentViewStateSchema = z.strictObject({
   sort: z
     .strictObject({
@@ -302,8 +278,6 @@ const DisplayWindowActionSchema = z.discriminatedUnion('type', [
     surfaceKey: z.string().min(1),
     viewState: SurfaceViewStateWireSchema,
   }),
-  z.strictObject({ type: z.literal('open-file'), path: z.string().min(1) }),
-  z.strictObject({ type: z.literal('review') }),
   z.strictObject({ type: z.literal('attach') }),
 ]);
 
@@ -360,12 +334,9 @@ function snapshotSchema(artifactRecord: ArtifactRecordSchemaType) {
     selectedKey: z.string().nullable(),
     scrollToSelectedOnMount: z.boolean(),
     fullscreenArtifactId: z.string().nullable(),
-    summary: TurnSummaryModelSchema.nullable(),
-    summaryTurnKey: z.string(),
     surfaces: z.array(SurfaceWireSchema),
     viewStates: z.array(z.tuple([z.string(), SurfaceViewStateWireSchema])),
     artifacts: z.array(artifactRecord),
-    actionError: z.string().nullable(),
     notice: z.string().nullable(),
   });
   return z.strictObject({
@@ -413,8 +384,6 @@ export async function parseWireState(
       selectedKey: state.selectedKey,
       scrollToSelectedOnMount: state.scrollToSelectedOnMount,
       fullscreenArtifactId: state.fullscreenArtifactId,
-      summary: state.summary,
-      summaryTurnKey: state.summaryTurnKey,
       surfaces: state.surfaces.map((surface) => ({
         ...surface,
         componentSignatures: new Map(surface.componentSignatures),
@@ -422,7 +391,6 @@ export async function parseWireState(
       })),
       viewStates: new Map(state.viewStates),
       artifacts: state.artifacts,
-      actionError: state.actionError,
       notice: state.notice,
     },
   };

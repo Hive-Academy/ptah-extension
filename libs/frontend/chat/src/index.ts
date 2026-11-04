@@ -57,7 +57,6 @@ export { SESSION_DISPLAY_DOCK } from './lib/tokens/session-context.token';
 export { DisplayDockState } from './lib/services/display-dock/display-dock.state';
 export type {
   DisplayDockSelection,
-  DisplayDockSummary,
   DisplayDockTabState,
 } from './lib/services/display-dock/display-dock.state';
 // Detached Display window (TASK_2026_853_3401): the main renderer's sync, and

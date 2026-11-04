@@ -22,13 +22,9 @@ import {
 } from '@ptah-extension/chat-ui/display-panel';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { ArtifactRecord, TurnChangeSet } from '@ptah-extension/shared';
+import type { ArtifactRecord } from '@ptah-extension/shared';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import {
-  ChangeSetActionsService,
-  runDisplayChangeSetAction,
-} from '../../../services/change-set/change-set-actions.service';
 import {
   selectionForKey,
   selectionKey,
@@ -39,7 +35,7 @@ import {
  *
  * - Collapsed (`dock.open` false): a vertical "Display · N" sidebar tab, shown
  *   only when the tab has content.
- * - Open: a header (Display · N, Pin, optional Detach, Collapse) above the
+ * - Open: a header (Display · N, Keep current view, optional Detach, Collapse) above the
  *   panel. The host sets the width; `overlay` turns it into an absolute right
  *   drawer for a narrow host.
  */
@@ -131,11 +127,13 @@ import {
             class="btn btn-ghost btn-xs"
             [attr.aria-pressed]="state().pinned"
             [class.text-primary]="state().pinned"
-            aria-label="Pin panel"
+            aria-label="Keep current view"
+            aria-description="New or updated displays will not switch items or scroll this panel."
+            title="New or updated displays will not switch items or scroll this panel."
             (click)="togglePin()"
             data-testid="display-sheet-pin"
           >
-            Pin
+            Keep current view
           </button>
           @if (detachable()) {
             <button
@@ -192,19 +190,12 @@ import {
               [open]="state().open"
               [fullscreenArtifactId]="dock.fullscreenArtifact(this.tabId())"
               (fullscreenChange)="onFullscreenChange($event)"
-              [summary]="summary()?.model ?? null"
-              [summaryTurnKey]="summaryTurnKey() ?? ''"
               [selectedKey]="selectedKey()"
-              [scrollToSelectedOnMount]="
-                (state().selection?.kind ?? 'summary') !== 'summary'
-              "
+              [scrollToSelectedOnMount]="state().selection !== null"
               [pinned]="state().pinned"
               [viewStates]="state().viewStates"
-              [actionError]="actionError()"
               (selectedKeyChange)="select($event)"
               (viewStateChange)="saveViewState($event)"
-              (openFile)="openFile($event)"
-              (review)="review()"
               (openExternal)="openExternal($event)"
             />
           } @placeholder {
@@ -238,7 +229,6 @@ import {
 })
 export class DisplaySheetComponent {
   protected readonly dock = inject(DisplayDockState);
-  private readonly actions = inject(ChangeSetActionsService);
   protected readonly artifactStore = inject(ArtifactStore);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly destroyRef = inject(DestroyRef);
@@ -254,14 +244,8 @@ export class DisplaySheetComponent {
   /** The user asked to move the panel into a separate window. */
   readonly detachRequested = output<void>();
   protected readonly state = computed(() => this.dock.tab(this.tabId()));
-  protected readonly summary = computed(() =>
-    this.dock.summaryFor(this.tabId()),
-  );
   protected readonly itemCount = computed(
-    () =>
-      this.state().surfaces.length +
-      this.state().summaries.size +
-      this.artifacts().length,
+    () => this.state().surfaces.length + this.artifacts().length,
   );
   /**
    * The tab's published artifacts (TASK_2026_710). The store buckets records
@@ -279,25 +263,14 @@ export class DisplaySheetComponent {
   protected readonly visible = computed(
     () => this.state().open || this.itemCount() > 0,
   );
-  protected readonly summaryTurnKey = computed(() =>
-    this.dock.summaryKeyFor(this.tabId()),
-  );
   protected readonly regionId = computed(
     () => `display-sheet-${this.tabId().replace(/[^a-zA-Z0-9_-]/g, '-')}`,
   );
   protected readonly selectedKey = computed(() =>
     selectionKey(this.state().selection),
   );
-  private readonly failure = signal<{ tabId: string; message: string } | null>(
-    null,
-  );
   protected readonly linkError = signal<string | null>(null);
   private linkErrorTimer: ReturnType<typeof setTimeout> | null = null;
-  protected readonly actionError = computed(() =>
-    this.failure()?.tabId === this.tabId()
-      ? (this.failure()?.message ?? null)
-      : null,
-  );
   protected readonly pulse = signal(false);
   private pulseTimer: ReturnType<typeof setTimeout> | null = null;
   private lastRevision = 0;
@@ -397,26 +370,8 @@ export class DisplaySheetComponent {
   protected saveViewState(change: DisplayPanelViewStateChange): void {
     this.dock.setViewState(this.tabId(), change.surfaceKey, change.viewState);
   }
-  protected openFile(path: string): void {
-    void this.runAction((changeSet) => this.actions.openFile(changeSet, path));
-  }
-  protected review(): void {
-    void this.runAction((changeSet) => this.actions.review(changeSet));
-  }
   protected retry(): void {
     this.dock.close(this.tabId());
     queueMicrotask(() => this.dock.open(this.tabId()));
-  }
-
-  private async runAction(
-    action: (changeSet: TurnChangeSet) => Promise<void>,
-  ): Promise<void> {
-    const tabId = this.tabId();
-    this.failure.set(null);
-    await runDisplayChangeSetAction(
-      this.dock.summaryFor(tabId)?.changeSet ?? null,
-      action,
-      (message) => this.failure.set({ tabId, message }),
-    );
   }
 }

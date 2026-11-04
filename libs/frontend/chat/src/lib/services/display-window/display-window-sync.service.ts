@@ -1,7 +1,6 @@
 import {
   DestroyRef,
   Injectable,
-  Injector,
   computed,
   effect,
   inject,
@@ -20,16 +19,10 @@ import {
   DISPLAY_WINDOW_STATE_MAX_BYTES,
   type DisplayWindowJsonObject,
   type DisplayWindowUnavailableReason,
-  type TurnChangeSet,
 } from '@ptah-extension/shared';
 import { ArtifactStore } from '../artifact.store';
-import {
-  ChangeSetActionsService,
-  runDisplayChangeSetAction,
-} from '../change-set/change-set-actions.service';
 import type { DisplayDockState } from '../display-dock/display-dock.state';
 import {
-  DISPLAY_WINDOW_SUMMARY_KEY,
   parseActionPush,
   selectionForKey,
   selectionKey,
@@ -96,8 +89,6 @@ export class DisplayWindowSync implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly theme = inject(ThemeService);
   private readonly artifacts = inject(ArtifactStore);
-  // Resolved on the first change-set action from the window, not at boot.
-  private readonly injector = inject(Injector);
 
   readonly handledMessageTypes = [
     DISPLAY_WINDOW_PUSH_TYPES.closed,
@@ -112,11 +103,6 @@ export class DisplayWindowSync implements MessageHandler {
   readonly error = this._error.asReadonly();
 
   private readonly source = signal<DisplayWindowSource | null>(null);
-  /** A failed open-file or review run from the window, shown in its panel. */
-  private readonly actionFailure = signal<{
-    tabId: string;
-    message: string;
-  } | null>(null);
 
   /** The bound tab's display view, or `null` with no source or no tab. */
   private readonly view = computed(
@@ -271,47 +257,19 @@ export class DisplayWindowSync implements MessageHandler {
       case 'view-state':
         dock.setViewState(tabId, action.surfaceKey, action.viewState);
         return;
-      case 'open-file':
-        void this.runChangeSetAction(dock, tabId, (changeSet) =>
-          this.injector
-            .get(ChangeSetActionsService)
-            .openFile(changeSet, action.path),
-        );
-        return;
-      case 'review':
-        void this.runChangeSetAction(dock, tabId, (changeSet) =>
-          this.injector.get(ChangeSetActionsService).review(changeSet),
-        );
-        return;
       case 'attach':
         // Handled before the tab check in `handleMessage`.
         return;
     }
   }
 
-  /** The display sheet's change-set rule: the shown summary's change set, or an error. */
-  private async runChangeSetAction(
-    dock: DisplayDockState,
-    tabId: string,
-    action: (changeSet: TurnChangeSet) => Promise<void>,
-  ): Promise<void> {
-    this.actionFailure.set(null);
-    await runDisplayChangeSetAction(
-      dock.summaryFor(tabId)?.changeSet ?? null,
-      action,
-      (message) => this.actionFailure.set({ tabId, message }),
-    );
-  }
-
   private buildView(dock: DisplayDockState, tabId: string): DisplayWindowView {
     const state = dock.tab(tabId);
     const selection = state.selection;
-    const summary = dock.summaryFor(tabId);
     const artifacts = this.artifacts.panelArtifacts(
       tabId,
       selection?.kind === 'artifact' ? selection.artifactId : null,
     );
-    const failure = this.actionFailure();
     const themeName = this.theme.currentTheme();
     return {
       theme: {
@@ -320,19 +278,13 @@ export class DisplayWindowSync implements MessageHandler {
       },
       open: true,
       pinned: state.pinned,
-      count:
-        (summary === null ? 0 : 1) + state.surfaces.length + artifacts.length,
+      count: state.surfaces.length + artifacts.length,
       selectedKey: selectionKey(selection),
-      scrollToSelectedOnMount:
-        (selection?.kind ?? DISPLAY_WINDOW_SUMMARY_KEY) !==
-        DISPLAY_WINDOW_SUMMARY_KEY,
+      scrollToSelectedOnMount: selection !== null,
       fullscreenArtifactId: dock.fullscreenArtifact(tabId),
-      summary: summary?.model ?? null,
-      summaryTurnKey: dock.summaryKeyFor(tabId) ?? '',
       surfaces: state.surfaces,
       viewStates: state.viewStates,
       artifacts,
-      actionError: failure?.tabId === tabId ? failure.message : null,
       notice: null,
     };
   }
@@ -350,12 +302,9 @@ export class DisplayWindowSync implements MessageHandler {
       selectedKey: null,
       scrollToSelectedOnMount: false,
       fullscreenArtifactId: null,
-      summary: null,
-      summaryTurnKey: '',
       surfaces: [],
       viewStates: new Map(),
       artifacts: [],
-      actionError: null,
       notice,
     };
   }

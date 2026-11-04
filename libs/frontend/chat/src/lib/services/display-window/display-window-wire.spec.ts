@@ -1,5 +1,4 @@
 import type { DisplaySurface } from '@ptah-extension/chat-ui/display-panel';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import type { ArtifactRecord } from '@ptah-extension/shared';
 import {
@@ -48,21 +47,6 @@ const surface: DisplaySurface = {
   retainedViewStateIds: new Set(['root']),
 };
 
-const tokens = { kind: 'tokens', input: 10, output: 20 } as const;
-const cost = { kind: 'cost', value: '$0.01' } as const;
-const duration = { kind: 'duration', value: '3s' } as const;
-const summary: TurnSummaryModel = {
-  incomplete: false,
-  testsInBackground: false,
-  files: null,
-  lines: null,
-  tokens,
-  cost,
-  duration,
-  tests: null,
-  cards: [tokens, cost, duration],
-};
-
 const viewState: SurfaceViewState = {
   components: {
     root: { page: 1, sort: { columnKey: 'name', direction: 'asc' } },
@@ -75,16 +59,13 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
     theme: { name: 'ptah-glass', mode: 'dark' },
     open: true,
     pinned: false,
-    count: 3,
+    count: 2,
     selectedKey: 'artifact:abcdefghijklmnop',
     scrollToSelectedOnMount: true,
     fullscreenArtifactId: null,
-    summary,
-    summaryTurnKey: 'u1',
     surfaces: [surface],
     viewStates: new Map([['id:stats', viewState]]),
     artifacts: [artifact],
-    actionError: null,
     notice: null,
     ...partial,
   };
@@ -93,7 +74,6 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
 describe('display-window-wire', () => {
   describe('selection keys', () => {
     it.each([
-      [{ kind: 'summary' } as const, 'summary'],
       [{ kind: 'artifact', artifactId: 'abc' } as const, 'artifact:abc'],
       [{ kind: 'surface', surfaceKey: 'id:stats' } as const, 'id:stats'],
     ])('round-trips %j', (selection, key) => {
@@ -140,7 +120,6 @@ describe('display-window-wire', () => {
     expect(parsed?.revision).toBe(4);
     const result = parsed!.view;
     expect(result.artifacts).toEqual([artifact]);
-    expect(result.summary).toEqual(JSON.parse(JSON.stringify(summary)));
     expect(result.surfaces[0].componentSignatures).toEqual(
       new Map([['root', 'sig-root']]),
     );
@@ -155,6 +134,7 @@ describe('display-window-wire', () => {
     [string, (state: Record<string, unknown>) => Record<string, unknown>]
   >([
     ['an unknown version', (state) => ({ ...state, version: 99 })],
+    ['the previous wire version', (state) => ({ ...state, version: 1 })],
     ['an extra field', (state) => ({ ...state, extra: 1 })],
     [
       'a bad theme name',
@@ -172,10 +152,6 @@ describe('display-window-wire', () => {
           },
         ],
       }),
-    ],
-    [
-      'a summary without cards',
-      (state) => ({ ...state, summary: { incomplete: false } }),
     ],
   ])('refuses %s', async (_label, mutate) => {
     const state = JSON.parse(JSON.stringify(toWire(view()))) as Record<
@@ -208,10 +184,8 @@ describe('display-window-wire', () => {
     });
 
     it.each([
-      { type: 'select', key: 'summary' },
+      { type: 'select', key: 'id:stats' },
       { type: 'fullscreen-closed' },
-      { type: 'open-file', path: 'src/a.ts' },
-      { type: 'review' },
       { type: 'attach' },
     ])('accepts %j', (action) => {
       expect(parseActionPush({ tabId: 'tab-1', action })).toEqual({
@@ -224,9 +198,11 @@ describe('display-window-wire', () => {
       ['an unknown type', { tabId: 'tab-1', action: { type: 'eval' } }],
       [
         'an extra field',
-        { tabId: 'tab-1', action: { type: 'review', path: 'x' } },
+        { tabId: 'tab-1', action: { type: 'select', key: 'id:stats', path: 'x' } },
       ],
-      ['a missing tab', { action: { type: 'review' } }],
+      ['a missing tab', { action: { type: 'select', key: 'id:stats' } }],
+      ['a removed open-file action', { tabId: 'tab-1', action: { type: 'open-file', path: 'src/a.ts' } }],
+      ['a removed review action', { tabId: 'tab-1', action: { type: 'review' } }],
       [
         'a bad view state',
         {

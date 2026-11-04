@@ -3,12 +3,7 @@ import { DeferBlockBehavior, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { DisplayPanelComponent } from '@ptah-extension/chat-ui/display-panel';
 import type { DisplaySurface } from '@ptah-extension/chat-ui';
-import {
-  ArtifactStore,
-  ChangeSetActionsService,
-  DisplayDockState,
-  type DisplayDockSummary,
-} from '@ptah-extension/chat';
+import { ArtifactStore, DisplayDockState } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ArtifactRecord } from '@ptah-extension/shared';
@@ -24,18 +19,13 @@ class StubDisplayPanelComponent {
   public readonly artifacts = input<readonly unknown[]>([]);
   public readonly open = input(true);
   public readonly fullscreenArtifactId = input<string | null>(null);
-  public readonly summary = input<unknown>(null);
-  public readonly summaryTurnKey = input('');
   public readonly selectedKey = input<string | null>(null);
   public readonly scrollToSelectedOnMount = input(false);
   public readonly pinned = input(false);
   public readonly viewStates = input<ReadonlyMap<string, unknown>>(new Map());
-  public readonly actionError = input<string | null>(null);
   public readonly selectedKeyChange = output<string>();
   public readonly viewStateChange = output<unknown>();
   public readonly fullscreenChange = output<boolean>();
-  public readonly openFile = output<string>();
-  public readonly review = output<void>();
   public readonly openExternal = output<string>();
   public readonly retryArtifacts = output<void>();
 }
@@ -56,17 +46,9 @@ function artifact(id: string, sessionId: string): ArtifactRecord {
   };
 }
 
-function summary(): DisplayDockSummary {
-  return {
-    model: { title: 'Turn' },
-    changeSet: null,
-  } as unknown as DisplayDockSummary;
-}
-
 describe('CommandRailDisplayComponent', () => {
   let dock: DisplayDockState;
   let store: ArtifactStore;
-  const actions = { openFile: jest.fn(), review: jest.fn() };
   const call = jest.fn();
 
   function mount() {
@@ -77,7 +59,6 @@ describe('CommandRailDisplayComponent', () => {
       providers: [
         // The real store, so the panel list comes from its cross-bucket lookup.
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
-        { provide: ChangeSetActionsService, useValue: actions },
         { provide: ClaudeRpcService, useValue: { call } },
       ],
     });
@@ -120,7 +101,7 @@ describe('CommandRailDisplayComponent', () => {
     ).toContain('Nothing displayed yet.');
   });
 
-  it('renders the target tab surfaces and summary from the shared dock', async () => {
+  it('renders only the target tab surfaces from the shared dock', async () => {
     const fixture = mount();
     const chart = surface('id:chart');
     dock.setSurfaces('tab-1', { surfaces: [chart], statuses: new Map() });
@@ -128,12 +109,8 @@ describe('CommandRailDisplayComponent', () => {
       surfaces: [surface('id:other')],
       statuses: new Map(),
     });
-    const turn = summary();
-    dock.setSummaries('tab-1', new Map([['turn-1', turn]]));
     const panel = await settle(fixture);
     expect(panel?.surfaces()).toEqual([chart]);
-    expect(panel?.summary()).toBe(turn.model);
-    expect(panel?.summaryTurnKey()).toBe('turn-1');
   });
 
   it('writes selection to the dock per tab, so a tab change resets it', async () => {
@@ -159,18 +136,6 @@ describe('CommandRailDisplayComponent', () => {
     panel = await settle(fixture);
     expect(panel?.selectedKey()).toBeNull();
     expect(panel?.surfaces()).toEqual([surface('id:other')]);
-  });
-
-  it('reports a review with no change set instead of calling the action', async () => {
-    const fixture = mount();
-    dock.setSummaries('tab-1', new Map([['turn-1', summary()]]));
-    let panel = await settle(fixture);
-    panel?.review.emit();
-    panel = await settle(fixture);
-    expect(actions.review).not.toHaveBeenCalled();
-    expect(panel?.actionError()).toBe(
-      'This turn has no recorded file changes to open.',
-    );
   });
 
   // Regression: the rail read only `records()[tabId]`, so an artifact published
