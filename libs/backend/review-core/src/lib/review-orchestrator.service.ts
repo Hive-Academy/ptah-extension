@@ -7,7 +7,7 @@ import { ReviewQueueService, type ReviewQueueClaim } from './review-queue.servic
 import { ReviewPolicyService } from './review-policy.service';
 import type { IReviewRepository, ReviewStageRecord } from './persistence/review-repository.interface';
 import { DiscoveryStageRunner } from './stages/discovery-stage.runner';
-import { ContextStageRunner, type ContextStageResult, type ReviewStageEnvironment } from './stages/context-stage.runner';
+import { ContextStageRunner, resolveReviewRoots, type ContextStageResult, type ReviewStageEnvironment } from './stages/context-stage.runner';
 import { TriageStageRunner } from './stages/triage-stage.runner';
 import { LensStageRunner } from './stages/lens-stage.runner';
 import { VerificationStageRunner } from './stages/verification-stage.runner';
@@ -55,49 +55,65 @@ export class ReviewOrchestratorService {
   }
 
   /** Host starts this detached from cron and owns its lifetime. */
-  async drain(owner: string, deadlineMs: number): Promise<number> {
+  async drain(owner: string, deadlineMs: number, signal?: AbortSignal): Promise<number> {
     if (this.workerActive) return 0;
     this.workerActive = true;
     let count = 0;
     try {
-      while (Date.now() < deadlineMs) {
+      while (!signal?.aborted && Date.now() < deadlineMs) {
         const claim = await this.queue.claim(owner, 60_000);
         if (!claim) break;
-        await this.process(claim, deadlineMs);
+        await this.process(claim, deadlineMs, signal);
         count++;
       }
       return count;
     } finally { this.workerActive = false; }
   }
 
-  private async process(claim: ReviewQueueClaim, deadline: number): Promise<void> {
+  private async process(claim: ReviewQueueClaim, deadline: number, signal?: AbortSignal): Promise<void> {
     let status: 'succeeded' | 'partial' | 'failed' | 'superseded' = 'succeeded';
+    const heartbeat = setInterval(() => {
+      if (signal?.aborted) return;
+      void this.queue.heartbeat(claim.attemptId, claim.lease.owner, 60_000).catch(() => {
+        this.logger.error('Review lease heartbeat failed', new Error('Review lease heartbeat failed'));
+      });
+    }, 20_000);
+    heartbeat.unref();
     try {
+      if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim)) { status = 'superseded'; return; }
       const context = await this.stage(claim, 'context', 0, ContextSchema, () => this.context.run(claim));
       if (!context) { status = 'partial'; return; }
+      if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim)) { status = 'superseded'; return; }
       const triage = await this.stage(claim, 'triage', 1, z.unknown(), () => this.triage.run(claim, context, deadline));
       if (!triage) { status = 'partial'; return; }
       if (!triage || (typeof triage === 'object' && triage !== null && 'status' in triage && triage.status === 'partial')) status = 'partial';
+      if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim)) { status = 'superseded'; return; }
       const lensResults = await this.lenses.run(claim, context, deadline);
       if (lensResults.some((entry) => entry.result.status === 'partial')) status = 'partial';
+      if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim)) { status = 'superseded'; return; }
       const verdicts = await this.stage(claim, 'verification', 3, VerificationSchema, () => this.verification.run(claim, context, lensResults, deadline));
       if (!verdicts) { status = 'partial'; return; }
       if (verdicts.some((entry) => entry.verification === 'unavailable')) status = 'partial';
+      if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim)) { status = 'superseded'; return; }
       const publication = await this.stage(claim, 'publication', 4, z.object({ artifactPath: z.string(), exportPath: z.string(),
         acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts));
       if (!publication) status = 'partial';
-    } catch (error: unknown) {
+    } catch (_error: unknown) {
       status = 'failed';
-      this.logger.error('Review attempt failed', error instanceof Error ? error : new Error(String(error)));
-    } finally { await this.queue.release(claim.attemptId, claim.lease.owner, status); }
+      this.logger.error('Review attempt failed', new Error('Review attempt failed'));
+    } finally {
+      clearInterval(heartbeat);
+      await this.queue.release(claim.attemptId, claim.lease.owner, status);
+    }
   }
 
   private async guard(claim: ReviewQueueClaim): Promise<boolean> {
+    await resolveReviewRoots(this.environment, claim.repo);
     const pull = await this.github.getPull(claim.repo, claim.prNumber);
     if (pull.headSha !== claim.headSha) return false;
     const eligible = this.policy.eligibility({ owner: claim.repo.owner, name: claim.repo.name, authorLogin: pull.authorLogin,

@@ -33,7 +33,7 @@ describe('PublicationStageRunner', () => {
     const fs: ReviewArtifactFileSystem = { realpath: async (path) => path,
       writeFile: async (path, data) => { writes.set(path, data); }, readFile: async () => 'Observed behavior' };
     const runner = new PublicationStageRunner(new ReviewArtifactWriter(fs), new ReviewPolicyService(), {
-      repoRoot: '/repo', attemptsRoot: '/attempts', settings: async () => settings, baseConfig: async () => null,
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null,
     });
     const lenses: LensStageResult = [{ lens: 'correctness-lifecycle', result: { status: 'partial', reason: 'no-confirmed-room' } }];
     const verdicts: VerificationResult[] = [
@@ -81,7 +81,7 @@ describe('PublicationStageRunner', () => {
       writeFile: async (path, data) => { writes.set(path, data); await writeFile(path, data); },
       readFile: async () => 'Observed behavior' };
     const runner = new PublicationStageRunner(new ReviewArtifactWriter(fs), new ReviewPolicyService(), {
-      repoRoot: '/repo', attemptsRoot: '/attempts', settings: async () => settings, baseConfig: async () => null,
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null,
     }, { db });
     const stored = { ...finding };
     const accepted = { lens: stored.lens, finding: stored, verification: 'cross-family' as const, result: { status: 'completed' as const,
@@ -121,7 +121,7 @@ describe('PublicationStageRunner', () => {
     const fs: ReviewArtifactFileSystem = { realpath: async (path) => path,
       writeFile: async (path, data) => { writes.set(path, data); }, readFile: async () => 'Observed behavior' };
     const runner = new PublicationStageRunner(new ReviewArtifactWriter(fs), new ReviewPolicyService(), {
-      repoRoot: '/repo', attemptsRoot: '/attempts', settings: async () => settings, baseConfig: async () => null,
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null,
     }, { db });
     const accepted = { lens: finding.lens, finding, verification: 'same-family-weaker' as const, result: {
       status: 'completed' as const, family: 'codex', output: { schemaVersion: 1 as const, candidateId: 'a', headSha: sha,

@@ -59,7 +59,7 @@ function fixture() {
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   const coordinator = new ReviewOrchestratorService(discovery, context, triage, lenses, verification, publication, queue,
     new ReviewPolicyService(), repository, github,
-    { repoRoot: '/repo', attemptsRoot: '/attempts', settings: async () => settings, baseConfig: async () => null }, logger);
+    { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger);
   return { coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,
     verificationRun, github };
 }

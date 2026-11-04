@@ -8,7 +8,7 @@ import type { ContextStageResult } from './context-stage.runner';
 export class TriageStageRunner {
   constructor(private readonly lanes: ReviewLaneRunner) {}
   run(claim: ReviewQueueClaim, context: ContextStageResult, deadline: number): Promise<ReviewLaneResult> {
-    return this.lanes.run({ prKey: `${claim.repo.owner}/${claim.repo.name}#${claim.prNumber}`, attemptId: claim.attemptId,
+    return this.lanes.run({ repo: claim.repo, prKey: `${claim.repo.owner}/${claim.repo.name}#${claim.prNumber}`, attemptId: claim.attemptId,
       attemptRoot: context.attemptRoot, headSha: claim.headSha, kind: 'triage',
       prompt: buildTriagePrompt(context.promptInput), runDeadlineMs: deadline });
   }

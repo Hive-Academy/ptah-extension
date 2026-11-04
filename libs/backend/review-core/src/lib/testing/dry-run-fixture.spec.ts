@@ -51,7 +51,7 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
       const clock = { now: () => new Date() };
       const queue = new ReviewQueueService(first.repository, clock, logger);
       const policy = new ReviewPolicyService();
-      const environment = { repoRoot: root, attemptsRoot: root, settings: async () => settings, baseConfig: async () => null };
+      const environment = { resolve: async () => ({ repoRoot: root, attemptsRoot: root }), settings: async () => settings, baseConfig: async () => null };
       const mutations = { upsertWalkthrough: jest.fn(), createCommentReview: jest.fn(), replyToFinding: jest.fn() };
       const github: IGitHubReviewPort = { listOpenPulls: jest.fn().mockResolvedValue({ items: [{ number: 1, headSha: sha,
         baseSha: 'b'.repeat(40), state: 'open', draft: false, authorLogin: 'maintainer', headRepoId: 1,

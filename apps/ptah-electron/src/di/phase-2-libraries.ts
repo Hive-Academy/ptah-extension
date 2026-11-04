@@ -22,7 +22,16 @@ import {
   type ContentDownloadService,
   type IProcessSpawner,
   type IWorkspaceProvider,
+  type ISecretStorage,
 } from '@ptah-extension/platform-core';
+import { registerReviewCore, REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS, ReviewWorktreeService, type IReviewSettingsStore, type ReviewStageEnvironment } from '@ptah-extension/review-core';
+import { registerReviewGithubServices, REVIEW_GITHUB_TOKENS } from '@ptah-extension/review-github';
+import { ReviewSecretPresence } from '../services/review/review-secret-presence';
+import { ElectronReviewEnvironment } from '../services/review/electron-review-environment';
+import { ReviewCommandRunner } from '../services/review/review-command-runner';
+import { ReviewLaneGateway } from '../services/review/review-lane-gateway';
+import { ReviewFiles } from '../services/review/review-files';
+import { ReviewLaneFiles } from '../services/review/review-lane-files';
 import {
   ElectronEditorLauncher,
   createAgentModelSettingsGetter,
@@ -58,6 +67,10 @@ import {
   registerCliAgentRuntimeServices,
   CLI_AGENT_RUNTIME_TOKENS,
   createContainerHarnessCliDetector,
+  AgentProcessManager,
+  AgentSpawnEnvironment,
+  CliDetectionService,
+  LaneLimitLookupService,
 } from '@ptah-extension/cli-agent-runtime';
 import {
   LANE_ROUTING_TOKENS,
@@ -383,6 +396,49 @@ export function registerPhase2Libraries(
     });
 
     registerPersistenceSqliteServices(container, logger);
+    registerReviewCore(container);
+    registerReviewGithubServices(container);
+    container.register(REVIEW_CORE_TOKENS.GITHUB, { useToken: REVIEW_GITHUB_TOKENS.REVIEW_PORT });
+    container.register(REVIEW_CORE_TOKENS.SECRET_PRESENCE, {
+      useFactory: (provider) => new ReviewSecretPresence(
+        provider.resolve<ISecretStorage>(PLATFORM_TOKENS.SECRET_STORAGE),
+      ),
+    });
+    container.register(REVIEW_CORE_TOKENS.ENVIRONMENT, {
+      useFactory: (provider) => new ElectronReviewEnvironment(
+        provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE),
+        provider.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+      ),
+    });
+    container.register(REVIEW_CONTEXT_TOKENS.COMMAND_RUNNER, {
+      useFactory: (provider) => {
+        const environment = provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT);
+        return new ReviewCommandRunner((repo) => environment.resolve(repo));
+      },
+    });
+    container.register(REVIEW_LANE_TOKENS.GATEWAY, {
+      useFactory: (provider) => new ReviewLaneGateway(
+        provider.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER),
+        provider.resolve(CliDetectionService),
+        provider.resolve<LaneLimitLookupService>(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP),
+        provider.resolve(AgentSpawnEnvironment),
+      ),
+    });
+    container.register(ReviewFiles, {
+      useFactory: (provider) => {
+        const environment = provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT);
+        return new ReviewFiles(() => environment.resolve({ owner: 'Hive-Academy', name: 'PtahCode' }));
+      },
+    });
+    container.register(REVIEW_CONTEXT_TOKENS.FILES, { useToken: ReviewFiles });
+    container.register(REVIEW_CORE_TOKENS.ARTIFACT_FILES, { useToken: ReviewFiles });
+    container.register(REVIEW_LANE_TOKENS.FILES, {
+      useFactory: (provider) => {
+        const environment = provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT);
+        return new ReviewLaneFiles(provider.resolve(ReviewWorktreeService),
+          () => environment.resolve({ owner: 'Hive-Academy', name: 'PtahCode' }));
+      },
+    });
     try {
       const sqliteConnection = container.resolve<SqliteConnectionService>(
         PERSISTENCE_TOKENS.SQLITE_CONNECTION,

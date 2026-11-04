@@ -14,10 +14,12 @@ import {
   GitWatchRpcHandlers,
   RecentWorkspacesService,
   DisplayWindowRpcHandlers,
+  ReviewRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { CHAT_TOKENS } from '@ptah-extension/rpc-handlers';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import { REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS } from '@ptah-extension/review-core';
 
 export const EXPECTED_RESOLVABLE = [
   AnalyticsRpcHandlers,
@@ -34,6 +36,7 @@ export const EXPECTED_RESOLVABLE = [
   GitWatchRpcHandlers,
   RecentWorkspacesService,
   DisplayWindowRpcHandlers,
+  ReviewRpcHandlers,
 ] as const;
 
 /** Lib-owned tokens composed by Electron in addition to handler classes. */
@@ -44,6 +47,18 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['OUTCOME_TASK_KIND_CLASSIFIER', LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER],
   ['SDK_NEXT_TURN_REMINDER_QUEUE', SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE],
   ['SESSION_HISTORY_ROUTER', SDK_TOKENS.SESSION_HISTORY_ROUTER],
+  ['REVIEW_ORCHESTRATOR', REVIEW_CORE_TOKENS.ORCHESTRATOR],
+  ['REVIEW_QUERY_REPOSITORY', REVIEW_CORE_TOKENS.QUERY_REPOSITORY],
+  ['REVIEW_SETTINGS_STORE', REVIEW_CORE_TOKENS.SETTINGS_STORE],
+  ['REVIEW_ARTIFACT_READER', REVIEW_CORE_TOKENS.ARTIFACT_READER],
+  ['REVIEW_SECRET_PRESENCE', REVIEW_CORE_TOKENS.SECRET_PRESENCE],
+  ['REVIEW_GITHUB', REVIEW_CORE_TOKENS.GITHUB],
+  ['REVIEW_ENVIRONMENT', REVIEW_CORE_TOKENS.ENVIRONMENT],
+  ['REVIEW_CONTEXT_FILES', REVIEW_CONTEXT_TOKENS.FILES],
+  ['REVIEW_COMMAND_RUNNER', REVIEW_CONTEXT_TOKENS.COMMAND_RUNNER],
+  ['REVIEW_LANE_GATEWAY', REVIEW_LANE_TOKENS.GATEWAY],
+  ['REVIEW_LANE_FILES', REVIEW_LANE_TOKENS.FILES],
+  ['REVIEW_ARTIFACT_FILES', REVIEW_CORE_TOKENS.ARTIFACT_FILES],
 ] as const;
 
 /**

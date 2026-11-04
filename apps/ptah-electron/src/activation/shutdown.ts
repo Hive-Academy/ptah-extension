@@ -238,6 +238,7 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   });
   nonFatal('Interval teardown', deps.clearTimers);
   nonFatal('UpdateManager dispose', () => refs.updateManager?.dispose());
+  nonFatal('Review worker dispose', () => refs.reviewWorker?.dispose());
   // LIFO puts it here: it is captured at the very END of the heavy boot, right
   // after the cron start that arms its boot dispatch, so it is disposed early.
   // It belongs in THIS half — a check that completes writes its verdict through
@@ -324,6 +325,12 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const laneOutcomes = refs.laneOutcomesDisposer;
   if (laneOutcomes !== null) {
     await laneOutcomes.dispose();
+  }
+
+  const reviewWorker = refs.reviewWorker;
+  if (reviewWorker !== null) {
+    await withBudget('Review worker lease release', () => reviewWorker.awaitStopped(),
+      5_000, 'the lease will expire and reconcile on next start.');
   }
 
   if (hasElectronCodexBindings()) {
@@ -501,6 +508,7 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
     refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
+    refs.reviewWorker !== null ||
     refs.chatSessions !== null ||
     runningCheckPids().length > 0
   );

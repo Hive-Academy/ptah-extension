@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import { ShaSchema, type Lens } from '@ptah-extension/review-contracts';
+import { RepoIdentitySchema, ShaSchema, type Lens, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
 import { ReviewLaneAdmissionService, REVIEW_LANE_TOKENS, type IReviewLaneClock } from './review-lane-admission.service';
@@ -13,11 +13,12 @@ export interface IReviewLaneGateway {
 
 /** The adapter owns creation and exact-SHA, read-only materialization of src. */
 export interface IReviewLaneFiles {
-  prepare(attemptRoot: string, headSha: string): Promise<void>;
-  sourceChecksum(attemptRoot: string): Promise<string>;
+  prepare(repo: RepoIdentity, attemptRoot: string, headSha: string): Promise<void>;
+  sourceChecksum(repo: RepoIdentity, attemptRoot: string, headSha: string): Promise<string>;
 }
 
 export interface ReviewLaneRequest {
+  repo: RepoIdentity;
   prKey: string;
   attemptId: string;
   attemptRoot: string;
@@ -46,6 +47,7 @@ export class ReviewLaneRunner {
   ) {}
 
   async run(request: ReviewLaneRequest): Promise<ReviewLaneResult> {
+    RepoIdentitySchema.parse(request.repo);
     ShaSchema.parse(request.headSha);
     z.string().min(1).max(128).parse(request.attemptId);
     if (!Number.isFinite(request.runDeadlineMs)) throw new Error('Invalid run deadline');
@@ -64,15 +66,15 @@ export class ReviewLaneRunner {
     const controller = new AbortController();
     const timer = this.clock.setTimeout(() => controller.abort(), Math.max(0, deadline - this.clock.now()));
     try {
-      await this.files.prepare(request.attemptRoot, request.headSha);
-      const before = await this.files.sourceChecksum(request.attemptRoot);
+      await this.files.prepare(request.repo, request.attemptRoot, request.headSha);
+      const before = await this.files.sourceChecksum(request.repo, request.attemptRoot, request.headSha);
       if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
       let raw: string | undefined;
       let spawnError: unknown;
       try {
         raw = await this.gateway.spawn({ laneId: choice.lane.id, cwd: request.attemptRoot, prompt: request.prompt, signal: controller.signal });
       } catch (error: unknown) { spawnError = error; }
-      const after = await this.files.sourceChecksum(request.attemptRoot);
+      const after = await this.files.sourceChecksum(request.repo, request.attemptRoot, request.headSha);
       if (before !== after) throw new Error('Lane mutated source');
       if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
       if (spawnError !== undefined) throw spawnError;

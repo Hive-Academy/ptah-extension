@@ -41,7 +41,11 @@ describe('ReviewArtifactReader', () => {
       const logger = Object.create(Logger.prototype) as Logger;
       const connection = new SqliteConnectionService(':memory:', logger);
       Object.defineProperty(connection, 'db', { value: db });
-      const reader = new ReviewArtifactReader(connection, { attemptsRoot });
+      const reader = new ReviewArtifactReader(connection, {
+        resolve: async () => ({ repoRoot: attemptsRoot, attemptsRoot }),
+        settings: async () => null,
+        baseConfig: async () => null,
+      });
       expect((await reader.exportRun('a1')).content).not.toContain(secret);
       await writeFile(path, content + ' ');
       await expect(reader.exportRun('a1')).rejects.toThrow('integrity');

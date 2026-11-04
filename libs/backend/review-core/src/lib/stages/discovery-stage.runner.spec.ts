@@ -20,7 +20,7 @@ describe('DiscoveryStageRunner', () => {
     };
     const queue = new ReviewQueueService(repository, { now: () => new Date('2026-11-03T00:00:00Z') }, { info: jest.fn() });
     const runner = new DiscoveryStageRunner(github, queue, new ReviewPolicyService(), {
-      repoRoot: '/repo', attemptsRoot: '/attempts',
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }),
       settings: async () => ({ repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
         maintainerLogins: ['maintainer'], pollMinutes: 10, globalPublicationPaused: false, fallbackFamilies: [] }),
       baseConfig: async () => null,

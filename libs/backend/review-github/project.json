@@ -5,6 +5,18 @@
   "projectType": "library",
   "tags": ["scope:extension", "type:data-access"],
   "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/review-github",
+        "main": "libs/backend/review-github/src/index.ts",
+        "tsConfig": "libs/backend/review-github/tsconfig.lib.json",
+        "assets": [],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe"]
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

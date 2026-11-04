@@ -1,5 +1,6 @@
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
+import type { RepoIdentity } from '@ptah-extension/review-contracts';
 import { type IReviewCommandRunner, REVIEW_CONTEXT_TOKENS } from './review-context.ports';
 
 const CheckSchema = z.object({
@@ -16,7 +17,7 @@ export interface ReviewCheckResult { name: string; status: 'available' | 'unavai
 export class ReviewChecksService {
   constructor(@inject(REVIEW_CONTEXT_TOKENS.COMMAND_RUNNER) private readonly commands: IReviewCommandRunner) {}
 
-  async run(src: string, definitionsInput: unknown, dependenciesReady: boolean): Promise<ReviewCheckResult[]> {
+  async run(repo: RepoIdentity, src: string, definitionsInput: unknown, dependenciesReady: boolean): Promise<ReviewCheckResult[]> {
     const definitions = z.array(CheckSchema).max(20).parse(definitionsInput);
     const results: ReviewCheckResult[] = [];
     for (const check of definitions) {
@@ -31,7 +32,7 @@ export class ReviewChecksService {
         continue;
       }
       try {
-        const result = await this.commands.run('node', invocation, src, check.timeoutMs);
+        const result = await this.commands.run(repo, 'node', invocation, src, check.timeoutMs);
         const status = result.timedOut || result.unavailable ? 'unavailable' : result.exitCode === 0 ? 'available' : 'failed';
         results.push({ name: check.name, status, reason: result.timedOut ? 'Timed out' : result.unavailable ?? (status === 'failed' ? `Exit ${result.exitCode}` : null), exitCode: result.exitCode, invocation });
       } catch (error: unknown) {

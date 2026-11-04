@@ -2,7 +2,8 @@ import { ReviewLaneRunner, type IReviewLaneFiles, type IReviewLaneGateway, type 
 import { ReviewLaneAdmissionService, type IReviewLaneClock } from './review-lane-admission.service';
 
 const sha = 'a'.repeat(40);
-const request: ReviewLaneRequest = { prKey: 'repo#1', attemptId: 'attempt-1', attemptRoot: '/attempt', headSha: sha, kind: 'triage', prompt: 'review', runDeadlineMs: 1000 };
+const repo = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
+const request: ReviewLaneRequest = { repo, prKey: 'repo#1', attemptId: 'attempt-1', attemptRoot: '/attempt', headSha: sha, kind: 'triage', prompt: 'review', runDeadlineMs: 1000 };
 
 describe('ReviewLaneRunner', () => {
   let now: number;
@@ -27,7 +28,7 @@ describe('ReviewLaneRunner', () => {
   it('runs in the attempt root and accepts a validated payload', async () => {
     const spawn = jest.spyOn(gateway, 'spawn');
     expect(await runner.run(request)).toMatchObject({ status: 'completed', family: 'family-a' });
-    expect(files.prepare).toHaveBeenCalledWith('/attempt', sha);
+    expect(files.prepare).toHaveBeenCalledWith(repo, '/attempt', sha);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/attempt' }));
   });
 

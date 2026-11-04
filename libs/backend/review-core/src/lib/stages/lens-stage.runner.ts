@@ -43,7 +43,7 @@ export class LensStageRunner {
         startedAt: new Date().toISOString(), endedAt: null, outcome: null, errorSummary: null, artifactHash: null, artifactPath: null };
       await this.repository.saveStage(row);
       try {
-        const result = await this.lanes.run({ prKey: `${claim.repo.owner}/${claim.repo.name}#${claim.prNumber}`,
+        const result = await this.lanes.run({ repo: claim.repo, prKey: `${claim.repo.owner}/${claim.repo.name}#${claim.prNumber}`,
           attemptId: claim.attemptId, attemptRoot: context.attemptRoot, headSha: claim.headSha,
           kind: lens, prompt: prompt(context.promptInput), runDeadlineMs: deadline });
         await this.repository.saveCheckpoint(claim.attemptId, name, 0, result);

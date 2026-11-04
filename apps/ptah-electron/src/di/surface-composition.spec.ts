@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
+import { REVIEW_CORE_TOKENS, REVIEW_CONTEXT_TOKENS, REVIEW_LANE_TOKENS } from '@ptah-extension/review-core';
 /**
  * Electron surface composition — lazy push host across a real registration
  * order, through the real production window getter (TASK_2026_538 Batch 14,
@@ -433,5 +434,29 @@ describe('Electron Codex bootstrap composition', () => {
       bootstrap.indexOf('void startAgentAdapterInitialization(container)'),
     );
     expect(bootstrap).toContain('isPackaged: app.isPackaged');
+  });
+});
+
+describe('Electron review composition', () => {
+  it('binds each review port and starts its worker before cron', () => {
+    const phase = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    for (const token of [
+      'GITHUB', 'SECRET_PRESENCE', 'ENVIRONMENT', 'ARTIFACT_FILES',
+    ] as const) {
+      expect(REVIEW_CORE_TOKENS[token]).toBeDefined();
+      expect(phase).toContain(`container.register(REVIEW_CORE_TOKENS.${token},`);
+    }
+    for (const token of ['COMMAND_RUNNER', 'FILES'] as const) {
+      expect(REVIEW_CONTEXT_TOKENS[token]).toBeDefined();
+      expect(phase).toContain(`container.register(REVIEW_CONTEXT_TOKENS.${token},`);
+    }
+    for (const token of ['GATEWAY', 'FILES'] as const) {
+      expect(REVIEW_LANE_TOKENS[token]).toBeDefined();
+      expect(phase).toContain(`container.register(REVIEW_LANE_TOKENS.${token},`);
+    }
+    const boot = readFileSync(join(__dirname, '../activation/boot-heavy-services.ts'), 'utf8');
+    expect(boot.indexOf('startReviewWorker(container, signal, logger)')).toBeLessThan(
+      boot.indexOf('await startThothCron(container, thoth,'),
+    );
   });
 });

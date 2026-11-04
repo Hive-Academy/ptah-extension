@@ -34,7 +34,8 @@ export type { ReviewArtifactFileSystem, ReviewPreviewInput } from './lib/lanes/r
 export { ReviewOrchestratorService } from './lib/review-orchestrator.service';
 export { DiscoveryStageRunner } from './lib/stages/discovery-stage.runner';
 export { ContextStageRunner } from './lib/stages/context-stage.runner';
-export type { ReviewStageEnvironment, ContextStageResult } from './lib/stages/context-stage.runner';
+export { ReviewRepositoryUnavailableError, resolveReviewRoots } from './lib/stages/context-stage.runner';
+export type { ReviewStageEnvironment, ReviewRoots, ContextStageResult } from './lib/stages/context-stage.runner';
 export { TriageStageRunner } from './lib/stages/triage-stage.runner';
 export { LensStageRunner } from './lib/stages/lens-stage.runner';
 export { VerificationStageRunner } from './lib/stages/verification-stage.runner';

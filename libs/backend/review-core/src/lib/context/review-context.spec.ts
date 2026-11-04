@@ -5,6 +5,7 @@ import { ReviewDependenciesService } from './review-dependencies.service';
 import type { IReviewCommandRunner, IReviewContextFiles, ReviewCommandResult } from './review-context.ports';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { resolve } from 'node:path';
+const repo = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
 
 const ok = (stdout = ''): ReviewCommandResult => ({ exitCode: 0, stdout, stderr: '', timedOut: false });
 const logger = { error: jest.fn() } as Pick<Logger, 'error'> as Logger;
@@ -18,26 +19,26 @@ describe('review exact SHA context', () => {
   };
 
   it('rejects a detached worktree whose HEAD differs from the requested SHA', async () => {
-    const runner: IReviewCommandRunner = { run: jest.fn(async (_cmd, args) => args[0] === 'rev-parse' ? ok('b'.repeat(40)) : ok()) };
+    const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('b'.repeat(40)) : ok()) };
     const service = new ReviewWorktreeService(runner, files, logger);
-    await expect(service.create('/repo', '/attempts', 'attempt-1', 'a'.repeat(40))).rejects.toThrow('HEAD differs');
-    expect(runner.run).toHaveBeenCalledWith('git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 30_000);
+    await expect(service.create(repo, '/repo', '/attempts', 'attempt-1', 'a'.repeat(40))).rejects.toThrow('HEAD differs');
+    expect(runner.run).toHaveBeenCalledWith(repo, 'git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 30_000);
   });
 
   it('finds unchanged callers outside the diff and flags a changed lockfile', async () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async () => ok('src/caller.ts:12:target()\n')) };
-    const context = await new ReviewContextService(runner).build('/repo', ['src/export.ts', 'package-lock.json'], ['target']);
+    const context = await new ReviewContextService(runner).build(repo, '/repo', ['src/export.ts', 'package-lock.json'], ['target']);
     expect(context.callers).toEqual([{ symbol: 'target', path: 'src/caller.ts', line: 12, outsideDiff: true }]);
     expect(context.changedLockfiles).toEqual(['package-lock.json']);
   });
 
   it('runs checks through verify lock and records unavailable checks', async () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async () => ({ ...ok(), timedOut: true })) };
-    const checks = await new ReviewChecksService(runner).run('/repo', [
+    const checks = await new ReviewChecksService(runner).run(repo, '/repo', [
       { name: 'audit', command: 'node', args: ['audit.mjs'], timeoutMs: 1000, needsDependencies: false },
       { name: 'lint', command: 'npm', args: ['run', 'lint'], timeoutMs: 1000, needsDependencies: true },
     ], false);
-    expect(runner.run).toHaveBeenCalledWith('node', ['scripts/verify.mjs', '--exec', '--task', 'review-audit', '--', 'node', 'audit.mjs'], '/repo', 1000);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-audit', '--', 'node', 'audit.mjs'], '/repo', 1000);
     expect(checks.map((check) => check.status)).toEqual(['unavailable', 'unavailable']);
     expect(checks[1].reason).toBe('Dependencies unavailable');
   });
@@ -46,20 +47,20 @@ describe('review exact SHA context', () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async () => ok()) };
     const present = { ...files, exists: jest.fn(async () => true) };
     const service = new ReviewDependenciesService(runner, present);
-    expect((await service.prepare('/repo', ['package-lock.json'], false)).status).toBe('unavailable');
-    const result = await service.prepare('/repo', ['package-lock.json'], true);
+    expect((await service.prepare(repo, '/repo', ['package-lock.json'], false)).status).toBe('unavailable');
+    const result = await service.prepare(repo, '/repo', ['package-lock.json'], true);
     expect(result.status).toBe('available');
     expect(result.lockfileSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(runner.run).toHaveBeenCalledWith('node', ['scripts/verify.mjs', '--exec', '--task', 'review-npm-ci', '--', 'npm', 'ci', '--ignore-scripts'], '/repo', 600_000);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'node', ['scripts/verify.mjs', '--exec', '--task', 'review-npm-ci', '--', 'npm', 'ci', '--ignore-scripts'], '/repo', 600_000);
   });
 
   it('detects source checksum drift after lanes', async () => {
     let content = 'before';
     const mutableFiles = { ...files, read: jest.fn(async () => Buffer.from(content)) };
-    const runner: IReviewCommandRunner = { run: jest.fn(async (_cmd, args) => args[0] === 'rev-parse' ? ok('a'.repeat(40)) : args[0] === 'ls-files' ? ok('src/main.ts\0') : ok()) };
+    const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('a'.repeat(40)) : args[0] === 'ls-files' ? ok('src/main.ts\0') : ok()) };
     const service = new ReviewWorktreeService(runner, mutableFiles, logger);
-    const snapshot = await service.snapshot('/repo', 'a'.repeat(40));
+    const snapshot = await service.snapshot(repo, '/repo', 'a'.repeat(40));
     content = 'after';
-    await expect(service.assertIntegrity('/repo', snapshot)).rejects.toThrow('checksum changed');
+    await expect(service.assertIntegrity(repo, '/repo', snapshot)).rejects.toThrow('checksum changed');
   });
 });
