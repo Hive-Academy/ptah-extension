@@ -979,7 +979,9 @@ describe('SessionRpcHandlers', () => {
         it('uses stored native count while Claude still uses the transcript counter', async () => {
           const nativeId = uuidForRow(86);
           const claudeId = uuidForRow(87);
-          const h = makeHarness({ transcriptLines: [userPrompt('hi'), assistant('hello')] });
+          const h = makeHarness({
+            transcriptLines: [userPrompt('hi'), assistant('hello')],
+          });
           h.metadataStore.getForWorkspace.mockResolvedValue([
             {
               ...makeMetadata({ sessionId: nativeId }),
@@ -998,15 +1000,21 @@ describe('SessionRpcHandlers', () => {
           stubProjectsDir([nativeId, claudeId]);
           mockStat.mockResolvedValue(fileStats as never);
           h.handlers.register();
-          const cold = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          const cold = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
           expect(countOf(cold, nativeId)).toBe(6);
           await settleWarm();
-          const warm = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          const warm = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
           expect(countOf(warm, nativeId)).toBe(6);
           expect(countOf(warm, claudeId)).toBe(2);
           expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
           expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledWith(
-            expect.stringContaining(`${claudeId}.jsonl`), expect.any(Function), expect.any(Object),
+            expect.stringContaining(`${claudeId}.jsonl`),
+            expect.any(Function),
+            expect.any(Object),
           );
         });
 
@@ -2099,7 +2107,10 @@ describe('SessionRpcHandlers', () => {
   describe('session:validate', () => {
     function nativeMetadata(): SessionMetadata {
       return {
-        ...makeMetadata({ sessionId: VALID_SESSION_ID, workspaceId: WORKSPACE }),
+        ...makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }),
         codexExecution: {
           version: 1,
           sessionId: VALID_SESSION_ID as SessionId,
@@ -2124,7 +2135,8 @@ describe('SessionRpcHandlers', () => {
       h.metadataStore.get.mockResolvedValue(nativeMetadata());
       h.handlers.register();
       const result = await call<{ exists: boolean; filePath?: string }>(
-        h, 'session:validate',
+        h,
+        'session:validate',
         { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
       );
       expect(result).toEqual({ exists: true });
@@ -2132,34 +2144,45 @@ describe('SessionRpcHandlers', () => {
       expect(mockReaddir).not.toHaveBeenCalled();
     });
 
-    it.each(['missing', 'invalid'] as const)('falls through without a valid native thread (%s)', async (thread) => {
-      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
-      const metadata = nativeMetadata();
-      h.metadataStore.get.mockResolvedValue({
-        ...metadata,
-        codexThread: thread === 'missing' ? undefined : {
-          version: 1,
-          contextId: '',
-          processGeneration: 0,
-          workspaceId: WORKSPACE,
-          profileFingerprint: 'native-profile',
-          state: 'inactive',
-        },
-      });
-      h.handlers.register();
-      const result = await call<{ exists: boolean }>(h, 'session:validate', {
-        sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE,
-      });
-      expect(result).toEqual({ exists: false });
-      expect(mockAccess).toHaveBeenCalled();
-    });
+    it.each(['missing', 'invalid'] as const)(
+      'falls through without a valid native thread (%s)',
+      async (thread) => {
+        const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+        const metadata = nativeMetadata();
+        h.metadataStore.get.mockResolvedValue({
+          ...metadata,
+          codexThread:
+            thread === 'missing'
+              ? undefined
+              : {
+                  version: 1,
+                  contextId: '',
+                  processGeneration: 0,
+                  workspaceId: WORKSPACE,
+                  profileFingerprint: 'native-profile',
+                  state: 'inactive',
+                },
+        });
+        h.handlers.register();
+        const result = await call<{ exists: boolean }>(h, 'session:validate', {
+          sessionId: VALID_SESSION_ID,
+          workspacePath: WORKSPACE,
+        });
+        expect(result).toEqual({ exists: false });
+        expect(mockAccess).toHaveBeenCalled();
+      },
+    );
 
     it('keeps the Claude JSONL lookup when native execution is absent', async () => {
       const h = makeHarness({ workspaceFolders: [WORKSPACE] });
-      h.metadataStore.get.mockResolvedValue({ ...nativeMetadata(), codexExecution: undefined });
+      h.metadataStore.get.mockResolvedValue({
+        ...nativeMetadata(),
+        codexExecution: undefined,
+      });
       h.handlers.register();
       const result = await call<{ exists: boolean; filePath?: string }>(
-        h, 'session:validate',
+        h,
+        'session:validate',
         { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
       );
       expect(result).toEqual({ exists: false });
@@ -2749,13 +2772,15 @@ describe('SessionRpcHandlers', () => {
           scope: { kind: 'range', since: 1_000, until: 2_000 },
         }),
       );
-        expect(result).toEqual({
-          sessionStats: [expect.objectContaining({
+      expect(result).toEqual({
+        sessionStats: [
+          expect.objectContaining({
             sessionId: VALID_SESSION_ID,
             status: 'error',
             coverage: 'partial',
             scope: 'range',
-          })],
+          }),
+        ],
         scope: 'range',
         since: 1_000,
         until: 2_000,
@@ -3523,6 +3548,33 @@ describe('SessionRpcHandlers', () => {
         1,
       );
       // SDK rewindFiles is never reached when auto-resume fails.
+      expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
+    });
+
+    it('preserves a driver-lock refusal from inactive rewind admission', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      h.chatSession.ensureSessionActiveForRewind.mockRejectedValue(
+        new RpcUserError(
+          'Session is being driven by worker A.',
+          'SESSION_DRIVEN_ELSEWHERE',
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('worker A');
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
     });
 

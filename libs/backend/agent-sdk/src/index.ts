@@ -194,6 +194,8 @@ export {
   type CodexChatAdapterPorts,
   type CodexChatScope,
   type CodexChatSessionLifecycle,
+  type CodexChatDriverGate,
+  type CodexChatDriverLease,
 } from './lib/codex-app-server/codex-chat-adapter';
 export {
   CodexChatAdapterError,
@@ -203,7 +205,10 @@ export {
 } from './lib/codex-app-server/codex-chat-adapter-error';
 export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-adapter';
 export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
-export type { NativeSessionControls, StreamlessFollowUpAdmission } from './lib/codex-app-server/session-runtime-router';
+export type {
+  NativeSessionControls,
+  StreamlessFollowUpAdmission,
+} from './lib/codex-app-server/session-runtime-router';
 export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
 export {
   legacyClaudeSessionRuntimeIdentity,
@@ -253,6 +258,7 @@ export {
   type TurnFailureSnapshot,
 } from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
+export { SessionRegistry } from './lib/helpers/session-lifecycle/session-registry.service';
 export { SessionTitleService } from './lib/helpers';
 export {
   CallbackRegistryBase,

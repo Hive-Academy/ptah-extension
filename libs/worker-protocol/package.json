@@ -1,0 +1,12 @@
+{
+  "name": "@ptah-extension/worker-protocol",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "@ptah-extension/shared": "0.0.1",
+    "zod": "^4.1.12"
+  }
+}

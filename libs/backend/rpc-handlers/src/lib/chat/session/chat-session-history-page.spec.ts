@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import 'reflect-metadata';
 
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
@@ -134,6 +135,16 @@ function makeSessionService() {
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
   return { service, historyRead, subagentRegistry, events, stats };
 }

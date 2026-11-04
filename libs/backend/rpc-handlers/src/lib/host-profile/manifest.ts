@@ -21,7 +21,10 @@
  * profile switched off. There is nothing left to hand-maintain.
  */
 
-import type { RpcMethodName } from '@ptah-extension/shared';
+import {
+  MACHINES_RPC_METHOD_NAMES,
+  type RpcMethodName,
+} from '@ptah-extension/shared';
 
 import type { Capability } from './capabilities';
 import {
@@ -558,6 +561,15 @@ export const RPC_HANDLER_MANIFEST = [
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
+  {
+    // Remote machines (`machines:*`, TASK_2026_858). Host-owned on purpose:
+    // Electron main owns the SSH transport, the worker connections and the
+    // pairing tokens, so the handler lives in the desktop app. VS Code and
+    // the CLI leave the capability off, so the methods are excluded there.
+    key: 'host.remoteMachines',
+    methods: MACHINES_RPC_METHOD_NAMES,
+    requires: ['remoteMachines'],
+  },
 ] as const satisfies readonly RpcHandlerManifestEntry[];
 
 /** Every manifest key, for typed `hostHandlers` maps on host profiles. */
