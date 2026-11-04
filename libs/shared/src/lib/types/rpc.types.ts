@@ -183,6 +183,8 @@ import type {
   SessionSetOrganizationResult,
   SessionGetOrganizationParams,
   SessionGetOrganizationResult,
+  SessionHandoffChainParams,
+  SessionHandoffChainResult,
   SessionLinkTaskParams,
   SessionLinkTaskResult,
   SessionUnlinkTaskParams,
@@ -1135,6 +1137,12 @@ export interface RpcMethodRegistry
   'session:getOrganization': {
     params: SessionGetOrganizationParams;
     result: SessionGetOrganizationResult;
+  };
+  // Durable handoff chain (TASK_2026_876). Served on every host; no chain
+  // or no store answers `{ sessions: [] }`.
+  'session:handoffChain': {
+    params: SessionHandoffChainParams;
+    result: SessionHandoffChainResult;
   };
   'session:linkTask': {
     params: SessionLinkTaskParams;
@@ -3455,6 +3463,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:status': true,
   'session:setOrganization': true,
   'session:getOrganization': true,
+  'session:handoffChain': true,
   'session:linkTask': true,
   'session:unlinkTask': true,
   'session:addPrLink': true,

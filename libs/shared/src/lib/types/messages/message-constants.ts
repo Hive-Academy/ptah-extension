@@ -204,6 +204,12 @@ export const MESSAGE_TYPES = {
    * new tab is an ordinary chat, not a child.
    */
   SESSION_HANDOFF_OPENED: 'sessionHandoff:opened',
+  /**
+   * Backend → Frontend: a kept handoff wrote a durable edge between two SDK
+   * session ids (TASK_2026_876). The open inspector reloads
+   * `session:handoffChain` when either id is the session it is showing.
+   */
+  SESSION_HANDOFF_LINKED: 'sessionHandoff:linked',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
@@ -241,6 +247,13 @@ export const MESSAGE_TYPES = {
   PERMISSION_PROMPT_CANCELLED: 'permission:prompt-cancelled',
   PLAN_MODE_CHANGED: 'session:plan-mode-changed',
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
+  /**
+   * Backend → Frontend: a kept handoff moved the listed lanes onto the
+   * successor session (TASK_2026_876). One message per kept adoption.
+   * `parentSessionId` is the successor tab id until the existing resolve
+   * path rewrites it to the SDK id.
+   */
+  AGENT_MONITOR_REPARENTED: 'agent-monitor:reparented',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
   /**

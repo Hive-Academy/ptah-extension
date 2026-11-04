@@ -171,6 +171,29 @@ export interface SessionGetOrganizationParams {
 export type SessionGetOrganizationResult = SessionOrganizationMutationResult;
 
 /**
+ * Parameters for session:handoffChain. The expanded inspector's only read of
+ * the durable handoff chain for one session (TASK_2026_876).
+ */
+export interface SessionHandoffChainParams {
+  /** SDK session UUID. */
+  sessionId: string;
+}
+
+/** One session in a handoff chain. `label` is null when metadata has no name. */
+export interface SessionHandoffChainEntry {
+  sessionId: string;
+  label: string | null;
+}
+
+/**
+ * Response from session:handoffChain. Root first. An empty chain, a missing
+ * store, or an unreadable document is `{ sessions: [] }`, not an error.
+ */
+export interface SessionHandoffChainResult {
+  sessions: readonly SessionHandoffChainEntry[];
+}
+
+/**
  * Parameters for session:linkTask. Linking a `primary` task demotes an
  * existing different primary to `related`.
  */

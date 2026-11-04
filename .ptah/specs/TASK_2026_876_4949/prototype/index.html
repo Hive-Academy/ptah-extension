@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prototype — Linked sessions</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Local Anubis tokens. CDN utilities are optional; this block paints the prototype offline.
+       Values: tailwind.config.js anubis / anubis-light and styles.css surfaces. */
+    :root {
+      --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+      --font: Inter, system-ui, -apple-system, sans-serif;
+    }
+    [data-theme="anubis"] {
+      color-scheme: dark;
+      --bg: #131317;
+      --bg-200: #1a1a20;
+      --bg-300: #242430;
+      --fg: #e8e6e1;
+      --muted: oklch(66.51% 0.0074 31.09);
+      --border: color-mix(in oklch, #e8e6e1 14%, transparent);
+      --border-strong: color-mix(in oklch, #e8e6e1 22%, transparent);
+      --surface-2: #1a1a20;
+      --secondary: #d4af37;
+      --focus: #e8e6e1;
+      --wash: color-mix(in srgb, #e8e6e1 5%, transparent);
+    }
+    [data-theme="anubis-light"] {
+      color-scheme: light;
+      --bg: oklch(97.788% 0.004 56.375);
+      --bg-200: oklch(93.982% 0.007 61.449);
+      --bg-300: oklch(91.586% 0.006 53.44);
+      --fg: oklch(23.574% 0.066 313.189);
+      --muted: oklch(48.955% 0.0448 348.48);
+      --border: color-mix(in oklch, oklch(23.574% 0.066 313.189) 14%, transparent);
+      --border-strong: color-mix(in oklch, oklch(23.574% 0.066 313.189) 22%, transparent);
+      --surface-2: oklch(93.982% 0.007 61.449);
+      --secondary: oklch(58% 0.132 75);
+      --focus: oklch(23.574% 0.066 313.189);
+      --wash: color-mix(in srgb, oklch(23.574% 0.066 313.189) 5%, transparent);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+    }
+    button, select { font-family: inherit; }
+    .chrome {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--bg-200);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .chrome button, .chrome select {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 4px 8px;
+      min-height: 28px;
+    }
+    .chrome button:focus-visible, .chrome select:focus-visible,
+    .link-row:focus-visible, .sheet-close:focus-visible, .compact button:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .note { color: var(--muted); font-size: 12px; }
+    #live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    #stage { padding: 16px; }
+    #stage.viewport-sidebar { max-width: 400px; margin: 0 auto; }
+    .panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 0;
+      overflow: hidden;
+      width: min(392px, 100%);
+    }
+    .panel h2 {
+      margin: 0;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .inspector { width: 100%; display: flex; min-height: 520px; }
+    .inspector.sheet-on {
+      outline: 1px dashed var(--border-strong);
+      box-shadow: 0 12px 30px color-mix(in srgb, #000 42%, transparent);
+    }
+    .compact {
+      width: 56px;
+      flex: none;
+      border-right: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .compact button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: calc(100% - 8px);
+      margin: 4px;
+      min-height: 40px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      font-size: 12px;
+    }
+    .compact button:hover { background: var(--wash); }
+    .compact .k { font-size: 10px; color: var(--muted); }
+    .expanded { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+    .id-head {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px 8px 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .id-head h3 {
+      margin: 4px 0 0;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .id-head p { margin: 0; font-size: 12px; color: var(--muted); }
+    .sheet-close {
+      margin-left: auto;
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      flex: none;
+    }
+    .metric-block { padding: 12px; border-top: 1px solid var(--border); }
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .cell { min-height: 60px; padding-right: 8px; min-width: 0; }
+    .cell + .cell { border-left: 1px solid var(--border); padding-left: 8px; }
+    .cell .k, .cell .s { font-size: 10.5px; color: var(--muted); }
+    .cell .v { font-size: 16px; font-weight: 600; line-height: 1.2; }
+    .linked { border-top: 1px solid var(--border); padding: 12px; }
+    .linked h3 { margin: 0; font-size: 10.5px; font-weight: 600; }
+    .linked ul {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      max-height: 10.5rem;
+      overflow-y: auto;
+    }
+    .link-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 32px;
+      padding: 4px 6px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      scroll-margin-block: 4px;
+      transition: background-color 120ms var(--ease);
+    }
+    .link-row:hover { background: var(--wash); }
+    .link-row.current {
+      background: var(--surface-2);
+      box-shadow: inset 2px 0 0 var(--secondary);
+    }
+    .link-row.current:hover {
+      background: color-mix(in srgb, var(--fg) 5%, var(--surface-2));
+    }
+    .link-row .name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      line-height: 18px;
+      font-weight: 500;
+    }
+    .link-row.current .name { font-weight: 600; }
+    .name.missing { color: var(--muted); font-weight: 500; }
+    .rel {
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--muted);
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    .agents {
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <p id="live" role="status" aria-live="polite"></p>
+  <header class="chrome">
+    <strong>Prototype controls</strong>
+    <button type="button" id="themeToggle">Toggle theme (dark / light)</button>
+    <button type="button" id="widthToggle">Toggle embedded width (≈400px / wide)</button>
+    <button type="button" id="sheetToggle">Docked / sheet</button>
+    <label>State
+      <select id="stateSelector">
+        <option value="populated">Chain of three</option>
+        <option value="predecessor">One predecessor</option>
+        <option value="long">Long chain (6)</option>
+        <option value="label">Long labels</option>
+        <option value="absent">No chain</option>
+        <option value="missing">Missing record</option>
+        <option value="loading">Loading (section stays absent)</option>
+        <option value="error">Error (section stays absent)</option>
+      </select>
+    </label>
+    <span class="note" id="stateNote"></span>
+  </header>
+  <main id="stage">
+    <section class="panel" aria-label="Session inspector">
+      <h2 id="panelTitle">Stats sidebar, docked</h2>
+      <div class="inspector" id="inspector">
+        <div class="compact" id="compact" aria-label="Session details">
+          <button type="button" title="Expand session details">‹</button>
+          <button type="button" aria-label="Context 42 percent"><span class="k">Ctx</span>42%</button>
+          <button type="button" aria-label="Tokens 18.4 thousand"><span class="k">Tok</span>18k</button>
+        </div>
+        <div class="expanded" id="expanded">
+          <header class="id-head">
+            <div style="min-width:0;flex:1">
+              <h3 id="sessionTitle"></h3>
+              <p id="sessionStatus"></p>
+            </div>
+            <button type="button" class="sheet-close" id="closeBtn" data-inspector-close aria-label="Compact session details">✕</button>
+          </header>
+          <div class="metric-block" aria-label="Session statistics">
+            <div class="metric-grid">
+              <div class="cell"><div class="k">Context</div><div class="v">42%</div><div class="s">this session</div></div>
+              <div class="cell"><div class="k">Tokens</div><div class="v">18.4k</div><div class="s">all agents</div></div>
+              <div class="cell"><div class="k">Cost</div><div class="v">$0.84</div><div class="s">this session</div></div>
+            </div>
+          </div>
+          <div id="linkedMount"></div>
+          <div class="agents">Agents</div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const LONG = 'Investigate the session inspector spacing and the linked-sessions row before drawing a six-session handoff chain';
+    const CHAINS = {
+      populated: [
+        { id: 'a', name: 'Plan the inspector' },
+        { id: 'b', name: 'Split the stats sidebar' },
+        { id: 'c', name: 'Link the handoff chain' }
+      ],
+      predecessor: [
+        { id: 'a', name: 'Plan the inspector' },
+        { id: 'b', name: 'Split the stats sidebar' }
+      ],
+      long: [
+        { id: 'a', name: 'Draft the brief' },
+        { id: 'b', name: 'Trace the handoff call' },
+        { id: 'c', name: 'Stop after the turn' },
+        { id: 'd', name: 'Keep the transcript' },
+        { id: 'e', name: 'Leave the old row in place' },
+        { id: 'f', name: 'Show the full chain' }
+      ],
+      label: [
+        { id: 'a', name: LONG },
+        { id: 'b', name: 'Short successor' }
+      ],
+      missing: [
+        { id: 'a', name: 'Plan the inspector' },
+        { id: '9f3c2a10abcd', name: null },
+        { id: 'c', name: 'Link the handoff chain' }
+      ]
+    };
+    const NOTES = {
+      populated: 'A → B → C, root first. C is this session. The 14px rail has no list.',
+      predecessor: 'One predecessor, then this session. No empty third row.',
+      long: 'Six sessions. The section scrolls. The current row stays in view.',
+      label: 'The title truncates. The title attribute holds the full string. Continued from does not wrap.',
+      absent: 'No chain. Linked sessions is not in the inspector.',
+      missing: 'The middle session has no name. The title is Session 9f3c2a10, muted, and it is still a button.',
+      loading: 'Chain not known yet. The product shows no spinner. Same as no chain.',
+      error: 'Record dropped. The product shows no alert. Same as no chain.'
+    };
+
+    const root = document.documentElement;
+    const stage = document.getElementById('stage');
+    const live = document.getElementById('live');
+    let state = 'populated';
+    let currentId = null;
+    let sheet = false;
+
+    function chainFor(name) {
+      if (name === 'absent' || name === 'loading' || name === 'error') return null;
+      return CHAINS[name].map((row) => ({ ...row }));
+    }
+
+    function shownName(session) {
+      if (session.name) return { text: session.name, missing: false };
+      return { text: 'Session ' + session.id.slice(0, 8), missing: true };
+    }
+
+    function relation(index, currentIndex) {
+      if (index === currentIndex) return { short: 'This session', verb: 'Current session, ' };
+      if (index < currentIndex) return { short: 'Continued from', verb: 'Open ' };
+      return { short: 'Continued in', verb: 'Open ' };
+    }
+
+    function announce(text) {
+      live.textContent = '';
+      live.textContent = text;
+    }
+
+    function renderLinked(chain, currentIndex) {
+      const mount = document.getElementById('linkedMount');
+      mount.replaceChildren();
+      if (!chain) return;
+      const section = document.createElement('section');
+      section.className = 'linked';
+      section.setAttribute('aria-labelledby', 'linked-heading');
+      const h = document.createElement('h3');
+      h.id = 'linked-heading';
+      h.textContent = 'Linked sessions';
+      const ul = document.createElement('ul');
+      chain.forEach((session, index) => {
+        const rel = relation(index, currentIndex);
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'link-row' + (index === currentIndex ? ' current' : '');
+        const shown = shownName(session);
+        const accessible = index === currentIndex
+          ? rel.verb + shown.text
+          : rel.verb + shown.text + ', ' + rel.short.toLowerCase();
+        btn.setAttribute('aria-label', accessible);
+        if (index === currentIndex) btn.setAttribute('aria-current', 'true');
+        btn.addEventListener('click', () => {
+          currentId = session.id;
+          announce(index === currentIndex ? 'Current session ' + shown.text : 'Opened session ' + shown.text);
+          render();
+        });
+        const name = document.createElement('span');
+        name.className = 'name' + (shown.missing ? ' missing' : '');
+        name.title = shown.text;
+        name.textContent = shown.text;
+        const relationEl = document.createElement('span');
+        relationEl.className = 'rel';
+        relationEl.textContent = rel.short;
+        btn.append(name, relationEl);
+        li.append(btn);
+        ul.append(li);
+      });
+      section.append(h, ul);
+      mount.append(section);
+      const currentBtn = ul.querySelector('[aria-current="true"]');
+      if (currentBtn) {
+        const row = currentBtn.parentElement;
+        const top = row.offsetTop;
+        const bottom = top + row.offsetHeight;
+        if (bottom > ul.clientHeight) ul.scrollTop = bottom - ul.clientHeight;
+        else ul.scrollTop = 0;
+      }
+    }
+
+    function render() {
+      const chain = chainFor(state);
+      if (chain && !chain.some((row) => row.id === currentId)) currentId = chain[chain.length - 1].id;
+      const currentIndex = chain ? chain.findIndex((row) => row.id === currentId) : -1;
+      const current = chain ? chain[currentIndex] : { name: 'Link the handoff chain' };
+      const currentShown = shownName(current);
+      const title = document.getElementById('sessionTitle');
+      title.textContent = currentShown.text;
+      title.title = currentShown.text;
+      const newest = chain && currentIndex === chain.length - 1;
+      document.getElementById('sessionStatus').textContent = newest ? 'Running' : 'Idle';
+      document.getElementById('stateNote').textContent = NOTES[state];
+      document.getElementById('closeBtn').setAttribute('aria-label', sheet ? 'Close session details' : 'Compact session details');
+      document.getElementById('inspector').classList.toggle('sheet-on', sheet);
+      document.getElementById('compact').classList.toggle('hidden', sheet);
+      document.getElementById('panelTitle').textContent = sheet ? 'Stats sidebar, sheet' : 'Stats sidebar, docked';
+      const expanded = document.getElementById('expanded');
+      if (sheet) {
+        expanded.setAttribute('role', 'dialog');
+        expanded.setAttribute('aria-modal', 'true');
+        expanded.setAttribute('aria-label', 'This session');
+      } else {
+        expanded.setAttribute('role', 'region');
+        expanded.removeAttribute('aria-modal');
+        expanded.setAttribute('aria-label', 'This session');
+      }
+      renderLinked(chain, currentIndex);
+    }
+
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const light = root.getAttribute('data-theme') === 'anubis-light';
+      root.setAttribute('data-theme', light ? 'anubis' : 'anubis-light');
+      root.setAttribute('data-theme-mode', light ? 'dark' : 'light');
+    });
+    document.getElementById('widthToggle').addEventListener('click', () => {
+      stage.classList.toggle('viewport-sidebar');
+    });
+    document.getElementById('sheetToggle').addEventListener('click', () => {
+      sheet = !sheet;
+      render();
+    });
+    document.getElementById('stateSelector').addEventListener('change', (event) => {
+      state = event.target.value;
+      currentId = null;
+      render();
+    });
+    document.getElementById('closeBtn').addEventListener('click', () => announce(sheet ? 'Close session details' : 'Compact session details'));
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('theme') === 'anubis-light') {
+      root.setAttribute('data-theme', 'anubis-light');
+      root.setAttribute('data-theme-mode', 'light');
+    }
+    if (params.get('width') === 'sidebar') stage.classList.add('viewport-sidebar');
+    if (params.get('sheet') === '1') sheet = true;
+    if (params.get('state') && NOTES[params.get('state')]) {
+      state = params.get('state');
+      document.getElementById('stateSelector').value = state;
+    }
+    render();
+  </script>
+</body>
+</html>
