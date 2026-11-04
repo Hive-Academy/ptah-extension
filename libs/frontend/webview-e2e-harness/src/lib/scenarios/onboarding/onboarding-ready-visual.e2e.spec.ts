@@ -385,6 +385,9 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
       await expect(page.getByTestId('ready-claude-panel')).toHaveAttribute('data-state', 'slow');
       await page.clock.runFor(11_000);
       await enterStageTwo(page, 'error-timeout');
+      // Stage 2 re-reads readiness on entry (no cached mount read), so the
+      // timeout runs its two 5 s follow-ups again before the error banner.
+      await page.clock.runFor(11_000);
       await expectSettingsBanner(page, 'error');
       await shoot(page, { view: 'stage2-providers-error', theme });
     });
