@@ -9,6 +9,7 @@ import {
   ROUTING_NUDGE_TEXT,
   ROUTING_REMINDER_MAX_LENGTH,
   formatRoutingReminder,
+  formatSurfaceRouteReminder,
 } from './routing-reminder.format';
 
 type Answer = PreflightResult['taskType'] | PreflightResult['depth'];
@@ -106,6 +107,15 @@ describe('formatRoutingReminder', () => {
     expect(text?.length).toBeLessThanOrEqual(ROUTING_REMINDER_MAX_LENGTH);
   });
 
+  it('keeps lane reminders free of surface-skill instructions', () => {
+    const text = formatRoutingReminder(preflight(), {
+      lanes: ['codex'],
+      subagents: ['tester'],
+    });
+    expect(text).not.toContain('ptah_artifact_publish');
+    expect(text).not.toContain('ptah-surface-authoring');
+  });
+
   it('never tells the model to call route_decide', () => {
     const text = formatRoutingReminder(preflight(), {
       lanes: ['codex'],
@@ -114,5 +124,30 @@ describe('formatRoutingReminder', () => {
     expect(text).not.toMatch(/route_decide/);
     expect(ROUTING_NUDGE_TEXT).not.toMatch(/route_decide/);
     expect(ROUTING_NUDGE_TEXT.startsWith('Routing:')).toBe(true);
+  });
+});
+
+describe('formatSurfaceRouteReminder', () => {
+  const report = 'send me a report of all in-progress tasks';
+
+  it('names skills for a report when the host can load skill files', () => {
+    const text = formatSurfaceRouteReminder(report, true);
+    expect(text).toContain('ptah-surface-authoring');
+    expect(text).toContain('frontend-design');
+    expect(text).toContain('dataviz');
+    expect(text).toContain('ptah_artifact_publish');
+  });
+
+  it('publishes HTML without a skill-file lookup when the host has none', () => {
+    const text = formatSurfaceRouteReminder(report, false);
+    expect(text).toContain('ptah_artifact_publish');
+    expect(text).not.toContain('skill');
+    expect(text).not.toContain('ptah-surface-authoring');
+    expect(text).not.toContain('frontend-design');
+  });
+
+  it('returns null for a compact summary', () => {
+    expect(formatSurfaceRouteReminder('summarize this turn', true)).toBeNull();
+    expect(formatSurfaceRouteReminder('show the test results', false)).toBeNull();
   });
 });

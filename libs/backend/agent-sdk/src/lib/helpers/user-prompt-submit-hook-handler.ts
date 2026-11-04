@@ -9,6 +9,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isUserPromptSubmitHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { surfaceHookGuidance } from '../prompt-harness/ptah-ui-hint';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { agentIdField } from './callback-registry.base';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
@@ -115,7 +116,8 @@ export class UserPromptSubmitHookHandler {
               );
               // Re-checked after the await: its producer may be off by now.
               const reminder = this.stillAllowed(drained);
-              const additionalContext = [pointer, reminder]
+              const surface = surfaceHookGuidance(input.prompt);
+              const additionalContext = [pointer, reminder, surface]
                 .filter(Boolean)
                 .join('\n\n');
               return additionalContext

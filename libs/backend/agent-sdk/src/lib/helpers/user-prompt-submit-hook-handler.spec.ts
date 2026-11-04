@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
+import { surfaceHookGuidance } from '../prompt-harness/ptah-ui-hint';
 import { POINTER_BUDGET_MS } from './compaction/subagent-handoff-index';
 import { NextTurnReminderQueue } from './next-turn-reminder.queue';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
@@ -86,6 +87,28 @@ describe('UserPromptSubmitHookHandler', () => {
       });
       expect(take).toHaveBeenCalledTimes(2);
       expect(take).toHaveBeenCalledWith('sdk-sess');
+    });
+
+    it('adds report guidance on a report prompt and leaves a compact prompt unchanged', async () => {
+      const logger = makeLogger();
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        new UserPromptSubmitCallbackRegistry(logger),
+      );
+      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+      const report = 'send me a report of all in-progress tasks';
+      expect(await fn(promptInput({ prompt: report }), undefined, SIGNAL)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: surfaceHookGuidance(report),
+        },
+      });
+      expect(surfaceHookGuidance(report)).toContain('ptah-surface-authoring');
+      expect(surfaceHookGuidance(report)).toContain('ptah_artifact_publish');
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+      });
     });
 
     it('leaves an empty hook output unchanged and never drains subagent prompts', async () => {
