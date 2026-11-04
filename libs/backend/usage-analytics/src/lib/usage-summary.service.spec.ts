@@ -90,7 +90,10 @@ describe('UsageAnalyticsService', () => {
     jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
     const day = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000).toISOString().slice(0, 10);
     const row = { day, provider_id: 'openai', model_id: 'm', source: 'live', cost_authority: 'unpriced', input_tokens: 1, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, known_cost_micro_usd: null, has_unpriced: 1, session_count: 1 };
-    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue(Array.from({ length: 100_001 }, (_, i) => ({ ...row, model_id: `m${i}` })));
+    jest.spyOn(repository, 'getWorkspaceUsageGroups')
+      .mockResolvedValueOnce(Array.from({ length: 100_001 }, (_, i) => ({ ...row, model_id: `m${i}` })))
+      .mockResolvedValueOnce([{ ...row, model_id: 'm0' }])
+      .mockResolvedValue([]);
     jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(1);
     jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(1);
     jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
@@ -100,8 +103,9 @@ describe('UsageAnalyticsService', () => {
     jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
     jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
     const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
-    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace', new AbortController().signal);
     expect(summary.facts).toHaveLength(100_000);
+    expect(summary.facts.find((fact) => fact.modelId === 'm0')?.inputUncachedTokens).toBe(2);
     expect(summary.sources[0]).toMatchObject({ status: 'partial', reason: 'fact-limit' });
   });
 

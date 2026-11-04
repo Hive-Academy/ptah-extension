@@ -36,28 +36,32 @@ export class OpenCodeSource implements UsageSource {
       const hasTitle = columns.some((column) => z.object({ name: z.string() }).safeParse(column).data?.name === 'title');
       const titleColumn = hasTitle ? 's.title' : 'NULL';
       const records: unknown[] = [];
+      let pagedMalformed = 0;
+      let stalled = false;
       if (signal) {
-        const page = db.prepare(`SELECT m.rowid AS rowid, m.id, m.data, m.session_id AS sessionId, ${titleColumn} AS sessionTitle, s.directory FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE m.rowid > ? AND json_valid(m.data) AND json_extract(m.data, '$.role') = 'assistant' AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= ? AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) < ? ORDER BY m.rowid LIMIT 256`);
+        const page = db.prepare(`SELECT m.rowid AS rowid, m.id, m.data, m.session_id AS sessionId, ${titleColumn} AS sessionTitle, s.directory FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE m.rowid > ? AND ((COALESCE(json_valid(m.data), 0) = 0 AND m.time_created >= ? AND m.time_created < ?) OR (json_valid(m.data) AND json_extract(m.data, '$.role') = 'assistant' AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= ? AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) < ?)) ORDER BY m.rowid LIMIT 256`);
         let cursor = 0;
         while (!signal.aborted && records.length <= 100000) {
-          const rows = page.all(cursor, since, until);
+          const rows = page.all(cursor, since, until, since, until);
           if (rows.length === 0) break;
+          const before = cursor;
           for (const raw of rows) {
-            const row = z.object({ rowid: z.number().int().positive(), data: z.string() }).safeParse(raw);
-            if (!row.success) continue;
-            cursor = row.data.rowid;
-            let data: unknown;
-            try { data = JSON.parse(row.data.data); } catch { continue; }
-            const parsed = assistant.safeParse(data);
-            if (parsed.success && parsed.data.time.created >= since && parsed.data.time.created < until) records.push(raw);
+            const rowId = z.object({ rowid: z.number().int().positive() }).safeParse(raw);
+            if (!rowId.success || rowId.data.rowid <= cursor) continue;
+            cursor = rowId.data.rowid;
+            const row = z.object({ data: z.string() }).safeParse(raw);
+            if (!row.success) { pagedMalformed++; continue; }
+            try { JSON.parse(row.data.data); } catch { pagedMalformed++; continue; }
+            records.push(raw);
           }
+          if (cursor === before) { stalled = true; break; }
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
       } else {
         records.push(...db.prepare(`SELECT m.id, m.data, m.session_id AS sessionId, ${titleColumn} AS sessionTitle, s.directory FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE json_valid(m.data) AND json_extract(m.data, '$.role') = 'assistant' AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= ? AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) < ? LIMIT 100001`).all(since, until));
       }
       const contributions: UsageContribution[] = [];
-      let malformed = invalidCount.success ? invalidCount.data.count : 0; let partial = records.length > 100000 || !!signal?.aborted;
+      let malformed = (invalidCount.success ? invalidCount.data.count : 0) + pagedMalformed; let partial = records.length > 100000 || !!signal?.aborted || stalled;
       for (const raw of records.slice(0, 100000)) {
         if (signal?.aborted) { partial = true; break; }
         const row = rowSchema.safeParse(raw);
@@ -74,8 +78,8 @@ export class OpenCodeSource implements UsageSource {
         const model = value.modelID ?? value.model?.modelID ?? 'unknown';
         contributions.push({ key: row.data.id, timestampMs: value.time.created, sessionId: row.data.sessionId, sessionTitle: row.data.sessionTitle ?? "Session " + row.data.sessionId.slice(0, 8), providerId: 'opencode', modelId: `${provider}/${model}`, modelProviderId: provider, workspaceRoot: root, inputUncachedTokens: value.tokens.input, cacheReadTokens: value.tokens.cache?.read ?? 0, cacheWriteTokens: value.tokens.cache?.write ?? 0, outputTokens: value.tokens.output, ...(value.cost !== undefined && value.cost > 0 ? { reportedCostUsd: value.cost } : {}), requestCount: 1, sourceId: 'opencode' });
       }
-      const result: UsageSourceResult = { contributions, status: { sourceId: 'opencode', status: partial || malformed ? 'partial' : 'complete', scannedFiles: 1, malformedRecords: malformed, ...(partial ? { reason: signal?.aborted ? 'time-budget' : 'Query limit or workspace metadata incomplete' } : {}) } };
-      if (!signal?.aborted) {
+      const result: UsageSourceResult = { contributions, status: { sourceId: 'opencode', status: partial || malformed ? 'partial' : 'complete', scannedFiles: 1, malformedRecords: malformed, ...(partial ? { reason: signal?.aborted ? 'time-budget' : stalled ? 'Paging cursor stalled' : 'Query limit or workspace metadata incomplete' } : {}) } };
+      if (!signal?.aborted && !stalled) {
         if (this.cache.size >= 12) this.cache.delete(this.cache.keys().next().value ?? '');
         this.cache.set(key, result);
       }

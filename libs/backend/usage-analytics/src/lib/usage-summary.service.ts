@@ -59,13 +59,12 @@ export class UsageAnalyticsService {
         workspaceKey = normalizeWorkspaceRoot(workspacePath);
         if (signal?.aborted) throw new Error('time-budget');
         const coverage = await this.statsRepository.getWorkspaceCoverage(workspaceKey);
-        let ledgerGroupCount = 0;
+        let factLimitReached = false;
         for (let cursor = since; cursor < until; cursor += signal ? LEDGER_SLICE_MS : until - since) {
           if (signal?.aborted) break;
           const ledgerGroups = await this.statsRepository.getWorkspaceUsageGroups(workspaceKey, cursor, Math.min(until, cursor + (signal ? LEDGER_SLICE_MS : until - since)));
-          ledgerGroupCount += ledgerGroups.length;
           for (const row of ledgerGroups) {
-          if (signal?.aborted || groups.size >= MAX_FACTS) break;
+          if (signal?.aborted) break;
           const costSource = row.has_unpriced === 0 && (row.cost_authority === 'provider-reported' || row.cost_authority === 'model-priced')
             ? row.cost_authority : 'unpriced';
           const fact: UsageFact = {
@@ -79,6 +78,7 @@ export class UsageAnalyticsService {
           };
           const key = JSON.stringify([fact.day, fact.providerId, fact.modelId, fact.sourceId, fact.costSource, row.source]);
           const prior = groups.get(key);
+          if (!prior && groups.size >= MAX_FACTS) { factLimitReached = true; continue; }
           groups.set(key, prior ? {
             ...fact,
             inputUncachedTokens: prior.inputUncachedTokens + fact.inputUncachedTokens,
@@ -112,7 +112,7 @@ export class UsageAnalyticsService {
           }));
         }
         }
-        statuses.push({ sourceId: 'claude-ledger', status: 'partial', ...(coverage ? { coverageStart: new Date(coverage.first_captured_at_ms).toISOString().slice(0, 10) } : {}), reason: signal?.aborted ? 'time-budget' : ledgerGroupCount > MAX_FACTS
+        statuses.push({ sourceId: 'claude-ledger', status: 'partial', ...(coverage ? { coverageStart: new Date(coverage.first_captured_at_ms).toISOString().slice(0, 10) } : {}), reason: signal?.aborted ? 'time-budget' : factLimitReached
           ? 'fact-limit' : coverage
             ? `Historical sessions were not backfilled; data starts ${new Date(coverage.first_captured_at_ms).toISOString()}; subagent counts unavailable`
             : 'Historical sessions were not backfilled; no live usage captured yet' });

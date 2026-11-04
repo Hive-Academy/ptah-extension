@@ -51,6 +51,27 @@ describe('cold start scan budget', () => {
     expect(result.status).toMatchObject({ status: 'partial', reason: 'time-budget' });
   });
 
+  it('counts malformed OpenCode rows across pages and advances past bad data', async () => {
+    const Database = require('better-sqlite3') as new (file: string) => {
+      exec(sql: string): void;
+      prepare(sql: string): { run(...params: (string | number | null)[]): unknown };
+      close(): void;
+    };
+    const directory = path.join(home, 'opencode');
+    await fs.mkdir(directory);
+    const db = new Database(path.join(directory, 'opencode.db'));
+    try {
+      db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT); CREATE TABLE message (id TEXT, data TEXT, session_id TEXT, time_created INTEGER)');
+      db.prepare('INSERT INTO session (id, title, directory) VALUES (?, ?, ?)').run('s', 'Session', home);
+      const insert = db.prepare('INSERT INTO message (id, data, session_id, time_created) VALUES (?, ?, ?, ?)');
+      for (let i = 0; i < 256; i++) insert.run(`bad-${i}`, null, 's', 1);
+      insert.run('good', JSON.stringify({ role: 'assistant', time: { created: 2 }, tokens: { input: 1, output: 1, reasoning: 0 } }), 's', 2);
+    } finally { db.close(); }
+    const result = await new OpenCodeSource(home).read(home, 0, 10, new AbortController().signal);
+    expect(result.status).toMatchObject({ status: 'partial', malformedRecords: 256 });
+    expect(result.contributions.map((item) => item.key)).toEqual(['good']);
+  });
+
   it('reparses a file after an interrupted projection', async () => {
     const file = path.join(home, 'session.jsonl');
     await fs.writeFile(file, '{}\n');
