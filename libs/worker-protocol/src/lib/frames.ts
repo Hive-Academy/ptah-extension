@@ -104,6 +104,154 @@ export function isWorkerRecordType(value: unknown): value is WorkerRecordType {
 }
 
 // ---------------------------------------------------------------------------
+// History events (W8 baseline). The worker's local history reader produces
+// FlatStreamEventUnion members; the wire checks the discriminant and each
+// member's required fields before the renderer trusts them.
+// ---------------------------------------------------------------------------
+
+type FlatStreamEventType = FlatStreamEventUnion['eventType'];
+
+/** Fields every flat stream event carries, with the optional ones typed. */
+const FlatStreamEventBaseSchema = z.object({
+  id: z.string().min(1),
+  timestamp: z.number(),
+  messageId: z.string(),
+  sessionId: z.string().optional(),
+  source: z.enum(['stream', 'complete', 'history', 'hook']).optional(),
+  parentToolUseId: z.string().optional(),
+  toolCallId: z.string().optional(),
+  blockIndex: z.number().optional(),
+});
+
+function flatEvent<Shape extends z.ZodRawShape>(shape: Shape) {
+  return FlatStreamEventBaseSchema.extend(shape);
+}
+
+/** One schema per member of {@link FlatStreamEventUnion}, keyed by `eventType`. */
+const FLAT_STREAM_EVENT_SCHEMAS = {
+  message_start: flatEvent({ role: z.enum(['user', 'assistant']) }),
+  text_delta: flatEvent({ delta: z.string(), blockIndex: z.number() }),
+  thinking_start: flatEvent({ blockIndex: z.number() }),
+  thinking_delta: flatEvent({ delta: z.string(), blockIndex: z.number() }),
+  tool_start: flatEvent({
+    toolCallId: z.string(),
+    toolName: z.string(),
+    isTaskTool: z.boolean(),
+  }),
+  tool_delta: flatEvent({ toolCallId: z.string(), delta: z.string() }),
+  tool_result: flatEvent({
+    toolCallId: z.string(),
+    output: z.unknown(),
+    isError: z.boolean(),
+  }),
+  agent_start: flatEvent({ toolCallId: z.string(), agentType: z.string() }),
+  message_complete: flatEvent({}),
+  message_delta: flatEvent({
+    tokenUsage: z.object({ input: z.number(), output: z.number() }),
+  }),
+  signature_delta: flatEvent({
+    blockIndex: z.number(),
+    signature: z.string(),
+  }),
+  compaction_start: flatEvent({
+    trigger: z.enum(['manual', 'auto']),
+    preTokens: z.number(),
+  }),
+  compaction_complete: flatEvent({ trigger: z.enum(['manual', 'auto']) }),
+  background_agent_started: flatEvent({
+    toolCallId: z.string(),
+    agentType: z.string(),
+  }),
+  background_agent_completed: flatEvent({
+    toolCallId: z.string(),
+    agentId: z.string(),
+  }),
+  background_agent_stopped: flatEvent({
+    toolCallId: z.string(),
+    agentId: z.string(),
+  }),
+  background_tasks_snapshot: flatEvent({
+    sessionId: z.string(),
+    tasks: z.array(
+      z.object({
+        taskId: z.string(),
+        taskType: z.string(),
+        description: z.string(),
+        status: z.literal('running'),
+      }),
+    ),
+  }),
+  agent_progress: flatEvent({
+    parentToolUseId: z.string(),
+    taskId: z.string(),
+    description: z.string(),
+    totalTokens: z.number(),
+    toolUses: z.number(),
+    durationMs: z.number(),
+  }),
+  agent_status: flatEvent({
+    parentToolUseId: z.string(),
+    taskId: z.string(),
+    status: z.enum([
+      'pending',
+      'running',
+      'completed',
+      'failed',
+      'killed',
+      'paused',
+    ]),
+  }),
+  agent_completed: flatEvent({
+    parentToolUseId: z.string(),
+    taskId: z.string(),
+    status: z.enum(['completed', 'failed', 'stopped']),
+    summary: z.string(),
+    outputFile: z.string(),
+  }),
+  turn_state: flatEvent({
+    phase: z.enum([
+      'generating',
+      'awaiting-background',
+      'sleeping',
+      'idle',
+      'failed',
+    ]),
+    revision: z.number(),
+    backgroundTasks: z.array(z.unknown()),
+    sessionCrons: z.array(z.unknown()),
+    terminalReason: z.string().nullable(),
+  }),
+} as const satisfies Record<FlatStreamEventType, z.ZodType>;
+
+function isFlatStreamEventType(value: unknown): value is FlatStreamEventType {
+  return (
+    typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(FLAT_STREAM_EVENT_SCHEMAS, value)
+  );
+}
+
+function isFlatStreamEvent(value: unknown): value is FlatStreamEventUnion {
+  if (typeof value !== 'object' || value === null || !('eventType' in value)) {
+    return false;
+  }
+  const { eventType } = value;
+  return (
+    isFlatStreamEventType(eventType) &&
+    FLAT_STREAM_EVENT_SCHEMAS[eventType].safeParse(value).success
+  );
+}
+
+/**
+ * A history event: `eventType` names a {@link FlatStreamEventUnion} member and
+ * the value carries that member's required fields. The event passes through
+ * unchanged (optional fields the renderer reads stay in place).
+ */
+export const FlatStreamEventSchema = z.custom<FlatStreamEventUnion>(
+  isFlatStreamEvent,
+  { message: 'expected a flat stream event' },
+);
+
+// ---------------------------------------------------------------------------
 // Worker record payloads (W7 "Worker record serialization", W8).
 // ---------------------------------------------------------------------------
 
@@ -114,21 +262,6 @@ export const HistoryMarkSchema = z.object({
 });
 
 export type HistoryMark = z.infer<typeof HistoryMarkSchema>;
-
-/**
- * Structural check for a history event. The full {@link FlatStreamEventUnion}
- * is produced by the local history reader on the worker; the wire only proves
- * the discriminating fields every member carries.
- */
-export const FlatStreamEventSchema = z.custom<FlatStreamEventUnion>(
-  (value) =>
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { id?: unknown }).id === 'string' &&
-    typeof (value as { eventType?: unknown }).eventType === 'string' &&
-    typeof (value as { timestamp?: unknown }).timestamp === 'number',
-  { message: 'expected a flat stream event' },
-);
 
 const TurnIdSchema = z.string().min(1).max(128);
 
@@ -336,9 +469,18 @@ export function encodeFrame(frame: ClientFrame | WorkerFrame): string {
   return JSON.stringify(frame);
 }
 
-/** Parse an inbound client frame; malformed input maps to close 4400. */
-export function parseClientFrame(text: string): FrameParse<ClientFrame> {
-  return parseWith(ClientFrameSchema, text);
+/**
+ * Parse an inbound client frame; malformed or oversized input maps to close
+ * 4400. `maxBytes` is the bound for the connection's phase:
+ * {@link WORKER_LIMITS.maxPayloadPreAuthBytes} before authentication,
+ * {@link WORKER_LIMITS.maxPayloadBytes} after. It is checked in UTF-8 bytes
+ * before the text is parsed.
+ */
+export function parseClientFrame(
+  text: string,
+  maxBytes: number,
+): FrameParse<ClientFrame> {
+  return parseWith(ClientFrameSchema, text, maxBytes);
 }
 
 /**
@@ -350,9 +492,14 @@ export function parseClientFrame(text: string): FrameParse<ClientFrame> {
  * {@link SESSION_EVENT_TYPES}, or a worker record whose payload fails its
  * schema). Both sides negotiated the same protocol version, so either is a
  * broken peer, not version skew.
+ *
+ * Text over `maxBytes` UTF-8 bytes is refused before it is parsed.
  */
-export function parseWorkerFrame(text: string): FrameParse<WorkerFrame> {
-  const parsed = parseWith(WorkerFrameSchema, text);
+export function parseWorkerFrame(
+  text: string,
+  maxBytes: number = WORKER_LIMITS.maxPayloadBytes,
+): FrameParse<WorkerFrame> {
+  const parsed = parseWith(WorkerFrameSchema, text, maxBytes);
   if (!parsed.ok) {
     return parsed;
   }
@@ -374,7 +521,14 @@ export function parseWorkerFrame(text: string): FrameParse<WorkerFrame> {
   return parsed;
 }
 
-function parseWith<T>(schema: z.ZodType<T>, text: string): FrameParse<T> {
+function parseWith<T>(
+  schema: z.ZodType<T>,
+  text: string,
+  maxBytes: number,
+): FrameParse<T> {
+  if (!fitsUtf8Bytes(text, maxBytes)) {
+    return { ok: false, close: PROTOCOL_ERROR };
+  }
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -387,4 +541,46 @@ function parseWith<T>(schema: z.ZodType<T>, text: string): FrameParse<T> {
   return parsed.success
     ? { ok: true, frame: parsed.data }
     : { ok: false, close: PROTOCOL_ERROR };
+}
+
+/**
+ * Whether `text` encodes to at most `maxBytes` UTF-8 bytes, as the socket
+ * sends it. A UTF-16 code unit takes 1 to 3 bytes and a surrogate pair 4, so
+ * the length alone settles most inputs; the rest are counted, stopping at the
+ * bound. A lone surrogate counts 3 bytes, the size of the U+FFFD it is sent as.
+ */
+function fitsUtf8Bytes(text: string, maxBytes: number): boolean {
+  if (text.length > maxBytes) {
+    return false;
+  }
+  if (text.length * 3 <= maxBytes) {
+    return true;
+  }
+  let bytes = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) {
+      bytes += 1;
+    } else if (unit < 0x800) {
+      bytes += 2;
+    } else if (
+      unit >= 0xd800 &&
+      unit <= 0xdbff &&
+      i + 1 < text.length &&
+      isLowSurrogate(text.charCodeAt(i + 1))
+    ) {
+      bytes += 4;
+      i += 1;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isLowSurrogate(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
 }

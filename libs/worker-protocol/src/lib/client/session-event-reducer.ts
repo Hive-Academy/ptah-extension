@@ -1,7 +1,8 @@
 /**
  * Client-side session event reducer (plan W7 "Client", W8). Pure: no I/O, no
  * timers, no clock. The host feeds it parsed `evt` frames and control signals
- * and acts on the `attach` request it returns.
+ * and acts on the `attach` request it returns. The host reads what to render
+ * through {@link sessionView}.
  *
  * Rules:
  *
@@ -15,6 +16,11 @@
  *   replay plus live frames renders exactly what an unbroken stream would. If
  *   the host's attach call fails, it dispatches `replay-failed` and the
  *   reducer asks again from the current `last`.
+ * - More than {@link MAX_HELD_FRAMES} held frames is an overflow: the held
+ *   frames and the outstanding replay are dropped, and the reducer enters a
+ *   resync and asks for a fresh attach (no `afterSeq`), which starts at the
+ *   latest baseline. A `replay-failed` during the resync asks for the fresh
+ *   attach again. The resync ends when the gap closes.
  * - `worker:baseline` replaces the rendered view. A baseline with a higher
  *   `seq` than `last + 1` is applied at once: everything before it is
  *   superseded by it, so the gap before a baseline never needs a replay. This
@@ -54,17 +60,59 @@ export interface SessionView {
   readonly records: readonly SessionRecord[];
 }
 
+/**
+ * Append-only record list with O(1) amortised append. Successive states share
+ * one backing array; each log owns only its first `length` entries, so an
+ * older state never sees a record appended after it. Appending to a log that
+ * is no longer the newest (two states branched from one) copies its prefix
+ * first.
+ */
+export class SessionRecordLog {
+  static readonly EMPTY = new SessionRecordLog([], 0);
+
+  private constructor(
+    private readonly entries: SessionRecord[],
+    readonly length: number,
+  ) {}
+
+  append(record: SessionRecord): SessionRecordLog {
+    const entries =
+      this.length > 0 && this.entries.length === this.length
+        ? this.entries
+        : this.entries.slice(0, this.length);
+    entries.push(record);
+    return new SessionRecordLog(entries, this.length + 1);
+  }
+
+  /** A copy of this log's records. */
+  toArray(): SessionRecord[] {
+    return this.entries.slice(0, this.length);
+  }
+}
+
+/** The rendered transcript in its internal form; read it with {@link sessionView}. */
+export interface SessionTranscript {
+  readonly baseline: readonly FlatStreamEventUnion[];
+  readonly baselineSeq: number | null;
+  readonly records: SessionRecordLog;
+}
+
 export interface SessionEventState {
   readonly sessionId: string;
   /** Epoch of the log being followed; `null` until the first frame. */
   readonly epoch: string | null;
   /** Highest `seq` applied; 0 before any. */
   readonly last: number;
-  readonly view: SessionView;
+  readonly transcript: SessionTranscript;
   /** Frames past a gap, ascending by `seq`, no duplicates. */
   readonly held: readonly EventFrame[];
   /** `afterSeq` of the replay requested for the current gap, while it is outstanding. */
   readonly replayFrom: number | null;
+  /**
+   * A fresh attach is outstanding because the held frames overflowed. While
+   * it is, `replayFrom` is `null` and no replay is requested.
+   */
+  readonly resyncing: boolean;
 }
 
 export type SessionEventAction =
@@ -81,16 +129,16 @@ export interface SessionEventStep {
 }
 
 /**
- * Most frames held past a gap. Holding is only a shortcut (the replay resends
- * every record after `last`), so beyond this the held frames are dropped and
- * the outstanding replay fills the view.
+ * Most frames held past a gap. Holding is only a shortcut (a replay resends
+ * every record after `last`); beyond this the reducer drops the held frames
+ * and resyncs from a fresh attach.
  */
 export const MAX_HELD_FRAMES = 1_000;
 
-const EMPTY_VIEW: SessionView = Object.freeze({
+const EMPTY_TRANSCRIPT: SessionTranscript = Object.freeze({
   baseline: Object.freeze([]) as readonly FlatStreamEventUnion[],
   baselineSeq: null,
-  records: Object.freeze([]) as readonly SessionRecord[],
+  records: SessionRecordLog.EMPTY,
 });
 
 export function initialSessionEventState(sessionId: string): SessionEventState {
@@ -98,10 +146,33 @@ export function initialSessionEventState(sessionId: string): SessionEventState {
     sessionId,
     epoch: null,
     last: 0,
-    view: EMPTY_VIEW,
+    transcript: EMPTY_TRANSCRIPT,
     held: [],
     replayFrom: null,
+    resyncing: false,
   };
+}
+
+const views = new WeakMap<SessionTranscript, SessionView>();
+
+/**
+ * The view to render. Flattens the record log once per transcript: a state
+ * whose transcript did not change (a history mark, a duplicate) returns the
+ * same view object.
+ */
+export function sessionView(state: SessionEventState): SessionView {
+  const { transcript } = state;
+  const cached = views.get(transcript);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const view: SessionView = {
+    baseline: transcript.baseline,
+    baselineSeq: transcript.baselineSeq,
+    records: transcript.records.toArray(),
+  };
+  views.set(transcript, view);
+  return view;
 }
 
 /**
@@ -127,11 +198,11 @@ export function reduceSessionEvent(
   }
 
   if (action.kind === 'replay-failed') {
+    if (state.resyncing) {
+      return { state, attach: { sessionId: state.sessionId } };
+    }
     if (state.replayFrom === null || state.epoch === null) {
       return { state, attach: null };
-    }
-    if (state.held.length === 0) {
-      return { state: { ...state, replayFrom: null }, attach: null };
     }
     return requestReplay(state, state.epoch);
   }
@@ -172,8 +243,11 @@ function holdPastGap(
   frame: EventFrame,
 ): SessionEventStep {
   const held = insertHeld(state.held, frame);
-  const next = { ...state, held: held.length > MAX_HELD_FRAMES ? [] : held };
-  if (state.replayFrom !== null) {
+  if (held.length > MAX_HELD_FRAMES) {
+    return requestResync(state);
+  }
+  const next = { ...state, held };
+  if (state.replayFrom !== null || state.resyncing) {
     return { state: next, attach: null };
   }
   return requestReplay(next, frame.epoch);
@@ -186,6 +260,24 @@ function requestReplay(
   return {
     state: { ...state, replayFrom: state.last },
     attach: { sessionId: state.sessionId, afterSeq: state.last, epoch },
+  };
+}
+
+/**
+ * Held frames overflowed: drop them and the replay, and ask once for a fresh
+ * attach. A replay from `last` would have to be held the same way; the fresh
+ * attach starts at the latest baseline, which applies past any gap.
+ */
+function requestResync(state: SessionEventState): SessionEventStep {
+  const next: SessionEventState = {
+    ...state,
+    held: [],
+    replayFrom: null,
+    resyncing: true,
+  };
+  return {
+    state: next,
+    attach: state.resyncing ? null : { sessionId: state.sessionId },
   };
 }
 
@@ -204,7 +296,11 @@ function insertHeld(
   return [...held.slice(0, index), frame, ...held.slice(index)];
 }
 
-/** Apply held frames that are now contiguous; drop the ones a baseline superseded. */
+/**
+ * Apply held frames that are now contiguous; drop the ones a baseline
+ * superseded. Called after a frame was applied, so an empty remainder means
+ * the gap closed: any replay or resync for it is over.
+ */
 function drainHeld(state: SessionEventState): SessionEventState {
   let current = state;
   let index = 0;
@@ -223,11 +319,12 @@ function drainHeld(state: SessionEventState): SessionEventState {
     break;
   }
   const remaining = index === 0 ? held : held.slice(index);
+  const gapClosed = remaining.length === 0;
   return {
     ...current,
     held: remaining,
-    // The gap closed when nothing is left waiting; a later gap asks again.
-    replayFrom: remaining.length === 0 ? null : current.replayFrom,
+    replayFrom: gapClosed ? null : current.replayFrom,
+    resyncing: gapClosed ? false : current.resyncing,
   };
 }
 
@@ -249,10 +346,10 @@ function applyFrame(
     return {
       ...state,
       last: frame.seq,
-      view: {
+      transcript: {
         baseline: baseline.data.events,
         baselineSeq: frame.seq,
-        records: [],
+        records: SessionRecordLog.EMPTY,
       },
     };
   }
@@ -271,6 +368,9 @@ function applyFrame(
   return {
     ...state,
     last: frame.seq,
-    view: { ...state.view, records: [...state.view.records, record] },
+    transcript: {
+      ...state.transcript,
+      records: state.transcript.records.append(record),
+    },
   };
 }

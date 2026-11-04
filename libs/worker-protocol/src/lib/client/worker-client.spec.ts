@@ -311,18 +311,45 @@ describe('WorkerClient request/response correlation', () => {
     );
   });
 
-  it('fails a call whose send throws with CONNECTION_CLOSED', async () => {
+  it('treats a send that throws as connection loss', async () => {
     const h = await connected();
+    const first = h.client.call('hello', HELLO_PARAMS);
+    const second = h.client.call('machine.info', {});
+    const firstFails = expect(first).rejects.toEqual(
+      expectCode('CONNECTION_CLOSED'),
+    );
+    const secondFails = expect(second).rejects.toEqual(
+      expectCode('CONNECTION_CLOSED'),
+    );
     const cause = new Error('socket closing');
     h.socket().send = () => {
       throw cause;
     };
+
     const error = (await h.client
       .call('hello', HELLO_PARAMS)
       .catch((e: unknown) => e)) as WorkerClientError;
     expect(error.code).toBe('CONNECTION_CLOSED');
     expect(error.cause).toBe(cause);
+    // The other waiting calls fail at once, not after their 30 s timers.
+    await firstFails;
+    await secondFails;
     expect(h.client.inFlight).toBe(0);
+    expect(h.client.state).toBe('closed');
+    expect(jest.getTimerCount()).toBe(0);
+    expect(h.socket().closeCalls).toHaveLength(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledTimes(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledWith({
+      code: 1006,
+      reason: 'socket-error',
+      local: true,
+    });
+    await expect(h.client.call('hello', HELLO_PARAMS)).rejects.toEqual(
+      expectCode('NOT_CONNECTED'),
+    );
+    // A close event the socket emits later is not reported again.
+    h.socket().peerClose(1006, '');
+    expect(h.callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -414,6 +441,26 @@ describe('WorkerClient close and error paths', () => {
     expect(h.callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    [4409, 'version-mismatch'],
+    [4410, 'revoked'],
+    [1000, 'normal-closure'],
+    [1001, 'going-away'],
+    [1011, 'internal-error'],
+    [3999, 'connection-closed'],
+  ])(
+    'reports close %d with the fixed reason %s, never the peer text',
+    async (code, reason) => {
+      const h = await connected();
+      h.socket().peerClose(code, '/home/user/.ssh/id_ed25519 token=abc');
+      expect(h.callbacks.onClose).toHaveBeenCalledWith({
+        code,
+        reason,
+        local: false,
+      });
+    },
+  );
+
   it('treats a socket error as the end of the connection', async () => {
     const h = await connected();
     const call = h.client.call('hello', HELLO_PARAMS);
@@ -424,6 +471,58 @@ describe('WorkerClient close and error paths', () => {
     expect(h.callbacks.onClose).toHaveBeenCalledWith({
       code: 1006,
       reason: 'socket-error',
+      local: true,
+    });
+  });
+});
+
+describe('WorkerClient transport close that throws', () => {
+  function throwingClose(socket: FakeSocket): void {
+    socket.close = (code?: number, reason?: string) => {
+      socket.closeCalls.push({ code, reason });
+      throw new Error('close failed');
+    };
+  }
+
+  it('still fails pending calls and reports once on a socket error', async () => {
+    const h = await connected();
+    throwingClose(h.socket());
+    const call = h.client.call('hello', HELLO_PARAMS);
+    expect(() => h.socket().fail()).not.toThrow();
+
+    await expect(call).rejects.toEqual(expectCode('CONNECTION_CLOSED'));
+    expect(h.socket().closeCalls).toHaveLength(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledTimes(1);
+    expect(h.client.state).toBe('closed');
+  });
+
+  it('still rejects connect with CALL_TIMEOUT when the socket never opens', async () => {
+    const h = harness();
+    const opening = h.client.connect();
+    throwingClose(h.socket());
+    const assertion = expect(opening).rejects.toEqual(
+      expectCode('CALL_TIMEOUT'),
+    );
+    expect(() =>
+      jest.advanceTimersByTime(WORKER_LIMITS.callTimeoutMs),
+    ).not.toThrow();
+    await assertion;
+    expect(h.socket().closeCalls).toHaveLength(1);
+    expect(h.client.state).toBe('closed');
+  });
+
+  it('still closes locally and on a protocol error', async () => {
+    const local = await connected();
+    throwingClose(local.socket());
+    expect(() => local.client.close()).not.toThrow();
+    expect(local.callbacks.onClose).toHaveBeenCalledTimes(1);
+
+    const broken = await connected();
+    throwingClose(broken.socket());
+    expect(() => broken.socket().receive('{nope')).not.toThrow();
+    expect(broken.callbacks.onClose).toHaveBeenCalledWith({
+      code: 4400,
+      reason: 'protocol-error',
       local: true,
     });
   });
@@ -453,6 +552,19 @@ describe('WorkerClient malformed inbound frames', () => {
       JSON.stringify({ v: 1, kind: 'ctl', type: 'goodbye', payload: {} }),
     ],
     ['an oversized message', 'x'.repeat(WORKER_LIMITS.maxPayloadBytes + 1)],
+    [
+      'a message over 1 MiB in UTF-8 bytes but not in UTF-16 units',
+      JSON.stringify({
+        v: 1,
+        kind: 'evt',
+        sessionId: 's-1',
+        epoch: 'e-1',
+        seq: 1,
+        type: 'chat:chunk',
+        ts: 1,
+        payload: { text: 'é'.repeat(WORKER_LIMITS.maxPayloadBytes / 2) },
+      }),
+    ],
   ];
 
   it.each(malformed)(
@@ -532,6 +644,44 @@ describe('WorkerClient liveness', () => {
     await assertion;
     expect(h.client.state).toBe('closed');
     expect(h.socket().closeCalls).toHaveLength(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledWith(PONG_TIMEOUT_CLOSE);
+  });
+
+  it('treats a ping that throws as connection loss inside the timer', async () => {
+    const h = await connected({ withPing: true });
+    h.socket().ping = () => {
+      throw new Error('transport gone');
+    };
+    const call = h.client.call('hello', HELLO_PARAMS);
+    const assertion = expect(call).rejects.toEqual(
+      expectCode('CONNECTION_CLOSED'),
+    );
+
+    expect(() =>
+      jest.advanceTimersByTime(WORKER_LIMITS.pingIntervalMs),
+    ).not.toThrow();
+    await assertion;
+    expect(h.client.state).toBe('closed');
+    expect(jest.getTimerCount()).toBe(0);
+    expect(h.socket().closeCalls).toHaveLength(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledTimes(1);
+    expect(h.callbacks.onClose).toHaveBeenCalledWith({
+      code: 1006,
+      reason: 'socket-error',
+      local: true,
+    });
+  });
+
+  it('drops the connection on a pong timeout when close throws', async () => {
+    const h = await connected({ withPing: true });
+    h.socket().close = () => {
+      throw new Error('close failed');
+    };
+    jest.advanceTimersByTime(WORKER_LIMITS.pingIntervalMs);
+    expect(() =>
+      jest.advanceTimersByTime(WORKER_LIMITS.pongTimeoutMs),
+    ).not.toThrow();
+    expect(h.client.state).toBe('closed');
     expect(h.callbacks.onClose).toHaveBeenCalledWith(PONG_TIMEOUT_CLOSE);
   });
 

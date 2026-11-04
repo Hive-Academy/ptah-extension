@@ -18,12 +18,45 @@ import {
 import { workerError } from './errors';
 
 const PROTOCOL_ERROR = { code: 4400, reason: 'protocol-error' };
+const PRE_AUTH = WORKER_LIMITS.maxPayloadPreAuthBytes;
+const AUTHENTICATED = WORKER_LIMITS.maxPayloadBytes;
+
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** A client frame whose text is exactly `bytes` UTF-8 bytes, filled with `fill`. */
+function clientFrameOfBytes(bytes: number, fill: string): string {
+  const empty = encodeFrame({
+    v: 1,
+    kind: 'req',
+    id: 'r',
+    method: 'chat.send',
+    params: { text: '' },
+  });
+  const room = bytes - utf8Bytes(empty);
+  const fillBytes = utf8Bytes(fill);
+  const text =
+    fill.repeat(Math.floor(room / fillBytes)) + 'x'.repeat(room % fillBytes);
+  const framed = encodeFrame({
+    v: 1,
+    kind: 'req',
+    id: 'r',
+    method: 'chat.send',
+    params: { text },
+  });
+  expect(utf8Bytes(framed)).toBe(bytes);
+  return framed;
+}
 
 const historyEvent = {
   id: 'evt-1',
   eventType: 'text_delta',
   timestamp: 1_700_000_000_000,
   sessionId: 's-1',
+  messageId: 'm-1',
+  delta: 'hello',
+  blockIndex: 0,
 };
 
 function evt(type: string, payload: unknown, seq = 1): string {
@@ -136,6 +169,70 @@ describe('checkSessionRecord', () => {
     ).toBe(true);
   });
 
+  it.each([
+    [
+      'a text_delta without messageId',
+      { ...historyEvent, messageId: undefined },
+    ],
+    [
+      'a text_delta without blockIndex',
+      { ...historyEvent, blockIndex: undefined },
+    ],
+    ['an unknown eventType', { ...historyEvent, eventType: 'text_typo' }],
+    [
+      'a tool_result without isError',
+      {
+        id: 'evt-2',
+        eventType: 'tool_result',
+        timestamp: 1,
+        messageId: 'm-1',
+        toolCallId: 't-1',
+        output: 'ok',
+      },
+    ],
+    ['a wrong-typed optional base field', { ...historyEvent, source: 'disk' }],
+  ])('rejects a baseline holding %s', (_label, event) => {
+    expect(
+      checkSessionRecord('worker:baseline', {
+        events: [event],
+        historyMark: mark,
+      }),
+    ).toEqual({ ok: false, reason: 'invalid-payload' });
+  });
+
+  it('accepts other union members and keeps their optional fields', () => {
+    const toolStart = {
+      id: 'evt-3',
+      eventType: 'tool_start',
+      timestamp: 1,
+      messageId: 'm-1',
+      toolCallId: 't-1',
+      toolName: 'Read',
+      isTaskTool: false,
+      toolInput: { path: 'a.ts' },
+    };
+    const turnState = {
+      id: 'evt-4',
+      eventType: 'turn_state',
+      timestamp: 2,
+      messageId: 'turn-state-s-1',
+      phase: 'idle',
+      revision: 3,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: null,
+    };
+    expect(
+      checkSessionRecord('worker:baseline', {
+        events: [toolStart, turnState],
+        historyMark: mark,
+      }),
+    ).toEqual({
+      ok: true,
+      payload: { events: [toolStart, turnState], historyMark: mark },
+    });
+  });
+
   it('rejects a malformed history mark record', () => {
     expect(
       checkSessionRecord('worker:history-mark', { historyMark: mark }),
@@ -210,12 +307,16 @@ describe('parseClientFrame', () => {
   };
 
   it('round-trips a request', () => {
-    expect(parseClientFrame(encodeFrame(frame))).toEqual({ ok: true, frame });
+    expect(parseClientFrame(encodeFrame(frame), PRE_AUTH)).toEqual({
+      ok: true,
+      frame,
+    });
   });
 
   it('leaves unknown method names to the gateway', () => {
     const parsed = parseClientFrame(
       encodeFrame({ ...frame, method: 'chat:start' }),
+      PRE_AUTH,
     );
     expect(parsed.ok).toBe(true);
   });
@@ -235,10 +336,48 @@ describe('parseClientFrame', () => {
     ],
     ['an empty method', JSON.stringify({ ...frame, method: '' })],
   ])('maps %s to close 4400 protocol-error', (_label, text) => {
-    expect(parseClientFrame(text)).toEqual({
+    expect(parseClientFrame(text, PRE_AUTH)).toEqual({
       ok: false,
       close: PROTOCOL_ERROR,
     });
+  });
+
+  it('accepts a frame of exactly the pre-auth bound in UTF-8 bytes', () => {
+    const text = clientFrameOfBytes(PRE_AUTH, 'é');
+    expect(parseClientFrame(text, PRE_AUTH).ok).toBe(true);
+  });
+
+  it('counts UTF-8 bytes, not UTF-16 units, against the bound', () => {
+    // 'é' is 1 UTF-16 unit and 2 UTF-8 bytes: under 4 KiB by .length, over it on the wire.
+    const text = clientFrameOfBytes(PRE_AUTH + 1, 'é');
+    expect(text.length).toBeLessThanOrEqual(PRE_AUTH);
+    expect(parseClientFrame(text, PRE_AUTH)).toEqual({
+      ok: false,
+      close: PROTOCOL_ERROR,
+    });
+    expect(parseClientFrame(text, AUTHENTICATED).ok).toBe(true);
+  });
+
+  it('counts a surrogate pair as 4 bytes at the bound', () => {
+    expect(
+      parseClientFrame(clientFrameOfBytes(PRE_AUTH, '😀'), PRE_AUTH).ok,
+    ).toBe(true);
+    expect(
+      parseClientFrame(clientFrameOfBytes(PRE_AUTH + 1, '😀'), PRE_AUTH).ok,
+    ).toBe(false);
+  });
+
+  it('applies the post-auth bound of 1 MiB with 3-byte characters', () => {
+    expect(
+      parseClientFrame(clientFrameOfBytes(AUTHENTICATED, '€'), AUTHENTICATED)
+        .ok,
+    ).toBe(true);
+    expect(
+      parseClientFrame(
+        clientFrameOfBytes(AUTHENTICATED + 1, '€'),
+        AUTHENTICATED,
+      ).ok,
+    ).toBe(false);
   });
 });
 
@@ -340,6 +479,26 @@ describe('parseWorkerFrame', () => {
         .ok,
     ).toBe(false);
     expect(parseWorkerFrame(ctl('reboot', {})).ok).toBe(false);
+  });
+
+  it('maps a baseline with a malformed history event to close 4400', () => {
+    const text = evt('worker:baseline', {
+      events: [{ ...historyEvent, messageId: undefined }],
+      historyMark: { count: 1, lastEventId: 'evt-1' },
+    });
+    expect(parseWorkerFrame(text)).toEqual({
+      ok: false,
+      close: PROTOCOL_ERROR,
+    });
+  });
+
+  it('refuses a frame over 1 MiB in UTF-8 bytes that is under it in UTF-16 units', () => {
+    const text = evt('chat:chunk', { text: 'é'.repeat(AUTHENTICATED / 2) });
+    expect(text.length).toBeLessThan(AUTHENTICATED);
+    expect(parseWorkerFrame(text)).toEqual({
+      ok: false,
+      close: PROTOCOL_ERROR,
+    });
   });
 
   it('maps a client request sent by a worker to close 4400', () => {

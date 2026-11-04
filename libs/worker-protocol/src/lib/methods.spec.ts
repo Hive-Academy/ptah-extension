@@ -225,7 +225,16 @@ describe('parseResult', () => {
     expect(
       parseResult('session.attach', {
         mode: 'snapshot',
-        events: [{ id: 'x', eventType: 'text_delta', timestamp: 1 }],
+        events: [
+          {
+            id: 'x',
+            eventType: 'text_delta',
+            timestamp: 1,
+            messageId: 'm-1',
+            delta: 'hi',
+            blockIndex: 0,
+          },
+        ],
         live: false,
         drivenBy: 'Ptah desktop',
       }).ok,

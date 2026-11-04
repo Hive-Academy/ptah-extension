@@ -21,20 +21,25 @@
  *   every {@link WORKER_LIMITS.pingIntervalMs} and drops the connection when no
  *   pong arrives within {@link WORKER_LIMITS.pongTimeoutMs}. One timer serves
  *   both phases.
- * - **Malformed inbound frames** (not text, too large, not JSON, wrong shape)
- *   close the connection with 4400 `protocol-error`.
+ * - **Malformed inbound frames** (not text, over 1 MiB in UTF-8 bytes, not
+ *   JSON, wrong shape) close the connection with 4400 `protocol-error`.
+ * - **Transport failures.** A socket whose `send` or `ping` throws has lost
+ *   the connection: every pending call fails and the close is reported once.
+ *   A throwing `close` is ignored, since the client has already detached.
  * - **Callbacks.** `evt` and `ctl` frames go to {@link WorkerClientCallbacks};
- *   the end of an opened connection is reported once through `onClose`.
+ *   the end of an opened connection is reported once through `onClose`, with
+ *   a fixed reason for its code (never the text a peer sent).
  *
- * Reconnection, backoff and re-attach belong to the host (C8
- * `machine-connection.ts`): after `onClose` it may call {@link WorkerClient.connect}
- * again on the same instance, which opens a new socket from the factory.
+ * Reconnection, backoff and re-attach belong to the host: after `onClose` it
+ * may call {@link WorkerClient.connect} again on the same instance, which
+ * opens a new socket from the factory.
  */
 
 import {
   WORKER_CLOSE_CODES,
   WORKER_CLOSE_REASONS,
   WORKER_ERROR_MESSAGES,
+  isWorkerCloseCode,
   sanitizeErrorDetail,
   type WorkerErrorCode,
 } from '../errors';
@@ -160,6 +165,10 @@ function isLocalCode(
 /** How an opened connection ended. */
 export interface WorkerClientClose {
   readonly code: number;
+  /**
+   * Fixed text for `code` ({@link peerCloseReason} for a peer close). A peer's
+   * own close reason is never passed on.
+   */
   readonly reason: string;
   /** `true` when this client ended it (local close, 4400, pong timeout, socket error). */
   readonly local: boolean;
@@ -197,6 +206,47 @@ const PROTOCOL_ERROR_CLOSE: WorkerClientClose = Object.freeze({
   reason: WORKER_CLOSE_REASONS[WORKER_CLOSE_CODES.PROTOCOL_ERROR],
   local: true,
 });
+
+/** Reasons for the standard close codes a peer or transport reports (RFC 6455). */
+const STANDARD_CLOSE_REASONS: Readonly<Record<number, string>> = {
+  1000: 'normal-closure',
+  1001: 'going-away',
+  1006: 'abnormal-closure',
+  1009: 'message-too-big',
+  1011: 'internal-error',
+};
+
+/**
+ * The reason reported for a close the peer or transport made: the worker's
+ * fixed reason for a 44xx code, a fixed name for a standard code, otherwise
+ * `connection-closed`. The peer's own reason text is untrusted and dropped.
+ */
+export function peerCloseReason(code: number): string {
+  if (isWorkerCloseCode(code)) {
+    return WORKER_CLOSE_REASONS[code];
+  }
+  return STANDARD_CLOSE_REASONS[code] ?? 'connection-closed';
+}
+
+/**
+ * Ask the transport to close a socket the client already detached from. A
+ * transport that throws here has nothing left for the client to clean up.
+ */
+function closeSocket(
+  socket: WebSocketLike,
+  close?: { readonly code: number; readonly reason: string },
+): void {
+  try {
+    if (close === undefined) {
+      socket.close();
+    } else {
+      socket.close(close.code, close.reason);
+    }
+  } catch {
+    // The client detached and failed every pending call before this call;
+    // a close that throws leaves no client state to repair or report.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Client.
@@ -275,8 +325,8 @@ export class WorkerClient {
       const timer = setTimeout(() => {
         this.pendingOpen = null;
         this.teardown(socket);
-        socket.close();
         reject(new WorkerClientError('CALL_TIMEOUT'));
+        closeSocket(socket);
       }, WORKER_LIMITS.callTimeoutMs);
       this.pendingOpen = { timer, resolve, reject };
 
@@ -285,13 +335,10 @@ export class WorkerClient {
       socket.onclose = (event) =>
         this.handleSocketGone(socket, {
           code: event.code,
-          reason: event.reason,
+          reason: peerCloseReason(event.code),
           local: false,
         });
-      socket.onerror = () => {
-        this.handleSocketGone(socket, SOCKET_ERROR_CLOSE);
-        socket.close();
-      };
+      socket.onerror = () => this.dropConnection(socket, SOCKET_ERROR_CLOSE);
       if (socket.ping) {
         socket.onpong = () => this.handlePong(socket);
       }
@@ -344,11 +391,13 @@ export class WorkerClient {
           }),
         );
       } catch (cause) {
-        // A socket that throws on send is already closing; its close event
-        // fails the other calls. This call fails now with the same code.
+        // A socket that throws on send has lost the connection, and may
+        // never emit a close event. This call fails with the cause attached;
+        // the connection-loss path fails the rest and reports the close once.
         clearTimeout(timer);
         this.pending.delete(id);
         reject(new WorkerClientError('CONNECTION_CLOSED', { cause }));
+        this.dropConnection(socket, SOCKET_ERROR_CLOSE);
       }
     });
   }
@@ -360,7 +409,7 @@ export class WorkerClient {
       return;
     }
     this.handleSocketGone(socket, { code, reason, local: true });
-    socket.close(code, reason);
+    closeSocket(socket, { code, reason });
   }
 
   // -------------------------------------------------------------------------
@@ -385,14 +434,11 @@ export class WorkerClient {
     if (socket !== this.socket || this.currentState !== 'open') {
       return;
     }
-    if (
-      typeof data !== 'string' ||
-      data.length > WORKER_LIMITS.maxPayloadBytes
-    ) {
+    if (typeof data !== 'string') {
       this.protocolError(socket);
       return;
     }
-    const parsed = parseWorkerFrame(data);
+    const parsed = parseWorkerFrame(data, WORKER_LIMITS.maxPayloadBytes);
     if (!parsed.ok) {
       this.protocolError(socket);
       return;
@@ -440,7 +486,16 @@ export class WorkerClient {
 
   private protocolError(socket: WebSocketLike): void {
     this.handleSocketGone(socket, PROTOCOL_ERROR_CLOSE);
-    socket.close(PROTOCOL_ERROR_CLOSE.code, PROTOCOL_ERROR_CLOSE.reason);
+    closeSocket(socket, PROTOCOL_ERROR_CLOSE);
+  }
+
+  /** The client ends the connection itself: fail everything, then close the socket. */
+  private dropConnection(
+    socket: WebSocketLike,
+    close: WorkerClientClose,
+  ): void {
+    this.handleSocketGone(socket, close);
+    closeSocket(socket);
   }
 
   /** The connection ended (any cause). Idempotent per socket. */
@@ -507,10 +562,15 @@ export class WorkerClient {
     this.awaitingPong = true;
     this.livenessTimer = setTimeout(() => {
       this.livenessTimer = null;
-      this.handleSocketGone(socket, PONG_TIMEOUT_CLOSE);
-      socket.close();
+      this.dropConnection(socket, PONG_TIMEOUT_CLOSE);
     }, WORKER_LIMITS.pongTimeoutMs);
-    socket.ping?.();
+    try {
+      socket.ping?.();
+    } catch {
+      // A transport that cannot send a ping has lost the connection. This
+      // runs in a timer callback, so nothing may escape it.
+      this.dropConnection(socket, SOCKET_ERROR_CLOSE);
+    }
   }
 
   private handlePong(socket: WebSocketLike): void {

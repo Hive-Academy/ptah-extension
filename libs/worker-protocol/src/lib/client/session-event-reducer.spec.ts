@@ -4,6 +4,7 @@ import {
   initialSessionEventState,
   reduceSessionEvent,
   resumeAttachParams,
+  sessionView,
   type SessionEventAction,
   type SessionEventState,
   type SessionEventStep,
@@ -19,6 +20,7 @@ function historyEvent(id: string) {
     sessionId: SESSION,
     messageId: 'm-1',
     delta: id,
+    blockIndex: 0,
   };
 }
 
@@ -86,7 +88,7 @@ function dispatch(state: SessionEventState, action: SessionEventAction) {
 }
 
 function renderedSeqs(state: SessionEventState): number[] {
-  return state.view.records.map((r) => r.seq);
+  return sessionView(state).records.map((r) => r.seq);
 }
 
 describe('SessionEventReducer in-order apply', () => {
@@ -94,8 +96,8 @@ describe('SessionEventReducer in-order apply', () => {
     const { state, attaches } = run([baseline(1, ['h-1']), frame(2), frame(3)]);
     expect(state.last).toBe(3);
     expect(attaches).toEqual([]);
-    expect(state.view.baseline.map((e) => e.id)).toEqual(['h-1']);
-    expect(state.view.records).toEqual([
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual(['h-1']);
+    expect(sessionView(state).records).toEqual([
       {
         id: 'e-1:2',
         seq: 2,
@@ -196,16 +198,77 @@ describe('SessionEventReducer gap → replay request', () => {
     ]);
     expect(state.epoch).toBe('e-1');
   });
+});
 
-  it('bounds the held frames and keeps the replay outstanding', () => {
-    const start = run([baseline(1, [])]).state;
+describe('SessionEventReducer held-frame overflow → resync', () => {
+  /** Baseline at 1, then MAX_HELD_FRAMES + 1 frames past a gap at 2. */
+  function overflowed() {
+    const start = run([baseline(1, ['h-1'])]).state;
     const frames = Array.from({ length: MAX_HELD_FRAMES + 1 }, (_, i) =>
       frame(i + 3),
     );
-    const { state, attaches } = run(frames, start);
-    expect(attaches).toHaveLength(1);
-    expect(state.held.length).toBeLessThanOrEqual(MAX_HELD_FRAMES);
-    expect(state.replayFrom).toBe(1);
+    return run(frames, start);
+  }
+
+  it('drops the held frames and the replay, and asks once for a fresh attach', () => {
+    const { state, attaches } = overflowed();
+    expect(attaches).toEqual([
+      { sessionId: SESSION, afterSeq: 1, epoch: 'e-1' },
+      { sessionId: SESSION },
+    ]);
+    expect(state.held).toEqual([]);
+    expect(state.replayFrom).toBeNull();
+    expect(state.resyncing).toBe(true);
+    expect(state.last).toBe(1);
+  });
+
+  it('asks for no second fresh attach while the resync is outstanding', () => {
+    const start = overflowed().state;
+    const more = Array.from({ length: MAX_HELD_FRAMES + 1 }, (_, i) =>
+      frame(i + 2_000),
+    );
+    const { state, attaches } = run(more, start);
+    expect(attaches).toEqual([]);
+    expect(state.resyncing).toBe(true);
+    expect(state.held).toEqual([]);
+  });
+
+  it('applies the fresh attach baseline and ends the resync', () => {
+    const start = overflowed().state;
+    const { state, attaches } = run(
+      [baseline(1_100, ['h-1', 'h-2']), frame(1_101)],
+      start,
+    );
+    expect(attaches).toEqual([]);
+    expect(state.resyncing).toBe(false);
+    expect(state.last).toBe(1_101);
+    expect(sessionView(state).baselineSeq).toBe(1_100);
+    expect(renderedSeqs(state)).toEqual([1_101]);
+  });
+
+  it('asks for the fresh attach again when it fails (regression: no stale replayFrom)', () => {
+    const start = overflowed().state;
+    const failed = dispatch(start, { kind: 'replay-failed' });
+    expect(failed.attach).toEqual({ sessionId: SESSION });
+    expect(failed.state.resyncing).toBe(true);
+    expect(failed.state.replayFrom).toBeNull();
+
+    const { state } = run([baseline(1_100, ['h-1'])], failed.state);
+    expect(state.resyncing).toBe(false);
+    expect(sessionView(state).baselineSeq).toBe(1_100);
+  });
+
+  it('holds live frames during the resync and applies them after the baseline', () => {
+    const start = overflowed().state;
+    const { state, attaches } = run(
+      [frame(1_102), frame(1_103), baseline(1_100, ['h-1']), frame(1_101)],
+      start,
+    );
+    expect(attaches).toEqual([]);
+    expect(state.last).toBe(1_103);
+    expect(state.held).toEqual([]);
+    expect(state.resyncing).toBe(false);
+    expect(renderedSeqs(state)).toEqual([1_101, 1_102, 1_103]);
   });
 });
 
@@ -232,8 +295,11 @@ describe('SessionEventReducer epoch reset', () => {
     expect(attaches).toEqual([]);
     expect(state.epoch).toBe('e-2');
     expect(state.last).toBe(2);
-    expect(state.view.baseline.map((e) => e.id)).toEqual(['h-1', 'h-2']);
-    expect(state.view.records).toEqual([
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual([
+      'h-1',
+      'h-2',
+    ]);
+    expect(sessionView(state).records).toEqual([
       {
         id: 'e-2:2',
         seq: 2,
@@ -261,8 +327,12 @@ describe('SessionEventReducer baseline replace', () => {
       start,
     );
 
-    expect(state.view.baselineSeq).toBe(4);
-    expect(state.view.baseline.map((e) => e.id)).toEqual(['h-1', 'h-2', 'h-3']);
+    expect(sessionView(state).baselineSeq).toBe(4);
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual([
+      'h-1',
+      'h-2',
+      'h-3',
+    ]);
     expect(renderedSeqs(state)).toEqual([5]);
   });
 
@@ -277,7 +347,10 @@ describe('SessionEventReducer baseline replace', () => {
 
     expect(attaches).toEqual([]);
     expect(state.last).toBe(10);
-    expect(state.view.baseline.map((e) => e.id)).toEqual(['h-1', 'd-1']);
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual([
+      'h-1',
+      'd-1',
+    ]);
     expect(renderedSeqs(state)).toEqual([10]);
   });
 
@@ -303,7 +376,7 @@ describe('SessionEventReducer history mark', () => {
 
     expect(step.attach).toBeNull();
     expect(step.state.last).toBe(4);
-    expect(step.state.view).toBe(start.view);
+    expect(sessionView(step.state)).toBe(sessionView(start));
 
     const next = run([frame(5)], step.state);
     expect(next.attaches).toEqual([]);
@@ -320,7 +393,7 @@ describe('SessionEventReducer history mark', () => {
 
     const step = dispatch(start, { kind: 'event', frame: historyMark(3) });
     expect(step.attach).toBeNull();
-    expect(step.state.view).toBe(start.view);
+    expect(sessionView(step.state)).toBe(sessionView(start));
   });
 });
 
@@ -372,9 +445,43 @@ describe('SessionEventReducer: duplicates and gaps render the same as no disconn
     expect(disturbed.attaches).toEqual([
       { sessionId: SESSION, afterSeq: 4, epoch: 'e-1' },
     ]);
-    expect(disturbed.state.view).toEqual(clean.view);
+    expect(sessionView(disturbed.state)).toEqual(sessionView(clean));
     expect(disturbed.state.last).toBe(clean.last);
     expect(disturbed.state.held).toEqual([]);
     expect(disturbed.state.replayFrom).toBeNull();
+  });
+});
+
+describe('SessionEventReducer record log', () => {
+  it('keeps an older state view unchanged when two states branch from it', () => {
+    const base = run([baseline(1, []), frame(2)]).state;
+    const a = run([frame(3, 'chat:chunk', { text: 'a' })], base).state;
+    const b = run([frame(3, 'chat:chunk', { text: 'b' })], base).state;
+
+    expect(renderedSeqs(base)).toEqual([2]);
+    expect(sessionView(a).records.map((r) => r.payload)).toEqual([
+      { text: 'chunk-2' },
+      { text: 'a' },
+    ]);
+    expect(sessionView(b).records.map((r) => r.payload)).toEqual([
+      { text: 'chunk-2' },
+      { text: 'b' },
+    ]);
+  });
+
+  it('applies a long stream in linear time (records are not copied per event)', () => {
+    // 200 000 events: copying every record per event would move ~2e10
+    // references and time the test out.
+    const count = 200_000;
+    let state = run([baseline(1, [])]).state;
+    for (let seq = 2; seq <= count + 1; seq += 1) {
+      state = reduceSessionEvent(state, {
+        kind: 'event',
+        frame: frame(seq),
+      }).state;
+    }
+    const records = sessionView(state).records;
+    expect(records).toHaveLength(count);
+    expect(records[count - 1].seq).toBe(count + 1);
   });
 });
