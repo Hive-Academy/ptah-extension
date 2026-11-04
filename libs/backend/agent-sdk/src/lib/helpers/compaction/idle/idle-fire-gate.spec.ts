@@ -111,11 +111,20 @@ describe('evaluateFireGate', () => {
     );
     expect(gate({ ...state, rateLimit: 'rejected' })).toBe('rate-limited');
   });
-  it('AC 3.9: requires idle with a distinct background reason', () => {
+  it('AC 3.9: allows awaiting-background and refuses other non-idle phases', () => {
     expect(
       gate(state, { ...lookups, turnPhase: () => 'awaiting-background' }),
-    ).toBe('background-subagent');
+    ).toBeNull();
     expect(gate(state, { ...lookups, turnPhase: () => 'generating' })).toBe(
+      'not-idle',
+    );
+    expect(gate(state, { ...lookups, turnPhase: () => 'sleeping' })).toBe(
+      'not-idle',
+    );
+    expect(gate(state, { ...lookups, turnPhase: () => 'failed' })).toBe(
+      'not-idle',
+    );
+    expect(gate(state, { ...lookups, turnPhase: () => undefined })).toBe(
       'not-idle',
     );
   });
