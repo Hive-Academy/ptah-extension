@@ -782,7 +782,7 @@ phase summary.
 
 ---
 
-## Batch 14: C6a worker state stores — PENDING
+## Batch 14: C6a worker state stores — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -794,7 +794,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 14.1: Paths, workspace registry, tokens, pairing window, admin key, redaction — PENDING
+### Task 14.1: Paths, workspace registry, tokens, pairing window, admin key, redaction — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{paths,workspace-registry,token-store,pairing-window,admin-key,redact}.ts`
   (+ specs), W/`libs/backend/worker-runtime/src/index.ts`
