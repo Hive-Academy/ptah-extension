@@ -141,7 +141,6 @@ export type IdleSkipReason =
   | 'not-actable'
   | 'rate-limited'
   | 'not-idle'
-  | 'background-subagent'
   | 'not-idle-at-send'
   | 'lookup-failed'
   | 'manual-compact-reserved';
