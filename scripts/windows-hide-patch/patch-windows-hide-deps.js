@@ -17,11 +17,12 @@
  * gets the key added to its one `taskkill` call: a blanket default there would
  * also pass SW_HIDE to the Chrome window it launches.
  *
- * Each patch is pinned to the installed version and edits exact text. A
- * different version, or text that does not match, is reported and the package
- * is left untouched: install never fails because of this script. The spec
- * `patch-windows-hide-deps.spec.ts` fails instead, so a dependency bump must
- * re-pin the patch. Idempotent.
+ * Each patch edits exact text and applies to any installed version: the
+ * anchor text, not a version pin, is the guard. Each `from` must occur exactly
+ * once. Text that does not match is reported and the package is left
+ * untouched: install never fails because of this script. The spec
+ * `patch-windows-hide-deps.spec.ts` fails instead, so a dependency bump that
+ * changes the patched code must update the anchors. Idempotent.
  */
 
 'use strict';
@@ -38,14 +39,13 @@ const SHIM_MJS = `./${SHIM_BASENAME}.mjs`;
 /**
  * @typedef {{ from: string, to: string }} Edit  `from` must occur exactly once.
  * @typedef {{ file: string, edits: Edit[] }} FilePatch  `file` is package-relative.
- * @typedef {{ name: string, version: string, files: FilePatch[], shimDirs: string[] }} PackagePatch
+ * @typedef {{ name: string, files: FilePatch[], shimDirs: string[] }} PackagePatch
  */
 
 /** @type {PackagePatch[]} */
 const PATCHES = [
   {
     name: '@openai/codex-sdk',
-    version: '0.165.0',
     files: [
       {
         file: 'dist/index.js',
@@ -63,7 +63,6 @@ const PATCHES = [
     // Webpack bundle: every chunk reaches `child_process` through the module
     // table in index.js, so the table entries are the only edits.
     name: '@cursor/sdk',
-    version: '1.0.31',
     files: [
       {
         file: 'dist/cjs/index.js',
@@ -94,7 +93,6 @@ const PATCHES = [
   },
   {
     name: 'chrome-launcher',
-    version: '1.2.1',
     files: [
       {
         file: 'dist/chrome-launcher.js',
@@ -127,7 +125,7 @@ function readJson(file) {
 /**
  * State of one package under `nodeModulesDir`, without writing anything.
  *
- * @returns {{ state: 'missing' | 'version-mismatch' | 'anchor-mismatch' | 'unpatched' | 'patched', detail?: string, updates?: { file: string, text: string }[] }}
+ * @returns {{ state: 'missing' | 'anchor-mismatch' | 'unpatched' | 'patched', detail?: string, updates?: { file: string, text: string }[] }}
  */
 function inspectPackage(nodeModulesDir, patch) {
   const pkgDir = path.join(nodeModulesDir, patch.name);
@@ -135,14 +133,6 @@ function inspectPackage(nodeModulesDir, patch) {
   if (!fs.existsSync(manifest)) {
     return { state: 'missing' };
   }
-  const installed = readJson(manifest).version;
-  if (installed !== patch.version) {
-    return {
-      state: 'version-mismatch',
-      detail: `installed ${installed}, patch pinned to ${patch.version}`,
-    };
-  }
-
   const updates = [];
   let pending = 0;
   for (const filePatch of patch.files) {
@@ -150,13 +140,16 @@ function inspectPackage(nodeModulesDir, patch) {
     if (!fs.existsSync(file)) {
       return { state: 'anchor-mismatch', detail: `${filePatch.file} missing` };
     }
-    let text = fs.readFileSync(file, 'utf8');
+    const original = fs.readFileSync(file, 'utf8');
+    let text = original;
     for (const edit of filePatch.edits) {
       const before = countOccurrences(text, edit.from);
       if (before === 1) {
         text = text.replace(edit.from, () => edit.to);
         pending += 1;
-      } else if (before !== 0 || !text.includes(edit.to)) {
+      } else if (before !== 0 || !original.includes(edit.to)) {
+        // "Already applied" is judged on the file as read: edits can share a
+        // `to`, so an earlier in-memory edit must not hide a missing anchor.
         return {
           state: 'anchor-mismatch',
           detail: `${filePatch.file}: expected one ${JSON.stringify(edit.from)}, found ${before}`,
@@ -199,6 +192,15 @@ function applyPackagePatch(nodeModulesDir, patch, shimSourceDir) {
   return result;
 }
 
+/** `name@version` of the installed package, or `name` when it has no manifest. */
+function installedLabel(nodeModulesDir, name) {
+  const manifest = path.join(nodeModulesDir, name, 'package.json');
+  if (!fs.existsSync(manifest)) {
+    return name;
+  }
+  return `${name}@${readJson(manifest).version}`;
+}
+
 function main() {
   const nodeModulesDir = path.join(ROOT, 'node_modules');
   for (const patch of PATCHES) {
@@ -207,7 +209,7 @@ function main() {
       patch,
       SHIM_SOURCE_DIR,
     );
-    const label = `${patch.name}@${patch.version}`;
+    const label = installedLabel(nodeModulesDir, patch.name);
     if (state === 'unpatched') {
       console.log(`[patch-windows-hide-deps] patched ${label}`);
     } else if (state === 'patched') {
@@ -218,7 +220,7 @@ function main() {
       console.warn(
         `[patch-windows-hide-deps] SKIPPED ${label} (${state}: ${detail}). ` +
           'Its spawns will open visible console windows on Windows. ' +
-          'Re-pin the patch in scripts/windows-hide-patch/patch-windows-hide-deps.js.',
+          'Update its anchors in scripts/windows-hide-patch/patch-windows-hide-deps.js.',
       );
     }
   }
