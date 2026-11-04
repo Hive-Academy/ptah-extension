@@ -22,6 +22,13 @@ const {
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const DIST_MAIN = path.join(ROOT, 'dist', 'apps', 'ptah-electron', 'main.mjs');
+const DIST_WORKER_HOST = path.join(
+  ROOT,
+  'dist',
+  'apps',
+  'ptah-electron',
+  'worker-host.mjs',
+);
 const ELECTRON_PKG = path.join(ROOT, 'apps', 'ptah-electron', 'package.json');
 
 function validateNativeDeps() {
@@ -117,7 +124,21 @@ if (leakedRecorderMarkers.length > 0) {
 }
 console.log('✅ Production main bundle contains no replay recorder code.');
 
+if (!fs.existsSync(DIST_WORKER_HOST)) {
+  console.error(`\n❌ Worker host bundle missing: ${DIST_WORKER_HOST}\n`);
+  process.exit(1);
+}
+// Optional imports of the headless worker host: each one is loaded in a
+// try/catch with a documented fallback, so a packaged app without it still runs.
+//   keytar — platform-cli `tryLoadKeytar()` (cli-master-key-provider.ts) falls
+//            back to the file master key with a warning, as the CLI does.
+const OPTIONAL_WORKER_HOST_IMPORTS = new Set(['keytar']);
 const externalImports = collectExternalImports(bundle);
+for (const pkg of collectExternalImports(
+  fs.readFileSync(DIST_WORKER_HOST, 'utf8'),
+)) {
+  if (!OPTIONAL_WORKER_HOST_IMPORTS.has(pkg)) externalImports.add(pkg);
+}
 
 // Step 3: Read electron package.json dependencies
 const electronPkg = JSON.parse(fs.readFileSync(ELECTRON_PKG, 'utf8'));

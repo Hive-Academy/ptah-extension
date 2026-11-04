@@ -4,7 +4,10 @@
   "projectType": "application",
   "sourceRoot": "apps/ptah-electron/src",
   "tags": ["scope:electron", "type:app"],
-  "implicitDependencies": ["ptah-extension-webview"],
+  "implicitDependencies": [
+    "ptah-extension-webview",
+    "@ptah-extension/worker-host"
+  ],
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
@@ -225,6 +228,56 @@
         "external": ["@parcel/watcher"]
       }
     },
+    "build-worker-host": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/worker-host.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/worker-host/src/worker-host.entry.ts",
+        "outputFileName": "worker-host.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.worker-host.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import 'reflect-metadata'; import { createRequire as __esm_createRequire } from 'node:module'; import { fileURLToPath as __esm_fileURLToPath } from 'node:url'; import { dirname as __esm_dirname } from 'node:path'; const require = __esm_createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          },
+          "alias": {
+            "vscode": "./libs/backend/cli-engine/src/lib/shims/vscode-shim.ts"
+          }
+        },
+        "external": [
+          "@anthropic-ai/claude-agent-sdk",
+          "@openai/codex-sdk",
+          "@cursor/sdk",
+          "better-sqlite3",
+          "sqlite-vec",
+          "@parcel/watcher",
+          "@huggingface/transformers",
+          "kokoro-js"
+        ]
+      },
+      "defaultConfiguration": "production",
+      "configurations": {
+        "production": {
+          "sourcemap": false,
+          "minify": true
+        },
+        "development": {
+          "sourcemap": true,
+          "minify": false
+        }
+      }
+    },
     "build-state-storage-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
@@ -283,6 +336,7 @@
         "build-integrity-worker",
         "build-state-storage-worker",
         "build-workspace-watch-host",
+        "build-worker-host",
         "ptah-extension-webview:build"
       ],
       "options": {
@@ -319,6 +373,7 @@
           "nx build-integrity-worker ptah-electron",
           "nx build-state-storage-worker ptah-electron",
           "nx build-workspace-watch-host ptah-electron",
+          "nx build-worker-host ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron"
         ],
         "parallel": false
@@ -374,6 +429,7 @@
           "nx build-integrity-worker ptah-electron --watch",
           "nx build-state-storage-worker ptah-electron --watch",
           "nx build-workspace-watch-host ptah-electron --watch",
+          "nx build-worker-host ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch",
           "node apps/ptah-electron/scripts/watch-renderer.js"
         ],
@@ -422,7 +478,7 @@
     },
     "validate-deps": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-main"],
+      "dependsOn": ["build-main", "build-worker-host"],
       "options": {
         "command": "node apps/ptah-electron/scripts/validate-deps.js"
       }
@@ -446,7 +502,8 @@
         "build-integrity-worker",
         "build-state-storage-worker",
         "build-voice-worker",
-        "build-workspace-watch-host"
+        "build-workspace-watch-host",
+        "build-worker-host"
       ],
       "options": {
         "passWithNoTests": true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Ptah remote worker
+
+[Service]
+ExecStart=/opt/Ptah/resources/bin/ptah-worker serve --port 41873
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

@@ -29,6 +29,9 @@ const defaultIo: CommandIo = {
   },
 };
 
+const WORKER_USAGE =
+  'Usage: ptah-worker serve|status|pair|workspace|grants|locks';
+
 function numberOption(
   value: string | undefined,
   name: string,
@@ -63,6 +66,9 @@ export async function runWorkerCommand(
       },
     });
     const [command, action, ...rest] = positionals;
+    // A bare run (no command) fails before any engine import; the ptah-electron
+    // ESM bundle gate relies on this fast entry guard.
+    if (!command) throw new Error(WORKER_USAGE);
     const json = values.json === true;
     await import('@ptah-extension/platform-core');
     const resolvePaths = async (): Promise<WorkerPaths> =>
@@ -155,9 +161,7 @@ export async function runWorkerCommand(
         });
         return 0;
       default:
-        throw new Error(
-          'Usage: ptah-worker serve|status|pair|workspace|grants|locks',
-        );
+        throw new Error(WORKER_USAGE);
     }
     io.stdout(
       json
