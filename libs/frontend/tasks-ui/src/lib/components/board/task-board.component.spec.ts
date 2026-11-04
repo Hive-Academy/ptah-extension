@@ -88,6 +88,21 @@ describe('TaskBoardComponent', () => {
   }
 
   /**
+   * The whole card surface around a card's focus root. The root is the title
+   * button; the checkbox, status menu, Start and the rest are its siblings.
+   */
+  function cardSurface(
+    fixture: ComponentFixture<TaskBoardComponent>,
+    id: string,
+  ): HTMLElement {
+    const found = cardRoot(fixture, id).closest<HTMLElement>(
+      '[data-testid="task-card"]',
+    );
+    if (found === null) throw new Error(`no card surface for ${id}`);
+    return found;
+  }
+
+  /**
    * Press a key on a real element inside the board.
    *
    * Never on the component instance: the whole point of a `host:` binding is
@@ -128,13 +143,13 @@ describe('TaskBoardComponent', () => {
 
     it('rovers the card DESCENDANTS too, not just the root', () => {
       // The defect this pins, in the terms it was found in: the card root is a
-      // role="button" that CONTAINS real <button> and <input> descendants —
+      // surface that CONTAINS real <button> and <input> controls —
       // status menu trigger, its six menu items, Start, the isolate toggle.
       // Roving the root alone leaves every one of those in the tab order on
       // every card, so a three-card board is ~30 tab stops rather than one.
       const fixture = render();
 
-      const unfocused = cardRoot(fixture, 'TASK_2026_201');
+      const unfocused = cardSurface(fixture, 'TASK_2026_201');
       const strandedDescendants = Array.from(
         unfocused.querySelectorAll('button, input, [tabindex]'),
       ).filter((element) => element.getAttribute('tabindex') !== '-1');
@@ -170,6 +185,7 @@ describe('TaskBoardComponent', () => {
         }),
       );
       const focused = cardRoot(fixture, 'TASK_2026_200');
+      const surface = cardSurface(fixture, 'TASK_2026_200');
       const focusableNodes = host(fixture).querySelectorAll(
         'a[href], button, input, select, textarea, [tabindex]',
       );
@@ -180,7 +196,7 @@ describe('TaskBoardComponent', () => {
 
       // …and all twelve belong to the one focused card.
       for (const stop of stops) {
-        expect(stop === focused || focused.contains(stop)).toBe(true);
+        expect(surface.contains(stop)).toBe(true);
       }
       expect(stops.filter((stop) => stop === focused)).toHaveLength(1);
     });
@@ -307,14 +323,16 @@ describe('TaskBoardComponent', () => {
     // this is not a hypothetical target: without the guard, an arrow key aimed
     // at a checkbox would move the board out from under it.
     const fixture = render();
-    const focusedCard = cardRoot(fixture, 'TASK_2026_200');
+    const focusedCard = cardSurface(fixture, 'TASK_2026_200');
     const checkbox = focusedCard.querySelector('input[type="checkbox"]');
     expect(checkbox).not.toBeNull();
 
     const event = press(fixture, checkbox as Element, 'ArrowDown');
 
     expect(event.defaultPrevented).toBe(false);
-    expect(focusedCard.getAttribute('tabindex')).toBe('0');
+    expect(cardRoot(fixture, 'TASK_2026_200').getAttribute('tabindex')).toBe(
+      '0',
+    );
   });
 
   // -------------------------------------------------------------------------

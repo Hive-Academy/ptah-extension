@@ -6,7 +6,7 @@ import { ProjectGuidancePage } from './analyze/project-guidance.page';
 import { AnalyzeDonePage } from './analyze/analyze-done.page';
 import { OnboardingHomeComponent } from './home/onboarding-home.component';
 import { onboardingReadyHostGuard } from './ready/onboarding-ready-host.guard';
-import { ReadyClaudeStepPage } from './ready/ready-claude-step.page';
+import { ReadyConnectionStepPage } from './ready/ready-connection-step.page';
 import {
   READY_SETTINGS_PROVIDERS,
   ReadySettingsStepPage,
@@ -40,7 +40,7 @@ export const ONBOARDING_ROUTES: Routes = [
         canMatch: [onboardingReadyHostGuard],
         data: { crumb: 'Get ready' },
         children: [
-          { path: '', pathMatch: 'full', component: ReadyClaudeStepPage },
+          { path: '', pathMatch: 'full', component: ReadyConnectionStepPage },
           {
             path: 'settings',
             component: ReadySettingsStepPage,

@@ -9,6 +9,7 @@ import { DashboardGridComponent } from '@ptah-extension/dashboard';
 import { onboardingFirstRunGuard } from '@ptah-extension/onboarding/services';
 
 import { electronOnlySurface } from './electron-only-surface.guard';
+import { reviewOnlySurface } from './review-only-surface.guard';
 
 /**
  * The webview's route table — one entry per standalone surface.
@@ -170,6 +171,17 @@ export const appRoutes: Routes = [
     loadComponent: () =>
       import('@ptah-extension/command-center').then(
         (m) => m.CommandCenterPageComponent,
+      ),
+  },
+  {
+    path: 'review-runs',
+    canMatch: [reviewOnlySurface],
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('review-runs') },
+    ],
+    loadComponent: () =>
+      import('@ptah-extension/review-runs-ui').then(
+        (m) => m.ReviewRunsPageComponent,
       ),
   },
   // An unaddressable URL is the chat surface, not an error page: the host can

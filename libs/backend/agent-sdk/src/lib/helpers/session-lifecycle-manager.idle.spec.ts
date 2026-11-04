@@ -115,6 +115,7 @@ describe('SessionLifecycleManager idle compaction facade', () => {
         origin: { kind: 'coordinator' },
         admission: 'require-idle',
         beforeEnqueue: before,
+        background: true,
       },
     );
     expect(h.input).not.toHaveBeenCalled();

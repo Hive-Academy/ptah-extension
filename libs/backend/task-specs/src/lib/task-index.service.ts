@@ -24,6 +24,7 @@ import * as path from 'path';
 import {
   PLATFORM_TOKENS,
   createEvent,
+  FileType,
   type IFileSystemProvider,
   type IFileWatcher,
   type IEvent,
@@ -32,6 +33,7 @@ import {
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   CARRIER_FILE,
+  isSingleTaskPathSegment,
   SPECS_README_FILE,
   renderSpecsReadme,
   roundJudgeFile,
@@ -39,6 +41,8 @@ import {
   type ExcludedTaskFolder,
   type TaskSpecDetail,
   type TaskSpecSummary,
+  type TasksReadFolderMarkdownResult,
+  type TasksListFolderEntriesResult,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
@@ -340,21 +344,30 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderName: string,
   ): Promise<TaskSpecDetail | null> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
-    const folderDir = path.join(root, '.ptah', 'specs', folderName);
-    const carrier = path.join(folderDir, CARRIER_FILE);
+    const carrier = await this.readFolderMarkdown(root, folderName, CARRIER_FILE);
+    if (carrier.state === 'missing') return null;
+    if (carrier.state !== 'ready' || carrier.content === null) {
+      this.logger.warn('[task-specs] getDetail carrier read failed', { folderName, state: carrier.state });
+      throw new Error(`Task carrier read failed: ${carrier.state}`);
+    }
     try {
-      if (!(await this.fs.exists(carrier))) return null;
-      const raw = await this.fs.readFile(carrier);
+      const raw = carrier.content;
       const parsed = parseTaskFile(folderName, raw);
       if (parsed.kind !== 'task') return null;
-      const artifacts = await this.listArtifacts(folderDir);
-      return { ...parsed.task, body: parsed.body, artifacts };
+      const listing = await this.listFolderEntries(root, folderName, '');
+      if (listing.state !== 'ready') {
+        this.logger.warn('[task-specs] getDetail listing failed', { folderName, state: listing.state });
+        throw new Error(`Task folder listing failed: ${listing.state}`);
+      }
+      const entries = listing.entries.slice().sort((a, b) => a.name.localeCompare(b.name));
+      const artifacts = entries.map((entry) => entry.name);
+      return { ...parsed.task, body: parsed.body, artifacts, entries };
     } catch (error: unknown) {
       this.logger.warn('[task-specs] getDetail failed', {
         folderName,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      throw error;
     }
   }
 
@@ -376,18 +389,104 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderName: string,
     file: DocFile,
   ): Promise<string | null> {
-    const root = normalizeWorkspaceRoot(workspaceRoot);
-    const target = path.join(root, '.ptah', 'specs', folderName, file);
+    const read = await this.readFolderMarkdown(workspaceRoot, folderName, file);
+    if (read.state === 'missing') return null;
+    if (read.state === 'ready') return read.content;
+    this.logger.warn('[task-specs] readArtifact failed', { folderName, file, state: read.state });
+    throw new Error(`Task document read failed: ${read.state}`);
+  }
+
+  private inside(parent: string, child: string): boolean {
+    const relative = path.relative(parent, child);
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  }
+
+  private async containedTask(root: string, taskId: string): Promise<string> {
+    if (!isSingleTaskPathSegment(taskId)) throw new Error('Invalid task folder');
+    const canonicalRoot = await this.fs.realpath(root);
+    let current = root;
+    for (const segment of ['.ptah', 'specs', taskId]) {
+      current = path.join(current, segment);
+      const stat = await this.fs.lstat(current);
+      if (stat.type !== FileType.Directory) throw new Error('Invalid task folder');
+      const canonical = await this.fs.realpath(current);
+      if (!this.inside(canonicalRoot, canonical)) throw new Error('Outside workspace');
+    }
+    return this.fs.realpath(current);
+  }
+
+  async readFolderMarkdown(workspaceRoot: string, taskId: string, file: string): Promise<TasksReadFolderMarkdownResult> {
+    const result = (state: TasksReadFolderMarkdownResult['state'], content: string | null = null): TasksReadFolderMarkdownResult => ({ taskId, file, state, content });
+    if (!isSingleTaskPathSegment(taskId)) return result('rejected');
+    if (!/^[a-z0-9][a-z0-9._-]*\.md$/.test(file) || file.includes('..')) return result('rejected');
     try {
-      if (!(await this.fs.exists(target))) return null;
-      return await this.fs.readFile(target);
+      const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
+      const target = path.join(folder, file);
+      const stat = await this.fs.lstat(target);
+      if (stat.type === FileType.Directory) return result('directory');
+      if (stat.type !== FileType.File) return result('rejected');
+      if (stat.size > 1048576) return result('too_large');
+      const canonicalTarget = await this.fs.realpath(target);
+      if (!this.inside(folder, canonicalTarget)) return result('rejected');
+      const read = await this.fs.readFileBoundedNoFollow(target, 1048576);
+      // The path-based open cannot bind to the validated parent directory.
+      // Discard bytes if either path changed while the read was in flight.
+      try {
+        const folderAfter = await this.fs.realpath(folder);
+        const targetAfter = await this.fs.realpath(target);
+        if (folderAfter !== folder || targetAfter !== canonicalTarget ||
+            !this.inside(folder, targetAfter) ||
+            (await this.fs.lstat(folder)).type !== FileType.Directory) return result('rejected');
+      } catch (error: unknown) {
+        this.logger.warn('[task-specs] document post-read check failed', {
+          taskId, file, error: error instanceof Error ? error.message : String(error),
+        });
+        return result('rejected');
+      }
+      if (read.truncated) return result('too_large');
+      if (read.bytes.includes(0)) return result('binary');
+      try { return result('ready', new TextDecoder('utf-8', { fatal: true }).decode(read.bytes)); }
+      catch { return result('binary'); }
     } catch (error: unknown) {
-      this.logger.warn('[task-specs] readArtifact failed', {
-        folderName,
-        file,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      const message = error instanceof Error ? error.message : '';
+      if (code !== 'ENOENT' && message !== 'Invalid task folder' && message !== 'Outside workspace') {
+        this.logger.error('[task-specs] document read failed', error instanceof Error ? error : new Error(String(error)));
+      }
+      return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
+    }
+  }
+
+  async listFolderEntries(workspaceRoot: string, taskId: string, directory: string): Promise<TasksListFolderEntriesResult> {
+    const result = (state: TasksListFolderEntriesResult['state'], entries: TasksListFolderEntriesResult['entries'] = []): TasksListFolderEntriesResult => ({ taskId, directory, state, entries });
+    if (!isSingleTaskPathSegment(taskId)) return result('rejected');
+    const parts = directory === '' ? [] : directory.split('/');
+    if (parts.length > 4 || parts.some((part) => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(part) || part === '..' || part.includes('..'))) return result('rejected');
+    try {
+      const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
+      let current = folder;
+      for (const part of parts) {
+        current = path.join(current, part);
+        const stat = await this.fs.lstat(current);
+        if (stat.type !== FileType.Directory || !this.inside(folder, await this.fs.realpath(current))) return result('rejected');
+      }
+      const before = await this.fs.lstat(current);
+      const canonicalBefore = await this.fs.realpath(current);
+      if (before.type !== FileType.Directory || !this.inside(folder, canonicalBefore)) return result('rejected');
+      const entries = await this.fs.readDirectory(current);
+      const after = await this.fs.lstat(current);
+      const canonicalAfter = await this.fs.realpath(current);
+      if (after.type !== FileType.Directory || canonicalAfter !== canonicalBefore ||
+          !this.inside(folder, canonicalAfter)) return result('rejected');
+      if (entries.length > 200) return result('too_many');
+      return result('ready', entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' : type === FileType.Directory ? 'directory' : type === FileType.SymbolicLink ? 'symlink' : 'other' })));
+    } catch (error: unknown) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      const message = error instanceof Error ? error.message : '';
+      if (code !== 'ENOENT' && message !== 'Invalid task folder' && message !== 'Outside workspace') {
+        this.logger.error('[task-specs] folder listing failed', error instanceof Error ? error : new Error(String(error)));
+      }
+      return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
     }
   }
 
@@ -520,7 +619,15 @@ export class TaskIndexService implements ITaskIndexNotifier {
     emit: boolean,
   ): Promise<RebuildResult> {
     const scan = await this.scanner.scan(root);
-    const summaries: TaskSpecSummary[] = scan.tasks.map(
+    // Keep unsafe names visible in the board's excluded list instead of
+    // silently dropping them from the scanner's directory candidates.
+    const excluded = [...scan.excluded];
+    const readableTasks = scan.tasks.filter((task) => {
+      if (isSingleTaskPathSegment(task.folderName)) return true;
+      excluded.push({ folderName: task.folderName, reason: 'unreadable' });
+      return false;
+    });
+    const summaries: TaskSpecSummary[] = readableTasks.map(
       ({ body: _body, ...summary }) => summary,
     );
     let indexWritten = true;
@@ -546,7 +653,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
       );
     } else {
       try {
-        this.store.replaceWorkspace(root, summaries, scan.excluded);
+        this.store.replaceWorkspace(root, summaries, excluded);
       } catch (error: unknown) {
         indexWritten = false;
         // WARN, not ERROR: this is recoverable, not a defect. `ensureStarted`
@@ -568,7 +675,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     }
     return {
       indexedCount: summaries.length,
-      excludedCount: scan.excluded.length,
+      excludedCount: excluded.length,
       indexWritten,
     };
   }
@@ -584,12 +691,5 @@ export class TaskIndexService implements ITaskIndexNotifier {
     }
   }
 
-  private async listArtifacts(folderDir: string): Promise<string[]> {
-    try {
-      const entries = await this.fs.readDirectory(folderDir);
-      return entries.map((e) => e.name).sort();
-    } catch {
-      return [];
-    }
-  }
 }
+

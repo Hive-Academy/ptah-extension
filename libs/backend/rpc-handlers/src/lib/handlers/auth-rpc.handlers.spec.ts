@@ -81,6 +81,10 @@ import type {
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
 import { ActiveProviderResolver } from '@ptah-extension/auth-providers';
+import { CodexLoginService } from '@ptah-extension/auth-providers';
+import type { ICodexLoginService, ICodexReadinessReader } from '@ptah-extension/auth-providers';
+import type { CodexLoginState } from '@ptah-extension/shared';
+import type { IProcessSpawner, SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -95,6 +99,7 @@ import {
   type FakeKimiCodeLogin,
 } from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import { createFakeCodexLogin, createFakeCodexReadiness } from '../../test-utils/codex-fakes';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -370,6 +375,7 @@ interface Harness {
   kimiCodeAuth: FakeKimiCodeAuth;
   kimiCodeLogin: FakeKimiCodeLogin;
   authCommandRunner?: MockAuthCommandRunner;
+  codexLogin?: ICodexLoginService;
 }
 
 function makeHarness(
@@ -394,6 +400,8 @@ function makeHarness(
     };
     /** When true, `runAuthCommand` rejects instead of resolving. */
     authCommandThrows?: boolean;
+    codexLogin?: ICodexLoginService;
+    codexReadiness?: ICodexReadinessReader;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -466,6 +474,9 @@ function makeHarness(
     new ConnectionCheckRecorder(),
     webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
     adapterEvents as unknown as import('@ptah-extension/agent-sdk').SdkAdapterEvents,
+    undefined,
+    opts.codexLogin,
+    opts.codexReadiness,
   );
 
   return {
@@ -487,6 +498,7 @@ function makeHarness(
     adapterEvents,
     kimiCodeAuth,
     kimiCodeLogin,
+    codexLogin: opts.codexLogin,
     ...(authCommandRunner ? { authCommandRunner } : {}),
   };
 }
@@ -2065,17 +2077,106 @@ describe('AuthRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('auth:codexLogin', () => {
-    it('opens a terminal running `codex login --device-auth` when the platform has one', async () => {
+    it.each([null, 'bad', [], { mode: 'unknown' }, { restart: 'yes' }])(
+      'rejects invalid params before starting login', async params => {
+        const login = createFakeCodexLogin();
+        const h = makeHarness({ codexLogin: login });
+        h.handlers.register();
+        const response = await h.rpcHandler.handleMessage({
+          method: 'auth:codexLogin', params: params as Record<string, unknown>, correlationId: 'invalid-codex-login',
+        });
+        expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+        expect(login.start).not.toHaveBeenCalled();
+      },
+    );
+
+    it('reports a fixed failure without a service or runner', async () => {
       const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{ success: boolean }>(h, 'auth:codexLogin');
 
-      expect(result.success).toBe(true);
-      expect(h.platformCommands.openTerminal).toHaveBeenCalledWith(
-        'Codex Login',
-        'codex login --device-auth',
-      );
+      expect(result.success).toBe(false);
+      expect(h.platformCommands.openTerminal).not.toHaveBeenCalled();
+    });
+
+    it.each(['running', 'awaiting-user', 'succeeded', 'failed', 'cancelled'] as const)(
+      'maps %s to the RPC response and broadcasts state', async (status) => {
+        const state: CodexLoginState = { attemptId: 'fake-1', mode: 'device', status,
+          ...(status === 'failed' ? { errorCode: 'timeout' as const, error: 'Codex sign-in timed out. Try again.' } : {}) };
+        const login = createFakeCodexLogin(state);
+        const h = makeHarness({ codexLogin: login, codexReadiness: createFakeCodexReadiness() });
+        h.handlers.register();
+        const result = await call<{ success: boolean; error?: string; state?: CodexLoginState }>(
+          h, 'auth:codexLogin', { mode: 'device', restart: true },
+        );
+        expect(login.start).toHaveBeenCalledWith({ mode: 'device', restart: true }, expect.any(Function));
+        expect(result.state).toEqual(state);
+        expect(result.success).toBe(status !== 'failed' && status !== 'cancelled');
+        expect(result.error).toBe(status === 'failed' ? state.error : undefined);
+        expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith('auth:codexLoginStatus', state);
+        if (status === 'succeeded') {
+          expect(h.codex.clearCache).toHaveBeenCalled();
+          expect(h.sdkAdapter.reset).toHaveBeenCalled();
+        }
+      },
+    );
+
+    it('cancels during start and returns cancelled', async () => {
+      const login = createFakeCodexLogin();
+      let resolveStart!: (state: CodexLoginState) => void;
+      login.start.mockImplementation(jest.fn<Promise<CodexLoginState>, [
+        { mode?: 'browser' | 'device'; restart?: boolean }, (state: CodexLoginState) => void,
+      ]>(async (_options, onState) => {
+        onState({ attemptId: 'fake-1', mode: 'browser', status: 'starting' });
+        return new Promise<CodexLoginState>(resolve => { resolveStart = resolve; });
+      }));
+      login.cancel.mockReturnValue(true);
+      const h = makeHarness({ codexLogin: login }); h.handlers.register();
+      const pending = call<{ success: boolean; state?: CodexLoginState }>(h, 'auth:codexLogin');
+      expect(await call<{ cancelled: boolean }>(h, 'auth:codexLoginCancel')).toEqual({ cancelled: true });
+      resolveStart({ attemptId: 'fake-1', mode: 'browser', status: 'cancelled' });
+      expect(await pending).toMatchObject({ success: false, state: { status: 'cancelled' } });
+    });
+
+    it('returns cancelled when the real service is cancelled in the spawn tick', async () => {
+      let resolvePid!: (pid: number | null) => void;
+      const whenSpawned = new Promise<number | null>(resolve => { resolvePid = resolve; });
+      const child: SpawnedProcessHandle = {
+        stdin: null, stdout: null, stderr: null, whenSpawned, pid: undefined,
+        killed: false, exitCode: null, kill: jest.fn<boolean, [NodeJS.Signals?]>(() => true),
+        on: jest.fn(), once: jest.fn(), off: jest.fn(),
+      };
+      const spawner: IProcessSpawner = { spawnProcess: jest.fn(() => child) };
+      const login = new CodexLoginService({
+        selection: async () => ({ selected: { path: '/fake/codex', version: '1.0.0', source: 'installed', reason: 'test' } }),
+        codexAuth: { clearCache: jest.fn(), getSignInOutcome: jest.fn(async () => 'signed-in' as const) },
+        spawner,
+        userInteraction: { openExternal: jest.fn(async () => true) },
+        logger: { info: jest.fn(), warn: jest.fn() },
+        fileExists: async () => false,
+        killTree: async () => undefined,
+      });
+      const h = makeHarness({ codexLogin: login }); h.handlers.register();
+      const pending = call<{ success: boolean; state?: CodexLoginState }>(h, 'auth:codexLogin');
+      for (let tick = 0; tick < 20 && (spawner.spawnProcess as jest.Mock).mock.calls.length === 0; tick++) {
+        await Promise.resolve();
+      }
+      expect(spawner.spawnProcess).toHaveBeenCalledTimes(1);
+      resolvePid(42);
+      expect(await call<{ cancelled: boolean }>(h, 'auth:codexLoginCancel')).toEqual({ cancelled: true });
+      expect(await pending).toMatchObject({ success: false, state: { status: 'cancelled' } });
+      const statuses = h.webviewManager.broadcastMessage.mock.calls
+        .filter(([type]) => type === 'auth:codexLoginStatus')
+        .map(([, state]) => (state as CodexLoginState).status);
+      expect(statuses.filter(status => status === 'cancelled')).toHaveLength(1);
+      expect(statuses.at(-1)).toBe('cancelled');
+      await login.dispose();
+    });
+
+    it('returns false when no login can be cancelled', async () => {
+      const h = makeHarness(); h.handlers.register();
+      expect(await call<{ cancelled: boolean }>(h, 'auth:codexLoginCancel')).toEqual({ cancelled: false });
     });
 
     /**

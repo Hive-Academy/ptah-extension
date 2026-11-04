@@ -29,6 +29,7 @@ import {
   TASKS_CHANGED_MESSAGE_TYPE,
   normalizeRootKey,
 } from './tasks-store.service';
+import { TasksChangedFeed } from './tasks-changed-feed.service';
 
 /**
  * `TasksStore` opens artifacts through the `FILE_LINK_OPENER` port. It is a
@@ -206,6 +207,45 @@ describe('TasksStore', () => {
     expect(store.error()).toBe('scan-failed');
   });
 
+  it("clears task A's detail error once task B's detail loads", async () => {
+    rpcCall.mockResolvedValueOnce(err('detail read failed'));
+    await store.openTask('TASK_2026_200');
+    expect(store.error()).toBe('detail read failed');
+
+    rpcCall.mockResolvedValueOnce(
+      ok({
+        task: {
+          ...makeTask('TASK_2026_201', 'backlog'),
+          body: '',
+          artifacts: [],
+        },
+      }),
+    );
+    await store.openTask('TASK_2026_201');
+
+    expect(store.error()).toBeNull();
+  });
+
+  it('keeps a board error raised after a detail error when a detail loads', async () => {
+    rpcCall.mockResolvedValueOnce(err('detail read failed'));
+    await store.openTask('TASK_2026_200');
+    rpcCall.mockResolvedValueOnce(err('scan-failed'));
+    await store.loadBoard();
+
+    rpcCall.mockResolvedValueOnce(
+      ok({
+        task: {
+          ...makeTask('TASK_2026_201', 'backlog'),
+          body: '',
+          artifacts: [],
+        },
+      }),
+    );
+    await store.openTask('TASK_2026_201');
+
+    expect(store.error()).toBe('scan-failed');
+  });
+
   it('handleMessage refreshes the board on a tasks:changed push', async () => {
     rpcCall.mockResolvedValue(ok(makeBoard({})));
 
@@ -219,6 +259,23 @@ describe('TasksStore', () => {
   it('handleMessage ignores unrelated message types', () => {
     store.handleMessage({ type: 'something:else' });
     expect(rpcCall).not.toHaveBeenCalled();
+  });
+
+  // The store is lazy (board chunk) and NOT a `MESSAGE_HANDLERS` entry; the
+  // eager `TasksChangedFeed` relays every raw push to it instead.
+  it('refreshes on a push relayed by the eager TasksChangedFeed, root or not', async () => {
+    rpcCall.mockResolvedValue(ok(makeBoard({})));
+    const feed = TestBed.inject(TasksChangedFeed);
+
+    feed.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE, payload: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
+  });
+
+  it('is not itself a message handler', () => {
+    expect('handledMessageTypes' in store).toBe(false);
   });
 
   // `updateStatus` is a call onto `applyMetadata` — one client mutation funnel,
@@ -1240,6 +1297,47 @@ describe('TasksStore', () => {
         expect(store.error()).toContain('detail transport down');
       });
 
+      it("stays silent when task A's detail refresh fails after task B was opened", async () => {
+        const OTHER = 'TASK_2026_299';
+        const detailOf = (id: string) =>
+          ok({ task: { ...makeTask(id, 'backlog'), body: '', artifacts: [] } });
+        rpcCall.mockImplementation((method: string) =>
+          Promise.resolve(
+            method === 'tasks:get' ? detailOf(TASK) : ok(makeBoard({})),
+          ),
+        );
+        await store.openTask(TASK);
+
+        let rejectA: (error: Error) => void = () => undefined;
+        let markARequested: () => void = () => undefined;
+        const aRequested = new Promise<void>((r) => (markARequested = r));
+        rpcCall.mockReset();
+        rpcCall.mockImplementation(
+          (method: string, params: { taskId?: string }) => {
+            if (method === 'tasks:updateMetadata') {
+              return Promise.resolve(
+                ok({ success: true, task: makeTask(TASK, 'backlog') }),
+              );
+            }
+            if (method === 'tasks:get' && params.taskId === TASK) {
+              markARequested();
+              return new Promise((_, reject) => (rejectA = reject));
+            }
+            if (method === 'tasks:get') return Promise.resolve(detailOf(OTHER));
+            return Promise.resolve(ok(makeBoard({})));
+          },
+        );
+
+        const write = store.applyMetadata(TASK, { estimate: 'S' });
+        await aRequested;
+        await store.openTask(OTHER);
+        rejectA(new Error('detail transport down'));
+        await write;
+
+        expect(store.selectedTaskId()).toBe(OTHER);
+        expect(store.error()).toBeNull();
+      });
+
       it('leaves a genuine WRITE failure reading as a write failure', async () => {
         // The complement: the two messages must not converge.
         rpcCall.mockResolvedValueOnce(
@@ -1819,6 +1917,67 @@ describe('TasksStore — workspace awareness', () => {
     await p;
     expect(store.taskDetail()).toBeNull();
     expect(store.selectedTaskId()).toBeNull();
+  });
+
+  // Review finding 3 — a rejected `tasks:get` for B must not leave A's detail
+  // rendered under B's selection.
+  it('clears the previous detail and shows an error when the next open rejects', async () => {
+    configure();
+    rpcCall.mockImplementation(
+      (method: string, params: { taskId?: string }) => {
+        if (method === 'tasks:get' && params.taskId === 'A') {
+          return Promise.resolve(
+            ok({
+              task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] },
+            }),
+          );
+        }
+        if (method === 'tasks:get' && params.taskId === 'B') {
+          return Promise.reject(new Error('transport down'));
+        }
+        return Promise.resolve(ok(makeBoard({})));
+      },
+    );
+
+    await store.openTask('A');
+    expect(store.taskDetail()?.body).toBe('BA');
+
+    await expect(store.openTask('B')).resolves.toBeUndefined();
+    expect(store.selectedTaskId()).toBe('B');
+    expect(store.taskDetail()).toBeNull();
+    expect(store.detailLoading()).toBe(false);
+    expect(store.error()).toContain('transport down');
+  });
+
+  it('ignores a late A response after B was selected and B rejected', async () => {
+    configure();
+    let resolveA: (v: unknown) => void = () => undefined;
+    rpcCall.mockImplementation(
+      (method: string, params: { taskId?: string }) => {
+        if (method === 'tasks:get' && params.taskId === 'A') {
+          return new Promise((r) => {
+            resolveA = r;
+          });
+        }
+        if (method === 'tasks:get' && params.taskId === 'B') {
+          return Promise.reject(new Error('transport down'));
+        }
+        return Promise.resolve(ok(makeBoard({})));
+      },
+    );
+
+    const pA = store.openTask('A');
+    await store.openTask('B');
+    expect(store.taskDetail()).toBeNull();
+
+    resolveA(
+      ok({ task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] } }),
+    );
+    await pA;
+    expect(store.selectedTaskId()).toBe('B');
+    expect(store.taskDetail()).toBeNull();
+    expect(store.detailLoading()).toBe(false);
+    expect(store.error()).toContain('transport down');
   });
 
   // Issue 7 — baseline-mismatch-at-first-flush: a switch that lands between
@@ -3313,5 +3472,292 @@ describe('TasksStore — openArtifact', () => {
     await store.openArtifact('implementation-plan.md');
 
     expect(store.error()).toBe('outside the workspace');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Folder reader facade (TASK_2026_871 B3). The state lives in `TaskFolderStore`;
+// these pin what components see through `TasksStore`.
+// ---------------------------------------------------------------------------
+describe('TasksStore — folder reader facade', () => {
+  let store: TasksStore;
+  let rpcCall: jest.Mock;
+  let open: jest.Mock;
+
+  const TASK = 'TASK_2026_871';
+  const detail = {
+    id: TASK,
+    folderName: TASK,
+    artifacts: ['context.md', 'decisions.md'],
+    entries: [
+      { name: 'context.md', kind: 'file' },
+      { name: 'decisions.md', kind: 'file' },
+      { name: 'prototype', kind: 'directory' },
+    ],
+  };
+
+  interface Pending {
+    promise: Promise<unknown>;
+    resolve: (value: unknown) => void;
+  }
+  const pending = (): Pending => {
+    let resolve: (value: unknown) => void = () => undefined;
+    const promise = new Promise<unknown>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  };
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    rpcCall = jest.fn(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') return ok(makeBoard({}));
+      return err(`unexpected ${method}`);
+    });
+    open = jest.fn(async () => undefined);
+    TestBed.configureTestingModule({
+      providers: [
+        TasksStore,
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+        { provide: FILE_LINK_OPENER, useValue: { open } },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: signal({
+              path: 'D:/ws',
+              name: 'ws',
+              type: 'workspace',
+            }),
+          },
+        },
+      ],
+    });
+    store = TestBed.inject(TasksStore);
+    store.attachSurface();
+    await store.openTask(TASK);
+  });
+
+  it('exposes root entries with missing workflow documents', () => {
+    expect(store.folderListing().status).toBe('ready');
+    const rows = store.folderEntries();
+    expect(rows.find((row) => row.name === 'context.md')?.presence).toBe(
+      'present',
+    );
+    expect(
+      rows.find((row) => row.name === 'implementation-plan.md')?.presence,
+    ).toBe('missing');
+    expect(store.folderBreadcrumbs()).toEqual([{ label: TASK, path: '' }]);
+  });
+
+  it('readDocument keeps the last clicked document (ordering guard)', async () => {
+    const slow = pending();
+    const fast = pending();
+    rpcCall
+      .mockImplementationOnce(() => slow.promise)
+      .mockImplementationOnce(() => fast.promise);
+
+    const a = store.readDocument('context.md');
+    const b = store.readDocument('task-description.md');
+    fast.resolve(ok({ file: 'task-description.md', content: '# TD' }));
+    slow.resolve(ok({ file: 'context.md', content: '# Ctx' }));
+    await Promise.all([a, b]);
+
+    expect(store.openDocument()).toBe('task-description.md');
+    expect(store.documentContent()).toBe('# TD');
+    expect(store.documentLoading()).toBe(false);
+  });
+
+  it('reads extra markdown and reports a rejected state without throwing', async () => {
+    rpcCall.mockImplementationOnce(async () =>
+      ok({
+        taskId: TASK,
+        file: 'decisions.md',
+        state: 'rejected',
+        content: null,
+      }),
+    );
+
+    await expect(store.readFolderFile('decisions.md')).resolves.toBeUndefined();
+
+    expect(store.openFile()).toBe('decisions.md');
+    expect(store.openDocument()).toBeNull();
+    expect(store.documentState()).toEqual({
+      status: 'rejected',
+      file: 'decisions.md',
+    });
+    expect(store.error()).toBeNull();
+  });
+
+  it('puts a failed document read on the error signal as well as the state', async () => {
+    rpcCall.mockImplementationOnce(async () => err('disk gone'));
+
+    await store.readDocument('context.md');
+
+    expect(store.documentState()).toEqual({
+      status: 'error',
+      file: 'context.md',
+      message: 'disk gone',
+    });
+    expect(store.error()).toBe('disk gone');
+  });
+
+  it('browses a nested directory through the facade', async () => {
+    rpcCall.mockImplementationOnce(async () =>
+      ok({
+        taskId: TASK,
+        directory: 'prototype',
+        state: 'too_many',
+        entries: [],
+      }),
+    );
+
+    await store.openFolderDirectory('prototype');
+
+    expect(store.folderDirectory()).toBe('prototype');
+    expect(store.folderListing().status).toBe('too_many');
+  });
+
+  it('closeTask resets the reader and the browser', async () => {
+    rpcCall.mockImplementationOnce(async () =>
+      ok({ file: 'context.md', content: '# Ctx' }),
+    );
+    await store.readDocument('context.md');
+
+    store.closeTask();
+
+    expect(store.openFile()).toBeNull();
+    expect(store.documentState()).toEqual({ status: 'idle' });
+    expect(store.folderListing().status).toBe('idle');
+  });
+
+  it('re-reads the open document on a tasks:changed push', async () => {
+    let content = '# v1';
+    rpcCall.mockImplementation(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') return ok(makeBoard({}));
+      if (method === 'tasks:getArtifact') {
+        return ok({ file: 'context.md', content });
+      }
+      return err(`unexpected ${method}`);
+    });
+    await store.readDocument('context.md');
+    expect(store.documentContent()).toBe('# v1');
+
+    content = '# v2';
+    store.handleMessage({
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    });
+    await flush();
+
+    expect(store.openDocument()).toBe('context.md');
+    expect(store.documentContent()).toBe('# v2');
+  });
+
+  it('restores the open file and directory across overlapping pushes', async () => {
+    let board: Pending | null = null;
+    rpcCall.mockImplementation(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') {
+        return board === null ? ok(makeBoard({})) : board.promise;
+      }
+      if (method === 'tasks:getArtifact') {
+        return ok({ file: 'context.md', content: '# Ctx' });
+      }
+      if (method === 'tasks:listFolderEntries') {
+        return ok({
+          taskId: TASK,
+          directory: 'prototype',
+          state: 'too_many',
+          entries: [],
+        });
+      }
+      return err(`unexpected ${method}`);
+    });
+    await store.openFolderDirectory('prototype');
+    await store.readDocument('context.md');
+
+    // Two pushes join ONE board fetch, so both resume in the same tick: the
+    // first one's re-read empties the reader before the second one runs.
+    board = pending();
+    const push = {
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    };
+    store.handleMessage(push);
+    store.handleMessage(push);
+    board.resolve(ok(makeBoard({})));
+    await flush();
+
+    expect(store.openFile()).toBe('context.md');
+    expect(store.documentContent()).toBe('# Ctx');
+    expect(store.folderDirectory()).toBe('prototype');
+  });
+
+  it('keeps a document the user opened during the board fetch of a push', async () => {
+    let board: Pending | null = null;
+    rpcCall.mockImplementation(
+      async (method: string, params?: { file?: string }) => {
+        if (method === 'tasks:get') return ok({ task: detail });
+        if (method === 'tasks:board') {
+          return board === null ? ok(makeBoard({})) : board.promise;
+        }
+        if (method === 'tasks:getArtifact') {
+          return ok({ file: params?.file, content: `# ${params?.file}` });
+        }
+        return err(`unexpected ${method}`);
+      },
+    );
+    await store.readDocument('context.md');
+
+    board = pending();
+    store.handleMessage({
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    });
+    await store.readDocument('task-description.md');
+    board.resolve(ok(makeBoard({})));
+    await flush();
+
+    expect(store.openFile()).toBe('task-description.md');
+    expect(store.documentContent()).toBe('# task-description.md');
+  });
+
+  it('surfaces a rejected push refresh and drops its restore target', async () => {
+    rpcCall.mockImplementation(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') throw new Error('scan crashed');
+      if (method === 'tasks:getArtifact') {
+        return ok({ file: 'context.md', content: '# Ctx' });
+      }
+      return err(`unexpected ${method}`);
+    });
+    await store.readDocument('context.md');
+
+    store.handleMessage({
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    });
+    await flush();
+
+    // Caught, not an unhandled rejection: the failure lands on the error slot.
+    expect(store.error()).toBe('Failed to refresh tasks (scan crashed)');
+    expect(store['pendingRestore']).toBeNull();
+    // The reader the push never reached is left as the user had it.
+    expect(store.openFile()).toBe('context.md');
+  });
+
+  it('openArtifact refuses a directory entry and opens a typed file entry', async () => {
+    await store.openArtifact('prototype');
+    expect(open).not.toHaveBeenCalled();
+
+    await store.openArtifact('decisions.md');
+    expect(open).toHaveBeenCalledWith({
+      path: `D:/ws/.ptah/specs/${TASK}/decisions.md`,
+    });
   });
 });

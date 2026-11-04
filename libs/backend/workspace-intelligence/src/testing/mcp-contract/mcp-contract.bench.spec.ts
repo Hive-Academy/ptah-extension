@@ -166,6 +166,9 @@ function createRealFsProvider(): IFileSystemProvider {
             : PlatformFileType.Unknown,
       }));
     },
+    lstat: notNeeded('lstat'),
+    realpath: notNeeded('realpath'),
+    readFileBoundedNoFollow: notNeeded('readFileBoundedNoFollow'),
     stat: async (p: string) => {
       const s = await fs.promises.stat(p);
       return {

@@ -75,7 +75,7 @@ export interface TaskBulkLabelPick {
   host: { class: 'contents' },
   template: `
     <div
-      class="flex flex-wrap items-center gap-2 border-b border-base-300 bg-base-200 px-3 py-1.5 text-xs text-base-content"
+      class="flex flex-wrap items-center gap-2 rounded-box border border-surface-border bg-surface-2 p-3 text-sm text-base-content shadow-[var(--elev-shadow-raised)]"
       role="region"
       aria-label="Bulk actions for the selected tasks"
       data-testid="task-bulk-bar"
@@ -85,12 +85,15 @@ export interface TaskBulkLabelPick {
              BulkProgress. Cancel stays enabled until the run ends, because
              the only thing it can do is stop the NEXT chunk. -->
         <span
-          class="inline-flex items-center gap-1.5 font-medium tabular-nums"
+          class="inline-flex items-center gap-1.5 font-semibold tabular-nums"
           role="status"
           aria-live="polite"
           data-testid="task-bulk-progress"
         >
-          <span class="loading loading-spinner loading-xs"></span>
+          <span
+            class="loading loading-spinner loading-xs"
+            aria-hidden="true"
+          ></span>
           {{ runningLabel(run.operation) }} — {{ run.done }} / {{ run.total }}
         </span>
 
@@ -98,7 +101,7 @@ export interface TaskBulkLabelPick {
 
         <button
           type="button"
-          class="btn btn-outline btn-xs"
+          class="btn btn-ghost btn-sm border border-surface-border"
           data-testid="task-bulk-cancel"
           [disabled]="run.cancelled"
           (click)="cancelRun.emit()"
@@ -139,36 +142,19 @@ export interface TaskBulkLabelPick {
 
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-sm border border-surface-border"
             data-testid="task-bulk-confirm-cancel"
             (click)="cancelRequest.emit()"
           >
             Keep the selection
           </button>
-          <!-- NOT btn-primary. That is bg-primary + text-primary-content,
-               which computes to 4.144:1 on anubis (the app default) and
-               5.18:1 on anubis-light, against a 4.5:1 gate — the same pair
-               Batch 7 recorded, Batch 9 refused for its banners and Batch 10
-               moved the palette's active row off. It has no business on the
-               single most consequential control in this feature: the button
-               that commits N irreversible carrier writes.
-
-               Measured across the four mandated bases from the DECLARED
-               tokens (no generated -content colour is involved):
-                 label  base-content on base-100 — 14.86 / 15.91 / 7.03 / 14.68
-                 border base-content on base-200 — 13.89 / 14.21 / 7.44 / 13.11
-                 hover  base-content on base-300 — 12.29 / 13.21 / 7.83 / 11.74
-               Every one clears 4.5:1 for text and 3:1 for the boundary, on all
-               four. Prominence is carried by the full-weight border, the
-               semibold label and the sentence naming the count and target —
-               shape and words, exactly as Batch 10 concluded, because no
-               accent clears the boundary gate on the light themes.
-
-               Changing the USAGE is this batch's; changing the PAIR is
-               TASK_2026_183's. tailwind.config.js is untouched. -->
+          <!-- The single commit control: btn-primary per the approved design
+               spec, which measured primary-content on primary at 4.82:1
+               (anubis) and 6.81:1 (anubis-light) against the 4.5:1 gate. The
+               sentence beside it still names the count and the target. -->
           <button
             type="button"
-            class="btn btn-xs border border-base-content bg-base-100 font-semibold text-base-content hover:bg-base-300"
+            class="btn btn-primary btn-sm h-9 min-h-9"
             data-testid="task-bulk-confirm-run"
             (click)="confirmRequest.emit()"
           >
@@ -178,12 +164,12 @@ export interface TaskBulkLabelPick {
       } @else {
         <!-- IDLE with a selection. -->
         <span
-          class="inline-flex items-center gap-1.5 font-medium tabular-nums"
+          class="inline-flex items-center gap-1.5 font-semibold tabular-nums"
           data-testid="task-bulk-count"
         >
           <lucide-angular
             [img]="CheckSquareIcon"
-            class="h-3.5 w-3.5 shrink-0"
+            class="h-4 w-4 shrink-0"
             aria-hidden="true"
           />
           {{ count() }} selected
@@ -202,7 +188,7 @@ export interface TaskBulkLabelPick {
         @if (canSelectAllMatching()) {
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-sm border border-surface-border"
             data-testid="task-bulk-select-all"
             (click)="selectAllMatching.emit()"
           >
@@ -215,7 +201,7 @@ export interface TaskBulkLabelPick {
         <label class="flex items-center gap-1.5">
           <span>Move to</span>
           <select
-            class="select select-bordered select-xs"
+            class="select select-bordered select-sm h-8 min-h-8 bg-surface-0 text-sm"
             data-testid="task-bulk-status"
             aria-label="Move the selected tasks to a status"
             [value]="''"
@@ -243,7 +229,7 @@ export interface TaskBulkLabelPick {
           <input
             #labelField
             type="text"
-            class="input input-bordered input-xs w-32"
+            class="input input-bordered input-sm h-8 w-36 bg-surface-0 text-sm"
             data-testid="task-bulk-label-input"
             aria-label="A label to add to or remove from the selected tasks"
             placeholder="label"
@@ -253,7 +239,7 @@ export interface TaskBulkLabelPick {
 
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-sm border border-surface-border"
           data-testid="task-bulk-label-add"
           (click)="pickLabel(labelField, 'add')"
         >
@@ -262,7 +248,7 @@ export interface TaskBulkLabelPick {
 
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-sm border border-surface-border"
           data-testid="task-bulk-label-remove"
           (click)="pickLabel(labelField, 'remove')"
         >
@@ -271,13 +257,13 @@ export interface TaskBulkLabelPick {
 
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square"
+          class="btn btn-ghost btn-sm btn-square"
           aria-label="Clear the selection"
           title="Clear the selection"
           data-testid="task-bulk-clear"
           (click)="clearSelection.emit()"
         >
-          <lucide-angular [img]="XIcon" class="h-3 w-3" />
+          <lucide-angular [img]="XIcon" class="h-4 w-4" aria-hidden="true" />
         </button>
       }
     </div>

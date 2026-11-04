@@ -1,0 +1,53 @@
+{
+  "name": "@ptah-extension/review-github",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/review-github/src",
+  "projectType": "library",
+  "tags": ["scope:extension", "type:data-access"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/review-github",
+        "main": "libs/backend/review-github/src/index.ts",
+        "tsConfig": "libs/backend/review-github/tsconfig.lib.json",
+        "assets": [],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/review-github/tsconfig.lib.json"
+      }
+    },
+    "test": {
+      "options": {
+        "passWithNoTests": true
+      }
+    },
+    "lint": {
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/.eslintignore",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
+        "{workspaceRoot}/tools/eslint-rules/**/*",
+        {
+          "externalDependencies": ["eslint"]
+        }
+      ],
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "cwd": "libs/backend/review-github",
+        "command": "eslint ."
+      }
+    }
+  }
+}

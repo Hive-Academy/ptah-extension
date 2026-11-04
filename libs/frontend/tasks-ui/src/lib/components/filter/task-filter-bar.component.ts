@@ -120,7 +120,7 @@ export interface TaskFilterChip {
            flips between two different focus styles. Same colour source as the
            global rule: the theme's secondary. -->
       <summary
-        class="btn btn-ghost btn-xs gap-1 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+        class="btn btn-ghost btn-sm gap-1 border border-surface-border text-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
         [class.btn-active]="selectedCount() > 0"
         [class.font-normal]="selectedCount() === 0"
         [class.font-semibold]="selectedCount() > 0"
@@ -141,14 +141,14 @@ export interface TaskFilterChip {
            is not knowable here. dropdown-end would be a fixed guess that is
            wrong roughly half the time; a clamp is right at every width. -->
       <ul
-        class="dropdown-content menu menu-xs z-30 mt-1 w-[min(14rem,calc(100vw-1rem))] flex-nowrap overflow-y-auto max-h-72 rounded-box border border-base-300 bg-base-200 p-1 text-base-content shadow"
+        class="dropdown-content menu menu-sm z-30 mt-1 w-[min(15rem,calc(100vw-1rem))] flex-nowrap overflow-y-auto max-h-72 rounded-box border border-surface-border bg-surface-2 p-1 text-base-content shadow-[var(--elev-shadow-raised)]"
       >
         @for (option of options(); track option.key) {
           <li>
             <label class="flex cursor-pointer items-center gap-2 py-1">
               <input
                 type="checkbox"
-                class="checkbox checkbox-xs"
+                class="checkbox checkbox-sm"
                 [checked]="option.checked"
                 (change)="picked.emit(option)"
               />
@@ -246,23 +246,23 @@ export class TaskFacetMenuComponent {
   host: { class: 'block' },
   template: `
     <div
-      class="flex flex-col gap-1 border-b border-base-300 px-3 py-1.5 text-base-content"
+      class="flex min-w-0 flex-col gap-2 text-base-content"
       role="search"
       aria-label="Filter and sort tasks"
     >
       <!-- Controls -->
-      <div class="flex flex-wrap items-center gap-1">
+      <div class="flex flex-wrap items-center gap-2">
         <!-- Decorative only, and aria-hidden — the one place an opacity
              modifier is still allowed, because it carries no information. -->
         <lucide-angular
           [img]="FilterIcon"
-          class="h-3.5 w-3.5 shrink-0 opacity-60"
+          class="h-4 w-4 shrink-0 text-base-content-muted"
           aria-hidden="true"
         />
 
         <input
           type="search"
-          class="input input-xs input-bordered w-44"
+          class="input input-bordered input-sm h-8 min-w-[180px] max-w-[330px] flex-1 bg-surface-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           placeholder="Find by id, title, text"
           aria-label="Filter tasks by text"
           data-testid="task-filter-text"
@@ -335,7 +335,7 @@ export class TaskFacetMenuComponent {
             @for (mode of labelModes; track mode.value) {
               <button
                 type="button"
-                class="btn join-item btn-xs font-normal"
+                class="btn join-item btn-sm font-normal"
                 [class.btn-active]="filter().labelsMode === mode.value"
                 [attr.aria-pressed]="filter().labelsMode === mode.value"
                 [title]="mode.title"
@@ -352,18 +352,18 @@ export class TaskFacetMenuComponent {
         <label class="flex cursor-pointer items-center gap-1">
           <input
             type="checkbox"
-            class="checkbox checkbox-xs"
+            class="checkbox checkbox-sm"
             data-testid="task-filter-issues"
             [checked]="filter().hasValidationIssues"
             (change)="onIssuesToggle($event)"
           />
-          <span class="text-xs">Warnings only</span>
+          <span class="text-sm">Warnings only</span>
         </label>
 
         <label class="flex items-center gap-1">
-          <span class="text-xs">Sort</span>
+          <span class="text-sm text-base-content-muted">Sort</span>
           <select
-            class="select select-xs select-bordered"
+            class="select select-bordered select-sm h-8 min-h-8 bg-surface-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             aria-label="Sort tasks by"
             data-testid="task-sort-field"
             [value]="sort().field"
@@ -381,7 +381,7 @@ export class TaskFacetMenuComponent {
         </label>
         <button
           type="button"
-          class="btn btn-ghost btn-xs font-mono"
+          class="btn btn-ghost btn-sm btn-square border border-surface-border font-mono"
           data-testid="task-sort-direction"
           [attr.aria-label]="sortDirectionLabel()"
           [title]="sortDirectionLabel()"
@@ -394,7 +394,7 @@ export class TaskFacetMenuComponent {
              the same rule the column counter states and follows one row below.
              At rest "181 of 181" is noise; the board size is the useful fact. -->
         <span
-          class="text-xs tabular-nums"
+          class="text-sm tabular-nums text-base-content-muted"
           data-testid="task-filter-count"
           [title]="countTitle()"
         >
@@ -407,7 +407,7 @@ export class TaskFacetMenuComponent {
 
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-sm"
           data-testid="task-filter-clear"
           [disabled]="!active()"
           [title]="
@@ -438,7 +438,7 @@ export class TaskFacetMenuComponent {
                    chip is as wide as its content and pushes the whole bar into
                    a horizontal scroll. -->
               <span
-                class="inline-flex h-6 max-w-full items-center gap-1 rounded-full border pl-2 text-xs"
+                class="inline-flex h-8 max-w-full items-center gap-1 rounded-badge border pl-3 text-sm"
                 [class]="chip.classes"
               >
                 <span class="shrink-0 font-normal">{{ chip.facet }}</span>
@@ -473,7 +473,7 @@ export class TaskFacetMenuComponent {
                 }
                 <button
                   type="button"
-                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[oklch(var(--s))]"
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-badge focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content"
                   [attr.aria-label]="chip.removeLabel"
                   [title]="chip.removeLabel"
                   (click)="filterChange.emit(chip.next)"
@@ -834,7 +834,8 @@ export class TaskFilterBarComponent {
    * daisyUI `dark`). Label chips override it with `labelChipClass`, whose
    * absolute-hex palette carries its own audit table from Batch 3.
    */
-  private static readonly NEUTRAL_CHIP_CLASSES = 'bg-base-200 border-base-300';
+  private static readonly NEUTRAL_CHIP_CLASSES =
+    'bg-surface-2 border-surface-border';
 
   /**
    * What a chip says when the workspace no longer carries the value it selects.

@@ -87,13 +87,93 @@ export interface AuthCopilotStatusResponse {
   username?: string;
 }
 
-/** Parameters for auth:codexLogin RPC method */
-export type AuthCodexLoginParams = Record<string, never>;
+/** In-app Codex sign-in mode. */
+export type CodexLoginMode = 'browser' | 'device';
+
+/** Phase of an in-app Codex sign-in. The last three states are terminal. */
+export type CodexLoginStatus =
+  | 'starting'
+  | 'running'
+  | 'awaiting-user'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled';
+
+/** Display-safe failure category for an in-app Codex sign-in. */
+export type CodexLoginErrorCode =
+  | 'unavailable'
+  | 'spawn-failed'
+  | 'exited'
+  | 'timeout'
+  | 'no-credentials';
+
+/** Sign-in snapshot returned by the RPC and sent as a status push. */
+export interface CodexLoginState {
+  readonly attemptId: string;
+  readonly status: CodexLoginStatus;
+  readonly mode: CodexLoginMode;
+  readonly executableSource?: 'installed' | 'bundled';
+  /** Validated HTTPS URL only. */
+  readonly verificationUrl?: string;
+  readonly userCode?: string;
+  /** Set after the host's browser-open attempt returns or throws. */
+  readonly browserOpened?: boolean;
+  readonly errorCode?: CodexLoginErrorCode;
+  readonly exitCode?: number | null;
+  /** Fixed host copy; never raw CLI output or provider errors. */
+  readonly error?: string;
+}
+
+/** Parameters for auth:codexLogin RPC method; an empty object remains valid. */
+export interface AuthCodexLoginParams {
+  readonly mode?: CodexLoginMode;
+  readonly restart?: boolean;
+}
 
 /** Response from auth:codexLogin RPC method */
 export interface AuthCodexLoginResponse {
+  /** With state, true for a live or succeeded attempt; false for failed or cancelled. */
   success: boolean;
+  /** Fixed copy for failed attempts; absent for cancelled attempts. */
   error?: string;
+  /** Current sign-in state; absent for the existing CLI login path. */
+  state?: CodexLoginState;
+}
+
+export type AuthCodexLoginCancelParams = Record<string, never>;
+
+export interface AuthCodexLoginCancelResponse {
+  cancelled: boolean;
+}
+
+export type ReadinessTrigger = 'mount' | 'follow-up' | 'recheck';
+
+export type CodexSignInOutcome =
+  | 'signed-in'
+  | 'stale'
+  | 'signed-out'
+  | 'unreadable'
+  | 'timeout';
+
+export type CodexReadinessBinary =
+  | { readonly state: 'found'; readonly path: string; readonly version: string; readonly source: 'installed' | 'bundled' }
+  | { readonly state: 'missing' }
+  | { readonly state: 'unknown'; readonly reason: 'timeout' | 'local' };
+
+export interface CodexReadinessSignIn {
+  readonly outcome: CodexSignInOutcome;
+  readonly unreadable?: 'auth-file' | 'home';
+}
+
+export interface AuthGetCodexReadinessParams {
+  readonly refresh?: boolean;
+  readonly trigger?: ReadinessTrigger;
+}
+
+export interface AuthGetCodexReadinessResponse {
+  readonly binary: CodexReadinessBinary;
+  readonly signIn: CodexReadinessSignIn;
+  readonly checkedAt: string;
 }
 
 /**

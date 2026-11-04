@@ -286,6 +286,18 @@
       "@ptah-web/landing": ["./libs/web/landing/src/index.ts"],
       "@ptah-extension/tool-output-reducers": [
         "./libs/backend/tool-output-reducers/src/index.ts"
+      ],
+      "@ptah-extension/review-contracts": [
+        "./libs/backend/review-contracts/src/index.ts"
+      ],
+      "@ptah-extension/review-core": [
+        "./libs/backend/review-core/src/index.ts"
+      ],
+      "@ptah-extension/review-github": [
+        "./libs/backend/review-github/src/index.ts"
+      ],
+      "@ptah-extension/review-runs-ui": [
+        "./libs/frontend/review-runs-ui/src/index.ts"
       ]
     },
     "strict": false,

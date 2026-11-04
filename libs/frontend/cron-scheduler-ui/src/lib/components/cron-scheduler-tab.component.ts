@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   CalendarClock,
   CirclePause,
@@ -16,7 +17,7 @@ import {
   LucideAngularModule,
   RefreshCw,
 } from 'lucide-angular';
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, isReviewSurfaceAvailable, VSCodeService } from '@ptah-extension/core';
 import type { CronCreateParams, ScheduledJobDto } from '@ptah-extension/shared';
 
 import { CronExpressionService } from '../services/cron-expression.service';
@@ -81,6 +82,7 @@ function emptyForm(timezone: string): CronJobFormState {
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     LucideAngularModule,
     CronJobCardComponent,
     CronJobDetailDrawerComponent,
@@ -132,6 +134,14 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
           <div class="flex items-center gap-2">
+            @if (reviewAvailable()) {
+              <a
+                routerLink="/review-runs"
+                class="btn btn-ghost btn-sm"
+                aria-label="Open review runs"
+                data-testid="cron-review-runs-link"
+              >Review runs</a>
+            }
             <div
               class="join"
               role="tablist"
@@ -479,6 +489,10 @@ export class CronSchedulerTabComponent implements OnInit {
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
   );
+  public readonly reviewAvailable = computed(() => {
+    this.vscodeService.config();
+    return isReviewSurfaceAvailable(this.vscodeService);
+  });
 
   public readonly jobs = this.state.jobs;
   public readonly runs = this.state.runs;

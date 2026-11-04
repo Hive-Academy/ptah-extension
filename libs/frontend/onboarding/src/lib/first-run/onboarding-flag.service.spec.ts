@@ -184,6 +184,19 @@ describe('OnboardingFlagService', () => {
       expect(service.isFirstRunEligible()).toBe(true);
     });
 
+    it('keeps an older claudeAt-only record valid and adds connectionAt', () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { claudeAt: CLAUDE } }),
+      );
+      const service = createService();
+      expect(service.flag().ready?.claudeAt).toBe(CLAUDE);
+      service.markReady('connectionAt');
+      expect(stored()).toEqual({
+        ready: { claudeAt: CLAUDE, connectionAt: expect.any(String) },
+      });
+    });
+
     it.each([
       ['a string', 'yes'],
       ['a non-datetime field', { claudeAt: 'tomorrow' }],

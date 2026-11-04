@@ -21,6 +21,15 @@ export interface FireGateLookups {
   turnPhase(sessionId: string): string | undefined;
 }
 
+/**
+ * Turn phases in which the idle `/compact` may be sent. `awaiting-background`
+ * counts: the parent turn has ended and the input is open while a background
+ * subagent runs, and that subagent can outlive the parent's prompt cache.
+ */
+export function isIdleFirePhase(phase: string | undefined): boolean {
+  return phase === 'idle' || phase === 'awaiting-background';
+}
+
 /** Caller handles lookup failures and maps them to lookup-failed. */
 export function evaluateFireGate(
   state: IdleSessionState,
@@ -52,8 +61,6 @@ export function evaluateFireGate(
     return 'compaction-state';
   if (state.rateLimit === 'allowed_warning' || state.rateLimit === 'rejected')
     return 'rate-limited';
-  const phase = lookups.turnPhase(state.sessionId);
-  if (phase === 'awaiting-background') return 'background-subagent';
-  if (phase !== 'idle') return 'not-idle';
+  if (!isIdleFirePhase(lookups.turnPhase(state.sessionId))) return 'not-idle';
   return null;
 }

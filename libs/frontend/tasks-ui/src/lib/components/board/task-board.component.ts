@@ -66,7 +66,11 @@ import { isTextEntryTarget } from '../keyboard-target';
     '(keydown)': 'onKeyDown($event)',
   },
   template: `
-    <div class="flex gap-3 h-full overflow-x-auto p-3 items-stretch">
+    <div
+      class="flex h-full items-stretch gap-3 overflow-auto p-4"
+      role="group"
+      aria-label="Task board lanes"
+    >
       @for (column of columns(); track column.status) {
         <ptah-task-column
           [status]="column.status"

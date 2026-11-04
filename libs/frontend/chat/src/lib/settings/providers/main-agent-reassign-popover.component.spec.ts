@@ -54,7 +54,10 @@ class StateStub {
     key === EFFORT_KEY ? ['global', 'workspace'] : ['global', 'app', 'workspace']);
   private readonly saved = async () => { this.commit.set({ ...idle, status: 'saved' }); return true; };
   readonly saveSettings = jest.fn(async (_patch: unknown, _context: unknown) => this.saved());
-  readonly activateConnection = jest.fn(async (_id: string, _scope: SettingScope, _context: unknown) => this.saved());
+  readonly activateConnection = jest.fn<Promise<{ started: boolean; selectionReread: 'ok' | 'failed' | 'not-run' }>, [string, SettingScope, unknown]>(async (_id, _scope, _context) => {
+    await this.saved();
+    return { started: true, selectionReread: 'ok' as const };
+  });
   readonly checkConnection = jest.fn(async () => undefined);
   readonly refreshMainSources = jest.fn(async () => undefined);
 }
@@ -370,7 +373,7 @@ describe('MainAgentReassignPopoverComponent', () => {
 
     it('a provider and a model in one Save: the provider is written first, then the model', async () => {
       const order: string[] = [];
-      state.activateConnection.mockImplementationOnce(async () => { order.push('provider'); state.commit.set({ ...idle, status: 'saved' }); return true; });
+      state.activateConnection.mockImplementationOnce(async () => { order.push('provider'); state.commit.set({ ...idle, status: 'saved' }); return { started: true, selectionReread: 'ok' as const }; });
       state.saveSettings.mockImplementationOnce(async () => { order.push('model'); state.commit.set({ ...idle, status: 'saved' }); return true; });
       choose('main-agent-provider', 'second');
       await flush();
@@ -386,7 +389,7 @@ describe('MainAgentReassignPopoverComponent', () => {
     });
 
     it('a saved provider with a failed model write: one alert says the provider was saved and the model was not', async () => {
-      state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'saved' }); return true; });
+      state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'saved' }); return { started: true, selectionReread: 'ok' as const }; });
       state.saveSettings.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', unsaved: ['model'] }); return true; });
       choose('main-agent-provider', 'second');
       await flush();
@@ -428,13 +431,13 @@ describe('MainAgentReassignPopoverComponent', () => {
     });
 
     it('a refused or failed activation is never reported as saved (D15); the popover stays open and the model is not written', async () => {
-      state.activateConnection.mockImplementationOnce(async () => false);
+      state.activateConnection.mockImplementationOnce(async () => ({ started: false, selectionReread: 'not-run' as const }));
       choose('main-agent-provider', 'second');
       choose('main-agent-model', 'model-b');
       buttonNamed('Use for main agent')?.click(); fixture.detectChanges();
       await save();
       expect(feedback.toast()?.message).toContain('Not saved. Another save is in progress.');
-      state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', message: 'Could not save.' }); return true; });
+      state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', message: 'Could not save.' }); return { started: true, selectionReread: 'not-run' as const }; });
       await save();
       expect(feedback.toast()).toMatchObject({ tone: 'alert', message: 'Not saved. Could not save.' });
       expect(query('main-agent-provider-outcome')).toBeNull();
@@ -773,7 +776,7 @@ describe('MainAgentReassignPopoverComponent: Account (P6 MP)', () => {
     state.activateConnection.mockImplementation(async (id: string) => {
       routeWithDriver(id);
       state.commit.set({ ...idle, status: 'saved' });
-      return true;
+      return { started: true, selectionReread: 'ok' as const };
     });
     accounts = new AccountsFake();
     if (options.view) accounts.view.set(options.view);
@@ -931,7 +934,7 @@ describe('MainAgentReassignPopoverComponent: Account (P6 MP)', () => {
         const saved = await provider.promise;
         routeWithDriver(id);
         state.commit.set({ ...idle, status: 'saved' });
-        return saved;
+        return { started: saved, selectionReread: saved ? 'ok' as const : 'not-run' as const };
       });
       saveButton()?.click();
       await flush();

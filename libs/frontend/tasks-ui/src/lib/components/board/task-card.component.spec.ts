@@ -68,6 +68,18 @@ describe('TaskCardComponent', () => {
     expect(text).toContain('FEATURE');
   });
 
+  // Light themes set --rounded-btn to a 2rem pill; an overflow-clipping clamp
+  // on the rounded button cut the first glyph of each title line.
+  it('clamps the title on an inner span, never on the rounded button', () => {
+    const host = render(makeTask()).nativeElement as HTMLElement;
+    const button = host.querySelector('[data-testid="task-card-open"]');
+    const title = host.querySelector('[data-testid="task-card-title"]');
+    expect(button?.classList.contains('line-clamp-2')).toBe(false);
+    expect(button?.classList.contains('rounded-btn')).toBe(false);
+    expect(title?.classList.contains('line-clamp-2')).toBe(true);
+    expect(title?.textContent?.trim()).toBe('Implement the board');
+  });
+
   it('shows a validation-warning affordance when frontmatter is invalid', () => {
     const fixture = render(
       makeTask({
@@ -233,7 +245,7 @@ describe('TaskCardComponent', () => {
       // header row, title, meta row, actions footer. A sixth block appearing
       // here is the exact regression the pixel-identity gate is about.
       const host = render(makeTask()).nativeElement as HTMLElement;
-      const body = host.querySelector('.card-body');
+      const body = host.querySelector('[data-testid="task-card-body"]');
       expect(body?.children).toHaveLength(4);
     });
   });
@@ -366,7 +378,7 @@ describe('TaskCardComponent', () => {
         selector,
       ) as HTMLElement;
 
-    it('carries an explicit focus ring, because the card root is a div (NFR-12)', () => {
+    it('carries the shared focus ring on the title open target (NFR-12)', () => {
       // The webview's global focus rule (`styles.css:439`) covers
       // `button/input/select/textarea/a`. The card root is a
       // `<div role="button">`, so it is outside that rule and would otherwise
@@ -379,18 +391,18 @@ describe('TaskCardComponent', () => {
       // ratio belongs to the visual pass.
       const classes =
         (render(makeTask()).nativeElement as HTMLElement).querySelector(
-          '[role="button"]',
+          '[data-task-id]',
         )?.className ?? '';
 
       expect(classes).toContain('focus-visible:outline');
       expect(classes).toContain('focus-visible:outline-2');
       expect(classes).toContain('focus-visible:outline-offset-2');
-      expect(classes).toContain('focus-visible:outline-[oklch(var(--s))]');
+      expect(classes).toContain('focus-visible:outline-base-content');
     });
 
     it('opens the card when Enter lands on the card itself', () => {
       const { fixture, opened } = withRollup();
-      const event = keydown(at(fixture, '[role="button"]'), 'Enter');
+      const event = keydown(at(fixture, '[data-task-id]'), 'Enter');
 
       expect(opened).toEqual(['TASK_2026_200']);
       expect(event.defaultPrevented).toBe(true);
@@ -398,7 +410,7 @@ describe('TaskCardComponent', () => {
 
     it('toggles the card when Space lands on the card itself', () => {
       const { fixture, opened, toggled } = withRollup();
-      const event = keydown(at(fixture, '[role="button"]'), ' ');
+      const event = keydown(at(fixture, '[data-task-id]'), ' ');
 
       expect(toggled).toEqual(['TASK_2026_200']);
       expect(opened).toEqual([]);
@@ -1126,5 +1138,78 @@ describe('TaskCardComponent — linked sessions (TASK_2026_580)', () => {
       expect(dot.classList).toContain('border-base-content/70');
     }
     expect(dots[1].classList).toContain('bg-transparent');
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_871 B4 — sibling controls and the approved card tokens
+  // -------------------------------------------------------------------------
+  describe('approved card structure', () => {
+    function renderCard(selected: boolean, checked = false) {
+      const fixture = TestBed.createComponent(TaskCardComponent);
+      fixture.componentRef.setInput('task', makeTask());
+      fixture.componentRef.setInput('selected', selected);
+      fixture.componentRef.setInput('checked', checked);
+      fixture.componentRef.setInput('focused', true);
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('keeps the checkbox and the title button as siblings, never nested', () => {
+      const host = renderCard(false);
+      const title = host.querySelector('[data-testid="task-card-open"]');
+      const checkbox = host.querySelector('[data-testid="task-card-select"]');
+
+      expect(title?.tagName).toBe('BUTTON');
+      expect(title?.querySelector('button, input, a')).toBeNull();
+      expect(checkbox?.closest('button')).toBeNull();
+      expect(host.querySelector('[role="button"]')).toBeNull();
+      // The title is the roving focus root the board moves between.
+      expect(title?.getAttribute('data-task-id')).toBe('TASK_2026_200');
+      expect(title?.getAttribute('tabindex')).toBe('0');
+    });
+
+    it('shows the mono folder id under the title', () => {
+      const host = renderCard(false);
+      const id = host
+        .querySelector('[data-testid="task-card-open"]')
+        ?.parentElement?.querySelector('.font-mono');
+      expect(id?.textContent?.trim()).toBe('TASK_2026_200/');
+    });
+
+    it('uses the card surface tokens at rest', () => {
+      const card = renderCard(false).querySelector('[data-testid="task-card"]');
+      for (const token of [
+        'bg-surface-2',
+        'border-surface-border',
+        'rounded-box',
+        'p-3',
+        'shadow-[var(--elev-shadow)]',
+        'hover:bg-surface-3',
+      ]) {
+        expect(card?.className).toContain(token);
+      }
+      expect(card?.classList.contains('ring-2')).toBe(false);
+    });
+
+    it('marks the open task with a primary ring AND a base-content outline', () => {
+      const card = renderCard(true).querySelector('[data-testid="task-card"]');
+      for (const token of [
+        'ring-2',
+        'ring-primary',
+        'outline',
+        'outline-2',
+        'outline-offset-2',
+        'outline-base-content',
+      ]) {
+        expect(card?.classList.contains(token)).toBe(true);
+      }
+    });
+
+    it('marks a checked card with the selected surface', () => {
+      const card = renderCard(false, true).querySelector(
+        '[data-testid="task-card"]',
+      );
+      expect(card?.classList.contains('bg-surface-3')).toBe(true);
+    });
   });
 });

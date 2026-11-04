@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { Route } from '@angular/router';
+import type { CanMatchFn, Route } from '@angular/router';
+import { TestBed } from '@angular/core/testing';
+import { VSCodeService } from '@ptah-extension/core';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
 import { onboardingFirstRunGuard } from '@ptah-extension/onboarding/services';
 
 import { appRoutes } from './app.routes';
+import { reviewOnlySurface } from './review-only-surface.guard';
 
 describe('Electron shell layout boundary', () => {
   it('bounds the outer row and configuration host', () => {
@@ -33,6 +36,28 @@ function routeFor(path: string): Route {
   if (!route) throw new Error(`Missing route: ${path}`);
   return route;
 }
+
+describe('review runs route', () => {
+  it('lazily resolves the review runs page on Electron', async () => {
+    const route = routeFor('review-runs');
+    TestBed.configureTestingModule({
+      providers: [{ provide: VSCodeService, useValue: { isElectron: true } }],
+    });
+    expect(route.canMatch).toEqual([reviewOnlySurface]);
+    expect(TestBed.runInInjectionContext(() => reviewOnlySurface(route, [], {} as Parameters<CanMatchFn>[2]))).toBe(true);
+    const { ReviewRunsPageComponent } = await import('@ptah-extension/review-runs-ui');
+    expect(await route.loadComponent?.()).toBe(ReviewRunsPageComponent);
+  });
+
+  it('refuses the route on hosts without the review surface', () => {
+    const route = routeFor('review-runs');
+    TestBed.configureTestingModule({
+      providers: [{ provide: VSCodeService, useValue: { isElectron: false } }],
+    });
+    expect(TestBed.runInInjectionContext(() => reviewOnlySurface(route, [], {} as Parameters<CanMatchFn>[2]))).toBe(false);
+    expect(appRoutes.at(-1)?.path).toBe('**');
+  });
+});
 
 describe('onboarding route (TASK_2026_ONBOARDING)', () => {
   it('guards only the chat route with the first-run guard', () => {

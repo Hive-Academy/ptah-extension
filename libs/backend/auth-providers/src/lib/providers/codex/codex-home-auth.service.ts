@@ -14,7 +14,7 @@ import type {
   CodexUsageEligibility,
 } from '@ptah-extension/codex-runtime';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { ProviderModelInfo } from '@ptah-extension/shared';
+import type { CodexSignInOutcome, ProviderModelInfo } from '@ptah-extension/shared';
 import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import { SdkError } from '@ptah-extension/agent-sdk';
 import type { ICodexAuthService } from './codex-provider.types';
@@ -55,6 +55,16 @@ export function resolveCodexHome(
   return resolve(
     environment['CODEX_HOME']?.trim() || join(homeDirectory(), '.codex'),
   );
+}
+
+/** Whether the host explicitly supplied an empty Codex home. */
+export function isCodexHomeExplicitlyEmpty(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return environment['CODEX_HOME'] === '' ||
+    (environment['CODEX_HOME'] === undefined &&
+      environment['HOME'] === '' &&
+      !environment['USERPROFILE']);
 }
 
 interface HomeEntry {
@@ -532,6 +542,45 @@ class HomeAuthState implements ICodexAuthService {
 
     const stale = this.isTokenStale(auth);
     return { authenticated: true, stale };
+  }
+
+  /** Read a fresh snapshot without changing the regular auth cache. */
+  async getSignInOutcome(): Promise<Exclude<CodexSignInOutcome, 'timeout'>> {
+    let auth: CodexAuthFile;
+    try {
+      const raw = await readFile(this.authFilePath, 'utf-8');
+      const diskAuth = authFileSchema.parse(JSON.parse(raw));
+      const pending = this.pendingPersist;
+      auth = pending &&
+        diskAuth.tokens?.refresh_token === pending.expectedRefreshToken &&
+        !this.getApiKey(diskAuth)
+        ? pending.auth
+        : diskAuth;
+    } catch (error) {
+      // A refresh whose write has not persisted is still the active credential.
+      // Match readAuthFile's pending-rotation precedence without touching its cache.
+      if (this.pendingPersist) return this.classifySignInAuth(this.pendingPersist.auth);
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? error.code
+        : undefined;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        return 'signed-out';
+      }
+      const errorClass = code !== undefined
+        ? 'SystemError'
+        : error instanceof SyntaxError
+          ? 'SyntaxError'
+          : 'Unknown';
+      this.logger.warn(`[CodexAuth] Sign-in outcome unavailable (${errorClass}).`);
+      return 'unreadable';
+    }
+    return this.classifySignInAuth(auth);
+  }
+
+  private classifySignInAuth(auth: CodexAuthFile): Exclude<CodexSignInOutcome, 'timeout'> {
+    if (this.getApiKey(auth)) return 'signed-in';
+    if (!auth.tokens?.access_token) return 'signed-out';
+    return this.isTokenStale(auth) ? 'stale' : 'signed-in';
   }
 
   /**

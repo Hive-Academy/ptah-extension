@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, type EffectRef, DestroyRef, Injector } from '@angular/core';
 import {
   CustomProviderEntryChangesSchema,
   CustomProviderEntryInputSchema,
@@ -54,6 +54,7 @@ import {
   parseKimiLoginState,
 } from './kimi-code-login';
 import { AuthStateService } from './auth-state.service';
+import { CodexSignInService } from './codex-sign-in.service';
 
 /**
  * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
@@ -87,7 +88,7 @@ export interface ProvidersConnectionSetupHooks {
   /** Effective main-agent route; removing a custom connection checks its driver. */
   route(): ProvidersSettingsSection<ProvidersEffectiveRoute>;
   /** Refreshes the shared auth-state signals after a confirmed main-agent change. */
-  refreshAuthStatus(): Promise<void>;
+  refreshAuthStatus(): Promise<boolean>;
 }
 
 type CustomEndpointChanges = Partial<
@@ -144,6 +145,13 @@ export class ProvidersConnectionSetupService implements MessageHandler {
   private readonly commits = inject(ProvidersCommitService);
   private readonly workspace = inject(WorkspaceScopeService);
   private readonly authState = inject(AuthStateService);
+  private readonly codexSignIn = inject(CodexSignInService);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private codexAttemptEffect: EffectRef | null = null;
+  constructor() {
+    this.destroyRef.onDestroy(() => this.codexAttemptEffect?.destroy());
+  }
   private readonly probeStore =
     createSectionStore<AuthVerifyDraftConnectionResult>();
   private readonly externalAuthStore =
@@ -229,6 +237,15 @@ export class ProvidersConnectionSetupService implements MessageHandler {
       cliInstalled: null,
       message: null,
     };
+    if (providerId === 'openai-codex' && action === 'sign-in-cancel') {
+      await this.codexSignIn.cancel();
+      this.codexAttemptEffect?.destroy();
+      this.codexAttemptEffect = null;
+      this.externalAuthStore.value.set({
+        status: 'ready', error: null, data: empty,
+      });
+      return;
+    }
     if (providerId === KIMI_CODE_ID && action !== 'cli-check') {
       this.kimiOwner = hooks;
       return action === 'sign-in-cancel'
@@ -268,14 +285,39 @@ export class ProvidersConnectionSetupService implements MessageHandler {
       error: null,
       data: { ...empty, signInState: 'in-flight' },
     });
+    if (providerId === 'openai-codex' && action === 'sign-in') {
+      this.codexAttemptEffect?.destroy();
+      this.codexAttemptEffect = null;
+      await this.codexSignIn.start();
+      if (generation !== this.externalAuthGeneration) return;
+      this.externalAuthStore.value.set({
+        status: 'ready', error: null, data: { ...empty, signInState: 'in-flight' },
+      });
+      this.codexAttemptEffect = effect(() => {
+        const status = this.codexSignIn.state()?.status;
+        if (status !== 'succeeded' && status !== 'failed' && status !== 'cancelled') return;
+        this.codexAttemptEffect?.destroy();
+        this.codexAttemptEffect = null;
+        if (generation !== this.externalAuthGeneration) return;
+        const signInState = status === 'succeeded' ? 'signed-in' : status === 'failed' ? 'failed' : 'idle';
+        this.externalAuthStore.value.set({
+          status: 'ready', error: null, data: { ...empty, signInState },
+        });
+        void Promise.all([hooks.refreshConnections(), hooks.refreshRoute()]).catch(() => {
+          if (generation !== this.externalAuthGeneration) return;
+          this.externalAuthStore.value.set({
+            status: 'ready', error: null,
+            data: { ...empty, signInState, message: 'Ptah could not refresh connections. Check again.' },
+          });
+        });
+      }, { injector: this.injector });
+      return;
+    }
     await this.read(
       this.externalAuthStore,
       async (): Promise<ProvidersExternalAuth> => {
         if (action !== 'cli-check') {
-          const result =
-            providerId === 'github-copilot'
-              ? await this.require('auth:copilotLogin', {}, 310000)
-              : await this.require('auth:codexLogin', {}, 310000);
+          const result = await this.require('auth:copilotLogin', {}, 310000);
           if (!result.success) throw new Error('Sign-in unavailable');
         }
         const result = await this.require('auth:getAuthStatus', { providerId });
@@ -650,8 +692,8 @@ export class ProvidersConnectionSetupService implements MessageHandler {
     applyTo: SettingScope,
     context: ProvidersEditContext,
     hooks: ProvidersConnectionSetupHooks,
-  ): Promise<boolean> {
-    if (this.commits.commit().status === 'saving') return false;
+  ): Promise<{ started: boolean; selectionReread: 'ok' | 'failed' | 'not-run' }> {
+    if (this.commits.commit().status === 'saving') return { started: false, selectionReread: 'not-run' };
     const connection = hooks
       .connections()
       .data?.find((entry) => entry.id === providerId);
@@ -660,7 +702,7 @@ export class ProvidersConnectionSetupService implements MessageHandler {
         ['Main agent connection'],
         'Refresh this connection before activating it.',
       );
-      return true;
+      return { started: true, selectionReread: 'not-run' };
     }
     const auth = this.activationAuth(providerId, connection.authMode, applyTo);
     const committed = await this.commits.run(
@@ -675,9 +717,10 @@ export class ProvidersConnectionSetupService implements MessageHandler {
         ),
     );
     if (committed && this.commits.commit().status === 'saved') {
-      await hooks.refreshAuthStatus();
+      const reread = await hooks.refreshAuthStatus();
+      return { started: true, selectionReread: reread ? 'ok' : 'failed' };
     }
-    return committed;
+    return { started: committed, selectionReread: 'not-run' };
   }
 
   private activationAuth(

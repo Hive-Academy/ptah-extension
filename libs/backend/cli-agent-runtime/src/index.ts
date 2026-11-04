@@ -1,4 +1,5 @@
 export * from './lib/cli-agents';
+export { AgentSpawnEnvironment } from './lib/cli-agents/agent-spawn-environment.service';
 export {
   classifyLaneFailureClass,
   type LaneFailureClassInput,

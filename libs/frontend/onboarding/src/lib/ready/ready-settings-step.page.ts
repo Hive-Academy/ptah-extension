@@ -26,8 +26,8 @@ import {
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { LucideAngularModule, PlugZap, RotateCw } from 'lucide-angular';
 import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
-import { ClaudeReadinessBannerComponent } from './claude-readiness-banner.component';
-import { ClaudeReadinessStore } from './claude-readiness.store';
+import { ConnectionReadinessBannerComponent } from './connection-readiness-banner.component';
+import { ProviderReadinessStore } from './provider-readiness.store';
 import { ReadyStripComponent } from './ready-strip.component';
 import { readyStripSettingsWord } from './ready-strip-state';
 
@@ -73,7 +73,7 @@ const AREA_TABS: readonly AreaTab[] = [
     ProvidersSettingsComponent,
     CliOrchestrationMatrixComponent,
     SettingsToastComponent,
-    ClaudeReadinessBannerComponent,
+    ConnectionReadinessBannerComponent,
     ReadyStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -83,7 +83,7 @@ const AREA_TABS: readonly AreaTab[] = [
       <ptah-ready-strip
         class="mb-5"
         [current]="2"
-        [claude]="readiness().state"
+        [connection]="chosen()"
         [settings]="settingsWord()"
       />
 
@@ -108,14 +108,14 @@ const AREA_TABS: readonly AreaTab[] = [
         </h1>
       </div>
       <p class="mt-2 max-w-[62ch] text-base-content-muted">
-        Choose what Ptah can use besides Claude Code. This is the same screen as
+        Choose what Ptah can use{{ chosen().provider ? ' besides ' + chosen().name : '' }}. This is the same screen as
         Settings, so you can skip now and come back any time.
       </p>
 
-      <ptah-claude-readiness-banner
+      <ptah-connection-readiness-banner
         class="mt-5"
         placement="settings"
-        [state]="readiness().state"
+        [chosen]="chosen()"
       />
 
       <div
@@ -265,7 +265,7 @@ const AREA_TABS: readonly AreaTab[] = [
   `,
 })
 export class ReadySettingsStepPage {
-  private readonly store = inject(ClaudeReadinessStore);
+  private readonly store = inject(ProviderReadinessStore);
   private readonly flags = inject(OnboardingFlagService);
   private readonly router = inject(Router);
   private readonly settingsState = inject(ProvidersSettingsStateService);
@@ -274,7 +274,7 @@ export class ReadySettingsStepPage {
   protected readonly icons = { plugZap: PlugZap, reload: RotateCw } as const;
   protected readonly areaTabs = AREA_TABS;
 
-  protected readonly readiness = this.store.view;
+  protected readonly chosen = this.store.chosen;
   protected readonly settingsWord = computed(() =>
     readyStripSettingsWord(this.flags.flag().ready, false),
   );
@@ -300,7 +300,7 @@ export class ReadySettingsStepPage {
       this.drawerRequest.set(CLAUDE_ACCOUNTS_REQUEST);
     }
     if (area === 'cli') this.openCliState();
-    void this.store.refresh(false);
+    void this.store.refresh('mount');
   }
 
   protected selectArea(area: OnboardingReadyArea): void {

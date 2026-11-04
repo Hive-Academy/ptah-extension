@@ -16,6 +16,7 @@ import {
 } from './providers-settings-state.service';
 import { EffortStateService } from './effort-state.service';
 import { AuthStateService } from './auth-state.service';
+import { CodexSignInService } from './codex-sign-in.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
 import { VSCodeService } from './vscode.service';
 
@@ -98,6 +99,8 @@ describe('ProvidersSettingsStateService', () => {
     [RpcMethodName, unknown, unknown?]
   >;
   let refreshAuthStatus: jest.Mock<Promise<void>, []>;
+  const codexStart = jest.fn<Promise<void>, []>(async () => undefined);
+  const codexCancel = jest.fn<Promise<void>, []>(async () => undefined);
 
   beforeEach(() => {
     scopeResponse = {
@@ -193,11 +196,14 @@ describe('ProvidersSettingsStateService', () => {
       return handler(params);
     });
     refreshAuthStatus = jest.fn().mockResolvedValue(undefined);
+    codexStart.mockClear();
+    codexCancel.mockClear();
     TestBed.configureTestingModule({
       providers: [
         ProvidersSettingsStateService,
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: CodexSignInService, useValue: { start: codexStart, cancel: codexCancel, state: () => null } },
         {
           provide: ModelStateService,
           useValue: { refreshModels: jest.fn(async () => undefined) },
@@ -1129,22 +1135,22 @@ describe('ProvidersSettingsStateService', () => {
   });
 
   it('does not claim a launched Codex login is authenticated', async () => {
-    handlers.set('auth:codexLogin', async () => success({ success: true }));
+    codexStart.mockResolvedValueOnce(undefined);
     handlers.set('auth:getAuthStatus', async () =>
       success({ codexAuthenticated: false }),
     );
     await service.performExternalAuth('openai-codex', 'sign-in');
-    expect(service.externalAuth().data?.signInState).toBe('idle');
-    expect(service.externalAuth().data?.message).toContain(
-      'not been confirmed',
-    );
+    expect(codexStart).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls.some(([method]) => method === 'auth:codexLogin')).toBe(false);
+    expect(service.externalAuth().data?.signInState).toBe('in-flight');
+    expect(service.externalAuth().data?.message).toBeNull();
   });
 
   it('does not fabricate external cancellation or guess the wizard provider', async () => {
     await service.performExternalAuth(null, 'sign-in');
     expect(service.externalAuth().data?.message).toContain('does not identify');
     await service.performExternalAuth('openai-codex', 'sign-in-cancel');
-    expect(service.externalAuth().data?.message).toContain('cannot cancel');
+    expect(codexCancel).toHaveBeenCalledTimes(1);
     expect(call).not.toHaveBeenCalled();
   });
   it('reads only non-secret CLI model fields and isolates malformed persisted models', async () => {
@@ -1427,6 +1433,7 @@ describe('ProvidersSettingsStateService', () => {
           ProvidersSettingsStateService,
           WorkspaceScopeService,
           { provide: ClaudeRpcService, useValue: { call } },
+          { provide: CodexSignInService, useValue: { start: codexStart, cancel: codexCancel, state: () => null } },
           {
             provide: ModelStateService,
             useValue: { refreshModels: jest.fn(async () => undefined) },
@@ -1809,7 +1816,7 @@ describe('ProvidersSettingsStateService', () => {
       service.clearScopeOverride('authMethod', 'nearest', reviewed),
       service.saveCursorCredential('key', reviewed),
     ]);
-    expect(refused).toEqual([false, false, false, false, false, false, false]);
+    expect(refused).toEqual([false, false, false, { started: false, selectionReread: 'not-run' }, false, false, false]);
     expect(service.commit().status).toBe('saving');
     expect(call).not.toHaveBeenCalled();
     pending.resolve(success({ success: true }));

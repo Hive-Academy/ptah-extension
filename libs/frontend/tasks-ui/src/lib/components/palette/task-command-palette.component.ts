@@ -95,14 +95,14 @@ let paletteInstanceCounter = 0;
         (click)="requestClose()"
       ></button>
       <div
-        class="surface-3 relative mt-[8vh] w-full max-w-xl mx-3 rounded-lg overflow-hidden"
+        class="relative mx-3 mt-[8vh] w-full max-w-xl overflow-hidden rounded-box border border-surface-border bg-surface-2 text-base-content shadow-[var(--elev-shadow-raised)]"
         role="dialog"
         aria-modal="true"
         aria-label="Task board command palette"
         data-testid="task-palette-dialog"
       >
         <div
-          class="flex items-center gap-2 px-3 py-2 border-b border-base-content/10"
+          class="flex items-center gap-2 border-b border-surface-border px-4 py-3"
         >
           <lucide-angular
             [img]="SearchIcon"
@@ -112,7 +112,7 @@ let paletteInstanceCounter = 0;
           <input
             #queryInput
             type="text"
-            class="bg-transparent w-full text-sm outline-none"
+            class="w-full bg-transparent text-sm outline-none"
             placeholder="Type a command or a task id"
             role="combobox"
             aria-label="Filter board commands"
@@ -167,7 +167,7 @@ let paletteInstanceCounter = 0;
             <button
               type="button"
               tabindex="-1"
-              class="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-base-content"
+              class="flex min-h-9 w-full flex-col gap-0.5 px-4 py-2 text-left text-base-content hover:bg-surface-3"
               role="option"
               [id]="optionId(i)"
               [attr.aria-selected]="i === activeIndex()"
@@ -177,7 +177,7 @@ let paletteInstanceCounter = 0;
                   ? 'task-palette-option'
                   : 'task-palette-option-disabled'
               "
-              [class.bg-base-300]="i === activeIndex()"
+              [class.bg-surface-3]="i === activeIndex()"
               (click)="runEntry(entry)"
               (mouseenter)="onHover(i)"
             >
@@ -245,7 +245,7 @@ let paletteInstanceCounter = 0;
 
         @if (overflowCount() > 0) {
           <p
-            class="px-3 py-1.5 text-[11px] text-base-content border-t border-base-content/10"
+            class="border-t border-surface-border px-4 py-2 text-[11px] text-base-content-muted"
             data-testid="task-palette-overflow"
           >
             {{ overflowCount() }} more match — keep typing to narrow them.

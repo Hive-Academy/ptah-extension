@@ -200,6 +200,9 @@
         "libs/backend/platform-core/**/*",
         "libs/backend/platform-electron/**/*",
         "libs/backend/plugin-marketplace/**/*",
+        "libs/backend/review-contracts/**/*",
+        "libs/backend/review-core/**/*",
+        "libs/backend/review-github/**/*",
         "libs/backend/rpc-handlers/**/*",
         "libs/backend/remote-machines/**/*",
         "libs/backend/session-organization/**/*",
@@ -236,6 +239,7 @@
         "libs/frontend/messaging-gateway-ui/**/*",
         "libs/frontend/notification-center/**/*",
         "libs/frontend/onboarding/**/*",
+        "libs/frontend/review-runs-ui/**/*",
         "libs/frontend/setup-wizard/**/*",
         "libs/frontend/skill-synthesis-ui/**/*",
         "libs/frontend/tasks-ui/**/*",
@@ -249,7 +253,8 @@
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
         "libs/worker-protocol/**/*",
-        "tools/mcp-bench/**/*"
+        "tools/mcp-bench/**/*",
+        "tools/review-eval/**/*"
       ]
     },
     {
@@ -280,6 +285,9 @@
         "libs/backend/platform-core/**/*",
         "libs/backend/platform-electron/**/*",
         "libs/backend/plugin-marketplace/**/*",
+        "libs/backend/review-contracts/**/*",
+        "libs/backend/review-core/**/*",
+        "libs/backend/review-github/**/*",
         "libs/backend/rpc-handlers/**/*",
         "libs/backend/remote-machines/**/*",
         "libs/backend/session-organization/**/*",
@@ -316,6 +324,7 @@
         "libs/frontend/messaging-gateway-ui/**/*",
         "libs/frontend/notification-center/**/*",
         "libs/frontend/onboarding/**/*",
+        "libs/frontend/review-runs-ui/**/*",
         "libs/frontend/setup-wizard/**/*",
         "libs/frontend/skill-synthesis-ui/**/*",
         "libs/frontend/tasks-ui/**/*",
@@ -328,7 +337,8 @@
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
         "libs/worker-protocol/**/*",
-        "tools/mcp-bench/**/*"
+        "tools/mcp-bench/**/*",
+        "tools/review-eval/**/*"
       ]
     }
   ],

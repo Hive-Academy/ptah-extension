@@ -1162,3 +1162,11 @@ describe('scenario-sanitizer (B5)', () => {
     });
   });
 });
+
+describe('task folder replay methods', () => {
+  it('permits bounded read-only task methods', () => {
+    expect(DEFAULT_ALLOWED_RPC_METHODS.has('tasks:readFolderMarkdown')).toBe(true);
+    expect(DEFAULT_ALLOWED_RPC_METHODS.has('tasks:listFolderEntries')).toBe(true);
+  });
+});
+
