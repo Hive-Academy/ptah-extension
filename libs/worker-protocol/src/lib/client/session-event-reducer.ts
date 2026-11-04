@@ -38,6 +38,11 @@
  * - An attach that succeeds with a snapshot (W8: no log, or another process
  *   drives the session) ends recovery at once: the view becomes that saved,
  *   non-live transcript (`source: 'snapshot'`) until a log streams again.
+ * - After a snapshot, frames and `resync-required` are ignored until the next
+ *   `connected`. Frames carry no attach identity (W1), so a late frame from
+ *   an older attach on the same connection cannot be told apart from a new
+ *   log; a new connection is the boundary, since the old streams end with
+ *   the old socket.
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -139,6 +144,11 @@ export interface SessionEventState {
   readonly recovery: SessionRecovery | null;
   /** Token the next request gets. Never reused within one state lineage. */
   readonly nextToken: number;
+  /**
+   * A snapshot is shown and nothing may replace it until the next
+   * `connected`: event frames and `resync-required` are ignored.
+   */
+  readonly fenced: boolean;
 }
 
 export type SessionAttachRequest = WorkerMethodParams<'session.attach'>;
@@ -192,6 +202,7 @@ export function initialSessionEventState(sessionId: string): SessionEventState {
     held: [],
     recovery: null,
     nextToken: 1,
+    fenced: false,
   };
 }
 
@@ -224,10 +235,13 @@ export function reduceSessionEvent(
 ): SessionEventStep {
   switch (action.kind) {
     case 'resync-required':
-      return requestRecovery(resetForNewLog(state, null, false), 'resync');
+      return state.fenced
+        ? { state, attach: null }
+        : requestRecovery(resetForNewLog(state, null, false), 'resync');
     case 'connected':
+      // After a snapshot `epoch` is null, so this is a fresh attach.
       return requestRecovery(
-        state,
+        { ...state, fenced: false },
         state.epoch === null || state.recovery?.kind === 'resync'
           ? 'resync'
           : 'replay',
@@ -241,7 +255,9 @@ export function reduceSessionEvent(
     case 'attach-succeeded':
       return attachSucceeded(state, action.token, action.result);
     case 'event':
-      return applyEvent(state, action.frame);
+      return state.fenced
+        ? { state, attach: null }
+        : applyEvent(state, action.frame);
   }
 }
 
@@ -293,6 +309,7 @@ function showSnapshot(
 ): SessionEventState {
   return {
     ...resetForNewLog(state, null, false),
+    fenced: true,
     transcript: {
       source: 'snapshot',
       baseline: events,

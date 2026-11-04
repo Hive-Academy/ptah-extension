@@ -473,6 +473,52 @@ describe('SessionEventReducer snapshot attach', () => {
     expect(sessionView(step.state).source).toBe('log');
   });
 
+  /** Overflow at last=1 (replay token 1, resync token 2), then a snapshot for token 2. */
+  function snapshotAfterOverflow() {
+    const start = run([baseline(1, ['h-1'])]).state;
+    const overflow = run(
+      Array.from({ length: MAX_HELD_FRAMES + 1 }, (_, i) => frame(i + 3)),
+      start,
+    ).state;
+    return snapshot(overflow, ['saved']).state;
+  }
+
+  it('ignores a late baseline from the superseded replay (view stays the snapshot)', () => {
+    const shown = snapshotAfterOverflow();
+    const view = sessionView(shown);
+    const { state, attaches } = run([baseline(1_004, ['late'])], shown);
+
+    expect(attaches).toEqual([]);
+    expect(state).toBe(shown);
+    expect(sessionView(state)).toBe(view);
+    expect(sessionView(state).source).toBe('snapshot');
+  });
+
+  it('requests no attach for late non-baseline frames after a snapshot', () => {
+    const shown = snapshotAfterOverflow();
+    const { state, attaches } = run([frame(1_004), frame(1_010)], shown);
+
+    expect(attaches).toEqual([]);
+    expect(state).toBe(shown);
+    expect(dispatch(shown, { kind: 'resync-required' }).attach).toBeNull();
+  });
+
+  it('lets a log take over after connected following a snapshot', () => {
+    const shown = snapshotAfterOverflow();
+    const reconnect = dispatch(shown, { kind: 'connected' });
+    expect(reconnect.attach).toEqual({
+      token: 3,
+      params: { sessionId: SESSION },
+    });
+    expect(reconnect.state.fenced).toBe(false);
+
+    const settled = succeeded(reconnect.state, 1_200, 'e-1').state;
+    const { state } = run([baseline(1_200, ['fresh']), frame(1_201)], settled);
+    expect(sessionView(state).source).toBe('log');
+    expect(sessionView(state).baseline.map((e) => e.id)).toEqual(['fresh']);
+    expect(renderedSeqs(state)).toEqual([1_201]);
+  });
+
   it('resumes live from a later log attach after a snapshot', () => {
     const connected = dispatch(initialSessionEventState(SESSION), {
       kind: 'connected',
