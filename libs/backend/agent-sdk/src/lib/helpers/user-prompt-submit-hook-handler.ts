@@ -70,6 +70,7 @@ export class UserPromptSubmitHookHandler {
   createHooks(
     sessionId: string | undefined,
     cwd: string,
+    ptahUiHint = false,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     return {
       UserPromptSubmit: [
@@ -116,7 +117,9 @@ export class UserPromptSubmitHookHandler {
               );
               // Re-checked after the await: its producer may be off by now.
               const reminder = this.stillAllowed(drained);
-              const surface = surfaceHookGuidance(input.prompt);
+              const surface = ptahUiHint
+                ? surfaceHookGuidance(input.prompt)
+                : null;
               const additionalContext = [pointer, reminder, surface]
                 .filter(Boolean)
                 .join('\n\n');

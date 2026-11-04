@@ -138,6 +138,8 @@ describe('routeSurfaceRequest', () => {
     'a visual view of the sprint',
     'representational view of this week',
     'write a weekly report',
+    'send me a report of all in-progress tasks',
+    'make a dashboard of my work',
   ])('treats %s as a report', (prompt) => {
     expect(routeSurfaceRequest(prompt, { skillLookup: true }).kind).toBe(
       'report',
@@ -149,7 +151,9 @@ describe('routeSurfaceRequest', () => {
     'show the test results',
     'stats for this turn',
     'bug report: login fails',
+    'file a bug report',
     'report this error',
+    'can you report on the crash',
     'go on',
     '',
   ])('treats %s as a compact ptah-ui summary', (prompt) => {

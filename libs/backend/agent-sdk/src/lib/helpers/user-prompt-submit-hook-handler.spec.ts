@@ -24,8 +24,9 @@ function getHookCallback(
   handler: UserPromptSubmitHookHandler,
   sessionId: string,
   cwd: string,
+  ptahUiHint = false,
 ) {
-  const hooks = handler.createHooks(sessionId, cwd);
+  const hooks = handler.createHooks(sessionId, cwd, ptahUiHint);
   const matchers = hooks.UserPromptSubmit;
   expect(matchers).toBeDefined();
   const fn = matchers?.[0]?.hooks?.[0];
@@ -95,7 +96,7 @@ describe('UserPromptSubmitHookHandler', () => {
         logger,
         new UserPromptSubmitCallbackRegistry(logger),
       );
-      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+      const fn = getHookCallback(handler, 'closure-sess', '/ws', true);
       const report = 'send me a report of all in-progress tasks';
       expect(await fn(promptInput({ prompt: report }), undefined, SIGNAL)).toEqual({
         continue: true,
@@ -109,6 +110,22 @@ describe('UserPromptSubmitHookHandler', () => {
       expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
         continue: true,
       });
+    });
+
+    it('adds no report guidance when ptahUiHint is false', async () => {
+      const logger = makeLogger();
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        new UserPromptSubmitCallbackRegistry(logger),
+      );
+      const fn = getHookCallback(handler, 'closure-sess', '/ws', false);
+      expect(
+        await fn(
+          promptInput({ prompt: 'send me a report of all in-progress tasks' }),
+          undefined,
+          SIGNAL,
+        ),
+      ).toEqual({ continue: true });
     });
 
     it('leaves an empty hook output unchanged and never drains subagent prompts', async () => {

@@ -1982,12 +1982,13 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     );
   });
 
-  it('invokes UserPromptSubmitHookHandler.createHooks with (sessionId, cwd)', () => {
+  it('invokes UserPromptSubmitHookHandler.createHooks with the UI hint disabled by default', () => {
     const { builder, userPromptSubmitHookHandler } = makeBuilderWithSpies();
     builder.createHooks('D:/tmp/ws', 'sess-abc');
     expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
       'sess-abc',
       'D:/tmp/ws',
+      false,
     );
   });
 
@@ -2029,6 +2030,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
       undefined,
       'D:/tmp/ws',
+      false,
     );
   });
 });
