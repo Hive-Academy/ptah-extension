@@ -22,6 +22,8 @@ describe('cli-version-label', () => {
     ['  2024 edition  ', '2024 edition'],
     ['grok 1.0.46\nUsage: grok models\nstdout follows', 'v1.0.46'],
     ['Usage: grok models\nlisted below', ''],
+    ['Usage: codex', ''],
+    ['error: not found', ''],
     ['', ''],
   ])('cliVersionLabel(%j) is %j', (raw, label) => {
     expect(cliVersionLabel(raw)).toBe(label);
@@ -31,6 +33,8 @@ describe('cli-version-label', () => {
     ['one\ntwo', true],
     ['x'.repeat(181), true],
     ['stdout follows', true],
+    ['Usage: codex', true],
+    ['error: not found', true],
     ['stderr: boom', true],
     ['codex-cli 0.155.1', false],
     ['', false],

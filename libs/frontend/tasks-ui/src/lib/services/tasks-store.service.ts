@@ -675,6 +675,23 @@ export class TasksStore {
   private detailReqSeq = 0;
 
   /**
+   * Monotonic stamp of {@link refreshActiveFromPush} calls. Only the newest
+   * call restores the reader, so overlapping pushes restore exactly once.
+   */
+  private pushRefreshSeq = 0;
+
+  /**
+   * What the reader showed before the first of a run of overlapping push
+   * refreshes reset it. Kept across those refreshes so a later one never
+   * re-reads the target from a reader an earlier one already emptied.
+   */
+  private pendingRestore: {
+    readonly taskId: string;
+    readonly file: string | null;
+    readonly directory: string;
+  } | null = null;
+
+  /**
    * The message a detail load last wrote into {@link _error}, or `null`. The
    * store has one error slot; this marks whether its current content belongs
    * to a detail load, so the next detail request can clear its own stale
@@ -1330,6 +1347,7 @@ export class TasksStore {
     // repopulate the detail after the panel was closed (e.g. on a workspace
     // switch, which funnels through here).
     this.detailReqSeq++;
+    this.pendingRestore = null;
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
     this._detailLoading.set(false);
@@ -2598,29 +2616,51 @@ export class TasksStore {
   }
 
   private async refreshActiveFromPush(): Promise<void> {
+    const seq = ++this.pushRefreshSeq;
+    // Re-reading the task resets the reader and the browser. Remember what
+    // the user had open BEFORE any await, and only when no overlapping push
+    // already remembered it: a burst of pushes shares one board fetch, and
+    // by the time a later push runs, an earlier one's re-read has already
+    // emptied the reader.
+    const before = this._selectedTaskId();
+    if (before !== null && this.pendingRestore?.taskId !== before) {
+      this.pendingRestore = {
+        taskId: before,
+        file: this.folder.openFile(),
+        directory: this.folder.directory(),
+      };
+    }
     await this.refreshBoard(this.activeKey(), this.activeRoot());
     const selected = this._selectedTaskId();
-    if (selected) {
-      // Re-reading the task resets the reader and the browser. Restore what
-      // the user had open, re-read from disk, so a change on disk refreshes
-      // the open document instead of closing it.
-      const file = this.folder.openFile();
-      const directory = this.folder.directory();
-      await this.openTask(selected);
-      if (this._selectedTaskId() !== selected || this._taskDetail() === null) {
-        return;
-      }
-      // Only restore into an untouched reader: a file or directory the user
-      // opened while the task re-read is newer than the one remembered here.
-      await Promise.all([
-        directory === '' || this.folder.directory() !== ''
-          ? Promise.resolve()
-          : this.folder.openDirectory(directory),
-        file === null || this.folder.openFile() !== null
-          ? Promise.resolve()
-          : this.folder.readFile(file),
-      ]);
+    if (selected === null) {
+      if (seq === this.pushRefreshSeq) this.pendingRestore = null;
+      return;
     }
+    await this.openTask(selected);
+    // Only the newest push restores; an older one leaves the target pending.
+    if (seq !== this.pushRefreshSeq) return;
+    const target = this.pendingRestore;
+    this.pendingRestore = null;
+    if (
+      target === null ||
+      target.taskId !== selected ||
+      this._selectedTaskId() !== selected ||
+      this._taskDetail() === null
+    ) {
+      return;
+    }
+    // Restore re-read from disk, so a change on disk refreshes the open
+    // document instead of closing it. Only into an untouched reader: a file
+    // or directory the user opened while the task re-read is newer.
+    const { file, directory } = target;
+    await Promise.all([
+      directory === '' || this.folder.directory() !== ''
+        ? Promise.resolve()
+        : this.folder.openDirectory(directory),
+      file === null || this.folder.openFile() !== null
+        ? Promise.resolve()
+        : this.folder.readFile(file),
+    ]);
   }
 
   /** Snapshot RPC board data into a cache slice (all six keys guaranteed). */

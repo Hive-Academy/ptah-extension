@@ -1154,11 +1154,11 @@ export class TasksRpcHandlers {
     written: string[],
   ): Promise<TasksBulkResultItem> {
     try {
-      const detail = await this.index.getDetail(root, taskId);
+      // degradation-audit: optional-capability - a failed detail probe leaves classification to the writer.
+      const detail = await this.index.getDetail(root, taskId).catch(() => null);
 
-      // `getDetail` collapses THREE situations into `null`: no carrier, a
-      // carrier that no longer parses, and a read that failed outright. The
-      // writer distinguishes the first two (`TASK_NOT_FOUND` vs
+      // A missing or unparseable carrier yields `null`, and a failed detail
+      // probe is treated the same way. The writer distinguishes the first two (`TASK_NOT_FOUND` vs
       // `TASK_EXCLUDED`) and refuses without writing in every one of them, so
       // the accurate answer is to let it say which — guessing `TASK_NOT_FOUND`
       // here would tell a user their broken task does not exist.
@@ -1312,8 +1312,13 @@ export class TasksRpcHandlers {
     root: string,
     taskId: string,
   ): Promise<{ currentStatus?: TaskStatus }> {
-    const detail = await this.index.getDetail(root, taskId);
-    return detail ? { currentStatus: detail.status } : {};
+    try {
+      const detail = await this.index.getDetail(root, taskId);
+      return detail ? { currentStatus: detail.status } : {};
+    } catch {
+      // degradation-audit: optional-capability - conflict status enrichment may fail without changing the conflict result.
+      return {};
+    }
   }
 
   private registerGenerateRegistry(): void {

@@ -2391,6 +2391,7 @@ function readBulkCarrier(fs: MockFileSystemProvider, taskId: string): string {
 interface BulkSuite {
   rpc: MockRpcHandler;
   fs: MockFileSystemProvider;
+  index: TaskIndexService;
   applyFolderChange: jest.SpyInstance;
   updateMetadata: jest.SpyInstance;
   externalWrites: () => number;
@@ -2525,6 +2526,7 @@ async function buildBulkSuite(
   return {
     rpc,
     fs,
+    index,
     applyFolderChange: jest.spyOn(index, 'applyFolderChange'),
     updateMetadata: jest.spyOn(writer, 'updateMetadata'),
     externalWrites: () => externalWrites,
@@ -2544,6 +2546,22 @@ async function callBulk(
 }
 
 describe('tasks:bulkUpdateStatus â€” five ids, one interleaved external write', () => {
+  it('keeps TASK_CONFLICT when the status enrichment read rejects', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      jest.spyOn(suite.index, 'getDetail').mockRejectedValue(new Error('EACCES'));
+      const result = await callBulk(suite);
+      expect(result.results[2]).toMatchObject({
+        taskId: BULK_CONTENDED_ID,
+        ok: false,
+        error: { code: 'TASK_CONFLICT' },
+      });
+      expect(result.results[2]).not.toHaveProperty('currentStatus');
+    } finally {
+      suite.dispose();
+    }
+  });
+
   it('returns one TASK_CONFLICT carrying currentStatus, and four successes', async () => {
     const suite = await buildBulkSuite();
     try {
@@ -3343,6 +3361,22 @@ describe('tasks:bulkUpdateLabel â€” the limits live in TaskMetadataPatchSch
 });
 
 describe('tasks:bulkUpdateLabel â€” tasks the writer refuses', () => {
+  it('delegates a rejected detail probe to the writer', async () => {
+    const suite = await buildLabelSuite([{ id: 'TASK_2026_402', raw: 'no frontmatter here at all\n' }]);
+    try {
+      jest.spyOn(suite.index, 'getDetail').mockRejectedValue(new Error('EACCES'));
+      const result = await callLabel(suite, 'add', 'security', ['TASK_2026_402']);
+      expect(result.results[0]).toMatchObject({
+        taskId: 'TASK_2026_402',
+        ok: false,
+        error: { code: 'TASK_EXCLUDED' },
+      });
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
   it('reports a task with no carrier on disk as TASK_NOT_FOUND', async () => {
     const suite = await buildLabelSuite([
       { id: 'TASK_2026_401', labels: ['licensing'] },

@@ -50,6 +50,8 @@ import { TASK_SPECS_TOKENS } from './di/tokens';
 import type { ITaskIndexStore } from './task-index.store';
 import type { ITaskIndexNotifier } from './task-index.port';
 
+const TASK_FOLDER_ID = /^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/;
+
 /** Fired whenever the derived index changes. Drives the `tasks:changed` push. */
 export interface TaskIndexChangeEvent {
   /** normalized workspace root. */
@@ -401,7 +403,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
   }
 
   private async containedTask(root: string, taskId: string): Promise<string> {
-    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) throw new Error('Invalid task folder');
+    if (!TASK_FOLDER_ID.test(taskId)) throw new Error('Invalid task folder');
     const canonicalRoot = await this.fs.realpath(root);
     let current = root;
     for (const segment of ['.ptah', 'specs', taskId]) {
@@ -416,7 +418,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
 
   async readFolderMarkdown(workspaceRoot: string, taskId: string, file: string): Promise<TasksReadFolderMarkdownResult> {
     const result = (state: TasksReadFolderMarkdownResult['state'], content: string | null = null): TasksReadFolderMarkdownResult => ({ taskId, file, state, content });
-    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) return result('rejected');
+    if (!TASK_FOLDER_ID.test(taskId)) return result('rejected');
     if (!/^[a-z0-9][a-z0-9._-]*\.md$/.test(file) || file.includes('..')) return result('rejected');
     try {
       const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
@@ -458,7 +460,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
 
   async listFolderEntries(workspaceRoot: string, taskId: string, directory: string): Promise<TasksListFolderEntriesResult> {
     const result = (state: TasksListFolderEntriesResult['state'], entries: TasksListFolderEntriesResult['entries'] = []): TasksListFolderEntriesResult => ({ taskId, directory, state, entries });
-    if (!/^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/.test(taskId)) return result('rejected');
+    if (!TASK_FOLDER_ID.test(taskId)) return result('rejected');
     const parts = directory === '' ? [] : directory.split('/');
     if (parts.length > 4 || parts.some((part) => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(part) || part === '..' || part.includes('..'))) return result('rejected');
     try {

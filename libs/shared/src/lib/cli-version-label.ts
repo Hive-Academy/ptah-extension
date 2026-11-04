@@ -10,7 +10,7 @@ export const VERSION_TOKEN =
 export function isCliProcessDump(value: string): boolean {
   if (value.includes('\n') || value.includes('\r') || value.length > 180)
     return true;
-  return /^\s*(usage:|error:|warning:|stdout|stderr)\b/i.test(value);
+  return /^\s*(?:usage:|error:|warning:|(?:stdout|stderr)\b)/i.test(value);
 }
 
 /** A bare calendar date such as 2026.11.03 (no pre-release suffix) is not a version. */

@@ -98,7 +98,8 @@ export class CliFileSystemProvider implements IFileSystemProvider {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new RangeError('Invalid read bound');
     const before = await fs.lstat(filePath);
     if (!before.isFile() || before.isSymbolicLink()) throw new Error('Not a regular file');
-    const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    // Windows has no O_NOFOLLOW; pre-open lstat, post-open dev/ino identity, and post-read lstat protect the read there.
+    const handle = await fs.open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
       if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error('File changed');

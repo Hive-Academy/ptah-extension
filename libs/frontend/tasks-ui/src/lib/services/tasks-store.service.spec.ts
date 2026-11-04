@@ -3658,6 +3658,46 @@ describe('TasksStore — folder reader facade', () => {
     expect(store.documentContent()).toBe('# v2');
   });
 
+  it('restores the open file and directory across overlapping pushes', async () => {
+    let board: Pending | null = null;
+    rpcCall.mockImplementation(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') {
+        return board === null ? ok(makeBoard({})) : board.promise;
+      }
+      if (method === 'tasks:getArtifact') {
+        return ok({ file: 'context.md', content: '# Ctx' });
+      }
+      if (method === 'tasks:listFolderEntries') {
+        return ok({
+          taskId: TASK,
+          directory: 'prototype',
+          state: 'too_many',
+          entries: [],
+        });
+      }
+      return err(`unexpected ${method}`);
+    });
+    await store.openFolderDirectory('prototype');
+    await store.readDocument('context.md');
+
+    // Two pushes join ONE board fetch, so both resume in the same tick: the
+    // first one's re-read empties the reader before the second one runs.
+    board = pending();
+    const push = {
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    };
+    store.handleMessage(push);
+    store.handleMessage(push);
+    board.resolve(ok(makeBoard({})));
+    await flush();
+
+    expect(store.openFile()).toBe('context.md');
+    expect(store.documentContent()).toBe('# Ctx');
+    expect(store.folderDirectory()).toBe('prototype');
+  });
+
   it('openArtifact refuses a directory entry and opens a typed file entry', async () => {
     await store.openArtifact('prototype');
     expect(open).not.toHaveBeenCalled();
