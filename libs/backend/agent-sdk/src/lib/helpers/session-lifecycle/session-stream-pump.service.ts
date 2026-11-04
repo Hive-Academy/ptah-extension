@@ -220,6 +220,9 @@ export class SessionStreamPump {
    *   `admission: 'require-idle'` admits the message only onto a live, idle
    *   record and otherwise throws `SessionAdmissionRefusedError` without
    *   queueing anything; absent, a message sent mid-turn is held as today.
+   *   `background: true` marks an automatic send on the session's own behalf
+   *   (idle `/compact`): it does not make this session the active one, so a
+   *   background tab cannot take over active-session lookups.
    */
   async sendMessage(
     sessionId: SessionId,
@@ -231,9 +234,13 @@ export class SessionStreamPump {
       admission?: AIMessageOptions['admission'];
       clientMessageId?: string;
       beforeEnqueue?: () => void;
+      background?: boolean;
     },
   ): Promise<void> {
     const requireIdle = options?.admission === 'require-idle';
+    const markActive = (): void => {
+      if (!options?.background) this.registry.markActive(sessionId as string);
+    };
     const session = this.registry.find(sessionId as string);
     if (!session) {
       if (requireIdle) {
@@ -249,7 +256,7 @@ export class SessionStreamPump {
       // await below yields, so the same check runs again before the push.
       this.assertAdmissible(sessionId, session);
     } else {
-      this.registry.markActive(sessionId as string);
+      markActive();
     }
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
@@ -271,7 +278,7 @@ export class SessionStreamPump {
       // turn start can interleave between this check and the enqueue.
       this.assertAdmissible(sessionId, session);
       options?.beforeEnqueue?.();
-      this.registry.markActive(sessionId as string);
+      markActive();
     }
     session.messageQueue.push({
       message: sdkUserMessage,

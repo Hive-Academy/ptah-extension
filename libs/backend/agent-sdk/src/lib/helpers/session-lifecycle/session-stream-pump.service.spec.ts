@@ -252,6 +252,21 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
     expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
   });
 
+  it('keeps the active session for a background require-idle send', async () => {
+    const h = makeHarness();
+    h.registry.register('other', {} as AISessionConfig, new AbortController());
+    h.registry.markActive('other');
+    await h.pump.sendMessage(TAB, '/compact', undefined, undefined, {
+      admission: 'require-idle',
+      background: true,
+    });
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(1);
+    expect(h.registry.getActiveSessionIds()[0]).not.toBe(TAB);
+    // Control: an ordinary send does make the session active.
+    await h.pump.sendMessage(TAB, 'hi');
+    expect(h.registry.getActiveSessionIds()[0]).toBe(TAB);
+  });
+
   it('ignores beforeEnqueue for ordinary admission', async () => {
     const h = makeHarness();
     const beforeEnqueue = jest.fn(() => {
