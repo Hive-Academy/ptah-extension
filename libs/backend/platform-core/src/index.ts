@@ -409,3 +409,7 @@ export type {
 export { KernelSessionDriverLock } from './session-driver-lock/kernel-session-driver-lock';
 export { NullSessionDriverLock } from './session-driver-lock/null-session-driver-lock';
 export { sessionDriverEndpoint } from './session-driver-lock/endpoint-names';
+
+export { listLocalDriverLocks, requestRelease } from './session-driver-lock/local-lock-client';
+export type { LocalLockListing, RequestReleaseResult } from './session-driver-lock/local-lock-client';
+export type { ControlListing, ListedControlLock, ControlReleaseResult } from './session-driver-lock/control-endpoint';

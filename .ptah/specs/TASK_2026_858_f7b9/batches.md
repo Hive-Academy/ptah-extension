@@ -538,7 +538,7 @@ phase summary.
   passes with direct Jest on main and branch, 13/13). For Phase C review: Windows endpoint uses a
   hash of domain + username (Node has no SID API), see `batch-8-report.md` Decisions.
 
-## Batch 9: C4a-2 control endpoint and local lock client (revised Round 6) — PENDING
+## Batch 9: C4a-2 control endpoint and local lock client (revised Round 6) — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -550,7 +550,7 @@ phase summary.
 - Phase: C | Phase review: at Batch 13
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,mcp-bench`
 
-### Task 9.1: Control keys, control endpoint, `listLocalDriverLocks`/`requestRelease` — PENDING
+### Task 9.1: Control keys, control endpoint, `listLocalDriverLocks`/`requestRelease` — COMPLETE
 
 - Files: W/`libs/backend/platform-core/src/session-driver-lock/{control-keys.ts,control-endpoint.ts,local-lock-client.ts}`
   (+ specs, cross-process listing/release spec), W/`libs/backend/platform-core/src/session-driver-lock/kernel-session-driver-lock.ts`
@@ -567,6 +567,9 @@ phase summary.
 ### Batch 9 verification
 
 - Operator release, `in-use`, wrong-key specs pass; verify passes
+- Result: executor Codex lane. Orchestrator verify: 14/15; the one failure is platform-core
+  `agent-pack-download.service.spec.ts` A2 no-clobber (not touched; passes alone 29/29). The live-record
+  predicate defaults to "live" (operator release refused) until Batch 10 wires the registry.
 
 ## Batch 10: C4a-3 registry lifecycle notifications (agent-sdk) (revised Round 6) — PENDING
 

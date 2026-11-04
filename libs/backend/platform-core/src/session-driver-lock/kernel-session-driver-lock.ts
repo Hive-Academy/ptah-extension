@@ -6,6 +6,7 @@ import type {
   ISessionDriverLock,
 } from '../interfaces/session-driver-lock.interface';
 import { sessionDriverEndpoint } from './endpoint-names';
+import { ControlEndpoint } from './control-endpoint';
 
 type Entry = HeldDriverLock & { server: net.Server; closing?: Promise<'released' | 'stranded'> };
 const RETRY_DELAYS = [100, 400, 1600];
@@ -19,6 +20,12 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Promise<DriverLockAcquisition>>();
   private nextNonce = 0;
+  private control?: ControlEndpoint;
+  private controlPending?: Promise<ControlEndpoint>;
+  constructor(private readonly liveRecordCheck: (sessionId: string) => boolean | Promise<boolean> = () => true) {
+    process.on('exit', this.onExit);
+  }
+  hasLiveRecord(sessionId: string): boolean | Promise<boolean> { return this.liveRecordCheck(sessionId); }
   private disposed = false;
   private readonly onExit = (): void => {
     for (const entry of this.entries.values()) {
@@ -26,9 +33,6 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
     }
   };
 
-  constructor() {
-    process.on('exit', this.onExit);
-  }
 
   async acquire(sessionId: string, owner: DriverHolder, purpose: 'drive' | 'refresh' = 'drive'): Promise<DriverLockAcquisition> {
     await this.retryStranded();
@@ -44,7 +48,14 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
 
   private async bind(sessionId: string, owner: DriverHolder, purpose: 'drive' | 'refresh'): Promise<DriverLockAcquisition> {
     let endpoint: string;
-    try { endpoint = sessionDriverEndpoint(sessionId); }
+    try {
+      endpoint = sessionDriverEndpoint(sessionId);
+      if (!this.control) {
+        this.controlPending ??= ControlEndpoint.register(owner.kind, this);
+        try { this.control = await this.controlPending; }
+        finally { this.controlPending = undefined; }
+      }
+    }
     catch (error) { return { ok: false, unavailable: String(error) }; }
     const server = net.createServer((socket) => {
       const entry = this.entries.get(sessionId);
@@ -158,5 +169,6 @@ export class KernelSessionDriverLock implements ISessionDriverLock {
     this.disposed = true;
     await Promise.all(Array.from(this.entries.values(), (entry) => this.closeEntry(entry)));
     process.removeListener('exit', this.onExit);
+    this.control?.unregister(this);
   }
 }
