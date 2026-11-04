@@ -147,5 +147,7 @@ describe('review contracts', () => {
     expect(ReviewFindingSchema.safeParse(finding).success).toBe(false);
     expect(ReviewFindingSchema.safeParse({ ...finding, verification: 'same-family-weaker' }).success).toBe(true);
     expect(ReviewRpcSchemas['review:listFindings'].params.safeParse({ attemptId: 'attempt-1' }).success).toBe(true);
+    expect(ReviewRpcSchemas['review:updateSettings'].params.safeParse({ settings: {}, token: 'secret' }).success).toBe(false);
+    expect(ReviewRpcSchemas['review:getSettings'].result.safeParse({ settings: {}, hasToken: true, token: 'secret' }).success).toBe(false);
   });
 });

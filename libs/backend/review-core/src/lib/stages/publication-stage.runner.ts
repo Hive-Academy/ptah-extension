@@ -1,11 +1,14 @@
 import { resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
+import { PERSISTENCE_TOKENS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { REVIEW_CORE_TOKENS } from '../../di/tokens';
 import { ReviewArtifactWriter, type ReviewPreviewInput } from '../lanes/review-artifact.writer';
 import { ReviewPolicyService } from '../review-policy.service';
 import type { ReviewQueueClaim } from '../review-queue.service';
 import type { ReviewStageEnvironment, ContextStageResult } from './context-stage.runner';
 import type { LensStageResult } from './lens-stage.runner';
+import { persistVerifiedFindings, verifiedReviewFindings } from './publication-finding.persistence';
+import { persistExportArtifact } from './publication-artifact.persistence';
 import type { VerificationResult } from './verification-stage.runner';
 
 export interface PublicationResult { artifactPath: string; exportPath: string; acceptedCount: number; suppressedCount: number }
@@ -17,6 +20,7 @@ export class PublicationStageRunner {
     @inject(REVIEW_CORE_TOKENS.ARTIFACT_WRITER) private readonly writer: ReviewArtifactWriter,
     private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
+    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: { readonly db: SqliteDatabase } | null = null,
   ) {}
 
   async run(claim: ReviewQueueClaim, context: ContextStageResult, lenses: LensStageResult,
@@ -35,6 +39,8 @@ export class PublicationStageRunner {
         suppressed.push({ finding: item.finding, reason });
       }
     }
+    const verified = verifiedReviewFindings(verdicts);
+    if (this.sqlite) persistVerifiedFindings(this.sqlite.db, claim.attemptId, verified);
     const walkthrough = await this.writer.readWalkthrough(out);
     const preview: ReviewPreviewInput = {
       headSha: claim.headSha, walkthrough, accepted, suppressed,
@@ -46,6 +52,7 @@ export class PublicationStageRunner {
     };
     const artifactPath = await this.writer.writePreview(out, preview, settings);
     const exportPath = await this.writer.writeExport(out, preview, settings);
+    if (this.sqlite) await persistExportArtifact(this.sqlite.db, claim.attemptId, exportPath);
     return { artifactPath, exportPath, acceptedCount: accepted.length, suppressedCount: suppressed.length };
   }
 }

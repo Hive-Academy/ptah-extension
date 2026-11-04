@@ -53,7 +53,7 @@ describe('migration 0065_ptah_review', () => {
     expect(rows.map((row) => row.name).sort()).toEqual([
       'review_artifacts', 'review_attempts', 'review_finding_events',
       'review_findings', 'review_heads', 'review_identity_matches',
-      'review_poll_state', 'review_publications', 'review_repositories',
+      'review_operator_settings', 'review_poll_state', 'review_publications', 'review_repositories',
       'review_stages',
     ]);
     expect(sql).not.toContain('${');
@@ -93,8 +93,8 @@ describe('migration 0065_ptah_review', () => {
     db.prepare(attempt).run('a0', sha1, 0, 'automatic', 'completed');
     const finding = `INSERT INTO review_findings
       (finding_id, repo_id, pr_number, path, category, status, severity,
-       confidence, first_head_sha, last_head_sha, created_at, updated_at)
-      VALUES (?, 'r1', 1, 'src/a.ts', 'bug', 'open', 'high', 0.9, ?, ?, 1, 1)`;
+       confidence, first_head_sha, last_head_sha, payload_json, created_at, updated_at)
+      VALUES (?, 'r1', 1, 'src/a.ts', 'bug', 'open', 'high', 0.9, ?, ?, '{}', 1, 1)`;
     const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
     expect(() => db.prepare(finding).run('prose-hash', sha1, sha1)).toThrow();
     db.prepare(finding).run(id, sha1, sha1);
@@ -123,6 +123,26 @@ describe('migration 0065_ptah_review', () => {
     expect(() => db.exec(sql)).not.toThrow();
     expect(db.prepare("SELECT count(*) AS count FROM sqlite_master WHERE name LIKE 'review_%'").get()).toEqual(before);
     expect(db.prepare('SELECT count(*) AS count FROM review_repositories').get()).toMatchObject({ count: 1 });
+  });
+
+  it('stores one validated operator row and required finding payload JSON', () => {
+    db.prepare(`INSERT INTO review_operator_settings (id, settings_json, updated_at) VALUES (1, '{}', 1)`).run();
+    expect(() => db.prepare(`INSERT INTO review_operator_settings (id, settings_json, updated_at) VALUES (2, '{}', 1)`).run()).toThrow();
+    expect(() => db.prepare(`UPDATE review_operator_settings SET settings_json = 'invalid'`).run()).toThrow();
+    const columns = db.prepare(`PRAGMA table_info(review_findings)`).all() as { name: string }[];
+    expect(columns.map((column) => column.name)).toContain('payload_json');
+    const attemptColumns = db.prepare(`PRAGMA table_info(review_attempts)`).all() as { name: string }[];
+    expect(attemptColumns.map((column) => column.name)).toContain('result_status');
+    seed();
+    const insert = db.prepare(`INSERT INTO review_findings (finding_id, repo_id, pr_number, path, category, status,
+      severity, confidence, first_head_sha, last_head_sha, payload_json, created_at, updated_at)
+      VALUES (?, 'r1', 1, 'src/a.ts', 'functional', 'open', 'Major', 0.9, ?, ?, ?, 1, 1)`);
+    expect(() => insert.run('01ARZ3NDEKTSV4RRFFQ69G5FAV', sha1, sha1, '{bad')).toThrow();
+    expect(() => insert.run('01ARZ3NDEKTSV4RRFFQ69G5FAV', sha1, sha1, '{}')).not.toThrow();
+    expect(() => db.prepare(`INSERT INTO review_findings (finding_id, repo_id, pr_number, path, category, status,
+      severity, confidence, first_head_sha, last_head_sha, created_at, updated_at)
+      VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FAW', 'r1', 1, 'src/a.ts', 'functional', 'open', 'Major', 0.9, ?, ?, 1, 1)`)
+      .run(sha1, sha1)).toThrow();
   });
 
   it('skips version 65 when the migration runner replays its chain', async () => {

@@ -68,7 +68,8 @@ export class ReviewRunsStore {
   async loadSettings(): Promise<void> {
     this.settingsState.set('loading');
     try {
-      this.settings.set(await this.request('review:getSettings', ReviewRpcSchemas['review:getSettings'].params.parse({}), ReviewRpcSchemas['review:getSettings'].result));
+      const response = await this.request('review:getSettings', ReviewRpcSchemas['review:getSettings'].params.parse({}), ReviewRpcSchemas['review:getSettings'].result);
+      this.settings.set(response.settings);
       this.settingsState.set('ready');
     } catch { this.settingsState.set('error'); }
   }

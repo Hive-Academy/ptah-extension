@@ -23,6 +23,8 @@ export const RPC_CAPABILITIES = [
   'skillSynthesis',
   /** SQLite-backed cron scheduler. */
   'cron',
+  /** Repository review runs, findings, settings, and exports. */
+  'review',
   /** Telegram / Discord / Slack messaging gateway. */
   'gateway',
   /** Local + cloud speech providers. */

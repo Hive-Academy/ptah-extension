@@ -5,6 +5,17 @@
   "projectType": "library",
   "tags": ["scope:shared", "type:util"],
   "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/review-contracts",
+        "main": "libs/backend/review-contracts/src/index.ts",
+        "tsConfig": "libs/backend/review-contracts/tsconfig.lib.json",
+        "assets": [],
+        "format": ["cjs"]
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

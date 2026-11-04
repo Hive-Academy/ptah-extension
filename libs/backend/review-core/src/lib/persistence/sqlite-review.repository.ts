@@ -96,9 +96,9 @@ export class SqliteReviewRepository implements IReviewRepository {
   async release(attemptId: string, owner: string, status: 'succeeded' | 'partial' | 'failed' | 'superseded', now: string): Promise<boolean> {
     const db = this.sqlite.db;
     const state = status === 'succeeded' || status === 'partial' ? 'completed' : status === 'failed' ? 'failed' : 'cancelled';
-    return db.transaction(() => db.prepare(`UPDATE review_attempts SET state = ?, ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
+    return db.transaction(() => db.prepare(`UPDATE review_attempts SET state = ?, result_status = ?, ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
       WHERE attempt_id = ? AND state = 'running' AND lease_owner = ? AND lease_expires_at > ?`)
-      .run(state, ms(now), attemptId, owner, ms(now)).changes === 1)();
+      .run(state, status, ms(now), attemptId, owner, ms(now)).changes === 1)();
   }
 
   async reconcileExpiredLeases(now: string): Promise<number> {

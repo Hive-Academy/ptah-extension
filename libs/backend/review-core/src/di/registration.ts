@@ -2,6 +2,9 @@ import type { DependencyContainer } from 'tsyringe';
 import { ReviewPolicyService } from '../lib/review-policy.service';
 import { ReviewQueueService } from '../lib/review-queue.service';
 import { SqliteReviewRepository } from '../lib/persistence/sqlite-review.repository';
+import { ReviewQueryRepository } from '../lib/persistence/review-query.repository';
+import { ReviewSettingsStore } from '../lib/persistence/review-settings.store';
+import { ReviewArtifactReader } from '../lib/persistence/review-artifact.reader';
 import { ReviewLaneAdmissionService, REVIEW_LANE_TOKENS } from '../lib/lanes/review-lane-admission.service';
 import { ReviewLaneRunner } from '../lib/lanes/review-lane.runner';
 import { ReviewWorktreeService } from '../lib/context/review-worktree.service';
@@ -25,6 +28,12 @@ import { ReviewArtifactWriter, type ReviewArtifactFileSystem } from '../lib/lane
  */
 export function registerReviewCore(container: DependencyContainer): void {
   container.registerSingleton(SqliteReviewRepository);
+  container.registerSingleton(ReviewQueryRepository);
+  container.register(REVIEW_CORE_TOKENS.QUERY_REPOSITORY, { useToken: ReviewQueryRepository });
+  container.registerSingleton(ReviewSettingsStore);
+  container.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useToken: ReviewSettingsStore });
+  container.registerSingleton(ReviewArtifactReader);
+  container.register(REVIEW_CORE_TOKENS.ARTIFACT_READER, { useToken: ReviewArtifactReader });
   container.register(REVIEW_CORE_TOKENS.REVIEW_REPOSITORY, { useToken: SqliteReviewRepository });
   container.register(REVIEW_CORE_TOKENS.QUEUE_REPOSITORY, { useToken: SqliteReviewRepository });
   container.register(REVIEW_CORE_TOKENS.CLOCK, { useValue: { now: () => new Date() } });

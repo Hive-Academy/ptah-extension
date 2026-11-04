@@ -5,6 +5,18 @@
   "projectType": "library",
   "tags": ["scope:extension", "type:feature"],
   "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/review-core",
+        "main": "libs/backend/review-core/src/index.ts",
+        "tsConfig": "libs/backend/review-core/tsconfig.lib.json",
+        "assets": [],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "better-sqlite3", "sqlite-vec"]
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

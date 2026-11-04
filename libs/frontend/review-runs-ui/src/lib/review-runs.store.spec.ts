@@ -48,4 +48,16 @@ describe('ReviewRunsStore', () => {
     store.setNoLanesAvailable();
     expect(store.state()).toBe('no-lanes');
   });
+
+  it('reads settings from the token-presence response without exposing a credential', async () => {
+    const settings = {
+      repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }],
+      maintainerLogins: ['maintainer'], pollMinutes: 30, globalPublicationPaused: true,
+      laneCapPerPr: 6, confidenceFloor: 0.8, maxNewInline: 10, fallbackFamilies: [],
+    };
+    call.mockResolvedValue({ isSuccess: () => true, data: { settings, hasToken: true } });
+    await store.loadSettings();
+    expect(store.settingsState()).toBe('ready');
+    expect(store.settings()).toEqual(settings);
+  });
 });

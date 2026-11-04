@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS review_repositories (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_review_repositories_identity
   ON review_repositories (lower(owner), lower(name));
 
+CREATE TABLE IF NOT EXISTS review_operator_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  settings_json TEXT NOT NULL CHECK (json_valid(settings_json)),
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS review_heads (
   repo_id TEXT NOT NULL,
   pr_number INTEGER NOT NULL CHECK (pr_number > 0),
@@ -41,6 +47,7 @@ CREATE TABLE IF NOT EXISTS review_attempts (
   attempt_number INTEGER NOT NULL CHECK (attempt_number >= 0),
   trigger TEXT NOT NULL CHECK (trigger IN ('automatic', 'manual')),
   state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
+  result_status TEXT CHECK (result_status IN ('succeeded', 'partial', 'failed', 'superseded')),
   queued_at INTEGER NOT NULL,
   started_at INTEGER,
   ended_at INTEGER,
@@ -88,6 +95,7 @@ CREATE TABLE IF NOT EXISTS review_findings (
   status TEXT NOT NULL,
   severity TEXT NOT NULL,
   confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
   first_head_sha TEXT NOT NULL,
   last_head_sha TEXT NOT NULL,
   current_anchor TEXT,

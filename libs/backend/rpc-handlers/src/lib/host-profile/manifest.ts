@@ -43,6 +43,7 @@ import {
   ContextRpcHandlers,
   CorpusRpcHandlers,
   CronRpcHandlers,
+  ReviewRpcHandlers,
   EmbedderRpcHandlers,
   EditorRpcHandlers,
   EnhancedPromptsRpcHandlers,
@@ -490,6 +491,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: CronRpcHandlers.METHODS,
     requires: ['cron'],
     handler: CronRpcHandlers,
+  },
+  {
+    key: 'review',
+    methods: ReviewRpcHandlers.METHODS,
+    requires: ['review'],
+    handler: ReviewRpcHandlers,
   },
   {
     key: 'gateway',

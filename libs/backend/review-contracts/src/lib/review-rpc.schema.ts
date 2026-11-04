@@ -18,6 +18,13 @@ const repo = z.object({ repo: RepoIdentitySchema }).strict();
 const result = z
   .object({ ok: z.boolean(), error: z.string().max(500).optional() })
   .strict();
+export const ReviewSettingsReadSchema = z.object({
+  settings: OperatorSettingsSchema,
+  hasToken: z.boolean(),
+}).strict();
+export const ReviewSettingsUpdateSchema = z.object({
+  settings: OperatorSettingsSchema,
+}).strict();
 export const ReviewRpcSchemas = {
   'review:listRuns': {
     params: z
@@ -44,9 +51,9 @@ export const ReviewRpcSchemas = {
     params: noParams,
     result: z.array(RepositorySettingsSchema).max(1),
   },
-  'review:getSettings': { params: noParams, result: OperatorSettingsSchema },
+  'review:getSettings': { params: noParams, result: ReviewSettingsReadSchema },
   'review:updateSettings': {
-    params: z.object({ settings: OperatorSettingsSchema }).strict(),
+    params: ReviewSettingsUpdateSchema,
     result: OperatorSettingsSchema,
   },
   'review:setPublicationPause': {
