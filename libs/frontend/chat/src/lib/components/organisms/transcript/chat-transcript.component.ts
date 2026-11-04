@@ -351,6 +351,8 @@ export class ChatTranscriptComponent {
   readonly active = input.required<boolean>();
   /** True for one session-switch entrance window. */
   readonly entering = input(false);
+  /** Fires after the entering scroller has its final offset, before paint. */
+  readonly entranceScrollRestored = output<void>();
   readonly paneSwitching = input(false);
   /**
    * True while this inactive transcript stays visible during a tab switch.
@@ -1167,15 +1169,14 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
+    // A pane that became active before its history was ready enters later.
+    // Restore its offset then, so the entrance notification still fires and
+    // the previous pane stops covering it. Same-pass activation is handled by
+    // the activation effect below (wasActive is still false here).
     effect(() => {
       const entering = this.entering();
       untracked(() => {
-        if (entering && this.workActive() && this.pinnedToBottom()) {
-          const el = this.scrollContainer()?.nativeElement;
-          if (el) {
-            this.lastScrollTop = 0;
-            el.scrollTop = 0;
-          }
+        if (entering && this.wasActive && this.workActive()) {
           this.restoreScrollOnActivation();
         }
       });
@@ -1228,13 +1229,6 @@ export class ChatTranscriptComponent {
       const isActive = this.workActive();
       untracked(() => {
         if (isActive && !this.wasActive) {
-          if (this.entering() && this.pinnedToBottom()) {
-            const el = this.scrollContainer()?.nativeElement;
-            if (el) {
-              this.lastScrollTop = 0;
-              el.scrollTop = 0;
-            }
-          }
           this.restoreScrollOnActivation();
           this.setupResizeObserver();
         } else if (!isActive) {
@@ -1400,6 +1394,7 @@ export class ChatTranscriptComponent {
     if (!this.workActive()) return;
     this.cancelScrollFrame();
     const generation = this.scrollGeneration;
+    const notifyEntrance = this.entering();
     this.scrollRestoreRef = afterNextRender(
       {
         write: () => {
@@ -1407,13 +1402,17 @@ export class ChatTranscriptComponent {
           this.scrollRestoreRef = null;
           if (!this.workActive()) return;
           const el = this.scrollContainer()?.nativeElement;
-          if (!el) return;
+          if (!el) {
+            if (notifyEntrance) this.entranceScrollRestored.emit();
+            return;
+          }
           if (this.pinnedToBottom() || this.savedScrollTop === null) {
             el.scrollTop = el.scrollHeight;
           } else {
             el.scrollTop = this.savedScrollTop;
           }
           this.lastScrollTop = el.scrollTop;
+          if (notifyEntrance) this.entranceScrollRestored.emit();
         },
       },
       { injector: this.injector },

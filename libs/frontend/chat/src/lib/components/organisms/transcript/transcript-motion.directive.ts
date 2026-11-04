@@ -17,6 +17,8 @@ export class TranscriptMotionDirective implements OnChanges {
   });
   readonly active = input.required<boolean>();
   readonly suppressed = input(false);
+  /** A session-switch window: the pane animates, its history rows do not. */
+  readonly paneSwitching = input(false);
   readonly historyReplaying = input(false);
   readonly pinnedToBottom = input(false);
 
@@ -41,7 +43,12 @@ export class TranscriptMotionDirective implements OnChanges {
     // an already populated tab still stay quiet.
     const activationCatchUp = !this.wasActive && active &&
       this.previousIds.some((id) => nextSet.has(id));
-    const suppressed = this.suppressed() || !active || activationCatchUp;
+    const openBatch = this.previousIds.length === 0 ||
+      !nextIds.some((id) => this.previousIds.includes(id));
+    // During a pane switch only history stays still (the open batch and replay
+    // pages). A live message that arrives in the window still enters once.
+    const suppressed = this.suppressed() || !active || activationCatchUp ||
+      (this.paneSwitching() && (openBatch || this.historyReplaying()));
     const next = planEntrance({
       previousIds: this.previousIds,
       nextIds,
