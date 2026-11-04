@@ -3,6 +3,7 @@ import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   SessionId,
   type AgentSessionOpenedPayload,
+  type SessionHandoffLinkedPayload,
   type SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
 import {
@@ -123,6 +124,26 @@ export function parseSessionHandoffOpenedPayload(
     displayPrompt: p['displayPrompt'],
     startedAt: p['startedAt'],
   };
+}
+
+/**
+ * Validate a `SessionHandoffLinkedPayload` received as the
+ * `sessionHandoff:linked` push (TASK_2026_876): both ends of the durable
+ * handoff edge are non-empty strings. Returns `null` for anything else; the
+ * caller logs and drops it. Hand-written like
+ * {@link parseSessionHandoffOpenedPayload}.
+ */
+export function parseSessionHandoffLinkedPayload(
+  value: unknown,
+): SessionHandoffLinkedPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const p = value as Record<string, unknown>;
+  const fromSessionId = p['fromSessionId'];
+  const toSessionId = p['toSessionId'];
+  if (!isNonEmptyString(fromSessionId) || !isNonEmptyString(toSessionId)) {
+    return null;
+  }
+  return { fromSessionId, toSessionId };
 }
 
 /**

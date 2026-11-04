@@ -5,11 +5,18 @@ import { TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import type { SessionStatsInputs } from '@ptah-extension/chat-ui';
 import {
+  InspectorLinkedSessionsComponent,
+  type SessionStatsInputs,
+} from '@ptah-extension/chat-ui';
+import { ClaudeRpcService, RpcResult } from '@ptah-extension/core';
+import type { SessionHandoffChainResult } from '@ptah-extension/shared';
+import {
+  HandoffChainClient,
   SessionInspectorStore,
   type SessionInspectorModel,
 } from '../../../services/session-inspector';
+import { SessionRowActionsService } from '../../../services/session-list/session-row-actions.service';
 import { SessionInspectorComponent } from './session-inspector.component';
 
 const emptyStats: SessionStatsInputs = {
@@ -100,6 +107,8 @@ describe('SessionInspectorComponent presentation', () => {
           provide: TabManagerService,
           useValue: { findTabByIdAcrossWorkspaces: () => null },
         },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        { provide: SessionRowActionsService, useValue: { openSession: jest.fn() } },
       ],
     }).overrideComponent(SessionInspectorComponent, {
       set: { imports: [NgTemplateOutlet], schemas: [NO_ERRORS_SCHEMA] },
@@ -447,5 +456,148 @@ describe('SessionInspectorComponent presentation', () => {
     const host = TestBed.createComponent(ControlsHost);
     host.detectChanges();
     expect(host.nativeElement.querySelector('h2')).toBeNull();
+  });
+});
+
+describe('SessionInspectorComponent linked sessions (TASK_2026_876)', () => {
+  const A = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const B = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const C = 'cccccccc-3333-4333-8333-333333333333';
+  const model = signal<SessionInspectorModel>({ ...emptyModel, sessionId: B });
+  let chain: SessionHandoffChainResult;
+  let rpcCall: jest.Mock;
+  let openSession: jest.Mock;
+
+  beforeEach(() => {
+    model.set({ ...emptyModel, sessionId: B });
+    chain = {
+      sessions: [
+        { sessionId: A, label: 'Plan the refactor' },
+        { sessionId: B, label: 'Implement batch 2' },
+        { sessionId: C, label: null },
+      ],
+    };
+    rpcCall = jest.fn(async () => new RpcResult(true, chain));
+    openSession = jest.fn(async () => 'opened');
+    TestBed.configureTestingModule({
+      imports: [SessionInspectorComponent],
+      providers: [
+        { provide: SessionInspectorStore, useValue: { modelFor: () => model } },
+        {
+          provide: TabManagerService,
+          useValue: { findTabByIdAcrossWorkspaces: () => null },
+        },
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+        { provide: SessionRowActionsService, useValue: { openSession } },
+      ],
+    }).overrideComponent(SessionInspectorComponent, {
+      set: {
+        imports: [NgTemplateOutlet, InspectorLinkedSessionsComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+  });
+  afterEach(() => TestBed.resetTestingModule());
+
+  async function create(
+    presentation: 'docked' | 'sheet' | 'embedded' | 'rail',
+    stats: SessionStatsInputs | null = emptyStats,
+  ) {
+    const fixture = TestBed.createComponent(SessionInspectorComponent);
+    fixture.componentRef.setInput('tabId', 'one');
+    fixture.componentRef.setInput('presentation', presentation);
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return { fixture, root: fixture.nativeElement as HTMLElement };
+  }
+
+  const section = (root: HTMLElement) =>
+    root.querySelector('ptah-inspector-linked-sessions');
+
+  it.each(['docked', 'sheet', 'embedded'] as const)(
+    'renders the chain in the %s body between stats and agents',
+    async (presentation) => {
+      const { root } = await create(presentation);
+      expect(rpcCall).toHaveBeenCalledWith('session:handoffChain', {
+        sessionId: B,
+      });
+      const host = section(root);
+      expect(host).not.toBeNull();
+      const order = Array.from(
+        root.querySelectorAll(
+          'ptah-inspector-session-stats[data-inspector-section], ptah-inspector-linked-sessions, ptah-inspector-agents-section',
+        ),
+        (el) => el.tagName.toLowerCase(),
+      );
+      expect(order).toEqual([
+        'ptah-inspector-session-stats',
+        'ptah-inspector-linked-sessions',
+        'ptah-inspector-agents-section',
+      ]);
+      const relations = Array.from(
+        root.querySelectorAll(
+          '[data-testid="inspector-linked-session-relation"]',
+        ),
+        (el) => el.textContent?.trim(),
+      );
+      expect(relations).toEqual([
+        'Continued from',
+        'This session',
+        'Continued in',
+      ]);
+    },
+  );
+
+  it('does not render the section or load the chain on the w-14 rail', async () => {
+    const { root } = await create('rail');
+    expect(section(root)).toBeNull();
+    expect(rpcCall).not.toHaveBeenCalled();
+  });
+
+  it('still shows the chain when the metrics snapshot is missing', async () => {
+    const { root } = await create('docked', null);
+    expect(root.querySelector('ptah-inspector-session-stats')).toBeNull();
+    expect(section(root)).not.toBeNull();
+  });
+
+  it('omits the section when the session has no chain', async () => {
+    chain = { sessions: [] };
+    const { root } = await create('docked');
+    expect(section(root)).toBeNull();
+  });
+
+  it('omits the section when the chain result is malformed', async () => {
+    rpcCall.mockResolvedValue(
+      new RpcResult(true, { sessions: [{ sessionId: 42, label: null }] }),
+    );
+    const { root } = await create('docked');
+    expect(section(root)).toBeNull();
+  });
+
+  it('opens another session through SessionRowActionsService and not the current one', async () => {
+    const { root } = await create('docked');
+    const buttons = root.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="inspector-linked-session"]',
+    );
+    buttons[1].click();
+    expect(openSession).not.toHaveBeenCalled();
+    buttons[0].click();
+    expect(openSession).toHaveBeenCalledWith({
+      id: A,
+      name: 'Plan the refactor',
+    });
+    buttons[2].click();
+    expect(openSession).toHaveBeenLastCalledWith({ id: C, name: '' });
+  });
+
+  it('releases the chain when the body collapses to the rail', async () => {
+    const { fixture } = await create('docked');
+    const client = TestBed.inject(HandoffChainClient);
+    expect(client.entriesFor(B)()).toHaveLength(3);
+    fixture.componentRef.setInput('presentation', 'rail');
+    fixture.detectChanges();
+    expect(client.entriesFor(B)()).toEqual([]);
   });
 });

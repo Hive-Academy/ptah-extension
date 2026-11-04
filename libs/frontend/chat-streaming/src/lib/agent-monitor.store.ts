@@ -2279,6 +2279,50 @@ export class AgentMonitorStore implements OnDestroy {
     this.rekeyUnmatchedSubagentEntries(tabId, realSessionId);
   }
 
+  /**
+   * Move the named agents to a new owner session (`agent-monitor:reparented`,
+   * TASK_2026_876). A session handoff that keeps its lanes hands them to the
+   * successor; the parent is the successor's tab id until
+   * {@link resolveParentSessionId} moves it onto the SDK id.
+   *
+   * Only the listed agents move, and a `SubagentRecord` moves only when its
+   * `agentId` is listed. An agent this store does not know is ignored; an
+   * ownerless agent is never claimed by a session it was not named for.
+   */
+  reparentAgents(
+    agentIds: readonly string[],
+    parentSessionId: string,
+  ): void {
+    if (!parentSessionId || agentIds.length === 0) return;
+    const ids = new Set(agentIds);
+    this.updateAgents((list) => {
+      let changed = false;
+      const next = list.map((a) => {
+        if (ids.has(a.agentId) && a.parentSessionId !== parentSessionId) {
+          changed = true;
+          return { ...a, parentSessionId };
+        }
+        return a;
+      });
+      return changed ? next : list;
+    });
+    this._subagents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [key, rec] of map) {
+        if (
+          rec.agentId !== undefined &&
+          ids.has(rec.agentId) &&
+          rec.parentSessionId !== parentSessionId
+        ) {
+          changed = true;
+          next.set(key, { ...rec, parentSessionId });
+        }
+      }
+      return changed ? next : map;
+    });
+  }
+
   clearCompleted(): void {
     this.updateAgents((list) => list.filter((a) => a.status === 'running'));
     if (this._agents().length === 0) {
