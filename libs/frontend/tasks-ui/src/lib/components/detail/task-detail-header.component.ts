@@ -109,16 +109,19 @@ let nextMenuId = 0;
             }
             <!-- One Tab stop: the trigger. The menu is display:none while
                  closed, and its items are reached with the arrow keys. -->
+            <!-- aria-disabled, not disabled, while a write runs: a picked
+                 status hands focus back to this trigger, and a disabled
+                 button would drop that focus to the document. -->
             <div class="relative" (focusout)="onMenuFocusOut($event)">
               <button
                 #statusTrigger
                 type="button"
-                class="btn btn-outline btn-sm gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                class="btn btn-outline btn-sm gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 aria-haspopup="menu"
                 [attr.aria-expanded]="menuVisible()"
                 [attr.aria-controls]="menuId"
                 data-testid="task-detail-status-trigger"
-                [disabled]="busy()"
+                [attr.aria-disabled]="busy() || null"
                 (click)="toggleMenu()"
                 (keydown.arrowdown)="openMenu('first', $event)"
                 (keydown.arrowup)="openMenu('last', $event)"
@@ -275,6 +278,7 @@ export class TaskDetailHeaderComponent {
 
   /** Enter, Space and a mouse click on the trigger all arrive here. */
   protected toggleMenu(): void {
+    if (this.busy()) return;
     if (this.menuVisible()) {
       this.closeMenu(false);
       return;

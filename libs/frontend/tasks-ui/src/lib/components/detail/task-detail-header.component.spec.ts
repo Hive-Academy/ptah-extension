@@ -115,9 +115,10 @@ describe('TaskDetailHeaderComponent', () => {
       starting: true,
     });
     expect(at('task-detail-start')?.hasAttribute('disabled')).toBe(true);
-    expect(at('task-detail-status-trigger')?.hasAttribute('disabled')).toBe(
-      true,
-    );
+    // The trigger stays focusable during a write; it is aria-disabled.
+    const trigger = at('task-detail-status-trigger');
+    expect(trigger?.hasAttribute('disabled')).toBe(false);
+    expect(trigger?.getAttribute('aria-disabled')).toBe('true');
   });
 
   describe('keyboard access (visual review N2, N3)', () => {
@@ -324,6 +325,45 @@ describe('TaskDetailHeaderComponent', () => {
       fixture.detectChanges();
 
       expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('keeps focus on the trigger through the write a keyboard pick starts', () => {
+      const { fixture, at, host } = render(makeDetail());
+      const changes: unknown[] = [];
+      fixture.componentInstance.statusChange.subscribe((c) => changes.push(c));
+      const trigger = at('task-detail-status-trigger') as HTMLButtonElement;
+      key(trigger, 'ArrowDown');
+      fixture.detectChanges();
+      TestBed.inject(ApplicationRef).tick();
+      const done = host.querySelector<HTMLElement>('[data-status="done"]');
+      done?.focus();
+      // Enter or Space on a native button fires its click.
+      done?.click();
+      fixture.detectChanges();
+      expect(changes).toEqual([
+        { taskId: 'TASK_2026_871_0d04', status: 'done' },
+      ]);
+      expect(document.activeElement).toBe(trigger);
+
+      // The host starts the write.
+      fixture.componentRef.setInput('busy', true);
+      fixture.detectChanges();
+      expect(trigger.disabled).toBe(false);
+      expect(trigger.getAttribute('aria-disabled')).toBe('true');
+      expect(document.activeElement).toBe(trigger);
+
+      // Enter / Space (click) and ArrowDown do not open the menu meanwhile.
+      trigger.click();
+      key(trigger, 'ArrowDown');
+      fixture.detectChanges();
+      TestBed.inject(ApplicationRef).tick();
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+
+      fixture.componentRef.setInput('busy', false);
+      fixture.detectChanges();
+      expect(trigger.hasAttribute('aria-disabled')).toBe(false);
       expect(document.activeElement).toBe(trigger);
     });
 
