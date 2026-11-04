@@ -100,6 +100,18 @@ export { registerPersistenceSqliteServices } from './lib/di/register';
 
 export { SessionStoreDatabase } from './lib/session-store/session-store-database';
 export { SqliteSessionRecordRepository } from './lib/session-store/sqlite-session-record-repository';
+export {
+  SessionStatsRepository,
+  sessionUsageContributionSchema,
+} from './lib/session-store/session-stats-repository';
+export { SqliteSessionUsageSink } from './lib/session-store/sqlite-session-usage-sink';
+export type {
+  SessionUsageContribution,
+  SessionStatsRow,
+  SessionUsageGroup,
+  TopUsageSession,
+  SessionModelUsageRow,
+} from './lib/session-store/session-stats-repository';
 export { FileSessionBlobStore } from './lib/session-store/file-session-blob-store';
 export {
   resolveSessionStoreDbPath,

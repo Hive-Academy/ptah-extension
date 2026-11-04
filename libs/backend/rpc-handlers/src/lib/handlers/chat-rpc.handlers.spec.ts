@@ -50,6 +50,7 @@ import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service'
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
+import type { ChatCarryOverService } from '../chat/session/chat-carry-over.service';
 
 type Mocked<T> = jest.Mocked<T>;
 
@@ -64,6 +65,7 @@ interface Suite {
   historyRead: Mocked<ChatHistoryReadService>;
   attachmentGuard: Mocked<ISessionAttachmentGuard>;
   permissionHandler: Mocked<SdkPermissionHandler>;
+  carryOver: Mocked<Pick<ChatCarryOverService, 'check' | 'carryOver'>>;
 }
 
 /**
@@ -113,6 +115,15 @@ function buildSuite(
     listPendingQuestions: jest.fn().mockReturnValue([]),
   } as unknown as Mocked<SdkPermissionHandler>;
 
+  const carryOver = {
+    check: jest.fn().mockResolvedValue({ eligible: false }),
+    carryOver: jest.fn().mockResolvedValue({
+      success: true,
+      providerId: 'anthropic',
+      providerName: 'Anthropic',
+    }),
+  } as unknown as Mocked<Pick<ChatCarryOverService, 'check' | 'carryOver'>>;
+
   const handlers = new ChatRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -123,6 +134,7 @@ function buildSuite(
     historyRead,
     attachmentGuard,
     permissionHandler,
+    carryOver,
     opts.spawner ?? null,
   );
 
@@ -137,6 +149,7 @@ function buildSuite(
     historyRead,
     attachmentGuard,
     permissionHandler,
+    carryOver,
   };
 }
 
@@ -240,6 +253,8 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       'chat:running-agents',
       'chat:agent-sessions',
       'agent:backgroundList',
+      'chat:carry-over-check',
+      'chat:carry-over',
     ]);
   });
 
@@ -461,6 +476,93 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
   // -------------------------------------------------------------------------
   // chat:agent-sessions — late adoption of live child-session tabs.
   // -------------------------------------------------------------------------
+
+  describe('chat:carry-over-check and chat:carry-over', () => {
+    const WORKSPACE = '/workspace/project';
+    const checkParams = { sessionId: SESSION_UUID, workspacePath: WORKSPACE };
+    const carryParams = {
+      sessionId: SESSION_UUID,
+      tabId: TAB_UUID,
+      workspacePath: WORKSPACE,
+      name: 'Continued chat',
+      ptahUiFence: true,
+    };
+
+    it('chat:carry-over-check delegates to ChatCarryOverService.check', async () => {
+      const h = buildSuite();
+      h.handlers.register();
+      const answer = {
+        eligible: true,
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+      } as const;
+      h.carryOver.check.mockResolvedValueOnce(answer);
+
+      await expect(
+        getHandler(h.rpc, 'chat:carry-over-check')(checkParams),
+      ).resolves.toBe(answer);
+      expect(h.carryOver.check).toHaveBeenCalledWith(checkParams);
+      expect(h.carryOver.carryOver).not.toHaveBeenCalled();
+    });
+
+    it('chat:carry-over delegates to ChatCarryOverService.carryOver', async () => {
+      const h = buildSuite();
+      h.handlers.register();
+
+      await expect(
+        getHandler(h.rpc, 'chat:carry-over')(carryParams),
+      ).resolves.toEqual({
+        success: true,
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+      });
+      expect(h.carryOver.carryOver).toHaveBeenCalledWith(carryParams);
+      expect(h.carryOver.check).not.toHaveBeenCalled();
+    });
+
+    it('returns a host refusal as a result, not an RPC error', async () => {
+      const h = buildSuite();
+      h.handlers.register();
+      const refusal = {
+        success: false,
+        reason: 'NOT_ELIGIBLE',
+        error: 'fixed host text',
+      } as const;
+      h.carryOver.carryOver.mockResolvedValueOnce(refusal);
+
+      await expect(
+        getHandler(h.rpc, 'chat:carry-over')(carryParams),
+      ).resolves.toBe(refusal);
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['chat:carry-over-check', 'a non-UUID sessionId', { ...checkParams, sessionId: 'tab_1' }],
+      ['chat:carry-over-check', 'an empty workspacePath', { ...checkParams, workspacePath: '' }],
+      ['chat:carry-over-check', 'an extra key', { ...checkParams, prompt: 'private' }],
+      ['chat:carry-over-check', 'no params', undefined],
+      ['chat:carry-over', 'a non-UUID sessionId', { ...carryParams, sessionId: 'tab_1' }],
+      ['chat:carry-over', 'a non-UUID tabId', { ...carryParams, tabId: 'tab_1' }],
+      ['chat:carry-over', 'an over-long name', { ...carryParams, name: 'x'.repeat(201) }],
+      ['chat:carry-over', 'an extra key', { ...carryParams, prompt: 'private' }],
+    ])('%s rejects %s with INVALID_PARAMS before the service', async (method, _label, params) => {
+      const h = buildSuite();
+      h.handlers.register();
+
+      const failure = await getHandler(h.rpc, method)(params).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(failure).toBeInstanceOf(RpcUserError);
+      expect((failure as RpcUserError).errorCode).toBe('INVALID_PARAMS');
+      expect((failure as RpcUserError).message).toBe('Invalid carry-over request');
+      expect(h.carryOver.check).not.toHaveBeenCalled();
+      expect(h.carryOver.carryOver).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+      expect(JSON.stringify(h.logger.debug.mock.calls)).not.toContain('private');
+    });
+  });
 
   describe('chat:agent-sessions', () => {
     const child: AgentSessionOpenedPayload = {

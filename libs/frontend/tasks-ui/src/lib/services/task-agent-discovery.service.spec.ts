@@ -79,6 +79,39 @@ describe('TaskAgentDiscoveryService', () => {
     ]);
   });
 
+  it.each([
+    ['codex-cli 0.155.1', 'Run through codex v0.155.1.'],
+    ['', 'Run through the codex CLI lane.'],
+    ['   ', 'Run through the codex CLI lane.'],
+    ['Usage: codex\nflags', 'Run through the codex CLI lane.'],
+  ])(
+    'describes the codex lane for version %j as %j',
+    async (version, description) => {
+      rpcCall.mockImplementation((method: string) =>
+        Promise.resolve(
+          method === 'autocomplete:agents'
+            ? ok({ agents: [] })
+            : ok({
+                clis: [
+                  {
+                    cli: 'codex' as const,
+                    installed: true,
+                    version,
+                    messagingMode: 'steer' as const,
+                  },
+                ],
+              }),
+        ),
+      );
+
+      await service.load();
+
+      expect(service.availableAgents()).toContainEqual(
+        expect.objectContaining({ id: 'lane:codex', description }),
+      );
+    },
+  );
+
   it('caches the roster after the first load', async () => {
     await service.load();
     await service.load();

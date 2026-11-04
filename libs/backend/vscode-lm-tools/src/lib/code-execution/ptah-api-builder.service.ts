@@ -674,20 +674,6 @@ export class PtahAPIBuilder {
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
-          getActiveSessionId: () => {
-            try {
-              const ids =
-                this.sdkSessionLifecycleManager?.getActiveSessionIds();
-              return ids && ids.length > 0 ? (ids[0] as string) : undefined;
-            } catch {
-              // degradation-audit: optional-capability - this is a best-effort
-              // lookup of the current agent session id for auto-detection; a
-              // lookup failure degrades to "no active session known", which
-              // resolveSessionId's own fallback already treats as a normal
-              // case.
-              return undefined;
-            }
-          },
           resolveSessionId: (tabIdOrSessionId: string) => {
             try {
               const rec =
@@ -1053,9 +1039,7 @@ export class PtahAPIBuilder {
    * 2. The workspace of the session that issued THIS MCP call, resolved from
    *    the request-scoped caller session id (concurrency-safe: bound to the
    *    exact caller, not whichever session is globally most-recently-active).
-   * 3. Most-recently-active SDK session's projectPath (used off the MCP call
-   *    path — e.g. stdio/CLI or internal calls — where no caller id exists).
-   * 4. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
+   * 3. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
    */
   private resolveSessionWorkspaceRoot(): string | undefined {
     const mgr = this.sdkSessionLifecycleManager;
@@ -1063,14 +1047,13 @@ export class PtahAPIBuilder {
       getCallerWorkspaceRoot,
       getCallerSessionId,
       getSessionWorkspace: (id) => mgr?.getSessionWorkspace(id),
-      getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),
       getProviderRoot: () => this.workspaceProvider.getWorkspaceRoot(),
     });
   }
 
   /**
    * Workspace roots the host itself recorded: the session-derived root
-   * (caller session → active session → platform provider, with the
+   * (caller session → platform provider, with the
    * caller-declared tier left out) and the platform's open folders. A
    * caller-declared root (an MCP URL segment, so caller input) is never in
    * this list unless the host recorded the same root itself.

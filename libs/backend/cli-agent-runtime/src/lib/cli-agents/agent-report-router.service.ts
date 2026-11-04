@@ -458,10 +458,10 @@ export class AgentReportRouter {
     }
 
     const adapter = this.agentAdapter;
-    const parentSessionId = candidates.find((id) =>
-      adapter.isSessionActive(id),
-    );
-    if (!parentSessionId) {
+    // The first recorded parseable parent is the owner. A later live ID
+    // does not authorize rerouting a report from an unreachable owner.
+    const parentSessionId = candidates[0];
+    if (!adapter.isSessionActive(parentSessionId)) {
       this.sessionChildren?.markReportRefused(
         childSessionId,
         summary?.trim() || firstLine(message, TILE_NOTE_PREVIEW_LENGTH),

@@ -204,4 +204,64 @@ describe('TaskColumnComponent', () => {
       expect(toggled).toEqual(['TASK_2026_200']);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_871 B4 — lane widths and the Cancelled rail
+  // -------------------------------------------------------------------------
+  describe('lane layout', () => {
+    function lane(
+      status: TaskStatus,
+      tasks: TaskSpecSummary[],
+      total: number | null = null,
+    ) {
+      const fixture = TestBed.createComponent(TaskColumnComponent);
+      fixture.componentRef.setInput('status', status);
+      fixture.componentRef.setInput('tasks', tasks);
+      fixture.componentRef.setInput('total', total);
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('uses 242px lanes that narrow to 220px from 1100px', () => {
+      const section = lane('backlog', [
+        makeTask('TASK_2026_200'),
+      ]).querySelector('section');
+      expect(section?.className).toContain('w-[242px]');
+      expect(section?.className).toContain('min-[1100px]:w-[220px]');
+      expect(section?.className).toContain('bg-surface-1');
+      expect(section?.className).toContain('border-surface-border');
+    });
+
+    it('collapses an empty Cancelled lane to a 58px rail that keeps its name and count', () => {
+      const host = lane('cancelled', []);
+      const rail = host.querySelector('[data-testid="task-column-rail"]');
+
+      expect(rail?.className).toContain('w-[58px]');
+      expect(rail?.textContent).toContain('Cancelled');
+      expect(
+        host
+          .querySelector('[data-testid="task-column-count"]')
+          ?.textContent?.trim(),
+      ).toBe('0');
+    });
+
+    it('expands the Cancelled lane as soon as it holds or hides a task', () => {
+      expect(
+        lane('cancelled', [
+          makeTask('TASK_2026_200', 'cancelled'),
+        ]).querySelector('[data-testid="task-column-rail"]'),
+      ).toBeNull();
+      expect(
+        lane('cancelled', [], 3).querySelector(
+          '[data-testid="task-column-rail"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('never collapses another empty status', () => {
+      expect(
+        lane('blocked', []).querySelector('[data-testid="task-column-rail"]'),
+      ).toBeNull();
+    });
+  });
 });

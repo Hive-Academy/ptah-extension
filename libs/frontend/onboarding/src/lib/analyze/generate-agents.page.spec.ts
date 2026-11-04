@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -6,7 +6,17 @@ import { VSCodeService } from '@ptah-extension/core';
 import type { SetupGenerationRunLifecycle, SetupGenerationRunState } from '@ptah-extension/shared';
 import { AgentGenerationStore, GenerationHandoffStore, GenerationWorkflowStore, WizardRpcService } from '@ptah-extension/setup-wizard';
 import { GenerationStepStore } from './generation-step.store';
+import { DetailsLogComponent } from '../shared/details-log.component';
 import { GenerateAgentsPage } from './generate-agents.page';
+
+@Component({ selector: 'ptah-details-log', standalone: true, template: '<div role="log" aria-label="Session log"></div>' })
+class DetailsLogStubComponent {
+  readonly mode = input.required<'tab' | 'analysis'>();
+  readonly tabId = input<string | null>(null);
+  readonly variant = input<'pane' | 'disclosure'>('disclosure');
+  readonly liveState = input<'live' | 'idle' | 'stopped' | 'loading' | 'unavailable'>('idle');
+  readonly footerNote = input('Read-only view.');
+}
 
 const binding = { tabId: 'agent-tab', workspacePath: '/ws', workflow: 'setup-agent-generation' as const };
 const run = (status: SetupGenerationRunLifecycle): SetupGenerationRunState => ({
@@ -48,6 +58,10 @@ describe('GenerateAgentsPage', () => {
       { provide: GenerationWorkflowStore, useValue: workflow }, { provide: GenerationHandoffStore, useValue: handoff },
       { provide: AgentGenerationStore, useValue: agents }, { provide: GenerationStepStore, useValue: step }, { provide: WizardRpcService, useValue: rpc },
     ] });
+    TestBed.overrideComponent(GenerateAgentsPage, {
+      remove: { imports: [DetailsLogComponent] },
+      add: { imports: [DetailsLogStubComponent] },
+    });
   });
   afterEach(() => TestBed.resetTestingModule());
 
@@ -75,6 +89,40 @@ describe('GenerateAgentsPage', () => {
   it('shows a no longer current recovery for a mismatched run', async () => {
     mismatch.set(true); const element = await render('idle');
     expect(element.querySelector('[data-testid="generate-recovery-panel"]')?.textContent).toContain('no longer current');
+  });
+  it('places the permanent bound log before the run card and updates its live state', async () => {
+    const element = await render('running');
+    const layout = element.querySelector('ptah-live-run-layout');
+    const log = layout?.querySelector('ptah-details-log');
+    const panel = layout?.querySelector('ptah-run-panel');
+    expect(log).not.toBeNull();
+    expect(log?.hasAttribute('runlog')).toBe(true);
+    expect(log?.compareDocumentPosition(panel as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(log?.querySelector('[role="log"]')).not.toBeNull();
+    expect(log?.querySelector('summary')).toBeNull();
+    const logInstance = fixture.debugElement.query((debug) => debug.componentInstance instanceof DetailsLogStubComponent)?.componentInstance as DetailsLogStubComponent;
+    expect(logInstance.variant()).toBe('pane');
+    expect(logInstance.tabId()).toBe('agent-tab');
+    expect(logInstance.liveState()).toBe('live');
+    state.set('cancelling'); fixture.detectChanges();
+    expect(logInstance.liveState()).toBe('stopped');
+    mismatch.set(true); fixture.detectChanges();
+    expect(element.querySelector('[role="log"]')).toBeNull();
+  });
+  it('keeps the pane log on a bound idle page', async () => {
+    const element = await render('idle');
+    const log = element.querySelector('ptah-live-run-layout ptah-details-log');
+    expect(log).not.toBeNull();
+    const logInstance = fixture.debugElement.query((debug) => debug.componentInstance instanceof DetailsLogStubComponent)?.componentInstance as DetailsLogStubComponent;
+    expect(logInstance.variant()).toBe('pane');
+    expect(logInstance.liveState()).toBe('idle');
+    expect(element.querySelector('[data-testid="generate-state-chip"]')).not.toBeNull();
+  });
+  it('omits the log cell when the tab is unbound', async () => {
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue(null);
+    const element = await render('idle');
+    expect(element.querySelector('[data-testid="generate-recovery-panel"]')).not.toBeNull();
+    expect(element.querySelector('ptah-live-run-layout ptah-details-log')).toBeNull();
   });
   it('renders completed cards from fileName and facts from counts', async () => {
     current.set({ ...run('completed'), result: { status: 'completed', success: true, source: run('completed').source,

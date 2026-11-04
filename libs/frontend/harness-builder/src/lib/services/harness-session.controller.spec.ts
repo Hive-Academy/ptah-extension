@@ -12,14 +12,18 @@ const intake = { what: 'Scheduler', audience: 'b2b' as const, stack: 'recommend'
 type TestTab = {
   id: string;
   workflow?: 'harness-new-project' | 'harness-configure';
-  status: 'fresh' | 'loaded' | 'streaming' | 'switching';
+  status: 'fresh' | 'loaded' | 'streaming' | 'resuming' | 'switching' | 'awaiting-background' | 'sleeping';
   claudeSessionId: string | null;
-  messages: Array<{ id: string; role: 'user' | 'assistant'; rawContent: string }>;
+  streamingState?: { currentMessageId: string | null } | null;
+  messages: Array<{ id: string; role: 'user' | 'assistant'; rawContent: string; timestamp?: number }>;
 };
 
 describe('HarnessSessionController', () => {
   let controller: HarnessSessionController;
   let tabsSignal: ReturnType<typeof signal<TestTab[]>>;
+  let backgroundTab: TestTab | null;
+  let backgroundTabsRevision: ReturnType<typeof signal<number>>;
+  let streamingTabs: ReturnType<typeof signal<Set<string>>>;
   let send: jest.Mock;
   let abort: jest.Mock;
   let getProposal: jest.Mock;
@@ -37,6 +41,9 @@ describe('HarnessSessionController', () => {
   beforeEach(() => {
     localStorage.clear();
     tabsSignal = signal<TestTab[]>([]);
+    backgroundTab = null;
+    backgroundTabsRevision = signal(0);
+    streamingTabs = signal(new Set<string>());
     send = jest.fn().mockResolvedValue({ success: true });
     abort = jest.fn().mockResolvedValue({ success: true, data: { success: true } });
     getProposal = jest.fn().mockResolvedValue({ proposal: { version: 1 } });
@@ -61,13 +68,15 @@ describe('HarnessSessionController', () => {
       { provide: TabManagerService, useValue: {
         ...tabs,
         tabs: tabsSignal,
+        backgroundTabsRevision,
+        isTabStreaming: (id: string) => streamingTabs().has(id),
         activeWorkspacePath: root,
         setFirstMessagePreamble: jest.fn(),
         setMessages: jest.fn((id: string, messages: TestTab['messages']) => {
           tabsSignal.update((items) => items.map((item) => item.id === id ? { ...item, messages } : item));
         }),
         findTabByIdAcrossWorkspaces: (id: string) => {
-          const tab = tabsSignal().find((item) => item.id === id);
+          const tab = tabsSignal().find((item) => item.id === id) ?? (backgroundTab?.id === id ? backgroundTab : null);
           return tab ? { tab, workspacePath: root } : null;
         },
       } },
@@ -351,4 +360,203 @@ describe('HarnessSessionController', () => {
     getProposal.mockResolvedValueOnce({ proposal: null });
     expect(await session.restore('tab-1')).toBe('proposal-unavailable');
   });
+
+  const tick = () => TestBed.tick();
+  const updateTab = (change: Partial<TestTab>) => {
+    tabsSignal.update((items) => items.map((item) => item.id === 'tab-1' ? { ...item, ...change } : item));
+  };
+  const running = () => {
+    updateTab({ status: 'streaming', claudeSessionId: '11111111-1111-4111-8111-111111111111', streamingState: { currentMessageId: 'a-1' } });
+    streamingTabs.set(new Set(['tab-1']));
+  };
+  const idle = () => {
+    updateTab({ status: 'loaded', streamingState: { currentMessageId: null } });
+    streamingTabs.set(new Set());
+  };
+  const started = async () => {
+    const session = controller.session('new-project');
+    await session.start({ mode: 'new-project', workspaceRoot: root, intake });
+    return session;
+  };
+  const stoppedRunning = async () => {
+    const session = await started();
+    running();
+    expect(await session.stop()).toBe('stopped');
+    expect(session.phase()).toBe('done');
+    return session;
+  };
+
+  describe('turn-end level rule', () => {
+    it('(g) follows a bound tab in a background workspace', async () => {
+      backgroundTab = { id: 'bg', workflow: 'harness-new-project', status: 'streaming', claudeSessionId: null,
+        messages: [{ id: 'a1', role: 'assistant', rawContent: 'Progress' }] };
+      records.writeSession({ version: 1, tabId: 'bg', mode: 'new-project', workspacePath: root,
+        intake, intakeHash: 'a', sendAttempt: { count: 1, ackedAt: new Date().toISOString() } });
+      const session = controller.session('new-project');
+      expect(await session.restore('bg')).toBe('ready');
+      expect(session.latestAssistantMessage()?.text).toBe('Progress');
+      backgroundTab = { ...backgroundTab, status: 'loaded', claudeSessionId: '11111111-1111-4111-8111-111111111111' };
+      backgroundTabsRevision.update((value) => value + 1);
+      tick();
+      expect(session.phase()).toBe('done');
+      expect(session.record()?.sessionId).toBe('11111111-1111-4111-8111-111111111111');
+    });
+    it('(a) completes a sent reply when the tab becomes idle', async () => {
+      const session = await started();
+      running();
+      await session.send('go');
+      expect(session.phase()).toBe('busy');
+      idle(); tick();
+      expect(session.phase()).toBe('done');
+    });
+    it('(b) completes the first send', async () => {
+      const session = await started();
+      running(); tick();
+      expect(session.phase()).toBe('busy');
+      idle(); tick();
+      expect(session.phase()).toBe('done');
+    });
+    it('(c) follows observed and batched queue transitions', async () => {
+      const session = await started();
+      running(); tick();
+      idle(); tick(); expect(session.phase()).toBe('done');
+      updateTab({ status: 'resuming', messages: [{ id: 'u2', role: 'user', rawContent: 'queued' }] });
+      tick(); expect(session.phase()).toBe('busy');
+      idle(); updateTab({ status: 'resuming' }); tick();
+      expect(session.phase()).toBe('busy');
+      idle(); tick(); expect(session.phase()).toBe('done');
+    });
+    it('(d) respects spinner and unsettled tree exceptions', async () => {
+      const session = await started();
+      running(); tick();
+      for (const status of ['awaiting-background', 'sleeping'] as const) {
+        streamingTabs.set(new Set()); updateTab({ status }); tick();
+        expect(session.phase()).toBe('done');
+        streamingTabs.set(new Set(['tab-1'])); tick();
+        expect(session.phase()).toBe('busy');
+      }
+    });
+    it('(e) leaves failed sends failed', async () => {
+      const session = await started();
+      send.mockRejectedValueOnce(new Error('send failed'));
+      expect(await session.send('go')).toBe(false);
+      idle(); tick(); expect(session.phase()).toBe('failed');
+    });
+    it('(f) leaves a pending abort cancelling', async () => {
+      const session = await started(); running();
+      let resolve!: (value: { success: boolean; data: { success: boolean } }) => void;
+      abort.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+      const stopping = session.stop(); tick();
+      expect(session.phase()).toBe('cancelling');
+      resolve({ success: true, data: { success: true } }); await stopping;
+    });
+  });
+
+  describe('own-send stop guard', () => {
+    it('(h) holds stopped through late stream clear, then follows a new turn', async () => {
+      const session = await stoppedRunning();
+      tick(); expect(session.phase()).toBe('done');
+      streamingTabs.set(new Set()); tick(); expect(session.phase()).toBe('done');
+      idle(); tick(); expect(session.phase()).toBe('done');
+      running(); tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s1) ignores late hydration and rekeying of the stopped turn', async () => {
+      const session = await stoppedRunning();
+      updateTab({ messages: [{ id: 'u-late', role: 'user', rawContent: 'go', timestamp: Date.now() + 60000 }] });
+      tick(); expect(session.phase()).toBe('done');
+      updateTab({ messages: [{ id: 'native-1', role: 'user', rawContent: 'go', timestamp: Date.now() + 60000 }] });
+      tick(); expect(session.phase()).toBe('done');
+      idle(); tick(); expect(session.phase()).toBe('done');
+    });
+    it('(s2) clears at its own reply send before the send resolves', async () => {
+      const session = await stoppedRunning();
+      let resolve!: (value: { success: boolean }) => void;
+      send.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+      const sending = session.send('next'); tick();
+      expect(session.phase()).toBe('busy');
+      resolve({ success: true }); await sending;
+      idle(); tick(); expect(session.phase()).toBe('done');
+    });
+    it('(s2a) keeps stopped when retry reconciles without sending', async () => {
+      const session = await stoppedRunning();
+      expect(await session.retrySend()).toBe(false);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(session.phase()).toBe('done');
+      tick(); expect(session.phase()).toBe('done');
+      idle(); tick(); running(); tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s2c) clears at a first-send retry sink after an unacked stop', async () => {
+      tabsSignal.set([{ id: 'tab-1', workflow: 'harness-new-project', status: 'loaded', claudeSessionId: null, messages: [] }]);
+      records.writeSession({ version: 1, tabId: 'tab-1', mode: 'new-project', workspacePath: root, intake, intakeHash: 'a', sendAttempt: { count: 1 } });
+      streamingTabs.set(new Set(['tab-1']));
+      const session = controller.session('new-project');
+      expect(await session.restore('tab-1')).toBe('ready');
+      expect(await session.stop()).toBe('stopped'); tick(); expect(session.phase()).toBe('done');
+      let resolve!: (value: { success: boolean }) => void;
+      send.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+      const retry = session.retrySend();
+      await Promise.resolve();
+      expect(send).toHaveBeenCalledTimes(1);
+      resolve({ success: true }); expect(await retry).toBe(true);
+      expect(session.phase()).toBe('busy');
+      streamingTabs.set(new Set()); tick(); expect(session.phase()).toBe('done');
+    });
+    it('(s3) releases after observed idle and sees a later external send', async () => {
+      const session = await stoppedRunning();
+      idle(); tick(); expect(session.phase()).toBe('done');
+      running(); updateTab({ messages: [{ id: 'u-ext', role: 'user', rawContent: 'external' }] });
+      tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s4) holds stopped for an external send without observed idle', async () => {
+      const session = await stoppedRunning();
+      updateTab({ status: 'resuming', messages: [{ id: 'u-ext', role: 'user', rawContent: 'external' }] });
+      tick(); tick(); expect(session.phase()).toBe('done');
+      idle(); tick(); running(); tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s4b) holds stopped through back-to-back queued flushes', async () => {
+      const session = await stoppedRunning();
+      for (const n of [2, 3]) {
+        updateTab({ streamingState: { currentMessageId: `a-${n}` }, messages: [{ id: `u-${n}`, role: 'user', rawContent: 'queued' }] });
+        tick(); expect(session.phase()).toBe('done');
+      }
+      expect(send).toHaveBeenCalledTimes(1);
+      idle(); tick(); running(); tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s5) failed abort leaves failed and no guard', async () => {
+      const session = await started(); running();
+      abort.mockRejectedValueOnce(new Error('abort failed'));
+      expect(await session.stop()).toBe('uncertain'); tick(); expect(session.phase()).toBe('failed');
+      await session.send('again'); expect(session.phase()).toBe('busy');
+      idle(); tick(); running(); tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s5b) a rejected abort response sets no guard', async () => {
+      const session = await started(); running();
+      abort.mockResolvedValueOnce({ success: true, data: { success: false } });
+      expect(await session.stop()).toBe('uncertain'); tick();
+      expect(session.phase()).toBe('failed');
+      await session.send('again'); idle(); tick(); running(); tick();
+      expect(session.phase()).toBe('busy');
+    });
+    it('(s6b) a missing bound tab clears the guard', async () => {
+      const session = await stoppedRunning();
+      tabsSignal.set([]); tick(); expect(session.record()).toBeNull();
+      tabsSignal.set([{ id: 'tab-1', workflow: 'harness-new-project', status: 'streaming', claudeSessionId: null, messages: [] }]);
+      expect(await session.restore('tab-1')).toBe('ready');
+      tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(s6) restore switches the guarded tab', async () => {
+      const session = await stoppedRunning();
+      tabsSignal.update((items) => [...items, { id: 'tab-2', workflow: 'harness-new-project', status: 'loaded', claudeSessionId: null, messages: [] }]);
+      records.writeSession({ ...session.record()!, tabId: 'tab-2', sessionId: undefined });
+      expect(await session.restore('tab-2')).toBe('ready');
+      tabsSignal.update((items) => items.map((item) => item.id === 'tab-2' ? { ...item, status: 'streaming' } : item));
+      tick(); expect(session.phase()).toBe('busy');
+    });
+    it('(k) its own successful send resumes Working', async () => {
+      const session = await stoppedRunning();
+      expect(await session.send('again')).toBe(true);
+      tick(); expect(session.phase()).toBe('busy');
+    });
+  });
+
 });

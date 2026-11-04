@@ -25,7 +25,11 @@ export {
   type AutopilotTabState,
 } from './autopilot-state.service';
 export { EffortStateService } from './effort-state.service';
-export { AuthStateService } from './auth-state.service';
+export {
+  AuthStateService,
+  type AuthRequiredBanner,
+  type AuthRequiredBannerOrigin,
+} from './auth-state.service';
 export { LlmProviderStateService } from './llm-provider-state.service';
 export { type MessageHandler, MESSAGE_HANDLERS } from './message-router.types';
 export {

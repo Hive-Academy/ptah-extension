@@ -2250,7 +2250,11 @@ describe('Codex metadata identity', () => {
       cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [],
     });
     await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
-    const reloaded = new SessionMetadataStore(storage, asLogger(createMockLogger()));
+    const contributions: Array<{ eventKey: string; totalCostMicroUsd: number | null }> = [];
+    const reloaded = new SessionMetadataStore(
+      storage, asLogger(createMockLogger()), undefined, undefined, undefined,
+      { recordUsage: (value) => { contributions.push(value); } },
+    );
     const row = await reloaded.get(threadId);
     expect(row?.totalTokens).toEqual({ input: 9, output: 2 });
     expect(row?.totalCost).toBeNull();
@@ -2261,6 +2265,17 @@ describe('Codex metadata identity', () => {
     owner.recordTurnPrice({ totalCost: 0.0001, costBasis: 'estimated' });
     await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
     expect((await reloaded.get(threadId))?.totalCost).toBe(0.0001);
+    expect(contributions.at(-1)).toMatchObject({
+      eventKey: expect.stringContaining('#price#100'),
+      totalCostMicroUsd: 100,
+    });
+    owner.recordTurnPrice({ totalCost: 0.0001, costBasis: 'estimated' });
+    await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect(contributions.at(-1)).toMatchObject({
+      eventKey: expect.stringContaining('#price#200'),
+      totalCostMicroUsd: 100,
+    });
+    expect(contributions.at(-2)?.eventKey).not.toBe(contributions.at(-1)?.eventKey);
     const priced = owner.serialize();
     if (!priced.pricing) throw new Error('Expected priced checkpoint');
     await expect(reloaded.updateCodexUsageCheckpoint(threadId, {

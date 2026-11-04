@@ -513,40 +513,99 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
   describe('spawn() with SDK adapter', () => {
     it('starts SDK and handle records at turn one', async () => {
-      const sdk = await manager.spawn({ task: 'A', cli: 'codex', workingDirectory: '/workspace/root' });
-      expect((manager.getStatus(sdk.agentId) as AgentProcessInfo).turnSeq).toBe(1);
-      const handle = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
-        task: 'B', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
+      const sdk = await manager.spawn({
+        task: 'A',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
       });
-      expect((manager.getStatus(handle.agentId) as AgentProcessInfo).turnSeq).toBe(1);
+      expect((manager.getStatus(sdk.agentId) as AgentProcessInfo).turnSeq).toBe(
+        1,
+      );
+      const handle = await manager.spawnFromSdkHandle(
+        createMockSdkHandle().handle,
+        {
+          task: 'B',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          expectsMcp: false,
+        },
+      );
+      expect(
+        (manager.getStatus(handle.agentId) as AgentProcessInfo).turnSeq,
+      ).toBe(1);
     });
 
-    it('inherits owner and predecessor on resume while honoring an explicit owner', async () => {
-      const first = await manager.spawn({ task: 'A', cli: 'codex', workingDirectory: '/workspace/root',
-        parentSessionId: 'owner-one', resumeSessionId: 'thread' });
-      const inherited = await manager.spawn({ task: 'B', cli: 'codex', workingDirectory: '/workspace/root',
-        resumeSessionId: 'thread' });
-      expect(manager.getStatus(inherited.agentId)).toMatchObject({
-        parentSessionId: 'owner-one', resumedFromAgentId: first.agentId,
-      });
-      const explicit = await manager.spawn({ task: 'C', cli: 'codex', workingDirectory: '/workspace/root',
-        parentSessionId: 'owner-two', resumeSessionId: 'thread' });
-      expect((manager.getStatus(explicit.agentId) as AgentProcessInfo).parentSessionId).toBe('owner-two');
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('resume owner'), expect.anything());
-    });
-
-    it('inherits owner and predecessor from a prior SDK-handle record', async () => {
-      const first = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
-        task: 'A', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
-        parentSessionId: 'owner', resumeSessionId: 'thread',
-      });
-      const resumed = await manager.spawnFromSdkHandle(createMockSdkHandle().handle, {
-        task: 'B', cli: 'ptah-cli', workingDirectory: '/workspace/root', expectsMcp: false,
+    it('keeps predecessor but uses only the current caller as resume owner', async () => {
+      const first = await manager.spawn({
+        task: 'A',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId: 'owner-one',
         resumeSessionId: 'thread',
       });
-      expect(manager.getStatus(resumed.agentId)).toMatchObject({
-        parentSessionId: 'owner', resumedFromAgentId: first.agentId,
+      const inherited = await manager.spawn({
+        task: 'B',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: 'thread',
       });
+      expect(manager.getStatus(inherited.agentId)).toMatchObject({
+        resumedFromAgentId: first.agentId,
+      });
+      expect(
+        (manager.getStatus(inherited.agentId) as AgentProcessInfo)
+          .parentSessionId,
+      ).toBeUndefined();
+      const explicit = await manager.spawn({
+        task: 'C',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId: 'owner-two',
+        resumeSessionId: 'thread',
+      });
+      expect(
+        (manager.getStatus(explicit.agentId) as AgentProcessInfo)
+          .parentSessionId,
+      ).toBe('owner-two');
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('resume owner'),
+        expect.objectContaining({
+          agentId: explicit.agentId,
+          previousAgentId: inherited.agentId,
+          parentSessionId: 'owner-two',
+        }),
+      );
+    });
+
+    it('keeps predecessor but no owner from a prior SDK-handle record', async () => {
+      const first = await manager.spawnFromSdkHandle(
+        createMockSdkHandle().handle,
+        {
+          task: 'A',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          expectsMcp: false,
+          parentSessionId: 'owner',
+          resumeSessionId: 'thread',
+        },
+      );
+      const resumed = await manager.spawnFromSdkHandle(
+        createMockSdkHandle().handle,
+        {
+          task: 'B',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          expectsMcp: false,
+          resumeSessionId: 'thread',
+        },
+      );
+      expect(manager.getStatus(resumed.agentId)).toMatchObject({
+        resumedFromAgentId: first.agentId,
+      });
+      expect(
+        (manager.getStatus(resumed.agentId) as AgentProcessInfo)
+          .parentSessionId,
+      ).toBeUndefined();
     });
     it('should call runSdk() instead of child_process.spawn for SDK adapters', async () => {
       // Auto-resolve the SDK handle after a tick
@@ -1202,8 +1261,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       previous.info.parentSessionId = 'stale-owner';
 
       const resumed = await manager.spawn({
-        task: 'Fix the lexer tests', cli: 'codex',
-        workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
       });
       const info = manager.getStatus(resumed.agentId) as AgentProcessInfo;
       expect(info.parentSessionId).toBeUndefined();
@@ -1520,7 +1581,11 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(laneCompletion.signal).toHaveBeenCalledWith(
         expect.objectContaining({ agentId: first.agentId }),
         expect.objectContaining({
-          usage: { inputTokens: 18_500, outputTokens: 321, cacheReadTokens: 900 },
+          usage: {
+            inputTokens: 18_500,
+            outputTokens: 321,
+            cacheReadTokens: 900,
+          },
         }),
       );
       await manager.spawn({
@@ -1929,7 +1994,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       manager.events.on('agent:output', () => order.push('output'));
       laneCompletion.signal.mockImplementation(() => {
         order.push('completion');
-        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+        return Promise.resolve({
+          delivered: false,
+          reason: 'chat-runtime-unavailable',
+        });
       });
 
       sdkControls.emitOutput('final delta');
@@ -1938,7 +2006,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(order).toEqual(['output', 'completion']);
-      expect(manager.readOutput(result.agentId).stdout).toContain('final delta');
+      expect(manager.readOutput(result.agentId).stdout).toContain(
+        'final delta',
+      );
     });
 
     it('flushes buffered output before signalling a stop', async () => {
@@ -1951,7 +2021,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       manager.events.on('agent:output', () => order.push('output'));
       laneCompletion.signal.mockImplementation(() => {
         order.push('completion');
-        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+        return Promise.resolve({
+          delivered: false,
+          reason: 'chat-runtime-unavailable',
+        });
       });
 
       sdkControls.emitOutput('last words');
@@ -1974,7 +2047,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       manager.events.on('agent:exited', () => order.push('exit'));
       laneCompletion.signal.mockImplementation(() => {
         order.push('completion');
-        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+        return Promise.resolve({
+          delivered: false,
+          reason: 'chat-runtime-unavailable',
+        });
       });
 
       jest.advanceTimersByTime(4999);
@@ -1982,7 +2058,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       jest.advanceTimersByTime(1);
 
       expect(order).toEqual(['output', 'completion', 'exit']);
-      expect(manager.getStatus(result.agentId)).toHaveProperty('status', 'timeout');
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'timeout',
+      );
     });
 
     it('signals a normal completion with the terminal status', async () => {
@@ -2448,10 +2527,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         'modelScope',
         'qwen3-coder',
       );
-      expect(manager.getStatus(defaultId)).toHaveProperty(
-        'modelScope',
-        null,
-      );
+      expect(manager.getStatus(defaultId)).toHaveProperty('modelScope', null);
       expect(manager.getStatus(emptyId)).toHaveProperty('modelScope', null);
     });
 
@@ -3951,14 +4027,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       }
 
       expect(parentOf(await spawnWithParent('older-tab'))).toBe('older-tab');
-      expect(parentOf(await spawnWithParent('refreshed-tab'))).toBe('new-session');
+      expect(parentOf(await spawnWithParent('refreshed-tab'))).toBe(
+        'new-session',
+      );
     });
 
     it('uses the resolved parent for an SDK handle lane and its spawn event', async () => {
       const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-999999999999';
       const realSessionId = '11111111-2222-4333-8444-999999999999';
       const spawned: AgentProcessInfo[] = [];
-      manager.events.on('agent:spawned', (info: AgentProcessInfo) => spawned.push(info));
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) =>
+        spawned.push(info),
+      );
       manager.resolveParentSessionId(tabId, realSessionId);
 
       const { agentId } = await manager.spawnFromSdkHandle(

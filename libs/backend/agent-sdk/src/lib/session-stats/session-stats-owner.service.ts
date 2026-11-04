@@ -32,13 +32,21 @@
  * rejected atomically.
  *
  * Arithmetic is `aggregateSessionUsage`'s; this class owns identity and
- * lifecycle only. No disk state: after a restart the snapshot is rebuilt from
- * the transcript through the same aggregator. The class logs nothing — every
- * operation returns its outcome and the caller logs through its own logger.
+ * lifecycle only. No disk state of its own: after a restart the snapshot is
+ * rebuilt from the transcript through the same aggregator. The class logs
+ * nothing — every operation returns its outcome and the caller logs through
+ * its own logger.
+ *
+ * One optional port crosses the disk boundary without changing any of the
+ * above (TASK_2026_870 Phase 1): when a `SessionUsageSink` is bound, an
+ * ACCEPTED turn is mirrored to it after the owner's own state is settled.
+ * The mirror is best effort — a sink failure can never change an outcome, a
+ * snapshot or this class's state.
  */
 
-import { injectable } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   calculateMessageCost,
   type ModelPricing,
@@ -52,6 +60,14 @@ import {
   type SessionStatsReadEntry,
 } from './session-usage-aggregator';
 import { isGrown, isSameUsage } from './run-result-monotonicity';
+import {
+  parseSessionUsageContribution,
+  usdToMicroUsd,
+  SESSION_USAGE_SINK,
+  type SessionUsageContribution,
+  type SessionUsageModelDelta,
+  type SessionUsageSink,
+} from './session-usage-sink';
 
 /**
  * Who is authoritative for a query run's dollars, frozen when the query is
@@ -175,6 +191,8 @@ export interface RunUsageResult {
   readonly models: readonly RunModelUsage[];
   readonly totalCost: number | null;
   readonly costSource: UsageCostSource;
+  /** Effective provider of this query, when resolved at launch. */
+  readonly providerId?: string | null;
   /**
    * An SDK error/startup result (`subtype` other than `'success'`, or
    * `is_error`). Such a result with all-zero usage is a crash/startup
@@ -428,11 +446,49 @@ export class SessionStatsOwnerService {
   private epochCounter = 0;
 
   /**
+   * Optional durable capture port (TASK_2026_870 Phase 1). Absent on hosts
+   * without the persistence binding — capture is then simply off. The owner
+   * stays the in-memory authority; the sink only mirrors accepted turns.
+   */
+  constructor(
+    @inject(SESSION_USAGE_SINK, { isOptional: true })
+    private readonly usageSink?: SessionUsageSink | null,
+    @inject(TOKENS.LOGGER, { isOptional: true })
+    private readonly logger?: Logger,
+  ) {}
+
+  requestFinalization(sessionId: string): void {
+    if (!this.usageSink?.requestFinalization) return;
+    try {
+      void Promise.resolve(this.usageSink.requestFinalization(sessionId)).catch((error: unknown) => {
+        this.logger?.error('[SessionStatsOwner] Finalization request failed',
+          error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (error: unknown) {
+      this.logger?.error('[SessionStatsOwner] Finalization request failed',
+        error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  setLiveSessionIdsProvider(provider: () => readonly string[]): void {
+    this.usageSink?.setLiveSessionIdsProvider?.(provider);
+  }
+
+  private resumeSession(sessionId: string): void {
+    if (!this.usageSink?.resumeSession) return;
+    void Promise.resolve(this.usageSink.resumeSession(sessionId)).catch((error: unknown) => {
+      this.logger?.error('[SessionStatsOwner] Session resume failed',
+        error instanceof Error ? error : new Error(String(error)));
+    });
+  }
+
+  /**
    * Begin a brand-new session under `sessionKey` (a provisional tab id until
    * {@link rebind}): known-empty prefix. Replaces any owner held under that
    * key, because a new session on that key is new.
    */
   startNew(sessionKey: string): OwnerLease {
+    this.resumeSession(sessionKey);
     const state = this.createState(emptySessionStats(sessionKey), 0);
     this.states.set(sessionKey, state);
     this.touch(state);
@@ -453,6 +509,7 @@ export class SessionStatsOwnerService {
     sessionId: string,
     loaders: RunPreparationLoaders,
   ): Promise<RunPreparation> {
+    this.resumeSession(sessionId);
     let state = this.states.get(sessionId);
     if (!state) {
       state = this.createState(null, null);
@@ -612,6 +669,17 @@ export class SessionStatsOwnerService {
           run.durationMs += result.durationMs;
         }
         this.touch(state);
+        // After the owner's own state is settled: the mirror reads the same
+        // base and revision the snapshot above was built from.
+        this.captureAcceptedTurn(
+          sessionId,
+          state,
+          runToken,
+          run,
+          result,
+          previous,
+          turn,
+        );
         break;
       case 'ignored-error':
       case 'rejected-invalid':
@@ -636,6 +704,49 @@ export class SessionStatsOwnerService {
       firstRejection,
       ...turn,
     };
+  }
+
+  /**
+   * Mirror one accepted turn to the durable usage sink (TASK_2026_870
+   * Phase 1). Best effort by contract: the sink never throws and owns the
+   * logging of every real failure, so this synchronous backstop only
+   * guarantees that a misbehaving adapter cannot break the stream. A
+   * contribution the boundary schema rejects is dropped the same way —
+   * capture must never change what the owner accepted.
+   */
+  private captureAcceptedTurn(
+    sessionId: string,
+    state: OwnerState,
+    runToken: string,
+    run: RunState,
+    accepted: RunUsageResult,
+    previous: RunUsageResult | null,
+    turn: AcceptedTurnCost,
+  ): void {
+    if (!this.usageSink) return;
+    try {
+      const built = ownerTurnContribution(
+        sessionId,
+        runToken,
+        run.turns,
+        state.revision,
+        accepted,
+        previous,
+        run.base ?? null,
+        turn.turnCost,
+        accepted.providerId ?? null,
+        turn.runCostDecreased,
+      );
+      const contribution =
+        built === null ? null : parseSessionUsageContribution(built);
+      if (contribution !== null) {
+        void Promise.resolve(this.usageSink.recordUsage(contribution)).catch((error: unknown) => {
+          this.logger?.error('[SessionStatsOwner] Usage capture failed', error instanceof Error ? error : new Error(String(error)));
+        });
+      }
+    } catch (error: unknown) {
+      this.logger?.error('[SessionStatsOwner] Usage capture failed', error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   /**
@@ -1099,6 +1210,117 @@ function acceptedTurnCost(
     return { turnCost: null, runCostDecreased: true };
   }
   return { turnCost: nonNegativeUsd(delta), runCostDecreased: false };
+}
+
+/**
+ * The accepted turn as a sink contribution (TASK_2026_870 Phase 1): the
+ * run's own per-model spend NOW minus its own per-model spend at the
+ * PREVIOUSLY accepted result, both net of the same base — the same
+ * telescoping rule {@link acceptedTurnCost} prices the event total with, so
+ * the rows add up to what the snapshot attributes to the run.
+ *
+ * A model row is emitted only when the turn moved that model's counters or
+ * its own cost; a turn that moved nothing (an accepted first result equal to
+ * its restored base) emits no row at all and returns `null`. A repriced cost
+ * that went DOWN is `null`/`'unpriced'` — never a negative figure — matching
+ * the `turnCost` rule above. The event total is the caller's `turnCost`
+ * converted once to micro-USD; the adapter derives any session-level
+ * residual from it.
+ */
+function ownerTurnContribution(
+  sessionId: string,
+  runToken: string,
+  turn: number,
+  revision: number,
+  accepted: RunUsageResult,
+  previous: RunUsageResult | null,
+  base: SavedCostState | null,
+  turnCost: number | null,
+  providerId: string | null,
+  runCostSnapshot: boolean,
+): SessionUsageContribution | null {
+  const now = subtractRunBase(accepted, base);
+  const before = previous === null ? null : subtractRunBase(previous, base);
+  const beforeByModel = new Map(
+    (before?.models ?? []).map((row) => [row.model, row]),
+  );
+  const reported = accepted.costSource === 'reported';
+  const rows: SessionUsageModelDelta[] = [];
+  let pricingVersion: string | null = null;
+  for (const row of now.models) {
+    const was = beforeByModel.get(row.model);
+    const inputTokens = row.inputTokens - (was?.inputTokens ?? 0);
+    const outputTokens = row.outputTokens - (was?.outputTokens ?? 0);
+    const cacheReadTokens = row.cacheRead - (was?.cacheRead ?? 0);
+    const cacheCreationTokens =
+      row.cacheCreation - (was?.cacheCreation ?? 0);
+    const costDeltaUsd =
+      runCostSnapshot ? row.costUSD : row.costUSD === null
+        ? null
+        : was === undefined
+          ? row.costUSD
+          : was.costUSD === null
+            ? null
+            : row.costUSD - was.costUSD;
+    const knownCostMicroUsd =
+      costDeltaUsd === null ? null : usdToMicroUsd(costDeltaUsd);
+    if (row.pricing?.catalogVersion) {
+      // The rate this row was priced with; the LAST priced row wins, so a
+      // mid-run catalog switch reports the version in force at the accept.
+      pricingVersion = row.pricing.catalogVersion;
+    }
+    if (
+      inputTokens === 0 &&
+      outputTokens === 0 &&
+      cacheReadTokens === 0 &&
+      cacheCreationTokens === 0 &&
+      (knownCostMicroUsd ?? 0) === 0
+    ) {
+      continue;
+    }
+    rows.push({
+      modelId: row.model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      knownCostMicroUsd,
+      costAuthority:
+        knownCostMicroUsd === null
+          ? 'unpriced'
+          : reported
+            ? 'provider-reported'
+            : 'model-priced',
+    });
+  }
+  const totalCostMicroUsd = runCostSnapshot
+    ? (now.totalCost === null ? null : usdToMicroUsd(now.totalCost))
+    : (turnCost === null ? null : usdToMicroUsd(turnCost));
+  if (!runCostSnapshot && rows.length === 0 && (totalCostMicroUsd ?? 0) === 0) return null;
+  return {
+    sessionId,
+    producer: 'sdk-owner',
+    runId: runToken,
+    turnId: String(turn),
+    eventKey: `${runToken}#${turn}`,
+    parentSessionId: null,
+    subagentId: null,
+    providerId,
+    occurredAtMs: Date.now(),
+    revision,
+    runCostSnapshot,
+    models: rows,
+    totalCostMicroUsd,
+    totalCostAuthority:
+      totalCostMicroUsd === null
+        ? 'unpriced'
+        : reported
+          ? 'provider-reported'
+          : 'model-priced',
+    // `pricing` rides only the rows of an `'unreported'` route, so a
+    // provider-reported turn honestly carries no catalog version.
+    pricingVersion,
+  };
 }
 
 /** Run a loader; a rejection reads as "nothing known". The loader logs. */

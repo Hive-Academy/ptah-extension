@@ -8,7 +8,7 @@ import {
   type Signal,
   type WritableSignal,
 } from '@angular/core';
-import { ChatStore } from '@ptah-extension/chat';
+import { ChatStore, isTabBusyGenerating } from '@ptah-extension/chat';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
@@ -102,6 +102,7 @@ export class HarnessSessionController {
     if (existing) return existing;
     const record = signal<HarnessSessionRecord | null>(null);
     const phase = signal<HarnessSessionPhase>('idle');
+    const stopGuard = signal<string | null>(null);
     const error = signal<string | null>(null);
     const session: HarnessModeSession = {
       mode,
@@ -110,7 +111,7 @@ export class HarnessSessionController {
       error: error.asReadonly(),
       latestAssistantMessage: computed(() => {
         const tabId = record()?.tabId;
-        const tab = this.tabs.tabs().find((item) => item.id === tabId);
+        const tab = this.boundTab(tabId);
         const message = tab?.messages
           .filter((item) => item.role === 'assistant')
           .at(-1);
@@ -118,11 +119,11 @@ export class HarnessSessionController {
           ? { id: message.id, text: message.rawContent ?? '' }
           : null;
       }),
-      start: (request) => this.start(mode, request, record, phase, error),
-      restore: (tabId) => this.restore(mode, tabId, record, phase),
-      send: (text, options) => this.send(mode, text, record, phase, error, options),
-      retrySend: () => this.retrySend(mode, record, phase, error),
-      stop: () => this.stop(record, phase, error),
+      start: (request) => this.start(mode, request, record, phase, error, stopGuard),
+      restore: (tabId) => this.restore(mode, tabId, record, phase, stopGuard),
+      send: (text, options) => this.send(mode, text, record, phase, error, stopGuard, options),
+      retrySend: () => this.retrySend(mode, record, phase, error, stopGuard),
+      stop: () => this.stop(record, phase, error, stopGuard),
       attachView: () => {
         const tabId = record()?.tabId;
         if (!tabId) return () => undefined;
@@ -168,7 +169,7 @@ export class HarnessSessionController {
     effect(
       () => {
         const current = record();
-        const tab = this.tabs.tabs().find((item) => item.id === current?.tabId);
+        const tab = this.boundTab(current?.tabId);
         if (current && !this.tabs.findTabByIdAcrossWorkspaces(current.tabId)) {
           this.clearFailedBubbles(current.tabId);
           record.set(null);
@@ -185,6 +186,22 @@ export class HarnessSessionController {
       },
       { injector: this.injector },
     );
+    effect(() => {
+      const current = record();
+      const guard = stopGuard();
+      if (guard !== null && guard !== current?.tabId) {
+        stopGuard.set(null);
+        return;
+      }
+      if (!current) return;
+      const running = this.tabRunning(current.tabId);
+      if (guard === current.tabId) {
+        if (!running) stopGuard.set(null);
+        return;
+      }
+      if (phase() === 'busy' && !running) phase.set('done');
+      else if (phase() === 'done' && running) phase.set('busy');
+    }, { injector: this.injector });
     this.sessions.set(mode, session);
     return session;
   }
@@ -241,14 +258,15 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
   ): Promise<HarnessSessionStartOutcome> {
     const key = canonicalHarnessRoot(request.workspaceRoot);
     const pending = this.starts.get(key);
     if (pending) {
       await pending;
-      return this.start(mode, request, record, phase, error);
+      return this.start(mode, request, record, phase, error, stopGuard);
     }
-    const task = this.startInternal(mode, request, record, phase, error);
+    const task = this.startInternal(mode, request, record, phase, error, stopGuard);
     this.starts.set(key, task);
     try {
       return await task;
@@ -257,13 +275,29 @@ export class HarnessSessionController {
     }
   }
 
+  private boundTab(tabId: string | null | undefined) {
+    this.tabs.backgroundTabsRevision();
+    return tabId ? this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null : null;
+  }
+
+  private tabRunning(tabId: string): boolean {
+    const tab = this.boundTab(tabId);
+    return isTabBusyGenerating({
+      status: tab?.status,
+      streamingState: tab?.streamingState,
+      isStreamingTab: this.tabs.isTabStreaming(tabId),
+    });
+  }
+
   private async startInternal(
     mode: HarnessBuilderMode,
     request: HarnessSessionStart,
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
   ): Promise<HarnessSessionStartOutcome> {
+    stopGuard.set(null);
     record.set(null);
     phase.set('idle');
     error.set(null);
@@ -287,7 +321,7 @@ export class HarnessSessionController {
       if (saved) {
         record.set(saved);
         if (saved.intakeHash === hash) {
-          if (this.reconcile(saved, record, phase)) {
+          if (this.reconcile(saved, record, phase, stopGuard)) {
             if (request.attachments?.files?.length || request.attachments?.images?.length)
               return {
                 kind: 'failed',
@@ -295,7 +329,7 @@ export class HarnessSessionController {
               };
             return { kind: 'reused', tabId: active.tabId };
           }
-          if (await this.retrySend(mode, record, phase, error, request.attachments))
+          if (await this.retrySend(mode, record, phase, error, stopGuard, request.attachments))
             return { kind: 'started', tabId: active.tabId };
           return { kind: 'failed', error: error() ?? 'The first message could not be sent. Retry send.' };
         }
@@ -356,7 +390,7 @@ export class HarnessSessionController {
         this.records.writeStackProfile(root, tabId, started);
       if (
         content &&
-        !(await this.firstSend(next, content, record, phase, error, request.attachments))
+        !(await this.firstSend(next, content, record, phase, error, stopGuard, request.attachments))
       )
         return {
           kind: 'failed',
@@ -380,11 +414,12 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
     attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const key = `${current.tabId}\u0000${current.intakeHash}`;
     if (this.inFlight.has(key)) return false;
-    if (this.reconcile(current, record, phase)) return true;
+    if (this.reconcile(current, record, phase, stopGuard)) return true;
     this.inFlight.add(key);
     phase.set('sending');
     error.set(null);
@@ -400,6 +435,7 @@ export class HarnessSessionController {
       if (!this.records.writeSession(attempt))
         throw new Error('Session record write failed');
       record.set(attempt);
+      stopGuard.set(null);
       const result = await this.chat.sendOrQueueMessage(content, {
         tabId: current.tabId,
         ...attachments,
@@ -460,6 +496,7 @@ export class HarnessSessionController {
     current: HarnessSessionRecord,
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
+    stopGuard: WritableSignal<string | null>,
   ): boolean {
     const tab = this.tabs.findTabByIdAcrossWorkspaces(current.tabId)?.tab;
     const content =
@@ -493,7 +530,7 @@ export class HarnessSessionController {
           };
       if (next !== current) this.records.writeSession(next);
       record.set(next);
-      phase.set(tab?.status === 'streaming' ? 'busy' : 'done');
+      phase.set(this.tabRunning(current.tabId) && stopGuard() !== current.tabId ? 'busy' : 'done');
     }
     return accepted;
   }
@@ -503,13 +540,14 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
     attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const current = record();
     if (
       !current ||
       current.mode !== mode ||
-      this.reconcile(current, record, phase)
+      this.reconcile(current, record, phase, stopGuard)
     )
       return false;
     const tab = this.tabs.findTabByIdAcrossWorkspaces(current.tabId)?.tab;
@@ -535,7 +573,7 @@ export class HarnessSessionController {
       mode === 'new-project' && current.intake
         ? formatIntakeSummary(current.intake)
         : (current.teamIntent ?? '');
-    return !!text && this.firstSend(current, text, record, phase, error, attachments);
+    return !!text && this.firstSend(current, text, record, phase, error, stopGuard, attachments);
   }
 
   private async restore(
@@ -543,7 +581,9 @@ export class HarnessSessionController {
     tabId: string,
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
+    stopGuard: WritableSignal<string | null>,
   ): Promise<HarnessRestoreOutcome> {
+    stopGuard.set(null);
     const root = canonicalHarnessRoot(this.tabs.activeWorkspacePath ?? '');
     const found = this.tabs.findTabByIdAcrossWorkspaces(tabId);
     if (found && canonicalHarnessRoot(found.workspacePath ?? root) !== root)
@@ -584,7 +624,7 @@ export class HarnessSessionController {
       }
     }
     record.set(saved);
-    this.reconcile(saved, record, phase);
+    this.reconcile(saved, record, phase, stopGuard);
     return 'ready';
   }
 
@@ -594,11 +634,13 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
     attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const current = record();
     if (!current || current.mode !== mode || !text.trim()) return false;
     try {
+      stopGuard.set(null);
       const result = await this.chat.sendOrQueueMessage(text, {
         tabId: current.tabId,
         ...attachments,
@@ -620,9 +662,13 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    stopGuard: WritableSignal<string | null>,
   ): Promise<'stopped' | 'uncertain'> {
     const current = record();
-    if (!current) return 'stopped';
+    if (!current) {
+      stopGuard.set(null);
+      return 'stopped';
+    }
     const tab = this.tabs.findTabByIdAcrossWorkspaces(current.tabId)?.tab;
     const running = tab?.status === 'streaming' || tab?.status === 'resuming';
     if (
@@ -632,6 +678,7 @@ export class HarnessSessionController {
         (phase() === 'idle' && !current.sendAttempt.ackedAt))
     ) {
       phase.set('done');
+      stopGuard.set(current.tabId);
       error.set(null);
       return 'stopped';
     }
@@ -644,16 +691,19 @@ export class HarnessSessionController {
         tab?.status === 'streaming'
       ) {
         phase.set('failed');
+        stopGuard.set(null);
         error.set(
           'The agent may still be running. Retry stop or keep current.',
         );
         return 'uncertain';
       }
       phase.set('done');
+      stopGuard.set(current.tabId);
       return 'stopped';
     }
     if (!SessionId.validate(sessionId)) {
       phase.set('failed');
+      stopGuard.set(null);
       error.set('The agent may still be running. Retry stop or keep current.');
       return 'uncertain';
     }
@@ -663,12 +713,14 @@ export class HarnessSessionController {
       if (!result.success || result.data?.success === false)
         throw new Error('Chat abort failed');
       phase.set('done');
+      stopGuard.set(current.tabId);
       error.set(null);
       return 'stopped';
     } catch (cause: unknown) {
       // degradation-audit: reported — the failed phase and uncertain-stop message are shown in the session UI.
       this.log('Chat abort failed', cause);
       phase.set('failed');
+      stopGuard.set(null);
       error.set('The agent may still be running. Retry stop or keep current.');
       return 'uncertain';
     }

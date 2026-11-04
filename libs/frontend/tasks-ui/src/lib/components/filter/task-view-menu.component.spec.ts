@@ -528,7 +528,7 @@ describe('TaskViewMenuComponent', () => {
     expect(at(host, 'task-view-notice')?.getAttribute('role')).toBe('status');
   });
 
-  it('gives every row control a 24px target, not a 12px one', () => {
+  it('gives every row control a 32px target, not a 12px one', () => {
     const { host } = render({ views: [view({ id: 'v1' })] });
 
     for (const testid of [
@@ -538,8 +538,8 @@ describe('TaskViewMenuComponent', () => {
       'task-view-delete',
     ]) {
       const control = at(host, testid);
-      expect(control?.classList.contains('h-6')).toBe(true);
-      expect(control?.classList.contains('w-6')).toBe(true);
+      expect(control?.classList.contains('h-8')).toBe(true);
+      expect(control?.classList.contains('w-8')).toBe(true);
     }
   });
 

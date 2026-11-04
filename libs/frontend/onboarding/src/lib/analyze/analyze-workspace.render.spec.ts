@@ -1,9 +1,22 @@
-import { signal } from '@angular/core';
+import { Component, OnDestroy, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { SetupWizardStateService, WizardAnalysisRunner, WizardRpcService } from '@ptah-extension/setup-wizard';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import { AnalysisTranscriptComponent, SetupWizardStateService, WizardAnalysisRunner, WizardRpcService } from '@ptah-extension/setup-wizard';
+import { DetailsLogComponent, type DetailsLogStreamCounts } from '../shared/details-log.component';
 import { AnalysisStepStore } from './analysis-step.store';
 import { AnalyzeWorkspacePage } from './analyze-workspace.page';
+
+const transcriptDestroyed = jest.fn();
+
+@Component({
+  selector: 'ptah-analysis-transcript',
+  standalone: true,
+  template: '<div data-testid="analysis-transcript-stub"></div>',
+})
+class AnalysisTranscriptStubComponent implements OnDestroy {
+  ngOnDestroy(): void { transcriptDestroyed(); }
+}
 
 describe('AnalyzeWorkspacePage rendered actions', () => {
   const loaded = signal<{ manifest: { slug: string; totalDurationMs: number }; phaseContents: Record<string, string> } | null>(null);
@@ -13,7 +26,7 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
   const error = signal<string | null>(null);
   const phaseHeader = signal<{ current: number; total: number } | null>(null);
   const phaseRows = signal([{ id: 'project-profile', label: 'Project profile', status: 'completed' as const, durationMs: 1000 }]);
-  const store = { loaded, selected, phaseHeader, phaseRows, streamCounts: signal(null), saved: signal([{ filename: 'saved', projectType: 'Angular', savedAt: '', durationMs: 1000 }]),
+  const store = { loaded, selected, phaseHeader, phaseRows, streamCounts: signal<DetailsLogStreamCounts | null>(null), saved: signal([{ filename: 'saved', projectType: 'Angular', savedAt: '', durationMs: 1000 }]),
     hidden: signal(new Set<string>()), listAnalyses: jest.fn(), selectAnalysis: jest.fn(), clearSelection: jest.fn(), hideAnalysis: jest.fn(), attachStream: jest.fn(), detachStream: jest.fn() };
   const runner = { isRunning: running, isCanceling: canceling, errorMessage: error, statusText: signal('Analyzing'),
     startFreshAnalysis: jest.fn(), resumeAnalysis: jest.fn(), cancel: jest.fn(), reset: jest.fn() };
@@ -21,7 +34,7 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
   const router = { navigate: jest.fn() };
 
   beforeEach(() => {
-    jest.clearAllMocks(); loaded.set(null); selected.set(null); running.set(false); canceling.set(false); error.set(null); phaseHeader.set(null);
+    jest.clearAllMocks(); loaded.set(null); selected.set(null); running.set(false); canceling.set(false); error.set(null); phaseHeader.set(null); store.streamCounts.set(null);
     store.hidden.set(new Set()); store.saved.set([{ filename: 'saved', projectType: 'Angular', savedAt: '', durationMs: 1000 }]);
     store.listAnalyses.mockResolvedValue(undefined);
     store.selectAnalysis.mockImplementation(async (filename: string) => { selected.set(filename); loaded.set({ manifest: { slug: filename, totalDurationMs: 1000 }, phaseContents: { 'project-profile': 'Done' } }); return 'loaded'; });
@@ -34,6 +47,10 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
       { provide: WizardRpcService, useValue: rpc }, { provide: SetupWizardStateService, useValue: { reset: jest.fn() } },
       { provide: Router, useValue: router },
     ] });
+    TestBed.overrideComponent(DetailsLogComponent, {
+      remove: { imports: [AnalysisTranscriptComponent] },
+      add: { imports: [AnalysisTranscriptStubComponent] },
+    });
   });
 
   it('shows a selected saved analysis ahead of an interrupted run and keeps Continue', async () => {
@@ -155,16 +172,12 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     fixture.destroy();
   });
 
-  it('opens Manual adjust and shows recovery actions if Stop cannot be confirmed', async () => {
+  it('shows recovery actions if Stop cannot be confirmed', async () => {
     loaded.set({ manifest: { slug: 'saved', totalDurationMs: 1000 }, phaseContents: { 'project-profile': 'Done' } });
     selected.set('saved');
     const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
     fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    const manual = root.querySelectorAll('dialog')[1] as HTMLDialogElement;
-    manual.showModal = jest.fn();
-    [...root.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Manual adjust')?.click();
-    expect(manual.showModal).toHaveBeenCalledTimes(1);
     runner.cancel.mockRejectedValueOnce(new Error('private'));
     await fixture.componentInstance['stop'](); fixture.detectChanges();
     expect(root.textContent).toContain('The stop could not be confirmed');
@@ -173,6 +186,84 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     await fixture.whenStable(); fixture.detectChanges();
     expect(runner.resumeAnalysis).toHaveBeenCalledTimes(1);
     expect(root.textContent).not.toContain('The stop could not be confirmed');
+  });
+
+  it('does not render Manual adjust or its alert when analysis is done', async () => {
+    loaded.set({ manifest: { slug: 'saved', totalDurationMs: 1000 }, phaseContents: { 'project-profile': 'Done' } });
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="analyze-workspace"]')).not.toBeNull();
+    expect(root.textContent).toContain('Phase details');
+    expect(root.textContent).not.toContain('Manual adjust');
+    expect(root.querySelectorAll('dialog')).toHaveLength(1);
+  });
+
+  it('mounts a live, non-collapsible pane log before the running card', async () => {
+    running.set(true);
+    phaseHeader.set({ current: 2, total: 4 });
+    store.streamCounts.set({ total: 3, text: 1, thinking: 1, tool: 1, errors: 0 });
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const layout = root.querySelector('ptah-live-run-layout') as HTMLElement;
+    const log = layout.querySelector('[data-testid="details-log"]') as HTMLElement;
+    expect(layout.querySelector('.run-log')?.contains(log)).toBe(true);
+    expect(layout.querySelector('.run-results')?.textContent).toContain('Analyzing workspace');
+    expect(log.compareDocumentPosition(layout.querySelector('ptah-run-panel') as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(log.querySelector('summary')).toBeNull();
+    expect(log.querySelector('[role="log"]')).not.toBeNull();
+    expect(log.querySelector('[data-testid="analysis-transcript-stub"]')).not.toBeNull();
+    expect(log.querySelector('[data-testid="details-log-counts"]')?.textContent).toContain('3 events');
+    expect(log.textContent).toContain('Streaming analysis output. Read-only.');
+    expect(root.querySelector('[data-testid="phase-header"]')?.textContent).toContain('Phase 2 of 4');
+    expect(root.textContent).toContain('The analysis keeps running.');
+    fixture.destroy();
+  });
+
+  it('renders the real transcript in pane mode without a collapse toggle', async () => {
+    TestBed.overrideComponent(DetailsLogComponent, {
+      remove: { imports: [AnalysisTranscriptStubComponent] },
+      add: { imports: [AnalysisTranscriptComponent] },
+    });
+    TestBed.overrideProvider(SetupWizardStateService, { useValue: {
+      reset: jest.fn(), analysisStream: signal([]), phaseStreamingStates: signal([]),
+      scanProgress: signal(null), phaseStatuses: signal([]),
+    } });
+    TestBed.overrideProvider(ExecutionTreeBuilderService, { useValue: { buildTree: jest.fn() } });
+    running.set(true);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const transcript = root.querySelector('ptah-analysis-transcript') as HTMLElement;
+    expect(transcript).not.toBeNull();
+    expect(transcript.querySelector('button[aria-controls="analysis-transcript-content"]')).toBeNull();
+    expect(transcript.querySelector('div')?.classList.contains('max-h-[70vh]')).toBe(false);
+    fixture.destroy();
+  });
+
+  it('keeps the same pane transcript and width while cancelling', async () => {
+    running.set(true);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const transcript = root.querySelector('ptah-analysis-transcript');
+    running.set(false); canceling.set(true); fixture.detectChanges();
+    expect(root.querySelector('[data-testid="analyze-workspace"]')?.classList.contains('max-w-[1120px]')).toBe(true);
+    expect(root.querySelector('ptah-analysis-transcript')).toBe(transcript);
+    expect(root.querySelector('[data-testid="details-log"]')?.textContent).toContain('Stopped');
+    expect(root.textContent).toContain('Waiting for the run to stop.');
+    fixture.destroy();
+  });
+
+  it('detaches the stream and destroys the transcript with the page', async () => {
+    running.set(true);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="analysis-transcript-stub"]')).not.toBeNull();
+    fixture.destroy();
+    expect(store.detachStream).toHaveBeenCalledTimes(1);
+    expect(transcriptDestroyed).toHaveBeenCalledTimes(1);
   });
 
   it('stops the elapsed timer after the run reaches a terminal state', async () => {

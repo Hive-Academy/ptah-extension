@@ -567,7 +567,7 @@ describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)
     expect(typeof dependencies.logger?.warn).toBe('function');
   });
 
-  it('resolves the calling session root, never the raw process-global provider root, from every root-capable namespace bag it constructs', () => {
+  it('uses the provider root when no calling session identity is available', () => {
     const rawProvider = makeRawWorkspaceProvider();
     const sessionManager = makeSessionManager();
     const spies = spyOnEveryNamespaceBuilder();
@@ -584,8 +584,8 @@ describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)
     // (the pre-Batch-3 shape) shrinks this count instead of silently passing.
     expect(collectedRoots.length).toBe(EXPECTED_ROOT_CAPABLE_SITES);
     for (const root of collectedRoots) {
-      expect(root).toBe(SESSION_ROOT);
-      expect(root).not.toBe(PLATFORM_ROOT);
+      expect(root).toBe(PLATFORM_ROOT);
+      expect(root).not.toBe(SESSION_ROOT);
     }
   });
 

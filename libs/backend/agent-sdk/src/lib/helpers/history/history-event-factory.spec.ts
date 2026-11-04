@@ -332,4 +332,121 @@ describe('HistoryEventFactory', () => {
       expect(factory.extractTextContent({ nope: true })).toBe('');
     });
   });
+
+  describe('extractContentForCarryOver', () => {
+    const SENTINEL = 'CARRY_OVER_SENTINEL_9f3f';
+    const noTools = new Map<string, string>();
+
+    it('removes system reminders from text blocks and string content (AC 3.6)', () => {
+      const text = `before <system-reminder>secret ${SENTINEL}\nmore</system-reminder>after`;
+      expect(
+        factory.extractContentForCarryOver([{ type: 'text', text }], noTools),
+      ).toBe('before after');
+      expect(factory.extractContentForCarryOver(text, noTools)).toBe(
+        'before after',
+      );
+    });
+
+    it('reduces file and folder tags to their base name, for both separators (AC 3.7)', () => {
+      const text = [
+        `<file path="/repo/src/main.ts" lang="ts">${SENTINEL} body</file>`,
+        '<file path="C:\\work\\notes.md" />',
+        '<folder path="/repo/libs/" />',
+        `<file path='D:\\data\\report.csv'>${SENTINEL}</file>`,
+      ].join('\n');
+      const out = factory.extractContentForCarryOver(text, noTools);
+      expect(out).toBe(
+        [
+          '[file: main.ts]',
+          '[file: notes.md]',
+          '[file: libs]',
+          '[file: report.csv]',
+        ].join('\n'),
+      );
+      expect(out).not.toContain(SENTINEL);
+    });
+
+    it('gives the tool name for tool_use and never its input (AC 3.5)', () => {
+      const out = factory.extractContentForCarryOver(
+        [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'Bash',
+            input: { command: SENTINEL },
+          },
+          { type: 'tool_use', id: 'toolu_2', input: { x: SENTINEL } },
+        ],
+        noTools,
+      );
+      expect(out).toBe('[tool: Bash]\n[tool: tool]');
+      expect(out).not.toContain(SENTINEL);
+    });
+
+    it('names a tool_result from the id map and never reads its content or error flag (AC 3.5)', () => {
+      const names = new Map([['toolu_1', 'Bash']]);
+      const known = factory.extractContentForCarryOver(
+        [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_1',
+            content: [{ type: 'text', text: SENTINEL }],
+            is_error: true,
+          },
+        ],
+        names,
+      );
+      const unknown = factory.extractContentForCarryOver(
+        [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_other',
+            content: SENTINEL,
+            is_error: true,
+          },
+        ],
+        names,
+      );
+      expect(known).toBe('[tool result: Bash]');
+      expect(unknown).toBe('[tool result]');
+      expect(known + unknown).not.toContain(SENTINEL);
+      expect(known + unknown).not.toMatch(/error/i);
+    });
+
+    it('replaces images and documents with placeholders and no data (AC 3.7)', () => {
+      const out = factory.extractContentForCarryOver(
+        [
+          { type: 'image', source: { data: SENTINEL } },
+          {
+            type: 'document',
+            title: 'C:\\docs\\spec.pdf',
+            source: { data: SENTINEL },
+          },
+          { type: 'document', source: { data: SENTINEL } },
+        ],
+        noTools,
+      );
+      expect(out).toBe('[image omitted]\n[file: spec.pdf]\n[file: attachment]');
+      expect(out).not.toContain(SENTINEL);
+    });
+
+    it('drops thinking, redacted thinking and unknown blocks (AC 3.6)', () => {
+      expect(
+        factory.extractContentForCarryOver(
+          [
+            { type: 'thinking', thinking: SENTINEL },
+            { type: 'redacted_thinking', text: SENTINEL },
+            { type: 'server_tool_use', text: SENTINEL },
+            { type: 'text', text: 'kept' },
+          ],
+          noTools,
+        ),
+      ).toBe('kept');
+    });
+
+    it('returns an empty string for non-content values', () => {
+      expect(factory.extractContentForCarryOver(undefined, noTools)).toBe('');
+      expect(factory.extractContentForCarryOver({ a: 1 }, noTools)).toBe('');
+    });
+  });
 });

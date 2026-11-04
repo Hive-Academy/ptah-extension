@@ -53,7 +53,7 @@ import type {
   host: { class: 'contents' },
   template: `
     <section
-      class="flex flex-col gap-1.5 border-b border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content"
+      class="mx-4 mt-3 flex flex-col gap-2 rounded-box border border-surface-border bg-surface-2 p-3 text-sm text-base-content shadow-[var(--elev-shadow)]"
       role="status"
       aria-live="polite"
       [attr.aria-label]="announcement()"
@@ -79,7 +79,7 @@ import type {
                asks again rather than inheriting the first run's consent. -->
           <button
             type="button"
-            class="btn btn-outline btn-xs"
+            class="btn btn-ghost btn-sm border border-surface-border"
             data-testid="task-bulk-summary-retry"
             (click)="retry.emit(summary().operation)"
           >
@@ -88,13 +88,13 @@ import type {
         }
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square"
+          class="btn btn-ghost btn-sm btn-square"
           aria-label="Dismiss this summary"
           title="Dismiss this summary"
           data-testid="task-bulk-summary-dismiss"
           (click)="dismissed.emit()"
         >
-          <lucide-angular [img]="XIcon" class="h-3 w-3" />
+          <lucide-angular [img]="XIcon" class="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
 
@@ -143,7 +143,7 @@ import type {
         >
           @for (skipped of summary().untouched; track skipped.taskId) {
             <li
-              class="flex items-start gap-1.5 rounded border border-base-300 px-2 py-1"
+              class="flex items-start gap-1.5 rounded-btn border border-surface-border bg-surface-1 px-2 py-1.5"
               data-testid="task-bulk-summary-untouched"
             >
               <lucide-angular
@@ -176,7 +176,7 @@ import type {
         >
           @for (failure of summary().failures; track failure.taskId) {
             <li
-              class="flex items-start gap-1.5 rounded border border-base-300 px-2 py-1"
+              class="flex items-start gap-1.5 rounded-btn border border-surface-border bg-surface-1 px-2 py-1.5"
               data-testid="task-bulk-summary-failure"
             >
               <lucide-angular

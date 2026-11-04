@@ -126,7 +126,7 @@ describe('SessionBudgetSettingsComponent', () => {
   });
 
   describe('load', () => {
-    it('reads all ten sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
+    it('reads all sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
       await create();
       expect(
         (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
@@ -140,7 +140,7 @@ describe('SessionBudgetSettingsComponent', () => {
           .map((setting) => setting.key)
           .sort(),
       );
-      expect(read).toHaveLength(10);
+      expect(read).toHaveLength(Object.keys(SESSION_BUDGET_SETTINGS).length);
       expect(field('tokens').value).toBe('50000000');
       expect(field('tokens').className).toContain('input-sm');
       expect(field('tokens').className).toContain('flex-1');
@@ -162,7 +162,9 @@ describe('SessionBudgetSettingsComponent', () => {
       const readTimeouts = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
         .map((call) => call[3]);
-      expect(readTimeouts).toEqual(Array(10).fill(5_000));
+      expect(readTimeouts).toEqual(
+        Array(Object.keys(SESSION_BUDGET_SETTINGS).length).fill(5_000),
+      );
     });
 
     it('shows a load error with Retry when a read fails, and Retry reads again', async () => {
@@ -509,6 +511,35 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.autoHandoffAtLimit', value: true },
       ]);
       expect(box.checked).toBe(true);
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
+    });
+
+    it('keeps "Close the source chat" disabled while the automatic hand-off is off, then writes it once on', async () => {
+      await create();
+      const closeBox = field('closeSourceAfterAutoHandoff');
+      expect(closeBox.checked).toBe(false);
+      // The automatic hand-off is off by default: a lasting reason, so a
+      // native disabled; a click on it cannot write anything.
+      expect(closeBox.disabled).toBe(true);
+      closeBox.click();
+      await settle();
+      expect(writes()).toEqual([]);
+
+      // Turning the automatic hand-off on enables the toggle (read-back value).
+      const handoffBox = field('autoHandoffAtLimit');
+      handoffBox.checked = true;
+      handoffBox.dispatchEvent(new Event('change'));
+      await settle();
+      expect(closeBox.disabled).toBe(false);
+
+      closeBox.checked = true;
+      closeBox.dispatchEvent(new Event('change'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.autoHandoffAtLimit', value: true },
+        { key: 'sessionBudget.closeSourceAfterAutoHandoff', value: true },
+      ]);
+      expect(closeBox.checked).toBe(true);
       expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 

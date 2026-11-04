@@ -1,10 +1,15 @@
 /**
- * "Hand off automatically at 100%" (`sessionBudget.autoHandoffAtLimit`)
- * against the REAL queue: real SessionBudgetActionsService,
- * SessionAutoHandoffService, MessageDispatchService, ConversationService and
- * MessageValidationService. Only the tab store, the sender (the
- * `chat:continue` boundary) and the RPC are fakes. A turn end is the streaming
- * handler's flush: `sendQueuedMessage(tabId, queuedContent)`.
+ * The budget banner's VIEW side of the automatic hand-off
+ * (`sessionBudget.autoHandoffAtLimit`): the queued state it projects
+ * (`autoHandoffQueued`), its Cancel, and the manual wrap-up mark that keeps
+ * the root coordinator (TASK_2026_863) from adding a second hand-off.
+ *
+ * Real SessionBudgetActionsService, SessionAutoHandoffService,
+ * MessageDispatchService and ConversationService. Only the tab store, the
+ * sender (the `chat:continue` boundary) and the RPC are fakes. The trigger
+ * itself lives in the root coordinator and has its own spec; here an
+ * automatic hand-off is seeded exactly the way the coordinator records one:
+ * claim → `sendOrQueueMessage` → `recordQueued`.
  */
 
 import { Injector, computed, signal, type WritableSignal } from '@angular/core';
@@ -38,10 +43,8 @@ import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { MessageSenderService } from './message-sender.service';
 import { SessionAutoHandoffService } from './session-auto-handoff.service';
-import {
-  SESSION_HANDOFF_COMMAND,
-  SessionBudgetActionsService,
-} from './session-budget-actions.service';
+import { SessionBudgetActionsService } from './session-budget-actions.service';
+import { SESSION_HANDOFF_COMMAND } from './session-handoff-prompts';
 
 const TAB = 'tab-1';
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -58,22 +61,20 @@ const LIMIT_BUDGET: SessionBudgetState = {
   revision: 12,
   compactions: 0,
   autoHandoff: true,
+  closeSourceAfterAutoHandoff: false,
 };
 
 /** Let the skill probe and the dispatch awaits settle. */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-describe('SessionBudgetActionsService automatic hand-off', () => {
+describe('SessionBudgetActionsService automatic hand-off (view side)', () => {
   let tabs: WritableSignal<TabState[]>;
   let flushed: string[];
   let showError: jest.Mock;
   let send: jest.Mock;
   let skillListed: boolean;
   let permissions: WritableSignal<PermissionRequest[]>;
-  let denyPermission: jest.Mock;
-  /** While set, the skill probe waits for it (an in-flight discovery). */
-  let probeGate: Promise<void> | null;
-  let bannerVisible: WritableSignal<boolean>;
+  let autoHandoff: SessionAutoHandoffService;
   let service: SessionBudgetActionsService;
   let dispatch: MessageDispatchService;
 
@@ -82,7 +83,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     tabs.update((all) =>
       all.map((t) => (t.id === id ? { ...t, ...update } : t)),
     );
-  /** The effect runs, then the probe and the send settle. */
+  /** The effect-free view does not need a tick; the sends still settle. */
   const run = async () => {
     TestBed.tick();
     await settle();
@@ -100,12 +101,27 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
       activeTab: computed(() => tab()),
       tabId: signal<string | null>(TAB),
       sessionId: signal<string | null>(SESSION),
-      bannerVisible: computed(() => bannerVisible()),
+      bannerVisible: signal(true),
     });
   const handoffSends = () =>
     [...send.mock.calls.map((call) => call[0] as string), ...flushed].filter(
       (content) => content.startsWith(SESSION_HANDOFF_COMMAND),
     );
+
+  /**
+   * Seed the session's automatic hand-off exactly the way the root
+   * coordinator records one: claim, send through the real queue, record.
+   */
+  async function seedAutoHandoff(): Promise<void> {
+    expect(autoHandoff.claim(SESSION)).toBe(true);
+    const outcome = await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
+    autoHandoff.recordQueued(
+      SESSION,
+      outcome?.queuedCommand ?? null,
+      outcome?.heldCommand !== undefined,
+    );
+    await settle();
+  }
 
   function start(
     budget: Partial<SessionBudgetState> = {},
@@ -135,12 +151,9 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     flushed = [];
     skillListed = true;
     permissions = signal<PermissionRequest[]>([]);
-    denyPermission = jest.fn();
-    probeGate = null;
-    bannerVisible = signal(true);
     showError = jest.fn();
     send = jest.fn().mockResolvedValue({ success: true });
-    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
     const closedTabListeners = new Set<(event: ClosedTabEvent) => void>();
     const removedWorkspace = signal<WorkspaceRemovalEvent | null>(null);
 
@@ -176,24 +189,22 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     };
 
     const rpcCall = jest.fn((method: string) =>
-      (probeGate ?? Promise.resolve()).then(() =>
-        method === 'autocomplete:commands'
-          ? {
-              success: true,
-              data: {
-                commands: skillListed
-                  ? [
-                      {
-                        name: SESSION_HANDOFF_COMMAND.slice(1),
-                        description: '',
-                        scope: 'project',
-                      },
-                    ]
-                  : [],
-              },
-            }
-          : { success: true },
-      ),
+      method === 'autocomplete:commands'
+        ? Promise.resolve({
+            success: true,
+            data: {
+              commands: skillListed
+                ? [
+                    {
+                      name: SESSION_HANDOFF_COMMAND.slice(1),
+                      description: '',
+                      scope: 'project',
+                    },
+                  ]
+                : [],
+            },
+          })
+        : Promise.resolve({ success: true }),
     );
 
     TestBed.configureTestingModule({
@@ -220,7 +231,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
           useValue: {
             permissionRequests: permissions.asReadonly(),
             routingTargetRevision: signal(0).asReadonly(),
-            handlePermissionResponse: denyPermission,
+            handlePermissionResponse: jest.fn(),
             targetTabsFor: () => [],
           },
         },
@@ -259,6 +270,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
         },
       ],
     });
+    autoHandoff = TestBed.inject(SessionAutoHandoffService);
   });
 
   afterEach(() => {
@@ -266,65 +278,10 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     jest.restoreAllMocks();
   });
 
-  it('sends /session-handoff once when an idle session reaches the limit', async () => {
-    start({}, 'loaded');
-    await run();
-
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(COMMAND, { tabId: TAB });
-    expect(
-      TestBed.inject(SessionAutoHandoffService).entry(SESSION)?.state,
-    ).toBe('fired');
-
-    // A later snapshot at the limit does not fire it again.
-    patch(TAB, {
-      sessionBudget: { ...LIMIT_BUDGET, revision: 13, used: 51_000_000 },
-    });
-    await run();
-    expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  it('does nothing when the setting is off', async () => {
-    start({ autoHandoff: false }, 'loaded');
-    await run();
-    expect(send).not.toHaveBeenCalled();
-    expect(TestBed.inject(SessionAutoHandoffService).entry(SESSION)).toBeNull();
-  });
-
-  it('does nothing while the banner, and so its Cancel, is not shown', async () => {
-    bannerVisible.set(false);
-    start({}, 'loaded');
-    await run();
-    expect(send).not.toHaveBeenCalled();
-
-    bannerVisible.set(true);
-    await run();
-    expect(handoffSends()).toHaveLength(1);
-  });
-
-  it('does nothing below the limit', async () => {
-    start({ stage: 'handoff', percent: 82 }, 'loaded');
-    await run();
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it('never sends the inline prompt when the skill is missing', async () => {
-    skillListed = false;
-    start({}, 'loaded');
-    await run();
-
-    expect(send).not.toHaveBeenCalled();
-    expect(tab().queuedContent).toBeNull();
-    // The button stays usable (it sends the inline prompt by hand).
-    expect(service.wrapUpSent()).toBe(false);
-    expect(showError).not.toHaveBeenCalled();
-  });
-
-  it('queues behind the running turn and sends after it ends', async () => {
+  it('projects the queued automatic hand-off, and the queue sends it at turn end', async () => {
     start();
-    await run();
+    await seedAutoHandoff();
 
-    expect(send).not.toHaveBeenCalled();
     expect(tab().queuedContent).toBe(COMMAND);
     expect(service.autoHandoffQueued()).toBe(true);
     expect(service.wrapUpSent()).toBe(true);
@@ -332,36 +289,46 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     await endTurn();
     expect(flushed).toEqual([COMMAND]);
     expect(service.autoHandoffQueued()).toBe(false);
+    expect(service.wrapUpSent()).toBe(true);
+    expect(handoffSends()).toEqual([COMMAND]);
   });
 
-  it('fires once for two views of the same session', async () => {
+  it('keeps wrap-up disabled after a direct automatic hand-off', async () => {
+    start({}, 'loaded');
+    await seedAutoHandoff();
+    expect(autoHandoff.entry(SESSION)?.state).toBe('fired');
+    expect(autoHandoff.entry(SESSION)?.queued).toBeNull();
+    expect(service.wrapUpSent()).toBe(true);
+  });
+
+  it('every view of the session projects the same claim-store entry', async () => {
     start();
     const second = Injector.create({
       providers: [SessionBudgetActionsService],
       parent: TestBed.inject(Injector),
     }).get(SessionBudgetActionsService);
     connect(second);
-    await run();
+    await seedAutoHandoff();
 
-    expect(tab().queuedContent).toBe(COMMAND);
     expect(service.autoHandoffQueued()).toBe(true);
     expect(second.autoHandoffQueued()).toBe(true);
+
     await endTurn();
+    expect(service.autoHandoffQueued()).toBe(false);
+    expect(second.autoHandoffQueued()).toBe(false);
     expect(handoffSends()).toEqual([COMMAND]);
   });
 
   it('Cancel withdraws the queued command and it never fires again', async () => {
     start();
-    await run();
+    await seedAutoHandoff();
     expect(service.autoHandoffQueued()).toBe(true);
 
     service.cancelAutoHandoff();
     expect(tab().queuedContent).toBeNull();
     expect(service.autoHandoffQueued()).toBe(false);
     expect(service.wrapUpSent()).toBe(false);
-    expect(
-      TestBed.inject(SessionAutoHandoffService).entry(SESSION)?.state,
-    ).toBe('cancelled');
+    expect(autoHandoff.entry(SESSION)?.state).toBe('cancelled');
 
     await endTurn();
     patch(TAB, { sessionBudget: { ...LIMIT_BUDGET, revision: 13 } });
@@ -372,7 +339,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
 
   it('Cancel keeps text the user queued after the command', async () => {
     start();
-    await run();
+    await seedAutoHandoff();
     await dispatch.sendOrQueueMessage('also check tests', { tabId: TAB });
     expect(tab().queuedContent).toBe(`${COMMAND}\nalso check tests`);
 
@@ -383,7 +350,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
   it('Cancel drops a command held behind queued text, silently, and keeps the text', async () => {
     start();
     await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
-    await run();
+    await seedAutoHandoff();
     expect(tab().queuedContent).toBe('Please check tests');
     expect(service.autoHandoffQueued()).toBe(true);
 
@@ -397,163 +364,10 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     expect(flushed).toEqual(['Please check tests']);
   });
 
-  it('a failed send does not re-arm it; the button is usable again', async () => {
-    send.mockResolvedValue({ success: false, error: 'offline' });
-    start({}, 'loaded');
-    await run();
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(service.wrapUpSent()).toBe(false);
-
-    patch(TAB, { sessionBudget: { ...LIMIT_BUDGET, revision: 13 } });
-    await run();
-    expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  describe('with a pending permission prompt on the tab', () => {
-    const PROMPT = {
-      id: 'perm-1',
-      toolName: 'Bash',
-      tabId: TAB,
-    } as unknown as PermissionRequest;
-
-    it('does not queue the command, so the prompt is not denied', async () => {
-      permissions.set([PROMPT]);
-      start();
-      await run();
-
-      expect(tab().queuedContent).toBeNull();
-      expect(denyPermission).not.toHaveBeenCalled();
-      expect(service.wrapUpSent()).toBe(false);
-      expect(
-        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
-      ).toBeNull();
-    });
-
-    it('a prompt for another tab does not hold it back', async () => {
-      permissions.set([{ ...PROMPT, tabId: 'tab-2' }]);
-      start();
-      await run();
-      expect(tab().queuedContent).toBe(COMMAND);
-    });
-
-    it('queues it once the prompt is answered, and only once', async () => {
-      permissions.set([PROMPT]);
-      start();
-      await run();
-      expect(tab().queuedContent).toBeNull();
-
-      permissions.set([]);
-      await run();
-      expect(tab().queuedContent).toBe(COMMAND);
-      expect(denyPermission).not.toHaveBeenCalled();
-
-      // Another prompt and its answer later do not fire it again.
-      permissions.set([{ ...PROMPT, id: 'perm-2' }]);
-      await run();
-      permissions.set([]);
-      await run();
-      await endTurn();
-      expect(handoffSends()).toEqual([COMMAND]);
-    });
-
-    it('leaves the manual button as it was: it queues and answers the prompt', async () => {
-      permissions.set([PROMPT]);
-      start({ autoHandoff: false });
-      await run();
-
-      await service.sendWrapUp();
-      expect(tab().queuedContent).toBe(COMMAND);
-      expect(denyPermission).toHaveBeenCalledWith({
-        id: 'perm-1',
-        decision: 'deny_with_message',
-        reason: COMMAND,
-      });
-      expect(service.wrapUpSent()).toBe(true);
-    });
-  });
-
-  describe('a skill probe that resolves after the target changed (F1)', () => {
-    /** Hold the probe; returns its release. */
-    const holdProbe = () => {
-      let release!: () => void;
-      probeGate = new Promise<void>((resolve) => (release = resolve));
-      return release;
-    };
-
-    it('does not send into the session that replaced it on the same tab', async () => {
-      const release = holdProbe();
-      start();
-      await run();
-      expect(service.wrapUpSent()).toBe(true);
-
-      // `/clear` or a loaded session: the tab now holds session B.
-      const B = '22222222-2222-4222-8222-222222222222';
-      patch(TAB, {
-        claudeSessionId: B,
-        sessionBudget: { ...LIMIT_BUDGET, sessionId: B, stage: 'normal' },
-      });
-      release();
-      await run();
-
-      expect(send).not.toHaveBeenCalled();
-      expect(tab().queuedContent).toBeNull();
-      const store = TestBed.inject(SessionAutoHandoffService);
-      expect(store.entry(SESSION)).toBeNull();
-      expect(store.entry(B)).toBeNull();
-    });
-
-    it('does not send when the setting was turned off meanwhile', async () => {
-      const release = holdProbe();
-      start();
-      await run();
-
-      patch(TAB, { sessionBudget: { ...LIMIT_BUDGET, autoHandoff: false } });
-      release();
-      await run();
-
-      expect(tab().queuedContent).toBeNull();
-      expect(
-        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
-      ).toBeNull();
-    });
-
-    it('does not send when the session left the limit meanwhile', async () => {
-      const release = holdProbe();
-      start();
-      await run();
-
-      patch(TAB, {
-        sessionBudget: { ...LIMIT_BUDGET, stage: 'handoff', percent: 85 },
-      });
-      release();
-      await run();
-
-      expect(tab().queuedContent).toBeNull();
-      expect(
-        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
-      ).toBeNull();
-    });
-
-    it('does not send when the banner was hidden meanwhile', async () => {
-      const release = holdProbe();
-      start();
-      await run();
-
-      bannerVisible.set(false);
-      release();
-      await run();
-
-      expect(tab().queuedContent).toBeNull();
-      expect(
-        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
-      ).toBeNull();
-    });
-  });
-
-  describe('identical user commands (F2)', () => {
+  describe('identical user commands', () => {
     it('Cancel withdraws the automatic command, not the identical one the user held after it', async () => {
       start();
-      await run();
+      await seedAutoHandoff();
       expect(tab().queuedContent).toBe(COMMAND);
 
       // The user queues the same command: it is held behind the auto one.
@@ -567,9 +381,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
       expect(tab().queuedContent).toBe(COMMAND);
       await expect(user.heldCommand).resolves.toBe(true);
       expect(service.autoHandoffQueued()).toBe(false);
-      expect(
-        TestBed.inject(SessionAutoHandoffService).entry(SESSION)?.state,
-      ).toBe('cancelled');
+      expect(autoHandoff.entry(SESSION)?.state).toBe('cancelled');
       await endTurn();
       expect(flushed).toEqual([COMMAND]);
     });
@@ -577,7 +389,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     it('Cancel withdraws the held automatic command, not the identical one the user held after it', async () => {
       start();
       await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
-      await run();
+      await seedAutoHandoff();
       const user = await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
 
       service.cancelAutoHandoff();
@@ -592,17 +404,49 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
 
     it('an identical command the user queues after the automatic one ran is not shown as automatic', async () => {
       start();
-      await run();
+      await seedAutoHandoff();
       await endTurn();
       expect(flushed).toEqual([COMMAND]);
 
-      // A new turn runs; the user queues the same command by hand.
+      // The turn ran; the user queues the same command by hand.
       await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
       expect(tab().queuedContent).toBe(COMMAND);
       expect(service.autoHandoffQueued()).toBe(false);
 
       service.cancelAutoHandoff();
       expect(tab().queuedContent).toBe(COMMAND);
+    });
+  });
+
+  describe('the manual wrap-up mark (the view ↔ coordinator contract)', () => {
+    it('a manual wrap-up marks the session, so the automatic trigger never adds a second one', async () => {
+      start({}, 'loaded');
+      await service.sendWrapUp();
+
+      expect(send).toHaveBeenCalledWith(COMMAND, { tabId: TAB });
+      expect(service.wrapUpSent()).toBe(true);
+      expect(autoHandoff.isManuallyWrappedUp(SESSION)).toBe(true);
+      expect(autoHandoff.entry(SESSION)).toBeNull();
+    });
+
+    it('a manual wrap-up that never sends clears the mark again', async () => {
+      send.mockResolvedValue({ success: false, error: 'offline' });
+      start({}, 'loaded');
+      await service.sendWrapUp();
+
+      expect(service.wrapUpSent()).toBe(false);
+      expect(autoHandoff.isManuallyWrappedUp(SESSION)).toBe(false);
+    });
+
+    it('Cancel of an automatic hand-off releases the manual mark', async () => {
+      start();
+      await seedAutoHandoff();
+      expect(autoHandoff.isManuallyWrappedUp(SESSION)).toBe(false);
+
+      service.cancelAutoHandoff();
+      expect(autoHandoff.isManuallyWrappedUp(SESSION)).toBe(false);
+      // The cancel itself stays: the automatic hand-off never fires again.
+      expect(autoHandoff.entry(SESSION)?.state).toBe('cancelled');
     });
   });
 });

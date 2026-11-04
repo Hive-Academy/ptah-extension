@@ -41,6 +41,70 @@ CREATE TABLE IF NOT EXISTS session_migration_sources (
 );
 `;
 
+const S0002_SESSION_STATS = `
+CREATE TABLE session_usage_turns (
+  session_id TEXT NOT NULL,
+  producer TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  event_key TEXT NOT NULL,
+  occurred_at_ms INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_write_tokens INTEGER NOT NULL,
+  known_cost_micro_usd INTEGER,
+  cost_authority TEXT NOT NULL,
+  source TEXT NOT NULL,
+  pricing_version TEXT,
+  revision INTEGER NOT NULL,
+  workspace_key TEXT,
+  host TEXT,
+  PRIMARY KEY (session_id, producer, event_key, model_id)
+);
+CREATE INDEX idx_session_usage_turns_time ON session_usage_turns (occurred_at_ms, provider_id, model_id);
+CREATE INDEX idx_session_usage_turns_session_time ON session_usage_turns (session_id, occurred_at_ms);
+CREATE INDEX idx_session_usage_workspace_time ON session_usage_turns (workspace_key, occurred_at_ms);
+CREATE INDEX idx_sessions_workspace_key ON sessions (workspace_key, session_id);
+CREATE TABLE session_stats (
+  session_id TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  workspace_key TEXT,
+  provider_id TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  last_usage_at_ms INTEGER NOT NULL,
+  finalized_at_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'active',
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_write_tokens INTEGER NOT NULL,
+  known_cost_micro_usd INTEGER,
+  has_unpriced INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  pricing_version TEXT,
+  revision INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX idx_session_stats_workspace_time ON session_stats (workspace_key, last_usage_at_ms);
+CREATE TABLE session_usage_coverage (
+  workspace_key TEXT PRIMARY KEY,
+  first_captured_at_ms INTEGER NOT NULL,
+  last_captured_at_ms INTEGER NOT NULL
+);
+`;
+
+const S0003_SESSION_FINALIZATION = `
+ALTER TABLE session_stats ADD COLUMN finalize_revision INTEGER;
+ALTER TABLE session_stats ADD COLUMN finalize_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE session_stats ADD COLUMN finalize_retry_at_ms INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_session_stats_finalization ON session_stats (status, finalize_retry_at_ms, last_usage_at_ms);
+`;
+
 export const SESSION_STORE_MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'S0001_sessions', sql: S0001_SESSIONS },
+  { version: 2, name: 'S0002_session_stats', sql: S0002_SESSION_STATS },
+  { version: 3, name: 'S0003_session_finalization', sql: S0003_SESSION_FINALIZATION },
 ];

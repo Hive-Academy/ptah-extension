@@ -181,6 +181,15 @@ export class ChatStreamDeliveryCoordinator {
     }
     this.metrics.suppressedHiddenEvents++;
     this.retain(state, event);
+    // The rail needs the terminal phase now. Keep the original event in the
+    // tail so reveal still finalizes the message after its retained deltas.
+    if (event.eventType === 'turn_state' && !event.retirementOnly &&
+        (event.phase === 'idle' || event.phase === 'failed')) {
+      return this.buffer.push({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { tabId, sessionId, event, statusOnly: true },
+      });
+    }
   }
 
   /** Applies a distinct v2 viewport and emits one catch-up envelope per reveal. */

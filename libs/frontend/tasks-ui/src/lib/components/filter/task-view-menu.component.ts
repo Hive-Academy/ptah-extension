@@ -145,7 +145,7 @@ interface TaskViewRow {
   template: `
     <details class="dropdown" data-testid="task-view-menu">
       <summary
-        class="btn btn-ghost btn-xs gap-1 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+        class="btn btn-ghost btn-sm gap-1.5 border border-surface-border text-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
         [class.btn-active]="activeView() !== null"
         [attr.aria-label]="triggerAriaLabel()"
         data-testid="task-view-menu-trigger"
@@ -174,7 +174,7 @@ interface TaskViewRow {
       </summary>
 
       <div
-        class="dropdown-content z-30 mt-1 flex w-[min(24rem,calc(100vw-1rem))] flex-col gap-2 rounded-box border border-base-300 bg-base-200 p-2 text-base-content shadow"
+        class="dropdown-content z-30 mt-1 flex w-[min(26rem,calc(100vw-1rem))] flex-col gap-2 rounded-box border border-surface-border bg-surface-2 p-3 text-base-content shadow-[var(--elev-shadow-raised)]"
         data-testid="task-view-menu-panel"
       >
         @if (error(); as message) {
@@ -199,7 +199,7 @@ interface TaskViewRow {
             <span class="min-w-0 flex-1">{{ message }}</span>
             <button
               type="button"
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3"
               aria-label="Dismiss this message"
               (click)="errorDismissed.emit()"
             >
@@ -228,7 +228,7 @@ interface TaskViewRow {
             <span class="min-w-0 flex-1">{{ message }}</span>
             <button
               type="button"
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3"
               aria-label="Dismiss this message"
               (click)="noticeDismissed.emit()"
             >
@@ -270,13 +270,13 @@ interface TaskViewRow {
             @for (row of rows(); track row.key) {
               <li
                 class="flex flex-col gap-1 rounded px-1 py-0.5"
-                [class.bg-base-300]="row.active"
+                [class.bg-surface-3]="row.active"
                 data-testid="task-view-row"
               >
                 <div class="flex items-center gap-0.5">
                   <button
                     type="button"
-                    class="flex h-6 min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs disabled:opacity-40"
+                    class="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-btn px-2 text-left text-sm hover:bg-surface-3 disabled:opacity-40"
                     [disabled]="busy()"
                     [attr.aria-current]="row.active ? 'true' : null"
                     [title]="row.applyLabel"
@@ -296,7 +296,7 @@ interface TaskViewRow {
 
                   <button
                     type="button"
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:opacity-40"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3 disabled:opacity-40"
                     [disabled]="!row.canMoveUp || busy()"
                     [attr.aria-label]="'Move ' + row.view.name + ' up'"
                     [title]="'Move ' + row.view.name + ' up'"
@@ -309,7 +309,7 @@ interface TaskViewRow {
                   </button>
                   <button
                     type="button"
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:opacity-40"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3 disabled:opacity-40"
                     [disabled]="!row.canMoveDown || busy()"
                     [attr.aria-label]="'Move ' + row.view.name + ' down'"
                     [title]="'Move ' + row.view.name + ' down'"
@@ -327,7 +327,7 @@ interface TaskViewRow {
                          a lens the user cannot see. -->
                     <button
                       type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+                      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3"
                       [disabled]="busy()"
                       [attr.aria-label]="
                         'Save the current filters into ' + row.view.name
@@ -342,7 +342,7 @@ interface TaskViewRow {
 
                   <button
                     type="button"
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3"
                     [disabled]="busy()"
                     [attr.aria-label]="'Rename ' + row.view.name"
                     [title]="'Rename ' + row.view.name"
@@ -353,7 +353,7 @@ interface TaskViewRow {
                   </button>
                   <button
                     type="button"
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-error"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn hover:bg-surface-3 text-error"
                     [disabled]="busy()"
                     [attr.aria-label]="'Delete ' + row.view.name"
                     [title]="'Delete ' + row.view.name"
@@ -368,7 +368,7 @@ interface TaskViewRow {
                   <div class="flex items-center gap-1 pl-1">
                     <input
                       type="text"
-                      class="input input-xs input-bordered min-w-0 flex-1"
+                      class="input input-bordered input-sm h-8 min-w-0 flex-1 bg-surface-0 text-sm"
                       [attr.maxlength]="maxNameLength"
                       [attr.aria-label]="'New name for ' + row.view.name"
                       data-testid="task-view-rename-input"
@@ -377,7 +377,7 @@ interface TaskViewRow {
                     />
                     <button
                       type="button"
-                      class="btn btn-xs"
+                      class="btn btn-ghost btn-sm border border-surface-border"
                       [disabled]="renameDraft().trim().length === 0 || busy()"
                       data-testid="task-view-rename-confirm"
                       (click)="commitRename(row.view.id)"
@@ -386,7 +386,7 @@ interface TaskViewRow {
                     </button>
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs"
+                      class="btn btn-ghost btn-sm"
                       (click)="cancelRename()"
                     >
                       Cancel
@@ -404,7 +404,7 @@ interface TaskViewRow {
                     <span class="flex-1">Delete this view?</span>
                     <button
                       type="button"
-                      class="btn btn-error btn-xs"
+                      class="btn btn-error btn-sm"
                       [disabled]="busy()"
                       data-testid="task-view-delete-confirm-yes"
                       (click)="commitDelete(row.view.id)"
@@ -413,7 +413,7 @@ interface TaskViewRow {
                     </button>
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs"
+                      class="btn btn-ghost btn-sm"
                       (click)="confirmingId.set(null)"
                     >
                       Keep
@@ -427,7 +427,7 @@ interface TaskViewRow {
           @if (activeView() !== null) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs justify-start"
+              class="btn btn-ghost btn-sm justify-start"
               [disabled]="busy()"
               title="Stop tracking a saved view. The current filters stay as they are."
               data-testid="task-view-clear-active"
@@ -446,10 +446,12 @@ interface TaskViewRow {
           </p>
         }
 
-        <div class="flex items-center gap-1 border-t border-base-300 pt-2">
+        <div
+          class="flex items-center gap-2 border-t border-surface-border pt-2"
+        >
           <input
             type="text"
-            class="input input-xs input-bordered min-w-0 flex-1"
+            class="input input-bordered input-sm h-8 min-w-0 flex-1 bg-surface-0 text-sm"
             placeholder="Name this view"
             aria-label="Name for a new saved view"
             [attr.maxlength]="maxNameLength"
@@ -460,7 +462,7 @@ interface TaskViewRow {
           />
           <button
             type="button"
-            class="btn btn-primary btn-xs"
+            class="btn btn-primary btn-sm"
             [disabled]="atCap() || createDraft().trim().length === 0 || busy()"
             [title]="createTitle()"
             data-testid="task-view-create"

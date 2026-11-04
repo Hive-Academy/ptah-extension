@@ -522,10 +522,10 @@ export class LaneCompletionNotifier {
     }
 
     const adapter = this.agentAdapter;
-    const parentSessionId = candidates.find((id) =>
-      adapter.isSessionActive(id),
-    );
-    if (!parentSessionId) {
+    // The first recorded parent is the owner. An unreachable owner never
+    // authorizes delivery to a later session in the list.
+    const parentSessionId = candidates[0];
+    if (!adapter.isSessionActive(parentSessionId)) {
       return this.refuseSessionChild('parent-session-not-active', envelope, {
         parentSessionIds: candidates,
       });

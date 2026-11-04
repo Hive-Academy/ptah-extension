@@ -1,0 +1,29 @@
+import { test, expect } from '/home/amun/ptah-extension/apps/ptah-electron-e2e/src/support/fixtures';
+
+const OUT = '/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/.ptah/specs/TASK_2026_865_2a1d/screenshots/before';
+const MSG = 'Your OpenAI Codex sign-in has expired. Re-authenticate in a terminal to continue.';
+const THEMES: [string, string][] = [['dark', 'anubis'], ['light', 'anubis-light']];
+
+for (const [label, theme] of THEMES) {
+  test(`auth banner ${label}`, async ({ ui, rpcBridge }) => {
+    const page = ui.page;
+    await rpcBridge.setState({ 'theme-v2': theme });
+    await page.evaluate((t) => localStorage.setItem('ptah-theme-v2', t), theme);
+    await ui.mockRpc({
+      'chat:start': { success: false, errorCode: 'AUTH_REQUIRED', error: MSG, providerId: 'openai-codex' },
+    });
+    await ui.prepare();
+    await page.waitForTimeout(1500);
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe(theme);
+    await ui.goto('chat');
+    const ta = page.locator('ptah-chat-input textarea[role="combobox"]').first();
+    await ta.fill('hello');
+    await ta.press('Enter');
+    const banner = page.locator('ptah-auth-required-banner');
+    await expect(banner).toBeVisible({ timeout: 15000 });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${OUT}/chat-view-auth-banner-${label}.png` });
+    await banner.screenshot({ path: `${OUT}/banner-closeup-${label}.png` });
+    console.log('SIZE', label, JSON.stringify(page.viewportSize()), JSON.stringify(await banner.boundingBox()));
+  });
+}

@@ -89,6 +89,19 @@ export interface TasksGetArtifactResult {
   content: string | null;
 }
 
+export interface TasksReadFolderMarkdownParams extends TasksWorkspaceScopedParams { taskId: string; file: string; }
+export interface TasksReadFolderMarkdownResult {
+  taskId: string; file: string;
+  state: 'ready' | 'missing' | 'unreadable' | 'binary' | 'directory' | 'too_large' | 'rejected';
+  content: string | null;
+}
+export interface TasksListFolderEntriesParams extends TasksWorkspaceScopedParams { taskId: string; directory: string; }
+export interface TasksListFolderEntriesResult {
+  taskId: string; directory: string;
+  state: 'ready' | 'missing' | 'unreadable' | 'rejected' | 'too_many';
+  entries: Array<{ name: string; kind: 'file' | 'directory' | 'symlink' | 'other' }>;
+}
+
 /**
  * Delete finished task folders that have aged out (`tasks:sweepFinished`).
  *

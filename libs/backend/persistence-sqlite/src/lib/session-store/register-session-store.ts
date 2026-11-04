@@ -11,11 +11,15 @@ import {
 } from './session-store-db-path';
 import { SessionStoreDatabase } from './session-store-database';
 import { SessionStoreGate } from './session-store-gate';
+import { SessionStatsRepository } from './session-stats-repository';
+import { SqliteSessionUsageSink } from './sqlite-session-usage-sink';
 import { SqliteSessionRecordRepository } from './sqlite-session-record-repository';
 
 export interface RegisteredSessionStore {
   readonly database: SessionStoreDatabase;
   readonly repository: SqliteSessionRecordRepository;
+  readonly stats: SessionStatsRepository;
+  readonly usageSink: SqliteSessionUsageSink;
   readonly blobs: FileSessionBlobStore;
   /** Mark ready once the host's legacy copy-forward has run. */
   readonly gate: SessionStoreGate;
@@ -36,6 +40,8 @@ export function registerSessionStoreServices(
     options.dbPath ?? resolveSessionStoreDbPath({ isDev: options.isDev });
   const database = new SessionStoreDatabase(dbPath, logger);
   const repository = new SqliteSessionRecordRepository(database, options.host);
+  const stats = new SessionStatsRepository(database, logger);
+  const usageSink = new SqliteSessionUsageSink(stats, logger);
   const blobs = new FileSessionBlobStore(resolveSessionBlobRoot(dbPath));
   const gate = new SessionStoreGate(logger);
   container.register(PLATFORM_TOKENS.SESSION_RECORD_REPOSITORY, {
@@ -43,9 +49,14 @@ export function registerSessionStoreServices(
   });
   container.register(PLATFORM_TOKENS.SESSION_BLOB_STORE, { useValue: blobs });
   container.register(PLATFORM_TOKENS.SESSION_STORE_GATE, { useValue: gate });
+  container.register(SessionStatsRepository, { useValue: stats });
+  container.register(PLATFORM_TOKENS.SESSION_USAGE_SINK, {
+    useValue: usageSink,
+  });
+  usageSink.startFinalizer();
   logger.info('[persistence-sqlite] session store registered', {
     dbPath,
     host: options.host,
   });
-  return { database, repository, blobs, gate };
+  return { database, repository, stats, usageSink, blobs, gate };
 }

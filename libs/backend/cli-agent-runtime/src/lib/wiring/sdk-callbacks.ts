@@ -17,10 +17,12 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   MESSAGE_TYPES,
   retryWithBackoff,
+  type CarryOverResolutionTags,
   type IAgentAdapter,
   type ResultStatsPayload,
 } from '@ptah-extension/shared';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   persistCliSessionReference,
   type SubagentRegistryLike,
@@ -225,10 +227,17 @@ function wireSessionIdResolvedCallback(
         );
       }
 
+      const carryOverRequestId = claimCarryOverRequestId(
+        container,
+        logger,
+        tag,
+        tabId,
+      );
       webviewManager
         .broadcastMessage(MESSAGE_TYPES.SESSION_ID_RESOLVED, {
           tabId,
           realSessionId,
+          ...(carryOverRequestId ? { carryOverRequestId } : {}),
         })
         .catch((error) => {
           logger.error(
@@ -238,6 +247,34 @@ function wireSessionIdResolvedCallback(
         });
     },
   );
+}
+
+/**
+ * The provider carry-over's request ID for this resolution (TASK_2026_865),
+ * claimed once per launch. A host that binds no tag source, or a failing
+ * one, broadcasts the resolution untagged, which the renderer handles as it
+ * did before the tag existed.
+ */
+function claimCarryOverRequestId(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+  tabId: string | undefined,
+): string | undefined {
+  const token = CLI_AGENT_RUNTIME_TOKENS.CARRY_OVER_RESOLUTION_TAGS;
+  if (!tabId || !container.isRegistered(token, true)) return undefined;
+  try {
+    return container
+      .resolve<CarryOverResolutionTags>(token)
+      .claimResolutionRequestId(tabId);
+  } catch (error) {
+    // degradation-audit: reported — logged; the resolution is broadcast untagged, as before the tag.
+    logger.warn(
+      `${tag} Carry-over request id lookup failed; broadcasting untagged`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return undefined;
+  }
 }
 
 /**

@@ -75,6 +75,7 @@ function makeHarness(): Harness {
     getAdapter: jest.fn().mockReturnValue(undefined),
     invalidateCache: jest.fn(),
     detectAll: jest.fn().mockResolvedValue([CODEX_ROW]),
+    refresh: jest.fn().mockResolvedValue([CODEX_ROW]),
   };
   const workspace = {
     getWorkspaceRoot: jest.fn().mockReturnValue('D:/ws'),

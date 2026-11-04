@@ -148,6 +148,13 @@ import type {
   ChatAgentSessionsParams,
   ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
+// Carry-over (TASK_2026_865)
+import type {
+  ChatCarryOverCheckParams,
+  ChatCarryOverCheckResult,
+  ChatCarryOverParams,
+  ChatCarryOverResult,
+} from './rpc/rpc-chat.types';
 
 import type {
   SessionListParams,
@@ -741,6 +748,10 @@ import type {
   TasksGetResult,
   TasksGetArtifactParams,
   TasksGetArtifactResult,
+  TasksReadFolderMarkdownParams,
+  TasksReadFolderMarkdownResult,
+  TasksListFolderEntriesParams,
+  TasksListFolderEntriesResult,
   TasksCreateParams,
   TasksCreateResult,
   TasksSweepParams,
@@ -1042,6 +1053,15 @@ export interface RpcMethodRegistry
   };
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
+  // Carry-over (TASK_2026_865)
+  'chat:carry-over-check': {
+    params: ChatCarryOverCheckParams;
+    result: ChatCarryOverCheckResult;
+  };
+  'chat:carry-over': {
+    params: ChatCarryOverParams;
+    result: ChatCarryOverResult;
+  };
   'chat:setStreamViewport': {
     params: ChatSetStreamViewportParams;
     result: ChatSetStreamViewportResult;
@@ -2630,6 +2650,8 @@ export interface RpcMethodRegistry
     params: TasksGetArtifactParams;
     result: TasksGetArtifactResult;
   };
+  'tasks:readFolderMarkdown': { params: TasksReadFolderMarkdownParams; result: TasksReadFolderMarkdownResult };
+  'tasks:listFolderEntries': { params: TasksListFolderEntriesParams; result: TasksListFolderEntriesResult };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
   'tasks:sweepFinished': {
     params: TasksSweepParams;
@@ -3398,6 +3420,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'attention:getSnapshot': true,
   'chat:start': true,
   'chat:continue': true,
+  // Carry-over (TASK_2026_865)
+  'chat:carry-over-check': true,
+  'chat:carry-over': true,
   'chat:setStreamViewport': true,
   'chat:abort': true,
   'chat:pending-questions': true,
@@ -3828,6 +3853,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:list': true,
   'tasks:get': true,
   'tasks:getArtifact': true,
+  'tasks:readFolderMarkdown': true,
+  'tasks:listFolderEntries': true,
   'tasks:create': true,
   'tasks:sweepFinished': true,
   'tasks:updateStatus': true,

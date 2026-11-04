@@ -340,6 +340,11 @@ export class ConversationService {
     );
   }
 
+  queuedCommandForFlush(tabId: string): QueuedCommand | null {
+    const command = this.queueHeads.get(tabId);
+    return command && this.isQueuedCommand(command) ? command : null;
+  }
+
   /**
    * Withdraw exactly `command` (the automatic hand-off's Cancel), keeping
    * everything else queued on the tab, including identical text the user

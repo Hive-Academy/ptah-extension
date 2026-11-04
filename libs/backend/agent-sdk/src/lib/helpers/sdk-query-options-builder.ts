@@ -1446,8 +1446,7 @@ export class SdkQueryOptionsBuilder {
       deniedBuiltinSkills: deniedSkills.filter(
         (name) => !isSyncedClaudeSkillId(name),
       ),
-      deniedSyncedSkillCount: deniedSkills.filter(isSyncedClaudeSkillId)
-        .length,
+      deniedSyncedSkillCount: deniedSkills.filter(isSyncedClaudeSkillId).length,
       capabilityPolicy: policy.status,
     });
     const configuredMcpServers = filterMcpServersByPolicy(
@@ -2130,10 +2129,8 @@ export class SdkQueryOptionsBuilder {
    * @throws SdkError when no routing id is available. Dropping the segment
    * instead — which this used to do — produced a working MCP endpoint whose
    * calls arrived anonymous, and the consumer then attributed the spawn to
-   * `getActiveSessionIds()[0]`, the most-recently-active session. With two
-   * sessions open, session B's `ptah_agent_spawn` was recorded under session
-   * A's `parentSessionId`, so A's `markAllInterrupted` could later mis-handle
-   * B's agent. Every legitimate no-caller-id path (stdio, CLI, internal
+   * an active-session fallback. With two sessions open, session B's
+   * `ptah_agent_spawn` could be recorded under session A. Every legitimate no-caller-id path (stdio, CLI, internal
    * one-shot queries) builds its MCP config in `SdkQueryRunner`'s separate
    * `buildOneShotMcpServers`, which has no session segment by construction —
    * so on this interactive path a missing id is a broken caller, not a mode
@@ -2155,8 +2152,7 @@ export class SdkQueryOptionsBuilder {
       throw new SdkError(
         'Cannot build the Ptah MCP server URL without a session routing id. ' +
           'The /session/{id} segment is what tells an MCP tool call which session made it; ' +
-          'without it every call arrives anonymous and ptah_agent_spawn attributes the agent ' +
-          'to whichever session was most recently active. Callers must supply sessionConfig.tabId ' +
+          'without it every call arrives anonymous and spawned lanes have no parent. Callers must supply sessionConfig.tabId ' +
           'or sessionId before starting an interactive session.',
       );
     }
@@ -2176,7 +2172,7 @@ export class SdkQueryOptionsBuilder {
 
   /**
    * Merge caller-supplied MCP HTTP overrides over the registry-built map.
-   * Caller wins on key collision (matches the proxy tool-merger contract).
+   * Keep the generated Ptah URL: its session segment is the caller identity.
    *
    * Returns the original `base` reference unchanged when `override` is
    * `undefined` or empty — preserves identity for the existing chat path so
@@ -2189,7 +2185,11 @@ export class SdkQueryOptionsBuilder {
     if (!override || Object.keys(override).length === 0) {
       return base;
     }
-    return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
+    return {
+      ...base,
+      ...(override as Record<string, McpHttpServerConfig>),
+      ...(base['ptah'] ? { ptah: base['ptah'] } : {}),
+    };
   }
 
   /**

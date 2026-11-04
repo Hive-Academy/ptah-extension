@@ -24,6 +24,7 @@ import { join, resolve } from 'path';
 import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type { SessionUsageSink } from '@ptah-extension/agent-sdk';
 import { FileType } from '@ptah-extension/platform-core';
 import {
   LaneCompletionNotifier,
@@ -35,6 +36,7 @@ import type {
   SessionChildCompletionSubject,
   SessionChildSettle,
 } from '../session-children/session-spawner.port';
+import { recordLaneUsageOutcome } from './lane-completion-outcome';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -150,6 +152,16 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('records orphan lane usage with its workspace and execution host', () => {
+    const recordUsage = jest.fn();
+    const sink: SessionUsageSink = { recordUsage };
+    recordLaneUsageOutcome(sink, createLogger(), createInfo({ workingDirectory: 'C:/Workspace/Root', cliSessionId: 'native-thread', providerId: 'codex' }), COMPLETED_AT,
+      { inputTokens: 8, outputTokens: 2 });
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'native-thread', producer: 'cli-lane', providerId: 'codex',
+      workspaceKey: 'c:/workspace/root', host: 'cli',
+    }));
+  });
   it('writes provider usage to the lane outcome without estimating cost', async () => {
     const h = createHarness();
     await h.notifier.signal(createInfo(), {
@@ -714,7 +726,9 @@ describe('LaneCompletionNotifier.signal', () => {
       const h = createHarness({ sessionActive: false });
       const tabId = '33333333-3333-4333-8333-333333333333';
 
-      const result = await h.notifier.signal(createInfo({ parentSessionId: tabId }));
+      const result = await h.notifier.signal(
+        createInfo({ parentSessionId: tabId }),
+      );
 
       expect(result.reason).toBe('parent-session-not-active');
       expect(h.recordLaneCompletion).toHaveBeenCalledWith(
@@ -979,16 +993,17 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       });
     });
 
-    it('falls back to the parent SDK id when the parent tab is not live', async () => {
+    it('does not reroute to a second session when the recorded parent is not live', async () => {
       const h = createHarness();
       h.isSessionActive.mockImplementation((id: unknown) => id === PARENT_SDK);
 
       const result = await h.notifier.signalSessionChild(subject(), settle());
 
       expect(result).toMatchObject({
-        delivered: true,
-        parentSessionId: PARENT_SDK,
+        delivered: false,
+        reason: 'parent-session-not-active',
       });
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
     });
 
     it('returns the refusal WITH the built envelope when no parent is live', async () => {

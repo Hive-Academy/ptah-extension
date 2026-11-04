@@ -6,12 +6,12 @@ import {
   inject,
   signal,
   untracked,
+  type Signal,
 } from '@angular/core';
 import {
   AppStateManager,
   ClaudeRpcService,
   FILE_LINK_OPENER,
-  type MessageHandler,
 } from '@ptah-extension/core';
 import {
   BULK_CHUNK_SIZE,
@@ -29,6 +29,7 @@ import {
   type TaskGraph,
   type TaskMetadataPatch,
   type TaskSortSpec,
+  isDocFile,
   type DocFile,
   type TasksSweepResult,
   type TaskSpecDetail,
@@ -44,7 +45,18 @@ import {
   type TasksUpdateMetadataResult,
 } from '@ptah-extension/shared';
 import { isTaskExclusionReason } from '../task-presentation';
+import {
+  TaskFolderStore,
+  type TaskDocumentState,
+  type TaskFolderListing,
+} from './task-folder.store';
+import {
+  isOpenableRootFile,
+  type TaskFolderBreadcrumb,
+  type TaskFolderEntry,
+} from './task-folder-entries';
 import { TASKS_CHANGED_MESSAGE_TYPE } from '../tasks-changed';
+import { TasksChangedFeed } from './tasks-changed-feed.service';
 
 /**
  * Re-exported under its original name so `services.ts` and every existing
@@ -409,8 +421,9 @@ export function normalizeRootKey(root: string): string {
  * Root-provided signal store for the standalone Tasks board. All data flows
  * through {@link ClaudeRpcService} (`tasks:*`); there is NO optimistic local
  * mutation (R5.7) — status changes and creates re-fetch the authoritative board
- * from the backend, and the `tasks:changed` push (handled here as a
- * {@link MessageHandler}) refreshes the board whenever the file index moves.
+ * from the backend, and the `tasks:changed` push (relayed by the eager
+ * {@link TasksChangedFeed}, see {@link handleMessage}) refreshes the board
+ * whenever the file index moves.
  *
  * Workspace-aware (TASK follow-up): the Electron shell keeps this page mounted
  * across workspace switches. Every `tasks:*` call carries the active workspace
@@ -421,14 +434,14 @@ export function normalizeRootKey(root: string): string {
  * since switched away from.
  */
 @Injectable({ providedIn: 'root' })
-export class TasksStore implements MessageHandler {
+export class TasksStore {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly fileLinkOpener = inject(FILE_LINK_OPENER);
   private readonly appState = inject(AppStateManager);
+  /** Document and folder-browser state, exposed only through this facade. */
+  private readonly folder = inject(TaskFolderStore);
   private readonly destroyRef = inject(DestroyRef);
-
-  /** Consumed by `MessageRouterService` — refresh on backend index changes. */
-  public readonly handledMessageTypes = [TASKS_CHANGED_MESSAGE_TYPE] as const;
+  private readonly changedFeed = inject(TasksChangedFeed);
 
   private readonly _columns =
     signal<Record<TaskStatus, TaskSpecSummary[]>>(emptyColumns());
@@ -481,11 +494,6 @@ export class TasksStore implements MessageHandler {
   private readonly _selectedTaskId = signal<string | null>(null);
   private readonly _taskDetail = signal<TaskSpecDetail | null>(null);
   private readonly _detailLoading = signal(false);
-
-  /** The workflow document expanded in the detail panel — see {@link readDocument}. */
-  private readonly _openDocument = signal<DocFile | null>(null);
-  private readonly _documentContent = signal<string | null>(null);
-  private readonly _documentLoading = signal(false);
 
   /** The last sweep preview or report — see {@link previewSweep}. */
   private readonly _sweep = signal<TasksSweepResult | null>(null);
@@ -633,10 +641,9 @@ export class TasksStore implements MessageHandler {
   /**
    * How many {@link TasksViewComponent} instances are currently mounted.
    *
-   * This store is root-provided AND eagerly constructed — it joins
-   * `MESSAGE_HANDLERS`, which the message router resolves at webview bootstrap
-   * — so it is alive for the whole session whether or not the Tasks surface has
-   * ever been on screen. Without this counter, every `tasks:changed` push and
+   * This store is root-provided, so once the Tasks surface has been opened it
+   * stays alive (and subscribed to {@link TasksChangedFeed}) for the rest of
+   * the session, whether or not the surface is still on screen. Without this counter, every `tasks:changed` push and
    * every window `focus` bought a full board scan to repaint a board nobody was
    * looking at, for the rest of the session.
    *
@@ -667,8 +674,30 @@ export class TasksStore implements MessageHandler {
    */
   private detailReqSeq = 0;
 
-  /** Same guard as {@link detailReqSeq}, for the workflow-document read. */
-  private documentReqSeq = 0;
+  /**
+   * Monotonic stamp of {@link refreshActiveFromPush} calls. Only the newest
+   * call restores the reader, so overlapping pushes restore exactly once.
+   */
+  private pushRefreshSeq = 0;
+
+  /**
+   * What the reader showed before the first of a run of overlapping push
+   * refreshes reset it. Kept across those refreshes so a later one never
+   * re-reads the target from a reader an earlier one already emptied.
+   */
+  private pendingRestore: {
+    readonly taskId: string;
+    readonly file: string | null;
+    readonly directory: string;
+  } | null = null;
+
+  /**
+   * The message a detail load last wrote into {@link _error}, or `null`. The
+   * store has one error slot; this marks whether its current content belongs
+   * to a detail load, so the next detail request can clear its own stale
+   * message without wiping a board or write error set since.
+   */
+  private detailErrorMessage: string | null = null;
 
   /**
    * Workspace key the switch effect last observed. Seeded synchronously at
@@ -735,9 +764,37 @@ export class TasksStore implements MessageHandler {
   public readonly selectedTaskId = this._selectedTaskId.asReadonly();
   public readonly taskDetail = this._taskDetail.asReadonly();
   public readonly detailLoading = this._detailLoading.asReadonly();
-  public readonly openDocument = this._openDocument.asReadonly();
-  public readonly documentContent = this._documentContent.asReadonly();
-  public readonly documentLoading = this._documentLoading.asReadonly();
+  /**
+   * The workflow document open in the reader, or `null` when nothing is open
+   * or the open file is not one of the `DOC_FILES` (see {@link openFile}).
+   */
+  public readonly openDocument = computed<DocFile | null>(() => {
+    const file = this.folder.openFile();
+    return file !== null && isDocFile(file) ? file : null;
+  });
+  /** The reader's markdown when it is `ready`, otherwise `null`. */
+  public readonly documentContent = computed<string | null>(() => {
+    const state = this.folder.document();
+    return state.status === 'ready' ? state.content : null;
+  });
+  public readonly documentLoading = computed(
+    () => this.folder.document().status === 'loading',
+  );
+  /** Any direct-child file open in the reader (workflow or extra markdown). */
+  public readonly openFile: Signal<string | null> = this.folder.openFile;
+  /** The reader's typed state; see {@link TaskDocumentState}. */
+  public readonly documentState: Signal<TaskDocumentState> =
+    this.folder.document;
+  /** The browsed folder directory with its typed status and rows. */
+  public readonly folderListing: Signal<TaskFolderListing> =
+    this.folder.listing;
+  /** Rows of the browsed directory: actual entries plus missing workflow docs. */
+  public readonly folderEntries: Signal<readonly TaskFolderEntry[]> =
+    this.folder.entries;
+  /** Browsed directory relative to the task folder (`''` = the folder). */
+  public readonly folderDirectory: Signal<string> = this.folder.directory;
+  public readonly folderBreadcrumbs: Signal<readonly TaskFolderBreadcrumb[]> =
+    this.folder.breadcrumbs;
   public readonly sweep = this._sweep.asReadonly();
   public readonly sweeping = this._sweeping.asReadonly();
 
@@ -1056,6 +1113,14 @@ export class TasksStore implements MessageHandler {
   public constructor() {
     this.setupVisibilityReconcile();
     this.setupWorkspaceSwitch();
+    // Not a `MESSAGE_HANDLERS` entry: that would make this store (and the
+    // folder store behind it) eager and part of the initial bundle. The feed
+    // IS eager, and the store only acts on a push while a surface is mounted
+    // or a bulk run is in flight — both of which construct the store first.
+    const stopListening = this.changedFeed.listenRaw((payload) =>
+      this.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE, payload }),
+    );
+    this.destroyRef.onDestroy(stopListening);
   }
 
   /**
@@ -1160,6 +1225,8 @@ export class TasksStore implements MessageHandler {
   public async loadBoard(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
+    // The board now owns the banner; a later detail load must not clear it.
+    this.detailErrorMessage = null;
     await this.trackFetch(this.activeKey(), this.activeRoot());
   }
 
@@ -1202,13 +1269,60 @@ export class TasksStore implements MessageHandler {
    * detail (Issue 2).
    */
   public async openTask(taskId: string): Promise<void> {
+    const seq = this.detailReqSeq + 1;
+    try {
+      await this.loadTaskDetail(taskId);
+    } catch (error: unknown) {
+      // A transport failure is an outcome like any other: surface it on the
+      // store-level error instead of rejecting into a template handler. A
+      // request superseded by a newer open (or a close) stays silent.
+      if (seq === this.detailReqSeq) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.setDetailError(`Failed to load task detail (${detail})`);
+      }
+    }
+  }
+
+  /** Set {@link _error} and mark it as owned by a detail load. */
+  private setDetailError(message: string): void {
+    this.detailErrorMessage = message;
+    this._error.set(message);
+  }
+
+  /**
+   * Clear {@link _error} only when it still holds the message a detail load
+   * set; a board or write error raised since is left alone.
+   */
+  private clearDetailError(): void {
+    if (
+      this.detailErrorMessage !== null &&
+      this._error() === this.detailErrorMessage
+    ) {
+      this._error.set(null);
+    }
+    this.detailErrorMessage = null;
+  }
+
+  /**
+   * The body of {@link openTask} without its transport catch: a rejected
+   * `tasks:get` propagates. Post-write refreshes call this directly so their
+   * own catch can say the write itself succeeded.
+   */
+  private async loadTaskDetail(taskId: string): Promise<void> {
     const seq = ++this.detailReqSeq;
+    // This request now owns the detail error: a previous detail failure (for
+    // this task or another) must not stay on screen once a newer load starts.
+    this.clearDetailError();
     // Opening a different task must not leave the previous one's plan expanded
     // underneath the new task's heading. Cleared unconditionally: re-opening
     // the SAME task is a re-read, and it is cheaper to reopen a document than
     // to reason about when the old content is still the right content.
-    this.closeDocument();
+    this.folder.selectTask(taskId, this.workspaceParam().workspaceRoot);
     this._selectedTaskId.set(taskId);
+    // Drop the previous task's detail before awaiting, so no outcome of this
+    // request (including a rejected RPC) can leave task A's detail rendered
+    // under task B's selection.
+    this._taskDetail.set(null);
     this._detailLoading.set(true);
     try {
       const result = await this.rpc.call('tasks:get', {
@@ -1218,9 +1332,9 @@ export class TasksStore implements MessageHandler {
       if (seq !== this.detailReqSeq) return;
       if (result.isSuccess() && result.data) {
         this._taskDetail.set(result.data.task);
+        this.folder.setDetail(result.data.task);
       } else {
-        this._taskDetail.set(null);
-        this._error.set(result.error ?? 'Failed to load task detail');
+        this.setDetailError(result.error ?? 'Failed to load task detail');
       }
     } finally {
       if (seq === this.detailReqSeq) this._detailLoading.set(false);
@@ -1233,10 +1347,11 @@ export class TasksStore implements MessageHandler {
     // repopulate the detail after the panel was closed (e.g. on a workspace
     // switch, which funnels through here).
     this.detailReqSeq++;
+    this.pendingRestore = null;
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
     this._detailLoading.set(false);
-    this.closeDocument();
+    this.folder.reset();
   }
 
   /**
@@ -1253,32 +1368,38 @@ export class TasksStore implements MessageHandler {
    * fifteen recognised documents.
    */
   public async readDocument(file: DocFile | null): Promise<void> {
-    const taskId = this._selectedTaskId();
-    if (file === null || taskId === null) {
-      this.closeDocument();
+    await this.readFolderFile(file);
+  }
+
+  /**
+   * Read any direct-child file of the open task into the reader: a workflow
+   * document through `tasks:getArtifact`, other eligible markdown through
+   * `tasks:readFolderMarkdown`. `null` closes the reader.
+   *
+   * Every outcome lands in {@link documentState}, including `rejected` and
+   * transport failures; nothing is thrown. A transport failure is also put on
+   * the store-level {@link error}, as `readDocument` always did.
+   */
+  public async readFolderFile(file: string | null): Promise<void> {
+    // The user's own choice: a push refresh must not restore over it.
+    this.pendingRestore = null;
+    if (this._selectedTaskId() === null) {
+      this.folder.closeDocument();
       return;
     }
+    const state = await this.folder.readFile(file);
+    if (state?.status === 'error') this._error.set(state.message);
+  }
 
-    const seq = ++this.documentReqSeq;
-    this._openDocument.set(file);
-    this._documentContent.set(null);
-    this._documentLoading.set(true);
-    try {
-      const result = await this.rpc.call('tasks:getArtifact', {
-        taskId,
-        file,
-        ...this.workspaceParam(),
-      });
-      if (seq !== this.documentReqSeq) return;
-      if (result.isSuccess() && result.data && result.data.file === file) {
-        this._documentContent.set(result.data.content);
-      } else {
-        this._documentContent.set(null);
-        this._error.set(result.error ?? `Failed to read ${file}`);
-      }
-    } finally {
-      if (seq === this.documentReqSeq) this._documentLoading.set(false);
-    }
+  /**
+   * Browse the open task's folder: `''` is the folder itself, otherwise a
+   * `/`-separated relative directory such as `prototype/assets`. Listing uses
+   * `tasks:listFolderEntries`; its typed result lands in {@link folderListing}.
+   */
+  public async openFolderDirectory(directory: string): Promise<void> {
+    // The user's own choice: a push refresh must not restore over it.
+    this.pendingRestore = null;
+    await this.folder.openDirectory(directory);
   }
 
   /**
@@ -1342,10 +1463,7 @@ export class TasksStore implements MessageHandler {
 
   /** Close the expanded document and invalidate any read still in flight. */
   public closeDocument(): void {
-    this.documentReqSeq++;
-    this._openDocument.set(null);
-    this._documentContent.set(null);
-    this._documentLoading.set(false);
+    this.folder.closeDocument();
   }
 
   /**
@@ -1358,7 +1476,7 @@ export class TasksStore implements MessageHandler {
    */
   public async openArtifact(file: string): Promise<void> {
     const detail = this._taskDetail();
-    if (!detail || !detail.artifacts.includes(file)) return;
+    if (!detail || !isOpenableRootFile(detail, file)) return;
 
     const root = this.appState.workspaceInfo()?.path;
     if (!root) {
@@ -1430,10 +1548,11 @@ export class TasksStore implements MessageHandler {
    *
    * ## Why the schema is imported dynamically
    *
-   * `TasksStore` is registered in `MESSAGE_HANDLERS` at webview bootstrap, so
-   * it is eager. A static import of the schema would therefore pull the whole
-   * Zod runtime (304 kB) into the initial bundle for a check that only ever
-   * runs when a user edits task metadata on the (lazily loaded) board.
+   * `TasksStore` used to be an eager `MESSAGE_HANDLERS` entry, where a static
+   * import of the schema pulled the whole Zod runtime (304 kB) into the
+   * initial bundle for a check that only ever runs when a user edits task
+   * metadata on the (lazily loaded) board. The store is lazy now, and the
+   * deferral still keeps Zod out of any graph that reaches the store.
    * Deferring the import moves those bytes into the board's own chunk
    * (TASK_2026_187 Unit 10). The deferral goes through the local
    * `./metadata-patch-schema.lazy` module — see that file for why it is not a
@@ -2084,20 +2203,28 @@ export class TasksStore implements MessageHandler {
     const missed = this.missedPush;
     this.missedPush = false;
 
+    let boardRefreshed = true;
     try {
       await this.loadBoard();
     } catch (error: unknown) {
+      // Reported, not swallowed: the visible error says the refresh failed.
       this._error.set(TasksStore.refreshFailedMessage(error));
-      return;
+      boardRefreshed = false;
     }
+    if (!boardRefreshed) return;
 
     const selected = this._selectedTaskId();
     if (selected === null) return;
     if (!missed && !ids.includes(selected)) return;
+    const seq = this.detailReqSeq + 1;
     try {
-      await this.openTask(selected);
+      await this.loadTaskDetail(selected);
     } catch (error: unknown) {
-      this._error.set(TasksStore.refreshFailedMessage(error));
+      // Superseded by a newer open (or a close): the user is looking at
+      // another task, so this refresh's failure is not theirs to see.
+      if (seq === this.detailReqSeq) {
+        this.setDetailError(TasksStore.refreshFailedMessage(error));
+      }
     }
   }
 
@@ -2253,14 +2380,22 @@ export class TasksStore implements MessageHandler {
       // all — leaving the user looking at stale state with no signal that it is
       // stale. That is precisely the state this batch newly makes reachable, so
       // it is caught and named here rather than left to the caller.
+      // `null` while the board reload runs; the detail request's stamp once
+      // the detail refresh fires, so a superseded refresh stays silent.
+      let detailSeq: number | null = null;
       try {
         await this.loadBoard();
         if (this._selectedTaskId() === taskId && data.task) {
           // Refresh the open detail with the authoritative row (not a guess).
-          await this.openTask(taskId);
+          detailSeq = this.detailReqSeq + 1;
+          await this.loadTaskDetail(taskId);
         }
       } catch (error: unknown) {
-        this._error.set(TasksStore.refreshFailedMessage(error));
+        if (detailSeq === null) {
+          this._error.set(TasksStore.refreshFailedMessage(error));
+        } else if (detailSeq === this.detailReqSeq) {
+          this.setDetailError(TasksStore.refreshFailedMessage(error));
+        }
       }
     }
     return data;
@@ -2388,6 +2523,7 @@ export class TasksStore implements MessageHandler {
           this._error.set(null);
         } else {
           this._noWorkspace.set(false);
+          this.detailErrorMessage = null;
           this._error.set(result.error ?? 'Failed to load tasks');
         }
       }
@@ -2438,8 +2574,7 @@ export class TasksStore implements MessageHandler {
       if (document.visibilityState === 'hidden') return;
       if (!this._loaded() || this._loading()) return;
       // Nothing is rendering the board, so there is nothing to reconcile. This
-      // store outlives the surface (it is eagerly constructed for
-      // `MESSAGE_HANDLERS`), and `_loaded` latches true for the rest of the
+      // store outlives the surface (it is root-provided), and `_loaded` latches true for the rest of the
       // session after the first visit — so without this guard, every window
       // focus for the rest of the session paid for a board scan whose only
       // consumer had been destroyed views ago. The surface fetches on mount.
@@ -2485,10 +2620,63 @@ export class TasksStore implements MessageHandler {
   }
 
   private async refreshActiveFromPush(): Promise<void> {
-    await this.refreshBoard(this.activeKey(), this.activeRoot());
-    const selected = this._selectedTaskId();
-    if (selected) {
+    const seq = ++this.pushRefreshSeq;
+    const isNewest = (): boolean => seq === this.pushRefreshSeq;
+    try {
+      await this.refreshBoard(this.activeKey(), this.activeRoot());
+      const selected = this._selectedTaskId();
+      if (selected === null) return;
+      // Re-reading the task resets the reader and the browser. Remember what
+      // the user had open AFTER the (slow) board scan, so a document opened
+      // during it is the one kept, and with no await before `openTask`. An
+      // overlapping push that already remembered a target for this task
+      // keeps it: pushes in a burst share one board fetch, and by the time a
+      // later one resumes, the first one's re-read has emptied the reader.
+      if (this.pendingRestore?.taskId !== selected) {
+        this.pendingRestore = {
+          taskId: selected,
+          file: this.folder.openFile(),
+          directory: this.folder.directory(),
+        };
+      }
       await this.openTask(selected);
+      // Only the newest push restores; an older one leaves the target pending.
+      if (!isNewest()) return;
+      const target = this.pendingRestore;
+      this.pendingRestore = null;
+      if (
+        target === null ||
+        target.taskId !== selected ||
+        this._selectedTaskId() !== selected ||
+        this._taskDetail() === null
+      ) {
+        return;
+      }
+      // Restore re-read from disk, so a change on disk refreshes the open
+      // document instead of closing it. Only into an untouched reader: a file
+      // or directory the user opened while the task re-read is newer. This
+      // goes to the folder store directly, NOT through `readFolderFile` /
+      // `openFolderDirectory`, which treat the call as the user's choice.
+      const { file, directory } = target;
+      await Promise.all([
+        directory === '' || this.folder.directory() !== ''
+          ? Promise.resolve()
+          : this.folder.openDirectory(directory),
+        file === null || this.folder.openFile() !== null
+          ? Promise.resolve()
+          : this.folder.readFile(file),
+      ]);
+    } catch (error: unknown) {
+      // Callers fire this with `void`; surface a transport failure on the
+      // board error slot, as a failed board load does, instead of rejecting.
+      if (isNewest()) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.detailErrorMessage = null;
+        this._error.set(`Failed to refresh tasks (${detail})`);
+      }
+    } finally {
+      // The newest call owns the target: whatever happened, it is spent.
+      if (isNewest()) this.pendingRestore = null;
     }
   }
 

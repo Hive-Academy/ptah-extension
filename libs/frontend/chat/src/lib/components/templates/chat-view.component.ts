@@ -63,6 +63,10 @@ import {
   type ActionBannerState,
 } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
+import {
+  ProviderCarryOverService,
+  type CarryOverOffer,
+} from '../../services/provider-carry-over.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -277,6 +281,31 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+  private readonly _carryOver = inject(ProviderCarryOverService);
+
+  /**
+   * The carry-over offer for the banner on screen, shown only in the refused
+   * tab's view: null when the banner generation moved on or this view shows
+   * another tab (TASK_2026_865 AC 7.3).
+   */
+  protected readonly carryOverOffer = computed<CarryOverOffer | null>(() => {
+    const offer = this._carryOver.offer();
+    if (!offer) return null;
+    if (this.authRequiredBanner()?.generation !== offer.generation) return null;
+    return offer.tabId === this.resolvedTabId() ? offer : null;
+  });
+
+  /**
+   * A carry-over holds the refused tab, or one for the refused session runs
+   * elsewhere (a second view, or a `/compact` carry-over): the button waits.
+   */
+  protected readonly carryOverBusy = computed(() => {
+    const offer = this.carryOverOffer();
+    return offer
+      ? this._carryOver.isPending(offer.tabId) ||
+          this._carryOver.isBusy(offer.sessionId)
+      : false;
+  });
 
   private readonly staleOlderHistory = signal<{
     tabId: string;
@@ -353,6 +382,12 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this._authState.clearAuthRequiredBanner();
+  }
+
+  /** Continue the refused conversation in a new chat on the active provider. */
+  protected onCarryOver(): void {
+    const offer = this.carryOverOffer();
+    if (offer) void this._carryOver.start(offer);
   }
 
   /**
@@ -1122,7 +1157,11 @@ export class ChatViewComponent implements OnDestroy {
         this.pendingEntranceTabId.set(tabId);
         untracked(() => this.startLeave(previous));
       }
-      if (this.pendingEntranceTabId() !== tabId || !this.entranceContentReady()) return;
+      if (this.pendingEntranceTabId() !== tabId) return;
+      if (!this.entranceContentReady()) {
+        untracked(() => this.armLeaveSafety());
+        return;
+      }
       this.pendingEntranceTabId.set(null);
       untracked(() => this.startEnter(tabId));
     });
@@ -1141,29 +1180,27 @@ export class ChatViewComponent implements OnDestroy {
 
   private startEnter(tabId: string): void {
     if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
-    if (this.leavingTimer !== null) clearTimeout(this.leavingTimer);
-    const style = typeof getComputedStyle === 'function'
-      ? getComputedStyle(this.hostEl.nativeElement) : null;
-    const stagger = motionDurationMs(style, '--ptah-stagger-step', 36);
-    const entrance = motionDurationMs(style, '--ptah-motion-in', 320);
-    const paneSwitch = motionDurationMs(style, '--ptah-motion-switch', 380);
-    // Last staggered row: 60 ms lead + six steps + its own entrance.
-    const enterWindowMs = Math.max(60 + 6 * stagger + entrance, paneSwitch) + 44;
+    if (this.leavingTimer !== null) {
+      clearTimeout(this.leavingTimer);
+      this.leavingTimer = null;
+    }
+    const enterWindowMs = typeof matchMedia === 'function' &&
+      matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
     this.enteringTabId.set(tabId);
     this.ngZone.runOutsideAngular(() => {
       this.enteringTimer = setTimeout(() => {
         this.enteringTimer = null;
         this.enteringTabId.set(null);
+        // Fallback: never let the previous pane cover the new one past the
+        // entrance window if the scroll-restored notification did not arrive.
+        if (this.resolvedTabId() === tabId) this.leavingTabId.set(null);
       }, enterWindowMs);
     });
-    if (this.leavingTabId() !== null) {
-      const leaveWindowMs = motionDurationMs(style, '--ptah-motion-out', 180) + 40;
-      this.ngZone.runOutsideAngular(() => {
-        this.leavingTimer = setTimeout(() => {
-          this.leavingTimer = null;
-          this.leavingTabId.set(null);
-        }, leaveWindowMs);
-      });
+  }
+
+  protected onEntranceScrollRestored(tabId: string): void {
+    if (this.resolvedTabId() === tabId && this.pendingEntranceTabId() === null) {
+      this.leavingTabId.set(null);
     }
   }
 
@@ -1172,12 +1209,16 @@ export class ChatViewComponent implements OnDestroy {
       clearTimeout(this.leavingTimer);
       this.leavingTimer = null;
     }
+    const cover = previous === null ? null : (this.leavingTabId() ?? previous);
     const shown =
-      previous !== null &&
+      cover !== null &&
       this.mainPanelShowing() &&
-      this.transcriptTabIds().includes(previous);
-    this.leavingTabId.set(shown ? previous : null);
-    if (!shown) return;
+      this.transcriptTabIds().includes(cover);
+    this.leavingTabId.set(shown ? cover : null);
+  }
+
+  private armLeaveSafety(): void {
+    if (this.leavingTimer !== null || this.leavingTabId() === null) return;
     const style = typeof getComputedStyle === 'function'
       ? getComputedStyle(this.hostEl.nativeElement) : null;
     const switchMs = motionDurationMs(style, '--ptah-motion-switch', 380);

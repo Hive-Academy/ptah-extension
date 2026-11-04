@@ -116,7 +116,7 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
     expect(result).toBe(base);
   });
 
-  it('merges override entries over base — caller wins on key collision', () => {
+  it('preserves the session-scoped Ptah URL on an override collision', () => {
     const builder = makeBuilder();
     const base: Record<string, McpHttpServerConfig> = {
       ptah: { type: 'http', url: 'http://localhost:1/registry' },
@@ -128,7 +128,7 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
     expect(result).not.toBe(base); // a new object is produced
     expect(result['ptah']).toEqual({
       type: 'http',
-      url: 'http://override.example/proxy',
+      url: 'http://localhost:1/registry',
     });
   });
 
@@ -159,6 +159,21 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
       url: 'http://override.example/added',
       headers: { 'X-Trace': 'on' },
     });
+  });
+
+  it('lets a caller override an existing non-ptah server key', () => {
+    const builder = makeBuilder();
+    const base: Record<string, McpHttpServerConfig> = {
+      ptah: { type: 'http', url: 'http://localhost:1/session/owner' },
+      other: { type: 'http', url: 'http://localhost:2/original' },
+    };
+    const override: Record<string, McpHttpServerOverride> = {
+      other: { type: 'http', url: 'http://override.example/other' },
+    };
+
+    const result = builder.mergeMcpOverride(base, override);
+    expect(result['ptah']).toEqual(base['ptah']);
+    expect(result['other']).toEqual(override['other']);
   });
 });
 

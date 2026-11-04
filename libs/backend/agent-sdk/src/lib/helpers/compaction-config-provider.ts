@@ -100,6 +100,7 @@ export class CompactionConfigProvider {
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    private readonly devIdleMinTokens?: number,
   ) {
     this.budgetDefaults = new Map(
       BUDGET_KEYS.map((key) => [key, budgetDefault(key)] as const),
@@ -246,7 +247,7 @@ export class CompactionConfigProvider {
       }
     }
 
-    return { enabled, minTokens };
+    return { enabled, minTokens: this.devIdleMinTokens ?? minTokens };
   }
 
   /**

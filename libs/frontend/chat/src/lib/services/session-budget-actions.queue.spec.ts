@@ -32,10 +32,8 @@ import { ConversationService } from './chat-store/conversation.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { MessageSenderService } from './message-sender.service';
-import {
-  SESSION_HANDOFF_COMMAND,
-  SessionBudgetActionsService,
-} from './session-budget-actions.service';
+import { SessionBudgetActionsService } from './session-budget-actions.service';
+import { SESSION_HANDOFF_COMMAND } from './session-handoff-prompts';
 
 const TAB = 'tab-1';
 const SESSION = '11111111-1111-4111-8111-111111111111';
@@ -51,6 +49,7 @@ const BUDGET: SessionBudgetState = {
   revision: 9,
   compactions: 0,
   autoHandoff: false,
+  closeSourceAfterAutoHandoff: false,
 };
 /** The backend router's test (`SlashCommandInterceptor.isSlashCommand`). */
 const ROUTED_AS_SLASH_COMMAND = /^\/[a-zA-Z]/;

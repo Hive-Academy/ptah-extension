@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { ArrowRight, FolderPlus, LucideAngularModule } from 'lucide-angular';
 import { AttachmentTrayComponent, ComposerAttachmentsService } from '@ptah-extension/chat';
 import {
   HarnessBuilderLeaveDialogComponent,
@@ -40,6 +41,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
     FormsModule,
     AttachmentTrayComponent,
     WorkspaceHeaderComponent,
+    LucideAngularModule,
   ],
   providers: [ComposerAttachmentsService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,17 +51,14 @@ import { ProposalFlowStore } from './proposal-flow.store';
       aria-labelledby="new-project-intake-title"
       data-testid="new-project-intake"
     >
-      <header>
-        <h1
-          id="new-project-intake-title"
-          class="text-2xl font-semibold"
-          tabindex="-1"
-        >
-          New project
-        </h1>
-        <p class="text-sm text-base-content-muted">
-          Tell the agent what you want to build.
-        </p>
+      <header class="flex items-center gap-3">
+        <span class="flex size-11 shrink-0 items-center justify-center rounded-xl border border-base-300 text-state-need" data-glass-surface="tile">
+          <lucide-angular [img]="icons.folder" class="size-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h1 id="new-project-intake-title" class="text-2xl font-semibold" tabindex="-1">New project</h1>
+          <p class="text-sm text-base-content-muted">Tell the agent what you want to build.</p>
+        </div>
       </header>
       <ptah-workspace-header [canSwitch]="true" />
       <ptah-onboarding-stepper [steps]="steps" />
@@ -95,7 +94,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
         </div>
       }
       <form
-        class="space-y-5 rounded-[22px] border border-base-300 p-5"
+        class="space-y-4 rounded-[22px] border border-base-300 p-4"
         data-glass-surface="content"
         (ngSubmit)="submit($event)"
         novalidate
@@ -103,7 +102,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
         @if (submitted() && errors().length) {
           <div
             role="alert"
-            class="rounded-[10px] border border-state-err p-3 text-sm"
+            class="rounded-[10px] border border-state-err bg-base-200 p-3 text-sm"
           >
             <p>Check your answers:</p>
             <ul>
@@ -114,12 +113,12 @@ import { ProposalFlowStore } from './proposal-flow.store';
           </div>
         }
         <div>
-          <label for="project-what" class="block font-medium"
+          <label for="project-what" class="block text-sm font-semibold"
             >What are you building? <span aria-hidden="true">*</span></label
           ><textarea
             id="project-what"
             name="what"
-            class="textarea textarea-bordered mt-2 min-h-28 w-full"
+            class="textarea textarea-bordered mt-2 min-h-[140px] w-full"
             [ngModel]="what()"
             (ngModelChange)="what.set($event)"
             (blur)="whatTouched.set(true)"
@@ -140,13 +139,14 @@ import { ProposalFlowStore } from './proposal-flow.store';
           }
         </div>
         <fieldset>
-          <legend class="font-medium">Who is it for?</legend>
+          <legend class="text-sm font-semibold">Who is it for?</legend>
           <div class="mt-2 flex flex-wrap gap-2">
             @for (option of audienceOptions; track option.value) {
               <button
                 type="button"
                 class="btn btn-sm min-h-9"
-                [class.btn-primary]="audience() === option.value"
+                [class.bg-base-content]="audience() === option.value"
+                [class.text-base-100]="audience() === option.value"
                 [attr.aria-pressed]="audience() === option.value"
                 (click)="audience.set(option.value)"
               >
@@ -156,13 +156,14 @@ import { ProposalFlowStore } from './proposal-flow.store';
           </div>
         </fieldset>
         <fieldset>
-          <legend class="font-medium">Platform</legend>
+          <legend class="text-sm font-semibold">Platform</legend>
           <div class="mt-2 flex flex-wrap gap-2">
             @for (option of platformOptions; track option.value) {
               <button
                 type="button"
                 class="btn btn-sm min-h-9"
-                [class.btn-primary]="platform() === option.value"
+                [class.bg-base-content]="platform() === option.value"
+                [class.text-base-100]="platform() === option.value"
                 [attr.aria-pressed]="platform() === option.value"
                 (click)="setPlatform(option.value)"
               >
@@ -172,13 +173,14 @@ import { ProposalFlowStore } from './proposal-flow.store';
           </div>
         </fieldset>
         <fieldset>
-          <legend class="font-medium">Stack</legend>
+          <legend class="text-sm font-semibold">Stack</legend>
           <div class="mt-2 flex flex-wrap gap-2">
             @for (option of stackOptions(); track option.value) {
               <button
                 type="button"
                 class="btn btn-sm min-h-9"
-                [class.btn-primary]="stack() === option.value"
+                [class.bg-base-content]="stack() === option.value"
+                [class.text-base-100]="stack() === option.value"
                 [attr.aria-pressed]="stack() === option.value"
                 (click)="setStack(option.value)"
               >
@@ -222,8 +224,8 @@ import { ProposalFlowStore } from './proposal-flow.store';
             (ngModelChange)="constraints.set($event)"
           ></textarea>
         </div>
-        <details class="rounded-[10px] border border-base-300 p-3">
-          <summary class="cursor-pointer">
+        <details class="rounded-[14px] border border-base-300 p-3" data-glass-surface="tile">
+          <summary class="cursor-pointer text-sm font-semibold">
             Advanced · provider and model
           </summary>
           <p class="mt-2 text-sm text-base-content-muted">
@@ -234,10 +236,12 @@ import { ProposalFlowStore } from './proposal-flow.store';
         @if (store.actionError(); as error) {
           <p role="alert" class="text-sm text-state-err">{{ error }}</p>
         }
-        <div class="flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary" [disabled]="starting() || attachments.pendingReads() > 0 || workspaceEmpty() === null || (workspaceEmpty() === false && !confirmedNonEmpty())">
-            {{ starting() ? 'Starting…' : 'Continue' }}</button
-          ><button type="button" class="btn" (click)="back()">Back</button>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <button type="button" class="btn btn-ghost" (click)="back()">Back</button>
+          <button type="submit" class="btn btn-primary grow sm:grow-0" [disabled]="starting() || attachments.pendingReads() > 0 || workspaceEmpty() === null || (workspaceEmpty() === false && !confirmedNonEmpty())">
+            {{ starting() ? 'Starting…' : 'Continue' }}
+            <lucide-angular [img]="icons.next" class="size-4" aria-hidden="true" />
+          </button>
         </div>
       </form>
       @if (store.leaveOpen()) {
@@ -255,6 +259,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
   `,
 })
 export class NewProjectIntakePage {
+  protected readonly icons = { folder: FolderPlus, next: ArrowRight };
   readonly attachments = inject(ComposerAttachmentsService);
   private readonly harnessRpc = inject(HarnessRpcService);
   protected readonly store = inject(ProposalFlowStore);

@@ -855,7 +855,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     );
   });
 
-  it('falls back to the active tab session when the record has no parentSessionId', () => {
+  it('leaves an ownerless subagent without a session action target', () => {
     (
       TestBed.inject(TabManagerService).activeTabSessionId as ReturnType<
         typeof signal<string | null>
@@ -876,7 +876,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
 
     const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
       .componentInstance as SubagentLaneStub;
-    expect(lane.sessionId()).toBe('sess_active');
+    expect(lane.sessionId()).toBeNull();
   });
 
   it('ensures a record is never shown twice even if present in workflow and session subagents', () => {

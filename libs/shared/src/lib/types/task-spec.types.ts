@@ -195,6 +195,7 @@ export interface TaskSpecDetail extends TaskSpecSummary {
   body: string;
   /** filenames present in the folder (context.md, tasks.md, ...). */
   artifacts: string[];
+  entries?: Array<{ name: string; kind: 'file' | 'directory' | 'symlink' | 'other' }>;
 }
 
 /** Typed exclusion — folders that never enter index/registry/board (R1.2). */
@@ -208,3 +209,4 @@ export interface ExcludedTaskFolder {
     | 'missing_title'
     | 'unreadable';
 }
+

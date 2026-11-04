@@ -231,17 +231,20 @@ function resultText(response: MCPResponse | null): {
 async function overHttp(
   h: Harness,
   args: Record<string, unknown>,
+  callerSessionId: string | null = 'caller-B',
+  logger = quietLogger(),
 ): Promise<{ text: string; isError: boolean }> {
   const deps: ProtocolHandlerDependencies = {
     ptahAPI: h.ptahAPI,
     permissionPromptService:
       {} as ProtocolHandlerDependencies['permissionPromptService'],
-    logger: quietLogger(),
+    logger,
   };
   const request: MCPRequest = {
     jsonrpc: '2.0',
     id: 'limits',
     method: 'tools/call',
+    _callerSessionId: callerSessionId ?? undefined,
     params: { name: 'ptah_agent_spawn', arguments: args },
   };
   return resultText(await handleMCPRequest(request, deps));
@@ -250,8 +253,14 @@ async function overHttp(
 async function overStdio(
   h: Harness,
   args: Record<string, unknown>,
+  callerSessionId: string | null = 'caller-B',
+  logger = quietLogger(),
 ): Promise<{ text: string; isError: boolean }> {
-  const dispatcher = new AgentToolDispatcher(h.ptahAPI, quietLogger());
+  const dispatcher = new AgentToolDispatcher(
+    h.ptahAPI,
+    logger,
+    callerSessionId ?? undefined,
+  );
   const request: MCPRequest = {
     jsonrpc: '2.0',
     id: 'limits',
@@ -273,6 +282,33 @@ describe.each([
   ['protocol', overHttp],
   ['stdio', overStdio],
 ] as const)('ptah_agent_spawn limit block over %s', (_name, call) => {
+  it.each([null, '   ', 'caller-B'])(
+    'records only the verified caller identity (%p)',
+    async (caller) => {
+      const h = harness(SPAWNED);
+      const logger = quietLogger();
+      const result = await call(h, { task: 'Review' }, caller, logger);
+      const owner = caller?.trim() || undefined;
+      expect(h.spawn).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: owner }),
+      );
+      const sentence =
+        _name === 'protocol'
+          ? 'No parent session: completion signals and reports will not be pushed. Use ptah_agent_wait / ptah_agent_status / ptah_agent_read.'
+          : 'No parent session: completion signals and reports will not be pushed. Use agent_wait / agent_status / agent_read.';
+      expect(result.text.includes(sentence)).toBe(!owner);
+      if (!owner) {
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.any(String),
+          ...(_name === 'protocol' ? ['CodeExecutionMCP'] : []),
+          expect.objectContaining({
+            transport: _name === 'protocol' ? 'http' : 'stdio',
+            agentId: SPAWNED.agentId,
+          }),
+        );
+      }
+    },
+  );
   it('checks a named lane before the spawn and appends its block once', async () => {
     const h = harness(SPAWNED);
     const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
@@ -494,8 +530,7 @@ it('stdio refusal carries the lane-at-limit machine-readable state', async () =>
     { task: 'Review', cli: 'codex' },
   );
   const result = response?.result as
-    | { structuredContent?: Record<string, unknown> }
-    | undefined;
+    { structuredContent?: Record<string, unknown> } | undefined;
 
   expect(result?.structuredContent).toMatchObject({
     ptah_code: 'mcp_tool_failed',

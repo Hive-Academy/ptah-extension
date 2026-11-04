@@ -69,6 +69,7 @@ function harness(withPort = true) {
   const legacy = {
     readSessionHistory: jest.fn(async () => ({ events: [], stats: null })),
     readSessionEvents: jest.fn(async () => []),
+    readCarryOverTranscript: jest.fn(),
   };
   const native = { readHistory: jest.fn(async () => snapshot) };
   const router = new SessionHistoryRouter(() => metadata, () => legacy, () => withPort ? native : null);

@@ -443,6 +443,7 @@ export class AgentToolDispatcher {
       );
     }
     const p = parsed.data;
+    const callerSessionId = this.callerSessionId?.trim() || undefined;
     this.logger.info('[McpStdio] agent_spawn invoked', {
       cli: p.cli ?? (p.ptahCliId ? 'ptah-cli' : 'auto-detect'),
       ptahCliId: p.ptahCliId,
@@ -495,7 +496,7 @@ export class AgentToolDispatcher {
         model: p.model,
         modelTier: p.modelTier,
         resumeSessionId: p.resume_session_id,
-        parentSessionId: this.callerSessionId,
+        parentSessionId: callerSessionId,
         role: p.role,
         effort: p.effort,
         taskKind: p.taskKind,
@@ -505,6 +506,12 @@ export class AgentToolDispatcher {
         // nothing.
         accountSelection: p.accountSelection,
       });
+      if (!callerSessionId) {
+        this.logger.warn('[MCP] Lane spawned without parent session', {
+          transport: 'stdio',
+          agentId: result.agentId,
+        });
+      }
       const limits = target ? preLimits : await this.lookupAgentLimits();
       return await this.toolSuccess(
         request,
@@ -516,7 +523,10 @@ export class AgentToolDispatcher {
             forced,
           },
           limits,
-        ),
+        ) +
+          (callerSessionId
+            ? ''
+            : '\nNo parent session: completion signals and reports will not be pushed. Use agent_wait / agent_status / agent_read.'),
         {
           agentId: result.agentId,
           cli: result.cli,

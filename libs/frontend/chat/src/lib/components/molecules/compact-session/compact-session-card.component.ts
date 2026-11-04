@@ -2,13 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   effect,
   inject,
   input,
   output,
-  signal,
-  untracked,
 } from '@angular/core';
 import {
   CompactSessionActivityComponent,
@@ -44,7 +41,7 @@ import {
   BackgroundTaskStore,
   PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
-import type { StreamingState, TabState } from '@ptah-extension/chat-types';
+import type { TabState } from '@ptah-extension/chat-types';
 import {
   contextFillPercent,
   isAgentTaskType,
@@ -67,14 +64,6 @@ import {
   SESSION_FORCED_CARD,
 } from '../../../tokens/session-context.token';
 import { buildLaneSummary, laneKey } from './compact-lane-rows';
-
-/**
- * Minimum interval between two live-stream samples of a card summary. Stream
- * flushes arrive many times per second; the card re-summarises at most once
- * per interval. Questions, permissions, status, terminal reason, compaction
- * and the end of the stream bypass the sampler and render at once.
- */
-export const CARD_SUMMARY_SAMPLE_MS = 500;
 
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
@@ -124,7 +113,11 @@ function sameLaneSummary(
 @Component({
   selector: 'ptah-compact-session-card',
   standalone: true,
-  imports: [CompactSessionActivityComponent, CompactSessionStatsComponent, CompactRailCardComponent],
+  imports: [
+    CompactSessionActivityComponent,
+    CompactSessionStatsComponent,
+    CompactRailCardComponent,
+  ],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
     'data-ptah-file-links': '',
@@ -149,7 +142,6 @@ function sameLaneSummary(
         [focused]="focused()"
         [tabStop]="tabStop()"
         [innerTabbable]="tabStop()"
-        [holdText]="holdText()"
         [reserveActionCorner]="reserveActionCorner()"
         (selectRequested)="openFullView()"
         (allow)="respond($event, 'allow')"
@@ -166,25 +158,50 @@ function sameLaneSummary(
         data-testid="compact-session-card"
       >
         @if (!canvasHost || needsYouCount() > 0) {
-        <div
-          class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
-        >
-          @if (!canvasHost) {
-            <span class="min-w-0 truncate text-sm font-semibold text-base-content" data-testid="compact-session-title">{{ tab().title || 'New Chat' }}</span>
-          }
-          @if (needsYouCount() > 0) {
-            <span class="shrink-0 text-xs font-semibold" style="color: var(--state-ink-need)">{{ needsYouCount() }} needs you</span>
-          }
-          @if (!canvasHost) {
-            <button type="button" class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" (click)="openFullView()">Full view</button>
-          }
-        </div>
+          <div
+            class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
+          >
+            @if (!canvasHost) {
+              <span
+                class="min-w-0 truncate text-sm font-semibold text-base-content"
+                data-testid="compact-session-title"
+                >{{ tab().title || 'New Chat' }}</span
+              >
+            }
+            @if (needsYouCount() > 0) {
+              <span
+                class="shrink-0 text-xs font-semibold"
+                style="color: var(--state-ink-need)"
+                >{{ needsYouCount() }} needs you</span
+              >
+            }
+            @if (!canvasHost) {
+              <button
+                type="button"
+                class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+                (click)="openFullView()"
+              >
+                Full view
+              </button>
+            }
+          </div>
         }
-        @if (tab().viewMode === 'compact' && activityLanes() === null && summary().marks.length === 0) {
-          <div class="flex min-h-0 flex-1 flex-col justify-between" data-testid="compact-session-empty">
+        @if (
+          tab().viewMode === 'compact' &&
+          activityLanes() === null &&
+          summary().marks.length === 0
+        ) {
+          <div
+            class="flex min-h-0 flex-1 flex-col justify-between"
+            data-testid="compact-session-empty"
+          >
             <div class="px-3 py-3">
-              <div class="text-xs font-semibold text-base-content">{{ summary().status.text }}</div>
-              <p class="mt-2 text-sm text-base-content-muted">{{ summary().content.text }}</p>
+              <div class="text-xs font-semibold text-base-content">
+                {{ summary().status.text }}
+              </div>
+              <p class="mt-2 text-sm text-base-content-muted">
+                {{ summary().content.text }}
+              </p>
             </div>
             <ptah-compact-session-stats [metrics]="summary().metrics" />
           </div>
@@ -235,7 +252,8 @@ export class CompactSessionCardComponent {
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
   // Canvas is the only production binder of retainRailTranscript (canvas-detail-transcript.component.ts:29).
   // SESSION_EMBED_CHROME cannot replace it: Canvas focus gets 'full' like any embed, the Rail card none.
-  protected readonly canvasHost = inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
+  protected readonly canvasHost =
+    inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
 
   readonly tab = input.required<TabState>();
   readonly needsYouCount = input(0);
@@ -243,7 +261,6 @@ export class CompactSessionCardComponent {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly tabStop = input(false);
-  readonly holdText = input(false);
   /** Rail only: the host overlays its actions trigger on the card's top-right corner. */
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
@@ -296,14 +313,25 @@ export class CompactSessionCardComponent {
   private readonly sessionAgents = computed(() =>
     this.cardActions || this.sessionContext
       ? this.agentStore.agentsOwnedBySession(this.sessionIdentity())
-      : this.agentStore.agentsForSession(this.sessionIdentity()),
+      : this.agentStore
+          .agents()
+          .filter(
+            (agent) =>
+              !agent.parentSessionId ||
+              agent.parentSessionId === this.sessionIdentity(),
+          ),
   );
   readonly laneSummary = computed(
     () =>
       buildLaneSummary(
         this.sessionAgents(),
-        [...this.agentStore.subagents().values()].filter(
-          (agent) => agent.parentSessionId === this.sessionIdentity(),
+        // Strict tiles need an exact owner. The main-panel card also lists
+        // ownerless subagents, as it does for CLI lanes above.
+        [...this.agentStore.subagents().values()].filter((agent) =>
+          this.cardActions || this.sessionContext
+            ? agent.parentSessionId === this.sessionIdentity()
+            : !agent.parentSessionId ||
+              agent.parentSessionId === this.sessionIdentity(),
         ),
         this.sessionIdentity(),
         3,
@@ -387,8 +415,6 @@ export class CompactSessionCardComponent {
     () => this.tab().streamingState !== null,
   );
 
-  /** Last sampled stream state; `null` once the stream has ended. */
-  private readonly sampledStreaming = signal<StreamingState | null>(null);
   /** Host organization of the SDK session; null while unknown or a fresh tab. */
   private readonly organization = computed(() => {
     const sessionId = this.tab().claudeSessionId;
@@ -419,7 +445,7 @@ export class CompactSessionCardComponent {
   private readonly liveTodos = computed(() =>
     summarizeTodos(
       this.messages(),
-      this.sampledStreaming(),
+      this.tab().streamingState,
       this.tab().lastCompactionAt ?? 0,
     ),
   );
@@ -439,9 +465,6 @@ export class CompactSessionCardComponent {
             a.active === b.active)),
     },
   );
-  private sampledTabId: string | null = null;
-  private lastSampleAt = 0;
-  private pendingSample: ReturnType<typeof setTimeout> | null = null;
 
   private readonly routingRevision = computed(() =>
     this.permissionHandler.routingTargetRevision(),
@@ -540,13 +563,16 @@ export class CompactSessionCardComponent {
 
   readonly summary = computed<CompactSessionSummary>(() => {
     const context = this.context();
-    const live = this.streaming() ? this.sampledStreaming() : null;
+    const live = this.streaming() ? this.tab().streamingState : null;
     const summary = live
       ? summarizeLive(live, context)
       : summarizeFinalized(this.messages(), context);
     if (live || summary.status.text !== 'Idle') return summary;
     if (summary.status.text === 'Idle' && this.messages().length > 0) {
-      return { ...summary, status: { ...summary.status, text: 'Done', icon: '✓', tone: 'success' } };
+      return {
+        ...summary,
+        status: { ...summary.status, text: 'Done', icon: '✓', tone: 'success' },
+      };
     }
     if (summary.status.text === 'Idle') {
       return { ...summary, status: { ...summary.status, text: 'Waiting' } };
@@ -566,7 +592,10 @@ export class CompactSessionCardComponent {
       return 'running';
     if (this.laneSummary().counts.running > 0 || this.hasRunningBackgroundTask())
       return 'background';
-    return this.messages().length > 0 ? 'done' : 'idle';
+    return this.messages().length > 0 ||
+      (this.sessionStatus() === 'loaded' && this.tab().hasLiveSession &&
+        this.tab().streamingState === null)
+      ? 'done' : 'idle';
   });
 
   /**
@@ -586,14 +615,14 @@ export class CompactSessionCardComponent {
       const tabId = this.tabId();
       if (root) onCleanup(this.gitStore.track(root, tabId));
     });
-    effect(() => this.sampleStream(this.tab()));
     effect(() => this.railState.emit(this.railStateValue()));
-    inject(DestroyRef).onDestroy(() => {
-      this.cancelPendingSample();
-    });
   }
 
-  respond(callout: CompactPermissionCallout, decision: CompactPermissionDecision['decision'], reason?: string): void {
+  respond(
+    callout: CompactPermissionCallout,
+    decision: CompactPermissionDecision['decision'],
+    reason?: string,
+  ): void {
     if (this.callout()?.requestId !== callout.requestId) {
       this.staleAction.emit();
       return;
@@ -690,54 +719,6 @@ export class CompactSessionCardComponent {
     } else {
       this.expandToFull.emit();
     }
-  }
-
-  /**
-   * One sampler per card. The end of a stream, a different tab and the first
-   * event after a quiet interval are applied at once; flushes inside the
-   * interval collapse into one trailing sample.
-   */
-  private sampleStream(tab: TabState): void {
-    const state = tab.streamingState;
-    if (state === null) {
-      this.cancelPendingSample();
-      this.lastSampleAt = 0;
-      this.sampledTabId = tab.id;
-      this.sampledStreaming.set(null);
-      return;
-    }
-    const now = Date.now();
-    if (
-      this.sampledTabId !== tab.id ||
-      now - this.lastSampleAt >= CARD_SUMMARY_SAMPLE_MS
-    ) {
-      this.cancelPendingSample();
-      this.applySample(tab.id, state, now);
-      return;
-    }
-    if (this.pendingSample !== null) return;
-    this.pendingSample = setTimeout(
-      () => {
-        this.pendingSample = null;
-        const latest = untracked(this.tab);
-        if (latest.streamingState !== null) {
-          this.applySample(latest.id, latest.streamingState, Date.now());
-        }
-      },
-      this.lastSampleAt + CARD_SUMMARY_SAMPLE_MS - now,
-    );
-  }
-
-  private applySample(tabId: string, state: StreamingState, now: number) {
-    this.sampledTabId = tabId;
-    this.lastSampleAt = now;
-    this.sampledStreaming.set(state);
-  }
-
-  private cancelPendingSample(): void {
-    if (this.pendingSample === null) return;
-    clearTimeout(this.pendingSample);
-    this.pendingSample = null;
   }
 
   private targetsTab(

@@ -30,9 +30,15 @@ describe('RevisionHistoryComponent', () => {
     fixture.componentInstance.restore.subscribe(restore);
     fixture.detectChanges();
 
+    const disclosure = fixture.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(disclosure.querySelector('summary')?.textContent).toContain('2 revisions');
+    disclosure.open = true;
+
     const rows = fixture.nativeElement.querySelectorAll(
       'li',
     ) as NodeListOf<HTMLLIElement>;
+    expect(rows[0].textContent).toContain('Config incomplete');
+    expect(rows[1].textContent).toContain('Config complete · current');
     expect(rows[0].querySelector('button')?.textContent?.trim()).toBe(
       'Restore',
     );

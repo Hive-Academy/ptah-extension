@@ -46,6 +46,7 @@ import {
   TabLookupResult,
   insertTabAfter,
 } from './tab-workspace-partition.service';
+import { closeBackgroundTab } from './tab-cross-partition-close';
 import { LiveModelStatsPayload } from './tab-state.types';
 import { contextFillStats, liveContextStats } from './live-context-stats';
 import {
@@ -1593,6 +1594,47 @@ export class TabManagerService {
   }
 
   /**
+   * Close a tab wherever it is mounted — the active workspace's set or a
+   * background workspace partition — without switching workspaces
+   * (TASK_2026_863).
+   *
+   * `closeTab` searches only the active `_tabs` signal, so a tab parked in a
+   * non-active workspace cannot be closed programmatically. This resolves the
+   * tab across workspaces and routes it: the active set through the normal
+   * `closeTab` path (which asks for confirmation when needed), a background
+   * partition through `closeBackgroundTab` (which refuses busy or dirty tabs
+   * instead of asking, and carries the same close event the session ender
+   * reacts to, so the SDK session ends).
+   *
+   * The caller names the session it expects the tab to hold: when the tab was
+   * rebound meanwhile (session resumed elsewhere), nothing happens and the
+   * method returns false, so a stale close order cannot end a stranger session.
+   * History is never touched by this path — closing a tab only ends the live
+   * SDK process.
+   */
+  closeTabAcrossWorkspaces(tabId: string, expectedSessionId: string): boolean {
+    const lookup = this.findTabByIdAcrossWorkspaces(tabId);
+    if (!lookup) return false;
+    const { tab, workspacePath } = lookup;
+    if (tab.claudeSessionId !== expectedSessionId) return false;
+    if (workspacePath === this.activeWorkspacePath) {
+      void this.closeTab(tabId);
+      return true;
+    }
+    // Only the unpartitioned active set reports a null path, and that case is
+    // handled above (no active workspace): a background partition always has
+    // a path, so a null here means the lookup is not a closable partition.
+    if (workspacePath === null) return false;
+    return closeBackgroundTab({
+      tab,
+      workspacePath,
+      partition: this.workspacePartition,
+      abortStreaming: (id) => this.abortStreamingForTab(id),
+      emitClosed: (event) => this.emitTabClosed(event),
+    });
+  }
+
+  /**
    * Reset a tab to a fresh, empty conversation in place (the `/clear` command).
    *
    * Unlike `closeTab`, the tab is kept — its messages, streaming state, stats,
@@ -1948,6 +1990,20 @@ export class TabManagerService {
         new Map(current).set(tabId, pulse),
       );
     }
+  }
+
+  /** Update rail status for a hidden terminal while content awaits reveal.
+   * Leave the revision untouched so the retained turn_state can finalize the
+   * message in order after the hidden text deltas are replayed.
+   */
+  applyHiddenTurnStateStatus(
+    tabId: string,
+    state: SessionTurnState,
+    sessionId?: string,
+  ): void {
+    if ((state.phase !== 'idle' && state.phase !== 'failed') ||
+        !this.canApplyTurnState(tabId, sessionId, state.revision, state.phase, false)) return;
+    this.updateTabInternal(tabId, { status: 'loaded' });
   }
 
   takeTerminalTurnPulses(): readonly TerminalTurnPulse[] {

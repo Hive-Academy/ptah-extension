@@ -20,7 +20,7 @@ export const UsageFactSchema = z.object({
   day, providerId: id, modelId: id,
   inputUncachedTokens: count, cacheReadTokens: count,
   cacheWriteTokens: count, outputTokens: count,
-  costUsd: usd.nullable(), cacheSavingsUsd: usd.nullable(),
+  costUsd: usd.nullable(), knownCostUsd: usd.optional(), cacheSavingsUsd: usd.nullable(),
   costSource: z.enum(['provider-reported', 'model-priced', 'unpriced']),
   requestCount: count.optional(), sourceId: id,
 }).strict().refine((value) =>
@@ -41,6 +41,7 @@ export const UsageSourceStatusSchema = z.object({
   status: z.enum(['complete', 'partial', 'unavailable']),
   reason: z.string().max(500).optional(),
   scannedFiles: count.optional(), malformedRecords: count.optional(),
+  coverageStart: day.optional(),
 }).strict();
 export type UsageSourceStatus = z.infer<typeof UsageSourceStatusSchema>;
 

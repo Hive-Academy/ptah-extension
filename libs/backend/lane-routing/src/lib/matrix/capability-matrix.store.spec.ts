@@ -89,6 +89,10 @@ class MemoryFiles implements IFileSystemProvider {
     return unsupported('stat');
   }
 
+  lstat(_path: string): Promise<never> { return unsupported('lstat'); }
+  realpath(_path: string): Promise<string> { return unsupported('realpath'); }
+  readFileBoundedNoFollow(_path: string, _maxBytes: number): Promise<never> { return unsupported('readFileBoundedNoFollow'); }
+
   delete(_path: string, _options?: { recursive?: boolean }): Promise<void> {
     return unsupported('delete');
   }

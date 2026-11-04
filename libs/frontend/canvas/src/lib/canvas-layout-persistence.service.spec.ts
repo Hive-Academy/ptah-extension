@@ -9,6 +9,9 @@ import type { TileIntent } from './canvas-layout-intent';
 import { DEFAULT_BOARD_STATE } from './canvas-board-mode';
 
 describe('CanvasLayoutPersistenceService', () => {
+  it('defaults new boards to dense while retaining stored comfortable density', () => {
+    expect(DEFAULT_BOARD_STATE.railDensity).toBe('dense');
+  });
   let service: CanvasLayoutPersistenceService;
   const path = '/workspace/é';
   const intent: TileIntent[] = [
@@ -220,7 +223,7 @@ describe('CanvasLayoutPersistenceService', () => {
 
   it('defaults invalid board fields while preserving valid tiles', () => {
     localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 4, tiles: intent, board: { mode: 'unknown', railCollapsed: true, railDensity: 'unknown', railSort: 'unknown', railScrollTop: -2 } }));
-    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'comfortable', railSort: 'recent', railScrollTop: 0 } });
+    expect(service.load(path)).toMatchObject({ tiles: intent, board: { mode: 'rail', railCollapsed: true, railDensity: 'dense', railSort: 'recent', railScrollTop: 0 } });
   });
 
   it('clears read-only paths when removed', () => {

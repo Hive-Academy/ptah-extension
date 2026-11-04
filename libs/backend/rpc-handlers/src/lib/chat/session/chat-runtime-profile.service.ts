@@ -198,6 +198,15 @@ export class ChatRuntimeProfileService {
     }
   }
 
+  /**
+   * The open-folder and safe-folder check `prepare` runs for a session
+   * folder, alone: read-only, no profile build, no proxy. Throws when
+   * `prepare` would refuse `folder`.
+   */
+  assertAuthorizedFolder(folder: string): void {
+    this.authorize(folder);
+  }
+
   private authorize(
     candidate: string | undefined,
   ): asserts candidate is string {

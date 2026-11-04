@@ -157,7 +157,6 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           [density]="density()"
           [focused]="false"
           [tabStop]="false"
-          [holdText]="holdText()"
           (railState)="onRailState($event)"
         />
         <button
@@ -227,7 +226,6 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           [density]="density()"
           [focused]="focused()"
           [tabStop]="tabStop()"
-          [holdText]="holdText()"
           [reserveActionCorner]="true"
           (expandToFull)="openSession()"
           (railState)="onRailState($event)"

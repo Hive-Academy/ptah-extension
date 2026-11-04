@@ -190,7 +190,32 @@ describe('totals and hasUsage', () => {
       week(AHEAD_AFTER_MIDNIGHT),
     );
 
-    expect(result).toEqual({ tokens: 200, costUsd: 1.5 });
+    expect(result).toEqual({ tokens: 200, costUsd: 1.5, unpriced: true });
+  });
+
+  it('adds a known-cost lower bound and keeps the fact unpriced', () => {
+    const window = week(AHEAD_AFTER_MIDNIGHT);
+    const usage = summary([
+      fact('2026-10-26', { costUsd: 1 }),
+      fact('2026-10-25', { ...UNPRICED, knownCostUsd: 2.5 }),
+    ]);
+
+    expect(totals(usage, window)).toEqual({ tokens: 200, costUsd: 3.5, unpriced: true });
+    expect(lastNDays(usage, window)).toEqual([null, null, null, null, null, 2.5, 1]);
+  });
+
+  it('keeps a known zero distinct from a missing known cost', () => {
+    const window = week(AHEAD_AFTER_MIDNIGHT);
+
+    expect(
+      totals(summary([fact('2026-10-26', { ...UNPRICED, knownCostUsd: 0 })]), window),
+    ).toEqual({ tokens: 100, costUsd: 0, unpriced: true });
+    expect(
+      totals(
+        summary([fact('2026-10-26', { ...UNPRICED, knownCostUsd: Number.POSITIVE_INFINITY })]),
+        window,
+      ),
+    ).toEqual({ tokens: 100, costUsd: null, unpriced: true });
   });
 
   it("counts today's facts behind UTC exactly once, like the bars", () => {
@@ -204,7 +229,7 @@ describe('totals and hasUsage', () => {
   it('reports a null cost when every fact is unpriced', () => {
     expect(
       totals(summary([fact('2026-10-26', { ...UNPRICED })]), week(AHEAD_AFTER_MIDNIGHT)),
-    ).toEqual({ tokens: 100, costUsd: null });
+    ).toEqual({ tokens: 100, costUsd: null, unpriced: true });
   });
 
   it('ignores non-finite numbers', () => {
@@ -228,7 +253,7 @@ describe('lastNDays', () => {
     const bars = lastNDays(
       summary([
         fact('2026-10-26', { costUsd: 2 }),
-        fact('2026-10-26', { costUsd: 0.5 }),
+        fact('2026-10-26', { costUsd: 0.5, knownCostUsd: 9 }),
         fact('2026-10-24', { ...UNPRICED }),
         fact('2026-10-20', { costUsd: 0 }),
       ]),

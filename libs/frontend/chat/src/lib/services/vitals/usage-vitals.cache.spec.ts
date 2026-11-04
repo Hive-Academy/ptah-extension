@@ -113,6 +113,32 @@ describe('UsageVitalsCache', () => {
     expect(call).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a known-cost lower bound on an unpriced fact', async () => {
+    const summary: UsageSummary = {
+      ...SUMMARY,
+      facts: [{
+        day: '2026-10-26',
+        providerId: 'anthropic',
+        modelId: 'claude',
+        inputUncachedTokens: 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 0,
+        costUsd: null,
+        knownCostUsd: 2.5,
+        cacheSavingsUsd: null,
+        costSource: 'unpriced',
+        sourceId: 'claude-ledger',
+      }],
+    };
+    call.mockResolvedValueOnce(new RpcResult(true, summary));
+    const state = cache.summary('/ws', 7);
+    await flush();
+
+    expect(state()).toEqual({ status: 'ready', value: summary });
+    expect(state().status === 'ready' && state().value.facts[0]?.knownCostUsd).toBe(2.5);
+  });
+
   it('treats a summary that fails the schema as an error', async () => {
     call.mockResolvedValueOnce(
       new RpcResult(true, {

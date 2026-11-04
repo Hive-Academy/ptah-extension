@@ -91,6 +91,9 @@ export const PLATFORM_TOKENS = {
    */
   SESSION_RECORD_REPOSITORY: Symbol.for('PlatformSessionRecordRepository'),
 
+  /** SessionUsageSink - accepted usage ledger writer. */
+  SESSION_USAGE_SINK: Symbol.for('PlatformSessionUsageSink'),
+
   /** ISessionBlobStore — per-session bulk files. Registered with SESSION_RECORD_REPOSITORY. */
   SESSION_BLOB_STORE: Symbol.for('PlatformSessionBlobStore'),
 

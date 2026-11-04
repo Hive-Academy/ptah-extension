@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -7,7 +7,17 @@ import { VSCodeService } from '@ptah-extension/core';
 import type { SetupGenerationRunState } from '@ptah-extension/shared';
 import { GenerationHandoffStore, GenerationWorkflowStore, GuidanceGenerationStore, WizardRpcService } from '@ptah-extension/setup-wizard';
 import { GenerationStepStore } from './generation-step.store';
+import { DetailsLogComponent } from '../shared/details-log.component';
 import { ProjectGuidancePage } from './project-guidance.page';
+
+@Component({ selector: 'ptah-details-log', standalone: true, template: '<div role="log" aria-label="Session log"></div>' })
+class DetailsLogStubComponent {
+  readonly mode = input.required<'tab' | 'analysis'>();
+  readonly tabId = input<string | null>(null);
+  readonly variant = input<'pane' | 'disclosure'>('disclosure');
+  readonly liveState = input<'live' | 'idle' | 'stopped' | 'loading' | 'unavailable'>('idle');
+  readonly footerNote = input('Read-only view.');
+}
 
 const binding = { tabId: 'guidance-tab', workspacePath: '/ws', workflow: 'setup-project-prompt' as const };
 const completed: SetupGenerationRunState = { binding: { ...binding, runId: 'guidance-run' }, status: 'completed', committedState: 'committed',
@@ -53,6 +63,10 @@ describe('ProjectGuidancePage', () => {
       { provide: GenerationWorkflowStore, useValue: workflow }, { provide: GuidanceGenerationStore, useValue: guidance },
       { provide: GenerationHandoffStore, useValue: handoff }, { provide: GenerationStepStore, useValue: step }, { provide: WizardRpcService, useValue: rpc },
     ] });
+    TestBed.overrideComponent(ProjectGuidancePage, {
+      remove: { imports: [DetailsLogComponent] },
+      add: { imports: [DetailsLogStubComponent] },
+    });
   });
   afterEach(() => TestBed.resetTestingModule());
   async function render() { fixture = TestBed.createComponent(ProjectGuidancePage); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); return fixture.nativeElement as HTMLElement; }
@@ -62,6 +76,26 @@ describe('ProjectGuidancePage', () => {
     await render();
     expect(step.bindGuidance).toHaveBeenCalledWith(binding, 'guidance-run');
     expect(rpc.getBoundRunState).not.toHaveBeenCalled();
+  });
+  it('places the permanent bound log before the run card and updates its live state', async () => {
+    state.set('running');
+    const element = await render();
+    const layout = element.querySelector('ptah-live-run-layout');
+    const log = layout?.querySelector('ptah-details-log');
+    const panel = layout?.querySelector('ptah-run-panel');
+    expect(log).not.toBeNull();
+    expect(log?.hasAttribute('runlog')).toBe(true);
+    expect(log?.compareDocumentPosition(panel as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(log?.querySelector('[role="log"]')).not.toBeNull();
+    expect(log?.querySelector('summary')).toBeNull();
+    const logInstance = fixture.debugElement.query((debug) => debug.componentInstance instanceof DetailsLogStubComponent)?.componentInstance as DetailsLogStubComponent;
+    expect(logInstance.variant()).toBe('pane');
+    expect(logInstance.tabId()).toBe('guidance-tab');
+    expect(logInstance.liveState()).toBe('live');
+    state.set('cancelling'); fixture.detectChanges();
+    expect(logInstance.liveState()).toBe('stopped');
+    mismatch.set(true); fixture.detectChanges();
+    expect(element.querySelector('[role="log"]')).toBeNull();
   });
   it('rebinds a matching handoff-started run without a second runWizard', async () => {
     delete params['run']; handoff.started.set({ ...binding, runId: 'handoff-run' });

@@ -43,6 +43,7 @@ function makeHarness(
       .fn()
       .mockResolvedValue({ events: [], stats: null }),
     readSessionEvents: jest.fn().mockResolvedValue([]),
+    readCarryOverTranscript: jest.fn(),
   };
   const initialMetadata = options.metadata === null
     ? null

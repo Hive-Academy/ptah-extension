@@ -46,6 +46,25 @@ function row(
 }
 
 describe('inspector agent list', () => {
+  it('uses the role in the visible name and accessible label', () => {
+    const result = agentListRow({
+      agent: row('a', 'running').agent, name: 'Codex · reviewer',
+      secondary: '', secondaryTitle: null, usage: NO_USAGE,
+      durationMs: null, requests: [], tray: null, hasActions: false,
+    });
+    expect(result.name).toBe('Codex · reviewer');
+    expect(result.ariaLabel).toContain('Codex · reviewer');
+    expect(result.usageLabel).toContain('Codex · reviewer');
+  });
+  it('shows elapsed time without converting an unknown duration to zero', () => {
+    expect(row('a', 'running').time).toBe('—');
+    const timed = agentListRow({
+      agent: row('b', 'done').agent,
+      secondary: '', secondaryTitle: null, usage: NO_USAGE,
+      durationMs: 65_000, requests: [], tray: null, hasActions: false,
+    });
+    expect(timed.time).toBe('1m 05s');
+  });
   it('formats in / out compactly and keeps one unknown side as a dash', () => {
     expect(inOutText(1_050_000, 48_000)).toBe('In 1.1M · Out 48.0k');
     expect(inOutText(null, 300)).toBe('In — · Out 300');

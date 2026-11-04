@@ -137,19 +137,30 @@ describe('ChatTranscript message stagger', () => {
     expect(h.motion.index('stream')).toBe(index);
   });
 
-  it('staggers an open batch during a pane switch and pauses it while pending', () => {
+  it('does not stagger history rows during a pane switch; the pane animates alone', () => {
     const h = mount();
     h.fixture.componentRef.setInput('paneSwitching', true);
     update(h, ['a', 'b']);
-    expect([h.motion.index('a'), h.motion.index('b')]).toEqual([0, 1]);
-    expect(item(h.fixture, 'b').style.getPropertyValue('--ptah-msg-i')).toBe('1');
+    expect([h.motion.index('a'), h.motion.index('b')]).toEqual([null, null]);
+    expect(h.motion.enterClass('b')).toBe('');
     const scroller = h.fixture.nativeElement.querySelector('[data-testid="chat-transcript-scroller"]') as HTMLElement;
     expect(scroller.classList.contains('ptah-pane-switch-pending')).toBe(true);
     h.fixture.componentRef.setInput('paneSwitching', false);
     h.fixture.componentRef.setInput('entering', true);
     h.fixture.detectChanges();
     expect(scroller.classList.contains('ptah-pane-switch-pending')).toBe(false);
-    expect(h.motion.index('b')).toBe(1);
+    expect(h.motion.index('b')).toBeNull();
+  });
+
+  it('animates an incremental id arriving while the pane is switching', () => {
+    const h = mount(['existing']);
+    h.fixture.componentRef.setInput('paneSwitching', true);
+    update(h, ['existing', 'new']);
+    expect(h.motion.index('new')).toBe(0);
+    expect(h.motion.enterClass('new')).toBe('ptah-msg-enter');
+    h.fixture.componentRef.setInput('paneSwitching', false);
+    h.fixture.detectChanges();
+    expect(h.motion.index('new')).toBe(0);
   });
 
   it('does not re-enter a finalized reply with a different slot id', () => {

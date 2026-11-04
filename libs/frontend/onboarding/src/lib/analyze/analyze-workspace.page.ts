@@ -22,6 +22,8 @@ import {
   type GenerationViewState,
 } from '@ptah-extension/setup-wizard';
 import { DetailsLogComponent } from '../shared/details-log.component';
+import { LiveRunLayoutComponent } from '../shared/live-run-layout.component';
+import { OnboardingStepperComponent, type OnboardingStep } from '../shared/onboarding-stepper.component';
 import { RunPanelComponent } from '../shared/run-panel.component';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
 import { AnalysisStepStore } from './analysis-step.store';
@@ -34,6 +36,8 @@ import { PhaseListComponent } from './phase-list.component';
     ConfirmationModalComponent,
     DatePipe,
     DetailsLogComponent,
+    LiveRunLayoutComponent,
+    OnboardingStepperComponent,
     RunPanelComponent,
     PhaseListComponent,
     LucideAngularModule,
@@ -42,7 +46,10 @@ import { PhaseListComponent } from './phase-list.component';
   host: { class: 'block' },
   template: `
     <section
-      class="mx-auto max-w-[760px] space-y-5 p-4"
+      class="mx-auto space-y-5"
+      [class.max-w-[1120px]]="(runner.isRunning() || runner.isCanceling()) && !stopRecovery()"
+      [class.max-w-[760px]]="(!runner.isRunning() && !runner.isCanceling()) || stopRecovery()"
+      [class.p-4]="(!runner.isRunning() && !runner.isCanceling()) || stopRecovery()"
       aria-labelledby="analyze-workspace-title"
       data-testid="analyze-workspace"
     >
@@ -53,7 +60,7 @@ import { PhaseListComponent } from './phase-list.component';
           ><lucide-angular [img]="icons.scan" class="size-6" aria-hidden="true"
         /></span>
         <div>
-          <h1 id="analyze-workspace-title" class="text-2xl font-semibold">
+          <h1 id="analyze-workspace-title" tabindex="-1" class="text-2xl font-semibold">
             Analyze workspace
           </h1>
           <p class="text-sm text-base-content-muted">
@@ -61,6 +68,7 @@ import { PhaseListComponent } from './phase-list.component';
           </p>
         </div>
       </header>
+      <ptah-onboarding-stepper [steps]="steps" />
 
       @if (stopRecovery()) {
         <ptah-run-panel
@@ -71,37 +79,38 @@ import { PhaseListComponent } from './phase-list.component';
           (retry)="retry()"
           (startOver)="startFresh()"
         />
-      } @else if (runner.isRunning()) {
-        <ptah-run-panel
-          state="running"
-          [viewState]="viewState()"
-          title="Analyzing workspace"
-          [message]="runner.statusText()"
-          (stop)="confirmStop()"
-        >
-          @if (store.phaseHeader(); as header) {
-            <p class="mt-3 text-sm" data-testid="phase-header">
-              Phase {{ header.current }} of {{ header.total }}
-            </p>
-          }
-          <ptah-phase-list [phases]="store.phaseRows()" />
-          @if (elapsedSeconds() !== null) {
-            <p class="mt-3 text-xs text-base-content-muted">
-              {{ elapsedSeconds() }}s since you opened this page
-            </p>
-          }
-        </ptah-run-panel>
-        <ptah-details-log
-          mode="analysis"
-          [streamCounts]="store.streamCounts()"
-        />
-      } @else if (runner.isCanceling()) {
-        <ptah-run-panel
-          state="cancelling"
-          [viewState]="viewState()"
-          title="Stopping analysis"
-          message="Waiting for the run to stop."
-        />
+      } @else if (runner.isRunning() || runner.isCanceling()) {
+        <ptah-live-run-layout [hasLog]="true">
+          <ptah-details-log
+            runLog
+            variant="pane"
+            data-transcript-variant="pane"
+            mode="analysis"
+            [liveState]="runner.isCanceling() ? 'stopped' : 'live'"
+            [streamCounts]="store.streamCounts()"
+            footerNote="Streaming analysis output. Read-only."
+          />
+          <ptah-run-panel
+            [state]="runner.isCanceling() ? 'cancelling' : 'running'"
+            [viewState]="viewState()"
+            [title]="runner.isCanceling() ? 'Stopping analysis' : 'Analyzing workspace'"
+            [message]="runner.isCanceling() ? 'Waiting for the run to stop.' : runner.statusText()"
+            (stop)="confirmStop()"
+          >
+            @if (store.phaseHeader(); as header) {
+              <p class="mt-3 text-sm" data-testid="phase-header">
+                Phase {{ header.current }} of {{ header.total }}
+              </p>
+            }
+            <ptah-phase-list [phases]="store.phaseRows()" />
+            @if (elapsedSeconds() !== null) {
+              <p class="mt-3 text-xs text-base-content-muted">
+                {{ elapsedSeconds() }}s since you opened this page
+              </p>
+            }
+          </ptah-run-panel>
+          <p class="text-sm text-base-content-muted">You can leave this page. The analysis keeps running.</p>
+        </ptah-live-run-layout>
       } @else if (runner.errorMessage(); as rawError) {
         <ptah-run-panel
           state="failed"
@@ -146,13 +155,6 @@ import { PhaseListComponent } from './phase-list.component';
               }}</pre>
             </details>
           }
-          <button
-            type="button"
-            class="btn btn-sm"
-            (click)="manualAdjust.show()"
-          >
-            Manual adjust
-          </button>
         </section>
       } @else if (interrupted()) {
         <section
@@ -258,13 +260,6 @@ import { PhaseListComponent } from './phase-list.component';
         confirmClass="btn-error"
         (confirmed)="stop()"
       />
-      <ptah-confirmation-modal
-        #manualAdjust
-        title="Manual adjust"
-        message="Manual adjustments are coming soon."
-        mode="alert"
-        confirmText="OK"
-      />
     </section>
   `,
 })
@@ -281,8 +276,13 @@ export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
   private pendingAnalysis: string | null = null;
   protected readonly stopModal =
     viewChild.required<ConfirmationModalComponent>('stopModal');
-  protected readonly manualAdjust =
-    viewChild.required<ConfirmationModalComponent>('manualAdjust');
+  protected readonly steps: readonly OnboardingStep[] = [
+    { id: 'analyze', label: 'Analyze', state: 'current' },
+    { id: 'agents', label: 'Choose agents', state: 'upcoming' },
+    { id: 'generate', label: 'Generate agents', state: 'upcoming' },
+    { id: 'guidance', label: 'Project guidance', state: 'upcoming' },
+    { id: 'done', label: 'Done', state: 'upcoming' },
+  ];
   protected readonly interrupted = signal(false);
   protected readonly savedError = signal(false);
   protected readonly visibleSaved = computed(() =>

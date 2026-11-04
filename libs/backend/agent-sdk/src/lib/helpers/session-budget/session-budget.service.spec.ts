@@ -149,6 +149,13 @@ function liveStageLogs(h: Harness): unknown[][] {
 }
 
 describe('SessionBudgetService.observe', () => {
+  it('publishes the close-source setting on measured and disabled states', () => {
+    const h = harness({ closeSourceAfterAutoHandoff: true });
+    expect(h.service.observe(at(100, 1))?.closeSourceAfterAutoHandoff).toBe(true);
+    h.setConfig({ enabled: false });
+    expect(h.service.observe(at(100, 2))?.closeSourceAfterAutoHandoff).toBe(true);
+  });
+
   it.each([true, false])(
     'carries autoHandoff=%s on composed states',
     (value) => {

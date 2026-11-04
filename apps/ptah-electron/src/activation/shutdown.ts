@@ -301,13 +301,22 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   // connection once its child exits. The guard is inline for the reason given
   // just below.
   const chatSessions = refs.chatSessions;
+  const endingUsageIds = refs.sdkAdapter?.getLiveSessionUsageIds?.() ?? [];
+  // Queue the snapshot before an interrupt can exhaust the chat-dispose budget.
+  // The sink serializes these requests behind already accepted usage writes.
+  if (endingUsageIds.length > 0) {
+    await withBudget('Session finalization requests',
+      async () => {
+        await Promise.allSettled(endingUsageIds.map((id) =>
+          Promise.resolve(refs.sessionUsageSink?.requestFinalization?.(id))));
+      }, 2000, 'usage finalization remains pending.');
+  }
   if (chatSessions !== null) {
     await disposeChatSessions(
       chatSessions,
       deps.chatSessionDisposeBudgetMs ?? CHAT_SESSION_DISPOSE_BUDGET_MS,
     );
   }
-
   // The guard is HERE rather than inside `reapAgents`, and that placement is
   // the whole reason the undeferred path still works. `await f()` suspends even
   // when `f` returns immediately, so hiding the null check inside an async
@@ -333,6 +342,15 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
       5_000, 'the lease will expire and reconcile on next start.');
   }
 
+  if (refs.sdkAdapter !== null) {
+    await withBudget(
+      'SDK adapter dispose',
+      () => refs.sdkAdapter?.dispose() ?? Promise.resolve(),
+      deps.chatSessionDisposeBudgetMs ?? CHAT_SESSION_DISPOSE_BUDGET_MS,
+      'continuing shutdown.',
+    );
+  }
+
   if (hasElectronCodexBindings()) {
     // Binding disposal stages every inactive write before waiting on scopes.
     // Late runtime closes reuse that write, even after this budget expires.
@@ -341,6 +359,15 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
       disposeElectronCodexBindings,
       CODEX_DISPOSE_BUDGET_MS,
       'continuing shutdown.',
+    );
+  }
+
+  if (refs.sessionUsageSink !== null) {
+    await withBudget(
+      'Session usage drain',
+      () => refs.sessionUsageSink?.flush() ?? Promise.resolve(),
+      2000,
+      'usage coverage will remain partial.',
     );
   }
 
@@ -506,6 +533,8 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
     hasElectronCodexBindings() ||
     refs.laneOutcomesDisposer !== null ||
+    refs.sessionUsageSink !== null ||
+    refs.sdkAdapter !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     refs.reviewWorker !== null ||

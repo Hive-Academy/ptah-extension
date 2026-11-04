@@ -406,7 +406,7 @@ export class SubagentLaneComponent {
   }
 
   protected async onStop(ctx: TrayAgentContext): Promise<void> {
-    if (this.stopPending() || !ctx.taskId) return;
+    if (this.stopPending() || !ctx.taskId || !ctx.sessionId) return;
     this.stopPending.set(true);
     try {
       await this.monitor.stopAgent(ctx.taskId, ctx.sessionId);

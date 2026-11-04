@@ -49,6 +49,7 @@ import {
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
 import { SessionOpenBridgeService } from './chat-store/session-open-bridge.service';
+import { SessionAutoHandoffCoordinatorService } from './session-auto-handoff-coordinator.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
@@ -101,6 +102,16 @@ export class ChatStore {
    * lets the Tasks board open an existing session without importing this lib.
    */
   private readonly sessionOpenBridge = inject(SessionOpenBridgeService);
+  /**
+   * Eagerly constructed so its root trigger effect is live for the whole app
+   * run: the automatic budget hand-off must fire for background tabs too
+   * (TASK_2026_863), which no view creates. Not otherwise read by the facade
+   * (injecting it here rather than in a view also keeps the effect alive when
+   * every chat view is destroyed).
+   */
+  private readonly autoHandoffCoordinator = inject(
+    SessionAutoHandoffCoordinatorService,
+  );
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -587,6 +598,7 @@ export class ChatStore {
   handleSessionIdResolved(data: {
     tabId: string;
     realSessionId: string;
+    carryOverRequestId?: string;
   }): void {
     this.lifecycle.handleSessionIdResolved(data);
   }

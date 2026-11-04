@@ -82,6 +82,13 @@ export const TasksGetParamsSchema = z.object({
  * guarantee than any sanitiser, and it comes from `DOC_FILES` so the boundary
  * cannot drift from the contract it is enforcing.
  */
+export const TasksReadFolderMarkdownParamsSchema = z.object({
+  workspaceRoot, taskId: taskIdRef, file: z.string().min(1).max(255),
+});
+export const TasksListFolderEntriesParamsSchema = z.object({
+  workspaceRoot, taskId: taskIdRef, directory: z.string().max(512),
+});
+
 export const TasksGetArtifactParamsSchema = z.object({
   workspaceRoot,
   taskId: taskIdRef,

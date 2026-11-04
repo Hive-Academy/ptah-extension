@@ -291,6 +291,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
+    this.statsOwner.setLiveSessionIdsProvider(() =>
+      this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
+        this.sessionKeys(id as SessionId)));
     // An idle-evicted record never reaches `endSession`; its budget entry is
     // released here so it does not outlive the record.
     this.stopEvictionRelease = this.sessionLifecycle.onSessionEvicted((keys) =>
@@ -808,11 +811,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
     this.flushAllPendingUserActivity();
-    this.sessionLifecycle
+    const endedIds = this.sessionLifecycle.getLiveSessionIds().flatMap((id) => this.sessionKeys(id as SessionId));
+    for (const id of endedIds) this.statsOwner.requestFinalization(id);
+    const sessionDisposal = this.sessionLifecycle
       .disposeAllSessions()
       .catch((err) => {
         this.logger.warn(
@@ -832,6 +837,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.initialized = false;
     this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
+    return sessionDisposal;
   }
 
   clearModelCache(): void {
@@ -959,6 +965,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       budgetKeys.push(...this.sessionKeys(id as SessionId));
     }
     await this.sessionLifecycle.disposeSessionsForWorkspace(workspacePath);
+    const liveIds = new Set(this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
+      this.sessionKeys(id as SessionId)));
+    for (const id of budgetKeys) {
+      if (!liveIds.has(id)) this.statsOwner.requestFinalization(id);
+    }
     this.releaseStatsOwners(leases);
     this.releaseBudget(budgetKeys);
   }
@@ -1150,6 +1161,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.sessionLifecycle
       .endSession(sessionId)
       .then(() => {
+        for (const id of budgetKeys) this.statsOwner.requestFinalization(id);
         this.releaseStatsOwners(statsLeases);
         this.releaseBudget(budgetKeys);
       })
@@ -1575,6 +1587,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.sessionLifecycle.find(sessionId as string) !== undefined;
   }
 
+  getLiveSessionUsageIds(): string[] {
+    return this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
+      this.sessionKeys(id as SessionId));
+  }
+
   /**
    * Opaque identity of the record currently registered under this id, or null.
    * A re-registration under the same id (slash-command re-query) mints a new
@@ -1608,6 +1625,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       token,
     );
     if (ended) {
+      for (const id of budgetKeys) this.statsOwner.requestFinalization(id);
       this.releaseStatsOwners(statsLeases);
       this.releaseBudget(budgetKeys);
     }

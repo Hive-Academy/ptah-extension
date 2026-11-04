@@ -27,7 +27,7 @@ import {
   PtahCliStateService,
   AuthStateService,
 } from '@ptah-extension/core';
-import type { RpcResult } from '@ptah-extension/core';
+import type { AuthRequiredBannerOrigin, RpcResult } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   SessionId,
@@ -50,8 +50,37 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import { UltracodeStateService } from './ultracode-state.service';
-import type { SendMessageOptions } from '@ptah-extension/chat-types';
+import type {
+  SendMessageOptions,
+  TabState,
+} from '@ptah-extension/chat-types';
 import type { QueuedCommand } from './chat-store/conversation.service';
+import {
+  CARRY_OVER_BUSY_TEXT,
+  ProviderCarryOverService,
+  type CarryOverCompactResult,
+} from './provider-carry-over.service';
+
+/**
+ * `/compact` fails closed with this text when its carry-over check failed and
+ * the tab's session is known to belong to another provider (decisions.md row
+ * 38, P4 = A): today's path would compact on the old provider.
+ */
+export const CARRY_OVER_CHECK_FAILED_TEXT =
+  "Couldn't check this conversation. Try /compact again.";
+
+/**
+ * Whether `content` is the `/compact` slash command, parsed as the host does
+ * (E43): a leading `/` and a letter, and the command name up to the first
+ * space (or the end) is exactly `compact`. Arguments are allowed but are not
+ * forwarded to a carry-over (Decision K21).
+ */
+export function isCompactCommand(content: string): boolean {
+  const text = content.trim();
+  if (!/^\/[a-zA-Z]/.test(text)) return false;
+  const end = text.indexOf(' ');
+  return (end === -1 ? text.slice(1) : text.slice(1, end)) === 'compact';
+}
 
 /**
  * Structured outcome of a send attempt.
@@ -71,6 +100,11 @@ export interface SendOutcome {
   cancelled?: boolean;
   /** The backend already broadcast CHAT_ERROR; preserve its terminal state. */
   errorAlreadyShown?: boolean;
+  /**
+   * `error` is complete user-facing copy: show it as is, without the generic
+   * delivery-failure prefix (the `/compact` check failure, P4).
+   */
+  errorIsFullText?: boolean;
   /**
    * Set when a slash command was queued behind earlier queued text and waits
    * as its own turn (TASK_2026_655): resolves `true` when it becomes the
@@ -127,6 +161,7 @@ export class MessageSenderService {
   private readonly authState = inject(AuthStateService);
   private readonly ultracode = inject(UltracodeStateService);
   private readonly sendLock = inject(CommandCenterSendLockService);
+  private readonly carryOver = inject(ProviderCarryOverService);
 
   private isHeld(
     options?: SendMessageOptions & { ownerToken?: string },
@@ -136,10 +171,25 @@ export class MessageSenderService {
   }
 
   /**
+   * Whether a provider carry-over holds the target tab: no prompt may be sent
+   * on it until the new chat is bound or the carry-over is over (AC 5.4).
+   */
+  private isCarryOverPending(
+    options?: SendMessageOptions & { ownerToken?: string },
+  ): boolean {
+    const tabId = options?.tabId ?? this.tabManager.activeTabId();
+    return tabId != null && this.carryOver.isPending(tabId);
+  }
+
+  /**
    * Surface an inline re-auth banner when a chat RPC failed because the
    * provider needs (re-)authentication. The backend result-shapes this as
    * `data.errorCode === 'AUTH_REQUIRED'`; an RpcUserError throw would set it at
    * the envelope level instead, so check both.
+   *
+   * With an `origin` (a continue of an existing chat), the banner is bound to
+   * that chat and a carry-over offer is requested for it. The offer decision
+   * uses the origin only, never the refusal text (AC 1.4).
    */
   private handleAuthRequired(
     result: RpcResult<{
@@ -147,14 +197,99 @@ export class MessageSenderService {
       error?: string;
       providerId?: string;
     }>,
+    origin?: AuthRequiredBannerOrigin,
   ): boolean {
     const code = result.errorCode ?? result.data?.errorCode;
     if (code !== 'AUTH_REQUIRED') return false;
-    this.authState.flagAuthRequired(
-      result.data?.providerId ?? null,
-      result.data?.error ?? result.error ?? 'Authentication required.',
+    const providerId = result.data?.providerId ?? null;
+    const message =
+      result.data?.error ?? result.error ?? 'Authentication required.';
+    if (!origin) {
+      this.authState.flagAuthRequired(providerId, message);
+      return true;
+    }
+    const generation = this.authState.flagAuthRequired(
+      providerId,
+      message,
+      origin,
     );
+    this.requestCarryOverOffer(generation);
     return true;
+  }
+
+  /** Not awaited: the refusal path must not wait for, or fail on, the check. */
+  private requestCarryOverOffer(generation: number): void {
+    const warn = (error: unknown): void => {
+      console.warn('[MessageSender] carry-over offer check failed', {
+        generation,
+        error: error instanceof Error ? error.name : typeof error,
+      });
+    };
+    try {
+      // degradation-audit: reported — `warn` logs a failed offer check; the banner stays without a button.
+      this.carryOver.offerFor(generation).catch(warn);
+    } catch (error) {
+      warn(error);
+    }
+  }
+
+  /**
+   * The `/compact` carry-over trigger. `null` means "run today's path".
+   * An unexpected throw counts as a failed check, so a carry-over bug can
+   * never break `/compact` itself.
+   */
+  private async tryCompactCarryOver(
+    sessionId: SessionId,
+    tabId: string,
+    workspacePath: string,
+    tab: TabState | null | undefined,
+  ): Promise<SendOutcome | null> {
+    let result: CarryOverCompactResult;
+    try {
+      result = await this.carryOver.tryCompact({
+        sessionId,
+        tabId,
+        workspacePath,
+        ...(tab?.name ? { name: tab.name } : {}),
+      });
+    } catch (error) {
+      console.warn('[MessageSender] /compact carry-over check threw', {
+        tabId,
+        sessionId,
+        error: error instanceof Error ? error.name : typeof error,
+      });
+      result = 'check-failed';
+    }
+    if (result === 'not-eligible') return null;
+    if (result === 'busy') {
+      return { success: false, error: CARRY_OVER_BUSY_TEXT };
+    }
+    if (result === 'check-failed') {
+      return this.sessionProviderDiffers(tabId, tab)
+        ? {
+            success: false,
+            error: CARRY_OVER_CHECK_FAILED_TEXT,
+            errorIsFullText: true,
+          }
+        : null;
+    }
+    return { ...result };
+  }
+
+  /**
+   * True only when the renderer KNOWS the tab's session belongs to another
+   * provider than the active one: the tab carries its stored provider, the
+   * active provider is loaded, and the tab is in the active workspace (the
+   * auth state describes that workspace only). Unknown is not "differs".
+   */
+  private sessionProviderDiffers(
+    tabId: string,
+    tab: TabState | null | undefined,
+  ): boolean {
+    if (this.backgroundWorkspaceOf(tabId) !== null) return false;
+    const stored = tab?.providerId;
+    const active = this.authState.activeProviderId();
+    return !!stored && !!active && stored !== active;
   }
 
   /**
@@ -381,6 +516,8 @@ export class MessageSenderService {
   ): Promise<SendOutcome> {
     if (this.isHeld(options))
       return { success: false, error: 'Message held by Command Center' };
+    if (this.isCarryOverPending(options))
+      return { success: false, error: CARRY_OVER_BUSY_TEXT };
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
@@ -668,6 +805,8 @@ export class MessageSenderService {
   ): Promise<SendOutcome> {
     if (this.isHeld(options))
       return { success: false, error: 'Message held by Command Center' };
+    if (this.isCarryOverPending(options))
+      return { success: false, error: CARRY_OVER_BUSY_TEXT };
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.tabManager.getAbortSignal(activeTabId)
@@ -780,6 +919,23 @@ export class MessageSenderService {
         this.tabManager.activeTab();
       if (this.isHeld(options))
         return { success: false, error: 'Message held by Command Center' };
+      // A carry-over may have started on this tab during the awaits above.
+      if (this.carryOver.isPending(activeTabId))
+        return { success: false, error: CARRY_OVER_BUSY_TEXT };
+      // `/compact` on a chat of another provider continues it in a new chat
+      // on the active provider (decisions.md rows 20, 22). Every other result
+      // runs today's `/compact` below, unchanged, so its refusal is too.
+      if (resolvedWorkspacePath && isCompactCommand(content)) {
+        const carried = await this.tryCompactCarryOver(
+          sessionId,
+          activeTabId,
+          resolvedWorkspacePath,
+          activeTab,
+        );
+        if (carried) return carried;
+        if (this.isHeld(options))
+          return { success: false, error: 'Message held by Command Center' };
+      }
       this.sessionManager.setStatus('resuming');
       this.tabManager.markResuming(activeTabId);
       const userMessage = createExecutionChatMessage({
@@ -845,7 +1001,12 @@ export class MessageSenderService {
           errorAlreadyShown: true,
         };
       }
-      const authFailed = this.handleAuthRequired(result);
+      const authFailed = this.handleAuthRequired(
+        result,
+        resolvedWorkspacePath
+          ? { sessionId, tabId: activeTabId, workspacePath: resolvedWorkspacePath }
+          : undefined,
+      );
       if (!result.success || authFailed || result.data?.success === false) {
         console.error(
           '[MessageSender] Failed to continue chat:',

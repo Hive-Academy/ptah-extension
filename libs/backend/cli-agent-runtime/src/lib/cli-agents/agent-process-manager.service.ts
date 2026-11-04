@@ -49,7 +49,9 @@ import { killProcessTree } from '@ptah-extension/platform-core';
 import {
   claudeModelFamily,
   SDK_TOKENS,
+  SESSION_USAGE_SINK,
   type HostAttentionCoordinator,
+  type SessionUsageSink,
 } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
@@ -82,6 +84,7 @@ import {
 import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import { recordLaneUsageOutcome } from './lane-completion-outcome';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import {
   buildLaneHandoffTask,
@@ -393,6 +396,13 @@ export class AgentProcessManager {
       isOptional: true,
     })
     private readonly accountSelections?: ClaudeAccountSelectionReader,
+    /**
+     * Durable usage capture port (TASK_2026_870 Phase 1). Optional: without
+     * the host binding, a lane's completion usage is not mirrored to the
+     * usage ledger and the completion path is unchanged.
+     */
+    @inject(SESSION_USAGE_SINK, { isOptional: true })
+    private readonly usageSink?: SessionUsageSink | null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -787,21 +797,38 @@ export class AgentProcessManager {
     requested: string | undefined,
     previous: AgentProcessInfo | undefined,
     cli: CliType,
+    agentId: AgentId,
   ): string | undefined {
-    const parent = this.resolvedParentSessions.get(requested ?? '') ?? requested;
-    if (parent && previous?.parentSessionId && parent !== previous.parentSessionId) {
-      this.logger.warn('[AgentProcessManager] Explicit resume owner differs from prior owner', {
-        cli, previousAgentId: previous.agentId,
-        previousParentSessionId: previous.parentSessionId,
-        requestedParentSessionId: parent,
-      });
+    const parent =
+      this.resolvedParentSessions.get(requested ?? '') ?? requested;
+    if (previous) {
+      this.logger.info(
+        '[AgentProcessManager] Current caller sets resume owner',
+        {
+          agentId,
+          cli,
+          previousAgentId: previous.agentId,
+          parentSessionId: parent,
+        },
+      );
     }
-    if (requested !== undefined) return parent;
-    if (!previous) return undefined;
-    const priorRecord = this.agents.get(String(previous.agentId));
-    return priorRecord && !priorRecord.restored
-      ? previous.parentSessionId
-      : undefined;
+    if (
+      parent &&
+      previous?.parentSessionId &&
+      parent !== previous.parentSessionId
+    ) {
+      this.logger.warn(
+        '[AgentProcessManager] Explicit resume owner differs from prior owner',
+        {
+          cli,
+          previousAgentId: previous.agentId,
+          previousParentSessionId: previous.parentSessionId,
+          requestedParentSessionId: parent,
+        },
+      );
+    }
+    // A resumed run belongs only to its current caller, never the old run.
+    return parent;
   }
 
   /**
@@ -856,7 +883,12 @@ export class AgentProcessManager {
       status: 'running',
       startedAt,
       turnSeq: 1,
-      parentSessionId: this.resumedOwner(request.parentSessionId, previous, cli),
+      parentSessionId: this.resumedOwner(
+        request.parentSessionId,
+        previous,
+        cli,
+        agentId,
+      ),
       ...(previous ? { resumedFromAgentId: previous.agentId } : {}),
       displayName,
       model: resolvedModel,
@@ -1057,7 +1089,10 @@ export class AgentProcessManager {
 
       const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
-      const previous = this.previousResumeRecord(meta.cli, meta.resumeSessionId);
+      const previous = this.previousResumeRecord(
+        meta.cli,
+        meta.resumeSessionId,
+      );
 
       const info: AgentProcessInfo = {
         ...meta.accountReference,
@@ -1070,7 +1105,12 @@ export class AgentProcessManager {
         status: 'running',
         startedAt,
         turnSeq: 1,
-        parentSessionId: this.resumedOwner(meta.parentSessionId, previous, meta.cli),
+        parentSessionId: this.resumedOwner(
+          meta.parentSessionId,
+          previous,
+          meta.cli,
+          agentId,
+        ),
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
@@ -1215,9 +1255,15 @@ export class AgentProcessManager {
       // Only a Codex lane abandons its first thread (bundled fallback before
       // any turn). For other CLIs a different resolved id is not a
       // replacement: the pre-set resume id must keep its own reference.
-      const replaced = previous && tracked.info.cli === 'codex'
-        ? [...new Set([...(tracked.info.replacesCliSessionIds ?? []), previous])]
-        : tracked.info.replacesCliSessionIds;
+      const replaced =
+        previous && tracked.info.cli === 'codex'
+          ? [
+              ...new Set([
+                ...(tracked.info.replacesCliSessionIds ?? []),
+                previous,
+              ]),
+            ]
+          : tracked.info.replacesCliSessionIds;
       tracked.info = {
         ...tracked.info,
         cliSessionId: sessionId,
@@ -3152,6 +3198,20 @@ export class AgentProcessManager {
     const toolCalls =
       this.laneGuards.get(info.agentId)?.toolCallCount ??
       tracked.guardToolCalls;
+    if (tracked.outcomeUsage) {
+      // Durable usage capture (TASK_2026_870 Phase 1): the same turn total
+      // the outcome recorder reads, recorded before the signal so a lane
+      // whose chat parent is gone still lands its usage. Keyed by the same
+      // agent id and completion stamp the notifier's duplicate guard uses,
+      // so a repeated terminal call converges to the same rows.
+      recordLaneUsageOutcome(
+        this.usageSink,
+        this.logger,
+        info,
+        info.completedAt ?? new Date().toISOString(),
+        tracked.outcomeUsage,
+      );
+    }
     void this.laneCompletion.signal(info, {
       reportsDelivered,
       ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),

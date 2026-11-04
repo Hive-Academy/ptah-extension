@@ -33,6 +33,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
+import type { QueuedCommand } from './conversation.service';
 import {
   AgentMonitorStore,
   MessageFinalizationService,
@@ -75,6 +76,7 @@ describe('MessageDispatchService', () => {
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
   let releaseHeldCommandMock: jest.Mock;
+  let queuedCommandForFlushMock: jest.Mock;
   let continueConversationMock: jest.Mock;
   let continueExistingSessionForQueueFlushMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
@@ -104,6 +106,7 @@ describe('MessageDispatchService', () => {
     sendMock = jest.fn().mockResolvedValue(undefined);
     queueOrAppendMock = jest.fn(() => null);
     releaseHeldCommandMock = jest.fn();
+    queuedCommandForFlushMock = jest.fn(() => null);
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     continueExistingSessionForQueueFlushMock = jest
       .fn()
@@ -167,6 +170,8 @@ describe('MessageDispatchService', () => {
       queueOrAppendMessage: queueOrAppendMock,
       continueConversation: continueConversationMock,
       releaseHeldCommand: releaseHeldCommandMock,
+      queuedCommandForFlush: queuedCommandForFlushMock,
+      isQueuedCommand: jest.fn(() => false),
     } as unknown as ConversationService;
     promptTargets = new Map<string, string[]>();
     const permissionHandlerMock = {
@@ -204,6 +209,30 @@ describe('MessageDispatchService', () => {
     );
   });
 
+  it('shows a full-text failure verbatim, with no delivery prefix (P4)', async () => {
+    const text = "Couldn't check this conversation. Try /compact again.";
+    sendMock.mockResolvedValue({
+      success: false,
+      error: text,
+      errorIsFullText: true,
+    });
+    await service.sendOrQueueMessage('/compact');
+    const raw = tabs[0].messages.map((m) => m.rawContent);
+    expect(raw).toEqual([text]);
+  });
+
+  it('keeps the delivery prefix for any other send failure', async () => {
+    sendMock.mockResolvedValue({
+      success: false,
+      error: 'Your follow-up was not sent.',
+    });
+    await service.sendOrQueueMessage('stop');
+    const raw = tabs[0].messages.map((m) => m.rawContent);
+    expect(raw).toEqual([
+      'Message delivery failed. Your follow-up was not sent.',
+    ]);
+  });
+
   it('typing during a successful flush leaves only the new draft', async () => {
     tabs = [makeTab({ queuedContent: 'original' })];
     let resolveFlush!: (outcome: { success: boolean }) => void;
@@ -223,6 +252,20 @@ describe('MessageDispatchService', () => {
 
     expect(tabs[0].queuedContent).toBe('new draft');
     expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles only the queue head captured before a flush', async () => {
+    const first: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
+    const later: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
+    const firstListener = jest.fn();
+    const laterListener = jest.fn();
+    tabs = [makeTab({ queuedContent: '/handoff' })];
+    queuedCommandForFlushMock.mockReturnValue(first);
+    service.onQueuedCommandOutcome(first, firstListener);
+    service.onQueuedCommandOutcome(later, laterListener);
+    await service.sendQueuedMessage('tab-1', '/handoff');
+    expect(firstListener).toHaveBeenCalledWith(true);
+    expect(laterListener).not.toHaveBeenCalled();
   });
 
   it('a failed flush with no new draft restores the original once', async () => {

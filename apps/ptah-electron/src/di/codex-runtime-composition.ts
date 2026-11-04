@@ -59,6 +59,7 @@ import {
   type CodexRuntime,
   type CodexHistoryReader,
   type CodexSessionHistory,
+  type CodexExecutionProfile,
   type CodexThreadIdentity,
   type CodexRuntimeRegistrationPorts,
 } from '@ptah-extension/codex-runtime';
@@ -513,148 +514,176 @@ export interface ElectronCodexHistoryDeps {
   readonly logger: Pick<Logger, 'error'>;
 }
 
+type CodexHistoryTailBound = Parameters<CodexHistoryReader['readHistoryTail']>[2];
+type CodexHistoryTail = Awaited<ReturnType<CodexHistoryReader['readHistoryTail']>>;
+
 export interface ElectronCodexHistoryPort extends NativeSessionHistoryPort {
   readHistory(session: SessionMetadata, signal?: AbortSignal): Promise<CodexSessionHistory>;
+  readHistoryTail(
+    session: SessionMetadata,
+    bound: CodexHistoryTailBound,
+    signal?: AbortSignal,
+  ): Promise<CodexHistoryTail>;
 }
 
-function hasHistoryReader(
-  runtime: Pick<CodexRuntime, 'open'> & Partial<CodexHistoryReader>,
-): runtime is Pick<CodexRuntime, 'open'> & CodexHistoryReader {
-  return typeof runtime.readHistory === 'function';
-}
+type ElectronCodexHistoryRuntime = ReturnType<ElectronCodexHistoryDeps['resolveRuntime']>;
+
+/** One runtime read; it throws `runtimeFailed` when the runtime lacks the method it needs. */
+type ElectronCodexHistoryRead<T> = (
+  runtime: ElectronCodexHistoryRuntime,
+  profile: CodexExecutionProfile,
+  resume: CodexThreadIdentity,
+  signal: AbortSignal,
+) => Promise<T>;
 
 /** A history read owns a fresh scope, even after all chat scopes were lost on reload. */
 export function createElectronCodexHistoryPort(
   deps: ElectronCodexHistoryDeps,
 ): ElectronCodexHistoryPort {
+  // Shared by every read kind, so full and tail reads together stay at two.
   let activeReads = 0;
-  return {
-    async readHistory(session, signal) {
-      if (activeReads >= 2) throw new ElectronCodexHistoryError('busy');
-      activeReads++;
+  const runHistoryRead = async <T>(
+    session: SessionMetadata,
+    signal: AbortSignal | undefined,
+    read: ElectronCodexHistoryRead<T>,
+  ): Promise<T> => {
+    if (activeReads >= 2) throw new ElectronCodexHistoryError('busy');
+    activeReads++;
+    try {
+      if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
+      const execution = session.codexExecution;
+      if (!execution || execution.runtime !== 'codex-app-server' ||
+          execution.sessionId !== session.sessionId ||
+          execution.providerId !== 'openai-codex')
+        throw new ElectronCodexHistoryError('invalidIdentity');
+      const savedHome = normalizeCodexHomeKey(execution.codex.normalizedHome, process.platform);
+      const currentHome = normalizeCodexHomeKey(deps.currentHome(), process.platform);
+      if (savedHome !== currentHome)
+        throw new ElectronCodexHistoryError('homeMismatch');
+      const workspace = session.codexThread?.workspaceId ?? session.workspaceId;
+      if (normalizeCodexWorkspaceKey(workspace, process.platform) !== execution.workspaceId)
+        throw new ElectronCodexHistoryError('invalidIdentity');
+      let homePath: string;
+      let cwd: string;
+      try {
+        homePath = realpathSync(deps.currentHome());
+        cwd = realpathSync(workspace);
+      } catch {
+        throw new ElectronCodexHistoryError('pathUnavailable');
+      }
+      const candidate = deps.liveProfiles.get(execution.sessionId)?.profile;
+      const live = candidate?.normalizedHome === savedHome &&
+        normalizeCodexWorkspaceKey(candidate.workspaceId, process.platform) === execution.workspaceId
+        ? candidate : undefined;
+      // The read-only process also loads the unchanged config in CODEX_HOME.
+      // When the live profile still exists, carry its explicit MCP references too.
+      const profile = buildCodexExecutionProfile({
+        session: {
+          contextId: session.codexThread?.contextId ?? randomUUID(),
+          consumer: 'chat',
+          normalizedHome: savedHome,
+          providerId: execution.providerId,
+          workspaceId: workspace,
+          cwd,
+          model: live?.model ?? 'history-read',
+          permissionLevel: live?.permissionLevel ?? 'ask',
+          mcpServers: live?.mcpServers.map((server) =>
+            server.transport === 'stdio'
+              ? { ...server, args: [...server.args], envReferences: { ...server.envReferences } }
+              : { ...server, headerReferences: { ...server.headerReferences } },
+          ) ?? [],
+        },
+        paths: {
+          platform: process.platform === 'win32' ? 'win32' : 'posix',
+          baseDirectory: cwd,
+          entries: {
+            [cwd]: { kind: 'directory', realpath: cwd },
+            [savedHome]: { kind: 'directory', realpath: homePath },
+          },
+        },
+      });
+      const resume: CodexThreadIdentity = {
+        threadId: execution.sessionId,
+        contextId: profile.contextId,
+        processGeneration: session.codexThread?.processGeneration ?? 1,
+        normalizedHome: savedHome,
+        workspaceId: workspace,
+        providerId: execution.providerId,
+        profileFingerprint: session.codexThread?.profileFingerprint ?? profile.profileFingerprint,
+      };
+      try {
+        await deps.verifyBinary();
+      } catch {
+        throw new ElectronCodexHistoryError('binaryUnavailable');
+      }
+      if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
+      const scope = deps.createScope({ request: async () => 'decline' });
+      const controller = new AbortController();
+      let rejectCancellation: (error: ElectronCodexHistoryError) => void = () => undefined;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        rejectCancellation = reject;
+      });
+      // A synchronous setup failure must not leave the cancellation promise unobserved.
+      // degradation-audit: optional-capability — the race owns cancellation; this observer only prevents an unhandled rejection during setup.
+      void cancelled.catch(() => undefined);
+      const cancel = (code: 'cancelled' | 'timeout') => {
+        rejectCancellation(new ElectronCodexHistoryError(code));
+        controller.abort();
+      };
+      const onAbort = () => cancel('cancelled');
+      signal?.addEventListener('abort', onAbort, { once: true });
+      const timer = setTimeout(
+        () => cancel('timeout'),
+        deps.timeoutMs ?? 30_000,
+      );
+      timer.unref();
       try {
         if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
-        const execution = session.codexExecution;
-        if (!execution || execution.runtime !== 'codex-app-server' ||
-            execution.sessionId !== session.sessionId ||
-            execution.providerId !== 'openai-codex')
-          throw new ElectronCodexHistoryError('invalidIdentity');
-        const savedHome = normalizeCodexHomeKey(execution.codex.normalizedHome, process.platform);
-        const currentHome = normalizeCodexHomeKey(deps.currentHome(), process.platform);
-        if (savedHome !== currentHome)
-          throw new ElectronCodexHistoryError('homeMismatch');
-        const workspace = session.codexThread?.workspaceId ?? session.workspaceId;
-        if (normalizeCodexWorkspaceKey(workspace, process.platform) !== execution.workspaceId)
-          throw new ElectronCodexHistoryError('invalidIdentity');
-        let homePath: string;
-        let cwd: string;
-        try {
-          homePath = realpathSync(deps.currentHome());
-          cwd = realpathSync(workspace);
-        } catch {
-          throw new ElectronCodexHistoryError('pathUnavailable');
-        }
-        const candidate = deps.liveProfiles.get(execution.sessionId)?.profile;
-        const live = candidate?.normalizedHome === savedHome &&
-          normalizeCodexWorkspaceKey(candidate.workspaceId, process.platform) === execution.workspaceId
-          ? candidate : undefined;
-        // The read-only process also loads the unchanged config in CODEX_HOME.
-        // When the live profile still exists, carry its explicit MCP references too.
-        const profile = buildCodexExecutionProfile({
-          session: {
-            contextId: session.codexThread?.contextId ?? randomUUID(),
-            consumer: 'chat',
-            normalizedHome: savedHome,
-            providerId: execution.providerId,
-            workspaceId: workspace,
-            cwd,
-            model: live?.model ?? 'history-read',
-            permissionLevel: live?.permissionLevel ?? 'ask',
-            mcpServers: live?.mcpServers.map((server) =>
-              server.transport === 'stdio'
-                ? { ...server, args: [...server.args], envReferences: { ...server.envReferences } }
-                : { ...server, headerReferences: { ...server.headerReferences } },
-            ) ?? [],
-          },
-          paths: {
-            platform: process.platform === 'win32' ? 'win32' : 'posix',
-            baseDirectory: cwd,
-            entries: {
-              [cwd]: { kind: 'directory', realpath: cwd },
-              [savedHome]: { kind: 'directory', realpath: homePath },
-            },
-          },
-        });
-        const resume: CodexThreadIdentity = {
-          threadId: execution.sessionId,
-          contextId: profile.contextId,
-          processGeneration: session.codexThread?.processGeneration ?? 1,
-          normalizedHome: savedHome,
-          workspaceId: workspace,
-          providerId: execution.providerId,
-          profileFingerprint: session.codexThread?.profileFingerprint ?? profile.profileFingerprint,
-        };
-        try {
-          await deps.verifyBinary();
-        } catch {
-          throw new ElectronCodexHistoryError('binaryUnavailable');
-        }
-        if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
-        const scope = deps.createScope({ request: async () => 'decline' });
-        const controller = new AbortController();
-        let rejectCancellation: (error: ElectronCodexHistoryError) => void = () => undefined;
-        const cancelled = new Promise<never>((_resolve, reject) => {
-          rejectCancellation = reject;
-        });
-        // A synchronous setup failure must not leave the cancellation promise unobserved.
-        // degradation-audit: optional-capability — the race owns cancellation; this observer only prevents an unhandled rejection during setup.
-        void cancelled.catch(() => undefined);
-        const cancel = (code: 'cancelled' | 'timeout') => {
-          rejectCancellation(new ElectronCodexHistoryError(code));
-          controller.abort();
-        };
-        const onAbort = () => cancel('cancelled');
-        signal?.addEventListener('abort', onAbort, { once: true });
-        const timer = setTimeout(
-          () => cancel('timeout'),
-          deps.timeoutMs ?? 30_000,
-        );
-        timer.unref();
-        try {
-          if (signal?.aborted) throw new ElectronCodexHistoryError('cancelled');
-          const runtime = deps.resolveRuntime(scope.container, 'chat');
-          if (!hasHistoryReader(runtime))
-            throw new ElectronCodexHistoryError('runtimeFailed');
-          return await Promise.race([runtime.readHistory(profile, resume, controller.signal), cancelled]);
-        } finally {
-          clearTimeout(timer);
-          signal?.removeEventListener('abort', onAbort);
-          controller.abort();
-          try {
-            await scope.dispose();
-          } catch (error) {
-            deps.logger.error('Codex history scope disposal failed',
-              error instanceof Error ? error : new Error('Codex history scope disposal failed'));
-          }
-        }
-      } catch (error) {
-        if (error instanceof ElectronCodexHistoryError) throw error;
-        if (error instanceof CodexSessionHistoryError) {
-          if (error.code === 'threadNotFound')
-            throw new ElectronCodexHistoryError('threadNotFound');
-          if (error.code === 'homeMismatch')
-            throw new ElectronCodexHistoryError('homeMismatch');
-          // Keep the page defect separate: nativeHistoryRpcError maps this
-          // code to HISTORY_MALFORMED instead of the generic HISTORY_FAILED.
-          if (error.code === 'malformedPage')
-            throw new ElectronCodexHistoryError('malformedPage');
-          throw new ElectronCodexHistoryError('runtimeFailed');
-        }
-        throw new ElectronCodexHistoryError('runtimeFailed');
+        const runtime = deps.resolveRuntime(scope.container, 'chat');
+        return await Promise.race([read(runtime, profile, resume, controller.signal), cancelled]);
       } finally {
-        activeReads--;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        controller.abort();
+        try {
+          await scope.dispose();
+        } catch (error) {
+          deps.logger.error('Codex history scope disposal failed',
+            error instanceof Error ? error : new Error('Codex history scope disposal failed'));
+        }
       }
-    },
+    } catch (error) {
+      if (error instanceof ElectronCodexHistoryError) throw error;
+      if (error instanceof CodexSessionHistoryError) {
+        if (error.code === 'threadNotFound')
+          throw new ElectronCodexHistoryError('threadNotFound');
+        if (error.code === 'homeMismatch')
+          throw new ElectronCodexHistoryError('homeMismatch');
+        // Keep the page defect separate: nativeHistoryRpcError maps this
+        // code to HISTORY_MALFORMED instead of the generic HISTORY_FAILED.
+        if (error.code === 'malformedPage')
+          throw new ElectronCodexHistoryError('malformedPage');
+        throw new ElectronCodexHistoryError('runtimeFailed');
+      }
+      throw new ElectronCodexHistoryError('runtimeFailed');
+    } finally {
+      activeReads--;
+    }
+  };
+  return {
+    readHistory: (session, signal) =>
+      runHistoryRead(session, signal, (runtime, profile, resume, readSignal) => {
+        if (typeof runtime.readHistory !== 'function')
+          throw new ElectronCodexHistoryError('runtimeFailed');
+        return runtime.readHistory(profile, resume, readSignal);
+      }),
+    readHistoryTail: (session, bound, signal) =>
+      runHistoryRead(session, signal, (runtime, profile, resume, readSignal) => {
+        // A runtime built before tail reads existed still serves readHistory.
+        if (typeof runtime.readHistoryTail !== 'function')
+          throw new ElectronCodexHistoryError('runtimeFailed');
+        return runtime.readHistoryTail(profile, resume, bound, readSignal);
+      }),
   };
 }
 

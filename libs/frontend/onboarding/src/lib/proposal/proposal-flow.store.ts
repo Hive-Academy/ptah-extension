@@ -23,6 +23,7 @@ import {
   mergeHarnessConfigUpdates,
   type HarnessConfig,
 } from '@ptah-extension/shared';
+import { proposalSessionStatus } from './proposal-session-status';
 type HarnessBuilderMode = Parameters<HarnessSessionController['session']>[0];
 type HarnessUserSnapshot = NonNullable<
   ReturnType<HarnessBuilderRecordsService['readSnapshot']>
@@ -109,6 +110,14 @@ export class ProposalFlowStore {
     | 'wrong-mode'
     | 'proposal-unavailable'
   >('idle');
+  readonly sessionStatus = computed(() =>
+    proposalSessionStatus({
+      restoreState: this.restoreState(),
+      hasRecord: this.session.record() !== null,
+      phase: this.session.phase() as ReturnType<typeof this.session.phase>,
+      reviewEligible: this.reviewEligible(),
+    }),
+  );
   readonly actionError = signal<string | null>(null);
   readonly leaveOpen = signal(false);
   readonly leaveSaving = signal(false);

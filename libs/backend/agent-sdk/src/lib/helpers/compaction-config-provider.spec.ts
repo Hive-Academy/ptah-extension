@@ -11,7 +11,7 @@ import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import { CompactionConfigProvider } from './compaction-config-provider';
 
-function makeProvider(values: Record<string, unknown>): {
+function makeProvider(values: Record<string, unknown>, devIdleMinTokens?: number): {
   provider: CompactionConfigProvider;
   warn: jest.Mock;
 } {
@@ -25,7 +25,7 @@ function makeProvider(values: Record<string, unknown>): {
   const config = {
     get: jest.fn((key: string) => values[key]),
   } as unknown as ConfigManager;
-  return { provider: new CompactionConfigProvider(config, logger), warn };
+  return { provider: new CompactionConfigProvider(config, logger, devIdleMinTokens), warn };
 }
 
 const ENV_KEY = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
@@ -42,6 +42,10 @@ afterEach(() => {
 });
 
 describe('CompactionConfigProvider.getConfig', () => {
+  it('uses the injected development idle minimum', () => {
+    expect(makeProvider({}, 1_000).provider.getIdleCompactionConfig().minTokens).toBe(1_000);
+  });
+
   it('unset threshold → null, with no warning', () => {
     const { provider, warn } = makeProvider({});
     expect(provider.getConfig()).toEqual({

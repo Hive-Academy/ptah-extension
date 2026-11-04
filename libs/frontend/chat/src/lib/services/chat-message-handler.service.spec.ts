@@ -146,6 +146,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       findTabIdsBySessionId: jest.fn(() => []),
       markTabAttached: jest.fn(),
       markTabDetached: jest.fn(),
+      applyHiddenTurnStateStatus: jest.fn(),
     };
     turnStateApplier = { apply: jest.fn() };
     agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
@@ -859,6 +860,21 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
       expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
       expect(streamRouter.routeStreamEventForSurface).not.toHaveBeenCalled();
+    });
+
+    it('applies a hidden terminal status without scheduling its content event', () => {
+      const event = {
+        id: 'terminal-hidden', eventType: 'turn_state', timestamp: 2,
+        sessionId: CHUNK_SESSION, messageId: `turn-state-${CHUNK_SESSION}`,
+        phase: 'idle', revision: 2, backgroundTasks: [], sessionCrons: [],
+        terminalReason: 'completed',
+      };
+      handler.handleMessage({ type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { tabId: 'tab-1', sessionId: CHUNK_SESSION, event, statusOnly: true } });
+      expect(tabManager.applyHiddenTurnStateStatus).toHaveBeenCalledWith(
+        'tab-1', event, CHUNK_SESSION,
+      );
+      expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
     });
 
     // TASK_2026_437 C15: a tab replaying resume history in chunks takes a live

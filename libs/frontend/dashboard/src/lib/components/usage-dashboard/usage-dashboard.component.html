@@ -54,6 +54,11 @@
       >partial</button>
       <span id="usage-partial-source-description" class="sr-only">{{ sourceTip() }}</span>
     }
+    @if (viewModel()?.coverageStartDay; as coverageStartDay) {
+      <span class="text-xs text-base-content-muted" data-testid="usage-coverage-start">
+        Ledger captured since {{ coverageStartDay }}
+      </span>
+    }
   </div>
 
   @if (isLoading() && viewModel() === null) {
@@ -107,8 +112,11 @@
         data-testid="usage-empty"
       >
         <p class="text-xs">
-          No usage in this range. Start a chat to see provider usage, tokens and
-          cost.
+          @if (vm.isPartial) {
+            No recorded usage in this range. {{ vm.emptyPartialMessage }}
+          } @else {
+            No usage in this range. Start a chat to see provider usage, tokens and cost.
+          }
         </p>
       </div>
     } @else {

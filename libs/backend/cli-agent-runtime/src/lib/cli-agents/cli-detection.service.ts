@@ -48,12 +48,24 @@ function unavailableCodexAdapter(cause: Error): CliAdapter {
   };
 }
 
+/**
+ * Oldest in-flight scan that {@link CliDetectionService.refresh} joins. Above
+ * the 12 s plan-owner discovery deadline, so a normal scan is always joined.
+ */
+const REFRESH_JOIN_MAX_AGE_MS = 15_000;
+
 @injectable()
 export class CliDetectionService {
   private readonly adapters: Map<CliType, CliAdapter> = new Map();
   private detectionCache: Map<CliType, CliDetectionResult> | null = null;
   /** In-flight detection promise to prevent concurrent detection races */
   private detectionInFlight: Promise<CliDetectionResult[]> | null = null;
+  /** Cache generation; invalidateCache() bumps it so older scans are not reused. */
+  private generation = 0;
+  /** Generation the in-flight scan started in. */
+  private inFlightGeneration = -1;
+  /** Wall-clock start of the in-flight scan. */
+  private inFlightStartedAt = 0;
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
@@ -140,33 +152,61 @@ export class CliDetectionService {
 
   /**
    * Detect all registered CLI agents.
-   * Results are cached after first call. Call invalidateCache() to re-detect.
+   * Results are cached after first call. Invalidation discards the cache, and
+   * a scan that started before it is neither joined nor cached.
    * Uses promise deduplication to prevent race conditions when called concurrently.
    */
   async detectAll(): Promise<CliDetectionResult[]> {
     if (this.detectionCache) {
       return Array.from(this.detectionCache.values());
     }
-    if (this.detectionInFlight) {
+    const current = this.currentInFlight();
+    if (current) {
       this.logger.debug(
         '[CliDetection] Detection already in progress, reusing in-flight promise',
       );
-      return this.detectionInFlight;
+      return current;
     }
 
-    this.detectionInFlight = this.doDetectAll();
+    const inFlight = this.doDetectAll(this.generation);
+    this.detectionInFlight = inFlight;
+    this.inFlightGeneration = this.generation;
+    this.inFlightStartedAt = Date.now();
 
     try {
-      return await this.detectionInFlight;
+      return await inFlight;
     } finally {
-      this.detectionInFlight = null;
+      if (this.detectionInFlight === inFlight) this.detectionInFlight = null;
     }
+  }
+
+  /**
+   * Fresh detection for an explicit re-detect request (`agent:detectClis`).
+   * A scan already running in the current generation is fresh, so join it
+   * instead of starting a second concurrent scan. A scan older than
+   * {@link REFRESH_JOIN_MAX_AGE_MS} may be stuck on one adapter, so it is not
+   * joined. Otherwise drop the cache and scan again.
+   */
+  async refresh(): Promise<CliDetectionResult[]> {
+    const current = this.currentInFlight();
+    if (current && Date.now() - this.inFlightStartedAt < REFRESH_JOIN_MAX_AGE_MS) {
+      return current;
+    }
+    this.invalidateCache();
+    return this.detectAll();
+  }
+
+  /** The in-flight scan, only when it started in the current generation. */
+  private currentInFlight(): Promise<CliDetectionResult[]> | null {
+    return this.detectionInFlight && this.inFlightGeneration === this.generation
+      ? this.detectionInFlight
+      : null;
   }
 
   /**
    * Internal detection implementation.
    */
-  private async doDetectAll(): Promise<CliDetectionResult[]> {
+  private async doDetectAll(generation: number): Promise<CliDetectionResult[]> {
     this.logger.info('[CliDetection] Detecting installed CLI agents...');
     const entries = await Promise.all(
       [...this.adapters].map(async ([name, adapter]): Promise<[CliType, CliDetectionResult]> => {
@@ -209,7 +249,7 @@ export class CliDetectionService {
     );
 
     const results = new Map(entries);
-    this.detectionCache = results;
+    if (this.generation === generation) this.detectionCache = results;
     return Array.from(results.values());
   }
 
@@ -249,6 +289,7 @@ export class CliDetectionService {
       return result;
     }
 
+    const generation = this.generation;
     const detections = await this.detectAll();
     const cache = new Map<CliType, CliModelInfo[]>();
 
@@ -274,7 +315,7 @@ export class CliDetectionService {
       }
     }
 
-    this.modelCache = cache;
+    if (this.generation === generation) this.modelCache = cache;
 
     const result: Record<string, CliModelInfo[]> = {};
     for (const [cli, models] of cache) {
@@ -284,12 +325,13 @@ export class CliDetectionService {
   }
 
   /**
-   * Invalidate the detection cache (forces re-detection on next call)
+   * Invalidate cached detection. A scan already running is not joined by
+   * later callers and does not write the cache when it finishes.
    */
   invalidateCache(): void {
     this.detectionCache = null;
-    this.detectionInFlight = null;
     this.modelCache = null;
+    this.generation++;
   }
 
   /**

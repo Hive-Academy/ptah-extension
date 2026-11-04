@@ -224,9 +224,13 @@ describe(CompactRailCardComponent.name, () => {
     const f = render();
     const host = f.nativeElement as HTMLElement;
     expect(host.classList.contains('rc-focused')).toBe(false);
+    expect(host.classList.contains('bg-base-200')).toBe(true);
+    expect(host.classList.contains('bg-primary/25')).toBe(false);
     f.componentRef.setInput('focused', true);
     f.detectChanges();
     expect(host.classList.contains('rc-focused')).toBe(true);
+    expect(host.classList.contains('bg-primary/25')).toBe(true);
+    expect(host.classList.contains('bg-base-200')).toBe(false);
     expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable}px`);
     const selectors = cssRules().map((rule) => rule.selector);
     const focused = cssRules().find(
@@ -236,7 +240,6 @@ describe(CompactRailCardComponent.name, () => {
     expect(focused?.declarations.map(([prop]) => prop)).toEqual([
       'border-color',
       'box-shadow',
-      'background-color',
     ]);
     for (const [, value] of focused?.declarations ?? []) {
       expect(value).toMatch(/var\(--(rc-focus-frame|p)\)/);
@@ -266,6 +269,7 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('focused', false);
     f.detectChanges();
     expect(host.classList.contains('rc-focused')).toBe(false);
+    expect(host.classList.contains('bg-base-200')).toBe(true);
   });
 
   it('names only the focused card "in focus" on its select button', () => {
@@ -405,54 +409,13 @@ describe(CompactRailCardComponent.name, () => {
     expect(received).toHaveBeenCalledWith(p);
   });
 
-  it('holds text while updating a request', () => {
+  it('does not render the streamed text preview', () => {
     const f = render();
-    f.componentRef.setInput('holdText', true);
+    f.componentRef.setInput('summary', summary('Now I will send the updated fix prompt'));
     f.detectChanges();
-    f.componentRef.setInput('summary', summary('New now'));
-    f.componentRef.setInput('callout', permission('p2'));
-    f.detectChanges();
-    expect(f.nativeElement.textContent).toContain('Working now');
-    expect(f.nativeElement.textContent).toContain('Run command');
-    expect(f.nativeElement.textContent).not.toContain('New now');
+    expect(f.nativeElement.textContent).not.toContain('Now I will send');
+    expect(f.nativeElement.querySelector('.rc-title')?.textContent).toContain('Session A');
   });
-
-  it('shows a rename at once while a text selection holds the card', () => {
-    const f = render();
-    const host = f.nativeElement as HTMLElement;
-    document.body.appendChild(host);
-    try {
-      // Select the card's "Now" text, as a user does before renaming.
-      const nowText = host.querySelector('.rc-line:not(.rc-title) [title]')
-        ?.firstChild as Text;
-      const range = document.createRange();
-      range.setStart(nowText, 0);
-      range.setEnd(nowText, 7);
-      const selection = document.getSelection() as Selection;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      f.componentRef.setInput('holdText', true);
-      f.detectChanges();
-
-      f.componentRef.setInput('title', 'Renamed session');
-      f.componentRef.setInput('summary', summary('New now'));
-      f.detectChanges();
-
-      expect(selection.isCollapsed).toBe(false);
-      expect(selection.toString()).toBe('Working');
-      const title = host.querySelector('.rc-title .font-semibold');
-      expect(title?.textContent?.trim()).toBe('Renamed session');
-      expect(title?.getAttribute('title')).toBe('Renamed session');
-      expect(host.textContent).not.toContain('Session A');
-      // The summary stays held under the selection.
-      expect(host.textContent).toContain('Working now');
-      expect(host.textContent).not.toContain('New now');
-    } finally {
-      document.getSelection()?.removeAllRanges();
-      host.remove();
-    }
-  });
-
   it('shows an em dash and the unknown todo title', () => {
     const f = render();
     f.componentRef.setInput('todos', { kind: 'unknown' });
@@ -596,10 +559,10 @@ describe(CompactRailCardComponent.name, () => {
       f.detectChanges();
       f.componentRef.setInput('callout', permission('p1'));
       f.detectChanges();
-      f.componentRef.setInput('holdText', true);
       f.detectChanges();
       expect(f.nativeElement.style.height).toBe(height);
       expect(height).toBe(`${COMPACT_RAIL_CARD_HEIGHT[density]}px`);
     },
   );
 });
+

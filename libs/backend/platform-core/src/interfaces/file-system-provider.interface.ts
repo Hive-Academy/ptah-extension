@@ -66,6 +66,12 @@ export interface IFileSystemProvider {
    * Replaces: vscode.workspace.fs.stat()
    */
   stat(path: string): Promise<FileStat>;
+  /** Metadata without following the final link. */
+  lstat(path: string): Promise<FileStat>;
+  /** Canonical path, including resolved junctions. */
+  realpath(path: string): Promise<string>;
+  /** Read no more than maxBytes + 1 from a link-safe handle. */
+  readFileBoundedNoFollow(path: string, maxBytes: number): Promise<{ bytes: Uint8Array; truncated: boolean }>;
 
   /**
    * Check if a file or directory exists.
