@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — carry-over launch option (TASK_2026_865, Component 5).
  *
@@ -235,13 +236,7 @@ function makeHarness(opts: HarnessOptions) {
     undefined,
     undefined,
     undefined,
-    {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-    } as never,
+    createFakeDriverLockCoordinator(),
   );
   jest
     .spyOn(

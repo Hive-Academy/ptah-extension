@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — `chat:abort` and the durable resumable-subagent list
  * (TASK_2026_592 Batch 4).
@@ -188,13 +189,7 @@ function makeHarness(): Harness {
     undefined,
     undefined,
     undefined,
-    {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-    } as never,
+    createFakeDriverLockCoordinator(),
   );
 
   return { service, registry, store, live, interruptSession, onTurnAborted };

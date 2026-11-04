@@ -1,3 +1,4 @@
+import { createMockLogger } from '@ptah-extension/shared/testing';
 import 'reflect-metadata';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,7 +24,11 @@ import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator'
       onRealSessionIdBound: jest.fn(),
       onRealSessionIdRebound: jest.fn(),
     } as unknown as SessionLifecycleManager;
-    const coordinator = new SessionDriverLockCoordinator(lock, lifecycle);
+    const coordinator = new SessionDriverLockCoordinator(
+      lock,
+      lifecycle,
+      createMockLogger(),
+    );
     const sessionId = `native-${process.pid}-${Date.now()}`;
     try {
       const lease = await coordinator.admitNative(sessionId, {

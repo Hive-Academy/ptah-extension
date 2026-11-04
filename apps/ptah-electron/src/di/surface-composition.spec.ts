@@ -463,7 +463,9 @@ describe('Electron Codex bootstrap composition', () => {
       join(__dirname, '../activation/bootstrap.ts'),
       'utf8',
     );
-    expect(bootstrap).toContain('container.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot,');
+    expect(bootstrap).toContain(
+      'container.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot,',
+    );
     const bound = bootstrap.indexOf('await bindElectronCodexChat(container,');
     expect(bound).toBeGreaterThan(
       bootstrap.indexOf('await workspaceStateStorage.whenReady()'),

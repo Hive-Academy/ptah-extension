@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * chat:continue delivers a Codex follow-up once (GAP-I).
  *
@@ -112,13 +113,7 @@ function harness(
   const service: ChatSessionService = Object.assign(
     Object.create(ChatSessionService.prototype),
     {
-      driverLock: {
-        beginDrive: jest.fn().mockResolvedValue(undefined),
-        abandonDrive: jest.fn().mockResolvedValue(undefined),
-        admitNative: jest.fn().mockResolvedValue(undefined),
-        assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-        assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-      },
+      driverLock: createFakeDriverLockCoordinator(),
       logger: {
         debug: jest.fn(),
         info: jest.fn(),

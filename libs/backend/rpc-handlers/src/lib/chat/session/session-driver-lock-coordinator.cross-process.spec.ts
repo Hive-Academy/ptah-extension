@@ -1,3 +1,4 @@
+import { createMockLogger } from '@ptah-extension/shared/testing';
 import 'reflect-metadata';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,7 +37,11 @@ import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator'
       endSessionIfTokenMatches: jest.fn(),
     } as unknown as SessionLifecycleManager;
     const lock = new KernelSessionDriverLock();
-    const coordinator = new SessionDriverLockCoordinator(lock, lifecycle);
+    const coordinator = new SessionDriverLockCoordinator(
+      lock,
+      lifecycle,
+      createMockLogger(),
+    );
     const oldId = `rebind-old-${process.pid}-${Date.now()}`;
     const newId = `rebind-new-${process.pid}-${Date.now()}`;
     const record = registry.register(

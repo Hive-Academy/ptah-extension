@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — host routing admission (TASK_2026_857, Batch 19).
  *
@@ -211,14 +212,7 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     undefined,
     hostRouting,
     undefined,
-    {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-      ...opts.driverLock,
-    } as never,
+    { ...createFakeDriverLockCoordinator(), ...opts.driverLock } as never,
   );
 
   jest

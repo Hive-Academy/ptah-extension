@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { inject, injectable } from 'tsyringe';
-import { RpcUserError } from '@ptah-extension/vscode-core';
+import { RpcUserError, TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -26,12 +26,14 @@ export class SessionDriverLockCoordinator {
   private readonly chains = new Map<string, Promise<void>>();
   private readonly failures = new Map<string, RpcUserError>();
   private readonly admissionFailures = new Map<string, RpcUserError>();
+  private readonly activeAdmissions = new Set<string>();
 
   constructor(
     @inject(PLATFORM_TOKENS.SESSION_DRIVER_LOCK)
     private readonly lock: ISessionDriverLock,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly lifecycle: SessionLifecycleManager,
+    @inject(TOKENS.LOGGER) private readonly logger: Pick<Logger, 'error'>,
   ) {
     lock.setLiveRecordCheck((sessionId) => {
       const owner = this.owners.get(sessionId);
@@ -41,11 +43,23 @@ export class SessionDriverLockCoordinator {
       );
     });
     lifecycle.onRecordRemoved((record) => {
-      void this.removed(record.token, record.tabId);
+      void this.removed(record.token, record.tabId).catch((error: unknown) => {
+        this.logger.error(
+          'Session driver lock record removal failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
     });
     lifecycle.onRealSessionIdBound((record) => {
       if (record.realSessionId)
-        void this.bound(record.token, record.tabId, record.realSessionId);
+        void this.bound(record.token, record.tabId, record.realSessionId).catch(
+          (error: unknown) => {
+            this.logger.error(
+              'Session driver lock binding failed',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          },
+        );
     });
     lifecycle.onRealSessionIdRebound((event) => {
       this.pendingHandoff.add(event.ownerToken);
@@ -55,7 +69,16 @@ export class SessionDriverLockCoordinator {
         event.newSessionId,
       );
       this.handoffs.set(event.ownerToken, handoff);
-      void handoff.finally(() => this.handoffs.delete(event.ownerToken));
+      void handoff.then(
+        () => this.handoffs.delete(event.ownerToken),
+        (error: unknown) => {
+          this.handoffs.delete(event.ownerToken);
+          this.logger.error(
+            'Session driver lock handoff failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        },
+      );
     });
   }
 
@@ -126,6 +149,16 @@ export class SessionDriverLockCoordinator {
     if (this.owners.get(sessionId) !== owner) return;
     this.owners.delete(sessionId);
     await this.lock.release(sessionId, owner.nonce);
+  }
+
+  beginRecordAdmission(tabId: string): void {
+    this.admissionFailures.delete(tabId);
+    this.activeAdmissions.add(tabId);
+  }
+
+  endRecordAdmission(tabId: string): void {
+    this.activeAdmissions.delete(tabId);
+    this.admissionFailures.delete(tabId);
   }
 
   async beginDrive(sessionId: string, tabId: string): Promise<void> {
@@ -200,20 +233,26 @@ export class SessionDriverLockCoordinator {
     token: string,
     tabId: string,
     sessionId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
-      await this.serial(sessionId, async () => {
+      return await this.serial(sessionId, async () => {
         const owner = await this.ensure(sessionId);
         if (this.lifecycle.find(tabId)?.token !== token) {
           await this.releaseEmpty(sessionId, owner);
-          return;
+          return false;
         }
         owner.records.add(token);
         if (owner.provisional === tabId) owner.provisional = undefined;
         this.heldByRecord.set(token, sessionId);
+        return true;
       });
     } catch (error) {
+      this.logger.error(
+        'Session driver lock admission failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
       await this.failRecord(token, tabId, error);
+      return false;
     }
   }
 
@@ -225,10 +264,12 @@ export class SessionDriverLockCoordinator {
     const old = this.heldByRecord.get(token);
     try {
       await this.bound(token, tabId, sessionId);
-      if (this.admissionFailures.has(tabId)) return;
-      if (old && old !== sessionId) await this.dropRecord(token, old);
     } finally {
-      this.pendingHandoff.delete(token);
+      try {
+        if (old && old !== sessionId) await this.dropRecord(token, old);
+      } finally {
+        this.pendingHandoff.delete(token);
+      }
     }
   }
 
@@ -251,6 +292,7 @@ export class SessionDriverLockCoordinator {
       if (owner.provisional === tabId) await this.abandonDrive(id, tabId);
     }
     this.failures.delete(token);
+    if (!this.activeAdmissions.has(tabId)) this.admissionFailures.delete(tabId);
   }
 
   private async failRecord(
@@ -263,7 +305,8 @@ export class SessionDriverLockCoordinator {
         ? error
         : this.refusal({ unavailable: 'lock service failed' });
     this.failures.set(token, refusal);
-    this.admissionFailures.set(tabId, refusal);
+    if (this.activeAdmissions.has(tabId))
+      this.admissionFailures.set(tabId, refusal);
     const record = this.lifecycle.find(tabId);
     if (record?.token !== token) return;
     record.abortController.abort(refusal);

@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -261,13 +262,7 @@ function harness(bound = false) {
     undefined,
     undefined,
     undefined,
-    {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-    } as never,
+    createFakeDriverLockCoordinator(),
   );
   return {
     service,

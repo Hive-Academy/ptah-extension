@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import 'reflect-metadata';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -80,13 +81,7 @@ function harness(live: boolean) {
     },
   ) as ChatSlashCommandRouterService;
   const service = Object.assign(Object.create(ChatSessionService.prototype), {
-    driverLock: {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue(undefined),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-    },
+    driverLock: createFakeDriverLockCoordinator(),
     logger,
     ptahCli: {
       handleContinue: jest

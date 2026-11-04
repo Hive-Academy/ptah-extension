@@ -74,7 +74,7 @@ import {
   type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { SessionDriverLockCoordinator } from './session-driver-lock-coordinator';
+import type { ChatSessionDriverLock } from './session-driver-lock-coordinator.interface';
 import type {
   IAgentAdapter,
   AgentSessionStartConfig,
@@ -418,8 +418,8 @@ export class ChatSessionService {
       isOptional: true,
     })
     private readonly sessionIdResolvedEvents?: SessionIdResolvedCallbackRegistry,
-    @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR, { isOptional: true })
-    private readonly driverLock?: SessionDriverLockCoordinator,
+    @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
+    private readonly driverLock: ChatSessionDriverLock = undefined!,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -428,12 +428,7 @@ export class ChatSessionService {
     });
   }
 
-  private get lockCoordinator(): SessionDriverLockCoordinator {
-    if (!this.driverLock)
-      throw new RpcUserError(
-        'Session driver lock unavailable: coordinator is not registered.',
-        'SESSION_DRIVER_LOCK_UNAVAILABLE',
-      );
+  private get lockCoordinator(): ChatSessionDriverLock {
     return this.driverLock;
   }
 
@@ -1108,6 +1103,7 @@ export class ChatSessionService {
     launch?: CarryOverLaunch,
   ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    this.lockCoordinator.beginRecordAdmission(params.tabId);
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -1269,6 +1265,8 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      this.lockCoordinator.endRecordAdmission(params.tabId);
     }
   }
 
@@ -1927,6 +1925,8 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
     }
   }
 
@@ -2156,6 +2156,9 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      if (params.activate && params.tabId)
+        await this.lockCoordinator.abandonDrive(params.sessionId, params.tabId);
     }
   }
 
@@ -2330,28 +2333,32 @@ export class ChatSessionService {
       };
     }
     await this.lockCoordinator.beginDrive(sessionId, tabId);
-    if (this.hasLiveSessionStream(sessionId, tabId)) {
-      return { alreadyActive: true };
-    }
+    try {
+      if (this.hasLiveSessionStream(sessionId, tabId)) {
+        return { alreadyActive: true };
+      }
 
-    const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
-      sessionId,
-      tabId,
-      workspacePath,
-      systemPrompt,
-    });
+      const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
+        sessionId,
+        tabId,
+        workspacePath,
+        systemPrompt,
+      });
 
-    if ('error' in outcome) {
+      if ('error' in outcome) {
+        await this.lockCoordinator.abandonDrive(sessionId, tabId);
+        return {
+          resumed: false,
+          error: outcome.error.error ?? 'Auto-resume failed',
+        };
+      }
+      // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
+      // `{ justResumed: false }` it meant "already live", which we already
+      // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
+      return { resumed: true };
+    } finally {
       await this.lockCoordinator.abandonDrive(sessionId, tabId);
-      return {
-        resumed: false,
-        error: outcome.error.error ?? 'Auto-resume failed',
-      };
     }
-    // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
-    // `{ justResumed: false }` it meant "already live", which we already
-    // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
-    return { resumed: true };
   }
 
   /**

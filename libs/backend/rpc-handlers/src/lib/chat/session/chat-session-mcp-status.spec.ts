@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — MCP-status fan-out wiring (TASK_2026_375 B4.3).
  *
@@ -157,13 +158,7 @@ function makeHarness(opts: { broadcastRejects?: boolean } = {}): Harness {
     undefined,
     undefined,
     undefined,
-    {
-      beginDrive: jest.fn().mockResolvedValue(undefined),
-      abandonDrive: jest.fn().mockResolvedValue(undefined),
-      admitNative: jest.fn().mockResolvedValue({ release: jest.fn() }),
-      assertDriveHeld: jest.fn().mockResolvedValue(undefined),
-      assertRecordAdmission: jest.fn().mockResolvedValue(undefined),
-    } as never,
+    createFakeDriverLockCoordinator(),
   );
 
   return {
