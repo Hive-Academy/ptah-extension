@@ -1,35 +1,40 @@
 /**
  * Client-side session event reducer (plan W7 "Client", W8). Pure: no I/O, no
- * timers, no clock. The host feeds it parsed `evt` frames and control signals
- * and acts on the `attach` request it returns. The host reads what to render
- * through {@link sessionView}.
+ * timers, no clock. The host feeds it parsed `evt` frames, connection and
+ * attach outcomes, and sends each `session.attach` the reducer returns. The
+ * host reads what to render through {@link sessionView}.
  *
- * Rules:
+ * Applying frames:
  *
  * - Apply only `seq === last + 1`. A frame with `seq <= last` is a duplicate
- *   (a reconnect replays from the host's `afterSeq`, live frames can overlap
- *   the replay) and is dropped.
- * - A frame with `seq > last + 1` is a gap: the frame is held, and the reducer
- *   asks for a replay from `last` (`session.attach { afterSeq: last }`). One
- *   replay resends every record after `last`, so no second request is made
- *   while it is outstanding. Held frames apply as soon as the gap closes, so a
- *   replay plus live frames renders exactly what an unbroken stream would. If
- *   the host's attach call fails, it dispatches `replay-failed` and the
- *   reducer asks again from the current `last`.
- * - More than {@link MAX_HELD_FRAMES} held frames is an overflow: the held
- *   frames and the outstanding replay are dropped, and the reducer enters a
- *   resync and asks for a fresh attach (no `afterSeq`), which starts at the
- *   latest baseline. A `replay-failed` during the resync asks for the fresh
- *   attach again. The resync ends when the gap closes.
- * - `worker:baseline` replaces the rendered view. A baseline with a higher
- *   `seq` than `last + 1` is applied at once: everything before it is
- *   superseded by it, so the gap before a baseline never needs a replay. This
- *   is also how a fresh attach starts (W8: attach with no `afterSeq` starts at
- *   the latest baseline's `seq`).
+ *   (a replay overlaps live frames, or a superseded attach still streams) and
+ *   is dropped.
+ * - `worker:baseline` replaces the rendered view and applies past any gap:
+ *   everything before it is superseded (W8). A baseline at or below `last`,
+ *   such as one a superseded attach resends, is a duplicate like any frame.
  * - `worker:history-mark` advances `last` and leaves the view object as is.
- * - A frame from a different epoch, or a `ctl resync-required`, means the log
- *   the client tracked is gone: the state resets. On `resync-required` the
- *   reducer asks for a fresh attach with no `afterSeq` (W7 epoch mismatch).
+ * - A frame past a gap is held (at most {@link MAX_HELD_FRAMES}) and applies
+ *   as soon as the gap closes.
+ * - A frame from another epoch, or `ctl resync-required`, means the tracked
+ *   log is gone: the state resets.
+ *
+ * Recovery. `target` is the highest `seq` known to exist (frames seen, and
+ * the `headSeq` of a successful attach). At most one attach is in charge of
+ * reaching it, the current recovery, identified by a token:
+ *
+ * - A gap with no recovery requests a replay: `{ afterSeq: last, epoch }`.
+ * - Held-frame overflow drops the held frames and requests a resync: a fresh
+ *   attach with no `afterSeq`, which starts at the latest baseline.
+ * - `connected` (a new connection, or the first attach) requests a fresh
+ *   attach before the first frame or during a resync, otherwise a replay
+ *   from `last`.
+ * - Every request carries a new token and supersedes the one before it. The
+ *   host reports the outcome with that token (`attach-succeeded`,
+ *   `attach-failed`); an outcome whose token is not the current recovery's is
+ *   stale and ignored. A failure of the current request retries it.
+ * - The recovery ends only after its attach succeeded and the view reached
+ *   `target` with nothing held. A frame that happens to fill `last + 1`
+ *   meanwhile does not end it.
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -40,7 +45,7 @@ import {
   type EventFrame,
   type SessionEventType,
 } from '../frames';
-import type { WorkerMethodParams } from '../methods';
+import type { WorkerMethodParams, WorkerMethodResult } from '../methods';
 
 /** One rendered record after the baseline. */
 export interface SessionRecord {
@@ -97,35 +102,57 @@ export interface SessionTranscript {
   readonly records: SessionRecordLog;
 }
 
+/** The attach request in charge of reaching `target`. */
+export interface SessionRecovery {
+  /** `replay` resumes from `last`; `resync` is a fresh attach (no `afterSeq`). */
+  readonly kind: 'replay' | 'resync';
+  /** Identifies the request; outcomes carrying another token are stale. */
+  readonly token: number;
+  /** The attach call succeeded; its records are streaming in. */
+  readonly settled: boolean;
+}
+
 export interface SessionEventState {
   readonly sessionId: string;
   /** Epoch of the log being followed; `null` until the first frame. */
   readonly epoch: string | null;
   /** Highest `seq` applied; 0 before any. */
   readonly last: number;
+  /** Highest `seq` known to exist in this epoch; never below `last`. */
+  readonly target: number;
   readonly transcript: SessionTranscript;
   /** Frames past a gap, ascending by `seq`, no duplicates. */
   readonly held: readonly EventFrame[];
-  /** `afterSeq` of the replay requested for the current gap, while it is outstanding. */
-  readonly replayFrom: number | null;
-  /**
-   * A fresh attach is outstanding because the held frames overflowed. While
-   * it is, `replayFrom` is `null` and no replay is requested.
-   */
-  readonly resyncing: boolean;
+  readonly recovery: SessionRecovery | null;
+  /** Token the next request gets. Never reused within one state lineage. */
+  readonly nextToken: number;
+}
+
+export type SessionAttachRequest = WorkerMethodParams<'session.attach'>;
+export type SessionAttachResult = WorkerMethodResult<'session.attach'>;
+
+/** A `session.attach` to send, with the token its outcome must carry. */
+export interface SessionAttachCommand {
+  readonly token: number;
+  readonly params: SessionAttachRequest;
 }
 
 export type SessionEventAction =
   | { readonly kind: 'event'; readonly frame: EventFrame }
   | { readonly kind: 'resync-required' }
-  | { readonly kind: 'replay-failed' };
-
-export type SessionAttachRequest = WorkerMethodParams<'session.attach'>;
+  /** A connection to the worker opened (first attach or reconnect). */
+  | { readonly kind: 'connected' }
+  | {
+      readonly kind: 'attach-succeeded';
+      readonly token: number;
+      readonly result: SessionAttachResult;
+    }
+  | { readonly kind: 'attach-failed'; readonly token: number };
 
 export interface SessionEventStep {
   readonly state: SessionEventState;
   /** A `session.attach` the host should send now, or `null`. */
-  readonly attach: SessionAttachRequest | null;
+  readonly attach: SessionAttachCommand | null;
 }
 
 /**
@@ -146,10 +173,11 @@ export function initialSessionEventState(sessionId: string): SessionEventState {
     sessionId,
     epoch: null,
     last: 0,
+    target: 0,
     transcript: EMPTY_TRANSCRIPT,
     held: [],
-    replayFrom: null,
-    resyncing: false,
+    recovery: null,
+    nextToken: 1,
   };
 }
 
@@ -175,68 +203,108 @@ export function sessionView(state: SessionEventState): SessionView {
   return view;
 }
 
-/**
- * The `session.attach` params that resume this state after a reconnect:
- * `afterSeq` and `epoch` when a log is being followed, otherwise a fresh
- * attach.
- */
-export function resumeAttachParams(
-  state: SessionEventState,
-): SessionAttachRequest {
-  return state.epoch === null
-    ? { sessionId: state.sessionId }
-    : { sessionId: state.sessionId, afterSeq: state.last, epoch: state.epoch };
-}
-
 export function reduceSessionEvent(
   state: SessionEventState,
   action: SessionEventAction,
 ): SessionEventStep {
-  if (action.kind === 'resync-required') {
-    const reset = initialSessionEventState(state.sessionId);
-    return { state: reset, attach: { sessionId: state.sessionId } };
-  }
-
-  if (action.kind === 'replay-failed') {
-    if (state.resyncing) {
-      return { state, attach: { sessionId: state.sessionId } };
+  switch (action.kind) {
+    case 'resync-required':
+      return requestRecovery(resetForNewLog(state, null, false), 'resync');
+    case 'connected':
+      return requestRecovery(
+        state,
+        state.epoch === null || state.recovery?.kind === 'resync'
+          ? 'resync'
+          : 'replay',
+      );
+    case 'attach-failed': {
+      const attempt = currentAttempt(state, action.token);
+      return attempt === null
+        ? { state, attach: null }
+        : requestRecovery(state, attempt.kind);
     }
-    if (state.replayFrom === null || state.epoch === null) {
-      return { state, attach: null };
-    }
-    return requestReplay(state, state.epoch);
+    case 'attach-succeeded':
+      return attachSucceeded(state, action.token, action.result);
+    case 'event':
+      return applyEvent(state, action.frame);
   }
-
-  const { frame } = action;
-  if (frame.sessionId !== state.sessionId) {
-    return { state, attach: null };
-  }
-
-  let current = state;
-  if (current.epoch !== frame.epoch) {
-    // First frame, or the worker's log for this session was recreated: the
-    // old seq numbers mean nothing in the new epoch.
-    current = {
-      ...initialSessionEventState(state.sessionId),
-      epoch: frame.epoch,
-    };
-  }
-
-  if (frame.seq <= current.last) {
-    return { state: current, attach: null };
-  }
-
-  if (frame.seq === current.last + 1 || frame.type === 'worker:baseline') {
-    const applied = applyFrame(current, frame);
-    return { state: drainHeld(applied), attach: null };
-  }
-
-  return holdPastGap(current, frame);
 }
 
 // ---------------------------------------------------------------------------
 // Internals.
 // ---------------------------------------------------------------------------
+
+/** The current recovery if `token` is its own and its call has not settled. */
+function currentAttempt(
+  state: SessionEventState,
+  token: number,
+): SessionRecovery | null {
+  const { recovery } = state;
+  return recovery !== null && recovery.token === token && !recovery.settled
+    ? recovery
+    : null;
+}
+
+function attachSucceeded(
+  state: SessionEventState,
+  token: number,
+  result: SessionAttachResult,
+): SessionEventStep {
+  const attempt = currentAttempt(state, token);
+  if (attempt === null) {
+    return { state, attach: null };
+  }
+  // A snapshot means the session has no log to follow: nothing more streams.
+  // A log in another epoch is adopted when its first frame arrives.
+  const head =
+    result.mode === 'log' && result.epoch === state.epoch
+      ? result.headSeq
+      : state.target;
+  return checkRecovery({
+    ...state,
+    target: Math.max(state.target, head),
+    recovery: { ...attempt, settled: true },
+  });
+}
+
+function applyEvent(
+  state: SessionEventState,
+  frame: EventFrame,
+): SessionEventStep {
+  if (frame.sessionId !== state.sessionId) {
+    return { state, attach: null };
+  }
+  // First frame, or the worker's log for this session was recreated: the old
+  // seq numbers mean nothing in the new epoch. A fresh attach in progress is
+  // what brings a new epoch, so it stays in charge.
+  const current =
+    state.epoch === frame.epoch
+      ? state
+      : resetForNewLog(state, frame.epoch, state.recovery?.kind === 'resync');
+
+  if (frame.seq <= current.last) {
+    return { state: current, attach: null };
+  }
+  const seen = { ...current, target: Math.max(current.target, frame.seq) };
+  if (frame.seq === seen.last + 1 || frame.type === 'worker:baseline') {
+    return checkRecovery(drainHeld(applyFrame(seen, frame)));
+  }
+  return holdPastGap(seen, frame);
+}
+
+/** Start over for another log, keeping the token counter (and a resync, if asked). */
+function resetForNewLog(
+  state: SessionEventState,
+  epoch: string | null,
+  keepRecovery: boolean,
+): SessionEventState {
+  return {
+    ...initialSessionEventState(state.sessionId),
+    epoch,
+    recovery: keepRecovery ? state.recovery : null,
+    nextToken: state.nextToken,
+  };
+}
 
 function holdPastGap(
   state: SessionEventState,
@@ -244,41 +312,54 @@ function holdPastGap(
 ): SessionEventStep {
   const held = insertHeld(state.held, frame);
   if (held.length > MAX_HELD_FRAMES) {
-    return requestResync(state);
+    // Holding more is not worth it: drop the held frames (`target` still
+    // remembers them) and let a fresh attach fill the view from a baseline.
+    const dropped = { ...state, held: [] };
+    return state.recovery?.kind === 'resync'
+      ? { state: dropped, attach: null }
+      : requestRecovery(dropped, 'resync');
   }
   const next = { ...state, held };
-  if (state.replayFrom !== null || state.resyncing) {
-    return { state: next, attach: null };
-  }
-  return requestReplay(next, frame.epoch);
+  return state.recovery === null
+    ? requestRecovery(next, 'replay')
+    : { state: next, attach: null };
 }
 
-function requestReplay(
+/** Send a new attach that supersedes any earlier one. */
+function requestRecovery(
   state: SessionEventState,
-  epoch: string,
+  kind: SessionRecovery['kind'],
 ): SessionEventStep {
+  const token = state.nextToken;
+  const params: SessionAttachRequest =
+    kind === 'resync' || state.epoch === null
+      ? { sessionId: state.sessionId }
+      : {
+          sessionId: state.sessionId,
+          afterSeq: state.last,
+          epoch: state.epoch,
+        };
   return {
-    state: { ...state, replayFrom: state.last },
-    attach: { sessionId: state.sessionId, afterSeq: state.last, epoch },
+    state: {
+      ...state,
+      recovery: { kind, token, settled: false },
+      nextToken: token + 1,
+    },
+    attach: { token, params },
   };
 }
 
 /**
- * Held frames overflowed: drop them and the replay, and ask once for a fresh
- * attach. A replay from `last` would have to be held the same way; the fresh
- * attach starts at the latest baseline, which applies past any gap.
+ * End a recovery whose attach succeeded once the view reached `target` with
+ * nothing held. Before that, keep it: its stream is still filling the view.
  */
-function requestResync(state: SessionEventState): SessionEventStep {
-  const next: SessionEventState = {
-    ...state,
-    held: [],
-    replayFrom: null,
-    resyncing: true,
-  };
-  return {
-    state: next,
-    attach: state.resyncing ? null : { sessionId: state.sessionId },
-  };
+function checkRecovery(state: SessionEventState): SessionEventStep {
+  const { recovery } = state;
+  const caughtUp = state.held.length === 0 && state.last >= state.target;
+  if (recovery !== null && recovery.settled && caughtUp) {
+    return { state: { ...state, recovery: null }, attach: null };
+  }
+  return { state, attach: null };
 }
 
 /** Insert keeping ascending `seq`; a second frame for a held `seq` is a duplicate. */
@@ -296,11 +377,7 @@ function insertHeld(
   return [...held.slice(0, index), frame, ...held.slice(index)];
 }
 
-/**
- * Apply held frames that are now contiguous; drop the ones a baseline
- * superseded. Called after a frame was applied, so an empty remainder means
- * the gap closed: any replay or resync for it is over.
- */
+/** Apply held frames that are now contiguous; drop the ones a baseline superseded. */
 function drainHeld(state: SessionEventState): SessionEventState {
   let current = state;
   let index = 0;
@@ -318,14 +395,7 @@ function drainHeld(state: SessionEventState): SessionEventState {
     }
     break;
   }
-  const remaining = index === 0 ? held : held.slice(index);
-  const gapClosed = remaining.length === 0;
-  return {
-    ...current,
-    held: remaining,
-    replayFrom: gapClosed ? null : current.replayFrom,
-    resyncing: gapClosed ? false : current.resyncing,
-  };
+  return index === 0 ? current : { ...current, held: held.slice(index) };
 }
 
 function applyFrame(

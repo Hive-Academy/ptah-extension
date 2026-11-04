@@ -3,11 +3,11 @@ import {
   MAX_HELD_FRAMES,
   initialSessionEventState,
   reduceSessionEvent,
-  resumeAttachParams,
   sessionView,
+  type SessionAttachCommand,
+  type SessionAttachRequest,
   type SessionEventAction,
   type SessionEventState,
-  type SessionEventStep,
 } from './session-event-reducer';
 
 const SESSION = 's-1';
@@ -66,25 +66,45 @@ function historyMark(seq: number, epoch = 'e-1'): EventFrame {
   );
 }
 
-/** Feed frames one by one; collect every attach request the reducer makes. */
+/** Feed frames one by one; collect every attach the reducer asks for. */
 function run(
   frames: EventFrame[],
   start: SessionEventState = initialSessionEventState(SESSION),
-): { state: SessionEventState; attaches: SessionEventStep['attach'][] } {
+): {
+  state: SessionEventState;
+  attaches: SessionAttachRequest[];
+  commands: SessionAttachCommand[];
+} {
   let state = start;
-  const attaches: SessionEventStep['attach'][] = [];
+  const commands: SessionAttachCommand[] = [];
   for (const f of frames) {
     const step = reduceSessionEvent(state, { kind: 'event', frame: f });
     state = step.state;
     if (step.attach !== null) {
-      attaches.push(step.attach);
+      commands.push(step.attach);
     }
   }
-  return { state, attaches };
+  return { state, attaches: commands.map((c) => c.params), commands };
 }
 
 function dispatch(state: SessionEventState, action: SessionEventAction) {
   return reduceSessionEvent(state, action);
+}
+
+/** Token of the recovery in charge; fails the test when there is none. */
+function currentToken(state: SessionEventState): number {
+  if (state.recovery === null) {
+    throw new Error('expected a recovery in progress');
+  }
+  return state.recovery.token;
+}
+
+function succeeded(state: SessionEventState, headSeq: number, epoch = 'e-1') {
+  return dispatch(state, {
+    kind: 'attach-succeeded',
+    token: currentToken(state),
+    result: { mode: 'log', epoch, fromSeq: 1, headSeq },
+  });
 }
 
 function renderedSeqs(state: SessionEventState): number[] {
@@ -169,8 +189,19 @@ describe('SessionEventReducer gap → replay request', () => {
     expect(attaches).toEqual([]);
     expect(state.last).toBe(6);
     expect(state.held).toEqual([]);
-    expect(state.replayFrom).toBeNull();
     expect(renderedSeqs(state)).toEqual([2, 3, 4, 5, 6]);
+    // The replay ends once its attach succeeded and the view reached its head.
+    expect(state.recovery).toMatchObject({ kind: 'replay', settled: false });
+    expect(succeeded(state, 6).state.recovery).toBeNull();
+  });
+
+  it('keeps the replay until the view reaches the attach head', () => {
+    const start = run([baseline(1, []), frame(2), frame(5)]).state;
+    const settled = succeeded(start, 8).state;
+    expect(settled.recovery).toMatchObject({ settled: true });
+    const filled = run([frame(3), frame(4), frame(6), frame(7)], settled);
+    expect(filled.state.recovery).not.toBeNull();
+    expect(run([frame(8)], filled.state).state.recovery).toBeNull();
   });
 
   it('does not ask again while a replay is outstanding, even as last advances', () => {
@@ -180,15 +211,36 @@ describe('SessionEventReducer gap → replay request', () => {
     expect(attaches).toEqual([]);
   });
 
-  it('asks again from the current last after replay-failed', () => {
+  it('asks again from the current last with a new token after attach-failed', () => {
     const start = run([baseline(1, []), frame(2), frame(6), frame(3)]).state;
-    const step = dispatch(start, { kind: 'replay-failed' });
+    const token = currentToken(start);
+    const step = dispatch(start, { kind: 'attach-failed', token });
     expect(step.attach).toEqual({
-      sessionId: SESSION,
-      afterSeq: 3,
-      epoch: 'e-1',
+      token: token + 1,
+      params: { sessionId: SESSION, afterSeq: 3, epoch: 'e-1' },
     });
-    expect(step.state.replayFrom).toBe(3);
+    expect(step.state.recovery).toEqual({
+      kind: 'replay',
+      token: token + 1,
+      settled: false,
+    });
+  });
+
+  it('ignores a failure or success that carries a stale token', () => {
+    const start = run([baseline(1, []), frame(2), frame(6)]).state;
+    const token = currentToken(start);
+    const retried = dispatch(start, { kind: 'attach-failed', token }).state;
+
+    const staleFailure = dispatch(retried, { kind: 'attach-failed', token });
+    expect(staleFailure.attach).toBeNull();
+    expect(staleFailure.state).toBe(retried);
+
+    const staleSuccess = dispatch(retried, {
+      kind: 'attach-succeeded',
+      token,
+      result: { mode: 'log', epoch: 'e-1', fromSeq: 3, headSeq: 6 },
+    });
+    expect(staleSuccess.state).toBe(retried);
   });
 
   it('asks for a replay from 0 when a fresh attach starts past seq 1 without a baseline', () => {
@@ -201,7 +253,7 @@ describe('SessionEventReducer gap → replay request', () => {
 });
 
 describe('SessionEventReducer held-frame overflow → resync', () => {
-  /** Baseline at 1, then MAX_HELD_FRAMES + 1 frames past a gap at 2. */
+  /** Baseline at 1, then MAX_HELD_FRAMES + 1 frames past a gap at 2: 3..1003. */
   function overflowed() {
     const start = run([baseline(1, ['h-1'])]).state;
     const frames = Array.from({ length: MAX_HELD_FRAMES + 1 }, (_, i) =>
@@ -210,15 +262,19 @@ describe('SessionEventReducer held-frame overflow → resync', () => {
     return run(frames, start);
   }
 
-  it('drops the held frames and the replay, and asks once for a fresh attach', () => {
-    const { state, attaches } = overflowed();
-    expect(attaches).toEqual([
-      { sessionId: SESSION, afterSeq: 1, epoch: 'e-1' },
-      { sessionId: SESSION },
+  it('drops the held frames and asks once for a fresh attach that supersedes the replay', () => {
+    const { state, commands } = overflowed();
+    expect(commands).toEqual([
+      { token: 1, params: { sessionId: SESSION, afterSeq: 1, epoch: 'e-1' } },
+      { token: 2, params: { sessionId: SESSION } },
     ]);
     expect(state.held).toEqual([]);
-    expect(state.replayFrom).toBeNull();
-    expect(state.resyncing).toBe(true);
+    expect(state.recovery).toEqual({
+      kind: 'resync',
+      token: 2,
+      settled: false,
+    });
+    expect(state.target).toBe(1_003);
     expect(state.last).toBe(1);
   });
 
@@ -229,33 +285,85 @@ describe('SessionEventReducer held-frame overflow → resync', () => {
     );
     const { state, attaches } = run(more, start);
     expect(attaches).toEqual([]);
-    expect(state.resyncing).toBe(true);
+    expect(state.recovery).toMatchObject({ kind: 'resync', token: 2 });
     expect(state.held).toEqual([]);
   });
 
-  it('applies the fresh attach baseline and ends the resync', () => {
+  it('ignores a late failure of the superseded replay (no second attach)', () => {
     const start = overflowed().state;
+    const stale = dispatch(start, { kind: 'attach-failed', token: 1 });
+    expect(stale.attach).toBeNull();
+    expect(stale.state).toBe(start);
+
+    const current = dispatch(stale.state, { kind: 'attach-failed', token: 2 });
+    expect(current.attach).toEqual({
+      token: 3,
+      params: { sessionId: SESSION },
+    });
+    // The retried attach's own late duplicate failure retries nothing more.
+    expect(
+      dispatch(current.state, { kind: 'attach-failed', token: 2 }).attach,
+    ).toBeNull();
+  });
+
+  it('stays in resync when a contiguous live frame arrives, and retries a failed fresh attach (regression)', () => {
+    const start = overflowed().state;
+    const live = run([frame(2)], start);
+    expect(live.attaches).toEqual([]);
+    expect(live.state.last).toBe(2);
+    expect(live.state.recovery).toMatchObject({ kind: 'resync', token: 2 });
+
+    const failed = dispatch(live.state, { kind: 'attach-failed', token: 2 });
+    expect(failed.attach).toEqual({ token: 3, params: { sessionId: SESSION } });
+  });
+
+  it('asks for a fresh attach, not a replay from last, on reconnect during the resync (regression)', () => {
+    const live = run([frame(2)], overflowed().state).state;
+    const step = dispatch(live, { kind: 'connected' });
+    expect(step.attach).toEqual({ token: 3, params: { sessionId: SESSION } });
+    // The attach on the dropped connection fails afterwards: stale, ignored.
+    expect(
+      dispatch(step.state, { kind: 'attach-failed', token: 2 }).attach,
+    ).toBeNull();
+  });
+
+  it('ends the resync once the fresh attach succeeded and the view reached its head', () => {
+    const start = overflowed().state;
+    const settled = succeeded(start, 1_101).state;
+    expect(settled.recovery).toMatchObject({ kind: 'resync', settled: true });
+
     const { state, attaches } = run(
       [baseline(1_100, ['h-1', 'h-2']), frame(1_101)],
-      start,
+      settled,
     );
     expect(attaches).toEqual([]);
-    expect(state.resyncing).toBe(false);
+    expect(state.recovery).toBeNull();
     expect(state.last).toBe(1_101);
     expect(sessionView(state).baselineSeq).toBe(1_100);
     expect(renderedSeqs(state)).toEqual([1_101]);
   });
 
-  it('asks for the fresh attach again when it fails (regression: no stale replayFrom)', () => {
-    const start = overflowed().state;
-    const failed = dispatch(start, { kind: 'replay-failed' });
-    expect(failed.attach).toEqual({ sessionId: SESSION });
-    expect(failed.state.resyncing).toBe(true);
-    expect(failed.state.replayFrom).toBeNull();
+  it('keeps the resync until the dropped frames are covered when the baseline is older', () => {
+    // The latest baseline is the one at 1: the fresh attach resends 2..1003.
+    const settled = succeeded(overflowed().state, 1_003).state;
+    const replayed = Array.from({ length: 1_002 }, (_, i) => frame(i + 2));
+    const partial = run(
+      [baseline(1, ['h-1']), ...replayed.slice(0, 500)],
+      settled,
+    );
+    expect(partial.state.recovery).not.toBeNull();
+    const done = run(replayed.slice(500), partial.state);
+    expect(done.state.recovery).toBeNull();
+    expect(done.state.last).toBe(1_003);
+    expect(done.attaches).toEqual([]);
+  });
 
-    const { state } = run([baseline(1_100, ['h-1'])], failed.state);
-    expect(state.resyncing).toBe(false);
-    expect(sessionView(state).baselineSeq).toBe(1_100);
+  it('drops a stale baseline at or below last that a superseded attach resends', () => {
+    const live = run([frame(2)], overflowed().state).state;
+    const before = sessionView(live);
+    const { state } = run([baseline(1, ['stale'])], live);
+    expect(state).toBe(live);
+    expect(sessionView(state)).toBe(before);
   });
 
   it('holds live frames during the resync and applies them after the baseline', () => {
@@ -267,8 +375,42 @@ describe('SessionEventReducer held-frame overflow → resync', () => {
     expect(attaches).toEqual([]);
     expect(state.last).toBe(1_103);
     expect(state.held).toEqual([]);
-    expect(state.resyncing).toBe(false);
     expect(renderedSeqs(state)).toEqual([1_101, 1_102, 1_103]);
+    expect(succeeded(state, 1_103).state.recovery).toBeNull();
+  });
+});
+
+describe('SessionEventReducer connect', () => {
+  it('asks for a fresh attach before the first frame', () => {
+    const step = dispatch(initialSessionEventState(SESSION), {
+      kind: 'connected',
+    });
+    expect(step.attach).toEqual({ token: 1, params: { sessionId: SESSION } });
+    expect(step.state.recovery).toEqual({
+      kind: 'resync',
+      token: 1,
+      settled: false,
+    });
+  });
+
+  it('retries a failed resume from last, then ends once caught up', () => {
+    const start = run([baseline(1, []), frame(2)]).state;
+    const resumed = dispatch(start, { kind: 'connected' });
+    const failed = dispatch(resumed.state, {
+      kind: 'attach-failed',
+      token: currentToken(resumed.state),
+    });
+    expect(failed.attach?.params).toEqual({
+      sessionId: SESSION,
+      afterSeq: 2,
+      epoch: 'e-1',
+    });
+    const caughtUp = succeeded(failed.state, 2).state;
+    expect(caughtUp.recovery).toBeNull();
+    // A later gap asks for a replay again.
+    expect(run([frame(4)], caughtUp).attaches).toEqual([
+      { sessionId: SESSION, afterSeq: 2, epoch: 'e-1' },
+    ]);
   });
 });
 
@@ -277,9 +419,16 @@ describe('SessionEventReducer epoch reset', () => {
     const start = run([baseline(1, ['h-1']), frame(2), frame(5)]).state;
     const step = dispatch(start, { kind: 'resync-required' });
 
-    expect(step.attach).toEqual({ sessionId: SESSION });
-    expect(step.state).toEqual(initialSessionEventState(SESSION));
-    expect(resumeAttachParams(step.state)).toEqual({ sessionId: SESSION });
+    const token = start.nextToken;
+    expect(step.attach).toEqual({ token, params: { sessionId: SESSION } });
+    expect(step.state).toEqual({
+      ...initialSessionEventState(SESSION),
+      recovery: { kind: 'resync', token, settled: false },
+      nextToken: token + 1,
+    });
+    expect(dispatch(step.state, { kind: 'connected' }).attach?.params).toEqual({
+      sessionId: SESSION,
+    });
   });
 
   it('starts over when a frame from a new epoch arrives', () => {
@@ -312,10 +461,12 @@ describe('SessionEventReducer epoch reset', () => {
 
   it('drops the old epoch held frames and replay state', () => {
     const start = run([baseline(1, []), frame(2), frame(9)]).state;
-    expect(start.replayFrom).toBe(2);
+    expect(start.recovery).toMatchObject({ kind: 'replay' });
     const { state } = run([baseline(1, [], 'e-2')], start);
     expect(state.held).toEqual([]);
-    expect(state.replayFrom).toBeNull();
+    expect(state.recovery).toBeNull();
+    // Tokens are not reused across the reset.
+    expect(state.nextToken).toBe(start.nextToken);
   });
 });
 
@@ -360,7 +511,6 @@ describe('SessionEventReducer baseline replace', () => {
 
     expect(state.last).toBe(8);
     expect(state.held).toEqual([]);
-    expect(state.replayFrom).toBeNull();
     expect(renderedSeqs(state)).toEqual([8]);
   });
 });
@@ -388,7 +538,7 @@ describe('SessionEventReducer history mark', () => {
       baseline(1, ['h-1']),
       frame(2, 'worker:turn.end', { turnId: 't-1' }),
     ]).state;
-    const resume = resumeAttachParams(start);
+    const resume = dispatch(start, { kind: 'connected' }).attach?.params;
     expect(resume).toEqual({ sessionId: SESSION, afterSeq: 2, epoch: 'e-1' });
 
     const step = dispatch(start, { kind: 'event', frame: historyMark(3) });
@@ -448,7 +598,7 @@ describe('SessionEventReducer: duplicates and gaps render the same as no disconn
     expect(sessionView(disturbed.state)).toEqual(sessionView(clean));
     expect(disturbed.state.last).toBe(clean.last);
     expect(disturbed.state.held).toEqual([]);
-    expect(disturbed.state.replayFrom).toBeNull();
+    expect(succeeded(disturbed.state, 10).state.recovery).toBeNull();
   });
 });
 
