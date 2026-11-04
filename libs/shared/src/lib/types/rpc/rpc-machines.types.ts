@@ -463,6 +463,24 @@ export interface MachinesRpcMethodRegistry {
   };
 }
 
+/**
+ * Compile-time proof that the name tuple and the registry list the same
+ * methods. Either side drifting turns this into a type error.
+ */
+type _MachinesNamesNotInRegistry = Exclude<
+  MachinesRpcMethodName,
+  keyof MachinesRpcMethodRegistry
+>;
+type _MachinesRegistryNotInNames = Exclude<
+  keyof MachinesRpcMethodRegistry,
+  MachinesRpcMethodName
+>;
+export type MachinesRpcRegistryInSync = [
+  _MachinesNamesNotInRegistry | _MachinesRegistryNotInNames,
+] extends [never]
+  ? true
+  : never;
+
 // ---------------------------------------------------------------------------
 // Push payloads
 // ---------------------------------------------------------------------------

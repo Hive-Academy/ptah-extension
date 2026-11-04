@@ -15,11 +15,14 @@ import {
   MachinesSessionReplayParamsSchema,
   MachinesSessionStartParamsSchema,
   type MachinesEventPayload,
+  type MachinesRpcRegistryInSync,
   type MachinesStatePayload,
 } from './rpc-machines.types';
 
 describe('machines:* renderer contract', () => {
   it('lists each method once, under the machines: prefix', () => {
+    const inSync: MachinesRpcRegistryInSync = true;
+    expect(inSync).toBe(true);
     expect(new Set(MACHINES_RPC_METHOD_NAMES).size).toBe(
       MACHINES_RPC_METHOD_NAMES.length,
     );
@@ -66,8 +69,10 @@ describe('machines:* renderer contract', () => {
 
   it('accepts any bounded pairing code, so a malformed code is not told apart', () => {
     expect(
-      MachinesPairParamsSchema.safeParse({ machineId: 'm1', code: 'not a code' })
-        .success,
+      MachinesPairParamsSchema.safeParse({
+        machineId: 'm1',
+        code: 'not a code',
+      }).success,
     ).toBe(true);
     expect(
       MachinesPairParamsSchema.safeParse({ machineId: 'm1', code: '' }).success,
