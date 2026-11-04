@@ -18,7 +18,7 @@ export interface PublicationResult { artifactPath: string; exportPath: string; a
 export class PublicationStageRunner {
   constructor(
     @inject(REVIEW_CORE_TOKENS.ARTIFACT_WRITER) private readonly writer: ReviewArtifactWriter,
-    private readonly policy: ReviewPolicyService,
+    @inject(ReviewPolicyService) private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: { readonly db: SqliteDatabase } | null = null,
   ) {}

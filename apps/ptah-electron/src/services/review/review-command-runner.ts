@@ -32,10 +32,11 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
   /** Bootstrap probe: the resolver supplies the active workspace root before claim roots are trusted. */
   static async inspectCheckout(cwd: string): Promise<{ topLevel: string; origin: string }> {
     const directory = await realpath(cwd);
-    const options = { cwd: directory, timeout: 10_000, maxBuffer: 16_384, windowsHide: true, shell: false } as const;
     const [{ stdout: topLevel }, { stdout: origin }] = await Promise.all([
-      execFileAsync('git', ['rev-parse', '--show-toplevel'], options),
-      execFileAsync('git', ['remote', 'get-url', 'origin'], options),
+      execFileAsync('git', ['rev-parse', '--show-toplevel'],
+        { cwd: directory, timeout: 10_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
+      execFileAsync('git', ['remote', 'get-url', 'origin'],
+        { cwd: directory, timeout: 10_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
     ]);
     return { topLevel, origin };
   }

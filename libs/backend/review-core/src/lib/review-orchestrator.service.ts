@@ -34,14 +34,14 @@ export class ReviewPollDisabledError extends Error {
 export class ReviewOrchestratorService {
   private workerActive = false;
   constructor(
-    private readonly discovery: DiscoveryStageRunner,
-    private readonly context: ContextStageRunner,
-    private readonly triage: TriageStageRunner,
-    private readonly lenses: LensStageRunner,
-    private readonly verification: VerificationStageRunner,
-    private readonly publication: PublicationStageRunner,
-    private readonly queue: ReviewQueueService,
-    private readonly policy: ReviewPolicyService,
+    @inject(DiscoveryStageRunner) private readonly discovery: DiscoveryStageRunner,
+    @inject(ContextStageRunner) private readonly context: ContextStageRunner,
+    @inject(TriageStageRunner) private readonly triage: TriageStageRunner,
+    @inject(LensStageRunner) private readonly lenses: LensStageRunner,
+    @inject(VerificationStageRunner) private readonly verification: VerificationStageRunner,
+    @inject(PublicationStageRunner) private readonly publication: PublicationStageRunner,
+    @inject(ReviewQueueService) private readonly queue: ReviewQueueService,
+    @inject(ReviewPolicyService) private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.REVIEW_REPOSITORY) private readonly repository: IReviewRepository,
     @inject(REVIEW_CORE_TOKENS.GITHUB) private readonly github: IGitHubReviewPort,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,

@@ -64,10 +64,10 @@ export class ContextStageRunner {
   constructor(
     @inject(REVIEW_CORE_TOKENS.GITHUB) private readonly github: IGitHubReviewPort,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
-    private readonly worktree: ReviewWorktreeService,
-    private readonly context: ReviewContextService,
-    private readonly dependencies: ReviewDependenciesService,
-    private readonly checks: ReviewChecksService,
+    @inject(ReviewWorktreeService) private readonly worktree: ReviewWorktreeService,
+    @inject(ReviewContextService) private readonly context: ReviewContextService,
+    @inject(ReviewDependenciesService) private readonly dependencies: ReviewDependenciesService,
+    @inject(ReviewChecksService) private readonly checks: ReviewChecksService,
   ) {}
 
   async run(claim: ReviewQueueClaim, deadlineMs = Date.now() + 30 * 60_000, signal?: AbortSignal): Promise<ContextStageResult> {

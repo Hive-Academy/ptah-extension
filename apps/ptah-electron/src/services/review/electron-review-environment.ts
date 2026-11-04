@@ -28,10 +28,11 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
   ) {}
 
   private static async readBaseConfig(cwd: string, baseSha: string): Promise<string | null> {
-    const options = { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false } as const;
-    const { stdout: names } = await execFileAsync('git', ['ls-tree', '--name-only', baseSha, '--', '.ptah-review.yaml'], options);
+    const { stdout: names } = await execFileAsync('git', ['ls-tree', '--name-only', baseSha, '--', '.ptah-review.yaml'],
+      { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false });
     if (names.trim() !== '.ptah-review.yaml') return null;
-    const { stdout } = await execFileAsync('git', ['show', `${baseSha}:.ptah-review.yaml`], options);
+    const { stdout } = await execFileAsync('git', ['show', `${baseSha}:.ptah-review.yaml`],
+      { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false });
     return stdout;
   }
 

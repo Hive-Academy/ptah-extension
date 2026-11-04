@@ -23,7 +23,7 @@ const ResultSchema = z.discriminatedUnion('status', [
 
 @injectable()
 export class LensStageRunner {
-  constructor(private readonly lanes: ReviewLaneRunner,
+  constructor(@inject(ReviewLaneRunner) private readonly lanes: ReviewLaneRunner,
     @inject(REVIEW_CORE_TOKENS.REVIEW_REPOSITORY) private readonly repository: IReviewRepository) {}
   async run(claim: ReviewQueueClaim, context: ContextStageResult, deadline: number, signal?: AbortSignal): Promise<LensStageResult> {
     const results: LensStageResult = [];

@@ -1,3 +1,4 @@
+import { join, resolve } from 'node:path';
 import type { CandidateFinding } from '@ptah-extension/review-contracts';
 import { ReviewArtifactWriter, type ReviewArtifactFileSystem, type ReviewPreviewInput } from './review-artifact.writer';
 import type { EffectiveReviewSettings } from '../review-policy.service';
@@ -59,9 +60,11 @@ describe('ReviewArtifactWriter', () => {
   });
 
   it('writes only within an absolute out root', async () => {
+    const attemptRoot = resolve('review-artifact-writer-attempt');
+    const outRoot = join(attemptRoot, 'out');
     await expect(writer.writePreview('relative/out', preview, settings)).rejects.toThrow('absolute');
-    await expect(writer.writePreview('C:\\attempt\\src', preview, settings)).rejects.toThrow('out/');
-    await writer.writePreview('C:\\attempt\\out', preview, settings);
-    expect(fs.writeFile).toHaveBeenCalledWith('C:\\attempt\\out\\review-preview.md', expect.any(String), 'utf8');
+    await expect(writer.writePreview(join(attemptRoot, 'src'), preview, settings)).rejects.toThrow('out/');
+    await writer.writePreview(outRoot, preview, settings);
+    expect(fs.writeFile).toHaveBeenCalledWith(join(outRoot, 'review-preview.md'), expect.any(String), 'utf8');
   });
 });

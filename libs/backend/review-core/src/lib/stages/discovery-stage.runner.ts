@@ -12,8 +12,8 @@ export const REVIEW_REPO: RepoIdentity = { owner: 'Hive-Academy', name: 'PtahCod
 export class DiscoveryStageRunner {
   constructor(
     @inject(REVIEW_CORE_TOKENS.GITHUB) private readonly github: IGitHubReviewPort,
-    private readonly queue: ReviewQueueService,
-    private readonly policy: ReviewPolicyService,
+    @inject(ReviewQueueService) private readonly queue: ReviewQueueService,
+    @inject(ReviewPolicyService) private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
   ) {}
 

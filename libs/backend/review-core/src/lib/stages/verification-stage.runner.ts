@@ -1,4 +1,4 @@
-import { injectable } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import type { CandidateFinding } from '@ptah-extension/review-contracts';
 import { ReviewLaneRunner, type ReviewLaneResult } from '../lanes/review-lane.runner';
 import type { ReviewQueueClaim } from '../review-queue.service';
@@ -15,7 +15,7 @@ export interface VerificationResult {
 
 @injectable()
 export class VerificationStageRunner {
-  constructor(private readonly lanes: ReviewLaneRunner) {}
+  constructor(@inject(ReviewLaneRunner) private readonly lanes: ReviewLaneRunner) {}
   async run(claim: ReviewQueueClaim, context: ContextStageResult, lenses: LensStageResult, deadline: number, signal?: AbortSignal): Promise<VerificationResult[]> {
     const candidates = lenses.flatMap((entry) => {
       const result = entry.result;
