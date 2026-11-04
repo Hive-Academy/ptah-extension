@@ -363,7 +363,8 @@ describe('CredentialsTabComponent', () => {
     fixture.componentInstance.externalActionRequested.subscribe(action);
     render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false, tokenStale: true }), kind: 'oauth' });
     expect(query('credentials-codex-copy')?.textContent).toContain('~/.codex/auth.json has expired');
-    expect(query('codex-sign-in-block')).not.toBeNull();
+    // The block is mounted; in its idle compact state it renders no bordered body.
+    expect(element.querySelector('ptah-codex-sign-in-block')).not.toBeNull();
     query('credentials-open-login')?.click();
     expect(action).toHaveBeenCalledWith('sign-in');
     render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false, tokenStale: false }) });
