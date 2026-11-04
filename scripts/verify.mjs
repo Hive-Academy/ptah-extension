@@ -16,8 +16,9 @@
 // Every run takes a slot of the machine-wide lock in scripts/verify-lock.mjs
 // first. There are PTAH_VERIFY_SLOTS slots (default 3). A second concurrent
 // run starts only while PTAH_VERIFY_MIN_FREE_GB of memory is free (default 5).
-// Inside each run Nx runs one task at a time (nx.json `parallel: 1`, and
-// --parallel=1 here) and Jest uses 2 workers per task (jest.preset.js).
+// Lint/typecheck run with 2 Nx tasks by default (PTAH_VERIFY_LINT_PARALLEL);
+// tests run with 1 Nx task and 2 Jest workers (jest.preset.js). Mixed runs
+// finish lint/typecheck first, then tests, under the same lock slot.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -71,29 +72,41 @@ function parse(argv) {
   return { values, passthrough };
 }
 
-function nxCommand(values, passthrough) {
+function nxCommands(values, passthrough) {
   const nxBin = path.resolve(
     path.dirname(require.resolve('nx/package.json')),
     require('nx/package.json').bin.nx,
   );
   const targets = splitList(values.targets);
   const projects = splitList(values.projects);
-  const targetList = (
-    targets.length ? targets : ['lint', 'test', 'typecheck']
-  ).join(',');
-  const args = projects.length
-    ? ['run-many', '-t', targetList, '-p', projects.join(',')]
-    : ['affected', '-t', targetList, `--base=${values.base}`];
-  if (!projects.length && values.head) args.push(`--head=${values.head}`);
-  args.push('--parallel=1', ...passthrough);
+  const requested = targets.length ? targets : ['lint', 'test', 'typecheck'];
+  const nonTest = requested.filter((target) => target !== 'test');
+  const phases = requested.includes('test') && nonTest.length
+    ? [nonTest, ['test']]
+    : [requested];
+  const rawParallel = process.env.PTAH_VERIFY_LINT_PARALLEL;
+  const lintParallel = rawParallel === undefined ? 2 : Number(rawParallel);
+  if (!Number.isInteger(lintParallel) || lintParallel < 1)
+    throw new Error('PTAH_VERIFY_LINT_PARALLEL must be a positive integer');
   const label = projects.length
     ? projects.join(',')
     : `affected vs ${values.base}`;
-  return {
-    command: process.execPath,
-    args: [nxBin, ...args],
-    task: `verify ${targetList} (${label})`,
-  };
+  return phases.map((phase) => {
+    const targetList = phase.join(',');
+    const args = projects.length
+      ? ['run-many', '-t', targetList, '-p', projects.join(',')]
+      : ['affected', '-t', targetList, `--base=${values.base}`];
+    if (!projects.length && values.head) args.push(`--head=${values.head}`);
+    args.push(
+      `--parallel=${phase.includes('test') ? 1 : lintParallel}`,
+      ...passthrough,
+    );
+    return {
+      command: process.execPath,
+      args: [nxBin, ...args],
+      task: `verify ${targetList} (${label})`,
+    };
+  });
 }
 
 // cmd.exe quoting for one argument. Windows needs a shell to start .cmd
@@ -202,9 +215,10 @@ async function main() {
       task: passthrough.join(' '),
     };
   } else {
-    run = nxCommand(values, passthrough);
+    run = nxCommands(values, passthrough);
   }
-  const task = values.task ?? run.task;
+  const runs = Array.isArray(run) ? run : [run];
+  const task = values.task ?? runs.map((phase) => phase.task).join(' then ');
   const worktree = process.cwd();
 
   let child = null;
@@ -234,25 +248,34 @@ async function main() {
   }
 
   const runStart = Date.now();
-  const code = await new Promise((resolve) => {
-    child = spawnCommand(run.command, run.args, {
-      ...process.env,
-      [TOKEN_ENV]: lock.entry.token,
+  // Every phase runs even when an earlier one failed, so one verify reports
+  // all failures (as a single Nx run did). The first non-zero code wins.
+  let code = 0;
+  for (const phase of runs) {
+    log(`starting ${phase.task}`);
+    const phaseCode = await new Promise((resolve) => {
+      child = spawnCommand(phase.command, phase.args, {
+        ...process.env,
+        [TOKEN_ENV]: lock.entry.token,
+      });
+      if (!lock.reentrant && child.pid)
+        recordChild(lock.entry, child.pid, lock.slot);
+      child.on('error', (error) => {
+        log(`could not start ${phase.command}: ${error.message}`);
+        resolve(1);
+      });
+      child.on('exit', (exitCode, signal) =>
+        resolve(exitCode ?? (signal ? 1 : 0)),
+      );
     });
-    if (!lock.reentrant && child.pid)
-      recordChild(lock.entry, child.pid, lock.slot);
-    child.on('error', (error) => {
-      log(`could not start ${run.command}: ${error.message}`);
-      resolve(1);
-    });
-    child.on('exit', (exitCode, signal) =>
-      resolve(exitCode ?? (signal ? 1 : 0)),
-    );
-  });
-  if (process.platform !== 'win32' && child.pid) {
-    // Descendants that outlived the direct child must not overlap the next
-    // holder. On Windows the kill-on-close job object covers the same case.
-    killTree(child, 'SIGTERM');
+    if (process.platform !== 'win32' && child.pid) {
+      // Descendants that outlived the direct child must not overlap the next
+      // holder. On Windows the kill-on-close job object covers the same case.
+      killTree(child, 'SIGTERM');
+    }
+    child = null;
+    if (!code) code = phaseCode;
+    if (interrupted) break;
   }
   lock.release();
   const seconds = ((Date.now() - runStart) / 1000).toFixed(1);
