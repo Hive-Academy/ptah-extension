@@ -1,5 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
+import { provideRouter, Router } from '@angular/router';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -8,11 +9,15 @@ import {
 } from '@ptah-extension/core';
 import { CronSchedulerTabComponent } from './cron-scheduler-tab.component';
 
+@Component({ standalone: true, template: '' })
+class ReviewDestinationStub {}
+
 describe('CronSchedulerTabComponent', () => {
   function configure(
     isElectron: boolean,
   ): ComponentFixture<CronSchedulerTabComponent> {
     const vscodeMock: Partial<VSCodeService> = {
+      isElectron,
       config: signal({ isElectron }) as unknown as VSCodeService['config'],
     };
     const rpcMock: Partial<ClaudeRpcService> = {
@@ -33,6 +38,7 @@ describe('CronSchedulerTabComponent', () => {
     TestBed.configureTestingModule({
       imports: [CronSchedulerTabComponent],
       providers: [
+        provideRouter([{ path: 'review-runs', component: ReviewDestinationStub }]),
         { provide: VSCodeService, useValue: vscodeMock },
         { provide: ClaudeRpcService, useValue: rpcMock },
         { provide: AppStateManager, useValue: appStateMock },
@@ -57,6 +63,23 @@ describe('CronSchedulerTabComponent', () => {
   it('renders the VS Code placeholder when not on Electron', () => {
     const cmp = configure(false).componentInstance;
     expect(cmp.isElectron()).toBe(false);
+  });
+
+  it('shows the review link only on the review-capable host', () => {
+    const electron = configure(true);
+    expect(electron.nativeElement.querySelector('[data-testid="cron-review-runs-link"]')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const vscode = configure(false);
+    expect(vscode.nativeElement.querySelector('[data-testid="cron-review-runs-link"]')).toBeNull();
+  });
+
+  it('navigates to review runs from the link', async () => {
+    const fixture = configure(true);
+    const link = fixture.nativeElement.querySelector('[data-testid="cron-review-runs-link"]') as HTMLAnchorElement;
+    expect(link.getAttribute('aria-label')).toBe('Open review runs');
+    link.click();
+    await fixture.whenStable();
+    expect(TestBed.inject(Router).url).toBe('/review-runs');
   });
 
   it('describes a known cron expression via the validator', () => {

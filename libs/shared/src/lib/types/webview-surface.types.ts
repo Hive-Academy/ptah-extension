@@ -58,7 +58,8 @@ export type ViewType =
   | 'marketplace'
   | 'tasks'
   | 'apps'
-  | 'command-center';
+  | 'command-center'
+  | 'review-runs';
 
 /**
  * Every surface that has a route, in the order the route table declares them.
@@ -78,6 +79,7 @@ export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'tasks',
   'apps',
   'command-center',
+  'review-runs',
 ];
 
 /**

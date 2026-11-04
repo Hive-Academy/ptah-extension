@@ -41,6 +41,7 @@ export {
 } from './onboarding-routes';
 
 export { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
+export { isReviewSurfaceAvailable } from './review-surface-availability';
 export { SurfaceActiveDirective } from './surface-active.directive';
 export { RetainedViewDirective } from './retained-view.directive';
 export { SurfaceRoutePersistence } from './surface-route-persistence';

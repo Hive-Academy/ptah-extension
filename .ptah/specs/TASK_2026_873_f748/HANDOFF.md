@@ -32,17 +32,19 @@ Approval mode `lane-review`; user prefers codex lanes; reviews from a different 
 
 | `22ebcf57c` | P1-16a-2 review RPC surface + query/settings/artifact ports (D36–D38) | persistence-sqlite (D27 lint only), review libs 9/9, shared+review-contracts 6/6, rpc-handlers lint+typecheck pass, test env-fail only untouched suites (D38) |
 
+| `2491556ae` | P1-16a-3 Electron host wiring (D39, D40) | review-core+review-github+cli-agent-runtime 9/9, ptah-electron 9/9 |
+
 ## In progress
 
-- **P1-16a-3** Electron host integration → codex lane `a713a632-f0ad-4560-b5fd-eea5e495a909`
-  (session `01a1a41a-4176-76c1-99e3-420bb0617615`), report `reports/p1-16a3-report.md`.
+- **P1-16b** renderer route + cron-tab link → codex lane `f7723ff3-cf02-42f6-9486-4dcc5db3e12d`
+  (session `01a1a466-1b25-76e1-b235-886a6e3c27c2`), report `reports/p1-16b-report.md`.
 
 ## Next steps
 
-1. On P1-16a-3 signal: verify `-p ptah-electron`, then `-p rpc-handlers` if touched, CLI guards
-   (`cli-engine`) if touched. Machine is loaded: prefix `NX_PLUGIN_NO_TIMEOUTS=true` (plugin worker
-   30 s timeout otherwise). Run long checks with `run_in_background`; strip ANSI from nx terminal
-   output files. Commit by explicit path.
+1. On P1-16b signal: verify `-p ptah-extension-webview,review-runs-ui,cron-scheduler-ui`. Machine is
+   loaded: prefix `NX_PLUGIN_NO_TIMEOUTS=true`. Run long checks with `run_in_background`; strip ANSI
+   from nx terminal output files. Electron `tsconfig.build.json` has an explicit paths list — new
+   libs must be added there. Electron `package.json` lists no workspace libs. Commit by explicit path.
 3. **P1-16b**: webview route `apps/ptah-extension-webview/src/app/app.routes.ts` + link in
    `libs/frontend/cron-scheduler-ui/src/lib/components/cron-scheduler-tab.component.ts` + routing specs.
 4. **Ask the user** before any Electron run for dark+light screenshots vs `prototype/` (D22, D33).
