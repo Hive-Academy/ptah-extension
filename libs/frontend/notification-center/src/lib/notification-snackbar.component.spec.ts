@@ -44,6 +44,8 @@ describe('NotificationSnackbarComponent', () => {
     expect(card?.textContent).toContain('Tool: Bash <private>');
     expect(card?.querySelector('.bg-state-need')).not.toBeNull();
     expect(card?.querySelector('private')).toBeNull();
+    // Glass themes: the overlay role gives the floating card a near-opaque, blurred fill.
+    expect(card?.getAttribute('data-glass-surface')).toBe('overlay');
   });
 
   it('shows Session unavailable for a request without a session title', () => {
