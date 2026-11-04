@@ -100,6 +100,9 @@ export const PLATFORM_TOKENS = {
   /** ISessionStoreGate — legacy copy-forward finished. Registered with SESSION_RECORD_REPOSITORY. */
   SESSION_STORE_GATE: Symbol.for('PlatformSessionStoreGate'),
 
+  /** ISessionDriverLock — kernel-held local session driving lease. */
+  SESSION_DRIVER_LOCK: Symbol.for('PlatformSessionDriverLock'),
+
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
 

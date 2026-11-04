@@ -403,3 +403,9 @@ export {
   authProviderIdOfSecretKey,
 } from './provider-key-slots';
 export type { SessionUsageSink, SessionUsageContribution, SessionUsageModelDelta } from './interfaces/session-usage-sink.interface';
+export type {
+  ISessionDriverLock, DriverHolder, DriverLockAcquisition, HeldDriverLock,
+} from './interfaces/session-driver-lock.interface';
+export { KernelSessionDriverLock } from './session-driver-lock/kernel-session-driver-lock';
+export { NullSessionDriverLock } from './session-driver-lock/null-session-driver-lock';
+export { sessionDriverEndpoint } from './session-driver-lock/endpoint-names';

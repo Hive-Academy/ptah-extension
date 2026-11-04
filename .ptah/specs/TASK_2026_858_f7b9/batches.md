@@ -501,7 +501,7 @@ phase summary.
 
 ---
 
-## Batch 8: C4a-1 driver lock port and kernel lock (revised Round 6) — PENDING
+## Batch 8: C4a-1 driver lock port and kernel lock (revised Round 6) — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -513,7 +513,7 @@ phase summary.
 - Phase: C | Phase review: at Batch 13
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/platform-core,ptah-electron,mcp-bench`
 
-### Task 8.1: Interface, token, kernel and null locks, contract suite — PENDING
+### Task 8.1: Interface, token, kernel and null locks, contract suite — COMPLETE
 
 - Files: W/`libs/backend/platform-core/src/interfaces/session-driver-lock.interface.ts`,
   W/`libs/backend/platform-core/src/session-driver-lock/{endpoint-names.ts,kernel-session-driver-lock.ts,null-session-driver-lock.ts}`
@@ -532,6 +532,11 @@ phase summary.
 ### Batch 8 verification
 
 - Contract suite runs against both locks; cross-process spec passes; verify passes
+- Result: executor Codex lane (implementer family codex; Phase C review must be non-codex).
+  Orchestrator verify (lane sandbox blocks Nx): platform-core, ptah-electron, mcp-bench 14/15; the
+  one failure is mcp-bench `snapshot-audits` mem.liveness.audit (5 s timeout, pre-existing: it
+  passes with direct Jest on main and branch, 13/13). For Phase C review: Windows endpoint uses a
+  hash of domain + username (Node has no SID API), see `batch-8-report.md` Decisions.
 
 ## Batch 9: C4a-2 control endpoint and local lock client (revised Round 6) — PENDING
 
