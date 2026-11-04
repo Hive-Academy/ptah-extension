@@ -67,9 +67,28 @@ timed out at 30 s. `~/.ptah/settings.json` now says 60000 (backup
 (calls at 05:38–05:48 UTC still 30000). The user must set the timeout in the Ptah UI
 (Settings → Providers → Decision model). Do not restart Ptah only for this (row 15).
 
+## PR state (checked 2026-11-04, end of session)
+
+- PR #927 draft, head 5b71f8bfa (docs commit with this HANDOFF on top), 38 commits over main.
+  CI 18 pass / 4 skipped / 0 fail. mergeable=MERGEABLE, mergeStateStatus=BLOCKED (draft +
+  review required). 0 reviews; one CodeRabbit "Draft PR not reviewed" comment.
+- origin/main is 67 commits ahead; `git merge-tree --write-tree HEAD origin/main` is clean.
+- No lanes, subagents or child sessions are running.
+
+## Open question to the user (asked, NOT yet answered)
+
+The user asked "the pr is a draft, where are we now?". I offered two options:
+1. Keep PR #927 a draft and continue Phase D on the same branch (handoff plan).
+2. Mark PR #927 ready now (Phases A–C add no user-visible behavior; CodeRabbit then reviews),
+   and start Phase D on a new branch from main.
+Wait for the answer before doing either. Also still waiting: decision-model UI timeout (user
+action), permission to remove `.claude-worktrees/rw2-ci-merge`, fleet ops O1–O5 and G-M.
+
 ## Next steps
 
-1. Watch the draft PR CI and reviews; fix task-related failures.
+1. Get the user's answer to the question above. Watch PR #927 CI and reviews
+   (`gh pr view 927 --json statusCheckRollup,reviews,comments`); fix task-related failures.
+   If option 2: `gh pr ready 927`, then watch CodeRabbit and address findings.
 2. Phase D (Batches 14–19) per batches.md (Round 6), one executor at a time; Phase D review after
    Batch 19 by a different family than the implementer. Ask the user before starting Phase D.
 3. Fleet operations O1–O5 and G-M: still unanswered; ask before any fleet change.
