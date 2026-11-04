@@ -641,6 +641,54 @@ describe('TaskIndexService.reindex', () => {
 });
 
 describe('TaskIndexService.getDetail', () => {
+  it.each(['TASK_2026_123_ABC', 'TASK_2026_123_ab_cd'])(
+    'reads every board-listed folder %s',
+    async (folder) => {
+      const fs = new FakeFs();
+      fs.setFile(carrier(folder), validTask(folder));
+      const service = buildService(fs);
+
+      const board = await service.list(ROOT);
+      expect(board.tasks.map((task) => task.id)).toContain(folder);
+      expect(await service.readFolderMarkdown(ROOT, folder, 'task.md')).toMatchObject({
+        state: 'ready', content: validTask(folder),
+      });
+      expect(await service.listFolderEntries(ROOT, folder, '')).toMatchObject({
+        state: 'ready', entries: [{ name: 'task.md', kind: 'file' }],
+      });
+      expect(await service.getDetail(ROOT, folder)).toMatchObject({
+        id: folder, body: `body of ${folder}`,
+      });
+      service.dispose();
+    },
+  );
+
+  it.each(['', '..', 'a/b', 'a\\b', 'C:work'])(
+    'rejects unsafe task folder %j in contained reads',
+    async (folder) => {
+      const fs = new FakeFs();
+      const service = buildService(fs);
+      expect((await service.readFolderMarkdown(ROOT, folder, 'task.md')).state).toBe('rejected');
+      expect((await service.listFolderEntries(ROOT, folder, '')).state).toBe('rejected');
+      await expect(service.getDetail(ROOT, folder)).rejects.toThrow('rejected');
+      service.dispose();
+    },
+  );
+
+  it('reports a scanned but unreadable folder name as excluded', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_123:stream'), validTask('TASK_2026_123:stream'));
+    const service = buildService(fs);
+
+    const board = await service.list(ROOT);
+    expect(board.tasks).toEqual([]);
+    expect(board.excluded).toContainEqual({
+      folderName: 'TASK_2026_123:stream', reason: 'unreadable',
+    });
+    expect(board.excludedCount).toBe(1);
+    service.dispose();
+  });
+
   it('returns body + folder artifacts for a valid task', async () => {
     const fs = new FakeFs();
     seedTwoValidOneExcluded(fs);

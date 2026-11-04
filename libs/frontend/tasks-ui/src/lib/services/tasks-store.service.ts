@@ -1381,6 +1381,8 @@ export class TasksStore {
    * the store-level {@link error}, as `readDocument` always did.
    */
   public async readFolderFile(file: string | null): Promise<void> {
+    // The user's own choice: a push refresh must not restore over it.
+    this.pendingRestore = null;
     if (this._selectedTaskId() === null) {
       this.folder.closeDocument();
       return;
@@ -1395,6 +1397,8 @@ export class TasksStore {
    * `tasks:listFolderEntries`; its typed result lands in {@link folderListing}.
    */
   public async openFolderDirectory(directory: string): Promise<void> {
+    // The user's own choice: a push refresh must not restore over it.
+    this.pendingRestore = null;
     await this.folder.openDirectory(directory);
   }
 
@@ -2617,50 +2621,63 @@ export class TasksStore {
 
   private async refreshActiveFromPush(): Promise<void> {
     const seq = ++this.pushRefreshSeq;
-    // Re-reading the task resets the reader and the browser. Remember what
-    // the user had open BEFORE any await, and only when no overlapping push
-    // already remembered it: a burst of pushes shares one board fetch, and
-    // by the time a later push runs, an earlier one's re-read has already
-    // emptied the reader.
-    const before = this._selectedTaskId();
-    if (before !== null && this.pendingRestore?.taskId !== before) {
-      this.pendingRestore = {
-        taskId: before,
-        file: this.folder.openFile(),
-        directory: this.folder.directory(),
-      };
+    const isNewest = (): boolean => seq === this.pushRefreshSeq;
+    try {
+      await this.refreshBoard(this.activeKey(), this.activeRoot());
+      const selected = this._selectedTaskId();
+      if (selected === null) return;
+      // Re-reading the task resets the reader and the browser. Remember what
+      // the user had open AFTER the (slow) board scan, so a document opened
+      // during it is the one kept, and with no await before `openTask`. An
+      // overlapping push that already remembered a target for this task
+      // keeps it: pushes in a burst share one board fetch, and by the time a
+      // later one resumes, the first one's re-read has emptied the reader.
+      if (this.pendingRestore?.taskId !== selected) {
+        this.pendingRestore = {
+          taskId: selected,
+          file: this.folder.openFile(),
+          directory: this.folder.directory(),
+        };
+      }
+      await this.openTask(selected);
+      // Only the newest push restores; an older one leaves the target pending.
+      if (!isNewest()) return;
+      const target = this.pendingRestore;
+      this.pendingRestore = null;
+      if (
+        target === null ||
+        target.taskId !== selected ||
+        this._selectedTaskId() !== selected ||
+        this._taskDetail() === null
+      ) {
+        return;
+      }
+      // Restore re-read from disk, so a change on disk refreshes the open
+      // document instead of closing it. Only into an untouched reader: a file
+      // or directory the user opened while the task re-read is newer. This
+      // goes to the folder store directly, NOT through `readFolderFile` /
+      // `openFolderDirectory`, which treat the call as the user's choice.
+      const { file, directory } = target;
+      await Promise.all([
+        directory === '' || this.folder.directory() !== ''
+          ? Promise.resolve()
+          : this.folder.openDirectory(directory),
+        file === null || this.folder.openFile() !== null
+          ? Promise.resolve()
+          : this.folder.readFile(file),
+      ]);
+    } catch (error: unknown) {
+      // Callers fire this with `void`; surface a transport failure on the
+      // board error slot, as a failed board load does, instead of rejecting.
+      if (isNewest()) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.detailErrorMessage = null;
+        this._error.set(`Failed to refresh tasks (${detail})`);
+      }
+    } finally {
+      // The newest call owns the target: whatever happened, it is spent.
+      if (isNewest()) this.pendingRestore = null;
     }
-    await this.refreshBoard(this.activeKey(), this.activeRoot());
-    const selected = this._selectedTaskId();
-    if (selected === null) {
-      if (seq === this.pushRefreshSeq) this.pendingRestore = null;
-      return;
-    }
-    await this.openTask(selected);
-    // Only the newest push restores; an older one leaves the target pending.
-    if (seq !== this.pushRefreshSeq) return;
-    const target = this.pendingRestore;
-    this.pendingRestore = null;
-    if (
-      target === null ||
-      target.taskId !== selected ||
-      this._selectedTaskId() !== selected ||
-      this._taskDetail() === null
-    ) {
-      return;
-    }
-    // Restore re-read from disk, so a change on disk refreshes the open
-    // document instead of closing it. Only into an untouched reader: a file
-    // or directory the user opened while the task re-read is newer.
-    const { file, directory } = target;
-    await Promise.all([
-      directory === '' || this.folder.directory() !== ''
-        ? Promise.resolve()
-        : this.folder.openDirectory(directory),
-      file === null || this.folder.openFile() !== null
-        ? Promise.resolve()
-        : this.folder.readFile(file),
-    ]);
   }
 
   /** Snapshot RPC board data into a cache slice (all six keys guaranteed). */

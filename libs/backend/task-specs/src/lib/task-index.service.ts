@@ -33,6 +33,7 @@ import {
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   CARRIER_FILE,
+  isSingleTaskPathSegment,
   SPECS_README_FILE,
   renderSpecsReadme,
   roundJudgeFile,
@@ -49,8 +50,6 @@ import { TaskScannerService } from './task-scanner.service';
 import { TASK_SPECS_TOKENS } from './di/tokens';
 import type { ITaskIndexStore } from './task-index.store';
 import type { ITaskIndexNotifier } from './task-index.port';
-
-const TASK_FOLDER_ID = /^TASK_\d{4}_\d{3,}(?:_[a-z0-9]+)?$/;
 
 /** Fired whenever the derived index changes. Drives the `tasks:changed` push. */
 export interface TaskIndexChangeEvent {
@@ -403,7 +402,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
   }
 
   private async containedTask(root: string, taskId: string): Promise<string> {
-    if (!TASK_FOLDER_ID.test(taskId)) throw new Error('Invalid task folder');
+    if (!isSingleTaskPathSegment(taskId)) throw new Error('Invalid task folder');
     const canonicalRoot = await this.fs.realpath(root);
     let current = root;
     for (const segment of ['.ptah', 'specs', taskId]) {
@@ -418,7 +417,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
 
   async readFolderMarkdown(workspaceRoot: string, taskId: string, file: string): Promise<TasksReadFolderMarkdownResult> {
     const result = (state: TasksReadFolderMarkdownResult['state'], content: string | null = null): TasksReadFolderMarkdownResult => ({ taskId, file, state, content });
-    if (!TASK_FOLDER_ID.test(taskId)) return result('rejected');
+    if (!isSingleTaskPathSegment(taskId)) return result('rejected');
     if (!/^[a-z0-9][a-z0-9._-]*\.md$/.test(file) || file.includes('..')) return result('rejected');
     try {
       const folder = await this.containedTask(normalizeWorkspaceRoot(workspaceRoot), taskId);
@@ -460,7 +459,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
 
   async listFolderEntries(workspaceRoot: string, taskId: string, directory: string): Promise<TasksListFolderEntriesResult> {
     const result = (state: TasksListFolderEntriesResult['state'], entries: TasksListFolderEntriesResult['entries'] = []): TasksListFolderEntriesResult => ({ taskId, directory, state, entries });
-    if (!TASK_FOLDER_ID.test(taskId)) return result('rejected');
+    if (!isSingleTaskPathSegment(taskId)) return result('rejected');
     const parts = directory === '' ? [] : directory.split('/');
     if (parts.length > 4 || parts.some((part) => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(part) || part === '..' || part.includes('..'))) return result('rejected');
     try {
@@ -620,7 +619,15 @@ export class TaskIndexService implements ITaskIndexNotifier {
     emit: boolean,
   ): Promise<RebuildResult> {
     const scan = await this.scanner.scan(root);
-    const summaries: TaskSpecSummary[] = scan.tasks.map(
+    // Keep unsafe names visible in the board's excluded list instead of
+    // silently dropping them from the scanner's directory candidates.
+    const excluded = [...scan.excluded];
+    const readableTasks = scan.tasks.filter((task) => {
+      if (isSingleTaskPathSegment(task.folderName)) return true;
+      excluded.push({ folderName: task.folderName, reason: 'unreadable' });
+      return false;
+    });
+    const summaries: TaskSpecSummary[] = readableTasks.map(
       ({ body: _body, ...summary }) => summary,
     );
     let indexWritten = true;
@@ -646,7 +653,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
       );
     } else {
       try {
-        this.store.replaceWorkspace(root, summaries, scan.excluded);
+        this.store.replaceWorkspace(root, summaries, excluded);
       } catch (error: unknown) {
         indexWritten = false;
         // WARN, not ERROR: this is recoverable, not a defect. `ensureStarted`
@@ -668,7 +675,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     }
     return {
       indexedCount: summaries.length,
-      excludedCount: scan.excluded.length,
+      excludedCount: excluded.length,
       indexWritten,
     };
   }

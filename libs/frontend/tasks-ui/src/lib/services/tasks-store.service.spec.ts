@@ -3698,6 +3698,59 @@ describe('TasksStore — folder reader facade', () => {
     expect(store.folderDirectory()).toBe('prototype');
   });
 
+  it('keeps a document the user opened during the board fetch of a push', async () => {
+    let board: Pending | null = null;
+    rpcCall.mockImplementation(
+      async (method: string, params?: { file?: string }) => {
+        if (method === 'tasks:get') return ok({ task: detail });
+        if (method === 'tasks:board') {
+          return board === null ? ok(makeBoard({})) : board.promise;
+        }
+        if (method === 'tasks:getArtifact') {
+          return ok({ file: params?.file, content: `# ${params?.file}` });
+        }
+        return err(`unexpected ${method}`);
+      },
+    );
+    await store.readDocument('context.md');
+
+    board = pending();
+    store.handleMessage({
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    });
+    await store.readDocument('task-description.md');
+    board.resolve(ok(makeBoard({})));
+    await flush();
+
+    expect(store.openFile()).toBe('task-description.md');
+    expect(store.documentContent()).toBe('# task-description.md');
+  });
+
+  it('surfaces a rejected push refresh and drops its restore target', async () => {
+    rpcCall.mockImplementation(async (method: string) => {
+      if (method === 'tasks:get') return ok({ task: detail });
+      if (method === 'tasks:board') throw new Error('scan crashed');
+      if (method === 'tasks:getArtifact') {
+        return ok({ file: 'context.md', content: '# Ctx' });
+      }
+      return err(`unexpected ${method}`);
+    });
+    await store.readDocument('context.md');
+
+    store.handleMessage({
+      type: TASKS_CHANGED_MESSAGE_TYPE,
+      payload: { workspaceRoot: 'D:/ws', reason: 'watcher' },
+    });
+    await flush();
+
+    // Caught, not an unhandled rejection: the failure lands on the error slot.
+    expect(store.error()).toBe('Failed to refresh tasks (scan crashed)');
+    expect(store['pendingRestore']).toBeNull();
+    // The reader the push never reached is left as the user had it.
+    expect(store.openFile()).toBe('context.md');
+  });
+
   it('openArtifact refuses a directory entry and opens a typed file entry', async () => {
     await store.openArtifact('prototype');
     expect(open).not.toHaveBeenCalled();
