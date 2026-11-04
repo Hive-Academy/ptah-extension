@@ -696,7 +696,7 @@ phase summary.
   `SessionRegistry` is now exported from the agent-sdk barrel (cross-process spec).
   For Phase C review: the cross-process child start timeout is 5 s with ts-node; fragile under load.
 
-## Batch 13: C4c native Codex driver gate (revised Round 6) — COMPLETE (NEEDS REVIEW for Phase C)
+## Batch 13: C4c native Codex driver gate (revised Round 6) — COMPLETE (Phase C reviewed: style APPROVED 8/10; logic REVISE 7/10 with N1 carried to Batch 13.9)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -760,6 +760,22 @@ phase summary.
   holder timed out"), which pass alone 2/2; mcp-bench failed only on `snapshot-audits`.
   REQUIRED for the Phase C fix round: the cross-process child start (ts-node) timeout is too short
   under load in three specs (platform-core control-endpoint, rpc-handlers coordinator and native).
+
+---
+
+## Batch 13.9: Phase C carry-over — keep the drive lock until the SDK record binds — COMPLETE (review pending)
+
+- Source: `code-logic-review-phase-c-final.md` N1 (Serious, Claude review). Decision row 24.
+- Defect: `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (~1928, ~2159, ~2359)
+  calls `abandonDrive` unconditionally in `finally`. A Claude record binds its session ID only on the
+  SDK `init` message, after `resumeSession` returns. If the RPC returns first, the provisional owner
+  is dropped and the kernel lock is freed while the SDK is live; another process can take it.
+- Fix: abandon only on failure, or only when no record or native lease owns the session. Test: the RPC
+  completes before `init` and the lock stays held until the record binds or the attempt fails.
+- Also fix the minors from decision row 24 when they are in the same files: the `driverLock = undefined!`
+  default (pass the fake explicitly in specs) and the double `hasLiveRecord` call in `control-endpoint.ts`.
+- Executor: backend-developer subagent (Claude). Review: Codex lane (different family).
+- Verify: `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/rpc-handlers,ptah-electron,mcp-bench,degradation-audit`
 
 ---
 
