@@ -6,7 +6,10 @@ import {
   untracked,
   type Signal,
 } from '@angular/core';
-import { PlanLimitsStore } from '@ptah-extension/core';
+import {
+  PLAN_LIMITS_CLOCK_TICK_MS,
+  PlanLimitsStore,
+} from '@ptah-extension/core';
 import type { PlanRingData } from '@ptah-extension/chat-ui';
 import type { RecentWorkspace } from '@ptah-extension/shared';
 import { HostInventoryCache } from './host-inventory.cache';
@@ -44,6 +47,12 @@ export class WelcomeVitalsStore {
   private readonly usage = inject(UsageVitalsCache);
   private readonly inventory = inject(HostInventoryCache);
   private readonly tick = injectVitalsTick();
+  /**
+   * Tick value of the last plan-limit retry. The tick is
+   * `PlanLimitsStore.now`, which also moves after every load, so the retry
+   * keys off elapsed time to stay at one load per clock period.
+   */
+  private lastPlanRetryAt = Number.NEGATIVE_INFINITY;
   private readonly windows = usageDayWindows(this.tick);
   private readonly usage90 = injectVitalsSource(
     () => null,
@@ -121,13 +130,15 @@ export class WelcomeVitalsStore {
       });
     });
     effect(() => {
-      this.tick();
+      const now = this.tick();
       untracked(() => {
         if (
           !this.planLimits.loading() &&
+          now - this.lastPlanRetryAt >= PLAN_LIMITS_CLOCK_TICK_MS &&
           (this.planLimits.loadError() ||
             this.planLimits.snapshot()?.discoveryIncomplete === true)
         ) {
+          this.lastPlanRetryAt = now;
           void this.planLimits.load();
         }
       });

@@ -105,3 +105,15 @@ Scope: fix round for S1 (stale join) and the modelCache Moderate only. Read the 
 - Retry-bound Moderate deferred by the coordinator: acknowledged, no data loss.
 
 Verdict: APPROVED
+
+## Re-review 2
+
+Scope: the two PR #922 fixes only (diff read; specs not run).
+
+1. Welcome retry throttle (welcome-vitals.store.ts). Correct. `lastPlanRetryAt` starts at -Infinity so the first failed/incomplete state reloads at once; later runs need `now - lastPlanRetryAt >= PLAN_LIMITS_CLOCK_TICK_MS`, so the `now` moves caused by the retry's own load (and by loads from other surfaces) no longer trigger a reload and no longer cancel the store's 1 s incomplete timer (load() clears that timer). `loading()` guard still prevents overlap.
+   - Minor (no action): cadence is 30-60 s, not exactly 30 s. If the recorded value came from a load-completion `now` (later than the last clock tick), the next clock tick is under 30 s after it and is skipped; the one after passes. No permanent starvation, since the clock keeps ticking while the store has a clock running (load() starts it).
+   - The deferred counter-reset behaviour (load() with incompleteRetry=false) is unchanged and now rate-limited to the above cadence.
+2. Stuck-scan join age (cli-detection.service.ts). Correct. A current-generation scan older than 15 s is not joined by `refresh()`; it calls `invalidateCache()` (generation++) then `detectAll()`, which sees `currentInFlight()` null, starts a new scan and overwrites `detectionInFlight`, `inFlightGeneration` and `inFlightStartedAt`. The old stuck scan's `finally` only clears the slot when `detectionInFlight === inFlight`, so it cannot clear the new slot; if it later finishes, the generation mismatch stops it caching. `inFlightStartedAt` is set at scan start together with the generation, so it always describes the current slot.
+   - Minor (no action): plain `detectAll()` still joins a stuck current-generation scan (pre-existing; only refresh got the age cap). Date.now is wall-clock: a system clock jump backward makes the age negative (joins), forward makes it large (starts a new scan); both harmless. A spec spying Date.now must restore it (mockRestore) so other specs are not affected.
+
+Verdict: APPROVED

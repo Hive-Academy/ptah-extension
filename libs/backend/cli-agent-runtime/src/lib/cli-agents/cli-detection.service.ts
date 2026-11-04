@@ -48,6 +48,12 @@ function unavailableCodexAdapter(cause: Error): CliAdapter {
   };
 }
 
+/**
+ * Oldest in-flight scan that {@link CliDetectionService.refresh} joins. Above
+ * the 12 s plan-owner discovery deadline, so a normal scan is always joined.
+ */
+const REFRESH_JOIN_MAX_AGE_MS = 15_000;
+
 @injectable()
 export class CliDetectionService {
   private readonly adapters: Map<CliType, CliAdapter> = new Map();
@@ -58,6 +64,8 @@ export class CliDetectionService {
   private generation = 0;
   /** Generation the in-flight scan started in. */
   private inFlightGeneration = -1;
+  /** Wall-clock start of the in-flight scan. */
+  private inFlightStartedAt = 0;
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
@@ -163,6 +171,7 @@ export class CliDetectionService {
     const inFlight = this.doDetectAll(this.generation);
     this.detectionInFlight = inFlight;
     this.inFlightGeneration = this.generation;
+    this.inFlightStartedAt = Date.now();
 
     try {
       return await inFlight;
@@ -174,12 +183,15 @@ export class CliDetectionService {
   /**
    * Fresh detection for an explicit re-detect request (`agent:detectClis`).
    * A scan already running in the current generation is fresh, so join it
-   * instead of starting a second concurrent scan. Otherwise drop the cache and
-   * scan again.
+   * instead of starting a second concurrent scan. A scan older than
+   * {@link REFRESH_JOIN_MAX_AGE_MS} may be stuck on one adapter, so it is not
+   * joined. Otherwise drop the cache and scan again.
    */
   async refresh(): Promise<CliDetectionResult[]> {
     const current = this.currentInFlight();
-    if (current) return current;
+    if (current && Date.now() - this.inFlightStartedAt < REFRESH_JOIN_MAX_AGE_MS) {
+      return current;
+    }
     this.invalidateCache();
     return this.detectAll();
   }

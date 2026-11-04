@@ -315,6 +315,31 @@ describe('CliDetectionService role stamp', () => {
     }
   });
 
+  it('refresh() does not join a scan older than 15 s, so a stuck adapter cannot hold it', async () => {
+    let releaseCodex: ((result: CliDetectionResult) => void) | undefined;
+    mockAdapterFor('codex').detect.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseCodex = resolve; }),
+    );
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const { service } = createService();
+      const stuck = service.detectAll();
+
+      clock.mockReturnValue(1_000_000 + 15_000);
+      const fresh = service.refresh();
+      for (const [name] of CHANNELS) {
+        expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
+      }
+      await fresh;
+
+      if (!releaseCodex) throw new Error('Codex detection did not start');
+      releaseCodex({ cli: 'codex', installed: true, messagingMode: 'queue' });
+      await stuck;
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('does not join or cache a scan that started before invalidateCache()', async () => {
     let releaseCodex: ((result: CliDetectionResult) => void) | undefined;
     mockAdapterFor('codex').detect.mockImplementationOnce(

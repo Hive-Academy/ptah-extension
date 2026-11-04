@@ -140,6 +140,11 @@ describe('WelcomeVitalsStore', () => {
     TestBed.flushEffects();
     expect(plan.load).toHaveBeenCalledTimes(1);
 
+    // A finished load moves `now` too; that is not a new clock period.
+    plan.now.set(plan.now() + 500);
+    TestBed.flushEffects();
+    expect(plan.load).toHaveBeenCalledTimes(1);
+
     plan.loading.set(true);
     plan.now.set(plan.now() + 30_000);
     TestBed.flushEffects();
