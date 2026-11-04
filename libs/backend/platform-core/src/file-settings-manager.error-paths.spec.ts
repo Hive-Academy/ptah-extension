@@ -490,13 +490,37 @@ describe('PtahFileSettingsManager — error-path branch coverage', () => {
 
     const firstEmitter = emitters[0];
     expect(firstEmitter).toBeDefined();
-    firstEmitter.emit('rename');
+    firstEmitter.emit('change', 'rename', 'settings.json');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(emitters.length).toBeGreaterThanOrEqual(2);
 
     mgr.disposeCrossProcessWatch();
+  });
+
+  it('a change event with eventType change does not re-establish the watcher', async () => {
+    fs.mkdirSync(PTAH_DIR, { recursive: true });
+    fs.writeFileSync(SETTINGS_PATH, '{}', 'utf-8');
+
+    const emitters: EventEmitter[] = [];
+    watchFactory = () => makeMockWatcher((emitter) => emitters.push(emitter));
+
+    const mgr = new PtahFileSettingsManager({});
+    mgr.enableCrossProcessWatch();
+
+    const firstEmitter = emitters[0];
+    expect(firstEmitter).toBeDefined();
+    const close = (firstEmitter as unknown as { close: jest.Mock }).close;
+    firstEmitter.emit('change', 'change', 'settings.json');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(emitters).toHaveLength(1);
+    expect(close).not.toHaveBeenCalled();
+
+    mgr.disposeCrossProcessWatch();
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('handleFileRename ignores rename events while a re-establish is already pending', async () => {
@@ -510,9 +534,9 @@ describe('PtahFileSettingsManager — error-path branch coverage', () => {
     mgr.enableCrossProcessWatch();
 
     const firstEmitter = emitters[0];
-    firstEmitter.emit('rename');
-    firstEmitter.emit('rename');
-    firstEmitter.emit('rename');
+    firstEmitter.emit('change', 'rename', 'settings.json');
+    firstEmitter.emit('change', 'rename', 'settings.json');
+    firstEmitter.emit('change', 'rename', 'settings.json');
 
     await new Promise((resolve) => setTimeout(resolve, 150));
 

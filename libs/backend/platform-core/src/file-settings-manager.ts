@@ -223,9 +223,10 @@ export class PtahFileSettingsManager {
    * persisting, any file-change event triggered by our own write produces an
    * empty diff (disk == cache) and no listeners fire. No mtime tracking needed.
    *
-   * Atomic-rename handling: `rename` events indicate the inode was replaced.
-   * On `rename`, the watcher is re-established on this.filePath so it follows
-   * the new inode.
+   * Atomic-rename handling: Node emits one `change` event whose `eventType`
+   * is `rename` when the inode is replaced. There is no `rename` event.
+   * On that `eventType`, the watcher is re-established on this.filePath so
+   * it follows the new inode.
    *
    * Error recovery: on watcher error, exponential backoff is used (up to
    * CROSS_PROCESS_WATCH_MAX_RETRIES). After that, the watcher gives up
@@ -315,12 +316,17 @@ export class PtahFileSettingsManager {
     try {
       const watcher = fs.watch(this.filePath, { persistent: false });
 
-      watcher.on('change', () => {
-        this.scheduleDebouncedFlush();
-      });
-
-      watcher.on('rename', () => {
-        this.handleFileRename();
+      // FSWatcher emits `change` for both content writes and atomic
+      // replacements. The first argument is `rename` or `change`; a separate
+      // `rename` event is never emitted. `rename` leaves this watcher on the
+      // old inode, so it has to be closed and opened again. A content
+      // `change` keeps the same watcher.
+      watcher.on('change', (eventType: string) => {
+        if (eventType === 'rename') {
+          this.handleFileRename();
+        } else {
+          this.scheduleDebouncedFlush();
+        }
       });
 
       watcher.on('error', (err: Error) => {
@@ -395,7 +401,7 @@ export class PtahFileSettingsManager {
   }
 
   /**
-   * Called on a 'rename' event from the file watcher.
+   * Called when the file watcher reports eventType `rename`.
    *
    * An atomic write (tmp→rename) replaces the inode. The current FSWatcher is
    * now stale and will not see further changes on the new inode. We must:
@@ -440,8 +446,9 @@ export class PtahFileSettingsManager {
 
   /**
    * Schedule a debounced read-diff-notify cycle.
-   * Multiple rapid events (e.g., `change` + `rename` in quick succession) are
-   * coalesced into a single cycle by resetting the timer on each event.
+   * Multiple rapid content-change events are coalesced into a single cycle
+   * by resetting the timer on each event. An atomic replacement is handled
+   * by `handleFileRename`, which replaces this timer.
    */
   private scheduleDebouncedFlush(): void {
     if (this.debounceTimer !== null) {
