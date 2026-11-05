@@ -543,6 +543,47 @@ describe('PtahFileSettingsManager — error-path branch coverage', () => {
     mgr.disposeCrossProcessWatch();
   });
 
+  it('a content change inside the rename debounce window does not latch the re-establish', async () => {
+    fs.mkdirSync(PTAH_DIR, { recursive: true });
+    fs.writeFileSync(SETTINGS_PATH, '{}', 'utf-8');
+
+    const emitters: EventEmitter[] = [];
+    watchFactory = () => makeMockWatcher((emitter) => emitters.push(emitter));
+
+    const mgr = new PtahFileSettingsManager({});
+    const received: unknown[] = [];
+    mgr.watch('latch.key', (v) => received.push(v));
+    mgr.enableCrossProcessWatch();
+    expect(emitters).toHaveLength(1);
+
+    // First atomic replace, then a content change before the rename timer fires.
+    fs.writeFileSync(SETTINGS_PATH, '{"latch":{"key":"one"}}', 'utf-8');
+    emitters[0].emit('change', 'rename', 'settings.json');
+    emitters[0].emit('change', 'change', 'settings.json');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(received).toEqual(['one']);
+    expect(emitters).toHaveLength(2);
+    expect(
+      (emitters[0] as unknown as { close: jest.Mock }).close,
+    ).toHaveBeenCalledTimes(1);
+
+    // A later rename must still be followed by a fresh watcher.
+    fs.writeFileSync(SETTINGS_PATH, '{"latch":{"key":"two"}}', 'utf-8');
+    emitters[1].emit('change', 'rename', 'settings.json');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(received).toEqual(['one', 'two']);
+    expect(emitters).toHaveLength(3);
+    expect(
+      (emitters[1] as unknown as { close: jest.Mock }).close,
+    ).toHaveBeenCalledTimes(1);
+
+    mgr.disposeCrossProcessWatch();
+  });
+
   it('file-watch error handler invokes handleWatcherError and logs', async () => {
     fs.mkdirSync(PTAH_DIR, { recursive: true });
     fs.writeFileSync(SETTINGS_PATH, '{}', 'utf-8');

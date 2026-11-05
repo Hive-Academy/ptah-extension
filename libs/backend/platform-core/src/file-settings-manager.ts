@@ -449,8 +449,14 @@ export class PtahFileSettingsManager {
    * Multiple rapid content-change events are coalesced into a single cycle
    * by resetting the timer on each event. An atomic replacement is handled
    * by `handleFileRename`, which replaces this timer.
+   *
+   * While a rename re-establish is pending this is a no-op: the rename timer
+   * already runs `processCrossProcessChange`, and cancelling it here would
+   * leave `fileRenameReestablishPending` latched, so every later rename would
+   * be ignored and the watcher would never follow the new inode again.
    */
   private scheduleDebouncedFlush(): void {
+    if (this.fileRenameReestablishPending) return;
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
     }
