@@ -262,6 +262,13 @@ test.describe('agent file links', () => {
       displayPanel.locator('[data-testid="display-panel-tabpanel"]:visible ptah-display-file-viewer'),
     ).toContainText('Safe markdown body.');
     expect(mainWindow.url()).toBe(urlBefore);
+    // Close the display panel before step 4: with the Review dock also open,
+    // the chat column is narrow and the panel can cover the next link, which
+    // step 4 clicks by raw coordinates.
+    await mainWindow.locator('[data-testid="display-sheet-close"]').click();
+    await expect(
+      mainWindow.locator('[data-testid="display-sheet-region"]'),
+    ).toBeHidden();
 
     // ---------------------------------------------------------------------
     // 4. The http link is left alone — no read, no navigation (AC 20).

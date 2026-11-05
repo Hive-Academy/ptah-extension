@@ -112,6 +112,14 @@ describe('PTAH_UI_HINT_CODEX', () => {
 
 describe('routeSurfaceRequest', () => {
   it.each([
+    'make a diagram of the module dependencies',
+    'draw a chart of the test results',
+    'build a dashboard for my components',
+    'chart of test results',
+    'diagram showing module dependencies',
+    'graph about the test results',
+    'plot on module dependencies',
+    'visualization with component metrics',
     'can you do it with charts better',
     'visualize my open tasks',
     'make a diagram of the architecture',
@@ -129,6 +137,15 @@ describe('routeSurfaceRequest', () => {
     'show me the chart component source', 'create a chart component',
     'fix the graph rendering bug', 'refactor plot.ts',
     'add a test for the diagram module',
+    'can you report on the crash',
+    'debug a diagram of the module dependencies',
+    'lint the chart of the test results',
+    'typecheck the dashboard for my components',
+    'implement a chart of the test results',
+    'write a test for the diagram module',
+    'review the code for the chart of results',
+    'show me the chart new component source',
+    'create a chart.component.html file',
   ])('keeps nonvisual request %s compact', prompt => {
     expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('compact');
   });

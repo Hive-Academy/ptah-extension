@@ -52,15 +52,24 @@ const REPORT_REQUEST =
 const NOT_A_VISUAL_REPORT =
   /\b(?:bug|error|crash|incident|sentry)\s+report\b|\breport\s+(?:a|an|the|this)\s+(?:bug|error|issue|problem|crash)\b|\breport\s+on\s+(?:this\s+|the\s+|a\s+|an\s+)?(?:bug|error|issue|problem|crash)\b/i;
 
-const REQUEST_TOKENS = /\b[\w-]+(?:\.(?:tsx?|jsx?|html|css|scss))?\b/gi;
+const REQUEST_TOKENS = /\b[\w-]+(?:\.[\w-]+)*\b/gi;
 const VISUAL_NOUN = /^(?:charts?|graphs?|plots?|diagrams?|infographics?|dashboards?)$/i;
 const CODE_WORD = /^(?:components?|source|files?|function|class|variable|module|test|spec|bug|types?|props?|hook|[\w-]+\.(?:tsx?|jsx?|html|css|scss))$/i;
+const VISUAL_CODE_TOKEN = /\b(?:charts?|graphs?|plots?|diagrams?|infographics?|dashboards?)\.(?:[\w-]+\.)*(?:tsx?|jsx?|html|css|scss)\b/i;
+const VISUAL_SUBJECT_LINK = /^(?:of|for|showing|about|on|with)$/i;
+const VISUAL_SUBJECT_REQUEST = /\b(?:charts?|graphs?|plots?|diagrams?|infographics?|dashboards?)\s+(?:of|for|showing|about|on|with)\b/i;
+const CODE_VERB = /^(?:(?:please|can you|could you|would you|will you|i want you to|i'd like you to)\s+)*(?:fix|refactor|rename|debug|test|lint|typecheck|implement|add\s+a\s+test|write\s+a\s+test|review\s+the\s+code)\b/i;
 
-function hasCodeNearVisualNoun(text: string): boolean {
+function hasCodeVisualNoun(text: string): boolean {
+  if (VISUAL_CODE_TOKEN.test(text)) return true;
   const tokens = Array.from(text.matchAll(REQUEST_TOKENS), match => match[0]);
   return tokens.some((token, index) =>
-    VISUAL_NOUN.test(token) && tokens.some((nearby, otherIndex) =>
-      Math.abs(otherIndex - index) <= 4 && CODE_WORD.test(nearby)));
+    VISUAL_NOUN.test(token) && (
+      CODE_WORD.test(tokens[index + 1] ?? '') ||
+      (index + 2 < tokens.length &&
+        !VISUAL_SUBJECT_LINK.test(tokens[index + 1]) &&
+        CODE_WORD.test(tokens[index + 2]))
+    ));
 }
 
 /**
@@ -96,7 +105,9 @@ export function surfaceHookGuidance(prompt: string): string | null {
 function classifySurfaceRequest(text: string): SurfaceRequestKind {
   const value = text.trim();
   if (value.length === 0) return 'compact';
-  const visual = VISUAL_REQUEST.test(value) && !hasCodeNearVisualNoun(value);
+  if (CODE_VERB.test(value)) return 'compact';
+  const visual = (VISUAL_REQUEST.test(value) || VISUAL_SUBJECT_REQUEST.test(value)) &&
+    !hasCodeVisualNoun(value);
   if (NOT_A_VISUAL_REPORT.test(value) && !visual) return 'compact';
   if (visual || REPORT_REQUEST.test(value)) return 'report';
   return 'compact';
