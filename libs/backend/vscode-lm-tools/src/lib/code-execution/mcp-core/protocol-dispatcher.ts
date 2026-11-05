@@ -3767,9 +3767,13 @@ function tokensWithinBudget(text: string, budget: TextBudget): number | null {
  * which resolves the caller's declared root first and so cannot vouch for
  * it). The caller-declared workspace root (a URL segment, so caller input) is
  * used only when it canonicalizes to exactly one of those folders, and then
- * the host's own record of that folder is returned. Otherwise the host's
- * first open folder, else the system temp directory. No workspace analysis
- * runs here, so nothing is looked up under an unvalidated declared root.
+ * the host's own record of that folder is returned. A declared root that
+ * names no open folder (a lane in another checkout) gets the system temp
+ * directory: the host's first open folder is a different project there, and
+ * the caller's output must not land in it (TASK_2026_882_01ef). A caller that
+ * declares no root gets the first open folder, else the system temp
+ * directory. No workspace analysis runs here, so nothing is looked up under
+ * an unvalidated declared root.
  */
 async function resolveSpoolRoot(
   deps: ProtocolHandlerDependencies,
@@ -3778,9 +3782,7 @@ async function resolveSpoolRoot(
   const declared = getCallerWorkspaceRoot();
   if (declared !== undefined && declared.trim() !== '') {
     const match = await findKnownWorkspaceFolder(declared, known);
-    if (match !== undefined) {
-      return match;
-    }
+    return match ?? os.tmpdir();
   }
   return known[0] ?? os.tmpdir();
 }

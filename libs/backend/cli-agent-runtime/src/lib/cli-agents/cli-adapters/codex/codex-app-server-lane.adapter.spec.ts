@@ -28,6 +28,7 @@ import type { CodexLaneBinaryProbe } from './codex-app-server-lane-binary';
 import type { CodexLaneCredentialProbe, CodexLaneCredentialStatus } from './codex-app-server-lane-auth';
 import type { CodexLaneProfileInput } from './codex-lane-profile';
 import { essentialLaneSession } from './codex-app-server-lane-rejection';
+import { CODEX_LANE_STARTUP_TIMEOUT_MS } from './codex-app-server-lane-startup';
 
 const paths = {
   platform: 'posix' as const,
@@ -552,12 +553,15 @@ describe('CodexAppServerLaneAdapter', () => {
         const context = new FakeContext(profile);
         signalOpenScheduled(context);
         return new Promise<CodexContext>((resolve) => {
-          setTimeout(() => resolve(context), 30_000);
+          setTimeout(
+            () => resolve(context),
+            CODEX_LANE_STARTUP_TIMEOUT_MS,
+          );
         });
       });
       const running = h.adapter.runSdk(options());
       const opened = await openScheduled;
-      jest.advanceTimersByTime(30_000);
+      jest.advanceTimersByTime(CODEX_LANE_STARTUP_TIMEOUT_MS);
       await expect(running).rejects.toThrow('Codex lane aborted during startup');
       expect(opened.close).toHaveBeenCalledTimes(1);
       expect(jest.getTimerCount()).toBe(0);
