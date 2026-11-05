@@ -12,6 +12,15 @@ import type {
   MarkdownFileLinkTarget,
 } from '@ptah-extension/markdown';
 import type { FileOpenResult } from '@ptah-extension/shared';
+import { DisplayDockRegistry, type DisplayFileKind } from './display-dock/display-dock.state';
+
+export function displayKindForPath(path: string): DisplayFileKind | null {
+  const extension = /\.([^.\\/]+)$/.exec(path.split(/[?#]/, 1)[0])?.[1]?.toLowerCase();
+  if (extension === 'md' || extension === 'markdown') return 'markdown-file';
+  if (extension === 'pdf') return 'pdf-file';
+  if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(extension)) return 'image-file';
+  return null;
+}
 
 const LOG_PREFIX = '[FileLinkRouter]';
 
@@ -69,6 +78,7 @@ export class FileLinkRouterService
   private readonly layout = inject(ElectronLayoutService);
   private readonly tabManager = inject(TabManagerService);
   private readonly injector = inject(Injector);
+  private readonly displayDocks = inject(DisplayDockRegistry);
 
   /**
    * `MarkdownFileLinkHandler`. The listener has already called
@@ -94,6 +104,20 @@ export class FileLinkRouterService
   async open(request: FileLinkOpenRequest): Promise<void> {
     const context = this.resolveContext(request.origin ?? null);
     if (this.vscode.isElectron) {
+      const kind = displayKindForPath(request.path);
+      const tabId = request.origin?.closest('[data-ptah-tab-id]')?.getAttribute(TAB_ID_ATTR)
+        ?? this.tabManager.activeTabId();
+      const displayDock = tabId ? this.displayDocks.get(tabId) : undefined;
+      if (kind && displayDock && tabId) {
+        displayDock.openFile(tabId, {
+          kind,
+          path: request.path,
+          workspaceRoot: context.workspaceRoot ?? '',
+          documentPath: context.documentPath,
+          title: request.path.replace(/\\/g, '/').split('/').pop() ?? request.path,
+        });
+        return;
+      }
       await this.openInDock(request, context);
       return;
     }

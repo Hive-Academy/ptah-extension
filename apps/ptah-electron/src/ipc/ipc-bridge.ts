@@ -133,6 +133,7 @@ export const DISPLAY_WINDOW_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   'displayWindow:close',
   'artifacts:openLink',
   'file:viewBinary',
+  'file:viewContent',
 ]);
 
 /**

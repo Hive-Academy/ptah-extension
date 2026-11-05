@@ -66,6 +66,7 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
     surfaces: [surface],
     viewStates: new Map([['id:stats', viewState]]),
     artifacts: [artifact],
+    files: [],
     notice: null,
     ...partial,
   };
@@ -76,6 +77,7 @@ describe('display-window-wire', () => {
     it.each([
       [{ kind: 'artifact', artifactId: 'abc' } as const, 'artifact:abc'],
       [{ kind: 'surface', surfaceKey: 'id:stats' } as const, 'id:stats'],
+      [{ kind: 'file', fileKey: 'file:markdown-file:root:notes.md' } as const, 'file:markdown-file:root:notes.md'],
     ])('round-trips %j', (selection, key) => {
       expect(selectionKey(selection)).toBe(key);
       expect(selectionForKey(key)).toEqual(selection);
@@ -128,6 +130,14 @@ describe('display-window-wire', () => {
     expect(result.viewStates.get('id:stats')).toEqual(viewState);
     expect(result.theme).toEqual({ name: 'ptah-glass', mode: 'dark' });
     expect(result.selectedKey).toBe('artifact:abcdefghijklmnop');
+  });
+
+  it('round-trips file metadata without bytes', async () => {
+    const file = { kind: 'pdf-file' as const, key: 'file:pdf-file:root:report.pdf', path: 'report.pdf', workspaceRoot: '/root', title: 'report.pdf', readStatus: 'unread' as const };
+    const wire = toWire(view({ files: [file], selectedKey: file.key }));
+    const parsed = await parseWireState({ tabId: 'tab-1', revision: 1, state: wire });
+    expect(parsed?.view.files).toEqual([file]);
+    expect(JSON.stringify(wire)).not.toContain('dataBase64');
   });
 
   it.each<

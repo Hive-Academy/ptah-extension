@@ -13,6 +13,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { ArtifactRecordSchema } from '@ptah-extension/shared/mcp-apps-contracts';
 import type { DisplayDockSelection } from '../display-dock/display-dock.state';
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 
 /**
  * The wire shape of the detached Display window (TASK_2026_853_3401, D4).
@@ -24,7 +25,7 @@ import type { DisplayDockSelection } from '../display-dock/display-dock.state';
  */
 
 /** Bumped when the wire shape changes; a mismatched snapshot is refused. */
-export const DISPLAY_WINDOW_WIRE_VERSION = 2;
+export const DISPLAY_WINDOW_WIRE_VERSION = 3;
 
 /** Same strings as the display panel's artifact strip keys. */
 export const DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX = 'artifact:';
@@ -47,6 +48,7 @@ export interface DisplayWindowView {
   readonly surfaces: readonly DisplaySurface[];
   readonly viewStates: ReadonlyMap<string, SurfaceViewState>;
   readonly artifacts: readonly ArtifactRecord[];
+  readonly files: readonly DisplayFileItem[];
   /**
    * Shown in place of the panel when the main renderer cannot send content
    * (the snapshot is too large, or no chat tab is bound); `null` otherwise.
@@ -71,11 +73,13 @@ export function selectionKey(selection: DisplayDockSelection): string | null {
   if (selection.kind === 'artifact') {
     return `${DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX}${selection.artifactId}`;
   }
+  if (selection.kind === 'file') return selection.fileKey;
   return selection.surfaceKey;
 }
 
 /** The dock selection a panel strip key denotes. */
 export function selectionForKey(key: string): DisplayDockSelection {
+  if (key.startsWith('file:')) return { kind: 'file', fileKey: key };
   if (key.startsWith(DISPLAY_WINDOW_ARTIFACT_KEY_PREFIX)) {
     return {
       kind: 'artifact',
@@ -170,6 +174,7 @@ export function toWire(view: DisplayWindowView): DisplayWindowJsonObject {
       toJsonObject(state),
     ]),
     artifacts: view.artifacts.map((record) => toJsonObject(record)),
+    files: view.files.map((file) => toJsonObject(file)),
     notice: view.notice,
   };
 }
@@ -265,6 +270,16 @@ const SurfaceWireSchema = z.strictObject({
   retainedViewStateIds: z.array(z.string()),
 });
 
+const FileWireSchema = z.strictObject({
+  kind: z.enum(['markdown-file', 'image-file', 'pdf-file']),
+  key: z.string().startsWith('file:'),
+  path: z.string().min(1),
+  workspaceRoot: z.string(),
+  documentPath: z.string().optional(),
+  title: z.string(),
+  readStatus: z.literal('unread'),
+});
+
 const ThemeWireSchema = z.strictObject({
   name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
   mode: z.enum(['dark', 'light']),
@@ -337,6 +352,7 @@ function snapshotSchema(artifactRecord: ArtifactRecordSchemaType) {
     surfaces: z.array(SurfaceWireSchema),
     viewStates: z.array(z.tuple([z.string(), SurfaceViewStateWireSchema])),
     artifacts: z.array(artifactRecord),
+    files: z.array(FileWireSchema),
     notice: z.string().nullable(),
   });
   return z.strictObject({
@@ -391,6 +407,7 @@ export async function parseWireState(
       })),
       viewStates: new Map(state.viewStates),
       artifacts: state.artifacts,
+      files: state.files,
       notice: state.notice,
     },
   };

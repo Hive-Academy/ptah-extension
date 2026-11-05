@@ -13,6 +13,8 @@ import type {
   PtahUiDisplayDockSync,
   PtahUiDisplayFenceStatus,
   PtahUiDisplaySurfacesPublication,
+  DisplayFileItem,
+  DisplayFileKind,
 } from '@ptah-extension/chat-ui';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 
@@ -23,7 +25,39 @@ export type DisplayDockTab = 'displays' | 'agents';
 export type DisplayDockSelection =
   | { readonly kind: 'surface'; readonly surfaceKey: string }
   | { readonly kind: 'artifact'; readonly artifactId: string }
+  | { readonly kind: 'file'; readonly fileKey: string }
   | null;
+
+export type { DisplayFileItem, DisplayFileKind } from '@ptah-extension/chat-ui';
+
+export function displayFileKey(kind: DisplayFileKind, root: string, path: string): string {
+  return `file:${encodeURIComponent(kind)}:${encodeURIComponent(root)}:${encodeURIComponent(path)}`;
+}
+
+function normalizeFilePath(path: string, root: string, documentPath?: string): string {
+  const slashed = path.replace(/\\/g, '/');
+  const absolute = slashed.startsWith('/') || /^[A-Za-z]:\//.test(slashed);
+  const base = documentPath?.replace(/\\/g, '/').replace(/\/[^/]*$/, '') ?? root;
+  const combined = absolute ? slashed : `${base}/${slashed}`;
+  const parts: string[] = [];
+  for (const part of combined.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  return `${combined.startsWith('/') ? '/' : ''}${parts.join('/')}`;
+}
+
+/** Connects root-level link routing to the component-owned dock of each tab. */
+@Injectable({ providedIn: 'root' })
+export class DisplayDockRegistry {
+  private readonly docks = new Map<string, DisplayDockState>();
+  register(tabId: string, dock: DisplayDockState): void { this.docks.set(tabId, dock); }
+  unregister(tabId: string, dock: DisplayDockState): void {
+    if (this.docks.get(tabId) === dock) this.docks.delete(tabId);
+  }
+  get(tabId: string): DisplayDockState | undefined { return this.docks.get(tabId); }
+}
 
 /** The dock state of one chat tab (D4). */
 export interface DisplayDockTabState {
@@ -46,6 +80,7 @@ export interface DisplayDockTabState {
   readonly selection: DisplayDockSelection;
   /** The agent surfaces the sync last published, in creation order. */
   readonly surfaces: readonly DisplaySurface[];
+  readonly files: readonly DisplayFileItem[];
   /** Per-fence statuses keyed by `displayFenceKey`. */
   readonly statuses: ReadonlyMap<string, PtahUiDisplayFenceStatus>;
   /** Renderer view state per surface key (D10). */
@@ -64,6 +99,7 @@ const EMPTY_TAB_STATE: DisplayDockTabState = Object.freeze({
   agentsUserClosed: false,
   selection: null,
   surfaces: Object.freeze([]) as readonly DisplaySurface[],
+  files: Object.freeze([]) as readonly DisplayFileItem[],
   statuses: new Map<string, PtahUiDisplayFenceStatus>(),
   viewStates: new Map<string, SurfaceViewState>(),
 });
@@ -141,6 +177,19 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     this.update(tabId, (state) => ({
       ...openedState(state, 'displays'),
       selection: { kind: 'artifact', artifactId },
+    }));
+  }
+
+  openFile(tabId: string, file: Omit<DisplayFileItem, 'key' | 'readStatus'>): void {
+    const workspaceRoot = file.workspaceRoot.replace(/\\/g, '/').replace(/\/$/, '');
+    const path = normalizeFilePath(file.path, workspaceRoot, file.documentPath);
+    const key = displayFileKey(file.kind, workspaceRoot, path);
+    this.update(tabId, (state) => ({
+      ...openedState(state, 'displays'),
+      files: state.files.some((item) => item.key === key)
+        ? state.files
+        : [...state.files, { ...file, path, workspaceRoot, key, readStatus: 'unread' }],
+      selection: { kind: 'file', fileKey: key },
     }));
   }
 
@@ -386,6 +435,7 @@ function sameSelection(a: DisplayDockSelection, b: DisplayDockSelection): boolea
   if (a === null || b === null) return a === b;
   if (a.kind !== b.kind) return false;
   if (a.kind === 'artifact') return b.kind === 'artifact' && a.artifactId === b.artifactId;
+  if (a.kind === 'file') return b.kind === 'file' && a.fileKey === b.fileKey;
   return b.kind === 'surface' && a.surfaceKey === b.surfaceKey;
 }
 

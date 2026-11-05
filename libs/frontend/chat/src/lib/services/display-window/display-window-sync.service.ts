@@ -278,13 +278,14 @@ export class DisplayWindowSync implements MessageHandler {
       },
       open: true,
       pinned: state.pinned,
-      count: state.surfaces.length + artifacts.length,
+      count: state.surfaces.length + artifacts.length + state.files.length,
       selectedKey: selectionKey(selection),
       scrollToSelectedOnMount: selection !== null,
       fullscreenArtifactId: dock.fullscreenArtifact(tabId),
       surfaces: state.surfaces,
       viewStates: state.viewStates,
       artifacts,
+      files: state.files,
       notice: null,
     };
   }
@@ -305,6 +306,7 @@ export class DisplayWindowSync implements MessageHandler {
       surfaces: [],
       viewStates: new Map(),
       artifacts: [],
+      files: [],
       notice,
     };
   }

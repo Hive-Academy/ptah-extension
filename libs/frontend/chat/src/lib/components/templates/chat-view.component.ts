@@ -29,7 +29,7 @@ import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.com
 // entry stays out of this chunk because the sheet names that panel only
 // inside its own `@defer` (decisions #84, #89, #107).
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
-import { DisplayDockState } from '../../services/display-dock/display-dock.state';
+import { DisplayDockState, DisplayDockRegistry } from '../../services/display-dock/display-dock.state';
 import {
   connectDisplaySidebar,
   type DisplaySidebarConnection,
@@ -552,6 +552,8 @@ export class ChatViewComponent implements OnDestroy {
 
   /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
+  private readonly displayDockRegistry = inject(DisplayDockRegistry);
+  private readonly hideAgentSidebar = inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /** A host-supplied dock: the host shows the display, so no sheet here. */
@@ -1422,6 +1424,14 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   constructor() {
+    effect((onCleanup) => {
+      const tabId = this.resolvedTabId();
+      const dock = this.displayDock;
+      if (tabId && dock && !this.hideAgentSidebar) {
+        this.displayDockRegistry.register(tabId, dock);
+        onCleanup(() => this.displayDockRegistry.unregister(tabId, dock));
+      }
+    });
     effect(() => {
       const banner = this.authRequiredBanner();
       if (this.codexReauthStarted() && banner !== this.codexReauthBanner) {

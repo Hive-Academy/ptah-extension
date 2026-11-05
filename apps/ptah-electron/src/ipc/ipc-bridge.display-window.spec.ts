@@ -126,6 +126,7 @@ describe('IpcBridge — detached Display window sender role', () => {
       'displayWindow:close',
       'displayWindow:getState',
       'file:viewBinary',
+      'file:viewContent',
     ]);
   });
 
@@ -158,7 +159,6 @@ describe('IpcBridge — detached Display window sender role', () => {
     'chat:start',
     'displayWindow:publishState',
     'displayWindow:open',
-    'file:viewContent',
     'settings:set',
   ])('answers %s from the child with an RPC error and never routes it', async (method) => {
     bridge.setDisplayWindowSender(DISPLAY_ID);

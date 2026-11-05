@@ -187,6 +187,7 @@ import {
               class="min-h-0 flex-1"
               [surfaces]="state().surfaces"
               [artifacts]="artifacts()"
+              [files]="state().files"
               [open]="state().open"
               [fullscreenArtifactId]="dock.fullscreenArtifact(this.tabId())"
               (fullscreenChange)="onFullscreenChange($event)"
@@ -245,7 +246,7 @@ export class DisplaySheetComponent {
   readonly detachRequested = output<void>();
   protected readonly state = computed(() => this.dock.tab(this.tabId()));
   protected readonly itemCount = computed(
-    () => this.state().surfaces.length + this.artifacts().length,
+    () => this.state().surfaces.length + this.artifacts().length + this.state().files.length,
   );
   /**
    * The tab's published artifacts (TASK_2026_710). The store buckets records

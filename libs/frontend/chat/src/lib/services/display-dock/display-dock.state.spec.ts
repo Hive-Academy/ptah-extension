@@ -43,6 +43,21 @@ function viewState(ids: readonly string[]): SurfaceViewState {
 }
 
 describe('DisplayDockState', () => {
+  it('reuses a clicked file and selects it even while pinned', () => {
+    const dock = new DisplayDockState();
+    const file = { kind: 'markdown-file' as const, path: 'notes.md', workspaceRoot: '/workspace', title: 'notes.md' };
+    dock.openFile(TAB_A, file);
+    const first = dock.tab(TAB_A).files[0];
+    dock.setPinned(TAB_A, true);
+    dock.select(TAB_A, null);
+    dock.openFile(TAB_A, file);
+    expect(dock.tab(TAB_A).files).toHaveLength(1);
+    expect(dock.tab(TAB_A).selection).toEqual({ kind: 'file', fileKey: first.key });
+    expect(dock.tab(TAB_A).open).toBe(true);
+    expect(dock.tab(TAB_A).pinned).toBe(true);
+    dock.forgetTab(TAB_A);
+    expect(dock.tab(TAB_A).files).toEqual([]);
+  });
   let store: DisplayDockState;
 
   beforeEach(() => {

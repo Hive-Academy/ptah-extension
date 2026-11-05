@@ -54,6 +54,7 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
     surfaces: [],
     viewStates: new Map(),
     artifacts: [artifact],
+    files: [],
     notice: null,
     ...partial,
   };

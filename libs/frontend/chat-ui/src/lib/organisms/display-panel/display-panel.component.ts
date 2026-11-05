@@ -23,6 +23,8 @@ import {
 import type { ArtifactRecord } from '@ptah-extension/shared';
 import type { DisplaySurface } from './display-surfaces';
 import { ArtifactViewerComponent } from '../artifacts';
+import type { DisplayFileItem } from './display-file-item';
+import { DisplayFileViewerComponent } from './display-file-viewer.component';
 
 /** A view-state write from one surface's renderer, for the dock store. */
 export interface DisplayPanelViewStateChange {
@@ -43,7 +45,8 @@ type DisplayPanelItem =
       readonly key: string;
       readonly title: string;
       readonly artifact: ArtifactRecord;
-    };
+    }
+  | { readonly kind: 'file'; readonly key: string; readonly title: string; readonly file: DisplayFileItem };
 
 /**
  * Display only (R2.12, the 610 `READ_ONLY_INTERACTION`): no selection, no
@@ -147,6 +150,7 @@ function idSafe(key: string): string {
   standalone: true,
   imports: [
     ArtifactViewerComponent,
+    DisplayFileViewerComponent,
     LucideAngularModule,
     NgTemplateOutlet,
     SurfaceRendererComponent,
@@ -257,6 +261,10 @@ function idSafe(key: string): string {
                 (openExternal)="openExternal.emit($event)"
                 data-testid="display-panel-artifact-viewer"
               /> }
+            } @else if (item.kind === 'file') {
+              @if (item.key === activeKey() && open()) {
+                <ptah-display-file-viewer [file]="item.file" />
+              }
             } @else {
               @if (failedFences().has(item.surface.fenceKey)) {
                 <p
@@ -292,6 +300,7 @@ export class DisplayPanelComponent {
    * sandboxed artifact viewer.
    */
   readonly artifacts = input<readonly ArtifactRecord[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
@@ -357,6 +366,9 @@ export class DisplayPanelComponent {
         title: artifact.title,
         artifact,
       });
+    }
+    for (const file of this.files()) {
+      items.push({ kind: 'file', key: file.key, title: file.title, file });
     }
     return items;
   });

@@ -100,6 +100,7 @@ const LINK_ERROR_MS = 5000;
               class="min-h-0 flex-1"
               [surfaces]="current.surfaces"
               [artifacts]="current.artifacts"
+              [files]="current.files"
               [open]="current.open"
               [fullscreenArtifactId]="current.fullscreenArtifactId"
               [selectedKey]="current.selectedKey"
