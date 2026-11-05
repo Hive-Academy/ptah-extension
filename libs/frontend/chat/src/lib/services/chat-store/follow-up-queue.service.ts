@@ -73,6 +73,7 @@ const NOTE = {
  */
 @Injectable({ providedIn: 'root' })
 export class FollowUpQueueService {
+  private readonly stopWithdrawals = new Map<string, (QueuedFollowUpSnapshot & { tabId: string })[]>();
   private readonly store = inject(QueuedFollowUpStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly rpc = inject(ClaudeRpcService);
@@ -180,6 +181,13 @@ export class FollowUpQueueService {
         this.deliver(entry.clientMessageId, event.state);
         return;
       case 'withdrawn':
+        if (this.stopWithdrawals.has(event.sessionId)) {
+          this.stopWithdrawals.get(event.sessionId)?.push({
+            clientMessageId: entry.clientMessageId,
+            content: entry.content,
+            tabId: entry.tabId,
+          });
+        }
         // The caller that withdrew it (Withdraw or Stop) restores the text
         // from its own reply.
         this.store.settle(entry.clientMessageId, 'withdrawn');
@@ -299,6 +307,16 @@ export class FollowUpQueueService {
     return held.map((entry) => entry.content);
   }
 
+  beginStop(sessionId: string): void {
+    this.stopWithdrawals.set(sessionId, []);
+  }
+
+  endStop(sessionId: string): readonly (QueuedFollowUpSnapshot & { tabId: string })[] {
+    const withdrawn = this.stopWithdrawals.get(sessionId) ?? [];
+    this.stopWithdrawals.delete(sessionId);
+    return withdrawn;
+  }
+
   /**
    * Stop, after `chat:abort`: the items the backend confirmed withdrawn come
    * back first (they are older), then the held ones, all in FIFO order.
@@ -308,14 +326,17 @@ export class FollowUpQueueService {
     withdrawn: unknown,
     heldTexts: readonly string[],
   ): void {
-    const snapshots: readonly QueuedFollowUpSnapshot[] = validSnapshots(withdrawn);
+    const snapshots = validSnapshots(withdrawn).filter(
+      (snapshot): snapshot is QueuedFollowUpSnapshot & { tabId: string } =>
+        typeof (snapshot as { tabId?: unknown }).tabId === 'string',
+    );
     for (const snapshot of snapshots) {
       this.store.settle(snapshot.clientMessageId, 'withdrawn');
     }
-    this.toComposer(tabId, [
-      ...snapshots.map((snapshot) => snapshot.content),
-      ...heldTexts,
-    ]);
+    for (const owner of new Set(snapshots.map((snapshot) => snapshot.tabId))) {
+      this.toComposer(owner, snapshots.filter((snapshot) => snapshot.tabId === owner).map((snapshot) => snapshot.content));
+    }
+    this.toComposer(tabId, heldTexts);
   }
 
   /**

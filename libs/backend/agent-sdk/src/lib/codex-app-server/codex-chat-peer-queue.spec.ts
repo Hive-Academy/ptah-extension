@@ -12,13 +12,38 @@ function setup() {
 }
 
 describe('CodexChatPeerQueue', () => {
+  it('settles an immediately started follow-up only after admission', async () => {
+    const { queue, session } = setup();
+    let admit!: () => void;
+    const run = jest.fn(() => new Promise<void>((resolve) => { admit = resolve; }));
+    const states: string[] = [];
+    const receipt = queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'now', content: 'text' }, run, (state) => states.push(state));
+    expect(receipt.accepted).toBe(true);
+    expect(queue.listFollowUps(session)).toEqual([]);
+    await Promise.resolve();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(states).toEqual([]);
+    admit();
+    await expect(receipt.admitted).resolves.toBeUndefined();
+    expect(states).toEqual(['delivered']);
+  });
+
+  it('rejects an immediately started follow-up when admission fails', async () => {
+    const { queue, session } = setup();
+    const receipt = queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'now', content: 'text' },
+      async () => { throw new CodexChatAdapterError('unavailable', 'followUp'); },
+      () => undefined);
+    await expect(receipt.admitted).rejects.toMatchObject({ code: 'unavailable' });
+  });
   it('rejects an ID reused with changed content or after withdrawal', () => {
     const { queue, session } = setup();
     session.busy = true;
     const add = (content: string) => queue.enqueueFollowUp(session, 'thread',
       { clientMessageId: 'same', content }, async () => undefined, () => undefined);
-    expect(add('first')).toBe(true);
-    expect(add('first')).toBe(false);
+    expect(add('first').accepted).toBe(true);
+    expect(add('first').accepted).toBe(false);
     expect(() => add('changed')).toThrow('FOLLOW_UP_ID_CONFLICT');
     expect(queue.withdrawFollowUp(session, 'same')).toBe(true);
     expect(() => add('first')).toThrow('FOLLOW_UP_ID_CONFLICT');
@@ -48,9 +73,9 @@ describe('CodexChatPeerQueue', () => {
       { clientMessageId: id, content: id },
       async () => { started.push(id); session.busy = true; },
       (state) => states.push(`${id}:${state}`));
-    expect(add('one')).toBe(true);
-    expect(add('two')).toBe(true);
-    expect(add('one')).toBe(false);
+    expect(add('one').accepted).toBe(true);
+    expect(add('two').accepted).toBe(true);
+    expect(add('one').accepted).toBe(false);
     expect(queue.listFollowUps(session).map((item) => item.clientMessageId)).toEqual(['one', 'two']);
     expect(started).toEqual([]);
     session.busy = false;

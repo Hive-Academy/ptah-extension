@@ -201,12 +201,14 @@ export class ChatFollowUpQueueService {
    * caller interrupts. Returns only the confirmed withdrawals; an item a turn
    * claimed meanwhile (withdraw answered false) is not in it.
    */
-  async withdrawAllForStop(sessionId: string): Promise<QueuedFollowUpSnapshot[]> {
+  async withdrawAllForStop(sessionId: string): Promise<(QueuedFollowUpSnapshot & { readonly tabId: string })[]> {
     await Promise.allSettled([...(this.submissions.get(sessionId) ?? [])]);
     const adapter = this.sdkAdapter;
     if (!adapter.withdrawQueuedFollowUp) return [];
-    const withdrawn: QueuedFollowUpSnapshot[] = [];
+    const withdrawn: (QueuedFollowUpSnapshot & { readonly tabId: string })[] = [];
     for (const item of this.heldItems(sessionId)) {
+      const tabId = this.boundTab(sessionId, item.clientMessageId);
+      if (tabId === undefined) continue;
       try {
         const removed = await adapter.withdrawQueuedFollowUp(
           sessionId as SessionId,
@@ -214,7 +216,7 @@ export class ChatFollowUpQueueService {
         );
         if (!removed) continue;
         this.unbind(sessionId, item.clientMessageId);
-        withdrawn.push(item);
+        withdrawn.push({ ...item, tabId });
       } catch (error: unknown) {
         // degradation-audit: reported - Stop must still interrupt; an item that could not be withdrawn stays held and the session end fails it.
         this.logger.warn(

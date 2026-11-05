@@ -325,6 +325,27 @@ describe('FollowUpQueueService', () => {
   });
 
   describe('Stop', () => {
+    it('keeps a withdrawal push recoverable while Stop awaits its reply', async () => {
+      const item = service.enqueue('tab-1', 'recover me')!;
+      await flush();
+      service.beginStop(S1);
+      service.handleStateEvent({
+        sessionId: S1, tabId: 'tab-1', clientMessageId: item.clientMessageId,
+        state: 'withdrawn',
+      });
+      expect(service.endStop(S1)).toEqual([{
+        clientMessageId: item.clientMessageId, content: 'recover me', tabId: 'tab-1',
+      }]);
+      expect(store.get(item.clientMessageId)).toBeUndefined();
+    });
+    it('restores a withdrawn item to its originating tab', async () => {
+      tabs.set([makeTab(), makeTab({ id: 'tab-2', claudeSessionId: S1 })]);
+      service.restoreAfterStop('tab-2', [
+        { clientMessageId: 'a', content: 'first tab', tabId: 'tab-1' },
+      ], []);
+      expect(restore.pendingFor('tab-1')).toBe('first tab');
+      expect(restore.pendingFor('tab-2')).toBeFalsy();
+    });
     it('restores backend-withdrawn texts first, then held ones, in FIFO order', async () => {
       const a = service.enqueue('tab-1', 'one')!;
       await flush();
@@ -335,7 +356,7 @@ describe('FollowUpQueueService', () => {
       expect(held).toEqual(['/review', 'three']);
       service.restoreAfterStop(
         'tab-1',
-        [{ clientMessageId: a.clientMessageId, content: 'one' }],
+        [{ clientMessageId: a.clientMessageId, content: 'one', tabId: 'tab-1' }],
         held,
       );
 

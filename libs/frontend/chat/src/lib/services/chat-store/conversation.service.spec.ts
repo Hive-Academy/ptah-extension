@@ -77,7 +77,7 @@ describe('ConversationService', () => {
     findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
-  let followUps: { takeHeldForStop: jest.Mock; restoreAfterStop: jest.Mock };
+  let followUps: { takeHeldForStop: jest.Mock; restoreAfterStop: jest.Mock; beginStop: jest.Mock; endStop: jest.Mock };
   let messageFinalization: {
     finalizeCurrentMessage: jest.Mock;
     clearPendingPrompts: jest.Mock;
@@ -175,6 +175,8 @@ describe('ConversationService', () => {
     followUps = {
       takeHeldForStop: jest.fn(() => []),
       restoreAfterStop: jest.fn(),
+      beginStop: jest.fn(),
+      endStop: jest.fn(() => []),
     };
 
     rpcCall = jest.fn();
@@ -305,9 +307,31 @@ describe('ConversationService', () => {
 
       expect(followUps.restoreAfterStop).toHaveBeenCalledWith(
         'tab-1',
-        undefined,
+        [],
         ['later'],
       );
+    });
+
+    it('recovers withdrawals observed before an abort transport failure', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      const withdrawn = [{ clientMessageId: 'w-1', content: 'queued', tabId: 'tab-1' }];
+      followUps.endStop.mockReturnValueOnce(withdrawn);
+      rpcCall.mockRejectedValueOnce(new Error('timeout'));
+
+      await service.abortCurrentMessage();
+
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith('tab-1', withdrawn, []);
+    });
+
+    it('recovers withdrawals when abort returns failure without data', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      const withdrawn = [{ clientMessageId: 'w-2', content: 'queued', tabId: 'tab-1' }];
+      followUps.endStop.mockReturnValueOnce(withdrawn);
+      rpcCall.mockResolvedValueOnce({ success: false, error: 'interrupted' });
+
+      await service.abortCurrentMessage();
+
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith('tab-1', withdrawn, []);
     });
 
     // TASK_2026_360 review F3: the backend emits the ordered abort

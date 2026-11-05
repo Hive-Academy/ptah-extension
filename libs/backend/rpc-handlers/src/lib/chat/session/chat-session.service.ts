@@ -2298,7 +2298,7 @@ export class ChatSessionService {
   async abortSession(params: ChatAbortParams): Promise<ChatAbortResult> {
     // Outside the try: a withdrawn item is out of the queue even when the
     // interrupt below throws, so the failure reply must still return its text.
-    let withdrawn: QueuedFollowUpSnapshot[] = [];
+    let withdrawn: (QueuedFollowUpSnapshot & { readonly tabId: string })[] = [];
     try {
       const { sessionId } = params;
       this.logger.debug('RPC: chat:abort called', { sessionId });

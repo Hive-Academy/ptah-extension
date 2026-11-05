@@ -804,7 +804,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
         files: options.files, images: options.images,
       };
       const threadId = session.context.identity.threadId;
-      const accepted = this.peerQueue.enqueueFollowUp(
+      const { accepted, admitted } = this.peerQueue.enqueueFollowUp(
         session, threadId, snapshot,
         () => {
           if (this.sessions.get(id) !== session ||
@@ -818,8 +818,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
         (state, reason) => this.emitFollowUp({ sessionId: id, clientMessageId, state, reason }),
       );
-      if (accepted && this.peerQueue.listFollowUps(session).some((item) => item.clientMessageId === clientMessageId))
-        this.emitFollowUp({ sessionId: id, clientMessageId, state: 'queued' });
+      if (accepted) {
+        if (this.peerQueue.listFollowUps(session).some((item) => item.clientMessageId === clientMessageId))
+          this.emitFollowUp({ sessionId: id, clientMessageId, state: 'queued' });
+        else await admitted;
+      }
       return;
     }
     if (inboundPeer) {

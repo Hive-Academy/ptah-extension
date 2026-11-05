@@ -318,7 +318,7 @@ describe('ChatFollowUpQueueService', () => {
       .mockImplementationOnce(async () => false);
 
     await expect(h.service.withdrawAllForStop(SESSION)).resolves.toEqual([
-      { clientMessageId: ID_2, content: 'second' },
+      { clientMessageId: ID_2, content: 'second', tabId: TAB_A },
     ]);
     expect(raced.mock.calls.map((call) => call[1])).toEqual([ID_1, ID_2]);
   });
@@ -334,7 +334,7 @@ describe('ChatFollowUpQueueService', () => {
       .mockRejectedValueOnce(new Error('transport closed'));
 
     await expect(h.service.withdrawAllForStop(SESSION)).resolves.toEqual([
-      { clientMessageId: ID_2, content: 'second' },
+      { clientMessageId: ID_2, content: 'second', tabId: TAB_A },
     ]);
     expect(h.logger.warn).toHaveBeenCalled();
   });

@@ -161,8 +161,10 @@ export class ConversationService {
       // Taken before any await: once the turn ends, a held item would start
       // its own turn.
       const heldTexts = this.followUps.takeHeldForStop(tabId, sessionId);
+      this.followUps.beginStop(sessionId);
       if (turnKey !== null && turnKey === this._lastAbortedTurnKey()) {
         this.followUps.restoreAfterStop(tabId, undefined, heldTexts);
+        this.followUps.endStop(sessionId);
         this.idleAbortedTabLocally(target);
         return true;
       }
@@ -181,7 +183,7 @@ export class ConversationService {
         // so no ordered turn_state will ever arrive for this session, and a
         // later Stop on this same turn must be able to retry the RPC.
         this.logger.error('ConversationService', 'chat:abort RPC failed', error);
-        this.followUps.restoreAfterStop(tabId, undefined, heldTexts);
+        this.followUps.restoreAfterStop(tabId, this.followUps.endStop(sessionId), heldTexts);
         this._lastAbortedTurnKey.set(null);
         this.idleAbortedTabLocally(target);
         return false;
@@ -189,7 +191,12 @@ export class ConversationService {
 
       // Only items the backend confirmed it withdrew: an item a turn had
       // already claimed is running and is not unsent.
-      this.followUps.restoreAfterStop(tabId, result.data?.withdrawn, heldTexts);
+      const pushedWithdrawals = this.followUps.endStop(sessionId);
+      this.followUps.restoreAfterStop(
+        tabId,
+        result.data?.withdrawn ?? (!result.success ? pushedWithdrawals : undefined),
+        heldTexts,
+      );
       if (result.success) {
         this.messageFinalization.clearPendingPromptsForSession(tabId, sessionId);
       } else {

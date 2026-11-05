@@ -313,7 +313,7 @@ export interface ChatAbortResult {
    * Follow-ups this Stop withdrew BEFORE it interrupted the turn, FIFO order
    * (TASK_2026_884). An item a turn had already claimed is not in it.
    */
-  withdrawn?: QueuedFollowUpSnapshot[];
+  withdrawn?: (QueuedFollowUpSnapshot & { readonly tabId: string })[];
 }
 
 /**

@@ -38,7 +38,7 @@ export class CodexChatPeerQueue {
     snapshot: QueuedFollowUpSnapshot,
     run: () => Promise<void>,
     state: NonNullable<PeerMessage['state']>,
-  ): boolean {
+  ): { accepted: boolean; admitted?: Promise<void> } {
     if (session.closing || session.abort.signal.aborted)
       throw new CodexChatAdapterError('unavailable', 'followUp');
     const receipts = this.receipts.get(session) ?? new Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' | 'steered' }>();
@@ -48,12 +48,20 @@ export class CodexChatPeerQueue {
     if (existing) {
       if (existing.fingerprint !== fingerprint || existing.state === 'withdrawn' || existing.state === 'failed')
         throw new CodexChatAdapterError('unavailable', 'FOLLOW_UP_ID_CONFLICT');
-      return false;
+      return { accepted: false };
     }
     const pending = this.queued.get(session) ?? [];
     if (pending.length + Number(this.active.has(session)) >= MAX_PEER_MESSAGES)
       throw new CodexChatAdapterError('busy', 'followUpQueueFull');
-    pending.push({ run, resolve: () => undefined, reject: () => undefined,
+    let resolveAdmission!: () => void;
+    let rejectAdmission!: (error: Error) => void;
+    const admitted = new Promise<void>((resolve, reject) => {
+      resolveAdmission = resolve;
+      rejectAdmission = reject;
+    });
+    // Held entries have no waiting caller after enqueue returns.
+    void admitted.catch(() => undefined);
+    pending.push({ run, resolve: resolveAdmission, reject: rejectAdmission,
       admitted: false, idle: false, admissionId: undefined, followUp: snapshot,
       threadId, state: (next, reason) => {
         receipts.get(snapshot.clientMessageId)!.state = next;
@@ -62,7 +70,7 @@ export class CodexChatPeerQueue {
     this.queued.set(session, pending);
     receipts.set(snapshot.clientMessageId, { fingerprint, state: 'queued' });
     this.startNext(session);
-    return true;
+    return { accepted: true, admitted };
   }
 
   listFollowUps(session: QueueSession): readonly QueuedFollowUpSnapshot[] {
