@@ -120,6 +120,15 @@ describe('FileLinkRouterService', () => {
     expect(mockOpenFile).toHaveBeenCalled();
   });
 
+  it('uses git review for a relative display file without a root or document base', async () => {
+    const router = configure('');
+    const dock = new DisplayDockState();
+    TestBed.inject(DisplayDockRegistry).register('tab-1', dock);
+    await router.open({ path: 'notes.md' });
+    expect(dock.tab('tab-1').files).toHaveLength(0);
+    expect(mockOpenFile).toHaveBeenCalledWith('notes.md', undefined, expect.any(Object));
+  });
+
   afterEach(() => {
     document.body.innerHTML = '';
   });

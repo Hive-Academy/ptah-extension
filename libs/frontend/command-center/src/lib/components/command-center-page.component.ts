@@ -65,6 +65,8 @@ const CAPTION_RESERVE_PX = 72;
   standalone: true,
   host: {
     class: 'flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto',
+    '(focusin)': 'activateDisplaySource()',
+    '(pointerdown)': 'activateDisplaySource()',
   },
   imports: [
     CommandSceneComponent,
@@ -93,6 +95,11 @@ const CAPTION_RESERVE_PX = 72;
   styleUrl: './command-center-page.component.css',
 })
 export class CommandCenterPageComponent {
+  private readonly displayFocusVersion = signal(0);
+
+  activateDisplaySource(): void {
+    this.displayFocusVersion.update(value => value + 1);
+  }
   public readonly page = inject(CommandCenterPageController);
   private tabById(id: string | null) {
     this.page.tabs.backgroundTabsRevision();
@@ -413,6 +420,7 @@ export class CommandCenterPageComponent {
       const unbind = this.displayWindow?.bindSource({
         tabId: computed(() => this.liveTarget().tabId),
         dock: this.displayDock,
+        focusVersion: this.displayFocusVersion,
       });
       if (unbind) this.destroyRef.onDestroy(unbind);
     }

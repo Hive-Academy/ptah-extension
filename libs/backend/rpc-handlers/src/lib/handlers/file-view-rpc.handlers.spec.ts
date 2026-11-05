@@ -128,6 +128,37 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
     });
   });
 
+  it.each(['file:viewContent', 'file:viewBinary'])(
+    'rejects %s when a checked path becomes an outside symlink before open',
+    async (methodName) => {
+      const inside = path.join(workspace, 'race-target.txt');
+      const outside = path.join(base, 'outside.txt');
+      await fs.writeFile(inside, 'inside');
+      await fs.writeFile(outside, 'outside');
+      const checked = await resolvedFile('race-target.txt');
+      resolveForView.mockImplementationOnce(async () => {
+        await fs.rm(inside);
+        await fs.symlink(outside, inside, 'file');
+        return checked;
+      });
+      const methods = new Map<string, RpcMethod>();
+      new FileViewRpcHandlers(
+        { warn } as never,
+        { registerMethod: (name: string, handler: RpcMethod) => methods.set(name, handler) } as never,
+        { resolveForView, resolveForExternalOpen } as never,
+      ).register();
+      const method = methods.get(methodName);
+      if (!method) throw new Error(`${methodName} was not registered`);
+      try {
+        expect(await method({ path: 'race-target.txt' })).toMatchObject({
+          success: false, reason: 'outside-roots', externalOpenAllowed: false,
+        });
+      } finally {
+        await fs.rm(inside, { force: true });
+      }
+    },
+  );
+
   it('strips a UTF-8 BOM, reports it, and hashes the raw bytes', async () => {
     resolveForView.mockResolvedValue(await resolvedFile('bom.txt'));
     const result = (await build()({ path: 'bom.txt' })) as SuccessResult;

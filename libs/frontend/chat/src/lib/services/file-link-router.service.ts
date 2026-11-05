@@ -108,7 +108,9 @@ export class FileLinkRouterService
       const tabId = request.origin?.closest('[data-ptah-tab-id]')?.getAttribute(TAB_ID_ATTR)
         ?? this.tabManager.activeTabId();
       const displayDock = tabId ? this.displayDocks.get(tabId) : undefined;
-      if (kind && displayDock && tabId) {
+      const hasBase = Boolean(context.workspaceRoot || context.documentPath);
+      const absolutePath = /^(?:[A-Za-z]:[\\/]|\/)/.test(request.path);
+      if (kind && displayDock && tabId && (hasBase || absolutePath)) {
         displayDock.openFile(tabId, {
           kind,
           path: request.path,

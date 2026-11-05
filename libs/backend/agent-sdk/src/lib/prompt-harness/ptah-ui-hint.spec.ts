@@ -111,6 +111,22 @@ describe('PTAH_UI_HINT_CODEX', () => {
 });
 
 describe('routeSurfaceRequest', () => {
+  it.each([
+    'can you do it with charts better',
+    'visualize my open tasks',
+    'make a diagram of the architecture',
+    'give me an infographic of this sprint',
+    'show a representational view of my work',
+  ])('routes visual request %s to a report', prompt => {
+    expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('report');
+  });
+
+  it.each([
+    'file a bug report', 'report this error', 'fix the chart component bug',
+    'rename the plot variable', 'what does the diagram.ts file do',
+  ])('keeps nonvisual request %s compact', prompt => {
+    expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('compact');
+  });
   const report = 'send me a report of all in-progress tasks';
 
   it('routes a report to an HTML artifact and names skills when lookup exists', () => {

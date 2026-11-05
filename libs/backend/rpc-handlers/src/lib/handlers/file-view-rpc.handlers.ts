@@ -23,6 +23,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
@@ -127,7 +128,17 @@ export class FileViewRpcHandlers {
 
     let bytes: Buffer;
     try {
-      bytes = await readBounded(resolution.realPath, FILE_VIEW_MAX_BYTES);
+      const handle = await fs.open(resolution.realPath, 'r');
+      try {
+        const stat = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (stat === null) return this.refuse('outside-roots');
+        if (!stat.isFile()) return this.refuse('not-a-file');
+        if (stat.size > FILE_VIEW_MAX_BYTES)
+          return this.refuse('too-large', resolution.lexicalPath, stat.size);
+        bytes = await readBounded(handle, FILE_VIEW_MAX_BYTES);
+      } finally {
+        await handle.close();
+      }
     } catch (error: unknown) {
       this.logger.warn('[file:viewContent] read failed', {
         error: error instanceof Error ? error.name : 'unknown',
@@ -191,38 +202,26 @@ export class FileViewRpcHandlers {
     }
     if (resolution.kind === 'directory') return this.refuseBinary('not-a-file');
 
-    let header: Buffer;
-    try {
-      header = await readPrefix(resolution.realPath, BINARY_SNIFF_BYTES);
-    } catch (error: unknown) {
-      this.logger.warn('[file:viewBinary] read failed', {
-        error: error instanceof Error ? error.name : 'unknown',
-      });
-      return this.refuseBinary('unreadable');
-    }
-
-    const mime = sniffFileViewBinary(header);
-    if (mime === null) {
-      return this.refuseBinary(
-        'unsupported-type',
-        resolution.lexicalPath,
-        resolution.sizeBytes,
-      );
-    }
-
-    // Image cap is tighter than the stat gate. Refuse from the stat size so
-    // a 20 MiB PNG is not read into the main process.
-    if (!binaryPayloadWithinCap(resolution.sizeBytes, mime)) {
-      return this.refuseBinary(
-        'too-large',
-        resolution.lexicalPath,
-        resolution.sizeBytes,
-      );
-    }
-
     let bytes: Buffer;
+    let mime: ReturnType<typeof sniffFileViewBinary>;
     try {
-      bytes = await readBounded(resolution.realPath, fileViewBinaryCap(mime));
+      const handle = await fs.open(resolution.realPath, 'r');
+      try {
+        const stat = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (stat === null) return this.refuseBinary('outside-roots');
+        if (!stat.isFile()) return this.refuseBinary('not-a-file');
+        if (stat.size > fileViewBinaryCap('application/pdf'))
+          return this.refuseBinary('too-large', resolution.lexicalPath, stat.size);
+        const header = await readPrefix(handle, BINARY_SNIFF_BYTES);
+        mime = sniffFileViewBinary(header);
+        if (mime === null)
+          return this.refuseBinary('unsupported-type', resolution.lexicalPath, stat.size);
+        if (!binaryPayloadWithinCap(stat.size, mime))
+          return this.refuseBinary('too-large', resolution.lexicalPath, stat.size);
+        bytes = await readBounded(handle, fileViewBinaryCap(mime));
+      } finally {
+        await handle.close();
+      }
     } catch (error: unknown) {
       this.logger.warn('[file:viewBinary] read failed', {
         error: error instanceof Error ? error.name : 'unknown',
@@ -238,7 +237,7 @@ export class FileViewRpcHandlers {
       );
     }
 
-    // The file may have been replaced between the prefix read and this one.
+    // The signature and payload came from the same verified handle.
     if (sniffFileViewBinary(bytes) !== mime) {
       return this.refuseBinary(
         'unsupported-type',
@@ -322,15 +321,10 @@ export class FileViewRpcHandlers {
 }
 
 /** Read at most `count` bytes from the start of `target`. */
-async function readPrefix(target: string, count: number): Promise<Buffer> {
-  const handle = await fs.open(target, 'r');
-  try {
+async function readPrefix(handle: fs.FileHandle, count: number): Promise<Buffer> {
     const buffer = Buffer.alloc(count);
     const { bytesRead } = await handle.read(buffer, 0, count, 0);
     return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
 }
 
 /**
@@ -339,15 +333,30 @@ async function readPrefix(target: string, count: number): Promise<Buffer> {
  * The extra byte is the point: it is how the caller can tell "exactly at the
  * cap" from "grew past the cap since `stat`" without reading the whole file.
  */
-async function readBounded(target: string, maxBytes: number): Promise<Buffer> {
-  const handle = await fs.open(target, 'r');
-  try {
+async function readBounded(handle: fs.FileHandle, maxBytes: number): Promise<Buffer> {
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, maxBytes + 1, 0);
     return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
+}
+
+/** Bind the opened inode to a currently contained pathname before reading. */
+async function verifyOpenedFile(
+  handle: fs.FileHandle,
+  target: string,
+  root: string,
+): Promise<Stats | null> {
+  const opened = await handle.stat();
+  const [realTarget, realRoot] = await Promise.all([fs.realpath(target), fs.realpath(root)]);
+  const relative = path.relative(realRoot, realTarget);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    return null;
+  const current = await fs.stat(realTarget);
+  // Some filesystems report ino=0. Timestamps plus size are the best available fallback.
+  const same = opened.ino !== 0 && current.ino !== 0
+    ? opened.dev === current.dev && opened.ino === current.ino
+    : opened.size === current.size && opened.mtimeMs === current.mtimeMs &&
+      opened.birthtimeMs === current.birthtimeMs;
+  return same ? opened : null;
 }
 
 type DecodeResult =

@@ -102,7 +102,7 @@ describe('DisplayWindowSync', () => {
     const sync = TestBed.inject(DisplayWindowSync);
     const dock = new DisplayDockState();
     const tabId = signal<string | null>('tab-1');
-    sync.bindSource({ tabId, dock });
+    sync.bindSource({ tabId, dock, focusVersion: signal(0) });
     return { sync, dock, tabId };
   }
 
@@ -377,7 +377,7 @@ describe('DisplayWindowSync', () => {
     const commandDock = new DisplayDockState();
     const focusedSession = signal<string | null>('command-root');
     commandDock.openFile('command-root', { kind: 'markdown-file', path: '/root/report.md', workspaceRoot: '/root', title: 'report.md' });
-    const unbind = sync.bindSource({ tabId: focusedSession, dock: commandDock });
+    const unbind = sync.bindSource({ tabId: focusedSession, dock: commandDock, focusVersion: signal(0) });
     await sync.detach();
     expect(sync.count()).toBe(1);
     sync.handleMessage({ type: 'displayWindow:action', payload: { tabId: 'command-root', action: { type: 'select', key: 'file:chosen' } } });
@@ -388,6 +388,31 @@ describe('DisplayWindowSync', () => {
     unbind();
     chatDock.openFile('tab-1', { kind: 'image-file', path: '/root/photo.png', workspaceRoot: '/root', title: 'photo.png' });
     expect(sync.count()).toBe(1);
+  });
+
+  it('follows ChatView, Command Center, then ChatView focus and falls back on close', async () => {
+    const { sync, dock: chatDock } = setup();
+    const chatFocus = signal(0);
+    const commandFocus = signal(0);
+    const chatTab = signal<string | null>('chat-focused');
+    const unbindChat = sync.bindSource({ tabId: chatTab, dock: chatDock, focusVersion: chatFocus });
+    const commandDock = new DisplayDockState();
+    const unbindCommand = sync.bindSource({ tabId: signal('command-focused'), dock: commandDock, focusVersion: commandFocus });
+    await sync.detach();
+    chatFocus.set(1);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('chat-focused');
+    commandFocus.set(1);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('command-focused');
+    chatFocus.set(2);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('chat-focused');
+    chatTab.set(null);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('command-focused');
+    unbindCommand();
+    unbindChat();
   });
 
   it('unbinding stops the actions and the snapshot', async () => {
@@ -404,7 +429,7 @@ describe('DisplayWindowSync', () => {
     });
     const sync = TestBed.inject(DisplayWindowSync);
     const dock = new DisplayDockState();
-    const unbind = sync.bindSource({ tabId: signal('tab-1'), dock });
+    const unbind = sync.bindSource({ tabId: signal('tab-1'), dock, focusVersion: signal(0) });
     unbind();
     sync.handleMessage({
       type: 'displayWindow:action',

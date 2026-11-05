@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  Injector,
   signal,
   untracked,
   type Signal,
@@ -37,6 +38,8 @@ export interface DisplayWindowSource {
   /** The main view's active tab; `null` when no tab is open. */
   readonly tabId: Signal<string | null>;
   readonly dock: DisplayDockState;
+  /** Increments whenever this surface receives user interaction. */
+  readonly focusVersion: Signal<number>;
 }
 
 const UNAVAILABLE_TEXT: Readonly<
@@ -89,6 +92,7 @@ export class DisplayWindowSync implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly theme = inject(ThemeService);
   private readonly artifacts = inject(ArtifactStore);
+  private readonly injector = inject(Injector);
 
   readonly handledMessageTypes = [
     DISPLAY_WINDOW_PUSH_TYPES.closed,
@@ -104,6 +108,7 @@ export class DisplayWindowSync implements MessageHandler {
 
   private readonly source = signal<DisplayWindowSource | null>(null);
   private readonly sources: DisplayWindowSource[] = [];
+  private hasFocused = false;
 
   /** The bound tab's display view, or `null` with no source or no tab. */
   private readonly view = computed(
@@ -142,13 +147,31 @@ export class DisplayWindowSync implements MessageHandler {
    */
   bindSource(source: DisplayWindowSource): () => void {
     this.sources.push(source);
-    this.source.set(source);
+    if (this.source() === null || !this.hasFocused) this.source.set(source);
+    let lastFocusVersion = source.focusVersion();
+    const focusEffect = effect(() => {
+      const focusVersion = source.focusVersion();
+      const tabId = source.tabId();
+      if (focusVersion !== lastFocusVersion && tabId !== null) {
+        this.hasFocused = true;
+        const index = this.sources.indexOf(source);
+        if (index >= 0) {
+          this.sources.splice(index, 1);
+          this.sources.push(source);
+          this.source.set(source);
+        }
+      }
+      lastFocusVersion = focusVersion;
+      if (this.source() === source && tabId === null)
+        this.source.set(this.sources.findLast(candidate => candidate !== source && candidate.tabId() !== null) ?? null);
+    }, { injector: this.injector });
     return () => {
+      focusEffect.destroy();
       const index = this.sources.lastIndexOf(source);
       if (index < 0) return;
       this.sources.splice(index, 1);
       if (untracked(this.source) === source)
-        this.source.set(this.sources.at(-1) ?? null);
+        this.source.set(this.sources.findLast(candidate => candidate.tabId() !== null) ?? null);
     };
   }
 
