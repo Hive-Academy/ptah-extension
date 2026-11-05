@@ -33,6 +33,40 @@ function input(): CodexExecutionProfileInput {
 }
 
 describe('buildCodexExecutionProfile', () => {
+  it.each([
+    ['read-only', 'read-only', false, []],
+    ['workspace-write-no-network', 'workspace-write', false, ['/real/work']],
+    ['workspace-write-network', 'workspace-write', true, ['/real/work']],
+    ['danger-full-access', 'danger-full-access', true, []],
+  ] as const)('maps %s for chat, gateway and lane', (mode, wireMode, networkAccess, writableRoots) => {
+    for (const consumer of ['chat', 'gateway', 'lane'] as const) {
+      const source = input();
+      const profile = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer, codexSandboxMode: mode },
+      });
+      expect(profile.sandboxPolicy).toEqual({ mode: wireMode, networkAccess, writableRoots });
+      expect(profile.approvalPolicy).toEqual(consumer === 'lane' ? 'never' : 'untrusted');
+    }
+  });
+
+  it('changes the fingerprint when the saved sandbox choice changes', () => {
+    const source = input();
+    const standard = buildCodexExecutionProfile(source);
+    const limited = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, codexSandboxMode: 'workspace-write-no-network' },
+    });
+    expect(standard.profileFingerprint).not.toBe(limited.profileFingerprint);
+  });
+
+  it('rejects an invalid sandbox choice at the profile boundary', () => {
+    const source = input();
+    expect(() => buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, codexSandboxMode: 'invalid' as CodexProfileSettings['codexSandboxMode'] },
+    })).toThrow('Invalid Codex execution profile input');
+  });
   it('allows a lane to omit its model and keeps the model absent', () => {
     const source = input();
     const profile = buildCodexExecutionProfile({
@@ -44,17 +78,16 @@ describe('buildCodexExecutionProfile', () => {
   });
 
   it.each(['chat', 'gateway'] as const)(
-    'keeps the pre-change %s fingerprint for the same ask inputs',
+    'uses the new default %s fingerprint for the same ask inputs',
     (consumer) => {
       const source = input();
       const profile = buildCodexExecutionProfile({
         ...source,
         session: { ...source.session, consumer },
       });
-      // SHA-256 of the pre-change canonical D14 ask policy at /real/work.
-      expect(profile.profileFingerprint).toBe(
-        'sha256:0fbec108e7892de9508f32351f0042c4fe9fd45baf1a6cf4673ed50f5a9ad034',
-      );
+      expect(profile.profileFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(profile.codexSandboxMode).toBe('danger-full-access');
+      expect(profile.sandboxPolicy).toEqual({ mode: 'danger-full-access', networkAccess: true, writableRoots: [] });
     },
   );
 
@@ -87,9 +120,9 @@ describe('buildCodexExecutionProfile', () => {
       },
     });
     expect(lane.sandboxPolicy).toEqual({
-      mode: 'workspace-write',
-      networkAccess: false,
-      writableRoots: ['/real/work'],
+      mode: 'danger-full-access',
+      networkAccess: true,
+      writableRoots: [],
     });
     expect(lane.approvalPolicy).toBe('never');
     expect(build('chat')).toEqual(chatBefore);
@@ -116,11 +149,6 @@ describe('buildCodexExecutionProfile', () => {
         '/real/work',
       );
       const d14 = consumer === 'chat' || consumer === 'gateway';
-      const writable =
-        consumer === 'lane' ||
-        permissionLevel === 'auto-edit' ||
-        permissionLevel === 'yolo' ||
-        (d14 && permissionLevel === 'ask');
       const granularAsk = consumer !== 'lane' && !d14 && permissionLevel === 'ask';
       expect(resolved.approvalPolicy).toEqual(
         granularAsk
@@ -140,14 +168,20 @@ describe('buildCodexExecutionProfile', () => {
             ? 'untrusted'
             : 'on-request',
       );
-      expect(resolved.sandboxPolicy).toEqual({
-        mode: writable ? 'workspace-write' : 'read-only',
-        networkAccess: false,
-        writableRoots: writable ? ['/real/work'] : [],
-      });
+      const levelAllowsWrites =
+        consumer === 'lane' ||
+        permissionLevel === 'auto-edit' ||
+        permissionLevel === 'yolo' ||
+        (d14 && permissionLevel === 'ask');
+      // Regression: plan (and non-chat ask) stays read-only even under full access.
+      expect(resolved.sandboxPolicy).toEqual(
+        levelAllowsWrites
+          ? { mode: 'danger-full-access', networkAccess: true, writableRoots: [] }
+          : { mode: 'read-only', networkAccess: false, writableRoots: [] },
+      );
       expect(profile).toMatchObject(resolved);
       expect(profile.profileFingerprint).toBe(
-        codexProfileFingerprint({ permissionLevel, ...resolved }),
+        codexProfileFingerprint({ permissionLevel, codexSandboxMode: 'danger-full-access', ...resolved }),
       );
     },
   );
@@ -168,16 +202,14 @@ describe('buildCodexExecutionProfile', () => {
           ? 'untrusted'
           : 'on-request',
       );
-      expect(profile.sandboxPolicy.mode).toBe(observed.sandbox);
-      expect(profile.sandboxPolicy.mode).toBe(
-        permissionLevel === 'plan' ? 'read-only' : 'workspace-write',
-      );
-      expect(profile.sandboxPolicy.networkAccess).toBe(false);
+      const writes = permissionLevel !== 'plan';
+      expect(profile.sandboxPolicy.mode).toBe(writes ? 'danger-full-access' : 'read-only');
+      expect(profile.sandboxPolicy.networkAccess).toBe(writes);
       expect(profile.approvalsReviewer).toBe('user');
       expect(observed.approvalsReviewer).toBe('user');
-      expect(profile.fullAccessStatus).toBe('unproved-disabled');
+      expect(profile.fullAccessStatus).toBe(writes ? 'explicit' : 'unproved-disabled');
       expect(profile.sandboxPolicy.writableRoots).toEqual(
-        permissionLevel === 'plan' ? [] : ['/real/work'],
+        [],
       );
     },
   );
@@ -198,11 +230,11 @@ describe('buildCodexExecutionProfile', () => {
         consumer === 'lane' ? 'never' : 'on-request',
       );
       expect(profile.sandboxPolicy).toEqual({
-        mode: 'workspace-write',
-        networkAccess: false,
-        writableRoots: ['/real/work'],
+        mode: 'danger-full-access',
+        networkAccess: true,
+        writableRoots: [],
       });
-      expect(profile.fullAccessStatus).toBe('unproved-disabled');
+      expect(profile.fullAccessStatus).toBe('explicit');
     },
   );
 
@@ -227,12 +259,11 @@ describe('buildCodexExecutionProfile', () => {
               },
             },
       );
+      // usage + ask is neither a lane nor chat/gateway, so it stays read-only.
       expect(profile.sandboxPolicy.mode).toBe(
-        consumer === 'lane' ? 'workspace-write' : 'read-only',
+        consumer === 'lane' ? 'danger-full-access' : 'read-only',
       );
-      expect(profile.sandboxPolicy.writableRoots).toEqual(
-        consumer === 'lane' ? ['/real/work'] : [],
-      );
+      expect(profile.sandboxPolicy.writableRoots).toEqual([]);
     },
   );
 
@@ -401,16 +432,10 @@ describe('buildCodexExecutionProfile', () => {
         session: { ...source.session, lane },
       }),
     ).toThrow('Lane settings');
-    expect(() =>
-      buildCodexExecutionProfile({
-        ...source,
-        session: {
-          ...source.session,
-          consumer: 'lane',
-          lane: { ...lane, explicitFullAccess: true },
-        },
-      }),
-    ).toThrow('unproved');
+    expect(buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, consumer: 'lane', lane: { ...lane, explicitFullAccess: true } },
+    }).lane?.explicitFullAccess).toBe(true);
   });
 
   it('keeps resume identity fixed while model and effort produce a new immutable profile', () => {
@@ -617,7 +642,7 @@ describe('buildCodexExecutionProfile', () => {
 
     const otherWorkspace = buildCodexExecutionProfile({
       ...source,
-      session: { ...source.session, cwd: '/other' },
+      session: { ...source.session, cwd: '/other', codexSandboxMode: 'workspace-write-network' },
       paths: {
         ...source.paths,
         entries: {

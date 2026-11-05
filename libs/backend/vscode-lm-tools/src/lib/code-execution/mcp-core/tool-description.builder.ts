@@ -888,8 +888,28 @@ export function buildAgentMessageTool(): MCPToolDefinition {
           type: 'string',
           description: `Message text to deliver to the agent (max ${MAX_AGENT_MESSAGE_LENGTH} characters)`,
         },
+        delivery: {
+          type: 'string',
+          enum: ['queue', 'steer'],
+          description: 'queue (default) waits for a new turn; steer explicitly injects into an active Codex turn.',
+        },
       },
       required: ['agentId', 'message'],
+    },
+  };
+}
+
+export function buildAgentMessageStatusTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_message_status',
+    description: 'Read the delivery status of a queued agent message.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Agent ID' },
+        messageId: { type: 'string', description: 'Queued message ID' },
+      },
+      required: ['agentId', 'messageId'],
     },
   };
 }

@@ -13,6 +13,7 @@
 
 import {
   ADVANCED_SETTINGS,
+  DEFAULT_CODEX_SANDBOX_MODE,
   SESSION_BUDGET_SETTINGS,
 } from '@ptah-extension/shared';
 
@@ -109,6 +110,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.codexAutoCompactTokens',
   'agentOrchestration.codexToolOutputTokenLimit',
   'agentOrchestration.codexWebSearch',
+  'agentOrchestration.codexSandboxMode',
   'agentOrchestration.copilotModel',
   'agentOrchestration.copilotReasoningEffort',
   'agentOrchestration.copilotAutoApprove',
@@ -336,6 +338,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.codexModel': '',
   'agentOrchestration.codexReasoningEffort': '',
   'agentOrchestration.codexAutoApprove': true,
+  'agentOrchestration.codexSandboxMode': DEFAULT_CODEX_SANDBOX_MODE,
   // Codex lane budgets and codexWebSearch: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.copilotModel': '',
   'agentOrchestration.copilotReasoningEffort': '',

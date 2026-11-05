@@ -115,6 +115,7 @@ const AgentMessageSchema = z
   .object({
     agentId: z.string().min(1),
     message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
+    delivery: z.enum(['queue', 'steer']).optional(),
   })
   .strict();
 
@@ -251,6 +252,7 @@ export class AgentToolDispatcher {
     'agent_status',
     'agent_read',
     'agent_message',
+    'agent_message_status',
     'agent_report',
     'agent_stop',
     'agent_list',
@@ -303,6 +305,8 @@ export class AgentToolDispatcher {
         return this.handleRead(request, args);
       case 'agent_message':
         return this.handleMessage(request, args);
+      case 'agent_message_status':
+        return this.handleMessageStatus(request, args);
       case 'agent_report':
         return this.handleReport(request, args);
       case 'agent_stop':
@@ -705,6 +709,7 @@ export class AgentToolDispatcher {
       const outcome = await this.ptahAPI.agent.message(
         parsed.data.agentId,
         parsed.data.message,
+        parsed.data.delivery,
       );
       return await this.toolSuccess(
         request,
@@ -713,6 +718,7 @@ export class AgentToolDispatcher {
         {
           agentId: parsed.data.agentId,
           mode: outcome.mode,
+          ...(outcome.messageId !== undefined ? { messageId: outcome.messageId } : {}),
           ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}),
         },
       );
@@ -734,6 +740,17 @@ export class AgentToolDispatcher {
         'mcp_tool_failed',
         { tool: 'agent_message' },
       );
+    }
+  }
+
+  private async handleMessageStatus(request: MCPRequest, args: unknown): Promise<MCPResponse> {
+    const parsed = parseArgs(z.object({ agentId: z.string().min(1), messageId: z.string().uuid() }).strict(), args);
+    if (!parsed.ok) return toolError(request, `Invalid arguments for agent_message_status: ${describeIssues(parsed.issues)}`, 'mcp_invalid_tool_args', { tool: 'agent_message_status', issues: parsed.issues });
+    try {
+      const result = await this.ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
+      return this.toolSuccess(request, 'agent_message_status', JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...result }), result);
+    } catch {
+      return toolError(request, 'agent_message_status failed', 'mcp_tool_failed', { tool: 'agent_message_status' });
     }
   }
 

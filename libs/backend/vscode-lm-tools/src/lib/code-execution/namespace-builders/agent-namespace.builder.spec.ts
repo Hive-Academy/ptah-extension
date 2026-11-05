@@ -1015,6 +1015,7 @@ describe('buildAgentNamespace — thin delegates', () => {
     expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
       'x',
       'go left',
+      undefined,
     );
     expect(outcome).toEqual({
       mode: 'interrupt-resume',

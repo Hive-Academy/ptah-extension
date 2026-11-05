@@ -2960,6 +2960,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   describe('sendToAgent() — one row per capability shape', () => {
     /** Spawn an agent whose handle is exactly the one under test. */
     const spawnWithHandle = async (handle: SdkHandle): Promise<string> => {
+      Object.assign(handle, { getSessionId: () => 'thread-message-test' });
       (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(handle);
       const result = await manager.spawn({
         task: 'Task',
@@ -2984,7 +2985,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         steerSpy;
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'also handle errors');
+      const outcome = await manager.sendToAgent(agentId, 'also handle errors', 'steer');
 
       expect(outcome.mode).toBe('steer');
       expect(steerSpy).toHaveBeenCalledWith('also handle errors');

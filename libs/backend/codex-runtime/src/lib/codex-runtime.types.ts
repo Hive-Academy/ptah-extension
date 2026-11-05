@@ -68,6 +68,7 @@ export type CodexMcpSecrets = ReadonlyMap<string, string>;
  * Full access is an explicit, evidence-gated choice, never inferred from a consumer.
  */
 export interface CodexExecutionProfile {
+  readonly codexSandboxMode?: import('@ptah-extension/shared').CodexSandboxMode;
   readonly contextId: string;
   readonly consumer: 'chat' | 'gateway' | 'lane' | 'usage';
   readonly normalizedHome: string;

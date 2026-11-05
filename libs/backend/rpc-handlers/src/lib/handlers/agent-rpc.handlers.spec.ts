@@ -685,6 +685,20 @@ describe('AgentRpcHandlers — Claude lane config keys', () => {
       expect.objectContaining({ claudeModel: '', claudeReasoningEffort: '' }),
     );
   });
+
+  it('defaults an absent Codex sandbox mode but rejects a persisted null', async () => {
+    const h = makeHarness();
+    const absent = await call<Record<string, unknown>>(h, 'agent:getConfig', {});
+    expect(absent['codexSandboxMode']).toBe('danger-full-access');
+
+    h.settings.set('agentOrchestration.codexSandboxMode', null);
+    const response = await h.rpcHandler.handleMessage({
+      method: 'agent:getConfig',
+      params: {},
+      correlationId: 'corr-invalid-codex-sandbox',
+    });
+    expect(response.success).toBe(false);
+  });
 });
 
 const PROFILE_ID = 'profile-aaaa1111';

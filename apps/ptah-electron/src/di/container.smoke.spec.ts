@@ -253,7 +253,7 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: {
       getWorkspaceFolders: jest.fn(() => []),
-      getConfiguration: jest.fn(() => ({ get: jest.fn() })),
+      getConfiguration: jest.fn((_section: string, _key: string, fallback: unknown) => fallback),
       onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },

@@ -58,6 +58,7 @@ describe('Electron Codex lanes', () => {
     const scope = container.createChildContainer();
     const workspace = {
       getWorkspaceFolders: jest.fn((): string[] => []),
+      getConfiguration: jest.fn(() => 'workspace-write-no-network'),
       onDidChangeWorkspaceFolders: jest.fn(),
     };
     scope.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: workspace });

@@ -95,6 +95,7 @@ import {
   buildAgentStatusTool,
   buildAgentReadTool,
   buildAgentMessageTool,
+  buildAgentMessageStatusTool,
   buildAgentReportTool,
   MAX_AGENT_MESSAGE_LENGTH,
   buildAgentListTool,
@@ -588,6 +589,7 @@ function buildToolDefinitions(
           buildAgentStatusTool(),
           buildAgentReadTool(),
           buildAgentMessageTool(),
+          buildAgentMessageStatusTool(),
           buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
@@ -749,8 +751,11 @@ const AgentMessageArgsSchema = z
   .object({
     agentId: z.string().min(1),
     message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
+    delivery: z.enum(['queue', 'steer']).optional(),
   })
   .strict();
+
+const AgentMessageStatusArgsSchema = z.object({ agentId: z.string().min(1), messageId: z.string().uuid() }).strict();
 
 /**
  * `ptah_agent_report` arguments (TASK_2026_402).
@@ -1395,6 +1400,7 @@ async function handleIndividualTool(
           const outcome = await ptahAPI.agent.message(
             parsed.data.agentId,
             parsed.data.message,
+            parsed.data.delivery,
           );
           return await createToolSuccessResponse(
             request,
@@ -1414,6 +1420,13 @@ async function handleIndividualTool(
           }
           throw error;
         }
+      }
+
+      case 'ptah_agent_message_status': {
+        const parsed = AgentMessageStatusArgsSchema.safeParse(args !== null && typeof args === 'object' ? args : {});
+        if (!parsed.success) return toolErrorResponse(request, `Error: invalid ptah_agent_message_status arguments — ${describeZodIssues(parsed.error)}`);
+        const status = await ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
+        return await createToolSuccessResponse(request, JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...status }), deps);
       }
 
       case 'ptah_agent_report': {

@@ -257,8 +257,8 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
 
   it('resumes a stored lane identity, queues the next turn, and aborts with failure status', async () => {
     const h = harness();
-    expect(h.adapter.capabilities()).toEqual({ steer: false, interrupt: false, continuation: true });
-    expect(bestMessagingCapability(h.adapter.capabilities())).toBe('queue');
+    expect(h.adapter.capabilities()).toEqual({ steer: true, interrupt: false, continuation: true });
+    expect(bestMessagingCapability(h.adapter.capabilities())).toBe('steer');
     const first = await h.adapter.runSdk(options());
     h.context.terminal('turn-1', 'completed');
     expect(await first.done).toBe(0);
@@ -290,7 +290,7 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
     expect(h.context).not.toBe(chatContext);
     expect(h.profile.consumer).toBe('lane');
     expect(h.profile.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [cwd],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(h.profile.approvalPolicy).toBe('never');
     expect(chatProfile.consumer).toBe('chat');
@@ -345,10 +345,10 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
     expect(profileA.developerPrompt).not.toContain('Beta instructions');
     expect(profileB.developerPrompt).not.toContain('Alpha instructions');
     expect(profileA.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [cwd],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(profileB.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [otherWork],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(profileA.developerPrompt).not.toContain('beta-server');
     expect(profileB.developerPrompt).not.toContain('alpha-server');

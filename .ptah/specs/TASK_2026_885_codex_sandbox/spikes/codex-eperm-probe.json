@@ -1,0 +1,29 @@
+{
+  "workspace-write-no-network": {
+    "startError": null,
+    "exec": [
+      {
+        "exitCode": 0,
+        "output": "SPAWN EPERM\nNET ok 200\n"
+      }
+    ]
+  },
+  "workspace-write-network": {
+    "startError": null,
+    "exec": [
+      {
+        "exitCode": 0,
+        "output": "SPAWN EPERM\nNET ok 200\n"
+      }
+    ]
+  },
+  "danger-full-access": {
+    "startError": null,
+    "exec": [
+      {
+        "exitCode": 0,
+        "output": "SPAWN ok:2\nNET ok 200\n"
+      }
+    ]
+  }
+}

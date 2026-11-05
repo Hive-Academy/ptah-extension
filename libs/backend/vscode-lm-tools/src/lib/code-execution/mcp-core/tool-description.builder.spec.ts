@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
+  buildAgentMessageStatusTool,
   buildAgentListTool,
   buildAgentReadTool,
   buildAgentReportTool,
@@ -250,6 +251,11 @@ describe('ptah_lsp_definitions description — desktop limits', () => {
  * covers the brand spellings; this covers the enum the spawner uses).
  */
 describe('buildAgentMessageTool', () => {
+  it('offers explicit delivery and a status receipt tool', () => {
+    expect(buildAgentMessageTool().inputSchema.properties?.['delivery']).toMatchObject({ enum: ['queue', 'steer'] });
+    expect(buildAgentMessageStatusTool().name).toBe('ptah_agent_message_status');
+    expect(buildAgentMessageStatusTool().inputSchema.required).toEqual(['agentId', 'messageId']);
+  });
   it('names the tool ptah_agent_message and requires agentId + message', () => {
     const tool = buildAgentMessageTool();
     expect(tool.name).toBe('ptah_agent_message');

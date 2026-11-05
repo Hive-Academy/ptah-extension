@@ -505,9 +505,11 @@ describe('AgentToolDispatcher — agent_list roles', () => {
 function createMessagingHarness(callerAgentId?: string): {
   dispatcher: AgentToolDispatcher;
   message: jest.Mock;
+  messageStatus: jest.Mock;
   report: jest.Mock;
 } {
   const message = jest.fn().mockResolvedValue({ mode: 'steer' });
+  const messageStatus = jest.fn().mockResolvedValue({ status: 'delivered' });
   const report = jest
     .fn()
     .mockResolvedValue({ delivered: true, parentSessionId: 'sess-1' });
@@ -517,7 +519,7 @@ function createMessagingHarness(callerAgentId?: string): {
     error: jest.fn(),
     debug: jest.fn(),
   } as unknown as Logger;
-  const ptahAPI = { agent: { message, report } } as unknown as PtahAPI;
+  const ptahAPI = { agent: { message, messageStatus, report } } as unknown as PtahAPI;
   return {
     dispatcher: new AgentToolDispatcher(
       ptahAPI,
@@ -526,11 +528,21 @@ function createMessagingHarness(callerAgentId?: string): {
       callerAgentId,
     ),
     message,
+    messageStatus,
     report,
   };
 }
 
 describe('AgentToolDispatcher — agent_message', () => {
+  it('forwards explicit steer and serves a status receipt', async () => {
+    const { dispatcher, message, messageStatus } = createMessagingHarness();
+    await dispatcher.dispatch('agent_message', request, { agentId: 'a1', message: 'go', delivery: 'steer' });
+    expect(message).toHaveBeenCalledWith('a1', 'go', 'steer');
+    const id = '11111111-1111-4111-8111-111111111111';
+    const response = await dispatcher.dispatch('agent_message_status', request, { agentId: 'a1', messageId: id });
+    expect(messageStatus).toHaveBeenCalledWith('a1', id);
+    expect(toolResult(response).structuredContent).toMatchObject({ status: 'delivered' });
+  });
   it('handles the tool name', () => {
     expect(createMessagingHarness().dispatcher.handles('agent_message')).toBe(
       true,
@@ -543,7 +555,7 @@ describe('AgentToolDispatcher — agent_message', () => {
       agentId: 'a1',
       message: 'switch to the other branch',
     });
-    expect(message).toHaveBeenCalledWith('a1', 'switch to the other branch');
+    expect(message).toHaveBeenCalledWith('a1', 'switch to the other branch', undefined);
     expect(toolResult(response).isError).toBeUndefined();
     expect(toolResult(response).structuredContent).toMatchObject({
       agentId: 'a1',
