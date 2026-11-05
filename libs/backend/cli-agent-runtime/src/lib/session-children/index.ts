@@ -36,11 +36,18 @@ export type {
   IChildChatSessionHost,
 } from './child-chat-session-host.port';
 export type {
+  HandoffTurnFlushNotice,
+  IHandoffTurnFlush,
   ISessionHandoff,
   SessionHandoffRefusalCode,
   SessionHandoffRequest,
   SessionHandoffResult,
 } from './session-handoff.port';
+export type {
+  ISessionHandoffChain,
+  SessionHandoffLinkWritten,
+} from './session-handoff-chain.port';
+export { SessionHandoffChainStore } from './session-handoff-chain.store';
 export {
   SessionHandoffService,
   SESSION_HANDOFF_HISTORY_SIZE,

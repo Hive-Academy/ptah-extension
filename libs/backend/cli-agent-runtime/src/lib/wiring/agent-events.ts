@@ -32,6 +32,8 @@ import {
   PLATFORM_TOKENS,
   type ISessionOrganizationRecorder,
 } from '@ptah-extension/platform-core';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import type { ISessionHandoffChain } from '../session-children/session-handoff-chain.port';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
@@ -139,6 +141,7 @@ export function wireAgentEventListeners(
       TOKENS.WEBVIEW_MANAGER,
     );
 
+    wireHandoffChainBroadcast(container, webviewManager, logger, tag);
     wireAgentMonitorListeners(
       agentProcessManager,
       webviewManager,
@@ -160,6 +163,47 @@ export function wireAgentEventListeners(
       error instanceof Error ? error : new Error(String(error)),
     );
   }
+}
+
+/** One subscriber: a kept chain edge tells open inspectors to reload. */
+function wireHandoffChainBroadcast(
+  container: DependencyContainer,
+  webviewManager: WebviewManagerLike,
+  logger: Logger,
+  tag: string,
+): void {
+  const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF_CHAIN;
+  if (!container.isRegistered(token)) return;
+  let chain: ISessionHandoffChain;
+  try {
+    chain = container.resolve<ISessionHandoffChain>(token);
+  } catch (error: unknown) {
+    logger.error(
+      `${tag} Failed to resolve the handoff chain`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return;
+  }
+  chain.onLinkWritten((link) => {
+    try {
+      webviewManager
+        .broadcastMessage(MESSAGE_TYPES.SESSION_HANDOFF_LINKED, {
+          fromSessionId: link.fromSessionId,
+          toSessionId: link.toSessionId,
+        })
+        .catch((error: unknown) => {
+          logger.error(
+            `${tag} Failed to send sessionHandoff:linked to webview`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    } catch (error: unknown) {
+      logger.error(
+        `${tag} Failed to send sessionHandoff:linked to webview`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  });
 }
 
 function wireAgentMonitorListeners(
@@ -188,6 +232,20 @@ function wireAgentMonitorListeners(
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
   });
+
+  agentProcessManager.events.on(
+    'agent:reparented',
+    (payload: { agentIds: readonly string[]; parentSessionId: string }) => {
+      webviewManager
+        .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_REPARENTED, payload)
+        .catch((error: unknown) => {
+          logger.error(
+            `${tag} Failed to send agent-monitor:reparented to webview`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    },
+  );
 
   agentProcessManager.events.on('agent:output', (delta: AgentOutputDelta) => {
     webviewManager

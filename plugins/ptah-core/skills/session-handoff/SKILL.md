@@ -58,10 +58,8 @@ On success, the result lists the lanes and child sessions the new session adopte
 them here. Any of their signals that still reach this session can be ignored. Then read
 `tabOpened`:
 
-- `true`: tell the user the new session is open (by its label) and ask them to close this one.
-- `false`: tell the user the new session started (by its label) but no tab appeared. They can
-  find it in the session list in the Ptah sessions panel and open it from there. Ask them to
-  close this one only after they have found it.
+- `true`: tell the user the new session is open and this session was stopped and its history was kept.
+- `false`: tell the user the new session started, no tab appeared, it is in the session list, and this session was stopped and its history was kept.
 
 Do no further work here.
 

@@ -2238,6 +2238,13 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Tab ID → resolved SDK session ID (TASK_2026_876). Kept after resolution
+   * so a reparent that names the tab ID still lands on the SDK ID when
+   * SESSION_ID_RESOLVED arrived first.
+   */
+  private readonly sessionAliases = new Map<string, string>();
+
+  /**
    * Update parentSessionId for all agents that were spawned with a tab ID
    * before the real SDK session UUID was resolved.
    * Called when SESSION_ID_RESOLVED fires, mirroring the backend's
@@ -2249,6 +2256,7 @@ export class AgentMonitorStore implements OnDestroy {
    * them. They remain in the unscoped tray; no session action may claim them.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    this.sessionAliases.set(tabId, realSessionId);
     this.updateAgents((list) => {
       let changed = false;
       const next = list.map((a) => {
@@ -2294,13 +2302,15 @@ export class AgentMonitorStore implements OnDestroy {
     parentSessionId: string,
   ): void {
     if (!parentSessionId || agentIds.length === 0) return;
+    const target =
+      this.sessionAliases.get(parentSessionId) ?? parentSessionId;
     const ids = new Set(agentIds);
     this.updateAgents((list) => {
       let changed = false;
       const next = list.map((a) => {
-        if (ids.has(a.agentId) && a.parentSessionId !== parentSessionId) {
+        if (ids.has(a.agentId) && a.parentSessionId !== target) {
           changed = true;
-          return { ...a, parentSessionId };
+          return { ...a, parentSessionId: target };
         }
         return a;
       });
@@ -2313,10 +2323,10 @@ export class AgentMonitorStore implements OnDestroy {
         if (
           rec.agentId !== undefined &&
           ids.has(rec.agentId) &&
-          rec.parentSessionId !== parentSessionId
+          rec.parentSessionId !== target
         ) {
           changed = true;
-          next.set(key, { ...rec, parentSessionId });
+          next.set(key, { ...rec, parentSessionId: target });
         }
       }
       return changed ? next : map;

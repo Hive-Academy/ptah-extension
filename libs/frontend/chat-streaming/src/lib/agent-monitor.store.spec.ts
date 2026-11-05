@@ -849,6 +849,13 @@ describe('AgentMonitorStore', () => {
       ).toEqual(expect.arrayContaining(['lane-1', 'lane-2']));
     });
 
+    it('uses the resolved SDK id when resolution arrives before reparenting', () => {
+      spawnAgent('lane-1', 'caller-session');
+      store.resolveParentSessionId('successor-tab', 'successor-real');
+      store.reparentAgents(['lane-1'], 'successor-tab');
+      expect(store.agentsForSession('successor-real').map((a) => a.agentId)).toContain('lane-1');
+    });
+
     it('does not claim ownerless agents or unknown ids', () => {
       spawnAgent('ownerless', undefined);
       const before = store.agents();
