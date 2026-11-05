@@ -87,14 +87,17 @@ export class ReviewSettingsStore implements IReviewSettingsStore {
           JSON.stringify({ ...settings, liveGate: this.readLiveGate() }),
           now,
         );
-      if (settings.repositories.length === 0) {
-        // Preserve repository identity, history, and config_hash for re-enabling.
-        this.sqlite.db
-          .prepare(
-            'UPDATE review_repositories SET enabled = 0, paused = 1, updated_at = ?',
-          )
-          .run(now);
-      }
+      // Disable every repository removed from settings. Preserve its identity,
+      // history, and config_hash for re-enabling.
+      const kept = settings.repositories.map(
+        (repo) => `${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`,
+      );
+      this.sqlite.db
+        .prepare(
+          `UPDATE review_repositories SET enabled = 0, paused = 1, updated_at = ?
+          WHERE repo_id NOT IN (SELECT value FROM json_each(?))`,
+        )
+        .run(now, JSON.stringify(kept));
       for (const repo of settings.repositories) {
         const id = `${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`;
         this.sqlite.db

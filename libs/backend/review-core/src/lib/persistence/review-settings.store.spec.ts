@@ -104,6 +104,28 @@ describe('ReviewSettingsStore', () => {
       expect(await store.listRepositories()).toHaveLength(2);
       await store.updateSettings({
         ...settings,
+        repositories: [
+          {
+            owner: 'Acme',
+            name: 'Widget',
+            enabled: true,
+            dryRun: true,
+            publicationPaused: false,
+          },
+        ],
+        maintainerLogins: [],
+        fallbackFamilies: [],
+      });
+      expect(
+        db
+          .prepare('SELECT repo_id, enabled, paused FROM review_repositories ORDER BY repo_id')
+          .all(),
+      ).toEqual([
+        { repo_id: 'acme/widget', enabled: 1, paused: 0 },
+        { repo_id: 'hive-academy/ptahcode', enabled: 0, paused: 1 },
+      ]);
+      await store.updateSettings({
+        ...settings,
         repositories: [],
         maintainerLogins: [],
         fallbackFamilies: [],
