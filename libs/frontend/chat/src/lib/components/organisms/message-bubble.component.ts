@@ -258,7 +258,7 @@ export class MessageBubbleComponent {
   protected readonly activityOpen = signal(false);
 
   /** Without a turn the message stands alone, so it is its turn's last. */
-  private readonly isLastOfTurn = computed(
+  protected readonly isLastOfTurn = computed(
     () => this.turn()?.isLastAssistant ?? true,
   );
 

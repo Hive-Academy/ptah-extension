@@ -170,6 +170,19 @@
         }
       }
     }
+
+    <!-- Screen reader turn status. It has no visual part: the Working
+         label, the typing cursor and the elapsed label show this state.
+         The region stays in the DOM so that its text change is announced. -->
+    @if (turn() !== null && isLastOfTurn()) {
+      <span
+        class="sr-only"
+        role="status"
+        aria-live="polite"
+        data-testid="turn-live-status"
+        >{{ turnLive() ? 'Working' : '' }}</span
+      >
+    }
   </article>
 } @else {
   <!-- User message is anchored to the right edge of the shared column. -->

@@ -226,6 +226,17 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
   });
 
+  it('announces a live turn in a polite status region without visible text', () => {
+    setSettledTurn(createExecutionChatMessage({ id: 'live', role: 'assistant', rawContent: 'Hi' }));
+    const status = () => fixture.nativeElement.querySelector('[data-testid="turn-live-status"]') as HTMLElement | null;
+    expect(status()?.getAttribute('aria-live')).toBe('polite');
+    expect(status()?.classList.contains('sr-only')).toBe(true);
+    expect(status()?.textContent?.trim()).toBe('');
+    fixture.componentRef.setInput('turnLive', true);
+    fixture.detectChanges();
+    expect(status()?.textContent?.trim()).toBe('Working');
+  });
+
   it('does not put a header above an empty assistant answer', () => {
     setSettledTurn(createExecutionChatMessage({ id: 'empty', role: 'assistant', rawContent: '' }));
     expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
