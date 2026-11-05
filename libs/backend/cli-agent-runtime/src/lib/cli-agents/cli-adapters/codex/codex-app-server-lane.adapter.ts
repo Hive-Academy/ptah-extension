@@ -55,6 +55,7 @@ import {
   type CodexLaneCredentialProbe,
 } from './codex-app-server-lane-auth';
 import { codexLaneModels } from './codex-app-server-lane-models';
+import { CodexLaneWriteDacPreflight } from './codex-lane-write-dac-preflight';
 
 export class CodexLaneResumeIdentityError extends Error {
   constructor() {
@@ -149,6 +150,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
     private readonly home: () => Promise<string | undefined> = async () => undefined,
     private readonly writers: Map<string, LiveLaneWriter> = CodexAppServerLaneAdapter.createWriterRegistry(),
+    private readonly writeDacPreflight: Pick<CodexLaneWriteDacPreflight, 'check'> = new CodexLaneWriteDacPreflight(logger),
   ) {}
 
   capabilities(): AgentMessagingCapabilities { return { steer: false, interrupt: false, continuation: true }; }
@@ -242,6 +244,14 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     });
     if (profile.consumer !== 'lane')
       throw new Error('Codex lane profile selected another consumer');
+    // The WRITE_DAC probe runs in parallel with the runtime startup. openContext
+    // waits for its outcome before it persists an identity or starts a turn.
+    // The rejection is captured as a value, so an early startup failure cannot
+    // leave it unhandled.
+    const writeDacDenial = this.writeDacPreflight
+      .check(resolved.lane.config.workingDirectory, profile.sandboxPolicy.mode)
+      .then((): Error | undefined => undefined,
+        (error: unknown) => error instanceof Error ? error : new Error('Codex WRITE_DAC check failed'));
     const resume = await this.resumeIdentity(options.resumeSessionId, profile);
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();
@@ -344,6 +354,13 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       if (abort.signal.aborted) {
         await closeContext(context);
         throw new Error('Codex lane aborted during startup');
+      }
+      const denial = await writeDacDenial;
+      if (denial !== undefined) {
+        const denied = context;
+        context = undefined;
+        await closeContext(denied);
+        throw denial;
       }
       const openedIdentity = identitySchema.safeParse(context.identity);
       if (!openedIdentity.success ||

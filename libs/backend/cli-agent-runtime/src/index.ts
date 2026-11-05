@@ -50,6 +50,10 @@ export {
   CodexAppServerLaneAdapter,
   CodexLaneResumeIdentityError,
 } from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter';
+export {
+  CodexLaneWriteDacDeniedError,
+  CodexLaneWriteDacPreflight,
+} from './lib/cli-agents/cli-adapters/codex/codex-lane-write-dac-preflight';
 export type {
   CodexLaneRuntimeProvider,
   CodexLaneProfileResolver,
