@@ -2918,6 +2918,44 @@ describe('SessionLoaderService', () => {
       expect(harness.applyResumeFailure).toHaveBeenCalledTimes(1);
     });
 
+    it('delivers the live snapshot when unavailable history skips a resync', async () => {
+      const harness = makeChunkedService();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+        : { success: true, data: {} });
+      await harness.service.switchSession(SESSION);
+      const apply = jest.fn();
+      const events = historyEvents(1);
+      await harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+        liveSeed: { events, apply },
+      });
+      expect(apply).toHaveBeenCalledWith(events);
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:resume')).toHaveLength(1);
+    });
+
+    it('ignores an unavailable reply from an older overlapping resync', async () => {
+      const harness = makeChunkedService();
+      let finishOld: ((value: unknown) => void) | undefined;
+      let resumes = 0;
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'session:load') return Promise.resolve({ success: true, data: {} });
+        resumes++;
+        return resumes === 1
+          ? new Promise<unknown>((resolve) => { finishOld = resolve; })
+          : Promise.resolve({ success: true, data: { events: historyEvents(1), stats: null } });
+      });
+      const old = harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      await until(() => finishOld !== undefined);
+      const current = harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      await expect(current).resolves.toEqual({ staleSnapshot: false });
+      finishOld?.({ success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } });
+      await expect(old).resolves.toEqual({ staleSnapshot: false });
+      expect(harness.service.unavailableSessions().has(SESSION)).toBe(false);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+    });
+
     it('suppresses background resync and rechecks an explicit open after cooldown', async () => {
       jest.useFakeTimers();
       try {

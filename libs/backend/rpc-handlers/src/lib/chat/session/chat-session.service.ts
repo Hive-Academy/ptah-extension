@@ -1958,11 +1958,14 @@ export class ChatSessionService {
         let present = false;
         let unreadable = false;
         try {
-          present = await this.fileSystemProvider.exists(savedFolder);
+          await this.fileSystemProvider.stat(savedFolder);
+          present = true;
         } catch (error: unknown) {
           // degradation-audit: reported - logged here; an unreadable folder is
           // refused like a missing one, but marked retryable (it may recover).
-          unreadable = true;
+          const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+          unreadable = code !== 'ENOENT' && code !== 'ENOTDIR' &&
+            code !== 'FileNotFound' && code !== 'NotADirectory';
           this.logger.warn('[ChatSessionService] could not check the saved working directory', {
             sessionId,
             error: error instanceof Error ? error.message : String(error),

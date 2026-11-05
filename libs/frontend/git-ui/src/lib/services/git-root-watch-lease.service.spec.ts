@@ -68,6 +68,20 @@ describe('GitRootWatchLeaseService', () => {
     );
   });
 
+  it('sends the latest roots after an active request settles', async () => {
+    let settle: ((value: { success: boolean; data: { watched: string[]; rejected: string[]; evicted: string[] } }) => void) | undefined;
+    mockRpcCall.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
+    service.update(['/wt/a']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
+    settle?.({ success: true, data: { watched: ['/wt/a'], rejected: [], evicted: [] } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sentRoots()).toEqual([['/wt/a'], ['/wt/b']]);
+  });
+
   it('retries once after failure with the latest desired roots', async () => {
     mockRpcCall.mockResolvedValueOnce({ success: false, error: 'RPC timeout' });
     service.update(['/wt/a']);

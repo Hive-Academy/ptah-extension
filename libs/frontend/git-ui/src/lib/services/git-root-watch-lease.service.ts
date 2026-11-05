@@ -58,6 +58,8 @@ export class GitRootWatchLeaseService {
   private failureDelay = WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private sending = false;
+  /** A flush arrived while an RPC was in flight; send the latest set after it. */
+  private flushAfterSend = false;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.dispose());
@@ -109,7 +111,11 @@ export class GitRootWatchLeaseService {
    * always sends, because renewing is what keeps the lease alive.
    */
   private async send(roots: readonly string[], renew: boolean): Promise<void> {
-    if (this.destroyed || this.sending || Date.now() < this.failureUntil) return;
+    if (this.destroyed || Date.now() < this.failureUntil) return;
+    if (this.sending) {
+      if (!renew) this.flushAfterSend = true;
+      return;
+    }
     const key = roots.map((root) => normalizeWorkspaceRoot(root)).join('\n');
     if (!renew && key === this.sentKey) return;
     this.sending = true;
@@ -149,6 +155,12 @@ export class GitRootWatchLeaseService {
       this.backoff();
     } finally {
       this.sending = false;
+      // Only a set that changed while this RPC was in flight is sent again;
+      // a root the backend just rejected is not a reason to resend.
+      if (this.flushAfterSend && !this.destroyed) {
+        this.flushAfterSend = false;
+        if (Date.now() >= this.failureUntil) this.flush();
+      }
     }
   }
 

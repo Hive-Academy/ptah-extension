@@ -196,7 +196,8 @@ export class SessionRpcHandlers {
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly reportedCorruptSessionIds = new Set<string>();
-  private pendingSessionList: { key: string; promise: Promise<SessionListResult> } | null = null;
+  private readonly pendingSessionList = new Map<string, Promise<SessionListResult>>();
+  private static readonly MAX_PENDING_SESSION_LISTS = 64;
 
   /** `session:list` message counts, read from the page's transcripts. */
   private readonly messageCounter: SessionMessageCounter;
@@ -459,12 +460,15 @@ export class SessionRpcHandlers {
           since: params.since,
           query: this.parseSessionListQuery(params),
         });
-        if (this.pendingSessionList?.key === key) return this.pendingSessionList.promise;
+        const existing = this.pendingSessionList.get(key);
+        if (existing) return existing;
         const pending = this.executeSessionList(params);
-        this.pendingSessionList = { key, promise: pending };
+        if (this.pendingSessionList.size < SessionRpcHandlers.MAX_PENDING_SESSION_LISTS) {
+          this.pendingSessionList.set(key, pending);
+        }
         void pending.then(
-          () => { if (this.pendingSessionList?.promise === pending) this.pendingSessionList = null; },
-          () => { if (this.pendingSessionList?.promise === pending) this.pendingSessionList = null; },
+          () => { if (this.pendingSessionList.get(key) === pending) this.pendingSessionList.delete(key); },
+          () => { if (this.pendingSessionList.get(key) === pending) this.pendingSessionList.delete(key); },
         );
         return pending;
       },

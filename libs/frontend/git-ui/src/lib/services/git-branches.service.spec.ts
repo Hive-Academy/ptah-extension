@@ -480,6 +480,7 @@ describe('GitBranchesService (TASK_2026_111)', () => {
           expect.anything(),
           'git:branches',
           expect.anything(),
+          expect.any(Number),
         );
       } finally {
         jest.useRealTimers();

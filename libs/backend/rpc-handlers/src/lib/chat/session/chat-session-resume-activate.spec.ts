@@ -262,7 +262,11 @@ function makeService(params: {
     undefined,
     undefined,
     { ...createFakeDriverLockCoordinator(), ...params.driverLock } as never,
-    { exists: params.fileExists ?? jest.fn().mockResolvedValue(true) } as never,
+    { stat: async (path: string) => {
+      const result = await (params.fileExists ?? jest.fn().mockResolvedValue(true))(path);
+      if (!result) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return { type: 2 };
+    } } as never,
   );
 }
 
@@ -1017,6 +1021,25 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
       errorCode: 'SESSION_FOLDER_UNAVAILABLE',
     });
     expect(readSessionHistory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing', Object.assign(new Error('missing'), { code: 'ENOENT' }), false],
+    ['not a directory', Object.assign(new Error('parent is file'), { code: 'ENOTDIR' }), false],
+    ['permission', Object.assign(new Error('denied'), { code: 'EACCES' }), undefined],
+    ['transient I/O', Object.assign(new Error('I/O'), { code: 'EIO' }), undefined],
+  ])('classifies saved folder %s without losing retryability', async (_label, failure, retryable) => {
+    const svc = makeService({
+      metadata: { workingDirectory: '/saved/worktree' },
+      fileExists: jest.fn().mockRejectedValue(failure),
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    });
+    expect(result).toMatchObject({ success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' });
+    expect(result.retryable).toBe(retryable);
   });
 
   it('keeps legacy metadata behavior when continuity fields are absent', async () => {

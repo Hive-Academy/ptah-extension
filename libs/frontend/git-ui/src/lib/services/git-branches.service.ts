@@ -669,7 +669,7 @@ export class GitBranchesService implements MessageHandler {
     key: string,
   ): Promise<T | null> {
     try {
-      const response = await rpcCall<T>(this.vscodeService, method, params);
+      const response = await rpcCall<T>(this.vscodeService, method, params, 75_000);
       if (response.success && response.data !== undefined) {
         this.readBackoffUntil.delete(key);
         return response.data;

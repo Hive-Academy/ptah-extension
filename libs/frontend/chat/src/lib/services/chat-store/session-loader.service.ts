@@ -859,6 +859,13 @@ export class SessionLoaderService {
     const unavailableUntil = this.unavailableSessionUntil.get(sessionId) ?? 0;
     if (unavailableUntil > Date.now() ||
         (opts?.reason === 'resync' && this.unavailableSessions().has(sessionId))) {
+      if (opts?.reason === 'resync' && opts.targetTabId && opts.liveSeed) {
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(opts.targetTabId)?.tab;
+        if (tab?.claudeSessionId === sessionId &&
+            !this.historyReplayer.isReplaying(opts.targetTabId)) {
+          opts.liveSeed.apply(opts.liveSeed.events);
+        }
+      }
       return { staleSnapshot: false };
     }
     const targetTabId = opts?.targetTabId;
@@ -1035,6 +1042,10 @@ export class SessionLoaderService {
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );
+      if (targetTabId) this.requireTargetTab(sessionId, targetTabId);
+      if (replayClaim && !this.historyReplayer.isCurrent(replayClaim)) {
+        return { staleSnapshot: false };
+      }
       if (resumeResult.data?.errorCode === 'SESSION_FOLDER_UNAVAILABLE') {
         this.unavailableSessionUntil.delete(sessionId);
         this.unavailableSessionUntil.set(sessionId, Date.now() + SessionLoaderService.UNAVAILABLE_SESSION_RECHECK_MS);

@@ -2750,6 +2750,7 @@ export class GitInfoService {
 
   /** Map a thrown spawn/timeout failure onto a read error code. */
   private classifyExecError(error: unknown): GitReadErrorCode {
+    if (error instanceof GitQueueDeadlineError || error instanceof GitTimeoutError) return 'timeout';
     if (!(error instanceof Error)) return 'unknown';
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return 'git-missing';
