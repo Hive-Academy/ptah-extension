@@ -16,7 +16,7 @@ import type { AcpSpawnOptions } from './acp-process-transport';
 import * as loader from './acp-sdk-loader';
 import {
   ACP_CANCEL_GRACE_MS,
-  ACP_HANDSHAKE_TIMEOUT_MS,
+  ACP_HANDSHAKE_TIMEOUTS_MS,
   createAcpSessionHandle,
 } from './acp-session-handle';
 import {
@@ -1007,7 +1007,7 @@ describe('createAcpSessionHandle — error rows', () => {
 });
 
 describe('createAcpSessionHandle — handshake timeout', () => {
-  it('fails the turn and kills the agent after 30 s without a handshake', async () => {
+  it('fails the turn and kills the agent when initialize overruns its deadline', async () => {
     jest.useFakeTimers({
       doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
     });
@@ -1016,11 +1016,38 @@ describe('createAcpSessionHandle — handshake timeout', () => {
     });
     await h.agent.next(byMethod('initialize'));
 
-    await jest.advanceTimersByTimeAsync(ACP_HANDSHAKE_TIMEOUT_MS);
+    await jest.advanceTimersByTimeAsync(ACP_HANDSHAKE_TIMEOUTS_MS.initialize);
 
     await expect(h.handle.done).resolves.toBe(1);
     expect(h.errors()).toEqual([
-      `${NAME} did not complete the ACP handshake in 30 s`,
+      `${NAME} did not complete the ACP handshake (initialize) in 45 s`,
+    ]);
+    expect(h.transport.killCount).toBe(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('gives session setup its own deadline after initialize answers', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
+    });
+    const h = start({
+      script: (agent) => agent.handle('session/new', () => ({ hold: true })),
+    });
+    await h.agent.next(byMethod('session/new'));
+
+    // Past the initialize budget, the session phase still runs: a slow MCP
+    // connect under load must not fail the lane at the old 30 s mark.
+    await jest.advanceTimersByTimeAsync(ACP_HANDSHAKE_TIMEOUTS_MS.initialize);
+    expect(h.errors()).toEqual([]);
+    expect(h.transport.killCount).toBe(0);
+
+    await jest.advanceTimersByTimeAsync(
+      ACP_HANDSHAKE_TIMEOUTS_MS.session - ACP_HANDSHAKE_TIMEOUTS_MS.initialize,
+    );
+
+    await expect(h.handle.done).resolves.toBe(1);
+    expect(h.errors()).toEqual([
+      `${NAME} did not complete the ACP handshake (session setup) in 90 s`,
     ]);
     expect(h.transport.killCount).toBe(1);
     expect(jest.getTimerCount()).toBe(0);

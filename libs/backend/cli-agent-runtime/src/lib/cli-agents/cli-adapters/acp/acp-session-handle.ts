@@ -8,7 +8,9 @@
  *   (Cursor/Pi convention). `done` is the first turn.
  * - The first turn runs the handshake inside it: `connectAcp` → `initialize`
  *   → `session/resume|load|new` → `session/set_config_option` (advertised ids
- *   only) → `session/prompt`. The handshake has a 30 s timeout.
+ *   only) → `session/prompt`. Each handshake phase has its own deadline
+ *   ({@link ACP_HANDSHAKE_TIMEOUTS_MS}). The spawn call does not wait for
+ *   them: the handle is already returned.
  * - `continue(message)` is a further `session/prompt` on the same session.
  * - There is no `steer` or `interrupt`: an ACP agent queues a mid-turn prompt
  *   instead of injecting it, so the message router's own queue is used.
@@ -55,8 +57,25 @@ import type {
   AcpVendorProfile,
 } from './acp-vendor-profile';
 
-/** `initialize` plus session setup must finish within this, or the turn fails. */
-export const ACP_HANDSHAKE_TIMEOUT_MS = 30_000;
+/** The two handshake phases; each one gets its own deadline. */
+export type AcpHandshakePhase = 'initialize' | 'session';
+
+/**
+ * Per-phase handshake deadlines; a phase that overruns its own fails the turn.
+ * `initialize` covers the child's start and the `initialize` reply. `session`
+ * covers `session/new` (or a resume) and the config writes. That phase is the
+ * slow one: the agent connects its MCP servers there, Ptah's own included, so
+ * a busy host or a loaded machine stretches it. One fixed 30 s budget for both
+ * failed grok lanes under load (TASK_2026_882_01ef).
+ */
+export const ACP_HANDSHAKE_TIMEOUTS_MS: Readonly<
+  Record<AcpHandshakePhase, number>
+> = { initialize: 45_000, session: 90_000 };
+
+const HANDSHAKE_PHASE_LABEL: Readonly<Record<AcpHandshakePhase, string>> = {
+  initialize: 'initialize',
+  session: 'session setup',
+};
 
 /**
  * After `session/cancel`, how long the agent gets to stop its tools and answer
@@ -209,6 +228,9 @@ export function createAcpSessionHandle(
   /** Session set up and config applied: the handle can take further prompts. */
   let setupComplete = false;
   let sentMcpServers = false;
+  let handshakePhase: AcpHandshakePhase = 'initialize';
+  /** Set while {@link withHandshakeTimeout} runs; re-arms its timer for a phase. */
+  let enterHandshakePhase: ((phase: AcpHandshakePhase) => void) | undefined;
   /** The connection closed or the process exited. */
   let closed = false;
   let mcpTimedOut = false;
@@ -586,6 +608,7 @@ export function createAcpSessionHandle(
       );
     }
 
+    enterHandshakePhase?.('session');
     const mcpServers = profile.buildMcpServers(options);
     sentMcpServers = mcpServers.length > 0;
     let restoredContext = false;
@@ -638,7 +661,11 @@ export function createAcpSessionHandle(
     return { restoredContext };
   };
 
-  /** Race the handshake against {@link ACP_HANDSHAKE_TIMEOUT_MS}; the timer is always cleared. */
+  /**
+   * Race the handshake against the deadline of its current phase
+   * ({@link ACP_HANDSHAKE_TIMEOUTS_MS}). A phase change re-arms the timer;
+   * the timer is always cleared.
+   */
   const withHandshakeTimeout = async <T>(
     work: Promise<T>,
   ): Promise<T | typeof HANDSHAKE_TIMED_OUT> => {
@@ -646,15 +673,23 @@ export function createAcpSessionHandle(
     // connection. `Promise.race` subscribes to `work` synchronously below, so
     // that late rejection is already handled and never surfaces as unhandled.
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let expire: () => void = () => undefined;
     const timeout = new Promise<typeof HANDSHAKE_TIMED_OUT>((resolve) => {
-      timer = setTimeout(
-        () => resolve(HANDSHAKE_TIMED_OUT),
-        ACP_HANDSHAKE_TIMEOUT_MS,
-      );
+      expire = () => resolve(HANDSHAKE_TIMED_OUT);
     });
+    const arm = (phase: AcpHandshakePhase): void => {
+      handshakePhase = phase;
+      clearTimeout(timer);
+      timer = setTimeout(expire, ACP_HANDSHAKE_TIMEOUTS_MS[phase]);
+    };
+    // `work` already runs: it awaits the connection before any phase change,
+    // so the first phase is armed here before `session` can replace it.
+    arm(handshakePhase);
+    enterHandshakePhase = arm;
     try {
       return await Promise.race([work, timeout]);
     } finally {
+      enterHandshakePhase = undefined;
       clearTimeout(timer);
     }
   };
@@ -741,7 +776,7 @@ export function createAcpSessionHandle(
       if (outcome === HANDSHAKE_TIMED_OUT) {
         if (!abort.signal.aborted) {
           emitError(
-            `${name} did not complete the ACP handshake in ${ACP_HANDSHAKE_TIMEOUT_MS / 1000} s`,
+            `${name} did not complete the ACP handshake (${HANDSHAKE_PHASE_LABEL[handshakePhase]}) in ${ACP_HANDSHAKE_TIMEOUTS_MS[handshakePhase] / 1000} s`,
           );
         }
         stopProcess();
