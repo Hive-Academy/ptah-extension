@@ -11,12 +11,9 @@ import {
   input,
   signal,
 } from '@angular/core';
-import {
-  ViewportAnimationConfig,
-  ViewportAnimationDirective,
-} from '@hive-academy/angular-gsap';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { generateBoltPath, seededRandom } from '../../shared/lightning-bolt';
+import { SeamBoltComponent } from '../shared/seam-bolt.component';
+import { REVEAL, bindSectionScroll, seamCharge } from '../shared/section-scroll';
 
 export interface DecisionLoopStage {
   readonly id: string;
@@ -76,7 +73,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
 @Component({
   selector: 'ptah-decision-loop-section',
   standalone: true,
-  imports: [ViewportAnimationDirective],
+  imports: [SeamBoltComponent],
   template: `
     <section
       id="decision-model-loop"
@@ -85,30 +82,31 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
     >
       <div class="loop-atmosphere" aria-hidden="true"></div>
       <div class="loop-grain" aria-hidden="true"></div>
-      <div class="hero-bridge" aria-hidden="true"></div>
+      <ptah-seam-bolt [charge]="seam()" [strike]="activeStage() + 1" [speed]="0.9" [seed]="23" />
 
       <div class="loop-shell">
-        <header
-          class="loop-header"
-          viewportAnimation
-          [viewportConfig]="headerAnimationConfig"
-        >
-          <p class="loop-eyebrow">
+        <header class="loop-header">
+          <p class="loop-eyebrow rise" [class.is-in]="revealProgress() >= reveal.eyebrow">
             <span class="cue-line" aria-hidden="true"></span>
             <span>{{ eyebrow() }}</span>
             <span class="cue-line" aria-hidden="true"></span>
           </p>
-          <h2 id="decision-loop-title" class="loop-title">
+          <h2
+            id="decision-loop-title"
+            class="loop-title rise"
+            [class.is-in]="revealProgress() >= reveal.headline"
+          >
             {{ headline() }}
           </h2>
-          <p class="loop-subline">
+          <p class="loop-subline rise" [class.is-in]="revealProgress() >= reveal.subline">
             {{ subline() }}
           </p>
         </header>
 
         <div
-          class="loop-window"
+          class="loop-window rise"
           data-loop-window
+          [class.is-in]="revealProgress() >= reveal.visual"
           [style.--loop-progress]="loopProgress()"
         >
           <div class="loop-canvas-wrap">
@@ -181,8 +179,8 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 data-forward-glow
                 [attr.d]="forwardTrackPath"
                 stroke="#f5a524"
-                stroke-opacity="0.18"
-                stroke-width="10"
+                stroke-opacity="0.1"
+                stroke-width="5"
                 stroke-linecap="round"
                 pathLength="1"
               />
@@ -190,7 +188,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 data-forward-path
                 [attr.d]="forwardTrackPath"
                 stroke="url(#decision-loop-amber)"
-                stroke-width="2.75"
+                stroke-width="2"
                 stroke-linecap="round"
                 pathLength="1"
               />
@@ -215,8 +213,8 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 data-feedback-glow
                 [attr.d]="feedbackReturnPath"
                 stroke="#f5a524"
-                stroke-opacity="0.22"
-                stroke-width="9"
+                stroke-opacity="0.12"
+                stroke-width="5"
                 stroke-linecap="round"
                 pathLength="1"
               />
@@ -224,7 +222,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 data-feedback-path
                 [attr.d]="feedbackReturnPath"
                 stroke="url(#decision-feedback-grad)"
-                stroke-width="2.5"
+                stroke-width="2"
                 stroke-linecap="round"
                 pathLength="1"
               />
@@ -314,6 +312,15 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 "
               >
                 <circle r="14" fill="#f5a524" fill-opacity="0.22" />
+                <!-- The travelling spark: a short bolt that re-jags at each stage. -->
+                <polyline
+                  [attr.points]="sparkPoints()"
+                  stroke="#ffbb4d"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
                 <circle r="6" fill="#ffbb4d" />
                 <circle r="2.5" fill="#fff9eb" />
               </g>
@@ -427,13 +434,16 @@ export class DecisionLoopSectionComponent {
     this.computeOrbCoordinates(this.loopProgress()),
   );
 
-  protected readonly headerAnimationConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.65,
-    threshold: 0.2,
-    once: true,
-    ease: 'power2.out',
-  };
+  /** Section scroll progress for the top-down header reveal; settled at 1. */
+  public readonly revealProgress = signal(1);
+  protected readonly reveal = REVEAL;
+  public readonly seam = computed(() => seamCharge(this.revealProgress()));
+  /** A short bolt through the orb, re-drawn when the active stage changes. */
+  protected readonly sparkPoints = computed(() =>
+    generateBoltPath({ x: -22, y: 0 }, { x: 22, y: 0 }, seededRandom(31 + this.activeStage()))
+      .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+      .join(' '),
+  );
 
   protected readonly perimeterTrackPath =
     'M 210 115 H 870 A 120 120 0 0 1 870 355 H 210 A 120 120 0 0 1 210 115 Z';
@@ -451,8 +461,7 @@ export class DecisionLoopSectionComponent {
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
-  private mediaContext?: ReturnType<typeof gsap.matchMedia>;
-  private loopTrigger?: ScrollTrigger;
+  private release?: () => void;
 
   public constructor() {
     if (!this.browser) return;
@@ -487,37 +496,16 @@ export class DecisionLoopSectionComponent {
 
   private initialize(): void {
     const view = this.document.defaultView;
-    const windowEl =
-      this.host.nativeElement.querySelector<HTMLElement>('[data-loop-window]');
-    if (!view || !windowEl) return;
+    const section = this.host.nativeElement.querySelector<HTMLElement>('section');
+    if (!view || !section) return;
 
-    const reducedMotion =
-      view.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (reducedMotion) {
-      this.setProgress(1);
-      return;
-    }
-
-    gsap.registerPlugin(ScrollTrigger);
-    this.mediaContext = gsap.matchMedia();
-    this.mediaContext.add('(prefers-reduced-motion: no-preference)', () => {
-      this.setProgress(0.08);
-
-      this.loopTrigger = ScrollTrigger.create({
-        trigger: windowEl,
-        start: 'top 82%',
-        end: 'bottom 38%',
-        scrub: 0.5,
-        onUpdate: (self) => {
-          this.setProgress(Math.max(0.08, self.progress));
-        },
-      });
-
-      return () => {
-        this.loopTrigger?.kill();
-        this.loopTrigger = undefined;
-        this.setProgress(1);
-      };
+    // Vertical scroll drives everything: the header rises in reading order,
+    // then the loop and its 01 -> 06 rail advance over the rest of the
+    // scroll (pinned on desktop) and settle complete before the pin ends.
+    this.release = bindSectionScroll(section, view, (progress) => {
+      this.revealProgress.set(progress);
+      const loop = (progress - REVEAL.visual) / (0.92 - REVEAL.visual);
+      this.setProgress(Math.max(0.06, loop));
     });
   }
 
@@ -581,8 +569,7 @@ export class DecisionLoopSectionComponent {
   }
 
   private cleanup(): void {
-    this.loopTrigger?.kill();
-    this.loopTrigger = undefined;
-    this.mediaContext?.revert();
+    this.release?.();
+    this.release = undefined;
   }
 }

@@ -1,0 +1,159 @@
+/* S2 "text-led": smaller clip low on the left, the copy leads on the right. */
+.va-atmosphere {
+  background:
+    radial-gradient(ellipse 40% 42% at 26% 68%, rgb(245 165 36 / 9%), transparent 72%),
+    radial-gradient(ellipse 30% 26% at 78% 24%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+.va-stage {
+  position: relative;
+  display: grid;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.va-clip {
+  position: relative;
+  order: 2;
+}
+
+.va-video {
+  position: relative;
+  z-index: 1;
+  display: block;
+  aspect-ratio: 8 / 5;
+  height: auto;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+.va-text {
+  order: 1;
+  min-width: 0;
+}
+
+/* The voice strip: a short burst of bars, then the flat hand-off line. */
+.va-voice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 2.75rem;
+  margin: clamp(1.5rem, 3vw, 2.25rem) 0 clamp(1.25rem, 2.5vw, 1.75rem);
+}
+
+.voice-bar {
+  flex: none;
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  background: #ffbb4d;
+  transform: scaleY(0.08);
+  transform-origin: 50% 50%;
+  transition: transform 0.3s ease;
+}
+
+.voice-bar.is-in {
+  transform: scaleY(var(--bar, 1));
+}
+
+.voice-handoff {
+  flex: 1;
+  max-width: 16rem;
+  height: 1px;
+  margin-left: 0.6rem;
+  background: linear-gradient(90deg, #f5a524, rgb(245 165 36 / 0%));
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.voice-handoff.is-in {
+  opacity: 1;
+}
+
+.va-points {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.va-point {
+  max-width: 44ch;
+  padding-left: 1rem;
+  border-left: 1px solid #f5a524;
+  color: #e9ebef;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.va-point.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.va-bolt {
+  position: absolute;
+  z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  /* Uneven grid: clip 47vw, a 6rem bolt gutter, the copy takes the rest. */
+  .va-stage {
+    grid-template-columns: minmax(0, min(47vw, calc(66vh * 1.6))) 6rem minmax(0, 1fr);
+    align-items: start;
+    gap: 0;
+    width: min(100%, 86rem);
+    margin: 0 auto;
+    padding-left: clamp(2.5rem, 4vw, 4.5rem);
+  }
+
+  /* Set lower than the headline: the copy leads, the clip answers. */
+  .va-clip {
+    order: 0;
+    grid-column: 1;
+    grid-row: 1;
+    margin-top: clamp(4rem, 9vh, 7rem);
+  }
+
+  .va-text {
+    order: 0;
+    grid-column: 3;
+    grid-row: 1;
+    max-width: 36rem;
+  }
+
+  /* Gutter bolt: between clip and copy, touching neither. */
+  .va-bolt-gutter {
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    position: relative;
+    align-self: stretch;
+    width: 100%;
+    min-height: 100%;
+  }
+
+  /* Outer bolt: along the clip's left edge, in the page margin. */
+  .va-bolt-outer {
+    display: block;
+    top: -10%;
+    right: calc(100% + 0.25rem);
+    width: clamp(2.25rem, 3.5vw, 4rem);
+    height: 120%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-bar,
+  .voice-handoff,
+  .va-point {
+    transition: none;
+  }
+}

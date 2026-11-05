@@ -1,6 +1,7 @@
 :host {
   display: block;
-  overflow: clip;
+  overflow-x: clip;
+  overflow-y: visible;
   color: #e9ebef;
   background: #08090c;
 }
@@ -8,7 +9,8 @@
 .decision-loop-section {
   position: relative;
   isolation: isolate;
-  overflow: clip;
+  overflow-x: clip;
+  overflow-y: visible;
   padding: clamp(4.5rem, 8vw, 7.5rem) 1.5rem clamp(5rem, 9vw, 8rem);
   background: #08090c;
   border-top: 1px solid #262a33;
@@ -38,17 +40,7 @@
   );
 }
 
-.hero-bridge {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 1px;
-  height: clamp(2.5rem, 5vw, 4rem);
-  transform: translateX(-50%);
-  background: linear-gradient(180deg, #ffbb4d, rgb(245 165 36 / 0%));
-  opacity: 0.75;
-  pointer-events: none;
-}
+
 
 .loop-shell {
   width: min(100%, 68rem);
@@ -412,5 +404,39 @@
     .loop-stage.is-active {
       transform: translate(-50%, -50%);
     }
+  }
+}
+
+/* Top-down reveal driven by the section's vertical scroll progress. */
+.rise {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s ease;
+}
+
+.rise.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* The stage the loop reaches is struck once. */
+.loop-stage.is-active {
+  animation: stage-strike 0.5s ease-out 1;
+}
+
+@keyframes stage-strike {
+  0% { border-color: #fff9eb; box-shadow: 0 0 0 1px #fff9eb, 0 0 30px rgb(255 187 77 / 55%); }
+  100% { border-color: #ffbb4d; box-shadow: 0 12px 32px rgb(0 0 0 / 50%), 0 0 24px rgb(245 165 36 / 22%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-stage.is-active {
+    animation: none;
+  }
+
+  .rise {
+    transition: none;
   }
 }

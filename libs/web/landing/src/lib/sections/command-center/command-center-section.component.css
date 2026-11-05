@@ -1,0 +1,158 @@
+/* S1 "rail and bleed": clip on the right page edge, rail over its left edge. */
+.cc-atmosphere {
+  background:
+    radial-gradient(ellipse 55% 45% at 72% 64%, rgb(245 165 36 / 9%), transparent 74%),
+    radial-gradient(ellipse 26% 30% at 12% 22%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+.cc-head {
+  width: min(100%, 38rem);
+  margin: 0 0 clamp(2rem, 4vw, 3rem);
+}
+
+.cc-stage {
+  position: relative;
+}
+
+.cc-clip {
+  position: relative;
+}
+
+.cc-video {
+  position: relative;
+  z-index: 1;
+  display: block;
+  aspect-ratio: 8 / 5;
+  height: auto;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+/* The rail: twenty ticks, nine running, then the three tiles. */
+.cc-rail {
+  position: relative;
+  z-index: 3;
+  margin-top: 1.25rem;
+}
+
+.rail-ticks {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0.9rem;
+}
+
+.rail-tick {
+  flex: 1;
+  max-width: 1.1rem;
+  height: 3px;
+  border-radius: 1px;
+  background: #262a33;
+  transition: background-color 0.25s ease;
+}
+
+.rail-tick.is-running {
+  background: #f5a524;
+}
+
+.rail-tiles {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A tile in the window colour with a hairline and an amber status edge. */
+.rail-tile {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem 0.8rem 0.9rem;
+  border: 1px solid #262a33;
+  border-left: 2px solid #f5a524;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #0e1015;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(1rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.rail-tile.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.tile-mark {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ffbb4d;
+  transform: translateY(-0.1rem);
+}
+
+.cc-bolt {
+  position: absolute;
+  z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .cc-head {
+    margin-left: clamp(0rem, 3vw, 3rem);
+  }
+
+  /*
+   * Anchor the clip to the right page edge: its negative margin undoes the
+   * frame's 1.5rem padding (set on the clip, not the pinned stage, because the
+   * pin moves the stage's margins onto its spacer).
+   */
+  .cc-clip {
+    --clip-radius: 0.5rem 0 0 0.5rem;
+    --clip-border-right: 0;
+    width: min(76vw, calc(100vw - 22rem), calc(80vh * 1.6));
+    margin-right: -1.5rem;
+    margin-left: auto;
+  }
+
+  /* The rail overlaps the clip's left edge by 4rem and sits on its lower half. */
+  .cc-rail {
+    position: absolute;
+    right: calc(100% - 4rem);
+    bottom: 8%;
+    width: 21rem;
+    margin: 0;
+  }
+
+  /* Left of the clip, outside the picture, behind the rail tiles. */
+  .cc-bolt-edge {
+    display: block;
+    top: -6%;
+    right: calc(100% + 0.5rem);
+    width: 4rem;
+    height: 112%;
+  }
+
+  /* Under the clip, running off the right page edge with it. */
+  .cc-bolt-floor {
+    display: block;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    left: 14%;
+    height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-tile,
+  .rail-tick {
+    transition: none;
+  }
+}

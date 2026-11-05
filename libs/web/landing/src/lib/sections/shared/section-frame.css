@@ -1,0 +1,49 @@
+/*
+ * Section frame shared by the sections below the hero. Same tokens as the
+ * decision-loop pilot: ink #08090c, window #0e1015, hairline #262a33,
+ * amber #f5a524 / #ffbb4d, core #fff9eb.
+ */
+:host {
+  display: block;
+  /* Clip sideways only: the seam bolt reaches up into the section above. */
+  overflow-x: clip;
+  overflow-y: visible;
+  color: #e9ebef;
+  background: #08090c;
+}
+
+.section-frame {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  overflow-y: visible;
+  padding: clamp(4.5rem, 8vw, 7.5rem) 1.5rem clamp(5rem, 9vw, 8rem);
+  background: #08090c;
+  border-top: 1px solid #262a33;
+}
+
+.frame-atmosphere {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  pointer-events: none;
+}
+
+.frame-grain {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.14;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 2px,
+    rgb(255 255 255 / 10%) 3px,
+    transparent 4px
+  );
+}
+
+.frame-shell {
+  width: min(100%, 68rem);
+  margin: 0 auto;
+}

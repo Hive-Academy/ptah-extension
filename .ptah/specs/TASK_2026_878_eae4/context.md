@@ -41,6 +41,16 @@ Equal priority with the README refresh (TASK_2026_877_85fa).
 - Source of truth for claims: analysis § Landing page plan, § Positioning pillars, § Claims to
   verify. Unverified claims stay out.
 
+## User decisions (later, 2026-11-04)
+
+- agy at limit → Claude (in-process frontend subagents) designs and builds; codex reviews.
+- Live-demo clips MOVE OUT of the hero into the sections (each clip used once, framed console).
+- Hero: keep headline/CTAs, scroll-fade animations and lightning; REMOVE the video rail
+  completely (approved removal by the owner). No new hero concept.
+- One page-wide motion theme built on the hero lightning; all section motion is vertical and
+  scroll-scrubbed in reading order, with a settled final state (owner feedback: horizontal
+  play-on-enter animations finish before the message lands).
+
 ## Pilot race (decision-loop section)
 
 - codex pilot: `.claude-worktrees/landing-pilot-codex` (66 lines; no awwwards MCP in Ptah codex lanes;
@@ -49,3 +59,16 @@ Equal priority with the README refresh (TASK_2026_877_85fa).
   Lane hit a usage limit mid-run: antigravity RESOURCE_EXHAUSTED 429, reset in ~164 h
   (about 2026-11-11). Skip antigravity for the rest of this run.
 - Comparison shots: `pilot-compare/`.
+
+## Owner feedback round 2 (after Phase 1 build)
+
+- Design language (tokens, type, framed console, amber) is GOOD: keep it.
+- Sections are NOT unique: each must have its own layout and visual idea, not one shared template.
+- Video sections are too symmetric: use asymmetric compositions (offset clip, off-centre text,
+  overlap, different clip side/size per section).
+- Lightning is too intense and looks blurred: make it thinner, crisper, less glow/bloom.
+- Lightning must be PERIODIC: short strikes with dark idle gaps, not a constant glow.
+- Fix also done: hero TITLE_GONE/TITLE_INERT were > 1 (never reached); now 0.9 / 0.95.
+- Replace the small seam bolt at the start of each section with TWO bolts that flank the
+  section video (one each side, or a placement that fits the section's new layout). Same
+  periodic, crisp lightning; the two strike at different times; never over video or text.

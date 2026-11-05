@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SeoService } from '@ptah-web/core';
 import { NavigationComponent } from '@ptah-web/ui';
 import { ComparisonSectionComponent } from './sections/comparison/comparison-section.component';
+import { CommandCenterSectionComponent } from './sections/command-center/command-center-section.component';
 import { CTASectionComponent } from './sections/cta/cta-section.component';
 import { DecisionLoopSectionComponent } from './sections/decision-loop/decision-loop-section.component';
 import { FooterComponent } from '@ptah-web/ui';
@@ -9,6 +10,8 @@ import { HeroComponent } from './sections/hero/hero.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
 import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
+import { TribunalSectionComponent } from './sections/tribunal/tribunal-section.component';
+import { VoiceAndAppsSectionComponent } from './sections/voice-and-apps/voice-and-apps-section.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -16,7 +19,10 @@ import { ProviderStripComponent } from './sections/provider-strip/provider-strip
   imports: [
     NavigationComponent,
     HeroComponent,
+    CommandCenterSectionComponent,
+    VoiceAndAppsSectionComponent,
     DecisionLoopSectionComponent,
+    TribunalSectionComponent,
     ProblemSectionComponent,
     PillarsSpineComponent,
     ProviderStripComponent,
@@ -30,7 +36,10 @@ import { ProviderStripComponent } from './sections/provider-strip/provider-strip
 
       <main>
         <ptah-hero />
+        <ptah-command-center-section />
+        <ptah-voice-and-apps-section />
         <ptah-decision-loop-section />
+        <ptah-tribunal-section />
         <ptah-problem-section />
 
         <!--

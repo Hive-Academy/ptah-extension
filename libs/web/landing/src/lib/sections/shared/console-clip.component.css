@@ -1,0 +1,70 @@
+:host {
+  display: block;
+  min-width: 0;
+  height: 100%;
+}
+
+/* Same window as the hero .story-window and the pilot .loop-window. */
+.clip-window {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  height: 100%;
+  border: 1px solid #262a33;
+  /* A host section may square one side, e.g. a clip that runs off the page edge. */
+  border-right-width: var(--clip-border-right, 1px);
+  border-radius: var(--clip-radius, 0.5rem);
+  background: #0e1015;
+  box-shadow:
+    0 2rem 6rem rgb(0 0 0 / 65%),
+    0 0 4rem rgb(245 165 36 / 10%);
+}
+
+.clip-window::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent 8%, rgb(255 187 77 / 45%) 50%, transparent 92%);
+  pointer-events: none;
+}
+
+.clip-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #08090c;
+}
+
+.clip-toggle {
+  position: absolute;
+  z-index: 3;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(8 9 12 / 75%);
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.clip-toggle[hidden] {
+  display: none;
+}
+
+.clip-toggle:hover {
+  background: #08090c;
+}
+
+.clip-toggle:focus-visible {
+  outline: 3px solid #ffbb4d;
+  outline-offset: 4px;
+}
