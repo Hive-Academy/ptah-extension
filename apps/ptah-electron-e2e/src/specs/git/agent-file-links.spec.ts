@@ -21,10 +21,9 @@ import {
  * same `chat:chunk` seam `empty-assistant-envelope.spec.ts` uses, and asserts
  * on the observed RPC calls plus the window's own URL.
  *
- * TASK_2026_576 Batch 61: the destination is the review shell's spot editor
- * (CodeMirror, read-only, in the Changes tab), not a Monaco file tab. The window
- * is asserted, never resized: the default (1200x800) is the geometry the
- * feature is designed at.
+ * Code files open the review shell's read-only spot editor. Markdown files
+ * open in the docked display panel. The window is asserted, never resized:
+ * the default (1200x800) is the geometry the feature is designed at.
  */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
@@ -131,7 +130,7 @@ const FILE_VIEW_CONTENT = `(params) => {
 }`;
 
 test.describe('agent file links', () => {
-  test('an agent markdown link opens the read-only spot editor of the review shell without navigating the window', async ({
+  test('agent code and markdown links open their respective docks without navigating the window', async ({
     electronApp,
     mainWindow,
     ui,
@@ -244,19 +243,25 @@ test.describe('agent file links', () => {
     expect(mainWindow.url()).toBe(urlBefore);
 
     // ---------------------------------------------------------------------
-    // 3. `b` is markdown: preview first, and Source reveals the editor (AC 23).
+    // 3. `b` is markdown: it opens as the selected display-panel file.
     // ---------------------------------------------------------------------
     await bubble.getByRole('link', { name: 'b', exact: true }).click();
     await expect(
-      editor.locator('[data-testid="spot-editor-preview-body"]'),
+      mainWindow.locator('[data-testid="display-sheet-region"]'),
+    ).toBeVisible();
+    const displayPanel = mainWindow.locator('ptah-display-panel');
+    await expect(displayPanel).toBeVisible();
+    const markdownTab = displayPanel.locator('[data-testid="display-panel-tab"]', {
+      hasText: 'readme.md',
+    });
+    await expect(markdownTab).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      displayPanel.locator('[data-testid="display-panel-tabpanel"]:visible ptah-display-file-viewer'),
     ).toContainText('Rendered preview');
-    const sourceButton = editor.locator('[data-testid="spot-editor-source"]');
-    await expect(sourceButton).toHaveAttribute('aria-pressed', 'false');
-    await sourceButton.click();
-    await expect(sourceButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(spotEditorContent(mainWindow)).toContainText(
-      '# Rendered preview',
-    );
+    await expect(
+      displayPanel.locator('[data-testid="display-panel-tabpanel"]:visible ptah-display-file-viewer'),
+    ).toContainText('Safe markdown body.');
+    expect(mainWindow.url()).toBe(urlBefore);
 
     // ---------------------------------------------------------------------
     // 4. The http link is left alone — no read, no navigation (AC 20).
