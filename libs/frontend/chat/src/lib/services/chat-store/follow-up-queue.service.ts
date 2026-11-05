@@ -253,17 +253,26 @@ export class FollowUpQueueService {
     }
   }
 
-  /** "Send now" is offered only for a Codex session (`turn/steer`). Reactive. */
+  /** Send now is available for Codex steering and Claude interruption. */
   canSendNow(tabId: string): boolean {
-    const tab = this.findTab(tabId);
-    if (!tab?.claudeSessionId) return false;
-    const providerId = tab.providerId ?? this.authState.activeProviderId();
-    return providerId === CODEX_PROVIDER_ID;
+    return !!this.findTab(tabId)?.claudeSessionId;
   }
 
   /**
-   * Codex only: move a queued item into the running turn. On `TURN_CHANGED`
-   * it stays queued with a short note.
+   * Every non-Codex chat session runs on the Claude Agent SDK, whose
+   * "Send now" is interrupt-and-send. The active provider id for Claude is
+   * `anthropic` (AuthStateService.activeProviderId), so do not match a
+   * Claude-specific id here; the backend refuses an unsupported session.
+   */
+  isClaudeSession(tabId: string): boolean {
+    const tab = this.findTab(tabId);
+    return !!tab?.claudeSessionId &&
+      (tab.providerId ?? this.authState.activeProviderId()) !== CODEX_PROVIDER_ID;
+  }
+
+  /**
+   * Codex steers immediately; Claude waits for the promoted turn's delivered
+   * event. A refused action leaves the item queued with a short note.
    */
   async sendNow(ref: QueuedFollowUpRef): Promise<void> {
     const entry = this.store.get(ref.clientMessageId);
@@ -278,12 +287,17 @@ export class FollowUpQueueService {
       });
       const data = result.success ? result.data : undefined;
       if (!data) return this.noteFor(entry, NOTE.steerFailed);
-      if (data.ok) return this.deliver(entry.clientMessageId, 'steered');
+      if (data.ok) {
+        if (!data.mode) this.deliver(entry.clientMessageId, 'steered');
+        return;
+      }
       switch (data.code) {
         case 'TURN_CHANGED':
           return this.noteFor(entry, NOTE.turnChanged);
         case 'UNSUPPORTED':
           return this.noteFor(entry, NOTE.unsupported);
+        case 'INTERRUPT_FAILED':
+          return this.noteFor(entry, NOTE.steerFailed);
         case 'SESSION_ENDED':
           return this.noteFor(entry, NOTE.sessionEnded);
         case 'NOT_QUEUED':

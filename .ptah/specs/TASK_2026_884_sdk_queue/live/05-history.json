@@ -1,19 +1,19 @@
 [
   {
     "role": "user",
-    "text": "12:09 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
+    "text": "12:50 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:10 AMWorked1 toolCommand succeededBashSleep for 25 seconds"
+    "text": "Ptah12:50 AMWorked2 toolsCommand succeededBashSleep for 25 secondsThe harness blocked the foreground sleep 25. I'll run the same command in the background, whic"
   },
   {
     "role": "user",
-    "text": "12:10 AM You Reply with exactly: FOLLOWUP-ONE"
+    "text": "12:51 AM You Reply with exactly: FOLLOWUP-ONE"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:10 AMWorked for 5s1 toolThe harness blocked a foreground sleep. It suggests running it in the background instead, so I'll do that. Command startedBashSle"
+    "text": "Ptah12:51 AMThe 25-second sleep is running in the background. I'll reply with FIRST-DONE once it completes."
   },
   {
     "role": "assistant",

@@ -36,6 +36,7 @@ import type {
   InlineImageAttachment,
   QueuedFollowUpSnapshot,
   QueuedFollowUpStateChange,
+  SteerQueuedFollowUpResult,
 } from '@ptah-extension/shared';
 
 import { SdkError, SessionAdmissionRefusedError } from '../../errors';
@@ -110,6 +111,44 @@ export class SessionStreamPump {
       state: 'withdrawn',
     });
     return true;
+  }
+
+  async steerQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+    interrupt: () => Promise<boolean>,
+  ): Promise<SteerQueuedFollowUpResult> {
+    const record = this.registry.find(sessionId as string);
+    if (!record || record.abortController.signal.aborted)
+      return { ok: false, code: 'SESSION_ENDED' };
+    const index = record.messageQueue.findIndex(
+      (turn) => turn.followUp?.clientMessageId === clientMessageId &&
+        turn.recordToken === record.token,
+    );
+    if (index < 0) return { ok: false, code: 'NOT_QUEUED' };
+    if (record.promotingFollowUpId) return { ok: false, code: 'TURN_CHANGED' };
+    const [turn] = record.messageQueue.splice(index, 1);
+    record.messageQueue.unshift(turn);
+    if (!record.turnInFlight) {
+      record.resolveNext?.();
+      record.resolveNext = null;
+      return { ok: true, mode: 'admitted' };
+    }
+    record.promotingFollowUpId = clientMessageId;
+    try {
+      const interrupted = await interrupt();
+      if (!interrupted) {
+        const currentIndex = record.messageQueue.indexOf(turn);
+        if (currentIndex >= 0) {
+          record.messageQueue.splice(currentIndex, 1);
+          record.messageQueue.splice(index, 0, turn);
+        }
+        return { ok: false, code: 'INTERRUPT_FAILED' };
+      }
+      return { ok: true, mode: 'interrupt' };
+    } finally {
+      record.promotingFollowUpId = null;
+    }
   }
 
   private emit(change: QueuedFollowUpStateChange): void {

@@ -37,7 +37,7 @@ const PREVIEW_LENGTH = 100;
       >
         <ul class="flex flex-col gap-1 py-2">
           @for (item of items(); track item.clientMessageId) {
-            <li class="flex items-start gap-2 text-xs">
+            <li class="flex items-start gap-2 text-xs" data-testid="queued-follow-up-item">
               <lucide-angular
                 [img]="ClockIcon"
                 class="w-3.5 h-3.5 mt-0.5 text-primary flex-shrink-0"
@@ -56,12 +56,12 @@ const PREVIEW_LENGTH = 100;
                 <button
                   type="button"
                   class="btn btn-ghost btn-xs"
-                  data-testid="queued-send-now"
+                  data-testid="queued-follow-up-send-now"
                   [disabled]="pending().has(item.clientMessageId)"
-                  [attr.aria-label]="'Send now: ' + preview(item.content)"
+                  [attr.aria-label]="(isClaude() ? 'Interrupt and send: ' : 'Send now: ') + preview(item.content)"
                   (click)="sendNow(item)"
                 >
-                  Send now
+                  {{ isClaude() ? 'Interrupt & send' : 'Send now' }}
                 </button>
               }
               <button
@@ -108,6 +108,10 @@ export class QueuedFollowUpsComponent {
   protected readonly sendNowAvailable = computed(() => {
     const tabId = this.tabId();
     return tabId !== null && this.followUps.canSendNow(tabId);
+  });
+  protected readonly isClaude = computed(() => {
+    const tabId = this.tabId();
+    return tabId !== null && this.followUps.isClaudeSession(tabId);
   });
 
   constructor() {

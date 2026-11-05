@@ -16,6 +16,8 @@ const SHOTS = path.join(ROOT, '.ptah/specs/TASK_2026_884_sdk_queue/live');
 const COUNT = 'Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE';
 const ONE = 'Reply with exactly: FOLLOWUP-ONE';
 const TWO = 'Reply with exactly: FOLLOWUP-TWO';
+const QUEUED_A = 'Reply with exactly: QUEUED-A';
+const PROMOTED_B = 'Reply with exactly: PROMOTED-B';
 const COMPOSER = 'ptah-chat-input textarea[role="combobox"]:visible';
 const SEND = '[data-testid="chat-send-btn"]:visible';
 const STOP = '[data-testid="chat-stop-btn"]:visible';
@@ -196,6 +198,39 @@ test('@live backend follow-up queue delivers to a hidden tab and restores on Sto
       { timeout: 120_000, intervals: [1_000, 2_000] }).toBe(true);
     await assertOrder(page, TWO, 'FOLLOWUP-TWO', '10');
     await shot(page, '10-restored-message-sent');
+
+    // Scenario C: Claude "Interrupt & send" promotes one queued item ahead of the others.
+    await newTab(page);
+    await selectHaiku(page);
+    await send(page, COUNT);
+    await expect(page.locator(STOP).first()).toBeVisible();
+    await send(page, QUEUED_A);
+    await send(page, PROMOTED_B);
+    const items = page.locator('[data-testid="queued-follow-up-item"]:visible');
+    await expect(items).toHaveCount(2);
+    await shot(page, '11a-two-items-waiting');
+    // Items stay local ("Waiting to queue") until the backend session exists.
+    await expect(items.filter({ hasText: 'PROMOTED-B' })).toContainText('Queued for the next turn', { timeout: 60_000 });
+    await shot(page, '11-two-items-queued');
+    const promote = items.filter({ hasText: 'PROMOTED-B' }).locator('[data-testid="queued-follow-up-send-now"]');
+    await expect(promote).toHaveText(/Interrupt & send/i);
+    await promote.click();
+    await shot(page, '12-interrupt-and-send-clicked');
+    await expect.poll(async () => {
+      const entries = await history(page, '13');
+      const texts = entries.map((entry) => `${entry.role}:${entry.text}`);
+      const b = texts.findIndex((t) => t.startsWith('assistant:') && t.includes('PROMOTED-B'));
+      const a = texts.findIndex((t) => t.startsWith('assistant:') && t.includes('QUEUED-A'));
+      return b >= 0 && a > b;
+    }, { timeout: 180_000, intervals: [2_000, 3_000] }).toBe(true);
+    const entries = await history(page, '13');
+    const userOrder = entries.filter((entry) => entry.role === 'user').map((entry) => entry.text);
+    expect(userOrder.findIndex((t) => t.includes('PROMOTED-B')), 'promoted item runs before the other queued item')
+      .toBeLessThan(userOrder.findIndex((t) => t.includes('QUEUED-A')));
+    expect(entries.filter((entry) => entry.role === 'assistant' && entry.text.includes('PROMOTED-B')), 'promoted item delivered once')
+      .toHaveLength(1);
+    await expect(items).toHaveCount(0);
+    await shot(page, '13-interrupt-and-send-history');
   } finally {
     await app?.close();
     fs.rmSync(scratch, { recursive: true, force: true });

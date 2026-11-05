@@ -458,13 +458,32 @@ describe('FollowUpQueueService', () => {
       expect(store.isPending(ref.clientMessageId)).toBe(true);
     });
 
-    it('offers Send now only for a Codex session', () => {
+    it('offers Send now for any session: interrupt for Claude SDK, steer for Codex', () => {
+      patchTab('tab-1', { claudeSessionId: undefined });
       expect(service.canSendNow('tab-1')).toBe(false);
+      patchTab('tab-1', { claudeSessionId: S1, providerId: undefined });
+      // The real active provider id for Claude is `anthropic` (live-run regression).
+      activeProviderId.set('anthropic');
+      expect(service.canSendNow('tab-1')).toBe(true);
+      expect(service.isClaudeSession('tab-1')).toBe(true);
       patchTab('tab-1', { providerId: 'openai-codex' });
       expect(service.canSendNow('tab-1')).toBe(true);
+      expect(service.isClaudeSession('tab-1')).toBe(false);
       patchTab('tab-1', { providerId: undefined });
       activeProviderId.set('openai-codex');
-      expect(service.canSendNow('tab-1')).toBe(true);
+      expect(service.isClaudeSession('tab-1')).toBe(false);
+    });
+
+    it('waits for the Claude delivered event after interrupt and reports failure', async () => {
+      patchTab('tab-1', { providerId: 'claude-cli' });
+      const ref = service.enqueue('tab-1', 'send after interrupt')!;
+      await flush();
+      rpcCall.mockResolvedValueOnce({ success: true, data: { ok: true, mode: 'interrupt' } });
+      await service.sendNow(ref);
+      expect(store.get(ref.clientMessageId)?.phase).toBe('queued');
+      rpcCall.mockResolvedValueOnce({ success: true, data: { ok: false, code: 'INTERRUPT_FAILED' } });
+      await service.sendNow(ref);
+      expect(store.get(ref.clientMessageId)?.note).toBeDefined();
     });
 
     it('steers into the running turn, or keeps it queued with a note on TURN_CHANGED', async () => {

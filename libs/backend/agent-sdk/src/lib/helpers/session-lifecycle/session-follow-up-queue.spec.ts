@@ -45,6 +45,51 @@ function setup() {
 }
 
 describe('Claude queued follow-ups', () => {
+  it('holds the promoted item until result and delivers it before other held items', async () => {
+    const h = setup();
+    await h.send('first');
+    expect((await h.iterator.next()).value?.message.content).toBe('first');
+    await h.send('older');
+    await h.send('selected');
+    const interrupt = jest.fn().mockResolvedValue(true);
+    expect(await h.pump.steerQueuedFollowUp(sessionId, 'selected', interrupt))
+      .toEqual({ ok: true, mode: 'interrupt' });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(h.pump.listQueuedFollowUps(sessionId).map((item) => item.clientMessageId))
+      .toEqual(['selected', 'older']);
+    h.registry.markTurnEnded(sessionId);
+    expect((await h.iterator.next()).value?.message.content).toBe('selected');
+    h.registry.markTurnEnded(sessionId);
+    expect((await h.iterator.next()).value?.message.content).toBe('older');
+    expect(h.states.filter((state) => state.endsWith(':delivered')))
+      .toEqual(['first:delivered', 'selected:delivered', 'older:delivered']);
+    h.abort.abort();
+  });
+
+  it('keeps the item queued in its original position when interrupt fails', async () => {
+    const h = setup();
+    await h.send('first');
+    await h.iterator.next();
+    await h.send('older');
+    await h.send('selected');
+    expect(await h.pump.steerQueuedFollowUp(sessionId, 'selected', async () => false))
+      .toEqual({ ok: false, code: 'INTERRUPT_FAILED' });
+    expect(h.pump.listQueuedFollowUps(sessionId).map((item) => item.clientMessageId))
+      .toEqual(['older', 'selected']);
+    h.abort.abort();
+  });
+
+  it('delivers a selected item normally while idle', async () => {
+    const h = setup();
+    await h.send('older');
+    await h.send('selected');
+    const interrupt = jest.fn();
+    expect(await h.pump.steerQueuedFollowUp(sessionId, 'selected', interrupt))
+      .toEqual({ ok: true, mode: 'admitted' });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect((await h.iterator.next()).value?.message.content).toBe('selected');
+    h.abort.abort();
+  });
   it('holds FIFO while a turn runs and reports delivered only when claimed', async () => {
     const h = setup();
     await h.send('a');

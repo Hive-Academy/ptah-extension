@@ -30,6 +30,7 @@ describe('QueuedFollowUpsComponent', () => {
     withdraw: jest.Mock;
     sendNow: jest.Mock;
     canSendNow: jest.Mock;
+    isClaudeSession: jest.Mock;
   };
 
   function render(tabId: string | null = 'tab-1', sessionId: string | null = S1) {
@@ -46,6 +47,7 @@ describe('QueuedFollowUpsComponent', () => {
       withdraw: jest.fn().mockResolvedValue(true),
       sendNow: jest.fn().mockResolvedValue(undefined),
       canSendNow: jest.fn().mockReturnValue(false),
+      isClaudeSession: jest.fn().mockReturnValue(false),
     };
     TestBed.configureTestingModule({
       imports: [QueuedFollowUpsComponent],
@@ -91,14 +93,14 @@ describe('QueuedFollowUpsComponent', () => {
     store.add(entry('b', { phase: 'held' }));
     let fixture = render();
     expect(
-      fixture.nativeElement.querySelector('[data-testid="queued-send-now"]'),
+      fixture.nativeElement.querySelector('[data-testid="queued-follow-up-send-now"]'),
     ).toBeNull();
 
     followUps.canSendNow.mockReturnValue(true);
     fixture.destroy();
     fixture = render();
     const buttons = fixture.nativeElement.querySelectorAll(
-      '[data-testid="queued-send-now"]',
+      '[data-testid="queued-follow-up-send-now"]',
     );
     expect(buttons.length).toBe(1);
     buttons[0].click();
@@ -106,6 +108,17 @@ describe('QueuedFollowUpsComponent', () => {
     expect(followUps.sendNow).toHaveBeenCalledWith(
       expect.objectContaining({ clientMessageId: 'a' }),
     );
+  });
+
+  it('labels Claude Send now as Interrupt & send with an accessible preview', () => {
+    store.add(entry('a', { content: 'hello Claude' }));
+    followUps.canSendNow.mockReturnValue(true);
+    followUps.isClaudeSession.mockReturnValue(true);
+    const fixture = render();
+    const button = fixture.nativeElement.querySelector('[data-testid="queued-follow-up-send-now"]');
+    expect(button.textContent).toContain('Interrupt & send');
+    expect(button.getAttribute('aria-label')).toBe('Interrupt and send: hello Claude');
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="queued-follow-up-item"]')).toHaveLength(1);
   });
 
   it('shows the note a refused Send now left', () => {

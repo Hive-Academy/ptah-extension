@@ -119,6 +119,7 @@ export interface SessionRecord {
    * model never sees it. Measured: 180 removed queue items, 0 delivered.
    */
   turnInFlight: boolean;
+  promotingFollowUpId?: string | null;
   /** Current model ID (may differ from config.model after setModel calls). */
   currentModel: string;
   /**

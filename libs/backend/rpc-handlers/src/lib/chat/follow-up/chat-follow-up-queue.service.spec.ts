@@ -300,6 +300,17 @@ describe('ChatFollowUpQueueService', () => {
     });
   });
 
+  it('keeps a Claude promoted item bound until the delivered push', async () => {
+    const h = build();
+    h.service.bind(SESSION, TAB_A, ID_1);
+    h.fake.hold(ID_1);
+    h.fake.steerResult = { ok: true, mode: 'interrupt' };
+    await expect(h.service.steer(SESSION, TAB_A, ID_1)).resolves.toEqual({ ok: true, mode: 'interrupt' });
+    expect(h.service.list(SESSION, TAB_A)).toHaveLength(1);
+    h.fake.emit({ sessionId: SESSION as SessionId, clientMessageId: ID_1, state: 'delivered' });
+    await expect(h.service.steer(SESSION, TAB_A, ID_1)).resolves.toEqual({ ok: false, code: 'NOT_QUEUED' });
+  });
+
   it('answers empty / false / UNSUPPORTED when the adapter lacks the queue', async () => {
     const h = build({ adapter: {} });
     h.service.bind(SESSION, TAB_A, ID_1);

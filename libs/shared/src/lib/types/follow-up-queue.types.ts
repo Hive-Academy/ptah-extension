@@ -34,7 +34,7 @@ export interface QueuedFollowUpSnapshot {
 }
 
 export type SteerQueuedFollowUpResult =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly mode?: 'interrupt' | 'admitted' }
   | {
       readonly ok: false;
       readonly code:
@@ -42,7 +42,8 @@ export type SteerQueuedFollowUpResult =
         | 'DELIVERY_UNCERTAIN'
         | 'NOT_QUEUED'
         | 'UNSUPPORTED'
-        | 'SESSION_ENDED';
+        | 'SESSION_ENDED'
+        | 'INTERRUPT_FAILED';
     };
 
 /**
@@ -62,8 +63,8 @@ export interface FollowUpQueueOperations {
   /** Held follow-ups of one session, in FIFO order. */
   listQueuedFollowUps?(sessionId: SessionId): readonly QueuedFollowUpSnapshot[];
   /**
-   * Codex only: move a held follow-up into the running turn with
-   * `turn/steer` + `expectedTurnId`. On `TURN_CHANGED` the item stays queued.
+   * Codex steers into the running turn. Claude interrupts the current turn and
+   * promotes the item to the next turn. A failed action leaves it queued.
    */
   steerQueuedFollowUp?(
     sessionId: SessionId,

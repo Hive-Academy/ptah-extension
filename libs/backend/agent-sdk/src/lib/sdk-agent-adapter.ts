@@ -23,6 +23,7 @@ import {
   AIMessageOptions,
   type QueuedFollowUpSnapshot,
   type QueuedFollowUpStateChange,
+  type SteerQueuedFollowUpResult,
   EffortLevel,
   SessionId,
   FlatStreamEventUnion,
@@ -1874,6 +1875,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   listQueuedFollowUps(sessionId: SessionId): readonly QueuedFollowUpSnapshot[] {
     return this.sessionLifecycle.listQueuedFollowUps(sessionId);
+  }
+
+  steerQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): Promise<SteerQueuedFollowUpResult> {
+    return this.sessionLifecycle.steerQueuedFollowUp(sessionId, clientMessageId);
   }
 
   async executeSlashCommand(

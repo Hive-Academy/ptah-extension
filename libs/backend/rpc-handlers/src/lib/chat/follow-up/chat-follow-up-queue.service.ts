@@ -195,7 +195,7 @@ export class ChatFollowUpQueueService {
       sessionId as SessionId,
       clientMessageId,
     );
-    if (result.ok) this.unbind(sessionId, clientMessageId);
+    if (result.ok && !result.mode) this.unbind(sessionId, clientMessageId);
     return result;
   }
 

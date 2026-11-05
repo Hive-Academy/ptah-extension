@@ -26,6 +26,7 @@ import {
   type AIMessageOptions,
   type QueuedFollowUpSnapshot,
   type QueuedFollowUpStateChange,
+  type SteerQueuedFollowUpResult,
   type AuthEnv,
   type ContextCapacityRoute,
   type EffortLevel,
@@ -905,6 +906,17 @@ export class SessionLifecycleManager {
 
   listQueuedFollowUps(sessionId: SessionId): readonly QueuedFollowUpSnapshot[] {
     return this._streamPump.listQueuedFollowUps(sessionId);
+  }
+
+  steerQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): Promise<SteerQueuedFollowUpResult> {
+    return this._streamPump.steerQueuedFollowUp(
+      sessionId,
+      clientMessageId,
+      () => this._control.interruptForQueuedFollowUp(sessionId),
+    );
   }
 
   sendIdleCompact(sessionId: string, beforeEnqueue: () => void): Promise<void> {
