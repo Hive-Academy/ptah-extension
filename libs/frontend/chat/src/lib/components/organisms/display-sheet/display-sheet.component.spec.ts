@@ -1,3 +1,4 @@
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 import axe from 'axe-core';
 import { Component, input, output, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
@@ -28,6 +29,7 @@ const title = (fixture: ComponentFixture<DisplaySheetComponent>): string =>
 @Component({ selector: 'ptah-display-panel', standalone: true, template: '' })
 class StubPanel {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly artifacts = input<readonly typeof artifact[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);

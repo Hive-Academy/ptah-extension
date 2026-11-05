@@ -1,6 +1,6 @@
 ---
 name: ptah-surface-authoring
-description: Authors ptah-ui blocks and HTML artifacts the host renders from verified data. Use for a turn summary, stats, file changes, test results, a chart, usage or plan limits in Ptah chat or the display panel. When the user asks for a report, dashboard, prototype or any visual or representational view of their work, load this skill and any available design or data-visualization skill (frontend-design, dataviz) and publish an HTML artifact with ptah_artifact_publish. Marketing copy is technical-content-writer. A visual-system spec is ui-ux-designer. Those siblings may still apply when the task also asks for copy or a design system.
+description: Use for ptah-ui blocks and HTML artifacts from verified data. Trigger for a report, dashboard, prototype, chart, or visual view of work: load this skill and available design or data-visualization skills, then publish an attractive HTML artifact with ptah_artifact_publish. Also use for turn summaries, stats, file changes, tests, usage, and plan limits.
 ---
 
 ## Reports and visual views

@@ -1,3 +1,4 @@
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 import {
   Component,
   Input,
@@ -94,6 +95,7 @@ class RailTileStub {
 @Component({ selector: 'ptah-display-panel', standalone: true, template: '' })
 class RailDisplayPanelStub {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);

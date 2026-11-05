@@ -367,6 +367,9 @@ describe('resolveLinkedFilePath', () => {
     ['a device path', '\\\\.\\PhysicalDrive0'],
     ['an extended-length prefix', '\\\\?\\C:\\a.ts'],
     ['a NUL byte', 'a\u0000.ts'],
+    ['a file URL', 'file:///tmp/report.pdf'],
+    ['an HTTPS URL', 'https://example.com/report.pdf'],
+    ['a data URL', 'data://image/png'],
   ])('rejects %s without touching the filesystem', async (_label, value) => {
     const spyFs = {
       realpath: jest.fn(async (p: string) => p),

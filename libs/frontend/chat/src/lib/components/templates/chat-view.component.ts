@@ -553,7 +553,6 @@ export class ChatViewComponent implements OnDestroy {
   /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
   private readonly displayDockRegistry = inject(DisplayDockRegistry);
-  private readonly hideAgentSidebar = inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /** A host-supplied dock: the host shows the display, so no sheet here. */
