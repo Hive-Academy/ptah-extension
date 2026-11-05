@@ -32,7 +32,7 @@ export const ReviewStateSchema = z.enum([
   'interrupted',
 ]);
 export const ReviewFailureStageSchema = z.enum(['discovery', 'context', 'lanes', 'verification', 'publication', 'other']);
-export const ReviewFailureCodeSchema = z.enum(['checkout-missing', 'head-missing', 'git-timeout', 'git-failed', 'command-scope', 'github-auth', 'github-rate-limit', 'github-http', 'lane-unavailable', 'lane-timeout', 'lane-failed', 'prompt-too-large', 'schema-invalid', 'persistence', 'unknown']);
+export const ReviewFailureCodeSchema = z.enum(['checkout-missing', 'head-missing', 'git-timeout', 'git-failed', 'command-scope', 'github-auth', 'github-rate-limit', 'github-http', 'publication-blocked', 'lane-unavailable', 'lane-timeout', 'lane-failed', 'prompt-too-large', 'schema-invalid', 'persistence', 'unknown']);
 export const ReviewFailureSchema = z.object({ stage: ReviewFailureStageSchema, code: ReviewFailureCodeSchema, message: z.string().max(300) }).strict();
 export const ReviewHeadRetrySchema = z.object({ failureCount: z.number().int().min(0), nextEligibleAt: z.string().datetime().nullable(), automaticRetriesStopped: z.boolean() }).strict();
 export const ReviewLaneAvailabilitySchema = z

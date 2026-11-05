@@ -14,6 +14,8 @@ describe('classifyReviewFailure', () => {
     [Object.assign(new Error('unauthorized'), { status: 401 }), 'github-auth'],
     [Object.assign(new Error('limit'), { status: 403, headers: { 'x-ratelimit-remaining': '0' } }), 'github-rate-limit'],
     [Object.assign(new Error('server'), { status: 500 }), 'github-http'],
+    [Object.assign(new Error('Review publication is paused'), { name: 'GitHubReviewError', code: 'publication-unavailable' }), 'publication-blocked'],
+    [Object.assign(new Error('not found'), { name: 'GitHubReviewError' }), 'unknown'],
     [Object.assign(new Error('SQLITE_BUSY'), { name: 'SqliteError' }), 'persistence'],
     [new Error('other'), 'unknown'],
   ])('maps known errors to %s', (error, code) => {
