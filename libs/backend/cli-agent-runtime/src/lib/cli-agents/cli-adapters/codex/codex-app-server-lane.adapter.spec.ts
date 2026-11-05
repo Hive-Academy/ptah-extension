@@ -198,30 +198,49 @@ async function terminal(context: FakeContext, turnId = 'turn-1', status: 'comple
 }
 
 describe('CodexAppServerLaneAdapter', () => {
-  it('checks WRITE_DAC before opening the runtime', async () => {
+  it('starts the WRITE_DAC check with the runtime and waits for it before persisting', async () => {
     const h = harness();
-    const handle = await h.adapter.runSdk(options());
-    expect(h.order.indexOf('preflight')).toBeLessThan(h.order.indexOf('open'));
+    let release: (() => void) | undefined;
+    h.preflight.check.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      h.order.push('preflight');
+      release = resolve;
+    }));
+    const pending = h.adapter.runSdk(options());
+    for (let tick = 0; tick < 100 && jest.mocked(h.runtime.open).mock.calls.length === 0; tick += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(h.preflight.check).toHaveBeenCalledWith('/work', 'workspace-write');
+    expect(h.runtime.open).toHaveBeenCalled();
+    expect(h.identities.persist).not.toHaveBeenCalled();
+    release?.();
+    const handle = await pending;
+    expect(h.order).toEqual(['preflight', 'open', 'persist']);
     await terminal(h.context);
     await handle.done;
   });
 
-  it('propagates a preflight denial without opening the runtime', async () => {
+  it('closes the opened runtime on a preflight denial without persisting', async () => {
     const h = harness();
     const denied = new CodexLaneWriteDacDeniedError('/work');
     h.preflight.check.mockRejectedValueOnce(denied);
     await expect(h.adapter.runSdk(options())).rejects.toBe(denied);
-    expect(h.runtime.open).not.toHaveBeenCalled();
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(h.identities.persist).not.toHaveBeenCalled();
+    expect(h.context.inputs).toHaveLength(0);
   });
 
-  it('checks a resumed lane before opening the runtime', async () => {
+  it('refuses a resumed lane on a preflight denial and releases its reservation', async () => {
     const h = harness();
+    const first = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    expect(await first.done).toBe(0);
     const denied = new CodexLaneWriteDacDeniedError('/work');
     h.preflight.check.mockRejectedValueOnce(denied);
-    await expect(h.adapter.runSdk(options({ resumeSessionId: 'thread-1' }))).rejects.toBe(denied);
-    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'workspace-write');
-    expect(h.runtime.open).not.toHaveBeenCalled();
+    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }))).rejects.toBe(denied);
+    expect(h.preflight.check).toHaveBeenLastCalledWith('/work', 'workspace-write');
+    expect(h.identities.persist).toHaveBeenCalledTimes(1);
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(h.writers.has('thread-1')).toBe(false);
   });
 
   it('opens a lane when the preflight runs on a non-Windows host', async () => {

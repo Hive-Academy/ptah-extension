@@ -244,7 +244,14 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     });
     if (profile.consumer !== 'lane')
       throw new Error('Codex lane profile selected another consumer');
-    await this.writeDacPreflight.check(resolved.lane.config.workingDirectory, profile.sandboxPolicy.mode);
+    // The WRITE_DAC probe runs in parallel with the runtime startup. openContext
+    // waits for its outcome before it persists an identity or starts a turn.
+    // The rejection is captured as a value, so an early startup failure cannot
+    // leave it unhandled.
+    const writeDacDenial = this.writeDacPreflight
+      .check(resolved.lane.config.workingDirectory, profile.sandboxPolicy.mode)
+      .then((): Error | undefined => undefined,
+        (error: unknown) => error instanceof Error ? error : new Error('Codex WRITE_DAC check failed'));
     const resume = await this.resumeIdentity(options.resumeSessionId, profile);
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();
@@ -347,6 +354,13 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       if (abort.signal.aborted) {
         await closeContext(context);
         throw new Error('Codex lane aborted during startup');
+      }
+      const denial = await writeDacDenial;
+      if (denial !== undefined) {
+        const denied = context;
+        context = undefined;
+        await closeContext(denied);
+        throw denial;
       }
       const openedIdentity = identitySchema.safeParse(context.identity);
       if (!openedIdentity.success ||

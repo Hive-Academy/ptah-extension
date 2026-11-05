@@ -63,38 +63,67 @@ Add-Type -TypeDefinition $sig -Language CSharp -ErrorAction Stop
   return Buffer.from(script, 'utf16le').toString('base64');
 }
 
+/** A denial is re-probed after this window, so an owner repair applies without a restart. */
+export const CODEX_WRITE_DAC_DENIAL_CACHE_MS = 60_000;
+
+interface WriteDacDecision {
+  readonly pending: Promise<number | undefined>;
+  deniedAt?: number;
+}
+
+/**
+ * Share one instance per host (like the lane writer registry): the adapter is
+ * created per spawn, so a per-adapter instance would lose its cache.
+ */
 export class CodexLaneWriteDacPreflight {
-  private readonly decisions = new Map<string, Promise<number | undefined>>();
+  private readonly decisions = new Map<string, WriteDacDecision>();
   private skipReported = false;
   constructor(
     private readonly logger: Logger,
     private readonly runner: WriteDacProbeRunner = nativeRunner,
     private readonly platform: NodeJS.Platform = process.platform,
+    private readonly now: () => number = Date.now,
   ) {}
 
   async check(cwd: string, sandboxMode: string): Promise<void> {
-    if (this.platform !== 'win32' || sandboxMode !== 'workspace-write') return;
-    if (process.env['PTAH_CODEX_SKIP_WRITE_DAC_PREFLIGHT'] === '1') {
-      if (!this.skipReported) {
-        this.logger.info('[CodexLaneWriteDacPreflight] WRITE_DAC probe skipped by environment');
-        this.skipReported = true;
-      }
-      return;
-    }
+    if (!this.applies(sandboxMode)) return;
     const normalized = normalize(resolve(cwd));
-    const key = normalized.toLowerCase();
-    let pending = this.decisions.get(key);
-    if (!pending) {
-      pending = this.probe(normalized);
-      this.decisions.set(key, pending);
-      void pending.then((result) => {
-        if (result !== 0 && this.decisions.get(key) === pending) this.decisions.delete(key);
-      }, () => {
-        if (this.decisions.get(key) === pending) this.decisions.delete(key);
-      });
+    if (await this.decide(normalized) === 5) throw new CodexLaneWriteDacDeniedError(normalized);
+  }
+
+  /** Start a background probe so a later `workspace-write` spawn in `cwd` hits the cache. */
+  prewarm(cwd: string): void {
+    if (!this.applies('workspace-write')) return;
+    void this.decide(normalize(resolve(cwd)));
+  }
+
+  private applies(sandboxMode: string): boolean {
+    if (this.platform !== 'win32' || sandboxMode !== 'workspace-write') return false;
+    if (process.env['PTAH_CODEX_SKIP_WRITE_DAC_PREFLIGHT'] !== '1') return true;
+    if (!this.skipReported) {
+      this.logger.info('[CodexLaneWriteDacPreflight] WRITE_DAC probe skipped by environment');
+      this.skipReported = true;
     }
-    const result = await pending;
-    if (result === 5) throw new CodexLaneWriteDacDeniedError(normalized);
+    return false;
+  }
+
+  // Allows are cached for the process, denials for CODEX_WRITE_DAC_DENIAL_CACHE_MS,
+  // inconclusive results not at all. Concurrent callers share one in-flight probe.
+  private decide(normalized: string): Promise<number | undefined> {
+    const key = normalized.toLowerCase();
+    const cached = this.decisions.get(key);
+    if (cached && (cached.deniedAt === undefined ||
+      this.now() - cached.deniedAt < CODEX_WRITE_DAC_DENIAL_CACHE_MS)) return cached.pending;
+    const decision: WriteDacDecision = { pending: this.probe(normalized) };
+    this.decisions.set(key, decision);
+    void decision.pending.then((result) => {
+      if (this.decisions.get(key) !== decision || result === 0) return;
+      if (result === 5) decision.deniedAt = this.now();
+      else this.decisions.delete(key);
+    }, () => {
+      if (this.decisions.get(key) === decision) this.decisions.delete(key);
+    });
+    return decision.pending;
   }
 
   private async probe(cwd: string): Promise<number | undefined> {

@@ -1,5 +1,5 @@
 import { Logger } from '@ptah-extension/vscode-core';
-import { CODEX_WRITE_DAC_TIMEOUT_MS, CodexLaneWriteDacDeniedError, CodexLaneWriteDacPreflight, type WriteDacProbeRunner } from './codex-lane-write-dac-preflight';
+import { CODEX_WRITE_DAC_DENIAL_CACHE_MS, CODEX_WRITE_DAC_TIMEOUT_MS, CodexLaneWriteDacDeniedError, CodexLaneWriteDacPreflight, type WriteDacProbeRunner } from './codex-lane-write-dac-preflight';
 
 function setup(result: string | Error, platform: NodeJS.Platform = 'win32') {
   const logger = Object.create(Logger.prototype) as Logger;
@@ -9,8 +9,12 @@ function setup(result: string | Error, platform: NodeJS.Platform = 'win32') {
     if (result instanceof Error) throw result;
     return result;
   }) };
-  return { check: new CodexLaneWriteDacPreflight(logger, runner, platform), runner, logger };
+  const clock = { now: 1_000 };
+  const check = new CodexLaneWriteDacPreflight(logger, runner, platform, () => clock.now);
+  return { check, runner, logger, clock };
 }
+
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 describe('CodexLaneWriteDacPreflight', () => {
   afterEach(() => { delete process.env['PTAH_CODEX_SKIP_WRITE_DAC_PREFLIGHT']; });
@@ -22,14 +26,45 @@ describe('CodexLaneWriteDacPreflight', () => {
     expect(h.runner.run).toHaveBeenCalledTimes(1);
   });
 
-  it('re-probes a denial, then allows a repaired path', async () => {
+  it('caches a denial briefly, then re-probes and allows a repaired path', async () => {
     const h = setup('5');
     await expect(h.check.check('C:\\deny', 'workspace-write')).rejects.toThrow(CodexLaneWriteDacDeniedError);
+    await settle();
+    h.clock.now += CODEX_WRITE_DAC_DENIAL_CACHE_MS - 1;
     await expect(h.check.check('C:\\deny', 'workspace-write')).rejects.toThrow('PTAH_CODEX_SKIP_WRITE_DAC_PREFLIGHT=1');
-    expect(h.runner.run).toHaveBeenCalledTimes(2);
+    expect(h.runner.run).toHaveBeenCalledTimes(1);
+    h.clock.now += 1;
     jest.mocked(h.runner.run).mockResolvedValue('0');
     await h.check.check('C:\\deny', 'workspace-write');
-    expect(h.runner.run).toHaveBeenCalledTimes(3);
+    expect(h.runner.run).toHaveBeenCalledTimes(2);
+    await settle();
+    h.clock.now += CODEX_WRITE_DAC_DENIAL_CACHE_MS * 10;
+    await h.check.check('C:\\deny', 'workspace-write');
+    expect(h.runner.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('prewarms the cache without throwing on a denial', async () => {
+    const allow = setup('0');
+    allow.check.prewarm('C:\\warm');
+    await settle();
+    await allow.check.check('c:\\WARM', 'workspace-write');
+    expect(allow.runner.run).toHaveBeenCalledTimes(1);
+    const deny = setup('5');
+    deny.check.prewarm('C:\\cold');
+    await settle();
+    await expect(deny.check.check('C:\\cold', 'workspace-write')).rejects.toThrow(CodexLaneWriteDacDeniedError);
+    expect(deny.runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not prewarm off Windows or with the opt-out', async () => {
+    const posix = setup('0', 'linux');
+    posix.check.prewarm('/work');
+    process.env['PTAH_CODEX_SKIP_WRITE_DAC_PREFLIGHT'] = '1';
+    const win = setup('0');
+    win.check.prewarm('C:\\work');
+    await settle();
+    expect(posix.runner.run).not.toHaveBeenCalled();
+    expect(win.runner.run).not.toHaveBeenCalled();
   });
 
   it.each([['32', 'unexpected-code'], ['garbage', 'unparseable-output']])('does not cache inconclusive output %s', async (result, outcome) => {

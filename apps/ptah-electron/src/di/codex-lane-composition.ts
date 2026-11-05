@@ -11,6 +11,7 @@ import {
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   CodexAppServerLaneAdapter,
+  CodexLaneWriteDacPreflight,
   type CodexAdapterFactory,
   type CodexLaneBinaryProbe,
   type CodexLaneIdentityStore,
@@ -30,6 +31,7 @@ import {
   type CodexRuntimeRegistrationPorts,
   type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
+import { PLATFORM_TOKENS, type IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { createElectronCodexScopeFactory } from './codex-runtime-composition';
 
@@ -249,11 +251,36 @@ export function registerElectronCodexLaneFactory(
     }
   }
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
+  // One preflight per host, so its WRITE_DAC cache outlives each per-spawn adapter.
+  const writeDac = new CodexLaneWriteDacPreflight(logger);
   const factory: CodexAdapterFactory = {
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
-      binary, undefined, home, writers),
+      binary, undefined, home, writers, writeDac),
   };
   container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
+  prewarmCodexLaneWriteDac(container, writeDac, input);
+}
+
+/**
+ * Probe each open workspace folder in the background on Windows, so the first
+ * Codex lane there reads a cached WRITE_DAC result. Electron restores its
+ * workspace after DI, so folder changes are probed as well.
+ */
+function prewarmCodexLaneWriteDac(
+  container: DependencyContainer,
+  preflight: Pick<CodexLaneWriteDacPreflight, 'prewarm'>,
+  input: Pick<ElectronCodexLaneInput, 'platform'>,
+): void {
+  if (input.platform.platform !== 'win32' ||
+    !container.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)) return;
+  const workspace = container.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER);
+  const warm = (): void => {
+    for (const folder of workspace.getWorkspaceFolders()) {
+      if (isAbsolute(folder) && !folder.includes('\0')) preflight.prewarm(canonical(folder));
+    }
+  };
+  warm();
+  workspace.onDidChangeWorkspaceFolders(warm);
 }
 
 export function resolveElectronCodexLaneRuntime(

@@ -12,6 +12,7 @@ import {
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   CodexAppServerLaneAdapter,
+  CodexLaneWriteDacPreflight,
   type CodexAdapterFactory,
   type CodexLaneBinaryProbe,
   type CodexLaneIdentityStore,
@@ -286,9 +287,11 @@ export function registerCliCodexLaneFactory(
     }
   }
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
+  // One preflight per host, so its WRITE_DAC cache outlives each per-spawn adapter.
+  const writeDac = new CodexLaneWriteDacPreflight(logger);
   const factory: CodexAdapterFactory = {
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
-      binary, undefined, home, writers),
+      binary, undefined, home, writers, writeDac),
   };
   container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
 }
