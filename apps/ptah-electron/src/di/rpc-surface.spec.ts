@@ -121,6 +121,11 @@ describe('Electron RPC surface', () => {
     );
   });
 
+  it('serves file:viewBinary for the display panel (TASK_2026_879)', () => {
+    expect(surface.registered).toContain('file:viewBinary');
+    expect(surface.excluded).not.toContain('file:viewBinary');
+  });
+
   it('serves the detached Display window methods (TASK_2026_853)', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining([

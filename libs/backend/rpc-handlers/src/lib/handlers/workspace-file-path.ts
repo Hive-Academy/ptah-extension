@@ -126,6 +126,8 @@ export function checkLinkedPathForm(
   }
 
   if (isUncOrDeviceForm(value)) return REJECTED_FORM;
+  // URL forms must never be resolved as local paths on any host platform.
+  if (/^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(value)) return REJECTED_FORM;
 
   if (platform === 'win32') {
     // Drive-relative: `C:foo` (no separator after the colon).

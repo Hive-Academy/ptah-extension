@@ -7,6 +7,10 @@ import { FILE_VIEW_MAX_BYTES } from '@ptah-extension/shared';
 
 import { FileViewRpcHandlers } from './file-view-rpc.handlers';
 
+jest.mock('node:fs/promises', () => ({ ...jest.requireActual('node:fs/promises') }));
+/** The mocked module object. Spy here: the `import * as fs` wrapper has non-configurable getters. */
+const fsModule = jest.requireMock<typeof import('node:fs/promises')>('node:fs/promises');
+
 type RpcMethod = (params?: unknown) => Promise<unknown>;
 
 interface FailureResult {
@@ -80,6 +84,8 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
     await fs.mkdir(path.join(workspace, 'src'), { recursive: true });
 
     await fs.writeFile(path.join(workspace, 'src', 'a.ts'), 'hello', 'utf8');
+    await fs.writeFile(path.join(workspace, 'identity.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
     await fs.writeFile(
       path.join(workspace, 'bom.txt'),
       Buffer.concat([
@@ -126,6 +132,89 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
       sha256: sha256Of(Buffer.from('hello', 'utf8')),
       bom: false,
     });
+  });
+
+  it.each(['file:viewContent', 'file:viewBinary'])(
+    'rejects %s when a checked path becomes an outside symlink before open',
+    async (methodName) => {
+      const inside = path.join(workspace, 'race-target.txt');
+      const outside = path.join(base, 'outside.txt');
+      await fs.writeFile(inside, 'inside');
+      await fs.writeFile(outside, 'outside');
+      const checked = await resolvedFile('race-target.txt');
+      resolveForView.mockImplementationOnce(async () => {
+        await fs.rm(inside);
+        await fs.symlink(outside, inside, 'file');
+        return checked;
+      });
+      const methods = new Map<string, RpcMethod>();
+      new FileViewRpcHandlers(
+        { warn } as never,
+        { registerMethod: (name: string, handler: RpcMethod) => methods.set(name, handler) } as never,
+        { resolveForView, resolveForExternalOpen } as never,
+      ).register();
+      const method = methods.get(methodName);
+      if (!method) throw new Error(`${methodName} was not registered`);
+      try {
+        expect(await method({ path: 'race-target.txt' })).toMatchObject({
+          success: false, reason: 'outside-roots', externalOpenAllowed: false,
+        });
+      } finally {
+        await fs.rm(inside, { force: true });
+      }
+    },
+  );
+
+  it.each([
+    ['file:viewContent', 'opened inode zero', { ino: 0n }, {}, 'unreadable'],
+    ['file:viewContent', 'current inode zero', {}, { ino: 0n }, 'unreadable'],
+    ['file:viewContent', 'opened device unavailable', { dev: undefined }, {}, 'unreadable'],
+    ['file:viewContent', 'matching identity', {}, {}, 'success'],
+    ['file:viewContent', 'different identity', {}, { ino: -1n }, 'outside-roots'],
+    ['file:viewContent', 'large inode', { ino: 9007199254740993n }, { ino: 9007199254740993n }, 'success'],
+    ['file:viewContent', 'different device', {}, {}, 'outside-roots'],
+    ['file:viewBinary', 'opened inode zero', { ino: 0n }, {}, 'unreadable'],
+    ['file:viewBinary', 'current inode zero', {}, { ino: 0n }, 'unreadable'],
+    ['file:viewBinary', 'current device unavailable', {}, { dev: undefined }, 'unreadable'],
+    ['file:viewBinary', 'matching identity', {}, {}, 'success'],
+    ['file:viewBinary', 'different identity', {}, { ino: -1n }, 'outside-roots'],
+    ['file:viewBinary', 'large inode', { ino: 9007199254740993n }, { ino: 9007199254740993n }, 'success'],
+    ['file:viewBinary', 'different device', {}, {}, 'outside-roots'],
+  ] as const)('verifies %s with %s', async (methodName, _case, openedChanges, currentChanges, expected) => {
+    const relative = methodName === 'file:viewContent' ? 'src/a.ts' : 'identity.png';
+    const target = path.join(workspace, relative);
+    resolveForView.mockResolvedValue(await resolvedFile(relative));
+    const handle = await fs.open(target, 'r');
+    const opened = Object.assign(await handle.stat({ bigint: true }), openedChanges);
+    const current = Object.assign(await fs.stat(target, { bigint: true }), currentChanges);
+    if (expected === 'outside-roots') current.ino = opened.ino + 1n;
+    if (_case === 'different device') {
+      current.ino = opened.ino;
+      current.dev = opened.dev + 1n;
+    }
+    const openSpy = jest.spyOn(fsModule, 'open').mockResolvedValueOnce(handle);
+    const statSpy = jest.spyOn(fsModule, 'stat').mockResolvedValueOnce(current as never);
+    jest.spyOn(handle, 'stat').mockResolvedValueOnce(opened as never);
+    const methods = new Map<string, RpcMethod>();
+    new FileViewRpcHandlers(
+      { warn } as never,
+      { registerMethod: (name: string, handler: RpcMethod) => methods.set(name, handler) } as never,
+      { resolveForView, resolveForExternalOpen } as never,
+    ).register();
+    try {
+      const result = await methods.get(methodName)?.({ path: relative });
+      if (expected === 'success') {
+        expect(result).toMatchObject({ success: true });
+      } else {
+        expect(result).toMatchObject({ success: false, reason: expected,
+          error: expected === 'unreadable' ? 'That file could not be read.' : 'This file is outside the workspaces open in Ptah.' });
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(target);
+      }
+    } finally {
+      openSpy.mockRestore();
+      statSpy.mockRestore();
+      await handle.close().catch(() => undefined);
+    }
   });
 
   it('strips a UTF-8 BOM, reports it, and hashes the raw bytes', async () => {
@@ -330,7 +419,10 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
     expect(result.reason).toBe('not-a-file');
   });
 
-  it('declares exactly one method', () => {
-    expect(FileViewRpcHandlers.METHODS).toEqual(['file:viewContent']);
+  it('declares the text method and the binary method', () => {
+    expect(FileViewRpcHandlers.METHODS).toEqual([
+      'file:viewContent',
+      'file:viewBinary',
+    ]);
   });
 });

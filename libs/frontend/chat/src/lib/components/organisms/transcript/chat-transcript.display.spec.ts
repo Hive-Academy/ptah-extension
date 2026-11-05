@@ -416,6 +416,23 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(text).toMatch(/1 test (passed|failed|unknown)/);
     });
 
+    it('routes expanded summary review through the change-set navigation service', async () => {
+      configure({
+        tabs: signal([tab(TAB, SUMMARY_MESSAGES)]),
+        changeSets: signal([TURN_1_CHANGE_SET]),
+      });
+      const actions = TestBed.inject(ChangeSetActionsService);
+      const review = jest.spyOn(actions, 'review');
+      const openFile = jest.spyOn(actions, 'openFile');
+      const fixture = mount(TAB);
+      await settle(fixture);
+      query(fixture, 'turn-summary-chip-toggle')?.click();
+      fixture.detectChanges();
+      query(fixture, 'turn-summary-review-all')?.click();
+      query(fixture, 'turn-summary-file-action')?.click();
+      expect(review).toHaveBeenCalledWith(TURN_1_CHANGE_SET);
+      expect(openFile).toHaveBeenCalledWith(TURN_1_CHANGE_SET, TURN_1_CHANGE_SET.files[0].path);
+    });
     it('VS Code: keeps the card, with no chip, no tests row and no sync (R1.14)', async () => {
       const loader = jest.fn(() => Promise.resolve(RECAP));
       const display =
@@ -433,7 +450,6 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
         loader,
       });
       const dock = TestBed.inject(DisplayDockState);
-      const setSummaries = jest.spyOn(dock, 'setSummaries');
       const setLiveTurn = jest.spyOn(dock, 'setLiveTurn');
       const fixture = mount(TAB);
       await settle(fixture);
@@ -445,7 +461,6 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
         fixture.nativeElement.querySelector('ptah-display-surface-sync'),
       ).toBeNull();
       expect(loader).not.toHaveBeenCalled();
-      expect(setSummaries).not.toHaveBeenCalled();
       expect(setLiveTurn).not.toHaveBeenCalled();
     });
 
@@ -470,38 +485,24 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(loader).not.toHaveBeenCalled();
     });
 
-    it('binds "Open in panel" to the dock and publishes the summaries in turn order', async () => {
+    it('centers the bounded transcript card and exposes no panel control', async () => {
       configure({
         tabs: signal([tab(TAB, SUMMARY_MESSAGES)]),
         changeSets: signal([TURN_1_CHANGE_SET]),
         loader: () => Promise.resolve(RECAP),
       });
-      const dock = TestBed.inject(DisplayDockState);
       const fixture = mount(TAB);
       await settle(fixture);
 
-      const summaries = dock.tab(TAB).summaries;
-      expect([...summaries.keys()]).toEqual(['u1']);
-      expect(summaries.get('u1')?.changeSet).toBe(TURN_1_CHANGE_SET);
-      expect(summaries.get('u1')?.model.files?.value).toBe(2);
-
-      const open = query(
-        fixture,
-        'turn-summary-chip-open',
-      ) as HTMLButtonElement;
-      expect(open.disabled).toBe(false);
-      expect(fixture.nativeElement.textContent).not.toContain(
-        'Display panel unavailable',
-      );
-      open.click();
-      await settle(fixture);
-
-      const state = dock.tab(TAB);
-      expect(state.open).toBe(true);
-      expect(state.activeTab).toBe('displays');
-      expect(state.summaryTurnKey).toBe('u1');
-      expect(state.selection).toEqual({ kind: 'summary' });
-      expect(dock.summaryFor(TAB)?.changeSet).toBe(TURN_1_CHANGE_SET);
+      const card = query(fixture, 'chat-turn-summary');
+      expect(card?.classList.contains('mx-auto')).toBe(true);
+      expect(card?.classList.contains('w-full')).toBe(true);
+      expect(card?.classList.contains('max-w-3xl')).toBe(true);
+      expect(query(fixture, 'turn-summary-chip-open')).toBeNull();
+      expect(TestBed.inject(DisplayDockState).tab(TAB)).toMatchObject({
+        open: false,
+        selection: null,
+      });
     });
 
     it('keeps the change-set card without a dock', async () => {
@@ -521,7 +522,7 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
   });
 
   describe('lazy turn-recap load (decisions #101, #104)', () => {
-    it('a rejected load leaves no chip and no summaries, and the next eligible update retries', async () => {
+    it('a rejected load leaves no chip, and the next eligible update retries', async () => {
       const loader = jest
         .fn<Promise<TranscriptTurnRecap>, []>()
         .mockRejectedValueOnce(new Error('chunk load failed'))
@@ -537,13 +538,11 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
         changeSets,
         loader,
       });
-      const dock = TestBed.inject(DisplayDockState);
       const fixture = mount(TAB);
       await settle(fixture);
 
       expect(loader).toHaveBeenCalledTimes(1);
       expect(query(fixture, 'chat-turn-summary')).toBeNull();
-      expect(dock.tab(TAB).summaries.size).toBe(0);
       expect(warn).toHaveBeenCalledTimes(1);
       // No retry loop: settling again makes no further attempt.
       await settle(fixture);
@@ -554,7 +553,6 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       await settle(fixture);
 
       expect(loader).toHaveBeenCalledTimes(2);
-      expect([...dock.tab(TAB).summaries.keys()]).toEqual(['u1', 'u2']);
       expect(
         fixture.nativeElement.querySelectorAll(
           '[data-testid="chat-turn-summary"]',
@@ -562,7 +560,7 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       ).toHaveLength(2);
     });
 
-    it('a destroyed transcript never publishes; a remount and another tab publish only their own turns', async () => {
+    it('a destroyed transcript cannot render a stale chip; remounts render their own summaries', async () => {
       const load = deferred<TranscriptTurnRecap>();
       const loader = jest.fn(() => load.promise);
       const tabs = signal<readonly Record<string, unknown>[]>([
@@ -577,8 +575,6 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
         changeSets: signal([TURN_1_CHANGE_SET]),
         loader,
       });
-      const dock = TestBed.inject(DisplayDockState);
-      const setSummaries = jest.spyOn(dock, 'setSummaries');
 
       const first = mount(TAB);
       await settle(first);
@@ -596,22 +592,27 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       const remounted = mount(TAB);
       const other = mount('tab-2');
       await settle(remounted, other);
-      expect(setSummaries).not.toHaveBeenCalled();
+      expect(query(remounted, 'chat-turn-summary')).toBeNull();
+      expect(query(other, 'chat-turn-summary')).toBeNull();
 
       load.resolve(RECAP);
       await settle(remounted, other);
 
-      const published = setSummaries.mock.calls.map(
-        ([tabId, summaries]) => `${tabId}:${[...summaries.keys()].join(',')}`,
-      );
-      // Exactly the two allowed publications, in mount order: no transient
-      // stale (`u1`) or cross-tab write before, between or after them.
-      expect(published).toEqual(['tab-1:u9', 'tab-2:t2-u1']);
-      expect([...dock.tab(TAB).summaries.keys()]).toEqual(['u9']);
-      expect([...dock.tab('tab-2').summaries.keys()]).toEqual(['t2-u1']);
+      expect(query(remounted, 'chat-turn-summary')).not.toBeNull();
+      expect(query(other, 'chat-turn-summary')).not.toBeNull();
+      expect(
+        remounted.nativeElement.querySelectorAll(
+          '[data-testid="chat-turn-summary"]',
+        ),
+      ).toHaveLength(1);
+      expect(
+        other.nativeElement.querySelectorAll(
+          '[data-testid="chat-turn-summary"]',
+        ),
+      ).toHaveLength(1);
     });
 
-    it('two transcripts share one pending load of the root loader and each publishes only its own tab', async () => {
+    it('two transcripts share one pending load and each renders its own summary', async () => {
       const load = deferred<TranscriptTurnRecap>();
       const underlying = jest.fn(() => load.promise);
       const shared = jest.fn(cachedTurnRecapLoader(underlying));
@@ -626,8 +627,6 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
         changeSets: signal([TURN_1_CHANGE_SET]),
         loader: shared,
       });
-      const dock = TestBed.inject(DisplayDockState);
-      const setSummaries = jest.spyOn(dock, 'setSummaries');
 
       const first = mount(TAB);
       const second = mount('tab-2');
@@ -637,18 +636,15 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(TestBed.inject(TRANSCRIPT_TURN_RECAP_LOADER)).toBe(shared);
       expect(shared).toHaveBeenCalledTimes(2);
       expect(underlying).toHaveBeenCalledTimes(1);
-      expect(setSummaries).not.toHaveBeenCalled();
+      expect(query(first, 'chat-turn-summary')).toBeNull();
+      expect(query(second, 'chat-turn-summary')).toBeNull();
 
       load.resolve(RECAP);
       await settle(first, second);
 
       expect(underlying).toHaveBeenCalledTimes(1);
-      const published = setSummaries.mock.calls.map(
-        ([tabId, summaries]) => `${tabId}:${[...summaries.keys()].join(',')}`,
-      );
-      expect(published).toEqual(['tab-1:u1', 'tab-2:t2-u1']);
-      expect([...dock.tab(TAB).summaries.keys()]).toEqual(['u1']);
-      expect([...dock.tab('tab-2').summaries.keys()]).toEqual(['t2-u1']);
+      expect(query(first, 'chat-turn-summary')).not.toBeNull();
+      expect(query(second, 'chat-turn-summary')).not.toBeNull();
     });
 
     it('the shared loader joins the attempt in flight and drops a rejected one', async () => {

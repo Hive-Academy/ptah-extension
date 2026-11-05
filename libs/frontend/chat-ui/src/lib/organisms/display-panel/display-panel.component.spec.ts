@@ -8,13 +8,8 @@ import {
   type SurfaceViewState,
 } from '@ptah-extension/declarative-dashboard';
 import type { SurfaceContent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
-import type { ArtifactRecord, TurnSourceSnapshot } from '@ptah-extension/shared';
+import type { ArtifactRecord } from '@ptah-extension/shared';
 import {
-  buildTurnSummaryModel,
-  type TurnSummaryModel,
-} from '../../molecules/turn-recap/turn-summary.model';
-import {
-  DISPLAY_PANEL_SUMMARY_KEY,
   DisplayPanelComponent,
   type DisplayPanelViewStateChange,
 } from './display-panel.component';
@@ -60,41 +55,6 @@ function surface(
   };
 }
 
-function summaryModel(): TurnSummaryModel {
-  const snapshot: TurnSourceSnapshot = {
-    state: 'terminal',
-    incomplete: false,
-    diff: {
-      kind: 'available',
-      changeSet: {
-        sessionId: 's',
-        workspaceRoot: '/w',
-        turnStartedAt: 0,
-        turnEndedAt: 1,
-        files: [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 0 }],
-        truncatedCount: 0,
-        totals: { files: 1, additions: 1, deletions: 0 },
-        countsUnavailable: false,
-      },
-    },
-    tests: {
-      kind: 'available',
-      runs: [],
-      summary: { total: 0, passed: 0, failed: 0, running: 0, unknown: 0 },
-    },
-    usage: {
-      kind: 'available',
-      input: 10,
-      output: 5,
-      cost: 0.5,
-      durationMs: 1_000,
-    },
-  };
-  const built = buildTurnSummaryModel(snapshot);
-  if (built === null) throw new Error('expected a summary');
-  return built;
-}
-
 describe('DisplayPanelComponent', () => {
   let fixture: ComponentFixture<DisplayPanelComponent>;
   let scrolled: string[];
@@ -123,7 +83,6 @@ describe('DisplayPanelComponent', () => {
 
   function set(inputs: {
     surfaces?: readonly DisplaySurface[];
-    summary?: TurnSummaryModel | null;
     selectedKey?: string | null;
     scrollToSelectedOnMount?: boolean;
     pinned?: boolean;
@@ -168,16 +127,9 @@ describe('DisplayPanelComponent', () => {
       const empty = query('display-panel-empty');
       expect(text(empty)).toContain('Nothing to show yet');
       expect(text(empty)).toContain(
-        'A turn that changes files or runs tests leaves its summary here',
+        'Displays and artifacts that the agent sends to this panel appear here.',
       );
       expect(native().querySelector('[role="tablist"]')).toBeNull();
-    });
-
-    it('is not empty with only a summary', () => {
-      set({ summary: summaryModel() });
-      expect(query('display-panel-empty')).toBeNull();
-      expect(text(selectedTab() ?? null)).toBe('Turn summary');
-      expect(visiblePanels()[0].querySelector('ptah-turn-summary')).not.toBeNull();
     });
   });
 
@@ -188,21 +140,20 @@ describe('DisplayPanelComponent', () => {
       surface('id:agents', 'Subagents', 2),
     ];
 
-    it('lists the summary first, then the surfaces in published order', () => {
-      set({ summary: summaryModel(), surfaces: published });
+    it('lists the surfaces in published order', () => {
+      set({ surfaces: published });
       const list = native().querySelector('[role="tablist"]') as HTMLElement;
       expect(list.getAttribute('aria-label')).toBe('Displays');
       expect(tabs().map((tab) => text(tab))).toEqual([
-        'Turn summary',
         'Release plan',
         'Display',
         'Subagents',
       ]);
-      expect(tabs()[1].getAttribute('title')).toBe('Release plan');
+      expect(tabs()[0].getAttribute('title')).toBe('Release plan');
     });
 
     it('selects exactly one tab; each tab controls a tabpanel labelled by it (6)', () => {
-      set({ summary: summaryModel(), surfaces: published });
+      set({ surfaces: published });
       expect(tabs().filter((tab) => tab.getAttribute('aria-selected') === 'true')).toHaveLength(1);
       for (const tab of tabs()) {
         expect(tab.getAttribute('role')).toBe('tab');
@@ -216,9 +167,8 @@ describe('DisplayPanelComponent', () => {
     });
 
     it('uses a roving tabindex (7)', () => {
-      set({ summary: summaryModel(), surfaces: published, selectedKey: 'id:agents' });
+      set({ surfaces: published, selectedKey: 'id:agents' });
       expect(tabs().map((tab) => tab.getAttribute('tabindex'))).toEqual([
-        '-1',
         '-1',
         '-1',
         '0',
@@ -226,7 +176,7 @@ describe('DisplayPanelComponent', () => {
     });
 
     it('arrows wrap, Home and End jump; selection and focus follow (8)', () => {
-      set({ summary: summaryModel(), surfaces: published });
+      set({ surfaces: published });
       const first = tabs()[0];
       first.focus();
 
@@ -236,28 +186,28 @@ describe('DisplayPanelComponent', () => {
       expect(visiblePanels()[0].getAttribute('aria-labelledby')).toBe(selectedTab()?.id);
 
       key(selectedTab() as HTMLElement, 'ArrowRight');
-      expect(text(selectedTab() ?? null)).toBe('Turn summary');
+      expect(text(selectedTab() ?? null)).toBe('Release plan');
 
       key(selectedTab() as HTMLElement, 'End');
       expect(text(selectedTab() ?? null)).toBe('Subagents');
 
       key(selectedTab() as HTMLElement, 'Home');
-      expect(text(selectedTab() ?? null)).toBe('Turn summary');
+      expect(text(selectedTab() ?? null)).toBe('Release plan');
       expect(document.activeElement).toBe(selectedTab());
 
       expect(selections).toEqual([
         'id:agents',
-        DISPLAY_PANEL_SUMMARY_KEY,
+        'id:plan',
         'id:agents',
-        DISPLAY_PANEL_SUMMARY_KEY,
+        'id:plan',
       ]);
     });
 
     it('follows the store selection and falls back to the first item', () => {
-      set({ summary: summaryModel(), surfaces: published, selectedKey: 'id:plan' });
+      set({ surfaces: published, selectedKey: 'id:plan' });
       expect(text(selectedTab() ?? null)).toBe('Release plan');
       set({ selectedKey: 'id:gone' });
-      expect(text(selectedTab() ?? null)).toBe('Turn summary');
+      expect(text(selectedTab() ?? null)).toBe('Release plan');
     });
 
     it('a click selects and emits once', () => {
@@ -458,29 +408,15 @@ describe('DisplayPanelComponent', () => {
       expect(renderers()).toHaveLength(2);
     });
 
-    it('passes summary actions through', () => {
-      set({ summary: summaryModel() });
-      const opened: string[] = [];
-      let reviewed = 0;
-      fixture.componentInstance.openFile.subscribe((p) => opened.push(p));
-      fixture.componentInstance.review.subscribe(() => reviewed++);
-      (query('turn-summary-card-toggle-files') as HTMLButtonElement).click();
-      fixture.detectChanges();
-      (query('turn-summary-file-action') as HTMLButtonElement).click();
-      (query('turn-summary-review-all') as HTMLButtonElement).click();
-      expect(opened).toEqual(['src/a.ts']);
-      expect(reviewed).toBe(1);
-    });
   });
 
   it.each([
     ['empty', false],
-    ['with summary and surfaces', true],
+    ['with surfaces', true],
   ])('has no axe violations (%s)', async (_name, filled) => {
     set(
       filled
         ? {
-            summary: summaryModel(),
             surfaces: [surface('id:a', 'A', 0), surface('id:b', 'B', 1)],
           }
         : {},

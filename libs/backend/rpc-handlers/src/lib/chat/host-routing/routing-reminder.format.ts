@@ -4,6 +4,7 @@
  * Neither text tells the model to call `route_decide`; executor choice stays
  * with gate-0.1 at plan approval.
  */
+import { routeSurfaceRequest } from '@ptah-extension/agent-sdk';
 import type { PreflightResult } from '@ptah-extension/lane-routing';
 
 /** Upper bound for one reminder; matches the next-turn queue cap. */
@@ -45,6 +46,20 @@ export function formatRoutingReminder(
   if (subagents !== null) parts.push(`Available subagents: ${subagents}.`);
   parts.push(CLOSING);
   return parts.join(' ').slice(0, ROUTING_REMINDER_MAX_LENGTH);
+}
+
+/**
+ * Current-turn surface reminder for a user prompt. Separate from
+ * {@link formatRoutingReminder}, which is the next-turn lane reminder and
+ * does not choose a display skill. `skillLookup` is false for a host that
+ * must not be told to open a skill file. Compact prompts return null.
+ */
+export function formatSurfaceRouteReminder(
+  prompt: string,
+  skillLookup: boolean,
+): string | null {
+  const route = routeSurfaceRequest(prompt, { skillLookup });
+  return route.kind === 'report' ? route.guidance : null;
 }
 
 function isFallbackOnly(answer: PreflightAnswer): boolean {

@@ -1,4 +1,4 @@
-import { DestroyRef, effect, inject, untracked, type Signal } from '@angular/core';
+import { DestroyRef, ElementRef, effect, inject, signal, untracked, type Signal } from '@angular/core';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ArtifactStore } from '../../services/artifact.store';
@@ -58,8 +58,17 @@ export function connectDisplaySidebar(
   });
 
   const displayWindow = inject(DisplayWindowSync);
-  const unbind = displayWindow.bindSource({ tabId: options.tabId, dock: options.dock });
-  inject(DestroyRef).onDestroy(unbind);
+  const host = inject(ElementRef<HTMLElement>).nativeElement;
+  const focusVersion = signal(0);
+  const activate = () => focusVersion.update(value => value + 1);
+  host.addEventListener('focusin', activate);
+  host.addEventListener('pointerdown', activate);
+  const unbind = displayWindow.bindSource({ tabId: options.tabId, dock: options.dock, focusVersion });
+  inject(DestroyRef).onDestroy(() => {
+    host.removeEventListener('focusin', activate);
+    host.removeEventListener('pointerdown', activate);
+    unbind();
+  });
 
   return {
     commitWidth: (width) => layout.setDisplaySidebarWidth(width),

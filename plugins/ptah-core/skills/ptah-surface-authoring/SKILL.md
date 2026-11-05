@@ -1,11 +1,19 @@
 ---
 name: ptah-surface-authoring
-description: Authors ptah-ui blocks the host renders from verified data. Use for a turn summary, stats, file changes, test results, a chart, usage or plan limits in Ptah chat or the display panel. Marketing copy is technical-content-writer. A visual-system spec is ui-ux-designer. Those siblings may still apply when the task also asks for copy or a design system.
+description: Authors ptah-ui blocks and HTML artifacts from verified data. Use for a turn summary, stats, file changes, test results, a chart, usage or plan limits. For a report, dashboard or visual view of work, load this skill and any design or dataviz skill, then publish an HTML artifact with ptah_artifact_publish. technical-content-writer and ui-ux-designer may still apply.
 ---
+
+## Reports and visual views
+
+When the user asks for a report, a dashboard, a prototype, or any visual or representational view of their work, do not answer with `ptah-ui` blocks alone. Load this skill. Also load a design or data-visualization skill when one is available (`frontend-design`, `dataviz`). Gather verified data, publish one attractive self-contained HTML artifact with `ptah_artifact_publish`, then describe it in one sentence in chat.
+
+`ptah-ui` stays the choice for a compact host-verified summary: a turn recap, stats, a diff, tests, usage, plan limits, or a small chart.
+
+The page is one `index.html` of at most 2 MiB UTF-8. Keep CSS and JavaScript inline. Do not use the network, a CDN, a remote font or a remote image. Respond to the host light/dark theme message. The theme bridge in the HTML artifacts section below is required.
 
 Use a `ptah-ui` block for a compact recap, a comparison, a small set of statistics, changed files, test results, subagent usage, CLI plan limits, or a chart. Use ordinary prose for normal explanation, and use ordinary code fences for code the user needs to copy.
 
-Two targets exist. A plain ` ```ptah-ui ` fence renders inline in the message. A ` ```ptah-ui display ` or ` ```ptah-ui display <id> ` fence sends the same block to the side display panel. Reusing an id replaces that panel surface in place, so a dashboard can be refreshed instead of repeated.
+Two targets exist. A plain ` ```ptah-ui ` fence renders inline in the message. A ` ```ptah-ui display ` or ` ```ptah-ui display <id> ` fence sends the same block to the side display panel. Reusing an id replaces that panel surface in place, so a compact summary can be refreshed instead of repeated.
 
 Prefer host-backed sources over repeating information the host already owns. Write the source reference and let the host render the real values; never type file lists, test counts, costs, agent names or limits that a source provides. This keeps the reply compact and saves context tokens.
 

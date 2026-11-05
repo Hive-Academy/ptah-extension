@@ -22,3 +22,16 @@ export const FileViewContentParamsSchema = z
     documentPath: PATH_FIELD.optional(),
   })
   .strict();
+
+/**
+ * Same path triple as {@link FileViewContentParamsSchema}, kept as its own
+ * schema so a future text-only field cannot silently become a binary option.
+ * There is no MIME field: the handler sniffs the bytes.
+ */
+export const FileViewBinaryParamsSchema = z
+  .object({
+    path: PATH_FIELD,
+    workspaceRoot: PATH_FIELD.optional(),
+    documentPath: PATH_FIELD.optional(),
+  })
+  .strict();

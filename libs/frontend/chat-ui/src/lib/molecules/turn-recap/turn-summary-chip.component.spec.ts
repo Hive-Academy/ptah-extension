@@ -102,9 +102,8 @@ describe('TurnSummaryChipComponent', () => {
   const toggle = (): HTMLButtonElement =>
     query('turn-summary-chip-toggle') as HTMLButtonElement;
 
-  function render(summary: TurnSummaryModel, openable = true): void {
+  function render(summary: TurnSummaryModel): void {
     fixture.componentRef.setInput('summary', summary);
-    fixture.componentRef.setInput('openable', openable);
     fixture.detectChanges();
   }
 
@@ -236,10 +235,9 @@ describe('TurnSummaryChipComponent', () => {
     it('Escape collapses an expanded chip and returns focus to the toggle', () => {
       render(model());
       expand();
-      const button = query('turn-summary-chip-open') as HTMLButtonElement;
-      button.focus();
+      const region = native().querySelector('[role="region"]') as HTMLElement;
 
-      button.dispatchEvent(
+      region.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
       fixture.detectChanges();
@@ -378,42 +376,22 @@ describe('TurnSummaryChipComponent', () => {
       });
     });
 
-    it('never lists files, even expanded (R6.9; ported "no file content")', () => {
+    it('lists every changed file when expanded (TASK_2026_879_f5da batch 5b)', () => {
       render(model({ runs: [run('nx test chat', 'passed')] }));
       expand();
 
       const content = native().textContent ?? '';
       for (const file of changeSet.files) {
-        expect(content).not.toContain(file.path);
-        expect(content).not.toContain(file.path.split('/').pop() as string);
+        expect(content).toContain(file.path.split('/').pop() as string);
       }
     });
 
-    it('"Open in panel" emits open', () => {
+    it('has no display-panel control', () => {
       render(model());
-      const emitted = jest.fn();
-      fixture.componentInstance.open.subscribe(emitted);
       expand();
 
-      (query('turn-summary-chip-open') as HTMLButtonElement).click();
-
-      expect(emitted).toHaveBeenCalledTimes(1);
-    });
-
-    it('disables "Open in panel" with a reason on a host without the dock', () => {
-      render(model(), false);
-      const emitted = jest.fn();
-      fixture.componentInstance.open.subscribe(emitted);
-      expand();
-
-      const button = query('turn-summary-chip-open') as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
-      const reason = native().querySelector(
-        `#${button.getAttribute('aria-describedby')}`,
-      );
-      expect(text(reason)).toBe('Display panel unavailable');
-      button.click();
-      expect(emitted).not.toHaveBeenCalled();
+      expect(query('turn-summary-chip-open')).toBeNull();
+      expect(native().textContent).not.toContain('Open in panel');
     });
   });
 
@@ -454,7 +432,7 @@ describe('TurnSummaryChipComponent', () => {
     expect(source).not.toMatch(/linear-gradient|ts-hero/);
   });
 
-  it('shares the mini-card look with the panel Turn summary (decision 76)', () => {
+  it('uses the transcript mini-card styles (decision 76)', () => {
     render(model());
     expand();
     const section = query('turn-summary-chip') as HTMLElement;
@@ -482,5 +460,15 @@ describe('TurnSummaryChipComponent', () => {
       const source = readFileSync(join(__dirname, file), 'utf8');
       expect(source).not.toMatch(/declarative-dashboard|surface-renderer/);
     }
+  });
+  it('shows file rows and test runs on expansion and emits the selected path', () => {
+    const selected: string[] = [];
+    fixture.componentInstance.openFile.subscribe((path) => selected.push(path));
+    render(model({ runs: [run('nx test chat', 'passed')] }));
+    expand();
+    expect(queryAll('turn-summary-file-row')).toHaveLength(3);
+    expect(queryAll('turn-summary-test-run')).toHaveLength(1);
+    query('turn-summary-file-action')?.click();
+    expect(selected).toEqual(['src/app/alpha.ts']);
   });
 });

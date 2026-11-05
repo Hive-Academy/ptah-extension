@@ -52,7 +52,7 @@ import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card'
 // Same lazy-entry contract as the change-set card above (see
 // `libs/frontend/chat-ui/src/turn-recap.ts`); the model builder is loaded
 // through `TRANSCRIPT_TURN_RECAP_LOADER`, never imported as a value here.
-import { TurnSummaryChipComponent } from '@ptah-extension/chat-ui/turn-recap';
+import { TurnSummaryChipComponent, type TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 // Same contract (see `libs/frontend/chat-ui/src/display-panel.ts`).
 import { DisplaySurfaceSyncComponent } from '@ptah-extension/chat-ui/display-panel';
 import {
@@ -1116,6 +1116,14 @@ export class ChatTranscriptComponent {
 
   protected changeSetError(changeSet: TurnChangeSet): string | null {
     return this.changeSetErrors().get(this.changeSetKey(changeSet)) ?? null;
+  }
+
+  protected onTurnSummaryReview(summary: TurnSummaryModel): void {
+    if (summary.files !== null) this.onChangeSetReview(summary.files.changeSet);
+  }
+
+  protected onTurnSummaryOpenFile(summary: TurnSummaryModel, path: string): void {
+    if (summary.files !== null) this.onChangeSetOpenFile(summary.files.changeSet, path);
   }
 
   protected onChangeSetReview(changeSet: TurnChangeSet): void {

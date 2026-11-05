@@ -25,6 +25,7 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-setup-decisions.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
+export * from './rpc/rpc-file-binary.types';
 export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-change-set.types';
 export * from './rpc/rpc-editor.types';
@@ -718,6 +719,10 @@ import type {
   PluginsResolveConfigHomeResult,
 } from './rpc/rpc-misc.types';
 import type {
+  FileViewBinaryParams,
+  FileViewBinaryResult,
+} from './rpc/rpc-file-binary.types';
+import type {
   EditorDetectTargetsParams,
   EditorDetectTargetsResult,
   EditorOpenFileParams,
@@ -1201,6 +1206,10 @@ export interface RpcMethodRegistry
   'file:viewContent': {
     params: FileViewContentParams;
     result: FileViewContentResult;
+  };
+  'file:viewBinary': {
+    params: FileViewBinaryParams;
+    result: FileViewBinaryResult;
   };
   'file:saveContent': {
     params: FileSaveContentParams;
@@ -3502,6 +3511,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:commands': true,
   'file:open': true,
   'file:viewContent': true,
+  'file:viewBinary': true,
   'file:saveContent': true,
   'editor:detectTargets': true,
   'editor:openFile': true,

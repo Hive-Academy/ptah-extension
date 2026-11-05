@@ -10,7 +10,6 @@ import {
   type ArtifactRecord,
 } from '@ptah-extension/shared';
 import { ArtifactStore } from '../artifact.store';
-import { ChangeSetActionsService } from '../change-set/change-set-actions.service';
 import { DisplayDockState } from '../display-dock/display-dock.state';
 import { DisplayWindowSync } from './display-window-sync.service';
 
@@ -38,7 +37,6 @@ describe('DisplayWindowSync', () => {
   let isElectron: boolean;
   const theme = signal('ptah-glass');
   const artifacts = signal<readonly ArtifactRecord[]>([]);
-  const review = jest.fn();
 
   beforeEach(() => {
     frames = new Map();
@@ -46,7 +44,6 @@ describe('DisplayWindowSync', () => {
     isElectron = true;
     theme.set('ptah-glass');
     artifacts.set([]);
-    review.mockReset().mockResolvedValue(undefined);
     replies = {
       'displayWindow:status': {
         success: true,
@@ -100,16 +97,12 @@ describe('DisplayWindowSync', () => {
           provide: ArtifactStore,
           useValue: { panelArtifacts: () => artifacts() },
         },
-        {
-          provide: ChangeSetActionsService,
-          useValue: { review, openFile: jest.fn() },
-        },
       ],
     });
     const sync = TestBed.inject(DisplayWindowSync);
     const dock = new DisplayDockState();
     const tabId = signal<string | null>('tab-1');
-    sync.bindSource({ tabId, dock });
+    sync.bindSource({ tabId, dock, focusVersion: signal(0) });
     return { sync, dock, tabId };
   }
 
@@ -312,7 +305,7 @@ describe('DisplayWindowSync', () => {
 
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-2', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-2', action: { type: 'select', key: 'id:other' } },
     });
     expect(dock.tab('tab-2').selection).toBeNull();
     expect(dock.tab('tab-1').selection).toEqual({
@@ -328,7 +321,7 @@ describe('DisplayWindowSync', () => {
     expect(publishCalls()).toHaveLength(1);
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-old', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-old', action: { type: 'select', key: 'id:old' } },
     });
     await flushFrame();
     expect(publishCalls()).toHaveLength(2);
@@ -379,18 +372,47 @@ describe('DisplayWindowSync', () => {
     expect(sync.detached()).toBe(false);
   });
 
-  it('review without a change set reports the error in the next snapshot', async () => {
-    const { sync } = setup();
+  it('binds the single window to the focused Command Center session and restores chat', async () => {
+    const { sync, dock: chatDock } = setup();
+    const commandDock = new DisplayDockState();
+    const focusedSession = signal<string | null>('command-root');
+    commandDock.openFile('command-root', { kind: 'markdown-file', path: '/root/report.md', workspaceRoot: '/root', title: 'report.md' });
+    const unbind = sync.bindSource({ tabId: focusedSession, dock: commandDock, focusVersion: signal(0) });
     await sync.detach();
-    sync.handleMessage({
-      type: 'displayWindow:action',
-      payload: { tabId: 'tab-1', action: { type: 'review' } },
-    });
+    expect(sync.count()).toBe(1);
+    sync.handleMessage({ type: 'displayWindow:action', payload: { tabId: 'command-root', action: { type: 'select', key: 'file:chosen' } } });
+    expect(commandDock.tab('command-root').selection).toEqual({ kind: 'file', fileKey: 'file:chosen' });
+    expect(chatDock.tab('tab-1').selection).toBeNull();
+    focusedSession.set('command-child');
+    expect(sync.count()).toBe(0);
+    unbind();
+    chatDock.openFile('tab-1', { kind: 'image-file', path: '/root/photo.png', workspaceRoot: '/root', title: 'photo.png' });
+    expect(sync.count()).toBe(1);
+  });
+
+  it('follows ChatView, Command Center, then ChatView focus and falls back on close', async () => {
+    const { sync, dock: chatDock } = setup();
+    const chatFocus = signal(0);
+    const commandFocus = signal(0);
+    const chatTab = signal<string | null>('chat-focused');
+    const unbindChat = sync.bindSource({ tabId: chatTab, dock: chatDock, focusVersion: chatFocus });
+    const commandDock = new DisplayDockState();
+    const unbindCommand = sync.bindSource({ tabId: signal('command-focused'), dock: commandDock, focusVersion: commandFocus });
+    await sync.detach();
+    chatFocus.set(1);
     await flushFrame();
-    expect(review).not.toHaveBeenCalled();
-    expect(lastPublished().state['actionError']).toBe(
-      'This turn has no recorded file changes to open.',
-    );
+    expect(lastPublished().tabId).toBe('chat-focused');
+    commandFocus.set(1);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('command-focused');
+    chatFocus.set(2);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('chat-focused');
+    chatTab.set(null);
+    await flushFrame();
+    expect(lastPublished().tabId).toBe('command-focused');
+    unbindCommand();
+    unbindChat();
   });
 
   it('unbinding stops the actions and the snapshot', async () => {
@@ -407,11 +429,11 @@ describe('DisplayWindowSync', () => {
     });
     const sync = TestBed.inject(DisplayWindowSync);
     const dock = new DisplayDockState();
-    const unbind = sync.bindSource({ tabId: signal('tab-1'), dock });
+    const unbind = sync.bindSource({ tabId: signal('tab-1'), dock, focusVersion: signal(0) });
     unbind();
     sync.handleMessage({
       type: 'displayWindow:action',
-      payload: { tabId: 'tab-1', action: { type: 'select', key: 'summary' } },
+      payload: { tabId: 'tab-1', action: { type: 'select', key: 'id:stats' } },
     });
     expect(dock.tab('tab-1').selection).toBeNull();
     expect(sync.count()).toBe(0);

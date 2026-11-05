@@ -1,4 +1,4 @@
-import {
+﻿import {
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -8,11 +8,11 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, TriangleAlert } from 'lucide-angular';
 import { FileStatusBadgeComponent } from '@ptah-extension/ui';
-import { ROW_PAGE_SIZE } from '../../molecules/change-set/change-set-card.component';
+import { ROW_PAGE_SIZE } from '../change-set/change-set-card.component';
 import type {
   TurnSummaryFileRow,
   TurnSummaryFilesCard,
-} from '../../molecules/turn-recap/turn-summary.model';
+} from './turn-summary.model';
 
 /** `src/app/alpha.ts` → `src/app/` and `alpha.ts`. */
 function splitPath(path: string): {

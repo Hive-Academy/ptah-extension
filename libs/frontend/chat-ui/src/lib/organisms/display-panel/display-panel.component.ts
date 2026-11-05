@@ -21,16 +21,10 @@ import {
   type SurfaceViewState,
 } from '@ptah-extension/declarative-dashboard';
 import type { ArtifactRecord } from '@ptah-extension/shared';
-import type { TurnSummaryModel } from '../../molecules/turn-recap/turn-summary.model';
 import type { DisplaySurface } from './display-surfaces';
 import { ArtifactViewerComponent } from '../artifacts';
-import { TurnSummaryComponent } from './turn-summary.component';
-
-/**
- * The strip key of the host-built turn summary. Surface keys always start
- * with `id:` or `anon:` (D11), so it never collides with one.
- */
-export const DISPLAY_PANEL_SUMMARY_KEY = 'summary';
+import type { DisplayFileItem } from './display-file-item';
+import { DisplayFileViewerComponent } from './display-file-viewer.component';
 
 /** A view-state write from one surface's renderer, for the dock store. */
 export interface DisplayPanelViewStateChange {
@@ -40,7 +34,6 @@ export interface DisplayPanelViewStateChange {
 
 /** One pill in the strip and its tabpanel. */
 type DisplayPanelItem =
-  | { readonly kind: 'summary'; readonly key: string; readonly title: string }
   | {
       readonly kind: 'surface';
       readonly key: string;
@@ -52,7 +45,8 @@ type DisplayPanelItem =
       readonly key: string;
       readonly title: string;
       readonly artifact: ArtifactRecord;
-    };
+    }
+  | { readonly kind: 'file'; readonly key: string; readonly title: string; readonly file: DisplayFileItem };
 
 /**
  * Display only (R2.12, the 610 `READ_ONLY_INTERACTION`): no selection, no
@@ -131,13 +125,12 @@ function idSafe(key: string): string {
  * and 8; decisions #74, #79).
  *
  * Presentational over the dock store: the dock passes the tab's published
- * surfaces, its summary, selection, pin state and view states, and handles
+ * surfaces, artifacts, selection, pin state and view states, and handles
  * every output. It holds no timer or observer, and it does not prune view
  * state (the store applies `retainedViewStateIds`, decision #74).
  *
- * - Strip: a `role="tablist"` with the summary first, then the surfaces in
- *   the published order. Roving tabindex, automatic activation, wrapping
- *   arrows, Home and End. A surface updated since the user last viewed it
+ * - Strip: a `role="tablist"` with surfaces in published order, then artifacts.
+ *   Roving tabindex, automatic activation, wrapping arrows, Home and End. A surface updated since the user last viewed it
  *   carries a gold dot (`aria-hidden`) and a visually hidden "New: " prefix.
  * - Body: one `role="tabpanel"` per pill; only the selected one is shown
  *   (`hidden` on the rest). Surfaces render through `ptah-surface-renderer`
@@ -157,10 +150,10 @@ function idSafe(key: string): string {
   standalone: true,
   imports: [
     ArtifactViewerComponent,
+    DisplayFileViewerComponent,
     LucideAngularModule,
     NgTemplateOutlet,
     SurfaceRendererComponent,
-    TurnSummaryComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [PANEL_STYLES],
@@ -204,8 +197,7 @@ function idSafe(key: string): string {
           Nothing to show yet
         </p>
         <p class="max-w-xs text-xs text-base-content-muted">
-          A turn that changes files or runs tests leaves its summary here, next
-          to any displays the agent sends to this panel.
+          Displays and artifacts that the agent sends to this panel appear here.
         </p>
       </div>
     } @else {
@@ -261,17 +253,7 @@ function idSafe(key: string): string {
             data-testid="display-panel-tabpanel"
             [attr.data-key]="item.key"
           >
-            @if (item.kind === 'summary') {
-              @if (summary(); as model) {
-                <ptah-turn-summary
-                  [summary]="model"
-                  [turnKey]="summaryTurnKey()"
-                  [actionError]="actionError()"
-                  (openFile)="openFile.emit($event)"
-                  (review)="review.emit()"
-                />
-              }
-            } @else if (item.kind === 'artifact') {
+            @if (item.kind === 'artifact') {
               @if (item.key === activeKey() && open()) { <ptah-artifact-viewer
                 [artifact]="item.artifact"
                 [fullscreen]="fullscreenArtifactId() === item.artifact.id"
@@ -279,6 +261,10 @@ function idSafe(key: string): string {
                 (openExternal)="openExternal.emit($event)"
                 data-testid="display-panel-artifact-viewer"
               /> }
+            } @else if (item.kind === 'file') {
+              @if (item.key === activeKey() && open()) {
+                <ptah-display-file-viewer [file]="item.file" />
+              }
             } @else {
               @if (failedFences().has(item.surface.fenceKey)) {
                 <p
@@ -310,18 +296,15 @@ export class DisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   /**
    * The tab's published artifacts (TASK_2026_710), in creation order. Each
-   * becomes one strip item next to the summary and surfaces, rendered through
-   * the sandboxed artifact viewer.
+   * becomes one strip item next to the surfaces, rendered through the
+   * sandboxed artifact viewer.
    */
   readonly artifacts = input<readonly ArtifactRecord[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
-  /** The selected turn's host-built summary, or `null` when there is none. */
-  readonly summary = input<TurnSummaryModel | null>(null);
-  /** The summary source's id of the turn `summary` describes. */
-  readonly summaryTurnKey = input('');
-  /** The store's selected strip key (`DISPLAY_PANEL_SUMMARY_KEY` or a surface key). */
+  /** The store's selected strip key (a surface or artifact key). */
   readonly selectedKey = input<string | null>(null);
   /** A host opening directly on a surface requests one initial strip scroll. */
   readonly scrollToSelectedOnMount = input(false);
@@ -330,17 +313,11 @@ export class DisplayPanelComponent {
   /** The store's per-surface view state, keyed by surface key. */
   readonly viewStates =
     input<ReadonlyMap<string, SurfaceViewState>>(NO_VIEW_STATES);
-  /** The last summary action failure, shown inside the Files card (R6.8). */
-  readonly actionError = input<string | null>(null);
 
   /** The user or an unpinned update selected another strip item. */
   readonly selectedKeyChange = output<string>();
   /** A surface's renderer changed its view state; the store keeps it. */
   readonly viewStateChange = output<DisplayPanelViewStateChange>();
-  /** Summary: open (or resolve) one file of the turn's change set. */
-  readonly openFile = output<string>();
-  /** Summary: review the turn's whole change set. */
-  readonly review = output<void>();
   /**
    * An artifact viewer relayed a validated `open-link` request; the host
    * routes the HTTP(S) URL through the main-process allowlist.
@@ -373,13 +350,6 @@ export class DisplayPanelComponent {
 
   protected readonly items = computed((): readonly DisplayPanelItem[] => {
     const items: DisplayPanelItem[] = [];
-    if (this.summary() !== null) {
-      items.push({
-        kind: 'summary',
-        key: DISPLAY_PANEL_SUMMARY_KEY,
-        title: 'Turn summary',
-      });
-    }
     for (const surface of this.surfaces()) {
       items.push({
         kind: 'surface',
@@ -388,8 +358,7 @@ export class DisplayPanelComponent {
         surface,
       });
     }
-    // The `artifact:` prefix cannot collide with the summary key or the
-    // `id:` / `anon:` surface keys.
+    // The `artifact:` prefix cannot collide with the `id:` / `anon:` surface keys.
     for (const artifact of this.artifacts()) {
       items.push({
         kind: 'artifact',
@@ -397,6 +366,9 @@ export class DisplayPanelComponent {
         title: artifact.title,
         artifact,
       });
+    }
+    for (const file of this.files()) {
+      items.push({ kind: 'file', key: file.key, title: file.title, file });
     }
     return items;
   });

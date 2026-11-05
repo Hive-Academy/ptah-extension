@@ -24,8 +24,8 @@
  *   subagent and a CLI lane named after a sentinel, each costing `0.623623`.
  * - `$limits`: the `agent:getLanePlanLimits` read the `$limits` adapter makes
  *   answers a sentinel lane with the used value `62.3623%`.
- * - The turn summary: the REAL `DisplayDockState` holds the host-built
- *   summary of the seeded turn (its file, cost and test-run values).
+ * - The turn summary: the locally built host summary carries the seeded turn's
+ *   file, cost and test-run values.
  */
 import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -62,7 +62,6 @@ import { buildTurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { TabState } from '@ptah-extension/chat-types';
 import { anchorTurnTests } from '../components/organisms/transcript/transcript-turns';
 import { ChangeSetStore } from './change-set/change-set.store';
-import { DisplayDockState } from './display-dock/display-dock.state';
 import { MessageValidationService } from './message-validation.service';
 import {
   MessageSenderService,
@@ -85,7 +84,6 @@ const AGENT_TOOL_USE_ID = 'tool-agents-host-data';
 /** R10.5: the `$limits` sentinel lane and used value. */
 const LIMITS_SENTINEL_LANE = 'zz_sentinel_623_lane';
 const LIMITS_SENTINEL_USED = '62.3623%';
-const SUMMARY_TURN_KEY = 'turn-host-data';
 
 const PTAH_UI_FENCE_BODY = [
   'stats',
@@ -171,6 +169,7 @@ function expectNoSentinels(params: unknown): void {
 interface SeededSender {
   readonly changeSet: TurnChangeSet;
   readonly changeSetStore: ChangeSetStore;
+  readonly summary: NonNullable<ReturnType<typeof buildTurnSummaryModel>>;
   readonly assistant: ExecutionChatMessage;
   readonly messages: ExecutionChatMessage[];
   /** The stored transcript of the tab, as the tab manager holds it now. */
@@ -369,7 +368,6 @@ function setupSeededSender(): SeededSender {
     providers: [
       MessageSenderService,
       ChangeSetStore,
-      DisplayDockState,
       { provide: AgentMonitorStore, useValue: agentMonitor },
       { provide: TabManagerService, useValue: tabManager },
       { provide: SessionManager, useValue: { setStatus: jest.fn() } },
@@ -419,8 +417,7 @@ function setupSeededSender(): SeededSender {
     type: MESSAGE_TYPES.GIT_TURN_CHANGE_SET,
     payload: { changeSet },
   });
-  // Seed the REAL DisplayDockState with the host-built summary of the turn,
-  // exactly as the transcript publishes it to the dock (R6.7).
+  // Build the host summary locally. The transcript owns this model now.
   const model = buildTurnSummaryModel(
     buildTurnSourceSnapshot({
       turnMessages: messages,
@@ -430,13 +427,10 @@ function setupSeededSender(): SeededSender {
     }),
   );
   if (model === null) throw new Error('the seeded turn has no summary');
-  TestBed.inject(DisplayDockState).setSummaries(
-    TAB_ID,
-    new Map([[SUMMARY_TURN_KEY, { model, changeSet }]]),
-  );
   return {
     changeSet,
     changeSetStore,
+    summary: model,
     assistant,
     messages,
     storedMessages: () => tabs()[0].messages,
@@ -573,13 +567,10 @@ describe('MessageSenderService host data boundary', () => {
   });
 
   it('keeps the host-built turn summary out of the serialized chat:continue request (R6.7)', async () => {
-    const { send } = setupSeededSender();
+    const { send, summary } = setupSeededSender();
 
-    // Positive control: the REAL dock store holds the summary of the seeded
-    // turn, carrying the sentinel file and test run.
-    const summary = TestBed.inject(DisplayDockState).summaryFor(TAB_ID);
-    expect(summary).not.toBeNull();
-    const summaryText = JSON.stringify(summary?.model);
+    // Positive control: the host-built model carries the sentinel file and test.
+    const summaryText = JSON.stringify(summary);
     expect(summaryText).toContain(SENTINEL_PATH);
     expect(summaryText).toContain(SENTINEL_LABEL);
 

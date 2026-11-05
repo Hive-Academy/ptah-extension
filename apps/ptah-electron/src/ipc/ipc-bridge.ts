@@ -124,14 +124,17 @@ type IpcSenderRole = 'main' | 'display';
 
 /**
  * The only RPC methods the detached Display window may call. Everything it
- * shows comes from the snapshot the main renderer publishes, so it needs no
- * other backend access. Any other method gets an RPC error reply.
+ * shows comes from the snapshot the main renderer publishes, except the
+ * active image or PDF, which it reads through `file:viewBinary`. Bytes stay
+ * out of the snapshot. Any other method gets an RPC error reply.
  */
 export const DISPLAY_WINDOW_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   'displayWindow:getState',
   'displayWindow:action',
   'displayWindow:close',
   'artifacts:openLink',
+  'file:viewBinary',
+  'file:viewContent',
 ]);
 
 /**

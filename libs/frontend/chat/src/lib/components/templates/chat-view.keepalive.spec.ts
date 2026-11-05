@@ -1,3 +1,4 @@
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 /**
  * Workspace-switch transcript keep-alive (TASK_2026_155 Batch 2).
  *
@@ -292,21 +293,17 @@ describe('ChatViewComponent keep-alive — workspace-switch transcript survival'
 })
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly artifacts = input<readonly unknown[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
-  readonly summary = input<unknown>(null);
-  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
-  readonly actionError = input<string | null>(null);
   readonly selectedKeyChange = output<string>();
   readonly viewStateChange = output<unknown>();
-  readonly openFile = output<string>();
-  readonly review = output<void>();
 }
 
 @Component({

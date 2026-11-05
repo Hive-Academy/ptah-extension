@@ -14,7 +14,7 @@ import {
 import type {
   TurnSummaryTestTone,
   TurnSummaryTestsCard,
-} from '../../molecules/turn-recap/turn-summary.model';
+} from './turn-summary.model';
 
 /** The tests row's outcome colours (`TTR:39-44`), keyed by the model's tone. */
 const TONE_CLASS: Readonly<Record<TurnSummaryTestTone, string>> = {

@@ -166,7 +166,7 @@ function secureRendererHtml(html) {
     "object-src 'none'",
     "base-uri 'self'",
     // Only the isolated artifact scheme may be framed by the shell.
-    'frame-src ptah-artifact:',
+    'frame-src ptah-artifact: blob:',
     "form-action 'none'",
   ].join('; ');
   // Replace <base href="/"> or <base href="/"/> with <base href="./"> for

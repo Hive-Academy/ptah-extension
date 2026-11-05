@@ -1423,7 +1423,14 @@ describe('CommandCenterPageComponent', () => {
 
   describe('shared display dock (Electron)', () => {
     beforeEach(() => {
-      TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+      TestBed.overrideProvider(VSCodeService, {
+        useValue: {
+          isElectron: true,
+          config: () => ({}),
+          getState: jest.fn().mockReturnValue(null),
+          setState: jest.fn(),
+        },
+      });
       tabs.set([{ id: 'root-tab' }, { id: 'child-tab' }]);
     });
 
