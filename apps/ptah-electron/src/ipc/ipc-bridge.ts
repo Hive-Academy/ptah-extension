@@ -39,8 +39,13 @@ import {
   tapReplayRecorder,
   type ReplayRecorder,
 } from '../replay/replay-recorder';
+import {
+  takeStreamEventBatch,
+  type QueuedStreamEvent,
+} from './stream-event-batch';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
+const AGENT_OUTPUT_FLUSH_INTERVAL_MS = 64;
 
 /**
  * `diag:cpu-profile` duration bounds. The renderer supplies `durationMs`
@@ -70,12 +75,8 @@ const BATCHABLE_STREAM_TYPES: ReadonlySet<string> = new Set<string>([
   MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
   MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
   MESSAGE_TYPES.INDEXING_PROGRESS,
+  MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
 ]);
-
-interface QueuedStreamEvent {
-  readonly type: string;
-  readonly payload?: unknown;
-}
 
 /**
  * Best-effort `type` off an outbound message, for diagnostics only.
@@ -154,7 +155,12 @@ export class IpcBridge {
     { state: unknown }
   >();
   private readonly streamQueue: QueuedStreamEvent[] = [];
+  private readonly deferredMessages: Array<
+    | { kind: 'direct'; message: unknown }
+    | { kind: 'stream'; event: QueuedStreamEvent }
+  > = [];
   private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private streamFlushImmediate: ReturnType<typeof setImmediate> | null = null;
   /**
    * Flips the first time {@link getWindow} returns a window and never flips
    * back. It is what separates "no renderer yet" (boot — expected) from "the
@@ -212,7 +218,7 @@ export class IpcBridge {
    * @param message - The message object to send. Should include a `type` field
    *   matching MESSAGE_TYPES constants so MessageRouterService can dispatch it.
    * @returns true when the event was handed to `webContents.send` or queued as
-   *   a batched stream event, and false when it was dropped (no window, or the
+   *   an ordered batched/deferred event, and false when it was dropped (no window, or the
    *   window's webContents is destroyed). Delivery-reporting callers
    *   (`ElectronWebviewManagerAdapter.sendMessage`) read it; fire-and-forget
    *   call sites ignore it.
@@ -224,6 +230,14 @@ export class IpcBridge {
       return true;
     }
     this.flushStreamQueue();
+    if (this.streamQueue.length > 0 || this.deferredMessages.length > 0) {
+      this.deferredMessages.push({ kind: 'direct', message });
+      return true;
+    }
+    return this.sendDirectMessage(message);
+  }
+
+  private sendDirectMessage(message: unknown): boolean {
     const win = this.resolveWindow(messageTypeOf(message));
     if (!win) {
       return false;
@@ -321,50 +335,114 @@ export class IpcBridge {
   }
 
   private enqueueStreamEvent(event: QueuedStreamEvent): void {
+    if (this.deferredMessages.length > 0) {
+      this.deferredMessages.push({ kind: 'stream', event });
+      return;
+    }
     this.streamQueue.push(event);
-    if (this.streamFlushTimer !== null) return;
+    if (
+      this.streamFlushTimer !== null ||
+      this.streamFlushImmediate !== null
+    ) {
+      return;
+    }
+    const delay =
+      event.type === MESSAGE_TYPES.AGENT_MONITOR_OUTPUT
+        ? AGENT_OUTPUT_FLUSH_INTERVAL_MS
+        : STREAM_FLUSH_INTERVAL_MS;
     this.streamFlushTimer = setTimeout(() => {
       this.flushStreamQueue();
-    }, STREAM_FLUSH_INTERVAL_MS);
+    }, delay);
   }
 
-  private flushStreamQueue(): void {
+  private scheduleStreamQueueDrain(): void {
+    if (this.streamFlushImmediate !== null) return;
+    this.streamFlushImmediate = setImmediate(() => {
+      this.streamFlushImmediate = null;
+      this.flushStreamQueue();
+    });
+  }
+
+  private clearStreamQueueSchedule(): void {
     if (this.streamFlushTimer !== null) {
       clearTimeout(this.streamFlushTimer);
       this.streamFlushTimer = null;
     }
-    if (this.streamQueue.length === 0) return;
-    const events = this.streamQueue.splice(0, this.streamQueue.length);
-    const win = this.resolveWindow(
-      events.length === 1 ? events[0].type : MESSAGE_TYPES.BATCH,
-    );
-    if (!win) {
-      return;
-    }
-    if (win.webContents.isDestroyed?.() === true) {
-      return;
-    }
-    if (events.length === 1) {
-      const singleMessage = {
-        type: events[0].type,
-        payload: events[0].payload,
-      };
-      win.webContents.send('to-renderer', singleMessage);
-      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
-        tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
-      }
-      return;
-    }
-    const batchMessage = {
-      type: MESSAGE_TYPES.BATCH,
-      payload: { events },
-    };
-    win.webContents.send('to-renderer', batchMessage);
-    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
-      tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+    if (this.streamFlushImmediate !== null) {
+      clearImmediate(this.streamFlushImmediate);
+      this.streamFlushImmediate = null;
     }
   }
 
+  private flushStreamQueue(): void {
+    this.clearStreamQueueSchedule();
+    if (this.streamQueue.length === 0) {
+      this.flushDeferredMessages();
+      return;
+    }
+    const events = takeStreamEventBatch(this.streamQueue);
+    const win = this.resolveWindow(
+      events.length === 1 ? events[0].type : MESSAGE_TYPES.BATCH,
+    );
+    if (!win || win.webContents.isDestroyed?.() === true) {
+      this.streamQueue.length = 0;
+      this.flushDeferredMessages();
+      return;
+    }
+    try {
+      if (events.length === 1) {
+        const singleMessage = {
+          type: events[0].type,
+          payload: events[0].payload,
+        };
+        win.webContents.send('to-renderer', singleMessage);
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+        }
+      } else {
+        const batchMessage = {
+          type: MESSAGE_TYPES.BATCH,
+          payload: { events },
+        };
+        win.webContents.send('to-renderer', batchMessage);
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+        }
+      }
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failed batch is discarded; the queue continues.
+      console.error('[IpcBridge] stream send failed:', error instanceof Error ? error : new Error(String(error)));
+    }
+    if (this.streamQueue.length > 0) {
+      this.scheduleStreamQueueDrain();
+      return;
+    }
+    this.flushDeferredMessages();
+  }
+
+  private flushDeferredMessages(): void {
+    while (this.deferredMessages.length > 0) {
+      const next = this.deferredMessages.shift();
+      if (next?.kind === 'direct') {
+        try {
+          this.sendDirectMessage(next.message);
+        } catch (error: unknown) {
+          // degradation-audit: reported - a failed direct send cannot strand later stream events.
+          console.error('[IpcBridge] deferred send failed:', error instanceof Error ? error : new Error(String(error)));
+        }
+        continue;
+      }
+      if (next?.kind === 'stream') {
+        this.streamQueue.push(next.event);
+        while (this.deferredMessages[0]?.kind === 'stream') {
+          const stream = this.deferredMessages.shift();
+          if (stream?.kind === 'stream') this.streamQueue.push(stream.event);
+        }
+        this.flushStreamQueue();
+        return;
+      }
+    }
+  }
   /**
    * Which trusted window an `ipcMain` call comes from: the top frame of the
    * main window or of the detached Display window, showing a trusted
@@ -837,6 +915,11 @@ export class IpcBridge {
    * Cleanup IPC listeners. Call on app shutdown.
    */
   dispose(): void {
+    // Shutdown cannot leave the final output or lifecycle event on a later
+    // macrotask. Batches stay bounded, but teardown drains them synchronously.
+    while (this.streamQueue.length > 0) {
+      this.flushStreamQueue();
+    }
     this.flushStreamQueue();
     if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
       tapReplayRecorder(this.recorder, (r) => r.flush());

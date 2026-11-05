@@ -196,6 +196,8 @@ export class SessionRpcHandlers {
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly reportedCorruptSessionIds = new Set<string>();
+  private readonly pendingSessionList = new Map<string, Promise<SessionListResult>>();
+  private static readonly MAX_PENDING_SESSION_LISTS = 64;
 
   /** `session:list` message counts, read from the page's transcripts. */
   private readonly messageCounter: SessionMessageCounter;
@@ -451,6 +453,29 @@ export class SessionRpcHandlers {
     this.rpcHandler.registerMethod<SessionListParams, SessionListResult>(
       'session:list',
       async (params: SessionListParams) => {
+        const key = JSON.stringify({
+          workspacePath: params.workspacePath,
+          limit: params.limit ?? 10,
+          offset: params.offset ?? 0,
+          since: params.since,
+          query: this.parseSessionListQuery(params),
+        });
+        const existing = this.pendingSessionList.get(key);
+        if (existing) return existing;
+        const pending = this.executeSessionList(params);
+        if (this.pendingSessionList.size < SessionRpcHandlers.MAX_PENDING_SESSION_LISTS) {
+          this.pendingSessionList.set(key, pending);
+        }
+        void pending.then(
+          () => { if (this.pendingSessionList.get(key) === pending) this.pendingSessionList.delete(key); },
+          () => { if (this.pendingSessionList.get(key) === pending) this.pendingSessionList.delete(key); },
+        );
+        return pending;
+      },
+    );
+  }
+
+  private async executeSessionList(params: SessionListParams): Promise<SessionListResult> {
         const startedAt = Date.now();
         const query = this.parseSessionListQuery(params);
         try {
@@ -628,8 +653,6 @@ export class SessionRpcHandlers {
             );
           }
         }
-      },
-    );
   }
 
   /**

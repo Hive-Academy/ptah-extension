@@ -6,7 +6,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { GitRootWatchLeaseService } from './git-root-watch-lease.service';
+import { GitRootWatchLeaseService, WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS } from './git-root-watch-lease.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -68,6 +68,32 @@ describe('GitRootWatchLeaseService', () => {
     );
   });
 
+  it('sends the latest roots after an active request settles', async () => {
+    let settle: ((value: { success: boolean; data: { watched: string[]; rejected: string[]; evicted: string[] } }) => void) | undefined;
+    mockRpcCall.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
+    service.update(['/wt/a']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
+    settle?.({ success: true, data: { watched: ['/wt/a'], rejected: [], evicted: [] } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sentRoots()).toEqual([['/wt/a'], ['/wt/b']]);
+  });
+
+  it('retries once after failure with the latest desired roots', async () => {
+    mockRpcCall.mockResolvedValueOnce({ success: false, error: 'RPC timeout' });
+    service.update(['/wt/a']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/b']);
+    service.update(['/wt/c']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
+    await jest.advanceTimersByTimeAsync(WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS);
+    expect(sentRoots()).toEqual([['/wt/a'], ['/wt/c']]);
+  });
+
   it('de-duplicates spellings, skips empty entries and caps at four roots', async () => {
     service.update([null, '', '/wt/A', '/WT/a/', '/b', '/c', '/d', '/e']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
@@ -94,20 +120,26 @@ describe('GitRootWatchLeaseService', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
-  it('stops renewing roots the backend rejected until the set changes (M3)', async () => {
+  it('suppresses a rejected root within its backoff until it leaves the requested set', async () => {
     mockRpcCall.mockResolvedValueOnce({
       success: true,
       data: { watched: ['/wt/a'], rejected: ['/wt/gone'], evicted: [] },
     });
     service.update(['/wt/a', '/wt/gone']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    // Well inside both the renewal interval and the rejection backoff.
     await jest.advanceTimersByTimeAsync(
-      GitRootWatchLeaseService.RENEW_INTERVAL_MS,
+      GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS / 2,
     );
 
-    expect(sentRoots()).toEqual([['/wt/a', '/wt/gone'], ['/wt/a']]);
+    expect(sentRoots()).toEqual([['/wt/a', '/wt/gone']]);
 
-    // A new set from the dock asks for every root again.
+    // A new set keeps the rejected root suppressed while its backoff runs.
+    service.update(['/wt/gone', '/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots().at(-1)).toEqual(['/wt/b']);
+    service.update(['/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     service.update(['/wt/gone', '/wt/b']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(sentRoots().at(-1)).toEqual(['/wt/gone', '/wt/b']);
@@ -124,7 +156,32 @@ describe('GitRootWatchLeaseService', () => {
       GitRootWatchLeaseService.RENEW_INTERVAL_MS * 3,
     );
 
+    expect(sentRoots()).toEqual([['/wt/gone'], ['/wt/gone'], ['/wt/gone'], ['/wt/gone']]);
+  });
+
+  it('rechecks a restored root once per backoff window without deselection', async () => {
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { watched: [], rejected: ['/wt/gone'], evicted: [] },
+    });
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { watched: [], rejected: ['/wt/gone'], evicted: [] },
+    });
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(sentRoots()).toEqual([['/wt/gone'], []]);
+
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+    expect(sentRoots().at(-1)).toEqual(['/wt/gone']);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(2);
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(2);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(3);
   });
 
   it('does not resend a set the backend already holds', async () => {
@@ -168,7 +225,7 @@ describe('GitRootWatchLeaseService', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
-  it('tolerates a failed call and retries the same set on the next update', async () => {
+  it('tolerates a failed call and retries the same set once its failure backoff ends', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
       /* expected */
     });
@@ -177,9 +234,12 @@ describe('GitRootWatchLeaseService', () => {
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(warn).toHaveBeenCalled();
 
+    // An update inside the backoff is held, not sent.
     service.update(['/wt/a']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
 
+    await jest.advanceTimersByTimeAsync(WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS);
     expect(sentRoots()).toEqual([['/wt/a'], ['/wt/a']]);
     warn.mockRestore();
   });

@@ -7,6 +7,7 @@
  * every read path.
  */
 import { LRUCache } from 'lru-cache';
+import { SearchFlight } from './search-flight';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS, type ITracer } from '@ptah-extension/platform-core';
@@ -213,6 +214,8 @@ interface VecRow {
 
 @injectable()
 export class MemorySearchService implements IMemoryReader {
+  private readonly searchFlight = new SearchFlight<MemorySearchResponse>();
+  private readonly indexFlight = new SearchFlight<MemSearchIndexResponse>();
   /** LRU result cache — keyed by the JSON tuple `[query, scope, limit, writeCounter]`. */
   private readonly cache = new LRUCache<string, MemorySearchResponse>({
     max: 100,
@@ -277,7 +280,7 @@ export class MemorySearchService implements IMemoryReader {
       counter,
       {
         q: (filter.query ?? '').trim().toLowerCase(),
-        k: filter.topK ?? 0,
+        k: Math.max(1, Math.min(100, filter.topK ?? 20)),
         t: filter.type ? [...filter.type].sort() : [],
         c: filter.concepts ? [...filter.concepts].sort() : [],
         f: filter.files ? [...filter.files].sort() : [],
@@ -325,10 +328,20 @@ export class MemorySearchService implements IMemoryReader {
     topK = 10,
     workspaceRoot?: string | null,
   ): Promise<MemorySearchResponse> {
+    const key = this.makeCacheKey(query.trim(), workspaceRoot, Math.max(1, Math.min(50, topK)));
+    return this.searchFlight.run(key, () => this.searchRichTracked(query, topK, workspaceRoot, key));
+  }
+
+  private async searchRichTracked(
+    query: string,
+    topK: number,
+    workspaceRoot: string | null | undefined,
+    cacheKey: string,
+  ): Promise<MemorySearchResponse> {
     return this.tracer.startSpan(
       'memory.searchRich',
       { op: 'db.query', topK, queryLength: query.length },
-      () => this.searchRichInner(query, topK, workspaceRoot),
+      () => this.searchRichInner(query, topK, workspaceRoot, cacheKey),
     );
   }
 
@@ -336,11 +349,11 @@ export class MemorySearchService implements IMemoryReader {
     query: string,
     topK: number,
     workspaceRoot: string | null | undefined,
+    cacheKey: string,
   ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
     if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
-    const cacheKey = this.makeCacheKey(trimmed, workspaceRoot, limit);
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.logger.debug('[memory-curator] cache hit', { query: trimmed });
@@ -352,7 +365,7 @@ export class MemorySearchService implements IMemoryReader {
     let bm25Only = !this.vecStatus.available;
     if (!bm25Only) {
       try {
-        vecRows = await this.vecSearch(trimmed, limit * 4, workspaceRoot);
+        vecRows = await this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot);
       } catch (err) {
         this.logger.warn(
           '[memory-curator] vec search failed; falling back to BM25',
@@ -459,7 +472,11 @@ export class MemorySearchService implements IMemoryReader {
     const plan = buildFtsQueryPlan(query);
     const run = (match: string): FtsRow[] => {
       const params: unknown[] = [match, ...scope.params, limit];
-      return this.connection.db.prepare(sql).all(...params) as FtsRow[];
+      const startedAt = performance.now();
+      const rows = this.connection.db.prepare(sql).all(...params) as FtsRow[];
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_fts.bm25', elapsedMs });
+      return rows;
     };
     try {
       return executeFtsQueryPlan(plan, limit, run, (row) => row.rowid);
@@ -483,11 +500,7 @@ export class MemorySearchService implements IMemoryReader {
     );
   }
 
-  /**
-   * vec0 KNN cannot take a join filter, so the `limit` nearest chunks are
-   * chosen before the scope and quarantine predicates apply; out-of-scope and
-   * quarantined chunks can take KNN slots (accepted, no refill round).
-   */
+  /** Scoped searches rank joined rows so other workspaces cannot take the candidate slots. */
   private async vecSearchInner(
     query: string,
     limit: number,
@@ -496,15 +509,25 @@ export class MemorySearchService implements IMemoryReader {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, limit) as VecRow[];
+    const startedAt = performance.now();
+    const scope = searchScopePredicate(workspaceRoot);
+    const distRows = scope.sql
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM memory_chunks_vec v
+          JOIN memory_chunks mc ON mc.rowid = v.rowid
+          JOIN memories m ON m.id = mc.memory_id
+          WHERE ${ACTIVE_MEMORY} ${scope.sql}
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, ...scope.params, Math.min(limit, 100)) as VecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as VecRow[];
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_vec.knn', elapsedMs });
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const scope = searchScopePredicate(workspaceRoot);
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
@@ -603,6 +626,10 @@ export class MemorySearchService implements IMemoryReader {
   async searchIndex(
     filter: MemSearchIndexFilter,
   ): Promise<MemSearchIndexResponse> {
+    return this.indexFlight.run(this.makeIndexCacheKey(filter), () => this.searchIndexTracked(filter));
+  }
+
+  private async searchIndexTracked(filter: MemSearchIndexFilter): Promise<MemSearchIndexResponse> {
     return this.tracer.startSpan(
       'memory.searchIndex',
       { op: 'db.query', topK: filter.topK ?? 20 },
@@ -649,7 +676,7 @@ export class MemorySearchService implements IMemoryReader {
         try {
           vecRows = await this.vecSearchByMemory(
             trimmedQuery,
-            limit * 4,
+            Math.min(100, limit * 2),
             workspaceRoot,
           );
         } catch (err) {
@@ -961,10 +988,14 @@ export class MemorySearchService implements IMemoryReader {
       const params: unknown[] = [match];
       if (workspaceRoot) params.push(workspaceRoot);
       params.push(limit);
-      return this.connection.db.prepare(sql).all(...params) as Array<{
+      const startedAt = performance.now();
+      const rows = this.connection.db.prepare(sql).all(...params) as Array<{
         memory_id: string;
         rank: number;
       }>;
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_fts.byMemory', elapsedMs });
+      return rows;
     };
     try {
       return executeFtsQueryPlan(plan, limit, run, (row) => row.memory_id);
@@ -984,12 +1015,22 @@ export class MemorySearchService implements IMemoryReader {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, limit) as Array<{ rowid: number; distance: number }>;
+    const startedAt = performance.now();
+    const distRows = workspaceRoot
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM memory_chunks_vec v
+          JOIN memory_chunks mc ON mc.rowid = v.rowid
+          JOIN memories m ON m.id = mc.memory_id
+          WHERE ${ACTIVE_MEMORY} AND m.workspace_root IS ?
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, workspaceRoot, Math.min(limit, 100)) as VecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as VecRow[];
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_vec.byMemory', elapsedMs });
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
     const wsFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';

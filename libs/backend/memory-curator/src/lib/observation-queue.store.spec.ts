@@ -125,6 +125,26 @@ describe('ObservationQueueStore (native-gated)', () => {
     return { service, store };
   }
 
+  maybe('limits a scheduled transaction and schedules the rest', async () => {
+    const { service, store } = await bootstrap();
+    jest.useFakeTimers();
+    try {
+      for (let i = 0; i < 20; i++) store.enqueue({
+        sessionId: 'capped', workspaceRoot: null, kind: 'tool-use',
+      });
+      // The scheduled tick writes one bounded batch, then schedules the rest.
+      jest.runOnlyPendingTimers();
+      expect(store.pendingCount).toBe(4);
+      jest.runOnlyPendingTimers();
+      expect(store.pendingCount).toBe(0);
+      expect(store.countUnprocessed('capped')).toBe(20);
+    } finally {
+      store.dispose();
+      service.close();
+      jest.useRealTimers();
+    }
+  });
+
   maybe(
     'insert + drainForSession returns rows in capture order, oldest first',
     async () => {
@@ -643,28 +663,58 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
     const { service, store } = await bootstrap();
     try {
       for (let i = 0; i < 64; i++) {
-        store.enqueue({
-          sessionId: 'batch-c',
-          workspaceRoot: null,
-          kind: 'tool-use',
-        });
+        store.enqueue({ sessionId: 'batch-c', workspaceRoot: null, kind: 'tool-use' });
       }
-      // Threshold reached — written synchronously, nothing left pending.
-      expect(store.pendingCount).toBe(0);
-      expect(
-        (
-          service.db
-            .prepare(
-              `SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = 'batch-c'`,
-            )
-            .get() as { n: number }
-        ).n,
-      ).toBe(64);
+      // The threshold commits one bounded transaction immediately.
+      expect(store.pendingCount).toBe(48);
+      const row = service.db.prepare(
+        "SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = 'batch-c'",
+      ).get() as { n: number };
+      expect(row.n).toBe(16);
     } finally {
       service.close();
     }
   });
 
+  maybe('public flush drains every pending batch', () => {
+    const { service, store } = bootstrap();
+    try {
+      for (let i = 0; i < 48; i++) {
+        store.enqueue({ sessionId: 'public-flush', workspaceRoot: null, kind: 'tool-use' });
+      }
+      store.flush();
+      expect(store.pendingCount).toBe(0);
+      expect(store.countUnprocessed('public-flush')).toBe(48);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe('synchronous reads and rekey drain every pending bounded batch', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'drain-all', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.drainForSession('drain-all')).toHaveLength(64);
+      expect(store.pendingCount).toBe(0);
+
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'count-all', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.countUnprocessed('count-all')).toBe(64);
+      expect(store.pendingCount).toBe(0);
+
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'old-id', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.backfillSessionId('old-id', 'new-id')).toBe(64);
+      expect(store.countUnprocessed('new-id')).toBe(64);
+      expect(store.countUnprocessed('old-id')).toBe(0);
+    } finally {
+      service.close();
+    }
+  });
   maybe('dispose writes the pending batch rather than losing it', async () => {
     const { service, store } = await bootstrap();
     try {
@@ -811,7 +861,7 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
     second.close();
   });
 
-  it('drops the batch and warns when persistence is unavailable', () => {
+  it('retains the batch and warns when persistence is unavailable', () => {
     const logger = makeLogger();
     const connection = {
       get db(): never {
@@ -826,10 +876,27 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
       kind: 'tool-use',
     });
     expect(() => store.flush()).not.toThrow();
-    expect(store.pendingCount).toBe(0);
+    expect(store.pendingCount).toBe(1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('persistence unavailable'),
-      expect.objectContaining({ dropped: 1 }),
+      expect.objectContaining({ retained: 1 }),
     );
+  });
+
+  it('stops after one failed transaction and refuses a stale read', () => {
+    const logger = makeLogger();
+    const transaction = jest.fn(() => { throw new Error('SQLITE_BUSY'); });
+    const connection = {
+      db: { prepare: jest.fn(() => ({ run: jest.fn() })), transaction },
+    } as unknown as SqliteConnectionService;
+    const store = new ObservationQueueStore(logger, connection);
+    for (let i = 0; i < 15; i++) {
+      store.enqueue({ sessionId: 'busy', workspaceRoot: null, kind: 'tool-use' });
+    }
+    store.flush();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(store.pendingCount).toBe(15);
+    expect(() => store.peekForSession('busy')).toThrow('Observation queue persistence failed');
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
 });
