@@ -246,6 +246,29 @@ describe('builder fns (integration)', () => {
       expect(node.toolInput).toBeUndefined();
     });
 
+    it('renders parsed input before the tool result arrives', () => {
+      const state = createEmptyStreamingState();
+      const toolStart: ToolStartEvent = {
+        id: 'stream-tool',
+        eventType: 'tool_start',
+        timestamp: 110,
+        sessionId: 'session',
+        messageId: 'message',
+        toolCallId: 'call',
+        toolName: 'Bash',
+        isTaskTool: false,
+      };
+      setEvent(state, toolStart);
+      state.toolInputAccumulators.set('call-input', '{"command":"echo hello');
+      const node = buildToolNode(
+        makeDeps(agentStats, makeBackgroundAgentStub()),
+        toolStart,
+        state,
+      );
+      expect(node.status).toBe('streaming');
+      expect(node.toolInput).toEqual({ command: 'echo hello' });
+    });
+
     it('parses accumulated JSON toolInput once tool_result arrives and marks node complete', () => {
       const state = createEmptyStreamingState();
       const sessionId = 'session_tool2';

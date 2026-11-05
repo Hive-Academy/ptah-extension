@@ -132,6 +132,26 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(tree[0].content).toBe('Hello world');
     });
 
+    it('shows partial Bash command while its input streams', () => {
+      const events = [
+        messageStart('e1', 'msg-1'),
+        toolStart('e2', 'msg-1', 'tc-stream', 'Bash'),
+        {
+          id: 'e3',
+          eventType: 'tool_delta',
+          timestamp: 1200,
+          messageId: 'msg-1',
+          toolCallId: 'tc-stream',
+          delta: '{"command":"echo hello',
+        },
+      ];
+      const node = service
+        .buildTree('agent-stream', events)
+        .find((item) => item.type === 'tool');
+      expect(node?.status).toBe('streaming');
+      expect(node?.toolInput).toEqual({ command: 'echo hello' });
+    });
+
     it('builds a tool node paired with its tool_result', () => {
       const events = [
         messageStart('e1', 'msg-1'),
