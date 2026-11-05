@@ -55,6 +55,7 @@ import {
   type CodexLaneCredentialProbe,
 } from './codex-app-server-lane-auth';
 import { codexLaneModels } from './codex-app-server-lane-models';
+import { CodexLaneWriteDacPreflight } from './codex-lane-write-dac-preflight';
 
 export class CodexLaneResumeIdentityError extends Error {
   constructor() {
@@ -149,6 +150,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
     private readonly home: () => Promise<string | undefined> = async () => undefined,
     private readonly writers: Map<string, LiveLaneWriter> = CodexAppServerLaneAdapter.createWriterRegistry(),
+    private readonly writeDacPreflight: Pick<CodexLaneWriteDacPreflight, 'check'> = new CodexLaneWriteDacPreflight(logger),
   ) {}
 
   capabilities(): AgentMessagingCapabilities { return { steer: false, interrupt: false, continuation: true }; }
@@ -242,6 +244,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     });
     if (profile.consumer !== 'lane')
       throw new Error('Codex lane profile selected another consumer');
+    await this.writeDacPreflight.check(resolved.lane.config.workingDirectory, profile.sandboxPolicy.mode);
     const resume = await this.resumeIdentity(options.resumeSessionId, profile);
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();

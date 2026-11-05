@@ -28,6 +28,7 @@ import type { CodexLaneBinaryProbe } from './codex-app-server-lane-binary';
 import type { CodexLaneCredentialProbe, CodexLaneCredentialStatus } from './codex-app-server-lane-auth';
 import type { CodexLaneProfileInput } from './codex-lane-profile';
 import { essentialLaneSession } from './codex-app-server-lane-rejection';
+import { CodexLaneWriteDacDeniedError, CodexLaneWriteDacPreflight } from './codex-lane-write-dac-preflight';
 
 const paths = {
   platform: 'posix' as const,
@@ -172,13 +173,16 @@ function harness(
     check: jest.fn(async (): Promise<CodexLaneCredentialStatus> => 'fresh'),
   };
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
+  const preflight = {
+    check: jest.fn(async (_cwd: string, _mode: string): Promise<void> => { order.push('preflight'); }),
+  };
   const createAdapter = () => new CodexAppServerLaneAdapter(
     runtime, profiles, identities, logger, binary, credentials,
-    homeResolver, writers,
+    homeResolver, writers, preflight,
   );
   const adapter = createAdapter();
   return {
-    adapter, createAdapter, runtime, profiles, identities, order, contexts, binary, credentials, logger, writers,
+    adapter, createAdapter, runtime, profiles, identities, order, contexts, binary, credentials, logger, writers, preflight,
     get context() { if (!context) throw new Error('context not opened'); return context; },
     get profile() { if (!openedProfile) throw new Error('profile not opened'); return openedProfile; },
     get approvals() { if (!approvalSink) throw new Error('sink not opened'); return approvalSink; },
@@ -193,6 +197,52 @@ async function terminal(context: FakeContext, turnId = 'turn-1', status: 'comple
 }
 
 describe('CodexAppServerLaneAdapter', () => {
+  it('checks WRITE_DAC before opening the runtime', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options());
+    expect(h.order.indexOf('preflight')).toBeLessThan(h.order.indexOf('open'));
+    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'workspace-write');
+    await terminal(h.context);
+    await handle.done;
+  });
+
+  it('propagates a preflight denial without opening the runtime', async () => {
+    const h = harness();
+    const denied = new CodexLaneWriteDacDeniedError('/work');
+    h.preflight.check.mockRejectedValueOnce(denied);
+    await expect(h.adapter.runSdk(options())).rejects.toBe(denied);
+    expect(h.runtime.open).not.toHaveBeenCalled();
+  });
+
+  it('checks a resumed lane before opening the runtime', async () => {
+    const h = harness();
+    const denied = new CodexLaneWriteDacDeniedError('/work');
+    h.preflight.check.mockRejectedValueOnce(denied);
+    await expect(h.adapter.runSdk(options({ resumeSessionId: 'thread-1' }))).rejects.toBe(denied);
+    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'workspace-write');
+    expect(h.runtime.open).not.toHaveBeenCalled();
+  });
+
+  it('opens a lane when the preflight runs on a non-Windows host', async () => {
+    const h = harness();
+    const runner = { run: jest.fn(async () => '5') };
+    const preflight = new CodexLaneWriteDacPreflight(h.logger, runner, 'linux');
+    h.preflight.check.mockImplementation((cwd, mode) => preflight.check(cwd, mode));
+    const handle = await h.adapter.runSdk(options());
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(h.runtime.open).toHaveBeenCalled();
+    await terminal(h.context);
+    await handle.done;
+  });
+
+  it('continues when the preflight reports an inconclusive probe', async () => {
+    const h = harness();
+    h.preflight.check.mockImplementationOnce(async () => { h.logger.warn('inconclusive'); });
+    const handle = await h.adapter.runSdk(options());
+    expect(h.runtime.open).toHaveBeenCalled();
+    await terminal(h.context);
+    await handle.done;
+  });
   const binding: ProviderAccountBinding = {
     version: 1, provider: 'codex', profileId: 'profile-1',
     routeRevision: 1, routeFingerprint: 'fingerprint', authEpoch: 1,
@@ -277,7 +327,7 @@ describe('CodexAppServerLaneAdapter', () => {
       accountBindingId: 'binding-1',
       onAccountBinding,
     }));
-    expect(h.order).toEqual(['open', 'persist', 'binding']);
+    expect(h.order).toEqual(['preflight', 'open', 'persist', 'binding']);
     expect(onAccountBinding).toHaveBeenCalledTimes(1);
     expect(onAccountBinding).toHaveBeenCalledWith({
       accountBinding: binding, accountBindingId: 'binding-1',
@@ -363,7 +413,17 @@ describe('CodexAppServerLaneAdapter', () => {
 
     const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(oldContext.close).toHaveBeenCalledTimes(1);
-    expect(h.order).toEqual(['open', 'persist', 'close', 'open', 'persist']);
+    // The read-only WRITE_DAC preflight of the second lane runs before the
+    // writer takeover closes the first context; close still precedes open.
+    expect(h.order).toEqual([
+      'preflight',
+      'open',
+      'persist',
+      'preflight',
+      'close',
+      'open',
+      'persist',
+    ]);
     expect(first.supportsContinuation?.()).toBe(false);
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
