@@ -17,6 +17,7 @@
  * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
  * - AGENT_SESSION_OPENED: Agent-started child session tab (TASK_2026_584)
  * - SESSION_HANDOFF_OPENED: Session a handoff started to continue the work (TASK_2026_655)
+ * - SESSION_HANDOFF_LINKED: Durable handoff edge written; inspectors reload the chain (TASK_2026_876)
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -51,8 +52,10 @@ import { SessionOrganizationCache } from './session-organization/session-organiz
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
+  parseSessionHandoffLinkedPayload,
   parseSessionHandoffOpenedPayload,
 } from './agent-session-adoption.service';
+import { HandoffChainClient } from './session-inspector/handoff-chain.client';
 import {
   AgentMonitorStore,
   BackgroundTaskStore,
@@ -89,6 +92,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
   private readonly organizer = inject(SessionOrganizerService);
   private readonly organizationCache = inject(SessionOrganizationCache);
+  private readonly handoffChain = inject(HandoffChainClient);
   /**
    * Authoritative StreamRouter.
    *
@@ -167,6 +171,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
     MESSAGE_TYPES.AGENT_SESSION_OPENED,
     MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
+    MESSAGE_TYPES.SESSION_HANDOFF_LINKED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -257,7 +262,27 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_HANDOFF_OPENED:
         this.handleSessionHandoffOpened(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_HANDOFF_LINKED:
+        this.handleSessionHandoffLinked(message.payload);
+        break;
     }
+  }
+
+  /**
+   * `sessionHandoff:linked` — a handoff edge was written to the durable chain
+   * (TASK_2026_876). An expanded inspector showing a session in that chain
+   * reloads it once; nothing else changes.
+   */
+  private handleSessionHandoffLinked(payload: unknown): void {
+    const parsed = parseSessionHandoffLinkedPayload(payload);
+    if (!parsed) {
+      console.warn(
+        '[ChatMessageHandler] sessionHandoff:linked payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    this.handoffChain.onLinked(parsed);
   }
 
   /**
@@ -755,6 +780,14 @@ export class ChatMessageHandler implements MessageHandler {
       this.chatStore.retireEndedSessionPrompts(tabId, sessionId);
     }
     this.backgroundTaskStore.clearSession(sessionId);
+    // An ended session is neither Running nor Waiting on background work
+    // (TASK_2026_876). Both ids are marked: the registry folds a tab id onto
+    // its SDK id once the two were rekeyed, and stores either one otherwise.
+    for (const id of new Set([tabId, sessionId])) {
+      if (typeof id === 'string' && id.length > 0) {
+        this.liveness.markIdle(id, this.workspaceFor(id));
+      }
+    }
   }
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {

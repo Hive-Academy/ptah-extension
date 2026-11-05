@@ -19,16 +19,20 @@ import {
   limitAwareDot,
   summarizeTodos,
   InspectorLimitsLanesComponent,
+  InspectorLinkedSessionsComponent,
   InspectorSessionStatsComponent,
   type SessionStatsInputs,
   type SessionLimitSummary,
 } from '@ptah-extension/chat-ui';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { SessionId } from '@ptah-extension/shared';
 import { LucideAngularModule, PanelRightClose } from 'lucide-angular';
 import {
+  HandoffChainClient,
   InspectorShellController,
   SessionInspectorStore,
 } from '../../../services/session-inspector';
+import { SessionRowActionsService } from '../../../services/session-list/session-row-actions.service';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
 import { InspectorGitSectionComponent } from './inspector-git-section.component';
 import { InspectorSessionActionsComponent } from './inspector-session-actions.component';
@@ -70,6 +74,7 @@ function statsSwitchWindowMs(element: HTMLElement): number {
     LucideAngularModule,
     InspectorRequestLinesComponent,
     InspectorSessionStatsComponent,
+    InspectorLinkedSessionsComponent,
     InspectorAgentsSectionComponent,
     InspectorLimitsLanesComponent,
     InspectorTaskSectionComponent,
@@ -120,6 +125,8 @@ function statsSwitchWindowMs(element: HTMLElement): number {
 export class SessionInspectorComponent {
   private readonly store = inject(SessionInspectorStore);
   private readonly tabs = inject(TabManagerService);
+  private readonly handoffChain = inject(HandoffChainClient);
+  private readonly rowActions = inject(SessionRowActionsService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   /** Provided by the chat-view host only; the Rail board has no sheet. */
   private readonly shell = inject(InspectorShellController, { optional: true });
@@ -219,6 +226,20 @@ export class SessionInspectorComponent {
     this.store.modelFor(this.tabId())(),
   );
 
+  /**
+   * SDK id whose handoff chain the expanded body lists (TASK_2026_876).
+   * Null on the `w-14` rail and before the session id resolves.
+   */
+  protected readonly linkedSessionId = computed(() =>
+    this.presentation() === 'rail' ? null : this.model().sessionId,
+  );
+
+  /** Linked sessions, root first; empty leaves the section out of the DOM. */
+  protected readonly linkedSessions = computed(() => {
+    const sessionId = this.linkedSessionId();
+    return sessionId ? this.handoffChain.entriesFor(sessionId)() : [];
+  });
+
   /** AGENTS rows continue the stagger after Orchestrator (+ SESSION). */
   protected readonly agentsStaggerStart = computed(() =>
     this.stats() ? 1 : 0,
@@ -264,6 +285,14 @@ export class SessionInspectorComponent {
     this.destroyRef.onDestroy(() => {
       if (this.statsSwitchTimer !== null) clearTimeout(this.statsSwitchTimer);
     });
+    // Hold the shown session's chain while the expanded body shows it; the
+    // client loads on the first hold and drops the chain on the last release.
+    effect((onCleanup) => {
+      const sessionId = this.linkedSessionId();
+      if (!sessionId) return;
+      untracked(() => this.handoffChain.retain(sessionId));
+      onCleanup(() => this.handoffChain.release(sessionId));
+    });
     let previous: SessionInspectorPresentation | undefined;
     afterRenderEffect(() => {
       const presentation = this.presentation();
@@ -296,5 +325,19 @@ export class SessionInspectorComponent {
 
   protected announce(text: string): void {
     this.announcement.set(text);
+  }
+
+  /**
+   * Another linked session was activated: open it through the session-list
+   * open path (canvas focus or a new tile). A failure is logged there; the
+   * inspector stays as it is.
+   */
+  protected openLinkedSession(sessionId: string): void {
+    const id = SessionId.safeParse(sessionId);
+    if (!id) return;
+    const label =
+      this.linkedSessions().find((entry) => entry.sessionId === sessionId)
+        ?.label ?? '';
+    void this.rowActions.openSession({ id, name: label });
   }
 }

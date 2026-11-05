@@ -30,6 +30,16 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   SESSION_HANDOFF: Symbol.for('SessionHandoff'),
   /**
+   * `IHandoffTurnFlush` on the same `SessionHandoffService` singleton as
+   * `SESSION_HANDOFF`. The stream broadcaster calls it after a terminal flush.
+   */
+  HANDOFF_TURN_FLUSH: Symbol.for('HandoffTurnFlush'),
+  /**
+   * `ISessionHandoffChain` (TASK_2026_876): durable SDK-id edges for a
+   * kept handoff. Optional for hosts that have not constructed the store.
+   */
+  SESSION_HANDOFF_CHAIN: Symbol.for('SessionHandoffChain'),
+  /**
    * `CarryOverResolutionTags` (TASK_2026_865): the request ID of a provider
    * carry-over launch, stamped on its tab's `SESSION_ID_RESOLVED`. Bound by
    * the chat services; resolved optionally, so a host without it broadcasts
