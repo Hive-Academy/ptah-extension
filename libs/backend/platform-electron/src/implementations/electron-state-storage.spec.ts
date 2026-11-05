@@ -43,6 +43,73 @@ describe('ElectronStateStorage — Electron-specific behaviour', () => {
     provider = new ElectronStateStorage(storage, 'state.json');
   });
 
+  it('coalesces updates and flushes pending changes on dispose', async () => {
+    jest.useFakeTimers();
+    try {
+      const statePath = path.join(storage, 'state.json');
+      const first = provider.update('one', 1);
+      const second = provider.update('two', 2);
+      await expect(fs.access(statePath)).rejects.toThrow();
+      await jest.advanceTimersByTimeAsync(299);
+      await expect(fs.access(statePath)).rejects.toThrow();
+      await jest.advanceTimersByTimeAsync(1);
+      await Promise.all([first, second]);
+      expect(JSON.parse(await fs.readFile(statePath, 'utf8'))).toEqual({
+        one: 1,
+        two: 2,
+      });
+      const third = provider.update('three', 3);
+      await provider.dispose();
+      await third;
+      expect(JSON.parse(await fs.readFile(statePath, 'utf8'))).toEqual({
+        one: 1,
+        two: 2,
+        three: 3,
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('updateSync flushes pending updates and settles their promises', async () => {
+    jest.useFakeTimers();
+    try {
+      const pending = provider.update('pending', 'latest');
+      provider.updateSync('quit', true);
+
+      await expect(pending).resolves.toBeUndefined();
+      const fresh = new ElectronStateStorage(storage, 'state.json');
+      expect(fresh.get('pending')).toBe('latest');
+      expect(fresh.get('quit')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps a sync quit commit when an older async write resumes', async () => {
+    let releaseWrite: (() => void) | undefined;
+    let writing: (() => void) | undefined;
+    const writeStarted = new Promise<void>((resolve) => { writing = resolve; });
+    const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    provider = new ElectronStateStorage(storage, 'state.json', undefined, undefined,
+      async (filePath, contents) => {
+        await fs.writeFile(filePath, contents, 'utf8');
+        writing?.();
+        await writeGate;
+      });
+    try {
+      const pending = provider.update('version', 'old');
+      const flushing = provider.flush();
+      await writeStarted;
+      provider.updateSync('version', 'new');
+      releaseWrite?.();
+      await Promise.all([pending, flushing]);
+      expect(JSON.parse(await fs.readFile(path.join(storage, 'state.json'), 'utf8'))).toEqual({ version: 'new' });
+    } finally {
+      releaseWrite?.();
+    }
+  });
+
   it('update persists JSON to the configured filename', async () => {
     await provider.update('greeting', 'hello');
     const raw = await fs.readFile(path.join(storage, 'state.json'), 'utf-8');

@@ -9,6 +9,7 @@
 
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
+import type { Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
@@ -43,6 +44,13 @@ import {
   type ElectronWorkspaceWatcherOptions,
 } from './workspace-watch/electron-workspace-watcher';
 import { ElectronHostAttentionNotifications, type ElectronAttentionCapabilities } from './implementations/electron-host-attention-notifications';
+
+/**
+ * The shared `TOKENS.LOGGER` registry key. Spelled out here because a value
+ * import of `@ptah-extension/vscode-core` would load its whole public surface
+ * (including `vscode`) into this host-neutral platform lib.
+ */
+const LOGGER_TOKEN = Symbol.for('Logger');
 
 /**
  * Options for Electron platform registration.
@@ -124,6 +132,10 @@ export function registerPlatformElectronServices(
     useValue: new ElectronStateStorage(
       options.userDataPath,
       'global-state.json',
+      undefined,
+      container.isRegistered(LOGGER_TOKEN)
+        ? container.resolve<Logger>(LOGGER_TOKEN)
+        : undefined,
     ),
   });
   // LAZY, and memoized to keep the single-instance semantics the previous

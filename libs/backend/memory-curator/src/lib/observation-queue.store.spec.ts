@@ -125,6 +125,25 @@ describe('ObservationQueueStore (native-gated)', () => {
     return { service, store };
   }
 
+  maybe('limits a synchronous transaction and schedules the rest', async () => {
+    const { service, store } = await bootstrap();
+    jest.useFakeTimers();
+    try {
+      for (let i = 0; i < 20; i++) store.enqueue({
+        sessionId: 'capped', workspaceRoot: null, kind: 'tool-use',
+      });
+      store.flush();
+      expect(store.pendingCount).toBe(4);
+      jest.runOnlyPendingTimers();
+      expect(store.pendingCount).toBe(0);
+      expect(store.countUnprocessed('capped')).toBe(20);
+    } finally {
+      store.dispose();
+      service.close();
+      jest.useRealTimers();
+    }
+  });
+
   maybe(
     'insert + drainForSession returns rows in capture order, oldest first',
     async () => {
@@ -643,28 +662,44 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
     const { service, store } = await bootstrap();
     try {
       for (let i = 0; i < 64; i++) {
-        store.enqueue({
-          sessionId: 'batch-c',
-          workspaceRoot: null,
-          kind: 'tool-use',
-        });
+        store.enqueue({ sessionId: 'batch-c', workspaceRoot: null, kind: 'tool-use' });
       }
-      // Threshold reached — written synchronously, nothing left pending.
-      expect(store.pendingCount).toBe(0);
-      expect(
-        (
-          service.db
-            .prepare(
-              `SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = 'batch-c'`,
-            )
-            .get() as { n: number }
-        ).n,
-      ).toBe(64);
+      // The threshold commits one bounded transaction immediately.
+      expect(store.pendingCount).toBe(48);
+      const row = service.db.prepare(
+        "SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = 'batch-c'",
+      ).get() as { n: number };
+      expect(row.n).toBe(16);
     } finally {
       service.close();
     }
   });
 
+  maybe('synchronous reads and rekey drain every pending bounded batch', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'drain-all', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.drainForSession('drain-all')).toHaveLength(64);
+      expect(store.pendingCount).toBe(0);
+
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'count-all', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.countUnprocessed('count-all')).toBe(64);
+      expect(store.pendingCount).toBe(0);
+
+      for (let i = 0; i < 64; i++) {
+        store.enqueue({ sessionId: 'old-id', workspaceRoot: null, kind: 'tool-use' });
+      }
+      expect(store.backfillSessionId('old-id', 'new-id')).toBe(64);
+      expect(store.countUnprocessed('new-id')).toBe(64);
+      expect(store.countUnprocessed('old-id')).toBe(0);
+    } finally {
+      service.close();
+    }
+  });
   maybe('dispose writes the pending batch rather than losing it', async () => {
     const { service, store } = await bootstrap();
     try {

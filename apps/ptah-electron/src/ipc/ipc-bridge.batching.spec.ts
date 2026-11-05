@@ -35,6 +35,10 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { IpcBridge } from './ipc-bridge';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  STREAM_BATCH_MAX_APPROX_BYTES,
+  STREAM_BATCH_MAX_EVENTS,
+} from './stream-event-batch';
 
 const TRUSTED_DOCUMENTS = [path.resolve('/app/renderer/index.html')];
 const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENTS[0]).href };
@@ -133,6 +137,179 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
       MESSAGE_TYPES.CHAT_CHUNK,
       MESSAGE_TYPES.CHAT_THINKING,
       MESSAGE_TYPES.CHAT_TOOL_PROGRESS,
+    ]);
+  });
+
+  it('batches agent output within 64ms and preserves per-agent order', () => {
+    const deltas = [
+      { agentId: 'a1', stdoutDelta: 'first' },
+      { agentId: 'a2', stdoutDelta: 'other' },
+      { agentId: 'a1', stdoutDelta: 'second' },
+    ];
+    for (const payload of deltas) {
+      bridge.sendToRenderer({
+        type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
+        payload,
+      });
+    }
+
+    jest.advanceTimersByTime(63);
+    expect(win.sent).toHaveLength(0);
+    jest.advanceTimersByTime(1);
+
+    expect(win.sent).toHaveLength(1);
+    const message = win.sent[0].message as {
+      type: string;
+      payload: { events: Array<{ payload: unknown }> };
+    };
+    expect(message.type).toBe(MESSAGE_TYPES.BATCH);
+    expect(message.payload.events.map((event) => event.payload)).toEqual(deltas);
+  });
+
+  it('flushes pending agent output before the exit event', () => {
+    const finalDelta = { agentId: 'a1', stdoutDelta: 'final' };
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
+      payload: { agentId: 'a1', stdoutDelta: 'before final' },
+    });
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
+      payload: finalDelta,
+    });
+
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+      payload: { agentId: 'a1', status: 'completed' },
+    });
+
+    expect(win.sent).toHaveLength(2);
+    const batch = win.sent[0].message as {
+      type: string;
+      payload: { events: Array<{ payload: unknown }> };
+    };
+    expect(batch.type).toBe(MESSAGE_TYPES.BATCH);
+    expect(batch.payload.events[1].payload).toEqual(finalDelta);
+    expect((win.sent[1].message as { type: string }).type).toBe(
+      MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+    );
+  });
+
+  /**
+   * Overflow drains on a later macrotask (`setImmediate`). Default fake
+   * timers would run that immediate inside `advanceTimersByTime`, hiding the
+   * yield, so these specs keep the real one and wait for it explicitly.
+   */
+  function useRealImmediates(): void {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'clearImmediate'] });
+  }
+
+  function nextMacrotask(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it('bounds each batch by event count and yields before overflow', async () => {
+    useRealImmediates();
+    for (let i = 0; i <= STREAM_BATCH_MAX_EVENTS; i++) {
+      bridge.sendToRenderer({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { i },
+      });
+    }
+
+    jest.advanceTimersByTime(20);
+
+    expect(win.sent).toHaveLength(1);
+    const first = win.sent[0].message as {
+      type: string;
+      payload: { events: Array<{ payload: { i: number } }> };
+    };
+    expect(first.type).toBe(MESSAGE_TYPES.BATCH);
+    expect(first.payload.events).toHaveLength(STREAM_BATCH_MAX_EVENTS);
+    expect(first.payload.events[0].payload.i).toBe(0);
+    expect(first.payload.events[STREAM_BATCH_MAX_EVENTS - 1].payload.i).toBe(
+      STREAM_BATCH_MAX_EVENTS - 1,
+    );
+
+    await nextMacrotask();
+
+    expect(win.sent).toHaveLength(2);
+    const second = win.sent[1].message as {
+      type: string;
+      payload: { i: number };
+    };
+    expect(second.type).toBe(MESSAGE_TYPES.CHAT_CHUNK);
+    expect(second.payload.i).toBe(STREAM_BATCH_MAX_EVENTS);
+  });
+
+  it('bounds each batch by approximate bytes without dropping oversized events', async () => {
+    useRealImmediates();
+    const largePayload = { text: 'x'.repeat(STREAM_BATCH_MAX_APPROX_BYTES) };
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.CHAT_CHUNK,
+      payload: largePayload,
+    });
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.CHAT_CHUNK,
+      payload: { text: 'next' },
+    });
+
+    jest.advanceTimersByTime(20);
+    expect(win.sent).toHaveLength(1);
+    expect(
+      (win.sent[0].message as { payload: unknown }).payload,
+    ).toEqual(largePayload);
+
+    await nextMacrotask();
+    expect(win.sent).toHaveLength(2);
+    expect((win.sent[1].message as { type: string }).type).toBe(
+      MESSAGE_TYPES.CHAT_CHUNK,
+    );
+  });
+
+  it('keeps a non-stream message behind overflow batches', () => {
+    for (let i = 0; i <= STREAM_BATCH_MAX_EVENTS; i++) {
+      bridge.sendToRenderer({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { i },
+      });
+    }
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.SWITCH_VIEW,
+      payload: { view: 'chat' },
+    });
+
+    expect(win.sent).toHaveLength(1);
+    expect((win.sent[0].message as { type: string }).type).toBe(
+      MESSAGE_TYPES.BATCH,
+    );
+
+    jest.runOnlyPendingTimers();
+    expect(win.sent.map((sent) => (sent.message as { type: string }).type)).toEqual([
+      MESSAGE_TYPES.BATCH,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.SWITCH_VIEW,
+    ]);
+  });
+
+  it('keeps a later stream chunk behind a deferred exit', () => {
+    for (let i = 0; i < 65; i++) {
+      bridge.sendToRenderer({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { i },
+      });
+    }
+    bridge.sendToRenderer({ type: MESSAGE_TYPES.AGENT_MONITOR_EXITED });
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.CHAT_CHUNK,
+      payload: { i: 65 },
+    });
+
+    jest.runOnlyPendingTimers();
+    expect(win.sent.map((sent) => (sent.message as { type: string }).type)).toEqual([
+      MESSAGE_TYPES.BATCH,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+      MESSAGE_TYPES.CHAT_CHUNK,
     ]);
   });
 
@@ -268,6 +445,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
       MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
       MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
       MESSAGE_TYPES.INDEXING_PROGRESS,
+      MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
     ];
     for (const type of batchable) {
       bridge.sendToRenderer({ type, payload: { type } });

@@ -24,9 +24,9 @@
  *
  * **Every read flushes first.** `drainForSession`, `peekForSession`,
  * `countUnprocessed` and `backfillSessionId` all call {@link flush} before they
- * touch SQL, so no caller can observe a state where a row it just enqueued is
- * missing. That is what keeps the batching invisible to everything except the
- * event loop.
+ * touch SQL. A flush writes at most one bounded transaction. Rows above that
+ * cap remain pending until the next tick, so a read can return before an
+ * unusually large backlog is fully durable.
  *
  * Deleting old rows is NOT this store's job: `ObservationRetentionStore`
  * (`retention/observation-retention.store.ts`) purges processed rows and
@@ -124,6 +124,7 @@ const FLUSH_INTERVAL_MS = 250;
 
 /** Pending row count that forces an immediate flush rather than waiting. */
 const FLUSH_THRESHOLD = 64;
+const MAX_TRANSACTION_ROWS = 16;
 
 /**
  * Hard ceiling on the pending buffer. Only reachable when the connection is
@@ -395,7 +396,7 @@ export class ObservationQueueStore {
   }
 
   /**
-   * Write every pending observation in ONE transaction, then publish their
+   * Write a bounded batch in one transaction, then publish its
    * capture events.
    *
    * Idempotent and safe to call at any time: with nothing pending it only
@@ -407,8 +408,7 @@ export class ObservationQueueStore {
     this.disarmFlushTimer();
     if (this.pending.length === 0) return;
 
-    const batch = this.pending;
-    this.pending = [];
+    const batch = this.pending.splice(0, MAX_TRANSACTION_ROWS);
 
     let db: SqliteDatabase;
     try {
@@ -421,9 +421,11 @@ export class ObservationQueueStore {
           error: error instanceof Error ? error.message : String(error),
         },
       );
+      this.scheduleRemainingFlush();
       return;
     }
 
+    const started = performance.now();
     try {
       const stmt = this.statement(db, INSERT_SQL);
       const txn = db.transaction(((..._args: unknown[]) => {
@@ -435,10 +437,23 @@ export class ObservationQueueStore {
         dropped: batch.length,
         error: error instanceof Error ? error.message : String(error),
       });
+      this.scheduleRemainingFlush();
       return;
     }
 
+    const ms = performance.now() - started;
+    if (ms > 50) this.logger.warn(
+      '[memory-curator] slow observation-queue transaction',
+      { rows: batch.length, ms },
+    );
+
     for (const entry of batch) this.emitCapture(entry.capture);
+    this.scheduleRemainingFlush();
+  }
+
+  /** Flush every bounded transaction before a synchronous read or rekey. */
+  private flushAll(): void {
+    while (this.pending.length > 0) this.flush();
   }
 
   /**
@@ -448,11 +463,19 @@ export class ObservationQueueStore {
    * connection.
    */
   dispose(): void {
-    this.flush();
+    while (this.pending.length > 0) this.flush();
     this.disarmFlushTimer();
     this.statements.clear();
     this.cachedDb = null;
     this.captureListeners.clear();
+  }
+
+  private scheduleRemainingFlush(): void {
+    if (this.pending.length === 0 || this.flushTimer !== null) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush();
+    }, 0);
   }
 
   private armFlushTimer(): void {
@@ -528,7 +551,7 @@ export class ObservationQueueStore {
     limit = 500,
     byteBudget = OBSERVATION_DRAIN_BYTE_BUDGET,
   ): readonly ObservationDraftRow[] {
-    this.flush();
+    this.flushAll();
     const clamped = Math.max(1, Math.min(2000, limit));
     const budget = Math.max(1, byteBudget);
     const stmt = this.statement(this.connection.db, DRAIN_SQL);
@@ -559,7 +582,7 @@ export class ObservationQueueStore {
     sessionId: string,
     limit = 50,
   ): readonly ObservationQueueRow[] {
-    this.flush();
+    this.flushAll();
     const clamped = Math.max(1, Math.min(500, limit));
     const rows = this.statement(this.connection.db, PEEK_SQL).all(
       sessionId,
@@ -616,7 +639,7 @@ export class ObservationQueueStore {
     const to = blankToUndefined(toId);
     if (from === undefined || to === undefined || from === to) return 0;
 
-    this.flush();
+    this.flushAll();
 
     const db = this.connection.db;
     let changes = 0;
@@ -648,7 +671,7 @@ export class ObservationQueueStore {
   }
 
   countUnprocessed(sessionId: string): number {
-    this.flush();
+    this.flushAll();
     const row = this.statement(this.connection.db, COUNT_UNPROCESSED_SQL).get(
       sessionId,
     ) as { n: number } | undefined;
