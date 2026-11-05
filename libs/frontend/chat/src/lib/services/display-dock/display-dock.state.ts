@@ -181,9 +181,9 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
   }
 
   openFile(tabId: string, file: Omit<DisplayFileItem, 'key' | 'readStatus'>): void {
-    const workspaceRoot = file.workspaceRoot.replace(/\\/g, '/').replace(/\/$/, '');
-    const path = normalizeFilePath(file.path, workspaceRoot, file.documentPath);
-    const key = displayFileKey(file.kind, workspaceRoot, path);
+    const workspaceRoot = file.workspaceRoot?.replace(/\\/g, '/').replace(/\/$/, '');
+    const path = normalizeFilePath(file.path, workspaceRoot ?? '', file.documentPath);
+    const key = displayFileKey(file.kind, workspaceRoot ?? '', path);
     this.update(tabId, (state) => ({
       ...openedState(state, 'displays'),
       files: state.files.some((item) => item.key === key)

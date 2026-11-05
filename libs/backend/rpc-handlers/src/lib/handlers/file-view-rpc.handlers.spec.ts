@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
-import type { Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -167,33 +166,35 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
   );
 
   it.each([
-    ['file:viewContent', 'opened inode zero', { ino: 0 }, {}, 'unreadable'],
-    ['file:viewContent', 'current inode zero', {}, { ino: 0 }, 'unreadable'],
+    ['file:viewContent', 'opened inode zero', { ino: 0n }, {}, 'unreadable'],
+    ['file:viewContent', 'current inode zero', {}, { ino: 0n }, 'unreadable'],
     ['file:viewContent', 'opened device unavailable', { dev: undefined }, {}, 'unreadable'],
     ['file:viewContent', 'matching identity', {}, {}, 'success'],
-    ['file:viewContent', 'different identity', {}, { ino: -1 }, 'outside-roots'],
+    ['file:viewContent', 'different identity', {}, { ino: -1n }, 'outside-roots'],
+    ['file:viewContent', 'large inode', { ino: 9007199254740993n }, { ino: 9007199254740993n }, 'success'],
     ['file:viewContent', 'different device', {}, {}, 'outside-roots'],
-    ['file:viewBinary', 'opened inode zero', { ino: 0 }, {}, 'unreadable'],
-    ['file:viewBinary', 'current inode zero', {}, { ino: 0 }, 'unreadable'],
+    ['file:viewBinary', 'opened inode zero', { ino: 0n }, {}, 'unreadable'],
+    ['file:viewBinary', 'current inode zero', {}, { ino: 0n }, 'unreadable'],
     ['file:viewBinary', 'current device unavailable', {}, { dev: undefined }, 'unreadable'],
     ['file:viewBinary', 'matching identity', {}, {}, 'success'],
-    ['file:viewBinary', 'different identity', {}, { ino: -1 }, 'outside-roots'],
+    ['file:viewBinary', 'different identity', {}, { ino: -1n }, 'outside-roots'],
+    ['file:viewBinary', 'large inode', { ino: 9007199254740993n }, { ino: 9007199254740993n }, 'success'],
     ['file:viewBinary', 'different device', {}, {}, 'outside-roots'],
   ] as const)('verifies %s with %s', async (methodName, _case, openedChanges, currentChanges, expected) => {
     const relative = methodName === 'file:viewContent' ? 'src/a.ts' : 'identity.png';
     const target = path.join(workspace, relative);
     resolveForView.mockResolvedValue(await resolvedFile(relative));
     const handle = await fs.open(target, 'r');
-    const opened = Object.assign(await handle.stat(), openedChanges);
-    const current = Object.assign(await fs.stat(target), currentChanges);
-    if (expected === 'outside-roots') current.ino = opened.ino + 1;
+    const opened = Object.assign(await handle.stat({ bigint: true }), openedChanges);
+    const current = Object.assign(await fs.stat(target, { bigint: true }), currentChanges);
+    if (expected === 'outside-roots') current.ino = opened.ino + 1n;
     if (_case === 'different device') {
       current.ino = opened.ino;
-      current.dev = opened.dev + 1;
+      current.dev = opened.dev + 1n;
     }
     const openSpy = jest.spyOn(fsModule, 'open').mockResolvedValueOnce(handle);
-    const statSpy = jest.spyOn(fsModule, 'stat').mockResolvedValueOnce(current as Stats);
-    jest.spyOn(handle, 'stat').mockResolvedValueOnce(opened as Stats);
+    const statSpy = jest.spyOn(fsModule, 'stat').mockResolvedValueOnce(current as never);
+    jest.spyOn(handle, 'stat').mockResolvedValueOnce(opened as never);
     const methods = new Map<string, RpcMethod>();
     new FileViewRpcHandlers(
       { warn } as never,

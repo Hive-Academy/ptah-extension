@@ -34,4 +34,14 @@ describe('DisplayFileViewerComponent', () => {
     expect(fixture.nativeElement.querySelector('button')?.textContent).toContain('Retry');
     fixture.destroy();
   });
+
+  it.each([undefined, ''])('omits an empty or unknown workspace root (%s) from the file RPC', async workspaceRoot => {
+    call.mockResolvedValue({ success: true, data: { success: true, kind: 'image', mime: 'image/png', dataBase64: 'AA==' } });
+    const fixture = TestBed.createComponent(DisplayFileViewerComponent);
+    fixture.componentRef.setInput('file', { ...file, workspaceRoot });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(call.mock.calls[0][1]).not.toHaveProperty('workspaceRoot');
+    fixture.destroy();
+  });
 });

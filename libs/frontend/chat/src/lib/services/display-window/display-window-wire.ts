@@ -274,7 +274,7 @@ const FileWireSchema = z.strictObject({
   kind: z.enum(['markdown-file', 'image-file', 'pdf-file']),
   key: z.string().startsWith('file:'),
   path: z.string().min(1),
-  workspaceRoot: z.string(),
+  workspaceRoot: z.string().min(1).optional(),
   documentPath: z.string().optional(),
   title: z.string(),
   readStatus: z.literal('unread'),

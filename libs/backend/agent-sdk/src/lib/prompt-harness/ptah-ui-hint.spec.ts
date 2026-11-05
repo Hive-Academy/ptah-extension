@@ -146,6 +146,9 @@ describe('routeSurfaceRequest', () => {
     'review the code for the chart of results',
     'show me the chart new component source',
     'create a chart.component.html file',
+    'Why is the dashboard failing?',
+    'the dashboard page is slow',
+    'where is the dashboard component',
   ])('keeps nonvisual request %s compact', prompt => {
     expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('compact');
   });

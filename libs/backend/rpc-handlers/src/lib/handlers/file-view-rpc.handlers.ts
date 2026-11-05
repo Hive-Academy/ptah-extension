@@ -23,7 +23,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { Stats } from 'node:fs';
+import type { BigIntStats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
@@ -137,8 +137,8 @@ export class FileViewRpcHandlers {
         }
         const stat = verification.stat;
         if (!stat.isFile()) return this.refuse('not-a-file');
-        if (stat.size > FILE_VIEW_MAX_BYTES)
-          return this.refuse('too-large', resolution.lexicalPath, stat.size);
+        if (verification.size > FILE_VIEW_MAX_BYTES)
+          return this.refuse('too-large', resolution.lexicalPath, verification.size);
         bytes = await readBounded(handle, FILE_VIEW_MAX_BYTES);
       } finally {
         await handle.close();
@@ -220,7 +220,7 @@ export class FileViewRpcHandlers {
         if (!stat.isFile()) return this.refuseBinary('not-a-file');
         // The larger of the checked size and the open handle's size: a file
         // that was over the cap when it was checked stays refused.
-        const size = Math.max(stat.size, resolution.sizeBytes);
+        const size = Math.max(verification.size, resolution.sizeBytes);
         if (size > fileViewBinaryCap('application/pdf'))
           return this.refuseBinary('too-large', resolution.lexicalPath, size);
         const header = await readPrefix(handle, BINARY_SNIFF_BYTES);
@@ -351,7 +351,7 @@ async function readBounded(handle: fs.FileHandle, maxBytes: number): Promise<Buf
 }
 
 type OpenedFileVerification =
-  | { ok: true; stat: Stats }
+  | { ok: true; stat: BigIntStats; size: number }
   | { ok: false; reason: 'outside-roots' | 'unreadable'; code: string };
 
 /** Bind the opened inode to a currently contained pathname before reading. */
@@ -360,20 +360,18 @@ async function verifyOpenedFile(
   target: string,
   root: string,
 ): Promise<OpenedFileVerification> {
-  const opened = await handle.stat();
+  const opened = await handle.stat({ bigint: true });
   const [realTarget, realRoot] = await Promise.all([fs.realpath(target), fs.realpath(root)]);
   const relative = path.relative(realRoot, realTarget);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
     return { ok: false, reason: 'outside-roots', code: 'escaped-root' };
-  const current = await fs.stat(realTarget);
-  const hasIdentity = (stat: Stats): boolean =>
-    Number.isSafeInteger(stat.dev) && stat.dev >= 0 &&
-    Number.isSafeInteger(stat.ino) && stat.ino > 0;
+  const current = await fs.stat(realTarget, { bigint: true });
+  const hasIdentity = (stat: BigIntStats): boolean => stat.dev >= 0n && stat.ino > 0n;
   if (!hasIdentity(opened) || !hasIdentity(current))
     return { ok: false, reason: 'unreadable', code: 'identity-unavailable' };
   if (opened.dev !== current.dev || opened.ino !== current.ino)
     return { ok: false, reason: 'outside-roots', code: 'identity-mismatch' };
-  return { ok: true, stat: opened };
+  return { ok: true, stat: opened, size: Number(opened.size) };
 }
 
 type DecodeResult =

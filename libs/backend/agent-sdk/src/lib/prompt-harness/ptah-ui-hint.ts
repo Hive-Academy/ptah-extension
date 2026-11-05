@@ -44,7 +44,7 @@ const REPORT_SURFACE_GUIDANCE_WITHOUT_SKILLS =
   'Report or visual view: publish one attractive self-contained HTML artifact with ptah_artifact_publish, then one sentence in chat. Do not answer with ptah-ui blocks alone.';
 
 const VISUAL_REQUEST =
-  /\b(?:dashboard|infographic|visualize|visualization)\b|\b(?:visual|representational)\s+(?:view|page|report|overview|summary|representation)\b|\boverview\s+page\b|\bwith\s+charts?\b|\b(?:make|create|draw|show|give|build|plot|graph|chart)\b.{0,60}\b(?:charts?|graphs?|plots?|diagrams?|infographics?)\b|\b(?:a|an|the)\s+(?:charts?|graphs?|plots?|diagrams?|infographics?)\s+of\b|\b(?:ui|visual|html|page)\s+prototype\b|\bprototype\s+(?:page|dashboard|ui)\b|\bhtml\s+(?:artifact|dashboard|report|page)\b/i;
+  /\bvisualize\b|\bwith\s+charts?\b|\b(?:visual|representational)\s+(?:view|page|report|overview|summary|representation)\b|\b(?:make|build|create|give|show|draw|generate|produce|prepare|send|render|do)\b.{0,60}\b(?:dashboards?|infographics?|visualizations?|visual\s+(?:view|page|report|overview|summary|representation)|representational\s+(?:view|page|report|overview|summary|representation)|overview\s+page|charts?|graphs?|plots?|diagrams?|(?:ui|visual|html|page)\s+prototype|prototype\s+(?:page|dashboard|ui)|html\s+(?:artifact|dashboard|report|page))\b|\b(?:a|an|the)\s+(?:charts?|graphs?|plots?|diagrams?|infographics?)\s+of\b|\bvisualization\s+with\b/i;
 
 const REPORT_REQUEST =
   /\b(?:status|progress|task|tasks|work|activity|weekly|daily)\s+report\b|\breport\s+(?:of|on)\b|\b(?:send|give|show|make|build|publish|write|prepare|create)\s+(?:me\s+)?(?:a|an|the)\s+report\b|\ba\s+report\b/i;

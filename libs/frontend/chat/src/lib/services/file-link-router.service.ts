@@ -114,7 +114,7 @@ export class FileLinkRouterService
         displayDock.openFile(tabId, {
           kind,
           path: request.path,
-          workspaceRoot: context.workspaceRoot ?? '',
+          workspaceRoot: context.workspaceRoot,
           documentPath: context.documentPath,
           title: request.path.replace(/\\/g, '/').split('/').pop() ?? request.path,
         });

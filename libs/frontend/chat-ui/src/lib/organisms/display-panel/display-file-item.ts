@@ -5,7 +5,7 @@ export interface DisplayFileItem {
   readonly kind: DisplayFileKind;
   readonly key: string;
   readonly path: string;
-  readonly workspaceRoot: string;
+  readonly workspaceRoot?: string;
   readonly documentPath?: string;
   readonly title: string;
   readonly readStatus: 'unread';

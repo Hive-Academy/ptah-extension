@@ -55,7 +55,7 @@ export class DisplayFileViewerComponent {
     this.releaseUrl();
     this.loading.set(true);
     this.error.set(null);
-    const params = { path: file.path, workspaceRoot: file.workspaceRoot, documentPath: file.documentPath };
+    const params = { path: file.path, ...(file.workspaceRoot ? { workspaceRoot: file.workspaceRoot } : {}), documentPath: file.documentPath };
     try {
       if (file.kind === 'markdown-file') {
         const reply = await this.rpc.call('file:viewContent', params);
