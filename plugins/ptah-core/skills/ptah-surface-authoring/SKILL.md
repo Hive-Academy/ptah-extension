@@ -1,6 +1,6 @@
 ---
 name: ptah-surface-authoring
-description: Use for ptah-ui blocks and HTML artifacts from verified data. Trigger for a report, dashboard, prototype, chart, or visual view of work: load this skill and available design or data-visualization skills, then publish an attractive HTML artifact with ptah_artifact_publish. Also use for turn summaries, stats, file changes, tests, usage, and plan limits.
+description: Authors ptah-ui blocks and HTML artifacts from verified data. Use for a turn summary, stats, file changes, test results, a chart, usage or plan limits. For a report, dashboard or visual view of work, load this skill and any design or dataviz skill, then publish an HTML artifact with ptah_artifact_publish. technical-content-writer and ui-ux-designer may still apply.
 ---
 
 ## Reports and visual views
