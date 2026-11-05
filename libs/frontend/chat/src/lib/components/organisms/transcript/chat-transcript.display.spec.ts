@@ -416,6 +416,23 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(text).toMatch(/1 test (passed|failed|unknown)/);
     });
 
+    it('routes expanded summary review through the change-set navigation service', async () => {
+      configure({
+        tabs: signal([tab(TAB, SUMMARY_MESSAGES)]),
+        changeSets: signal([TURN_1_CHANGE_SET]),
+      });
+      const actions = TestBed.inject(ChangeSetActionsService);
+      const review = jest.spyOn(actions, 'review');
+      const openFile = jest.spyOn(actions, 'openFile');
+      const fixture = mount(TAB);
+      await settle(fixture);
+      query(fixture, 'turn-summary-chip-toggle')?.click();
+      fixture.detectChanges();
+      query(fixture, 'turn-summary-review-all')?.click();
+      query(fixture, 'turn-summary-file-action')?.click();
+      expect(review).toHaveBeenCalledWith(TURN_1_CHANGE_SET);
+      expect(openFile).toHaveBeenCalledWith(TURN_1_CHANGE_SET, TURN_1_CHANGE_SET.files[0].path);
+    });
     it('VS Code: keeps the card, with no chip, no tests row and no sync (R1.14)', async () => {
       const loader = jest.fn(() => Promise.resolve(RECAP));
       const display =

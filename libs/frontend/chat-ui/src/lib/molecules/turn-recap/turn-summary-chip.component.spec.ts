@@ -376,14 +376,13 @@ describe('TurnSummaryChipComponent', () => {
       });
     });
 
-    it('never lists files, even expanded (R6.9; ported "no file content")', () => {
+    it('lists every changed file when expanded (TASK_2026_879_f5da batch 5b)', () => {
       render(model({ runs: [run('nx test chat', 'passed')] }));
       expand();
 
       const content = native().textContent ?? '';
       for (const file of changeSet.files) {
-        expect(content).not.toContain(file.path);
-        expect(content).not.toContain(file.path.split('/').pop() as string);
+        expect(content).toContain(file.path.split('/').pop() as string);
       }
     });
 
@@ -461,5 +460,15 @@ describe('TurnSummaryChipComponent', () => {
       const source = readFileSync(join(__dirname, file), 'utf8');
       expect(source).not.toMatch(/declarative-dashboard|surface-renderer/);
     }
+  });
+  it('shows file rows and test runs on expansion and emits the selected path', () => {
+    const selected: string[] = [];
+    fixture.componentInstance.openFile.subscribe((path) => selected.push(path));
+    render(model({ runs: [run('nx test chat', 'passed')] }));
+    expand();
+    expect(queryAll('turn-summary-file-row')).toHaveLength(3);
+    expect(queryAll('turn-summary-test-run')).toHaveLength(1);
+    query('turn-summary-file-action')?.click();
+    expect(selected).toEqual(['src/app/alpha.ts']);
   });
 });

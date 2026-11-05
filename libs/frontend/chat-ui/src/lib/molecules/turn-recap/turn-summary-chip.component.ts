@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   input,
+  output,
   signal,
   viewChild,
   type ElementRef,
@@ -24,6 +25,8 @@ import {
 } from '../../organisms/display-panel/turn-summary-mini-card.styles';
 import { formatTokens } from '../session/session-stats-format';
 import type { TurnSummaryModel } from './turn-summary.model';
+import { TurnSummaryFilesComponent } from './turn-summary-files.component';
+import { TurnSummaryTestsComponent } from './turn-summary-tests.component';
 
 /** One pill in the collapsed line. The text alone carries the meaning. */
 interface ChipMetric {
@@ -66,7 +69,7 @@ function shown(value: number | string, format: (n: number) => string): string {
  *   the title at narrow widths instead of truncating (R9.6).
  * - Expanded: mini cards (Files, Lines, Tokens, Cost, Time, Tests; Files,
  *   Lines and Tests only when the model has them).
- * - Totals only, never a file list (R6.9).
+ * - Expanded details include per-file changes and individual test results.
  *
  * Not a live region: a historical chip must not be announced again on reload
  * or a lazy mount. Escape inside an expanded chip collapses it and returns
@@ -75,7 +78,7 @@ function shown(value: number | string, format: (n: number) => string): string {
 @Component({
   selector: 'ptah-turn-summary-chip',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TurnSummaryFilesComponent, TurnSummaryTestsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [TURN_SUMMARY_MINI_STYLES],
   template: `
@@ -156,6 +159,18 @@ function shown(value: number | string, format: (n: number) => string): string {
                 </div>
               }
             </div>
+            @if (summary().files; as files) {
+              <div class="min-w-0">
+                <h3 class="mb-1 text-xs font-semibold">Changed files</h3>
+                <ptah-turn-summary-files [card]="files" (openFile)="openFile.emit($event)" (review)="review.emit()" />
+              </div>
+            }
+            @if (summary().tests; as tests) {
+              <div class="min-w-0">
+                <h3 class="mb-1 text-xs font-semibold">Test results</h3>
+                <ptah-turn-summary-tests [card]="tests" />
+              </div>
+            }
           </div>
         </div>
       </div>
@@ -165,6 +180,8 @@ function shown(value: number | string, format: (n: number) => string): string {
 export class TurnSummaryChipComponent {
   /** The turn's summary; the transcript mounts the chip only when it exists. */
   readonly summary = input.required<TurnSummaryModel>();
+  readonly openFile = output<string>();
+  readonly review = output<void>();
 
   private readonly instanceId = `ptah-turn-summary-chip-${nextSummaryChipInstance++}`;
   protected readonly toggleId = `${this.instanceId}-toggle`;

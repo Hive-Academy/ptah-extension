@@ -136,7 +136,7 @@
               class="mx-auto w-full max-w-3xl px-2 pb-3"
               data-testid="chat-turn-summary"
             >
-              <ptah-turn-summary-chip [summary]="summary.model" />
+              <ptah-turn-summary-chip [summary]="summary.model" (openFile)="onTurnSummaryOpenFile(summary.model, $event)" (review)="onTurnSummaryReview(summary.model)" />
             </div>
           }
         }

@@ -36,5 +36,3 @@ User request (2026-11-04), Electron first:
    work, the agent must load the proper skills (e.g. ptah-surface-authoring, frontend-design,
    dataviz) and publish an attractive HTML artifact (`ptah_artifact_publish`) instead of only
    ptah-ui blocks. Find where skill routing / system prompt / routing reminders decide this.
-</content>
-</invoke>
