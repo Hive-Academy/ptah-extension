@@ -22,12 +22,16 @@ export async function startReviewWorker(
   if (!registry.has(HANDLER)) registry.register(HANDLER, async ({ signal: tickSignal }) => {
     if (signal.aborted || tickSignal.aborted) return { outcome: 'skipped', reason: 'aborted' };
     const settings = await settingsStore.getSettings();
-    const repo = settings?.repositories.find((entry) => entry.enabled);
-    if (!settings || !repo) return { outcome: 'skipped', reason: 'review-disabled' };
-    const last = await orchestrator.lastPollAt(repo);
-    if (last !== null && Date.now() - last < settings.pollMinutes * 60_000)
-      return { outcome: 'skipped', reason: 'not-due' };
-    const count = await orchestrator.pollAndRecord(repo);
+    const repos = (settings?.repositories.filter((entry) => entry.enabled) ?? [])
+      .map((entry) => ({ owner: entry.owner, name: entry.name }));
+    if (!settings || repos.length === 0) return { outcome: 'skipped', reason: 'review-disabled' };
+    let count = 0;
+    for (const repo of repos) {
+      try {
+        const last = await orchestrator.lastPollAt(repo);
+        if (last === null || Date.now() - last >= settings.pollMinutes * 60_000) count += await orchestrator.pollAndRecord(repo);
+      } catch (error: unknown) { logger.error('Review poll failed', error instanceof Error ? error : new Error(String(error))); }
+    }
     return { summary: `Enqueued ${count} review heads` };
   });
   jobs.upsert({ id: JOB_ID, name: 'Review pull requests', cronExpr: '* * * * *',
@@ -35,9 +39,12 @@ export async function startReviewWorker(
 
   try {
     const settings = await settingsStore.getSettings();
-    const repo = settings?.repositories.find((entry) => entry.enabled);
-    if (repo) await orchestrator.startupPoll(await orchestrator.lastPollAt(repo), repo);
-    else await orchestrator.startupPoll(Date.now());
+    const enabled = (settings?.repositories.filter((entry) => entry.enabled) ?? [])
+      .map((entry) => ({ owner: entry.owner, name: entry.name }));
+    for (const repo of enabled) {
+      try { await orchestrator.startupPoll(await orchestrator.lastPollAt(repo), repo); }
+      catch (error: unknown) { logger.error('Review startup poll failed', error instanceof Error ? error : new Error(String(error))); }
+    }
   } catch (_error: unknown) {
     logger.error('Review startup poll failed', new Error('Review startup poll failed'));
   }

@@ -7,6 +7,7 @@ import { RepoIdentitySchema, type RepoIdentity } from '@ptah-extension/review-co
 import type { IReviewCommandRunner, ReviewCommandResult, ReviewRoots } from '@ptah-extension/review-core';
 
 const MAX_OUTPUT_BYTES = 1_000_000;
+const MAX_INDEX_OUTPUT_BYTES = 16_000_000;
 const execFileAsync = promisify(execFile);
 const invocationSchema = z.object({
   command: z.string().min(1).max(260),
@@ -14,6 +15,20 @@ const invocationSchema = z.object({
   cwd: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000),
 }).strict();
+
+/**
+ * Read-only or self-limiting git commands the worktree service runs from the
+ * repository root before it creates an attempt tree: probe the PR head, fetch
+ * the PR ref when the head is missing, and prune a failed worktree record.
+ */
+function isRepositoryRootGitCommand(command: string, args: readonly string[]): boolean {
+  if (command !== 'git') return false;
+  if (args.length === 3 && args[0] === 'cat-file' && args[1] === '-e')
+    return /^[a-f0-9]{40}\^\{commit\}$/i.test(args[2]);
+  if (args.length === 4 && args[0] === 'fetch' && args[1] === '--no-tags' && args[2] === 'origin')
+    return /^\+refs\/pull\/[1-9][0-9]{0,9}\/head$/.test(args[3]);
+  return args.length === 2 && args[0] === 'worktree' && args[1] === 'prune';
+}
 
 function inside(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
@@ -34,9 +49,9 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
     const directory = await realpath(cwd);
     const [{ stdout: topLevel }, { stdout: origin }] = await Promise.all([
       execFileAsync('git', ['rev-parse', '--show-toplevel'],
-        { cwd: directory, timeout: 10_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
+        { cwd: directory, timeout: 15_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
       execFileAsync('git', ['remote', 'get-url', 'origin'],
-        { cwd: directory, timeout: 10_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
+        { cwd: directory, timeout: 15_000, maxBuffer: 16_384, windowsHide: true, shell: false }),
     ]);
     return { topLevel, origin };
   }
@@ -75,12 +90,17 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
     const attemptRelative = relative(attempts, directory).split(sep);
     const attemptSrc = inside(attempts, directory) && attemptRelative.length >= 2 &&
       /^[A-Za-z0-9_-]{1,64}$/.test(attemptRelative[0]) && attemptRelative[1] === 'src';
-    if (!(worktreeCommand && directory === repository) && !attemptSrc)
+    const repositoryRootCommand = directory === repository &&
+      (worktreeCommand || isRepositoryRootGitCommand(input.command, input.args));
+    if (!repositoryRootCommand && !attemptSrc)
       throw new ReviewCommandScopeError();
     if (resolve(input.cwd) !== directory) throw new ReviewCommandScopeError();
 
     if (signal?.aborted) throw new Error('Review command aborted');
     return new Promise<ReviewCommandResult>((settle) => {
+      const maxOutputBytes = input.command === 'git' && input.args.length === 3 &&
+        input.args[0] === 'ls-files' && input.args[1] === '-s' && input.args[2] === '-z'
+        ? MAX_INDEX_OUTPUT_BYTES : MAX_OUTPUT_BYTES;
       const child = spawn(input.command, input.args, { cwd: directory, shell: false, windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
@@ -98,9 +118,9 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
       child.once('exit', () => clearTimeout(timer));
       const append = (target: 'stdout' | 'stderr', chunk: Buffer): void => {
         const value = chunk.toString('utf8');
-        if (target === 'stdout') stdout = (stdout + value).slice(0, MAX_OUTPUT_BYTES);
-        else stderr = (stderr + value).slice(0, MAX_OUTPUT_BYTES);
-        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) >= MAX_OUTPUT_BYTES || Buffer.byteLength(value) > MAX_OUTPUT_BYTES) {
+        if (target === 'stdout') stdout = (stdout + value).slice(0, maxOutputBytes);
+        else stderr = (stderr + value).slice(0, maxOutputBytes);
+        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) >= maxOutputBytes || Buffer.byteLength(value) > maxOutputBytes) {
           timedOut = true;
           child.kill();
         }

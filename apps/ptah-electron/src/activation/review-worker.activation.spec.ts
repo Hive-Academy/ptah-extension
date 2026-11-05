@@ -51,6 +51,37 @@ describe('review worker activation', () => {
     handle?.dispose();
   });
 
+  it('polls every enabled repository even when one fails', async () => {
+    const repos = [
+      { owner: 'One', name: 'Alpha', enabled: true },
+      { owner: 'Two', name: 'Beta', enabled: true },
+    ];
+    const handlers = new Map<string, (context: { signal: AbortSignal }) => Promise<unknown>>();
+    const pollAndRecord = jest.fn(async (repo: { owner: string }) => {
+      if (repo.owner === 'One') throw new Error('poll failed');
+      return 2;
+    });
+    const scope = container.createChildContainer();
+    scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useValue: {
+      drain: async () => 0, startupPoll: async () => 0, lastPollAt: async () => null, pollAndRecord,
+    } });
+    scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => ({ repositories: repos, pollMinutes: 10 }) } });
+    scope.register(CRON_TOKENS.CRON_JOB_STORE, { useValue: { upsert: jest.fn() } });
+    scope.register(CRON_TOKENS.CRON_HANDLER_REGISTRY, { useValue: {
+      has: () => false, register: (name: string, fn: (context: { signal: AbortSignal }) => Promise<unknown>) => { handlers.set(name, fn); },
+      unregister: jest.fn(),
+    } });
+    const logger = { error: jest.fn() };
+    const handle = await startReviewWorker(scope, new AbortController().signal, logger);
+    const handler = handlers.get('review:discover');
+    expect(handler).toBeDefined();
+    await handler?.({ signal: new AbortController().signal });
+    // The worker passes strict identities, never the full settings entry.
+    expect(pollAndRecord).toHaveBeenCalledWith({ owner: 'One', name: 'Alpha' });
+    expect(pollAndRecord).toHaveBeenCalledWith({ owner: 'Two', name: 'Beta' });
+    expect(logger.error).toHaveBeenCalled();
+    handle?.dispose();
+  });
   it('routes startup polling through the orchestrator and logs failure', async () => {
     const repo = { owner: 'Hive-Academy', name: 'PtahCode', enabled: true };
     const logger = { error: jest.fn() };
@@ -67,7 +98,7 @@ describe('review worker activation', () => {
       const handle = await startReviewWorker(scope, new AbortController().signal, logger);
       handle?.dispose();
       await handle?.awaitStopped();
-      expect(startupPoll).toHaveBeenCalledWith(null, repo);
+      expect(startupPoll).toHaveBeenCalledWith(null, { owner: repo.owner, name: repo.name });
       expect(logger.error).toHaveBeenCalledWith('Review startup poll failed', expect.any(Error));
   });
 });
