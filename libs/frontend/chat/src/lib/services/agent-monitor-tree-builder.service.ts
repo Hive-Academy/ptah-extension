@@ -297,6 +297,7 @@ export class AgentMonitorTreeBuilderService {
     // Provider message of the buffered text; a different one starts a new node.
     let textMessageId: string | undefined;
     let thinkingBuffer = '';
+    let thinkingMessageId: string | undefined;
     let thinkingBufferStart = -1;
 
     const flushText = (): void => {
@@ -328,6 +329,7 @@ export class AgentMonitorTreeBuilderService {
       }
       thinkingBuffer = '';
       thinkingBufferStart = -1;
+      thinkingMessageId = undefined;
     };
 
     for (let i = 0; i < segments.length; i++) {
@@ -351,7 +353,15 @@ export class AgentMonitorTreeBuilderService {
 
         case 'thinking': {
           if (textBuffer) flushText();
+          if (
+            thinkingBuffer &&
+            thinkingMessageId !== undefined &&
+            segment.messageId !== undefined &&
+            segment.messageId !== thinkingMessageId
+          )
+            flushThinking();
           if (thinkingBufferStart === -1) thinkingBufferStart = i;
+          thinkingMessageId = segment.messageId ?? thinkingMessageId;
           thinkingBuffer += segment.content;
           break;
         }
@@ -405,11 +415,24 @@ export class AgentMonitorTreeBuilderService {
 
           if (matchedIndex >= 0) {
             const original = nodes[matchedIndex];
+            const previousPaths =
+              typeof original.toolOutput === 'string'
+                ? original.toolOutput.split('\n')
+                : [];
+            const toolOutput =
+              segment.type === 'file-change'
+                ? [...previousPaths, segment.content]
+                    .filter(
+                      (path, index, paths) =>
+                        path && paths.indexOf(path) === index,
+                    )
+                    .join('\n')
+                : segment.content;
             nodes[matchedIndex] = createExecutionNode({
               ...original,
               status:
                 segment.type === 'tool-result-error' ? 'error' : 'complete',
-              toolOutput: segment.content,
+              toolOutput,
               toolName: original.toolName || segment.toolName,
             });
           } else {
@@ -628,8 +651,7 @@ export class AgentMonitorTreeBuilderService {
         }),
       );
     }
-    for (const blockIndex of acc.thinkingBlocksByMessage.get(messageId) ??
-      []) {
+    for (const blockIndex of acc.thinkingBlocksByMessage.get(messageId) ?? []) {
       children.push(
         createExecutionNode({
           id: `${messageId}-thinking-${blockIndex}`,

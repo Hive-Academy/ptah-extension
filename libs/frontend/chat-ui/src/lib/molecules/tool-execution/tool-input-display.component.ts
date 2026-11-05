@@ -32,6 +32,7 @@ import {
   type ExecutionNode,
   isBashToolInput,
   isWriteToolInput,
+  isFileChangeToolInput,
 } from '@ptah-extension/shared';
 
 /** Argument values longer than this are cut, with "more" to show the rest. */
@@ -440,6 +441,7 @@ export class ToolInputDisplayComponent {
   /** TodoWrite and Edit render their input as the output. */
   private rendersInputAsOutput(): boolean {
     const toolName = this.node().toolName;
-    return toolName === 'TodoWrite' || toolName === 'Edit';
+    return toolName === 'TodoWrite' || toolName === 'Edit' ||
+      (toolName === 'FileChange' && isFileChangeToolInput(this.node().toolInput));
   }
 }
