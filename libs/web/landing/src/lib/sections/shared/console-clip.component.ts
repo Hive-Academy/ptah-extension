@@ -13,10 +13,26 @@ import {
 } from '@angular/core';
 
 /**
- * The clip plays only while fully in view and pauses at the first pixel row
- * that leaves. 0.98 (not 1) absorbs sub-pixel rounding at the viewport edge.
+ * The clip plays only while its box lies inside the viewport, measured in
+ * pixels; this tolerance absorbs sub-pixel rounding at the viewport edge.
  */
-export const FULL_VIEW_RATIO = 0.98;
+export const EDGE_TOLERANCE_PX = 2;
+
+/**
+ * True when `rect` is fully inside the viewport vertically (within the tolerance) and
+ * on screen horizontally. Horizontal containment is not required: some layouts let the
+ * clip bleed off a page edge on purpose, and "fully in view" is a scroll (vertical) rule.
+ */
+export function insideViewport(rect: DOMRectReadOnly, width: number, height: number): boolean {
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.top >= -EDGE_TOLERANCE_PX &&
+    rect.bottom <= height + EDGE_TOLERANCE_PX &&
+    rect.left < width &&
+    rect.right > 0
+  );
+}
 
 /**
  * A live-demo clip in the hero's framed window. Lazy: no media bytes until it
@@ -77,6 +93,7 @@ export class ConsoleClipComponent {
   private inView = false;
   private manualPause = false;
   private destroyed = false;
+  private edgesWatched = false;
   /** Bumped by every play request and by destroy; a stale play is ignored. */
   private playTicket = 0;
   private nearObserver?: IntersectionObserver;
@@ -90,6 +107,8 @@ export class ConsoleClipComponent {
       this.playTicket++;
       this.nearObserver?.disconnect();
       this.viewObserver?.disconnect();
+      const view = this.document.defaultView;
+      if (view) this.watchEdges(view, false);
       this.document.removeEventListener('visibilitychange', this.sync);
       this.clip().nativeElement.pause();
     });
@@ -129,16 +148,44 @@ export class ConsoleClipComponent {
     if (reducedMotion || saveData) return;
 
     this.autoplay.set(true);
+    // The observer says when the clip is on screen at all; while it is, a
+    // passive scroll / resize check measures the box in pixels, so the first
+    // real departure past the tolerance pauses it (an observer threshold alone
+    // would fire only at the next ratio step, several pixels later).
     this.viewObserver = new view.IntersectionObserver(
       (entries) => {
-        for (const entry of entries) this.inView = entry.intersectionRatio >= FULL_VIEW_RATIO;
-        this.sync();
+        const onScreen = entries.some((entry) => entry.isIntersecting);
+        this.watchEdges(view, onScreen);
+        this.measure();
       },
-      { threshold: [0, FULL_VIEW_RATIO, 1] },
+      { threshold: [0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1] },
     );
     this.viewObserver.observe(element);
     this.document.addEventListener('visibilitychange', this.sync);
   }
+
+  /** Attaches the pixel check only while the clip is on screen. */
+  private watchEdges(view: Window, on: boolean): void {
+    if (on === this.edgesWatched) return;
+    this.edgesWatched = on;
+    if (on) {
+      view.addEventListener('scroll', this.measure, { passive: true });
+      view.addEventListener('resize', this.measure, { passive: true });
+    } else {
+      view.removeEventListener('scroll', this.measure);
+      view.removeEventListener('resize', this.measure);
+    }
+  }
+
+  private readonly measure = (): void => {
+    const view = this.document.defaultView;
+    if (!view || this.destroyed) return;
+    const box = this.clip().nativeElement.getBoundingClientRect();
+    const inside = this.edgesWatched && insideViewport(box, view.innerWidth, view.innerHeight);
+    if (inside === this.inView) return;
+    this.inView = inside;
+    this.sync();
+  };
 
   /** Autoplay is allowed only while fully in view, in a visible tab, not paused by hand. */
   private autoplayAllowed(): boolean {

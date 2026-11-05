@@ -67,6 +67,8 @@ export class FlankBoltComponent {
   private path: BoltPoint[] = [];
   private pathFor = -1;
   private lastStrike?: number;
+  private resizeObserver?: ResizeObserver;
+  private dprQuery?: MediaQueryList;
 
   public constructor() {
     if (!isPlatformBrowser(inject(PLATFORM_ID))) return;
@@ -80,9 +82,27 @@ export class FlankBoltComponent {
       });
     });
     inject(DestroyRef).onDestroy(() => {
+      this.resizeObserver?.disconnect();
+      this.resizeObserver = undefined;
+      this.dprQuery?.removeEventListener?.('change', this.onDprChange);
+      this.dprQuery = undefined;
       this.loop?.destroy();
       this.loop = undefined;
     });
+  }
+
+  /** A new pixel ratio: watch the next one and repaint (the still frame needs it). */
+  private readonly onDprChange = (): void => {
+    const view = this.document.defaultView;
+    if (view) this.watchPixelRatio(view);
+    this.loop?.refresh();
+  };
+
+  /** Listens for the current device pixel ratio to change (zoom, another screen). */
+  private watchPixelRatio(view: Window): void {
+    this.dprQuery?.removeEventListener?.('change', this.onDprChange);
+    this.dprQuery = view.matchMedia?.(`(resolution: ${view.devicePixelRatio || 1}dppx)`);
+    this.dprQuery?.addEventListener?.('change', this.onDprChange);
   }
 
   /** True while the strike loop has a frame or a gap timer scheduled. */
@@ -103,6 +123,13 @@ export class FlankBoltComponent {
       this.host.nativeElement,
       this.seed(),
     );
+    // A resize or a pixel-ratio change repaints the current state: the still
+    // frame (reduced motion, save-data) is drawn once and would stay stale.
+    if (typeof view.ResizeObserver === 'function') {
+      this.resizeObserver = new view.ResizeObserver(() => this.loop?.refresh());
+      this.resizeObserver.observe(this.host.nativeElement);
+    }
+    this.watchPixelRatio(view);
   }
 
   private paint(
