@@ -262,10 +262,22 @@ function makeService(params: {
     undefined,
     undefined,
     { ...createFakeDriverLockCoordinator(), ...params.driverLock } as never,
+    { exists: params.fileExists ?? jest.fn().mockResolvedValue(true) } as never,
   );
 }
 
 describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
+  it('returns a terminal code before reading history when the saved cwd disappeared', async () => {
+    const readSessionHistory = jest.fn();
+    const svc = makeService({
+      metadata: { workingDirectory: `${OPEN_FOLDER}/deleted` },
+      fileExists: jest.fn().mockResolvedValue(false),
+      readSessionHistory,
+    });
+    const result = await svc.resumeSession({ sessionId: SESSION_ID, tabId: TAB_ID, workspacePath: OPEN_FOLDER });
+    expect(result).toMatchObject({ success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' });
+    expect(readSessionHistory).not.toHaveBeenCalled();
+  });
   it('refuses activation before SDK resume when another holder owns the lock', async () => {
     const resumeSession = jest.fn();
     const svc = makeService({
@@ -1033,3 +1045,4 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     });
   });
 });
+

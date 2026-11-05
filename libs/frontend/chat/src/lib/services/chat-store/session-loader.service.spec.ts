@@ -2806,6 +2806,7 @@ describe('SessionLoaderService', () => {
         openSessionTab: jest.fn().mockReturnValue(TAB),
         applyResumingSession,
         applyResumeFailure,
+        markTabIdle: jest.fn(),
         applyLoadedSessionStats: jest.fn(),
         setLiveModelStats: jest.fn(),
         markSessionActive: jest.fn(),
@@ -2902,6 +2903,18 @@ describe('SessionLoaderService', () => {
       expect(harness.applyResumeFailure).not.toHaveBeenCalled();
       expect(tabs.markSessionActive).not.toHaveBeenCalled();
       expect(harness.setStatus).toHaveBeenLastCalledWith('loaded');
+    });
+
+    it('marks a missing working directory unavailable and does not retry resume', async () => {
+      const harness = makeChunkedService();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+        : { success: true, data: {} });
+      await expect(harness.service.switchSession(SESSION)).resolves.toEqual({ staleSnapshot: false });
+      expect(harness.service.unavailableSessions().has(SESSION)).toBe(true);
+      await harness.service.switchSession(SESSION);
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:resume')).toHaveLength(1);
+      expect(harness.applyResumeFailure).toHaveBeenCalledTimes(1);
     });
 
     function activationSurface(harness: ReturnType<typeof makeChunkedService>) {

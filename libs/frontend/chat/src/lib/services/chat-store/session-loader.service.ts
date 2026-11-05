@@ -351,6 +351,10 @@ export class SessionLoaderService {
    * Enables instant workspace switching without backend RPC round-trips.
    */
   private readonly sessionCache = new Map<string, CachedSessionState>();
+  /** Sessions whose saved working directory is temporarily unavailable. */
+  readonly unavailableSessions = signal<ReadonlySet<SessionId>>(new Set());
+  static readonly UNAVAILABLE_SESSION_RECHECK_MS = 20_000;
+  private readonly unavailableSessionUntil = new Map<SessionId, number>();
 
   /** The workspace path whose sessions are currently displayed in the UI signals. */
   private currentWorkspacePath: string | null = null;
@@ -852,6 +856,11 @@ export class SessionLoaderService {
     sessionId: SessionId,
     opts?: SwitchSessionOptions,
   ): Promise<{ staleSnapshot: boolean }> {
+    const unavailableUntil = this.unavailableSessionUntil.get(sessionId) ?? 0;
+    if (unavailableUntil > Date.now() ||
+        (opts?.reason === 'resync' && this.unavailableSessions().has(sessionId))) {
+      return { staleSnapshot: false };
+    }
     const targetTabId = opts?.targetTabId;
     const loadKey = targetTabId ? `${sessionId}:${targetTabId}` : sessionId;
     const targetedTab = targetTabId
@@ -1026,6 +1035,20 @@ export class SessionLoaderService {
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );
+      if (resumeResult.data?.errorCode === 'SESSION_FOLDER_UNAVAILABLE') {
+        this.unavailableSessionUntil.delete(sessionId);
+        this.unavailableSessionUntil.set(sessionId, Date.now() + SessionLoaderService.UNAVAILABLE_SESSION_RECHECK_MS);
+        while (this.unavailableSessionUntil.size > 128) {
+          const oldest = this.unavailableSessionUntil.keys().next().value;
+          if (oldest === undefined) break;
+          this.unavailableSessionUntil.delete(oldest);
+        }
+        this.unavailableSessions.set(new Set(this.unavailableSessionUntil.keys()));
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: false };
+      }
       if (
         opts?.activate === true &&
         !targetTabId &&
@@ -1079,6 +1102,12 @@ export class SessionLoaderService {
 
       const events = resumeResult.data?.events;
       if (resumeResult.success && resumeResult.data?.success) {
+        this.unavailableSessionUntil.delete(sessionId);
+        this.unavailableSessions.update((current) => {
+          const next = new Set(current);
+          next.delete(sessionId);
+          return next;
+        });
         this.tabManager.setSessionProvider(
           resolvedTabId,
           sessionId,
