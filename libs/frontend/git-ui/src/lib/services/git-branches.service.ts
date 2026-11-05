@@ -107,6 +107,9 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  */
 @Injectable({ providedIn: 'root' })
 export class GitBranchesService implements MessageHandler {
+  static readonly READ_TIMEOUT_BACKOFF_MS = 30_000;
+  private readonly readFlights = new Map<string, Promise<unknown>>();
+  private readonly readBackoffUntil = new Map<string, number>();
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -528,6 +531,7 @@ export class GitBranchesService implements MessageHandler {
         gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS),
       );
       if (response.success && response.data) {
+        if (response.data.success) this.invalidateReads();
         return response.data;
       }
       return {
@@ -604,6 +608,7 @@ export class GitBranchesService implements MessageHandler {
       );
       if (response.success && response.data) {
         if (response.data.success) {
+          this.invalidateReads();
           void this.requestRefresh({
             branches: true,
             stash: false,
@@ -635,10 +640,42 @@ export class GitBranchesService implements MessageHandler {
     method: Parameters<typeof rpcCall>[1],
     params: Record<string, unknown>,
   ): Promise<T | null> {
+    const key = `${method}:${this.workspaceKey() ?? ''}`;
+    if (Date.now() < (this.readBackoffUntil.get(key) ?? 0)) return null;
+    const active = this.readFlights.get(key);
+    if (active) return active as Promise<T | null>;
+    const flight = this.readRpc<T>(method, params, key);
+    this.readFlights.set(key, flight);
+    try {
+      return await flight;
+    } finally {
+      // A mutation may have replaced this flight; never drop the newer one.
+      if (this.readFlights.get(key) === flight) this.readFlights.delete(key);
+    }
+  }
+
+  /**
+   * A mutation moved the repository: later reads must not join a read that
+   * started before it, and a timeout backoff from before it no longer holds.
+   */
+  private invalidateReads(): void {
+    this.readFlights.clear();
+    this.readBackoffUntil.clear();
+  }
+
+  private async readRpc<T>(
+    method: Parameters<typeof rpcCall>[1],
+    params: Record<string, unknown>,
+    key: string,
+  ): Promise<T | null> {
     try {
       const response = await rpcCall<T>(this.vscodeService, method, params);
       if (response.success && response.data !== undefined) {
+        this.readBackoffUntil.delete(key);
         return response.data;
+      }
+      if (/timeout/i.test(response.error ?? '')) {
+        this.readBackoffUntil.set(key, Date.now() + GitBranchesService.READ_TIMEOUT_BACKOFF_MS);
       }
       if (response.error) {
         console.warn(
@@ -646,7 +683,11 @@ export class GitBranchesService implements MessageHandler {
         );
       }
       return null;
-    } catch (err) {
+    } catch (err: unknown) {
+      // degradation-audit: reported - log once and suppress repeated timeout reads.
+      if (err instanceof Error && /timeout/i.test(err.message)) {
+        this.readBackoffUntil.set(key, Date.now() + GitBranchesService.READ_TIMEOUT_BACKOFF_MS);
+      }
       console.error(`[GitBranchesService] ${method} threw`, err);
       return null;
     }

@@ -5,6 +5,9 @@ import {
   type GitWatchRootsResult,
 } from '@ptah-extension/shared';
 
+export const WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS = 5_000;
+export const WATCH_ROOTS_FAILURE_BACKOFF_MAX_MS = 60_000;
+
 /**
  * Keeps the backend's secondary git watchers on the roots the dock cares
  * about (TASK_2026_855), through the declarative `git:watchRoots` lease.
@@ -51,6 +54,10 @@ export class GitRootWatchLeaseService {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private renewTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
+  private failureUntil = 0;
+  private failureDelay = WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private sending = false;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.dispose());
@@ -102,8 +109,10 @@ export class GitRootWatchLeaseService {
    * always sends, because renewing is what keeps the lease alive.
    */
   private async send(roots: readonly string[], renew: boolean): Promise<void> {
+    if (this.destroyed || this.sending || Date.now() < this.failureUntil) return;
     const key = roots.map((root) => normalizeWorkspaceRoot(root)).join('\n');
     if (!renew && key === this.sentKey) return;
+    this.sending = true;
     try {
       const result = await rpcCall<GitWatchRootsResult>(
         this.vscode,
@@ -115,6 +124,10 @@ export class GitRootWatchLeaseService {
       );
       if (this.destroyed) return;
       if (result.success) {
+        this.failureUntil = 0;
+        this.failureDelay = WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS;
+        if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+        this.retryTimer = null;
         this.sentKey = key;
         const refused = new Set((result.data?.rejected ?? []).map(normalizeWorkspaceRoot));
         for (const root of roots) {
@@ -128,12 +141,25 @@ export class GitRootWatchLeaseService {
         error: result.error,
       });
       this.sentKey = null;
+      this.backoff();
     } catch (error: unknown) {
-      // degradation-audit: reported - logged; the next update or renewal
-      // retries, and the dock still reads git state on every scope switch.
+      // degradation-audit: reported - logged once per failed RPC and retried after backoff.
       console.warn('[GitRootWatchLeaseService] git:watchRoots threw', error);
       this.sentKey = null;
+      this.backoff();
+    } finally {
+      this.sending = false;
     }
+  }
+
+  private backoff(): void {
+    this.failureUntil = Date.now() + this.failureDelay;
+    this.failureDelay = Math.min(this.failureDelay * 2, WATCH_ROOTS_FAILURE_BACKOFF_MAX_MS);
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.flush();
+    }, this.failureUntil - Date.now());
   }
 
   private stopRenewal(): void {
@@ -145,6 +171,7 @@ export class GitRootWatchLeaseService {
 
   private dispose(): void {
     this.destroyed = true;
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;

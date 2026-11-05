@@ -116,6 +116,35 @@ describe('GitBranchesService (TASK_2026_111)', () => {
     TestBed.resetTestingModule();
   });
 
+  it('joins concurrent branch reads and backs off after a timeout', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockRpcCall.mockImplementation(async (_service, method: string) =>
+        method === 'git:branches'
+          ? { success: false, error: 'RPC timeout: git:branches' }
+          : { success: true, data: method === 'git:stashList' ? EMPTY_STASH : EMPTY_COMMIT });
+      const first = service.refreshBranches();
+      const second = service.refreshBranches();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await Promise.all([first, second]);
+      const branchCalls = () => mockRpcCall.mock.calls.filter((call) => call[1] === 'git:branches');
+      expect(branchCalls()).toHaveLength(1);
+      const suppressed = service.refreshBranches();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await suppressed;
+      expect(branchCalls()).toHaveLength(1);
+      await jest.advanceTimersByTimeAsync(GitBranchesService.READ_TIMEOUT_BACKOFF_MS);
+      const recovered = service.refreshBranches();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await recovered;
+      expect(branchCalls()).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   // ==========================================================================
   // Initial state
   // ==========================================================================

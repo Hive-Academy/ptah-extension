@@ -6,7 +6,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { GitRootWatchLeaseService } from './git-root-watch-lease.service';
+import { GitRootWatchLeaseService, WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS } from './git-root-watch-lease.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -66,6 +66,18 @@ describe('GitRootWatchLeaseService', () => {
       'git:watchRoots',
       { leaseId: expect.any(String), roots: ['/wt/c', '/wt/a'] },
     );
+  });
+
+  it('retries once after failure with the latest desired roots', async () => {
+    mockRpcCall.mockResolvedValueOnce({ success: false, error: 'RPC timeout' });
+    service.update(['/wt/a']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/b']);
+    service.update(['/wt/c']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
+    await jest.advanceTimersByTimeAsync(WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS);
+    expect(sentRoots()).toEqual([['/wt/a'], ['/wt/c']]);
   });
 
   it('de-duplicates spellings, skips empty entries and caps at four roots', async () => {
@@ -199,7 +211,7 @@ describe('GitRootWatchLeaseService', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
-  it('tolerates a failed call and retries the same set on the next update', async () => {
+  it('tolerates a failed call and retries the same set once its failure backoff ends', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
       /* expected */
     });
@@ -208,9 +220,12 @@ describe('GitRootWatchLeaseService', () => {
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(warn).toHaveBeenCalled();
 
+    // An update inside the backoff is held, not sent.
     service.update(['/wt/a']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots()).toEqual([['/wt/a']]);
 
+    await jest.advanceTimersByTimeAsync(WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS);
     expect(sentRoots()).toEqual([['/wt/a'], ['/wt/a']]);
     warn.mockRestore();
   });

@@ -19,6 +19,7 @@ import {
   ChangeSetStore,
   RECONCILE_DEBOUNCE_MS,
   RECONCILE_FRESHNESS_MS,
+  RECONCILE_FAILURE_BACKOFF_MS,
   TURN_CHANGE_SET_GRACE_MS,
 } from './change-set.store';
 
@@ -437,6 +438,33 @@ describe('ChangeSetStore', () => {
       await jest.advanceTimersByTimeAsync(RECONCILE_FRESHNESS_MS);
       await openSession('s2');
       await openSession('s1');
+      await passDebounce();
+      expect(rpcCallsFor('git:info')).toHaveLength(2);
+    });
+
+    it('backs off failed reads while still applying pushed status', async () => {
+      gitInfo = null;
+      const store = createStore();
+      await openSession('s1');
+      await passDebounce();
+      expect(rpcCallsFor('git:info')).toHaveLength(1);
+      store.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: { sessionId: 's1' },
+      });
+      await passDebounce();
+      expect(rpcCallsFor('git:info')).toHaveLength(1);
+      store.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload: { ...status([]), workspaceRoot: ROOT },
+      });
+      await passDebounce();
+      expect(store.marksFor(store.changeSetsFor('s1')[0]).reconciled.size).toBe(2);
+      await jest.advanceTimersByTimeAsync(RECONCILE_FAILURE_BACKOFF_MS);
+      store.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: { sessionId: 's1' },
+      });
       await passDebounce();
       expect(rpcCallsFor('git:info')).toHaveLength(2);
     });

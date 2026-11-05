@@ -2809,6 +2809,7 @@ describe('SessionLoaderService', () => {
         markTabIdle: jest.fn(),
         applyLoadedSessionStats: jest.fn(),
         setLiveModelStats: jest.fn(),
+        setSessionProvider: jest.fn(),
         markSessionActive: jest.fn(),
       } as unknown as TabManagerService;
 
@@ -2915,6 +2916,33 @@ describe('SessionLoaderService', () => {
       await harness.service.switchSession(SESSION);
       expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:resume')).toHaveLength(1);
       expect(harness.applyResumeFailure).toHaveBeenCalledTimes(1);
+    });
+
+    it('suppresses background resync and rechecks an explicit open after cooldown', async () => {
+      jest.useFakeTimers();
+      try {
+        const harness = makeChunkedService();
+        let missing = true;
+        rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+          ? missing
+            ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+            : { success: true, data: { success: true, events: historyEvents(1), stats: null } }
+          : { success: true, data: {} });
+        const resumes = () => rpcCall.mock.calls.filter(([method]) => method === 'chat:resume');
+        await harness.service.switchSession(SESSION);
+        await harness.service.switchSession(SESSION, { reason: 'resync' });
+        await harness.service.switchSession(SESSION);
+        expect(resumes()).toHaveLength(1);
+        await jest.advanceTimersByTimeAsync(SessionLoaderService.UNAVAILABLE_SESSION_RECHECK_MS);
+        await harness.service.switchSession(SESSION, { reason: 'resync' });
+        expect(resumes()).toHaveLength(1);
+        missing = false;
+        await harness.service.switchSession(SESSION);
+        expect(resumes()).toHaveLength(2);
+        expect(harness.service.unavailableSessions().has(SESSION)).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     function activationSurface(harness: ReturnType<typeof makeChunkedService>) {
