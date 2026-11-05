@@ -48,4 +48,5 @@ export const CHAT_TOKENS = {
    * Injected by `SESSION` and `ChatRpcHandlers`.
    */
   FOLLOW_UP_QUEUE: Symbol.for('ChatFollowUpQueueService'),
+  CODEX_SESSION_OWNER: Symbol.for('ChatCodexSessionOwner'),
 } as const;

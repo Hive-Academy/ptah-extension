@@ -883,7 +883,17 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return () => this.followUpListeners.delete(listener);
   }
   private emitFollowUp(change: QueuedFollowUpStateChange): void {
-    for (const listener of this.followUpListeners) listener(change);
+    for (const listener of this.followUpListeners) {
+      try {
+        listener(change);
+      } catch (error: unknown) {
+        // degradation-audit: reported - one subscriber must not block queue settlement or other subscribers.
+        this.ports.logger.warn(
+          '[CodexChatAdapter] Follow-up listener failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
   }
   withdrawQueuedFollowUp(id: SessionId, clientMessageId: string): Promise<boolean> {
     const session = this.sessions.get(id);

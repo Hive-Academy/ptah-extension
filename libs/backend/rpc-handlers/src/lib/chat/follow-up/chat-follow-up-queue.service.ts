@@ -37,6 +37,7 @@ import type {
 } from '@ptah-extension/shared';
 
 import type { WebviewManager } from '../streaming/chat-stream-broadcaster.service';
+import { CHAT_TOKENS } from '../tokens';
 
 /** How `chat:continue` reports an accepted queued send. */
 export type FollowUpAcceptance = 'queued' | 'admitted';
@@ -68,6 +69,8 @@ export class ChatFollowUpQueueService {
      */
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
     private readonly registrations: SessionRegistrations | null = null,
+    @inject(CHAT_TOKENS.CODEX_SESSION_OWNER, { isOptional: true })
+    private readonly codexOwner: ((sessionId: string) => string | undefined) | null = null,
   ) {
     this.unsubscribe =
       this.sdkAdapter.onQueuedFollowUpState?.((change) =>
@@ -279,6 +282,8 @@ export class ChatFollowUpQueueService {
   }
 
   private ownerTab(sessionId: string): string | undefined {
+    const codexOwner = this.codexOwner?.(sessionId);
+    if (codexOwner !== undefined) return codexOwner;
     const registered = this.registeredTab(sessionId);
     if (registered !== undefined) return registered;
     const items = this.bindings.get(sessionId);

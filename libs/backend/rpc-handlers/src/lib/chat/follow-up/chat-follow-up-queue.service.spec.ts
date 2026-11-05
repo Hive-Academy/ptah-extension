@@ -91,6 +91,7 @@ function build(
   options: {
     adapter?: Partial<FollowUpQueueOperations>;
     registeredTab?: string;
+    codexOwner?: string;
   } = {},
 ) {
   const sent: Sent[] = [];
@@ -115,6 +116,7 @@ function build(
     webviewManager,
     adapter,
     registrations as never,
+    options.codexOwner === undefined ? null : () => options.codexOwner,
   );
   const states = () =>
     sent.filter((entry) => entry.type === MESSAGE_TYPES.CHAT_QUEUED_MESSAGE_STATE);
@@ -122,6 +124,11 @@ function build(
 }
 
 describe('ChatFollowUpQueueService', () => {
+  it('rejects another tab for an idle Codex session with no held items', () => {
+    const h = build({ codexOwner: TAB_A });
+    expect(() => h.service.assertTabOwnsSession(SESSION, TAB_B)).toThrow(RpcUserError);
+    expect(() => h.service.assertTabOwnsSession(SESSION, TAB_A)).not.toThrow();
+  });
   it('never infers admission from an absent held item without delivery', () => {
     const h = build();
     h.service.bind(SESSION, TAB_A, ID_1);

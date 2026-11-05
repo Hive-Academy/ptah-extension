@@ -881,7 +881,7 @@ class RuntimeContext implements CodexContext {
   steer(input: CodexTurnInput, expectedTurnId?: string): Promise<CodexTurnReceipt> {
     return this.serialize(async () => {
       if (expectedTurnId && (this.state !== 'running' || this.activeTurn !== expectedTurnId))
-        throw new Error('Codex turn changed before steer');
+        throw new CodexRequestRejectedError('turn/steer', -1, 'codexTurnNoLongerActive');
       if (this.state === 'idle') return this.start(input);
       if (this.state !== 'running' || !this.activeTurn)
         throw new Error('Codex turn cannot be steered');

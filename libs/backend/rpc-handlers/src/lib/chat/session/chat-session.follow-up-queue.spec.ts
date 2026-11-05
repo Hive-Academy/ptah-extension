@@ -363,8 +363,8 @@ describe('ChatSessionService — backend-owned follow-up queue', () => {
     await expect(h.service.abortSession({ sessionId: SESSION_ID })).resolves.toEqual({
       success: true,
       withdrawn: [
-        { clientMessageId: ID_1, content: 'first' },
-        { clientMessageId: ID_2, content: 'second' },
+        { clientMessageId: ID_1, content: 'first', tabId: TAB_ID },
+        { clientMessageId: ID_2, content: 'second', tabId: TAB_ID },
       ],
     });
     expect(h.withdrawQueuedFollowUp.mock.calls.map((call) => call[1])).toEqual([ID_1, ID_2]);
@@ -381,7 +381,7 @@ describe('ChatSessionService — backend-owned follow-up queue', () => {
 
     await expect(h.service.abortSession({ sessionId: SESSION_ID })).resolves.toEqual({
       success: true,
-      withdrawn: [{ clientMessageId: ID_2, content: 'second' }],
+      withdrawn: [{ clientMessageId: ID_2, content: 'second', tabId: TAB_ID }],
     });
   });
 

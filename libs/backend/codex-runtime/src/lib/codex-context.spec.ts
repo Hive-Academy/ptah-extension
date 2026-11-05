@@ -1,6 +1,7 @@
 import { codexRequestSchemas } from './codex-protocol-validator';
 import { childEventParent } from './codex-context';
 import { RuntimeContext } from './codex-context';
+import { CodexRequestRejectedError } from './codex-app-server-process';
 import { CodexEventTranslator } from './codex-event-translator';
 import type { CodexRuntimeEvent } from './codex-runtime.types';
 
@@ -160,6 +161,18 @@ describe('native child event admission', () => {
 });
 
 describe('CodexContext thread frame boundary', () => {
+  it('refuses a changed turn before sending a steer request', async () => {
+    const request = jest.fn();
+    const context = Object.assign(Object.create(RuntimeContext.prototype), {
+      state: 'idle', activeTurn: undefined,
+      serialize: (operation: () => Promise<unknown>) => operation(),
+      process: { request },
+    }) as RuntimeContext;
+    await expect(context.steer({ text: 'follow-up' }, 'old-turn')).rejects.toMatchObject({
+      method: 'turn/steer', code: 'codexTurnNoLongerActive',
+    } satisfies Partial<CodexRequestRejectedError>);
+    expect(request).not.toHaveBeenCalled();
+  });
   it('keeps nested lane config on both parsed thread methods', () => {
     const config = {
       agents: { enabled: false },

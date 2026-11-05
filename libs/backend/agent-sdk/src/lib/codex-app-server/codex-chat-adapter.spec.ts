@@ -193,6 +193,32 @@ function setup(resolveRuntime?: CodexChatAdapterPorts['resolveRuntime']) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('isolates a throwing follow-up listener from other listeners and queue settlement', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const,
+        itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    h.adapter.onQueuedFollowUpState(() => { throw new Error('listener failed'); });
+    const states: string[] = [];
+    h.adapter.onQueuedFollowUpState((change) => states.push(change.state));
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await h.adapter.sendMessageToSession(id, 'next', {
+      clientMessageId: 'listener-1', queueIntent: 'next-turn',
+    });
+    expect(states).toEqual(['queued']);
+    release.resolve();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(states).toContain('delivered');
+    expect(h.context.startTurn).toHaveBeenCalledTimes(2);
+    await h.adapter.dispose();
+  });
   it('accepts a busy next-turn follow-up and admits it only after idle', async () => {
     const h = setup();
     const release = deferred<void>();
