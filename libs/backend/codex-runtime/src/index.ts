@@ -106,6 +106,7 @@ export {
 
 export {
   CodexProcessFailureError,
+  CodexRequestRejectedError,
   CodexUnsupportedMethodError,
   CODEX_INITIALIZE_TIMEOUT_MS,
 } from './lib/codex-app-server-process';

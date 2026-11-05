@@ -5,6 +5,7 @@ import { container, type DependencyContainer } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
   CodexContextStateError,
+  CodexRequestRejectedError,
   CodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -272,16 +273,25 @@ describe('CodexChatAdapter', () => {
     await h.adapter.sendMessageToSession(id, 'steer me', {
       clientMessageId: 'steer-throws', queueIntent: 'next-turn',
     });
-    const failure = new Error('steer failed');
-    h.context.steer.mockRejectedValueOnce(failure);
+    // A definite server refusal keeps the follow-up queued for the next turn.
+    h.context.steer.mockRejectedValueOnce(
+      new CodexRequestRejectedError('turn/steer', -32600, 'codexTurnNoLongerActive'),
+    );
     expect(await h.adapter.steerQueuedFollowUp(id, 'steer-throws'))
       .toEqual({ ok: false, code: 'TURN_CHANGED' });
-    expect(h.ports.logger.error).toHaveBeenCalledWith(
-      '[CodexChatAdapter] Queued follow-up steer failed.', failure,
-    );
     expect(h.adapter.listQueuedFollowUps(id)).toEqual([
       expect.objectContaining({ clientMessageId: 'steer-throws' }),
     ]);
+    // An uncertain outcome (transport/timeout) consumes it: never sent twice.
+    const failure = new Error('steer transport lost');
+    h.context.steer.mockRejectedValueOnce(failure);
+    expect(await h.adapter.steerQueuedFollowUp(id, 'steer-throws'))
+      .toEqual({ ok: false, code: 'DELIVERY_UNCERTAIN' });
+    expect(h.ports.logger.warn).toHaveBeenCalledWith(
+      '[CodexChatAdapter] Steer outcome uncertain; consuming follow-up to prevent duplicate delivery.',
+      failure,
+    );
+    expect(h.adapter.listQueuedFollowUps(id)).toEqual([]);
     release.resolve();
     await iterator.return?.();
     await h.adapter.dispose();

@@ -85,8 +85,6 @@ export interface SessionRecord {
   readonly abortController: AbortController;
   /** Queued user messages awaiting the streaming pump. */
   messageQueue: QueuedUserTurn[];
-  /** Accepted follow-up IDs, including turns already claimed by the pump. */
-  followUpIds?: Set<string>;
   awaitingEcho: QueuedUserTurn | null;
   currentTurnClientMessageId: string | null;
   currentTurnUserMessageUuid?: string | null;
@@ -353,7 +351,6 @@ export class SessionRegistry {
       config,
       abortController,
       messageQueue: [],
-      followUpIds: new Set(),
       awaitingEcho: null,
       currentTurnClientMessageId: null,
       interruptRetirement: null,

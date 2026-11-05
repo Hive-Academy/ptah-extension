@@ -93,6 +93,18 @@ function settle<T>(p: Promise<T>): Promise<T | typeof PENDING> {
 }
 
 describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
+  it('keeps same-payload retries idempotent and refuses changed or withdrawn IDs', async () => {
+    const h = makeHarness();
+    const options = { queueIntent: 'next-turn' as const, clientMessageId: 'same' };
+    await h.pump.sendMessage(TAB, 'first', undefined, undefined, options);
+    await h.pump.sendMessage(TAB, 'first', undefined, undefined, options);
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(1);
+    await expect(h.pump.sendMessage(TAB, 'changed', undefined, undefined, options))
+      .rejects.toThrow('FOLLOW_UP_ID_CONFLICT');
+    expect(h.pump.withdrawQueuedFollowUp(TAB, 'same')).toBe(true);
+    await expect(h.pump.sendMessage(TAB, 'first', undefined, undefined, options))
+      .rejects.toThrow('FOLLOW_UP_ID_CONFLICT');
+  });
   it('holds a message sent while a turn is in flight, then yields it on turn end', async () => {
     const h = makeHarness();
 

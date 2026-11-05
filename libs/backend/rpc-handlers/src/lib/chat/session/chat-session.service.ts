@@ -320,6 +320,9 @@ type ChatFollowUpQueue = Pick<
   | 'bind'
   | 'unbind'
   | 'settleAccepted'
+  | 'stopGeneration'
+  | 'advanceStopGeneration'
+  | 'trackSubmission'
   | 'withdrawAllForStop'
 >;
 
@@ -1702,6 +1705,8 @@ export class ChatSessionService {
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    const stopGeneration = params.queueIntent === 'next-turn'
+      ? this.followUpQueue?.stopGeneration(params.sessionId) : undefined;
     let driveAttempt: string | undefined;
     try {
       const { prompt, sessionId, tabId, name } = params;
@@ -1922,13 +1927,18 @@ export class ChatSessionService {
             true;
         // Bound before the send: the adapter may report `queued` from inside
         // `sendMessageToSession`, and that push must already find its tab.
+        if (followUp && stopGeneration !== followUp.queue.stopGeneration(sessionId)) {
+          return { success: false, sessionId, cancelled: true, error: 'Follow-up withdrawn by Stop.' };
+        }
         followUp?.queue.bind(sessionId, tabId, followUp.clientMessageId);
-        await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
+        const submission = this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
           files,
           images,
           clientMessageId: params.clientMessageId,
           ...(followUp ? { queueIntent: 'next-turn' as const } : {}),
         });
+        if (followUp) followUp.queue.trackSubmission(sessionId, submission);
+        await submission;
         sent = true;
         // Read at once: a turn ending during the awaits below could claim it.
         queueState = followUp?.queue.settleAccepted(
@@ -1971,6 +1981,8 @@ export class ChatSessionService {
       return { success: true, sessionId, enqueued: true, ...admittedQueueState };
     } catch (error) {
       await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
+      if (error instanceof Error && error.message.includes('FOLLOW_UP_ID_CONFLICT'))
+        return { success: false, error: 'clientMessageId conflicts with an earlier follow-up.', errorCode: 'FOLLOW_UP_ID_CONFLICT' };
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -2290,6 +2302,7 @@ export class ChatSessionService {
     try {
       const { sessionId } = params;
       this.logger.debug('RPC: chat:abort called', { sessionId });
+      this.followUpQueue?.advanceStopGeneration(sessionId);
       const customAbortResult = await this.ptahCli.handleAbort(params);
       if (customAbortResult.error !== '__NOT_PTAH_CLI__') {
         return customAbortResult;

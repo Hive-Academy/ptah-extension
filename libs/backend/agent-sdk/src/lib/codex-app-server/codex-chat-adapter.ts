@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  CodexRequestRejectedError,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -913,11 +914,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
         }
         return { ok: true };
       } catch (error: unknown) {
-        this.ports.logger.error(
-          '[CodexChatAdapter] Queued follow-up steer failed.',
+        if (error instanceof CodexRequestRejectedError)
+          return { ok: false, code: 'TURN_CHANGED' };
+        this.ports.logger.warn(
+          '[CodexChatAdapter] Steer outcome uncertain; consuming follow-up to prevent duplicate delivery.',
           error instanceof Error ? error : new Error(String(error)),
         );
-        return { ok: false, code: 'TURN_CHANGED' };
+        return { ok: false, code: 'DELIVERY_UNCERTAIN' };
       }
     });
   }

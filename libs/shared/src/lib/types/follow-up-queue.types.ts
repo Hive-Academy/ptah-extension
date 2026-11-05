@@ -39,6 +39,7 @@ export type SteerQueuedFollowUpResult =
       readonly ok: false;
       readonly code:
         | 'TURN_CHANGED'
+        | 'DELIVERY_UNCERTAIN'
         | 'NOT_QUEUED'
         | 'UNSUPPORTED'
         | 'SESSION_ENDED';

@@ -122,6 +122,20 @@ function build(
 }
 
 describe('ChatFollowUpQueueService', () => {
+  it('never infers admission from an absent held item without delivery', () => {
+    const h = build();
+    h.service.bind(SESSION, TAB_A, ID_1);
+    expect(() => h.service.settleAccepted(SESSION, ID_1)).toThrow(RpcUserError);
+    h.fake.emit({ sessionId: SESSION as SessionId, clientMessageId: ID_1, state: 'delivered' });
+    expect(h.service.settleAccepted(SESSION, ID_1)).toBe('admitted');
+  });
+
+  it('advances the Stop fence before another send may enter the provider queue', () => {
+    const h = build();
+    const captured = h.service.stopGeneration(SESSION);
+    h.service.advanceStopGeneration(SESSION);
+    expect(h.service.stopGeneration(SESSION)).not.toBe(captured);
+  });
   it('pushes every state change to the queuing tab', () => {
     const h = build();
     h.service.bind(SESSION, TAB_A, ID_1);
@@ -210,13 +224,14 @@ describe('ChatFollowUpQueueService', () => {
     expect(h.states()).toEqual([]);
   });
 
-  it('reports queued while held and admitted (unbound) otherwise', () => {
+  it('reports queued while held and admitted after delivery', () => {
     const h = build();
     h.service.bind(SESSION, TAB_A, ID_1);
     h.fake.hold(ID_1);
     expect(h.service.settleAccepted(SESSION, ID_1)).toBe('queued');
 
     h.service.bind(SESSION, TAB_A, ID_2);
+    h.fake.emit({ sessionId: SESSION as SessionId, clientMessageId: ID_2, state: 'delivered' });
     expect(h.service.settleAccepted(SESSION, ID_2)).toBe('admitted');
     expect(h.service.list(SESSION, TAB_A).map((i) => i.clientMessageId)).toEqual([
       ID_1,
@@ -281,7 +296,7 @@ describe('ChatFollowUpQueueService', () => {
   it('answers empty / false / UNSUPPORTED when the adapter lacks the queue', async () => {
     const h = build({ adapter: {} });
     h.service.bind(SESSION, TAB_A, ID_1);
-    expect(h.service.settleAccepted(SESSION, ID_1)).toBe('admitted');
+    expect(() => h.service.settleAccepted(SESSION, ID_1)).toThrow(RpcUserError);
     h.service.bind(SESSION, TAB_A, ID_1);
     expect(h.service.list(SESSION, TAB_A)).toEqual([]);
     await expect(h.service.withdraw(SESSION, TAB_A, ID_1)).resolves.toBe(false);

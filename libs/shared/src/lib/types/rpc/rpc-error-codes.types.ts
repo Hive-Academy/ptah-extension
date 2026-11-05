@@ -22,6 +22,7 @@ export type RpcUserErrorCode =
    */
   | 'GIT_ROOT_UNAVAILABLE'
   | 'INVALID_PARAMS'
+  | 'FOLLOW_UP_ID_CONFLICT'
   | 'TASK_NOT_FOUND'
   | 'SESSION_ENDED'
   /** Codex already has an operation in progress. */

@@ -51,6 +51,9 @@ const NOT_THIS_TAB_MESSAGE = 'This conversation is not open in this tab.';
 export class ChatFollowUpQueueService {
   /** sessionId → (clientMessageId → tabId) for items still held. */
   private readonly bindings = new Map<string, Map<string, string>>();
+  private readonly states = new Map<string, Map<string, QueuedFollowUpStateChange['state']>>();
+  private readonly stopGenerations = new Map<string, number>();
+  private readonly submissions = new Map<string, Set<Promise<void>>>();
   private readonly unsubscribe: (() => void) | null;
 
   constructor(
@@ -76,6 +79,28 @@ export class ChatFollowUpQueueService {
   dispose(): void {
     this.unsubscribe?.();
     this.bindings.clear();
+    this.states.clear();
+    this.stopGenerations.clear();
+    this.submissions.clear();
+  }
+
+  trackSubmission(sessionId: string, submission: Promise<void>): void {
+    const submissions = this.submissions.get(sessionId) ?? new Set<Promise<void>>();
+    submissions.add(submission);
+    this.submissions.set(sessionId, submissions);
+    const remove = () => {
+      submissions.delete(submission);
+      if (submissions.size === 0) this.submissions.delete(sessionId);
+    };
+    void submission.then(remove, remove);
+  }
+
+  stopGeneration(sessionId: string): number {
+    return this.stopGenerations.get(sessionId) ?? 0;
+  }
+
+  advanceStopGeneration(sessionId: string): void {
+    this.stopGenerations.set(sessionId, this.stopGeneration(sessionId) + 1);
   }
 
   /**
@@ -118,6 +143,9 @@ export class ChatFollowUpQueueService {
       (item) => item.clientMessageId === clientMessageId,
     );
     if (held) return 'queued';
+    const state = this.states.get(sessionId)?.get(clientMessageId);
+    if (state !== 'delivered' && state !== 'steered')
+      throw new RpcUserError('Follow-up has no queued entry or delivered turn.', 'FOLLOW_UP_ID_CONFLICT');
     this.unbind(sessionId, clientMessageId);
     return 'admitted';
   }
@@ -174,6 +202,7 @@ export class ChatFollowUpQueueService {
    * claimed meanwhile (withdraw answered false) is not in it.
    */
   async withdrawAllForStop(sessionId: string): Promise<QueuedFollowUpSnapshot[]> {
+    await Promise.allSettled([...(this.submissions.get(sessionId) ?? [])]);
     const adapter = this.sdkAdapter;
     if (!adapter.withdrawQueuedFollowUp) return [];
     const withdrawn: QueuedFollowUpSnapshot[] = [];
@@ -200,6 +229,9 @@ export class ChatFollowUpQueueService {
 
   private onStateChange(change: QueuedFollowUpStateChange): void {
     const sessionId = change.sessionId as string;
+    const states = this.states.get(sessionId) ?? new Map<string, QueuedFollowUpStateChange['state']>();
+    states.set(change.clientMessageId, change.state);
+    this.states.set(sessionId, states);
     const tabId =
       this.boundTab(sessionId, change.clientMessageId) ??
       this.registeredTab(sessionId);

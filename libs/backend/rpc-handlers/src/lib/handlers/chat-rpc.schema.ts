@@ -83,6 +83,15 @@ export const ChatStartParamsSchema = z
  * (the SDK needs a real session UUID to resume; the tab UUID drives webview
  * event routing).
  */
+const QueuedPayloadSchema = z.object({
+  prompt: z.string({ error: 'prompt must be a string' }).min(1).max(1024 * 1024),
+  files: z.array(z.string().min(1).max(4096)).max(64).optional(),
+  images: z.array(z.object({
+    data: z.string().min(1).max(20 * 1024 * 1024),
+    mediaType: z.string().min(1).max(128),
+  }).strict()).max(16).optional(),
+});
+
 export const ChatContinueParamsSchema = z
   .object({
     clientMessageId: z
@@ -103,6 +112,11 @@ export const ChatContinueParamsSchema = z
   })
   .passthrough()
   .superRefine((value, ctx) => {
+    if (value.queueIntent !== undefined) {
+      const parsed = QueuedPayloadSchema.safeParse(value);
+      if (!parsed.success) for (const issue of parsed.error.issues)
+        ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+    }
     // A held follow-up is addressed by its id for its whole life (state
     // events, withdraw, steer), so a queued send must carry a real UUID.
     if (

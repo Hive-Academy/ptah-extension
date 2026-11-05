@@ -50,6 +50,7 @@ import type {
 } from './session-registry.service';
 
 export class SessionStreamPump {
+  private readonly receipts = new WeakMap<SessionRecord, Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' }>>();
   private readonly followUpListeners = new Set<
     (change: QueuedFollowUpStateChange) => void
   >();
@@ -112,6 +113,9 @@ export class SessionStreamPump {
   }
 
   private emit(change: QueuedFollowUpStateChange): void {
+    const record = this.registry.find(change.sessionId as string);
+    const receipt = record && this.receipts.get(record)?.get(change.clientMessageId);
+    if (receipt && change.state !== 'steered') receipt.state = change.state;
     for (const listener of this.followUpListeners) {
       try {
         listener(change);
@@ -354,13 +358,18 @@ export class SessionStreamPump {
     } else {
       markActive();
     }
-    if (
-      options?.queueIntent &&
-      session.followUpIds?.has(options.clientMessageId!)
-    )
-      return;
-    if (options?.queueIntent)
-      session.followUpIds?.add(options.clientMessageId!);
+    const fingerprint = JSON.stringify([content, files ?? [], images ?? []]);
+    const receipts = this.receipts.get(session) ?? new Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' }>();
+    this.receipts.set(session, receipts);
+    if (options?.queueIntent) {
+      const existing = receipts.get(options.clientMessageId!);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint || existing.state === 'withdrawn' || existing.state === 'failed')
+          throw new SdkError('FOLLOW_UP_ID_CONFLICT: clientMessageId was reused');
+        return;
+      }
+      receipts.set(options.clientMessageId!, { fingerprint, state: 'queued' });
+    }
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,
@@ -379,8 +388,7 @@ export class SessionStreamPump {
         origin: options?.origin,
       });
     } catch (error: unknown) {
-      if (options?.queueIntent)
-        session.followUpIds?.delete(options.clientMessageId!);
+      if (options?.queueIntent) receipts.get(options.clientMessageId!)!.state = 'failed';
       throw error;
     }
     if (
@@ -388,6 +396,7 @@ export class SessionStreamPump {
       (this.registry.find(sessionId as string) !== session ||
         session.abortController.signal.aborted)
     ) {
+      receipts.get(options.clientMessageId!)!.state = 'failed';
       throw new SdkError('Session ended before follow-up admission');
     }
     if (requireIdle) {

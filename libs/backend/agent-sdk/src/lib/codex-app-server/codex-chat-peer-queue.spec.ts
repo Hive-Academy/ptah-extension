@@ -12,6 +12,33 @@ function setup() {
 }
 
 describe('CodexChatPeerQueue', () => {
+  it('rejects an ID reused with changed content or after withdrawal', () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const add = (content: string) => queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'same', content }, async () => undefined, () => undefined);
+    expect(add('first')).toBe(true);
+    expect(add('first')).toBe(false);
+    expect(() => add('changed')).toThrow('FOLLOW_UP_ID_CONFLICT');
+    expect(queue.withdrawFollowUp(session, 'same')).toBe(true);
+    expect(() => add('first')).toThrow('FOLLOW_UP_ID_CONFLICT');
+  });
+
+  it('consumes an uncertain steer and never starts it as a later turn', async () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const run = jest.fn(async () => undefined);
+    const states: string[] = [];
+    queue.enqueueFollowUp(session, 'thread', { clientMessageId: 'one', content: 'text' },
+      run, (state) => states.push(state));
+    expect(await queue.steerFollowUp(session, 'one', async () => ({ ok: false, code: 'DELIVERY_UNCERTAIN' })))
+      .toEqual({ ok: false, code: 'DELIVERY_UNCERTAIN' });
+    session.busy = false;
+    queue.onIdle(session);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(run).not.toHaveBeenCalled();
+    expect(states).toEqual(['delivered']);
+  });
   it('holds busy follow-ups in FIFO order and reports delivery on admission', async () => {
     const { queue, session } = setup();
     session.busy = true;

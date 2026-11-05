@@ -24,7 +24,7 @@ interface PeerMessage {
 export class CodexChatPeerQueue {
   private readonly queued = new Map<QueueSession, PeerMessage[]>();
   private readonly active = new Map<QueueSession, PeerMessage>();
-  private readonly seenFollowUps = new WeakMap<QueueSession, Set<string>>();
+  private readonly receipts = new WeakMap<QueueSession, Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' | 'steered' }>>();
 
   constructor(private readonly logger: Logger) {}
 
@@ -41,17 +41,26 @@ export class CodexChatPeerQueue {
   ): boolean {
     if (session.closing || session.abort.signal.aborted)
       throw new CodexChatAdapterError('unavailable', 'followUp');
-    const seen = this.seenFollowUps.get(session) ?? new Set<string>();
-    if (seen.has(snapshot.clientMessageId)) return false;
+    const receipts = this.receipts.get(session) ?? new Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' | 'steered' }>();
+    this.receipts.set(session, receipts);
+    const fingerprint = JSON.stringify([snapshot.content, snapshot.files ?? [], snapshot.images ?? []]);
+    const existing = receipts.get(snapshot.clientMessageId);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint || existing.state === 'withdrawn' || existing.state === 'failed')
+        throw new CodexChatAdapterError('unavailable', 'FOLLOW_UP_ID_CONFLICT');
+      return false;
+    }
     const pending = this.queued.get(session) ?? [];
     if (pending.length + Number(this.active.has(session)) >= MAX_PEER_MESSAGES)
       throw new CodexChatAdapterError('busy', 'followUpQueueFull');
     pending.push({ run, resolve: () => undefined, reject: () => undefined,
       admitted: false, idle: false, admissionId: undefined, followUp: snapshot,
-      threadId, state });
+      threadId, state: (next, reason) => {
+        receipts.get(snapshot.clientMessageId)!.state = next;
+        state(next, reason);
+      } });
     this.queued.set(session, pending);
-    seen.add(snapshot.clientMessageId);
-    this.seenFollowUps.set(session, seen);
+    receipts.set(snapshot.clientMessageId, { fingerprint, state: 'queued' });
     this.startNext(session);
     return true;
   }
@@ -80,10 +89,10 @@ export class CodexChatPeerQueue {
     entry.steering = true;
     try {
       const result = await steer(entry.followUp!);
-      if (result.ok && this.findQueued(session, clientMessageId) === entry) {
+      if ((result.ok || result.code === 'DELIVERY_UNCERTAIN') && this.findQueued(session, clientMessageId) === entry) {
         const pending = this.queued.get(session)!;
         pending.splice(pending.indexOf(entry), 1);
-        entry.state?.('steered');
+        entry.state?.(result.ok ? 'steered' : 'delivered');
       }
       return result;
     } finally {

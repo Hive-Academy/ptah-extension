@@ -30,9 +30,8 @@ function setup() {
   const pump = new SessionStreamPump(logger, registry, factory);
   const abort = new AbortController();
   registry.register(sessionId, {} as AISessionConfig, abort);
-  const iterator = pump
-    .createUserMessageStream(sessionId, abort)
-    [Symbol.asyncIterator]();
+  const stream = pump.createUserMessageStream(sessionId, abort);
+  const iterator = stream[Symbol.asyncIterator]();
   const states: string[] = [];
   pump.onQueuedFollowUpState((change) =>
     states.push(`${change.clientMessageId}:${change.state}`),

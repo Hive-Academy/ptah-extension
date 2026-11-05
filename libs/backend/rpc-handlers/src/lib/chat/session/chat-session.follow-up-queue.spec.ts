@@ -98,6 +98,8 @@ function makeHarness(opts: HarnessOptions = {}) {
             clientMessageId: options.clientMessageId,
             state: 'queued',
           });
+        } else if (options?.queueIntent && options.clientMessageId) {
+          listener?.({ sessionId, clientMessageId: options.clientMessageId, state: 'delivered' });
         }
       },
     );
@@ -247,6 +249,19 @@ function queued(prompt: string, clientMessageId = ID_1): ChatContinueParams {
 }
 
 describe('ChatSessionService — backend-owned follow-up queue', () => {
+  it('refuses a follow-up whose preparation crosses Stop', async () => {
+    const h = makeHarness({ busy: true });
+    let releaseDrive: ((value: string) => void) | undefined;
+    jest.spyOn(h.driverLock, 'beginDrive').mockImplementationOnce(
+      () => new Promise<string>((resolve) => { releaseDrive = resolve; }),
+    );
+    const send = h.service.continueSession(queued('late'));
+    await Promise.resolve();
+    await h.service.abortSession({ sessionId: SESSION_ID });
+    releaseDrive?.('drive');
+    await expect(send).resolves.toMatchObject({ success: false, cancelled: true });
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
   it('accepts a queued follow-up while a turn runs and reports it held', async () => {
     const h = makeHarness({ busy: true });
 
