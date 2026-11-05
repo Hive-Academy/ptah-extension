@@ -597,6 +597,7 @@ export class SessionHandoffService implements ISessionHandoff, IHandoffTurnFlush
     try {
       await this.lifecycle.endSession(SessionId.from(arm.callerTabId));
     } catch (error: unknown) {
+      // degradation-audit: reported - reportError logs the stop failure; the caller is re-armed so the next flush retries.
       this.reportError('handoff caller stop failed', error);
       this.armed.set(arm.callerTabId, arm);
       this.stopping.delete(arm.callerTabId);

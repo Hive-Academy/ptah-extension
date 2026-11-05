@@ -187,9 +187,14 @@ export class SessionHandoffChainStore implements ISessionHandoffChain {
     try {
       const key = normalizeWorkspaceKey(workspacePath?.trim() ?? '');
       const previous = this.operations.get(key) ?? Promise.resolve();
-      const next = previous.catch(() => undefined).then(() =>
-        this.appendInner(fromSessionId, toSessionId, workspacePath),
-      );
+      const next = previous
+        .catch(() => {
+          // degradation-audit: reported - the earlier operation logged its own failure; this only keeps the per-workspace queue moving.
+          return undefined;
+        })
+        .then(() =>
+          this.appendInner(fromSessionId, toSessionId, workspacePath),
+        );
       this.operations.set(key, next);
       try {
         await next;
@@ -211,7 +216,12 @@ export class SessionHandoffChainStore implements ISessionHandoffChain {
     try {
       const scope = this.resolveScope(workspacePath);
       const previous = this.operations.get(scope.memoryKey) ?? Promise.resolve();
-      const next = previous.catch(() => undefined).then(async () => {
+      const next = previous
+        .catch(() => {
+          // degradation-audit: reported - the earlier operation logged its own failure; this only keeps the per-workspace queue moving.
+          return undefined;
+        })
+        .then(async () => {
         await this.ensureLoaded(scope);
         await this.retryPersist(scope);
         const links = this.documents.get(scope.memoryKey)?.links ?? [];
