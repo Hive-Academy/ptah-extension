@@ -1426,6 +1426,7 @@ describe('CommandCenterPageComponent', () => {
       TestBed.overrideProvider(VSCodeService, {
         useValue: {
           isElectron: true,
+          config: () => ({}),
           getState: jest.fn().mockReturnValue(null),
           setState: jest.fn(),
         },

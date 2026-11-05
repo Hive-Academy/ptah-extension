@@ -163,7 +163,7 @@ export class DisplayWindowSync implements MessageHandler {
       }
       lastFocusVersion = focusVersion;
       if (this.source() === source && tabId === null)
-        this.source.set(this.sources.findLast(candidate => candidate !== source && candidate.tabId() !== null) ?? null);
+        this.source.set(this.lastBoundSource(source));
     }, { injector: this.injector });
     return () => {
       focusEffect.destroy();
@@ -171,8 +171,22 @@ export class DisplayWindowSync implements MessageHandler {
       if (index < 0) return;
       this.sources.splice(index, 1);
       if (untracked(this.source) === source)
-        this.source.set(this.sources.findLast(candidate => candidate.tabId() !== null) ?? null);
+        this.source.set(this.lastBoundSource(null));
     };
+  }
+
+  /**
+   * The most recently added source, other than `exclude`, that has a bound
+   * tab. A reverse loop, because the project `lib` predates `findLast`.
+   */
+  private lastBoundSource(
+    exclude: DisplayWindowSource | null,
+  ): DisplayWindowSource | null {
+    for (let index = this.sources.length - 1; index >= 0; index -= 1) {
+      const candidate = this.sources[index];
+      if (candidate !== exclude && candidate.tabId() !== null) return candidate;
+    }
+    return null;
   }
 
   /** Opens the separate window; on success the panel moves there. */

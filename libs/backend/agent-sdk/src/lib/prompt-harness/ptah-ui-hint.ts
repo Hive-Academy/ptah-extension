@@ -52,6 +52,17 @@ const REPORT_REQUEST =
 const NOT_A_VISUAL_REPORT =
   /\b(?:bug|error|crash|incident|sentry)\s+report\b|\breport\s+(?:a|an|the|this)\s+(?:bug|error|issue|problem|crash)\b|\breport\s+on\s+(?:this\s+|the\s+|a\s+|an\s+)?(?:bug|error|issue|problem|crash)\b/i;
 
+const REQUEST_TOKENS = /\b[\w-]+(?:\.(?:tsx?|jsx?|html|css|scss))?\b/gi;
+const VISUAL_NOUN = /^(?:charts?|graphs?|plots?|diagrams?|infographics?|dashboards?)$/i;
+const CODE_WORD = /^(?:components?|source|files?|function|class|variable|module|test|spec|bug|types?|props?|hook|[\w-]+\.(?:tsx?|jsx?|html|css|scss))$/i;
+
+function hasCodeNearVisualNoun(text: string): boolean {
+  const tokens = Array.from(text.matchAll(REQUEST_TOKENS), match => match[0]);
+  return tokens.some((token, index) =>
+    VISUAL_NOUN.test(token) && tokens.some((nearby, otherIndex) =>
+      Math.abs(otherIndex - index) <= 4 && CODE_WORD.test(nearby)));
+}
+
 /**
  * Report and visual requests publish an HTML artifact. Compact recaps stay
  * on ptah-ui. A host without skill-file lookup gets the publish rule and
@@ -85,7 +96,7 @@ export function surfaceHookGuidance(prompt: string): string | null {
 function classifySurfaceRequest(text: string): SurfaceRequestKind {
   const value = text.trim();
   if (value.length === 0) return 'compact';
-  const visual = VISUAL_REQUEST.test(value);
+  const visual = VISUAL_REQUEST.test(value) && !hasCodeNearVisualNoun(value);
   if (NOT_A_VISUAL_REPORT.test(value) && !visual) return 'compact';
   if (visual || REPORT_REQUEST.test(value)) return 'report';
   return 'compact';

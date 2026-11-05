@@ -130,8 +130,12 @@ export class FileViewRpcHandlers {
     try {
       const handle = await fs.open(resolution.realPath, 'r');
       try {
-        const stat = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
-        if (stat === null) return this.refuse('outside-roots');
+        const verification = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (!verification.ok) {
+          this.logger.warn('[file:viewContent] verification refused', { reason: verification.code });
+          return this.refuse(verification.reason);
+        }
+        const stat = verification.stat;
         if (!stat.isFile()) return this.refuse('not-a-file');
         if (stat.size > FILE_VIEW_MAX_BYTES)
           return this.refuse('too-large', resolution.lexicalPath, stat.size);
@@ -207,17 +211,24 @@ export class FileViewRpcHandlers {
     try {
       const handle = await fs.open(resolution.realPath, 'r');
       try {
-        const stat = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
-        if (stat === null) return this.refuseBinary('outside-roots');
+        const verification = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (!verification.ok) {
+          this.logger.warn('[file:viewBinary] verification refused', { reason: verification.code });
+          return this.refuseBinary(verification.reason);
+        }
+        const stat = verification.stat;
         if (!stat.isFile()) return this.refuseBinary('not-a-file');
-        if (stat.size > fileViewBinaryCap('application/pdf'))
-          return this.refuseBinary('too-large', resolution.lexicalPath, stat.size);
+        // The larger of the checked size and the open handle's size: a file
+        // that was over the cap when it was checked stays refused.
+        const size = Math.max(stat.size, resolution.sizeBytes);
+        if (size > fileViewBinaryCap('application/pdf'))
+          return this.refuseBinary('too-large', resolution.lexicalPath, size);
         const header = await readPrefix(handle, BINARY_SNIFF_BYTES);
         mime = sniffFileViewBinary(header);
         if (mime === null)
-          return this.refuseBinary('unsupported-type', resolution.lexicalPath, stat.size);
-        if (!binaryPayloadWithinCap(stat.size, mime))
-          return this.refuseBinary('too-large', resolution.lexicalPath, stat.size);
+          return this.refuseBinary('unsupported-type', resolution.lexicalPath, size);
+        if (!binaryPayloadWithinCap(size, mime))
+          return this.refuseBinary('too-large', resolution.lexicalPath, size);
         bytes = await readBounded(handle, fileViewBinaryCap(mime));
       } finally {
         await handle.close();
@@ -339,24 +350,30 @@ async function readBounded(handle: fs.FileHandle, maxBytes: number): Promise<Buf
     return buffer.subarray(0, bytesRead);
 }
 
+type OpenedFileVerification =
+  | { ok: true; stat: Stats }
+  | { ok: false; reason: 'outside-roots' | 'unreadable'; code: string };
+
 /** Bind the opened inode to a currently contained pathname before reading. */
 async function verifyOpenedFile(
   handle: fs.FileHandle,
   target: string,
   root: string,
-): Promise<Stats | null> {
+): Promise<OpenedFileVerification> {
   const opened = await handle.stat();
   const [realTarget, realRoot] = await Promise.all([fs.realpath(target), fs.realpath(root)]);
   const relative = path.relative(realRoot, realTarget);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    return null;
+    return { ok: false, reason: 'outside-roots', code: 'escaped-root' };
   const current = await fs.stat(realTarget);
-  // Some filesystems report ino=0. Timestamps plus size are the best available fallback.
-  const same = opened.ino !== 0 && current.ino !== 0
-    ? opened.dev === current.dev && opened.ino === current.ino
-    : opened.size === current.size && opened.mtimeMs === current.mtimeMs &&
-      opened.birthtimeMs === current.birthtimeMs;
-  return same ? opened : null;
+  const hasIdentity = (stat: Stats): boolean =>
+    Number.isSafeInteger(stat.dev) && stat.dev >= 0 &&
+    Number.isSafeInteger(stat.ino) && stat.ino > 0;
+  if (!hasIdentity(opened) || !hasIdentity(current))
+    return { ok: false, reason: 'unreadable', code: 'identity-unavailable' };
+  if (opened.dev !== current.dev || opened.ino !== current.ino)
+    return { ok: false, reason: 'outside-roots', code: 'identity-mismatch' };
+  return { ok: true, stat: opened };
 }
 
 type DecodeResult =

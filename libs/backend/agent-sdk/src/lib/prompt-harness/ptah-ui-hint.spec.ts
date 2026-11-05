@@ -117,6 +117,8 @@ describe('routeSurfaceRequest', () => {
     'make a diagram of the architecture',
     'give me an infographic of this sprint',
     'show a representational view of my work',
+    'send me a report of all in-progress tasks',
+    'make a dashboard of my work',
   ])('routes visual request %s to a report', prompt => {
     expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('report');
   });
@@ -124,6 +126,9 @@ describe('routeSurfaceRequest', () => {
   it.each([
     'file a bug report', 'report this error', 'fix the chart component bug',
     'rename the plot variable', 'what does the diagram.ts file do',
+    'show me the chart component source', 'create a chart component',
+    'fix the graph rendering bug', 'refactor plot.ts',
+    'add a test for the diagram module',
   ])('keeps nonvisual request %s compact', prompt => {
     expect(routeSurfaceRequest(prompt, { skillLookup: false }).kind).toBe('compact');
   });

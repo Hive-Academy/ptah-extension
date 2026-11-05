@@ -1,11 +1,16 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
+import type { Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { FILE_VIEW_MAX_BYTES } from '@ptah-extension/shared';
 
 import { FileViewRpcHandlers } from './file-view-rpc.handlers';
+
+jest.mock('node:fs/promises', () => ({ ...jest.requireActual('node:fs/promises') }));
+/** The mocked module object. Spy here: the `import * as fs` wrapper has non-configurable getters. */
+const fsModule = jest.requireMock<typeof import('node:fs/promises')>('node:fs/promises');
 
 type RpcMethod = (params?: unknown) => Promise<unknown>;
 
@@ -80,6 +85,8 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
     await fs.mkdir(path.join(workspace, 'src'), { recursive: true });
 
     await fs.writeFile(path.join(workspace, 'src', 'a.ts'), 'hello', 'utf8');
+    await fs.writeFile(path.join(workspace, 'identity.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
     await fs.writeFile(
       path.join(workspace, 'bom.txt'),
       Buffer.concat([
@@ -158,6 +165,56 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
       }
     },
   );
+
+  it.each([
+    ['file:viewContent', 'opened inode zero', { ino: 0 }, {}, 'unreadable'],
+    ['file:viewContent', 'current inode zero', {}, { ino: 0 }, 'unreadable'],
+    ['file:viewContent', 'opened device unavailable', { dev: undefined }, {}, 'unreadable'],
+    ['file:viewContent', 'matching identity', {}, {}, 'success'],
+    ['file:viewContent', 'different identity', {}, { ino: -1 }, 'outside-roots'],
+    ['file:viewContent', 'different device', {}, {}, 'outside-roots'],
+    ['file:viewBinary', 'opened inode zero', { ino: 0 }, {}, 'unreadable'],
+    ['file:viewBinary', 'current inode zero', {}, { ino: 0 }, 'unreadable'],
+    ['file:viewBinary', 'current device unavailable', {}, { dev: undefined }, 'unreadable'],
+    ['file:viewBinary', 'matching identity', {}, {}, 'success'],
+    ['file:viewBinary', 'different identity', {}, { ino: -1 }, 'outside-roots'],
+    ['file:viewBinary', 'different device', {}, {}, 'outside-roots'],
+  ] as const)('verifies %s with %s', async (methodName, _case, openedChanges, currentChanges, expected) => {
+    const relative = methodName === 'file:viewContent' ? 'src/a.ts' : 'identity.png';
+    const target = path.join(workspace, relative);
+    resolveForView.mockResolvedValue(await resolvedFile(relative));
+    const handle = await fs.open(target, 'r');
+    const opened = Object.assign(await handle.stat(), openedChanges);
+    const current = Object.assign(await fs.stat(target), currentChanges);
+    if (expected === 'outside-roots') current.ino = opened.ino + 1;
+    if (_case === 'different device') {
+      current.ino = opened.ino;
+      current.dev = opened.dev + 1;
+    }
+    const openSpy = jest.spyOn(fsModule, 'open').mockResolvedValueOnce(handle);
+    const statSpy = jest.spyOn(fsModule, 'stat').mockResolvedValueOnce(current as Stats);
+    jest.spyOn(handle, 'stat').mockResolvedValueOnce(opened as Stats);
+    const methods = new Map<string, RpcMethod>();
+    new FileViewRpcHandlers(
+      { warn } as never,
+      { registerMethod: (name: string, handler: RpcMethod) => methods.set(name, handler) } as never,
+      { resolveForView, resolveForExternalOpen } as never,
+    ).register();
+    try {
+      const result = await methods.get(methodName)?.({ path: relative });
+      if (expected === 'success') {
+        expect(result).toMatchObject({ success: true });
+      } else {
+        expect(result).toMatchObject({ success: false, reason: expected,
+          error: expected === 'unreadable' ? 'That file could not be read.' : 'This file is outside the workspaces open in Ptah.' });
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(target);
+      }
+    } finally {
+      openSpy.mockRestore();
+      statSpy.mockRestore();
+      await handle.close().catch(() => undefined);
+    }
+  });
 
   it('strips a UTF-8 BOM, reports it, and hashes the raw bytes', async () => {
     resolveForView.mockResolvedValue(await resolvedFile('bom.txt'));
