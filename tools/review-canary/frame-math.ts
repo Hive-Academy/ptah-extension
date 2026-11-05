@@ -31,3 +31,8 @@ export function parseTimestamp(value: string): number {
   const [minutes, seconds] = value.split(':').map(Number);
   return minutes * 60 + seconds;
 }
+
+/** Converts seconds into a frame count at the given frame rate. */
+export function secondsToFrames(seconds: number, fps: number): number {
+  return Math.round(seconds * fps);
+}
