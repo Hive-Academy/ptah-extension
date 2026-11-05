@@ -2281,6 +2281,7 @@ describe('CodexRuntime', () => {
     });
     const initialFingerprint = codexProfileFingerprint({
       permissionLevel: 'ask',
+      codexSandboxMode: profile.codexSandboxMode,
       approvalPolicy: profile.approvalPolicy,
       sandboxPolicy: profile.sandboxPolicy,
     });
