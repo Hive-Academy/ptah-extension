@@ -124,6 +124,23 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
     expect(textOf((await pending).value as SDKUserMessage)).toBe('follow-up');
   });
 
+  it('keeps a queued follow-up held through assistant text and tool boundaries until result', async () => {
+    const h = makeHarness();
+    await h.pump.sendMessage(TAB, 'first');
+    await h.iterator.next();
+    await h.pump.sendMessage(TAB, 'follow-up', undefined, undefined, {
+      queueIntent: 'next-turn', clientMessageId: 'follow-up-id',
+    });
+    const next = h.iterator.next();
+    for (const boundary of ['assistant text', 'tool_use', 'tool_result', 'assistant final text']) {
+      expect(await settle(next)).toBe(PENDING);
+      expect(h.registry.find(TAB as string)?.turnInFlight).toBe(true);
+      expect(h.pump.listQueuedFollowUps(TAB).map((item) => item.clientMessageId)).toEqual(['follow-up-id']);
+    }
+    h.registry.markTurnEnded(TAB); // SDK result
+    expect(textOf((await next).value as SDKUserMessage)).toBe('follow-up');
+  });
+
   it('yields only one of several messages queued before the turn starts', async () => {
     const h = makeHarness();
 

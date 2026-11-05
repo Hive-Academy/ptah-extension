@@ -615,6 +615,9 @@ export class StreamTransformer {
             if (sdkMessage === RETIREMENT_TICK) continue;
             let resultConsumedClientMessageId: string | null = null;
             let skippedLateResult = false;
+            let turnEndPending = false;
+            let resultNeedsSettle = false;
+            try {
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
@@ -777,9 +780,9 @@ export class StreamTransformer {
               const consumedClientMessageId = turnIdentity?.takeAtResult(sdkMessage) ?? null;
               skippedLateResult = turnIdentity?.wasLastResultInterruptedLate?.() ?? false;
               resultConsumedClientMessageId = consumedClientMessageId;
-              // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
-              // may gate it.
-              if (!skippedLateResult) onTurnEnd?.();
+              turnEndPending = !skippedLateResult;
+              // Keep the next prompt held until this result's terminal event
+              // has passed through the stream consumer.
               // Before any await: the turn's estimate is dropped now, so every
               // authoritative snapshot built below supersedes every live one.
               livePublisher.onResult();
@@ -1086,9 +1089,7 @@ export class StreamTransformer {
                   }
                 }
               } finally {
-                // After `onResultStats`, so `session:stats` leaves first; the
-                // settle payload carries the same snapshot and no `context`.
-                livePublisher.settle();
+                resultNeedsSettle = true;
               }
             }
             if (isCompactBoundary(sdkMessage)) {
@@ -1146,6 +1147,17 @@ export class StreamTransformer {
               if (resultConsumedClientMessageId !== null && !emittedTerminal) {
                 yieldedEventCount++;
                 yield messageTransformer.settleInterruptedTurn(effectiveSessionId, resultConsumedClientMessageId);
+              }
+            }
+            } finally {
+              // Runs after the result's terminal event was consumed, including
+              // when the consumer closes the generator at that yield.
+              try {
+                if (turnEndPending) onTurnEnd?.();
+              } finally {
+                // The turn-end callback can change the owner's idle cache.
+                // Publish that final snapshot after the authoritative stats.
+                if (resultNeedsSettle) livePublisher.settle();
               }
             }
           }

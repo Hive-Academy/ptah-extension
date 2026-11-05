@@ -1,0 +1,22 @@
+[
+  {
+    "role": "user",
+    "text": "12:09 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
+  },
+  {
+    "role": "assistant",
+    "text": "Ptah12:10 AMWorked1 toolCommand succeededBashSleep for 25 seconds"
+  },
+  {
+    "role": "user",
+    "text": "12:10 AM You Reply with exactly: FOLLOWUP-ONE"
+  },
+  {
+    "role": "assistant",
+    "text": "Ptah12:10 AMWorked for 5s1 toolThe harness blocked a foreground sleep. It suggests running it in the background instead, so I'll do that. Command startedBashSle"
+  },
+  {
+    "role": "assistant",
+    "text": "FOLLOWUP-ONE"
+  }
+]

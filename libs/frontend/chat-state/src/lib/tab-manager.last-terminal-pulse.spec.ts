@@ -74,5 +74,14 @@ describe('TabManagerService last terminal pulse', () => {
     expect(service.lastTerminalPulseByTab().get(tabId)?.seq).toBeGreaterThan(
       first?.seq ?? 0,
     );
+
+    // Hidden tabs receive only the terminal status copy until their stream is
+    // replayed. A prior error must not keep the rail card in Error.
+    service.applyTurnState(tabId, state('generating', 5), sessionId);
+    service.applyHiddenTurnStateStatus(tabId, state('failed', 6, 'api_error'), sessionId);
+    expect(service.findTabByIdAcrossWorkspaces(tabId)?.tab.lastTerminalReason).toBe('api_error');
+    service.applyHiddenTurnStateStatus(tabId, state('idle', 7, 'completed'), sessionId);
+    expect(service.findTabByIdAcrossWorkspaces(tabId)?.tab.status).toBe('loaded');
+    expect(service.findTabByIdAcrossWorkspaces(tabId)?.tab.lastTerminalReason).toBe('completed');
   });
 });
