@@ -365,7 +365,8 @@ export interface AgentNamespace {
    * @param agentId - Agent ID
    * @param message - Text to deliver to the agent
    */
-  message: (agentId: string, message: string) => Promise<AgentMessageOutcome>;
+  message: (agentId: string, message: string, delivery?: 'queue' | 'steer') => Promise<AgentMessageOutcome>;
+  messageStatus: (agentId: string, messageId: string) => Promise<{ status: 'pending' | 'delivered' | 'failed' | 'unknown'; reason?: string }>;
 
   /**
    * Deliver a report to the session that started the reporter.

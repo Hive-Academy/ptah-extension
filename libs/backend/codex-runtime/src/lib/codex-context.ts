@@ -678,7 +678,9 @@ class RuntimeContext implements CodexContext {
               networkAccess: levelPolicy.sandboxPolicy.networkAccess,
               writableRoots: [...levelPolicy.sandboxPolicy.writableRoots],
             }
-          : { type: 'readOnly', networkAccess: false },
+          : levelPolicy.sandboxPolicy.mode === 'danger-full-access'
+            ? { type: 'dangerFullAccess' }
+            : { type: 'readOnly', networkAccess: false },
     });
     const previousWirePermissionLevel = this.wirePermissionLevel;
     this.activeTurnPermissionLevel = level;
@@ -976,11 +978,13 @@ class RuntimeContext implements CodexContext {
           this.profile.consumer,
           level,
           this.profile.cwd,
+          this.profile.codexSandboxMode,
         );
         const nextIdentity: CodexThreadIdentity = Object.freeze({
           ...this.identity,
           profileFingerprint: codexProfileFingerprint({
             permissionLevel: level,
+            codexSandboxMode: this.profile.codexSandboxMode,
             ...nextPolicy,
           }),
         });

@@ -5,6 +5,7 @@ import type {
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import type { SdkHandle } from './cli-adapters/cli-adapter.interface';
+import type { PendingAgentMessage } from './agent-message-router.service';
 
 export interface TrackedAgent {
   info: AgentProcessInfo;
@@ -60,7 +61,7 @@ export interface TrackedAgent {
    * capped at `MAX_PENDING_MESSAGES`, never persisted, and cleared when
    * the record's subprocess is released or the record is dropped.
    */
-  pendingMessages: string[];
+  pendingMessages: PendingAgentMessage[];
   /**
    * How many `ptah_agent_report` bodies this lane delivered. Carried on the
    * completion signal so the orchestrator can tell a lane that accounted for

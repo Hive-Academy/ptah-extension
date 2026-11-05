@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import type { CodexSandboxMode } from '../advanced-settings.types';
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 import type { EffortLevel } from '../ai-provider.types';
@@ -280,6 +281,7 @@ export const DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT =
 
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
+  codexSandboxMode: CodexSandboxMode;
   /** Detected CLI agents (Codex, Copilot) */
   detectedClis: import('../agent-process.types').CliDetectionResult[];
   /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
@@ -548,6 +550,7 @@ export function classifyAgentResumeAccountSelection(
 
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
+  codexSandboxMode?: CodexSandboxMode;
   /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
   preferredAgentOrder?: string[];
   /** Maximum concurrent agents (1-10) */

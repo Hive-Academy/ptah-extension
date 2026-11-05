@@ -32,7 +32,7 @@ describe('CLI Codex lane composition', () => {
       });
       const lane = container.resolve<CodexAdapterFactory>(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY).create();
       await expect(lane.detect()).resolves.toEqual({
-        cli: 'codex', installed: false, messagingMode: 'queue',
+        cli: 'codex', installed: false, messagingMode: 'steer',
       });
       expect(selectForOpen).toHaveBeenCalledTimes(1);
     } finally {

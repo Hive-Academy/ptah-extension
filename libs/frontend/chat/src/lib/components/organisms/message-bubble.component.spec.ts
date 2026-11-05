@@ -87,6 +87,35 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
   }
 
+  it('shows only the typing cursor for a streaming message with no rows yet', () => {
+    fixture = TestBed.createComponent(MessageBubbleComponent);
+    fixture.componentRef.setInput(
+      'message',
+      createExecutionChatMessage({
+        id: 'empty-stream',
+        role: 'assistant',
+        rawContent: '',
+        streamingState: {
+          id: 'root',
+          type: 'message',
+          status: 'streaming',
+          content: null,
+          children: [],
+          isCollapsed: false,
+        },
+      }),
+    );
+    fixture.componentRef.setInput('isStreaming', true);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="streaming-empty-cursor"]')).not.toBeNull();
+    expect(root.querySelector('ptah-streaming-quotes')).toBeNull();
+
+    fixture.componentRef.setInput('isStreaming', false);
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="streaming-empty-cursor"]')).toBeNull();
+  });
+
   it('forwards the opt-in agent tile mode to each execution tree row', () => {
     setMessage(
       createExecutionChatMessage({
@@ -224,6 +253,17 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.componentRef.setInput('userActions', false);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+  });
+
+  it('announces a live turn in a polite status region without visible text', () => {
+    setSettledTurn(createExecutionChatMessage({ id: 'live', role: 'assistant', rawContent: 'Hi' }));
+    const status = () => fixture.nativeElement.querySelector('[data-testid="turn-live-status"]') as HTMLElement | null;
+    expect(status()?.getAttribute('aria-live')).toBe('polite');
+    expect(status()?.classList.contains('sr-only')).toBe(true);
+    expect(status()?.textContent?.trim()).toBe('');
+    fixture.componentRef.setInput('turnLive', true);
+    fixture.detectChanges();
+    expect(status()?.textContent?.trim()).toBe('Working');
   });
 
   it('does not put a header above an empty assistant answer', () => {

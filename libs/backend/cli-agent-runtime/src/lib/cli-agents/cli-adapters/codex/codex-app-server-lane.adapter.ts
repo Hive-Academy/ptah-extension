@@ -153,7 +153,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly writeDacPreflight: Pick<CodexLaneWriteDacPreflight, 'check'> = new CodexLaneWriteDacPreflight(logger),
   ) {}
 
-  capabilities(): AgentMessagingCapabilities { return { steer: false, interrupt: false, continuation: true }; }
+  capabilities(): AgentMessagingCapabilities { return { steer: true, interrupt: false, continuation: true }; }
 
   async detect(): Promise<CliDetectionResult> {
     const messagingMode = bestMessagingCapability(this.capabilities());
@@ -583,6 +583,14 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       outcomeUsageIsTurnTotal: true,
       onLaneConfigRejected: configRejection.subscribe,
       supportsContinuation: () => !closed,
+      steer: async (message: string): Promise<void> => {
+        const expectedTurnId = active?.receipt.turnId;
+        if (closed || !expectedTurnId || !context || starting)
+          throw new Error('Codex active turn unavailable');
+        const receipt = await context.steer({ text: message });
+        if (receipt.turnId !== expectedTurnId || active?.receipt.turnId !== expectedTurnId)
+          throw new Error('Codex active turn changed');
+      },
       continue: (message: string): Promise<ContinuationOutcome> => {
         if (closed) return Promise.reject(new Error('Codex lane is closed'));
         if (active || starting) return Promise.reject(new Error('Codex lane turn is already active'));

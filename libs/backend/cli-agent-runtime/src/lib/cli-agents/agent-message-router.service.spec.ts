@@ -63,6 +63,7 @@ function createRecord(
     info: {
       agentId: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001',
       cli: cli ?? 'codex',
+      cliSessionId: 'session-1',
       task: 'work',
       workingDirectory: '/workspace/root',
       status: 'running',
@@ -119,7 +120,7 @@ describe('AgentMessageRouter', () => {
       );
 
       expect(outcome.mode).toBe('queue-next-turn');
-      expect(tracked.pendingMessages).toEqual(['hello']);
+      expect(tracked.pendingMessages.map((entry) => entry.text)).toEqual(['hello']);
     });
 
     it('falls back to the adapter declaration for a record with no handle', async () => {
@@ -242,6 +243,57 @@ describe('AgentMessageRouter', () => {
       return tracked;
     };
 
+    it('tracks pending, delivered, and session mismatch without forwarding to a new session', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      const dispatcher = createDispatcher();
+      const first = await router.route(AGENT_ID, tracked, 'first', dispatcher);
+      expect(first.messageId).toBeDefined();
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'pending' });
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'delivered' });
+      const second = await router.route(AGENT_ID, tracked, 'second', dispatcher);
+      tracked.info = { ...tracked.info, cliSessionId: 'session-2' };
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+      expect(router.messageStatus(AGENT_ID, tracked, second.messageId!)).toEqual({ status: 'failed', reason: 'session_changed' });
+      expect(dispatcher.continueConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails every queued message for a superseded session', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      const dispatcher = createDispatcher();
+      const first = await router.route(AGENT_ID, tracked, 'first', dispatcher);
+      const second = await router.route(AGENT_ID, tracked, 'second', dispatcher);
+      tracked.info = { ...tracked.info, cliSessionId: 'session-2' };
+
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+      expect(tracked.pendingMessages).toEqual([]);
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'failed', reason: 'session_changed' });
+      expect(router.messageStatus(AGENT_ID, tracked, second.messageId!)).toEqual({ status: 'failed', reason: 'session_changed' });
+      expect(dispatcher.continueConversation).not.toHaveBeenCalled();
+    });
+
+    it('settles concurrent flush calls once and marks in-flight teardown failed', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const dispatcher = createDispatcher(async () => { await gate; });
+      const first = await router.route(AGENT_ID, tracked, 'first', dispatcher);
+      const second = await router.route(AGENT_ID, tracked, 'second', dispatcher);
+      const flushing = router.flushPending(AGENT_ID, tracked, dispatcher);
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+      expect(dispatcher.continueConversation).toHaveBeenCalledTimes(1);
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'pending' });
+      router.discardPending(AGENT_ID, tracked);
+      release();
+      await flushing;
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'failed', reason: 'agent_stopped' });
+      expect(router.messageStatus(AGENT_ID, tracked, second.messageId!)).toEqual({ status: 'failed', reason: 'agent_stopped' });
+    });
+
     it('refuses over the cap rather than dropping the message', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();
@@ -272,7 +324,7 @@ describe('AgentMessageRouter', () => {
     it('flushes exactly one entry per settle, in arrival order', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();
-      tracked.pendingMessages.push('first', 'second');
+      tracked.pendingMessages.push({ messageId: 'm1', cliSessionId: 'session-1', text: 'first' }, { messageId: 'm2', cliSessionId: 'session-1', text: 'second' });
       const dispatcher = createDispatcher();
 
       await router.flushPending(AGENT_ID, tracked, dispatcher);
@@ -282,7 +334,7 @@ describe('AgentMessageRouter', () => {
         AGENT_ID,
         'first',
       );
-      expect(tracked.pendingMessages).toEqual(['second']);
+      expect(tracked.pendingMessages.map((entry) => entry.text)).toEqual(['second']);
     });
 
     it('is a no-op when nothing is queued', async () => {
@@ -298,7 +350,7 @@ describe('AgentMessageRouter', () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();
       tracked.subprocessReleased = true;
-      tracked.pendingMessages.push('first');
+      tracked.pendingMessages.push({ messageId: 'm1', cliSessionId: 'session-1', text: 'first' });
       const dispatcher = createDispatcher();
 
       await router.flushPending(AGENT_ID, tracked, dispatcher);
@@ -311,7 +363,7 @@ describe('AgentMessageRouter', () => {
     it('logs a failed delivery instead of retrying it forever', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();
-      tracked.pendingMessages.push('first');
+      tracked.pendingMessages.push({ messageId: 'm1', cliSessionId: 'session-1', text: 'first' });
       const dispatcher = createDispatcher(() =>
         Promise.reject(new Error('busy')),
       );
@@ -325,7 +377,7 @@ describe('AgentMessageRouter', () => {
     it('discardPending clears and reports what was still waiting', () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();
-      tracked.pendingMessages.push('a', 'b');
+      tracked.pendingMessages.push({ messageId: 'm1', cliSessionId: 'session-1', text: 'a' }, { messageId: 'm2', cliSessionId: 'session-1', text: 'b' });
 
       router.discardPending(AGENT_ID, tracked);
 

@@ -20,6 +20,10 @@ import {
 import { PtahFileSettingsManager } from './file-settings-manager';
 
 describe('isFileBasedSettingKey', () => {
+  it('routes the Codex sandbox choice to file settings with the networked default', () => {
+    expect(isFileBasedSettingKey('agentOrchestration.codexSandboxMode')).toBe(true);
+    expect(FILE_BASED_SETTINGS_DEFAULTS['agentOrchestration.codexSandboxMode']).toBe('danger-full-access');
+  });
   describe('static SET membership', () => {
     it('returns true for every key in FILE_BASED_SETTINGS_KEYS', () => {
       for (const key of FILE_BASED_SETTINGS_KEYS) {

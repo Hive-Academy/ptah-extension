@@ -20,6 +20,7 @@ import { SessionBudgetSettingsComponent } from './session-budget-settings.compon
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { HostRoutingSettingComponent } from './host-routing-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
+import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.component';
 
 @Component({
   selector: 'ptah-subagent-cache-ttl-setting',
@@ -63,6 +64,14 @@ class AdvancedGroupStub {
   readonly groupId = input.required<string>();
 }
 
+@Component({
+  selector: 'ptah-codex-sandbox-setting',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="codex-sandbox-setting">Sandbox</section>',
+})
+class CodexSandboxStub {}
+
 const idle: ProvidersSettingsCommit = {
   status: 'idle',
   saved: [],
@@ -101,6 +110,7 @@ describe('OrchestrationSettingsComponent', () => {
             LaneGuardsSettingsComponent,
             HostRoutingSettingComponent,
             AdvancedSettingsGroupComponent,
+            CodexSandboxSettingComponent,
           ],
         },
         add: {
@@ -110,6 +120,7 @@ describe('OrchestrationSettingsComponent', () => {
             LaneGuardsStub,
             HostRoutingStub,
             AdvancedGroupStub,
+            CodexSandboxStub,
           ],
         },
       })
@@ -233,6 +244,31 @@ describe('OrchestrationSettingsComponent', () => {
         element.querySelector(before)?.compareDocumentPosition(first),
       ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     }
+  });
+
+  it('mounts the Codex sandbox setting in the deferred chunk, between the Codex agents and background query groups (TASK_2026_885)', async () => {
+    await render();
+    const sandbox = () =>
+      element.querySelector('[data-testid="codex-sandbox-setting"]');
+    const blocks = await fixture.getDeferBlocks();
+    expect(blocks).toHaveLength(3);
+    await blocks[2].render(DeferBlockState.Placeholder);
+    expect(sandbox()).toBeNull();
+
+    await blocks[2].render(DeferBlockState.Complete);
+    const codexAgents = element.querySelector(
+      '[data-testid="group-codex-agents"]',
+    );
+    const backgroundQueries = element.querySelector(
+      '[data-testid="group-background-queries"]',
+    );
+    expect(sandbox()).not.toBeNull();
+    expect(codexAgents?.compareDocumentPosition(sandbox() as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(
+      sandbox()?.compareDocumentPosition(backgroundQueries as Node),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('mounts Routing suggestions in Electron, directly after Lane guards and before the advanced groups', async () => {

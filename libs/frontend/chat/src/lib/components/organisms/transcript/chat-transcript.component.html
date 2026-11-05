@@ -83,7 +83,6 @@
             [logOpen]="logOpenFor(turn)"
             [turnLive]="turnLive"
             [now]="turnLive ? liveNow() : 0"
-            [needsYouCount]="turnLive ? needsYouCount() : 0"
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"
             (logToggled)="onLogToggled($event)"

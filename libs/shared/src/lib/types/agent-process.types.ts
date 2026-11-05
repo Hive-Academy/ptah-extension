@@ -415,6 +415,7 @@ export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
 export interface AgentMessageOutcome {
   readonly mode: AgentMessagingMode;
   readonly detail?: string;
+  readonly messageId?: string;
 }
 
 export interface CliDetectionResult {
