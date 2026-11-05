@@ -13,6 +13,9 @@ export function parsePartialToolInput(
         ? (parsed as Record<string, unknown>)
         : null;
     } catch {
+      // degradation-audit: optional-capability - a streaming input is
+      // incomplete JSON by design; a failed candidate parse means "try the
+      // next shorter candidate", and the caller falls back to the raw input.
       return null;
     }
   };
