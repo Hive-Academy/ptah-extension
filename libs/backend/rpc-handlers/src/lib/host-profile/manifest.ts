@@ -73,6 +73,7 @@ import {
   ProviderRpcHandlers,
   PtahCliRpcHandlers,
   QualityRpcHandlers,
+  SessionHandoffChainRpcHandlers,
   SessionOrganizationRpcHandlers,
   SessionRpcHandlers,
   SettingsRpcHandlers,
@@ -366,6 +367,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: SessionOrganizationRpcHandlers.METHODS,
     requires: [],
     handler: SessionOrganizationRpcHandlers,
+  },
+  {
+    // `requires: []` (TASK_2026_876): the chain port and metadata store are
+    // optional injections, so every host answers (an empty list at worst).
+    key: 'sessionHandoffChain',
+    methods: SessionHandoffChainRpcHandlers.METHODS,
+    requires: [],
+    handler: SessionHandoffChainRpcHandlers,
   },
   {
     key: 'attention',

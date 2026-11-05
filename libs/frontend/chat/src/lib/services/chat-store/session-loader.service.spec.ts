@@ -2806,8 +2806,10 @@ describe('SessionLoaderService', () => {
         openSessionTab: jest.fn().mockReturnValue(TAB),
         applyResumingSession,
         applyResumeFailure,
+        markTabIdle: jest.fn(),
         applyLoadedSessionStats: jest.fn(),
         setLiveModelStats: jest.fn(),
+        setSessionProvider: jest.fn(),
         markSessionActive: jest.fn(),
       } as unknown as TabManagerService;
 
@@ -2902,6 +2904,83 @@ describe('SessionLoaderService', () => {
       expect(harness.applyResumeFailure).not.toHaveBeenCalled();
       expect(tabs.markSessionActive).not.toHaveBeenCalled();
       expect(harness.setStatus).toHaveBeenLastCalledWith('loaded');
+    });
+
+    it('marks a missing working directory unavailable and does not retry resume', async () => {
+      const harness = makeChunkedService();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+        : { success: true, data: {} });
+      await expect(harness.service.switchSession(SESSION)).resolves.toEqual({ staleSnapshot: false });
+      expect(harness.service.unavailableSessions().has(SESSION)).toBe(true);
+      await harness.service.switchSession(SESSION);
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:resume')).toHaveLength(1);
+      expect(harness.applyResumeFailure).toHaveBeenCalledTimes(1);
+    });
+
+    it('delivers the live snapshot when unavailable history skips a resync', async () => {
+      const harness = makeChunkedService();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+        : { success: true, data: {} });
+      await harness.service.switchSession(SESSION);
+      const apply = jest.fn();
+      const events = historyEvents(1);
+      await harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+        liveSeed: { events, apply },
+      });
+      expect(apply).toHaveBeenCalledWith(events);
+      expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:resume')).toHaveLength(1);
+    });
+
+    it('ignores an unavailable reply from an older overlapping resync', async () => {
+      const harness = makeChunkedService();
+      let finishOld: ((value: unknown) => void) | undefined;
+      let resumes = 0;
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'session:load') return Promise.resolve({ success: true, data: {} });
+        resumes++;
+        return resumes === 1
+          ? new Promise<unknown>((resolve) => { finishOld = resolve; })
+          : Promise.resolve({ success: true, data: { events: historyEvents(1), stats: null } });
+      });
+      const old = harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      await until(() => finishOld !== undefined);
+      const current = harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      await expect(current).resolves.toEqual({ staleSnapshot: false });
+      finishOld?.({ success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } });
+      await expect(old).resolves.toEqual({ staleSnapshot: false });
+      expect(harness.service.unavailableSessions().has(SESSION)).toBe(false);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+    });
+
+    it('suppresses background resync and rechecks an explicit open after cooldown', async () => {
+      jest.useFakeTimers();
+      try {
+        const harness = makeChunkedService();
+        let missing = true;
+        rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+          ? missing
+            ? { success: true, data: { success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' } }
+            : { success: true, data: { success: true, events: historyEvents(1), stats: null } }
+          : { success: true, data: {} });
+        const resumes = () => rpcCall.mock.calls.filter(([method]) => method === 'chat:resume');
+        await harness.service.switchSession(SESSION);
+        await harness.service.switchSession(SESSION, { reason: 'resync' });
+        await harness.service.switchSession(SESSION);
+        expect(resumes()).toHaveLength(1);
+        await jest.advanceTimersByTimeAsync(SessionLoaderService.UNAVAILABLE_SESSION_RECHECK_MS);
+        await harness.service.switchSession(SESSION, { reason: 'resync' });
+        expect(resumes()).toHaveLength(1);
+        missing = false;
+        await harness.service.switchSession(SESSION);
+        expect(resumes()).toHaveLength(2);
+        expect(harness.service.unavailableSessions().has(SESSION)).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     function activationSurface(harness: ReturnType<typeof makeChunkedService>) {

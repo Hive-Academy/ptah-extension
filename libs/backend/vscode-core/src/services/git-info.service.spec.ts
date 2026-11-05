@@ -699,10 +699,9 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(tagCalls).toHaveLength(1);
     });
 
-    // `getGitInfo` is the working-tree status walk and the git watcher's own
-    // source of truth. A settled entry would make the watcher push status it
-    // had already superseded, so it gets coalescing only.
-    it('getGitInfo coalesces concurrently but is never served from a settled entry', async () => {
+    // A brief settled entry coalesces adjacent reads; watcher and mutation
+    // invalidation still force the next read to observe the working tree.
+    it('getGitInfo coalesces concurrently and serves a recent settled entry', async () => {
       mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
         args[0] === 'rev-parse'
           ? makeSpawnResult({
@@ -721,8 +720,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
 
       await service.getGitInfo(WS);
 
-      // A fresh run; the marker paths are already resolved, so one spawn fewer.
-      expect(mockSpawn).toHaveBeenCalledTimes(7);
+      expect(mockSpawn).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -3043,11 +3041,15 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
 
   describe('readChangeSetNumstat', () => {
     it('counts tracked changes against HEAD and untracked files from disk', async () => {
+      // The root lookup refuses a path that is not on disk, so the workspace
+      // and its repository top level are a real directory.
+      const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'ptah-numstat-'));
+      await writeFile(path.join(repoRoot, '.git'), 'gitdir: elsewhere\n');
       const service = new GitInfoService(makeLogger() as never);
       const exec = seamOf(service, (args) => {
         if (args[0] === 'rev-parse') {
           return args.includes('--show-toplevel')
-            ? ok('/fake/repo\n')
+            ? ok(`${repoRoot}\n`)
             : ok('abc123\n');
         }
         if (args[0] === 'diff') {
@@ -3067,7 +3069,7 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
         )
         .mockResolvedValue({ additions: 9, deletions: 0, binary: false });
 
-      const counts = await service.readChangeSetNumstat(WS, [
+      const counts = await service.readChangeSetNumstat(repoRoot, [
         'src/a.ts',
         'src/gone.ts',
         'img.png',
@@ -3106,9 +3108,10 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
       // Untracked paths are root-relative: read from the repository top level.
       expect(exec.mock.calls[3][0]).toEqual(['rev-parse', '--show-toplevel']);
       expect(readUntracked).toHaveBeenCalledWith(
-        path.normalize('/fake/repo'),
+        path.normalize(repoRoot),
         'new.ts',
       );
+      await rm(repoRoot, { recursive: true, force: true });
     });
 
     it('leaves untracked counts unknown when the top level cannot be resolved', async () => {

@@ -1,4 +1,5 @@
 export const CLI_AGENT_RUNTIME_TOKENS = {
+  AGENT_SPAWN_TRUSTED_ROOTS: Symbol.for('AgentSpawnTrustedRoots'),
   CODEX_ADAPTER_FACTORY: Symbol.for('CodexAdapterFactory'),
   MCP_ATTACHMENT_PROBE: Symbol.for('McpAttachmentProbe'),
   SDK_PTAH_CLI_CONFIG_PERSISTENCE: Symbol.for('SdkPtahCliConfigPersistence'),
@@ -29,6 +30,16 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * `register.ts`; consumers resolve it optionally.
    */
   SESSION_HANDOFF: Symbol.for('SessionHandoff'),
+  /**
+   * `IHandoffTurnFlush` on the same `SessionHandoffService` singleton as
+   * `SESSION_HANDOFF`. The stream broadcaster calls it after a terminal flush.
+   */
+  HANDOFF_TURN_FLUSH: Symbol.for('HandoffTurnFlush'),
+  /**
+   * `ISessionHandoffChain` (TASK_2026_876): durable SDK-id edges for a
+   * kept handoff. Optional for hosts that have not constructed the store.
+   */
+  SESSION_HANDOFF_CHAIN: Symbol.for('SessionHandoffChain'),
   /**
    * `CarryOverResolutionTags` (TASK_2026_865): the request ID of a provider
    * carry-over launch, stamped on its tab's `SESSION_ID_RESOLVED`. Bound by

@@ -607,7 +607,10 @@ describe('handleSessionToolCall › ptah_session_handoff (TASK_2026_655)', () =>
       /^Opened a new session "Continued: parser fix" \(tab tab-new\) in \/repo\/packages\/core\./,
     );
     expect(reply.text).toMatch(/tabOpened: true\./);
-    expect(reply.text).toMatch(/ask them to close this session/);
+    expect(reply.text).toMatch(/stopped/);
+    expect(reply.text).toMatch(/history/);
+    expect(reply.text).not.toMatch(/close this session/);
+    expect(reply.text).not.toMatch(/Handed off/);
     expect(reply.text).toMatch(/Do no further work here\./);
     expect(reply.text).not.toContain(PROMPT);
   });
@@ -622,8 +625,12 @@ describe('handleSessionToolCall › ptah_session_handoff (TASK_2026_655)', () =>
       /^Started a new session "Continued: parser fix"/,
     );
     expect(reply.text).toMatch(/tabOpened: false\./);
-    expect(reply.text).toMatch(/No Ptah window took the tab/);
-    expect(reply.text).toMatch(/session sidebar/);
+    expect(reply.text).toMatch(/no tab appeared/);
+    expect(reply.text).toMatch(/session list/);
+    expect(reply.text).toMatch(/stopped/);
+    expect(reply.text).toMatch(/history/);
+    expect(reply.text).not.toMatch(/close this session/);
+    expect(reply.text).not.toMatch(/Handed off/);
     expect(reply.text).not.toMatch(/tabOpened: true/);
   });
 

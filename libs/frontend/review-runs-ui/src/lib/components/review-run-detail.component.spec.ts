@@ -26,6 +26,23 @@ describe('ReviewRunDetailComponent', () => {
     fixture.nativeElement.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(close).toHaveBeenCalledTimes(1);
   });
+  it('shows each lens outcome and sanitized reason', () => {
+    TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent], providers: [{ provide: ReviewRunsStore, useValue: {
+      rerunState: signal('idle'), hasToken: signal(false), settings: signal(null), rerun: jest.fn(),
+    } }] });
+    const fixture = TestBed.createComponent(ReviewRunDetailComponent);
+    fixture.componentRef.setInput('run', { ...run, stages: [
+      { name: 'lenses', status: 'partial', family: null, scope: 'correctness-lifecycle', durationMs: 1000,
+        error: 'lane-failed: codex; exit 1', artifactPath: null },
+      { name: 'lenses', status: 'succeeded', family: 'codex', scope: 'security-privacy', durationMs: 2000,
+        error: 'Ran without a limit check', artifactPath: null },
+    ] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('correctness-lifecycle');
+    expect(fixture.nativeElement.textContent).toContain('lane-failed: codex; exit 1');
+    expect(fixture.nativeElement.textContent).toContain('security-privacy');
+    expect(fixture.nativeElement.textContent).toContain('Ran without a limit check');
+  });
   it('asks before starting a live rerun', () => {
     TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent], providers: [{ provide: ReviewRunsStore, useValue: {
       rerunState: signal('idle'), hasToken: signal(true), settings: signal({ globalPublicationPaused: false }), rerun: jest.fn(),

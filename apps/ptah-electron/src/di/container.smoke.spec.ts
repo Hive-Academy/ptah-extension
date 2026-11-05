@@ -780,6 +780,8 @@ describe('Electron DI — lane outcomes', () => {
     expect(source).toMatch(
       /container\.register\(CLI_AGENT_RUNTIME_TOKENS\.MCP_ATTACHMENT_PROBE,\s*\{\s*useValue: mcpAttachmentObserver,\s*\}\);/,
     );
+    expect(source).toMatch(/container\.register<IAgentSpawnTrustedRoots>\(CLI_AGENT_RUNTIME_TOKENS\.AGENT_SPAWN_TRUSTED_ROOTS/);
+    expect(source).toContain("resolve(app.getPath('userData'), 'review', 'attempts')");
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
       'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',

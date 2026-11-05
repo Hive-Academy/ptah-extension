@@ -104,7 +104,18 @@ function build(
   };
 }
 
-describe('PlanLimitsSnapshotService', () => {
+describe('PlanLimitsSnapshotService', () => {  it('shares normalized scopes in flight and forces a separate refresh', async () => {
+    const s = build();
+    let release!: (rows: DiscoveredPlanOwner[]) => void;
+    s.discoverTargets.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const first = s.service.snapshot({ sessionIds: ['b', 'a'], ownerKeys: ['x'] });
+    const second = s.service.snapshot({ sessionIds: ['a', 'b'], ownerKeys: ['x'] });
+    expect(s.discoverTargets).toHaveBeenCalledTimes(1);
+    release([]);
+    expect(await first).toEqual(await second);
+    await s.service.snapshot({ sessionIds: ['b', 'a'], ownerKeys: ['x'], refresh: true });
+    expect(s.discoverTargets).toHaveBeenCalledTimes(2);
+  });
   it('links an ambient-only native home to its unknown owner and isolates other homes', async () => {
     const nativeId = SessionId.from('12345678-1234-4234-8234-123456789abc');
     const otherId = SessionId.from('22345678-1234-4234-8234-123456789abc');

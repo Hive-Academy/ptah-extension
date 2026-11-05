@@ -10,7 +10,7 @@ import type { IReviewRepository, ReviewAttemptRecord, ReviewStageRecord } from '
 const attemptRow = z.object({ attempt_id: z.string(), repo_id: z.string(), pr_number: z.number(), head_sha: z.string(),
   attempt_number: z.number(), trigger: z.enum(['automatic', 'manual']), state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']),
   queued_at: z.number(), started_at: z.number().nullable(), ended_at: z.number().nullable(), lease_owner: z.string().nullable(), lease_expires_at: z.number().nullable(),
-  owner: z.string(), name: z.string() });
+  owner: z.string(), name: z.string(), dry_run: z.number().int() });
 const stageRow = z.object({ attempt_id: z.string(), stage: z.string(), ordinal: z.number(),
   state: z.enum(['queued', 'running', 'completed', 'failed', 'interrupted', 'skipped']),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), outcome: z.string().nullable(), error_summary: z.string().nullable(),
@@ -77,15 +77,15 @@ export class SqliteReviewRepository implements IReviewRepository {
   private queueAttempt(row: unknown): ReviewQueueAttempt {
     const a = attemptRow.parse(row);
     return { attemptId: a.attempt_id, repo: RepoIdentitySchema.parse({ owner: a.owner, name: a.name }), prNumber: a.pr_number,
-      headSha: a.head_sha, trigger: a.trigger === 'automatic' ? 'poll' : 'manual', queuedAt: new Date(a.queued_at).toISOString() };
+      headSha: a.head_sha, trigger: a.trigger === 'automatic' ? 'poll' : 'manual', queuedAt: new Date(a.queued_at).toISOString(), dryRun: a.dry_run === 1 };
   }
 
-  async enqueueDiscovered(head: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt> {
-    return this.enqueue(head, 'automatic', null, queuedAt);
+  async enqueueDiscovered(head: ReviewQueueHead, queuedAt: string, dryRun = true): Promise<ReviewQueueAttempt> {
+    return this.enqueue(head, 'automatic', null, queuedAt, dryRun);
   }
 
-  async enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string): Promise<ReviewQueueAttempt> {
-    return this.enqueue(head, 'manual', attemptId, queuedAt);
+  async enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun = true): Promise<ReviewQueueAttempt> {
+    return this.enqueue(head, 'manual', attemptId, queuedAt, dryRun);
   }
 
   async recordDraft(head: ReviewQueueHead, queuedAt: string): Promise<void> {
@@ -109,7 +109,7 @@ export class SqliteReviewRepository implements IReviewRepository {
     })();
   }
 
-  private enqueue(head: ReviewQueueHead, trigger: 'automatic' | 'manual', id: string | null, queuedAt: string): ReviewQueueAttempt {
+  private enqueue(head: ReviewQueueHead, trigger: 'automatic' | 'manual', id: string | null, queuedAt: string, dryRun = true): ReviewQueueAttempt {
     const db = this.sqlite.db;
     const at = ms(queuedAt);
     return db.transaction(() => {
@@ -133,12 +133,17 @@ export class SqliteReviewRepository implements IReviewRepository {
       if (existing && !headChanged && !becameEligible) {
         const previous = attemptRow.parse(existing);
         if (previous.state === 'queued' || previous.state === 'running' || previous.state === 'completed') return this.queueAttempt(existing);
+        const retry = z.object({ failure_count: z.number(), next_eligible_at: z.number().nullable() }).parse(
+          db.prepare(`SELECT failure_count, next_eligible_at FROM review_heads WHERE repo_id = ? AND pr_number = ? AND head_sha = ?`)
+            .get(repo, head.prNumber, head.headSha));
+        if (retry.failure_count >= 3 || (retry.next_eligible_at !== null && at < retry.next_eligible_at))
+          return { ...this.queueAttempt(existing), skipped: true };
       }
       const number = countRow.parse(db.prepare(`SELECT COALESCE(MAX(attempt_number), -1) + 1 AS count FROM review_attempts WHERE repo_id = ? AND pr_number = ? AND head_sha = ?`)
         .get(repo, head.prNumber, head.headSha)).count;
       const attemptId = id ?? ulid(at);
-      db.prepare(`INSERT INTO review_attempts (attempt_id, repo_id, pr_number, head_sha, attempt_number, trigger, state, queued_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`).run(attemptId, repo, head.prNumber, head.headSha, number, trigger, at);
+      db.prepare(`INSERT INTO review_attempts (attempt_id, repo_id, pr_number, head_sha, attempt_number, trigger, state, queued_at, dry_run)
+        VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`).run(attemptId, repo, head.prNumber, head.headSha, number, trigger, at, Number(dryRun));
       return this.queueAttempt(db.prepare(`${SELECT_ATTEMPT} WHERE a.attempt_id = ?`).get(attemptId));
     })();
   }
@@ -147,9 +152,10 @@ export class SqliteReviewRepository implements IReviewRepository {
     const db = this.sqlite.db;
     return db.transaction(() => {
       const row = db.prepare(`${SELECT_ATTEMPT} WHERE a.state = 'queued' AND EXISTS
-        (SELECT 1 FROM review_heads h WHERE h.repo_id = a.repo_id AND h.pr_number = a.pr_number AND h.head_sha = a.head_sha AND h.state = 'active')
+        (SELECT 1 FROM review_heads h WHERE h.repo_id = a.repo_id AND h.pr_number = a.pr_number AND h.head_sha = a.head_sha AND h.state = 'active'
+          AND (a.trigger = 'manual' OR (h.failure_count < 3 AND (h.next_eligible_at IS NULL OR h.next_eligible_at <= ?))))
         AND NOT EXISTS (SELECT 1 FROM review_attempts running WHERE running.repo_id = a.repo_id AND running.pr_number = a.pr_number AND running.state = 'running')
-        ORDER BY a.queued_at DESC, a.attempt_id DESC LIMIT 1`).get();
+        ORDER BY a.queued_at DESC, a.attempt_id DESC LIMIT 1`).get(ms(now));
       if (!row) return null;
       const a = attemptRow.parse(row);
       db.prepare(`UPDATE review_attempts SET state = 'running', started_at = ?, lease_owner = ?, lease_expires_at = ?, heartbeat_at = ? WHERE attempt_id = ?`)
@@ -168,9 +174,19 @@ export class SqliteReviewRepository implements IReviewRepository {
   async release(attemptId: string, owner: string, status: 'succeeded' | 'partial' | 'failed' | 'superseded', now: string): Promise<boolean> {
     const db = this.sqlite.db;
     const state = status === 'succeeded' || status === 'partial' ? 'completed' : status === 'failed' ? 'failed' : 'cancelled';
-    return db.transaction(() => db.prepare(`UPDATE review_attempts SET state = ?, result_status = ?, ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
+    return db.transaction(() => {
+      const updated = db.prepare(`UPDATE review_attempts SET state = ?, result_status = ?, ended_at = ?, lease_owner = NULL, lease_expires_at = NULL
       WHERE attempt_id = ? AND state = 'running' AND lease_owner = ? AND lease_expires_at > ?`)
-      .run(state, status, ms(now), attemptId, owner, ms(now)).changes === 1)();
+      .run(state, status, ms(now), attemptId, owner, ms(now)).changes === 1;
+      if (updated && status === 'failed') {
+        db.prepare(`UPDATE review_heads SET failure_count = failure_count + 1,
+          next_eligible_at = CASE failure_count WHEN 0 THEN ? WHEN 1 THEN ? WHEN 2 THEN ? ELSE NULL END
+          WHERE (repo_id, pr_number, head_sha) IN
+            (SELECT repo_id, pr_number, head_sha FROM review_attempts WHERE attempt_id = ? AND trigger = 'automatic')`)
+          .run(ms(now) + 600_000, ms(now) + 1_800_000, ms(now) + 7_200_000, attemptId);
+      }
+      return updated;
+    })();
   }
 
   async reconcileExpiredLeases(now: string): Promise<number> {
@@ -197,6 +213,11 @@ export class SqliteReviewRepository implements IReviewRepository {
     const a = attemptRow.parse(row);
     return { attemptId: a.attempt_id, repoId: a.repo_id, prNumber: a.pr_number, headSha: a.head_sha, attemptNumber: a.attempt_number,
       trigger: a.trigger, state: a.state, queuedAt: new Date(a.queued_at).toISOString(), startedAt: iso(a.started_at), endedAt: iso(a.ended_at) };
+  }
+
+  async saveFailure(attemptId: string, failure: import('../review-failure').ReviewFailure): Promise<void> {
+    this.sqlite.db.prepare(`UPDATE review_attempts SET failure_stage = ?, failure_code = ?, failure_message = ? WHERE attempt_id = ?`)
+      .run(failure.stage, failure.code, failure.message, attemptId);
   }
 
   async getStages(attemptId: string): Promise<ReviewStageRecord[]> {

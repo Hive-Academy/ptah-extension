@@ -15,8 +15,10 @@ interface ResumeWorkingDirectoryOptions {
   readonly workspaceProvider: IWorkspaceProvider;
   readonly fileSystemProvider: IFileSystemProvider;
   readonly platformInfo: IPlatformInfo;
-  readonly logger: Logger;
+  readonly logger: Pick<Logger, 'warn'>;
 }
+
+const warnedMissingPaths = new Set<string>();
 
 /**
  * Resolve the SDK cwd from metadata only when it remains a safe, authorized,
@@ -49,7 +51,10 @@ export async function resolveResumeWorkingDirectory({
     return fallbackPath;
   }
   try {
-    if (await fileSystemProvider.exists(persistedPath)) return persistedPath;
+    if (await fileSystemProvider.exists(persistedPath)) {
+      warnedMissingPaths.delete(persistedPath);
+      return persistedPath;
+    }
   } catch (error: unknown) {
     logger.warn(
       '[RPC] chat:resume - persisted working directory could not be checked; using fallback',
@@ -57,9 +62,13 @@ export async function resolveResumeWorkingDirectory({
     );
     return fallbackPath;
   }
-  logger.warn(
-    '[RPC] chat:resume - persisted working directory no longer exists; using fallback',
-    { sessionId, persistedPath, fallbackPath },
-  );
+  if (!warnedMissingPaths.has(persistedPath)) {
+    warnedMissingPaths.add(persistedPath);
+    logger.warn(
+      '[RPC] chat:resume - persisted working directory no longer exists; using fallback',
+      { sessionId, persistedPath, fallbackPath },
+    );
+  }
   return fallbackPath;
 }
+

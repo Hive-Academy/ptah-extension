@@ -270,3 +270,54 @@ export function isWriteToolOutput(output: unknown): output is WriteToolOutput {
     'file_path' in output
   );
 }
+
+/** A Codex file patch supplied to the dedicated patch card. */
+export interface FileChange {
+  path: string;
+  kind:
+    | { type: 'add' }
+    | { type: 'delete' }
+    | { type: 'update'; move_path?: string | null };
+  diff: string;
+}
+
+export interface FileChangeToolInput {
+  changes: FileChange[];
+  file_path?: string;
+}
+
+export function isFileChangeToolInput(
+  input: unknown,
+): input is FileChangeToolInput {
+  if (typeof input !== 'object' || input === null || !('changes' in input))
+    return false;
+  const changes = input.changes;
+  return (
+    Array.isArray(changes) &&
+    changes.length > 0 &&
+    changes.every((value: unknown) => {
+      if (typeof value !== 'object' || value === null) return false;
+      if (
+        !('path' in value) ||
+        typeof value.path !== 'string' ||
+        !value.path.trim()
+      )
+        return false;
+      if (!('diff' in value) || typeof value.diff !== 'string') return false;
+      if (
+        !('kind' in value) ||
+        typeof value.kind !== 'object' ||
+        value.kind === null ||
+        !('type' in value.kind)
+      )
+        return false;
+      const kind = value.kind.type;
+      if (kind !== 'add' && kind !== 'delete' && kind !== 'update')
+        return false;
+      return kind !== 'update' ||
+        !('move_path' in value.kind) ||
+        value.kind.move_path === null ||
+        typeof value.kind.move_path === 'string';
+    })
+  );
+}

@@ -6,14 +6,26 @@ import { app } from 'electron';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
 import { RepoIdentitySchema, RepoReviewConfigV1Schema, type RepoIdentity, type RepositorySettings } from '@ptah-extension/review-contracts';
-import { ReviewRepositoryUnavailableError, type IReviewSettingsStore, type ReviewRoots, type ReviewStageEnvironment } from '@ptah-extension/review-core';
+import { ReviewGitTimeoutError, ReviewRepositoryUnavailableError, type IReviewSettingsStore, type ReviewRoots, type ReviewStageEnvironment } from '@ptah-extension/review-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
 import { REVIEW_GITHUB_TOKEN_KEY } from '@ptah-extension/review-github';
 import { ReviewCommandRunner } from './review-command-runner';
 
 const execFileAsync = promisify(execFile);
+const ROOTS_TTL_MS = 5 * 60_000;
 
+export class ReviewGitProbeError extends Error {
+  readonly code = 'git-failed';
+  constructor() { super('Git checkout probe failed for an open workspace'); }
+}
+
+function isProbeTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = 'code' in error ? error.code : undefined;
+  const killed = 'killed' in error ? error.killed : undefined;
+  return code === 'ETIMEDOUT' || killed === true;
+}
 function originIdentity(url: string): { owner: string; name: string } | null {
   const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url.trim());
   return match ? { owner: match[1], name: match[2] } : null;
@@ -21,14 +33,17 @@ function originIdentity(url: string): { owner: string; name: string } | null {
 
 /** Resolves the configured review repository to the active Electron checkout. */
 export class ElectronReviewEnvironment implements ReviewStageEnvironment {
+  private readonly rootsCache = new Map<string, { roots: ReviewRoots; expiresAt: number }>();
   constructor(
     private readonly settingsStore: Pick<IReviewSettingsStore, 'getSettings'>,
-    private readonly workspace: Pick<IWorkspaceProvider, 'getWorkspaceRoot'>,
+    private readonly workspace: Pick<IWorkspaceProvider, 'getWorkspaceFolders'> & Partial<Pick<IWorkspaceProvider, 'getWorkspaceRoot' | 'onDidChangeWorkspaceFolders'>>,
     private readonly userDataRoot: () => string = () => app.getPath('userData'),
     private readonly inspect: (cwd: string) => Promise<{ topLevel: string; origin: string }> = ReviewCommandRunner.inspectCheckout,
     private readonly readConfig: (cwd: string, baseSha: string) => Promise<string | null> = ElectronReviewEnvironment.readBaseConfig,
     private readonly secretStorage?: Pick<ISecretStorage, 'get'>,
-  ) {}
+  ) {
+    this.workspace.onDidChangeWorkspaceFolders?.(() => this.rootsCache.clear());
+  }
 
   async redactionSecrets(): Promise<string[]> {
     const token = await this.secretStorage?.get(REVIEW_GITHUB_TOKEN_KEY);
@@ -37,10 +52,10 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
 
   private static async readBaseConfig(cwd: string, baseSha: string): Promise<string | null> {
     const { stdout: names } = await execFileAsync('git', ['ls-tree', '--name-only', baseSha, '--', '.ptah-review.yaml'],
-      { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false });
+      { cwd, timeout: 15_000, maxBuffer: 131_072, windowsHide: true, shell: false });
     if (names.trim() !== '.ptah-review.yaml') return null;
     const { stdout } = await execFileAsync('git', ['show', `${baseSha}:.ptah-review.yaml`],
-      { cwd, timeout: 10_000, maxBuffer: 131_072, windowsHide: true, shell: false });
+      { cwd, timeout: 15_000, maxBuffer: 131_072, windowsHide: true, shell: false });
     return stdout;
   }
 
@@ -49,24 +64,50 @@ export class ElectronReviewEnvironment implements ReviewStageEnvironment {
     if (!parsed.success) throw new ReviewRepositoryUnavailableError();
     const identity = parsed.data;
     const settings = await this.settingsStore.getSettings();
-    const configured = settings?.repositories.find((entry: RepositorySettings) => entry.enabled &&
-      entry.owner === identity.owner && entry.name === identity.name);
-    const repoRoot = this.workspace.getWorkspaceRoot();
-    if (!configured || !repoRoot) throw new ReviewRepositoryUnavailableError();
-    try {
-      const checkout = await realpath(repoRoot);
-      const { topLevel, origin } = await this.inspect(checkout);
+    const configured = settings?.repositories.some((entry: RepositorySettings) => entry.enabled &&
+      entry.owner.toLowerCase() === identity.owner.toLowerCase() &&
+      entry.name.toLowerCase() === identity.name.toLowerCase());
+    if (!configured) throw new ReviewRepositoryUnavailableError();
+    const key = `${identity.owner.toLowerCase()}/${identity.name.toLowerCase()}`;
+    const cached = this.rootsCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.roots;
+    this.rootsCache.delete(key);
+    const folders = this.workspace.getWorkspaceFolders();
+    const active = this.workspace.getWorkspaceRoot?.();
+    const ordered = active && folders.includes(active) ? [active, ...folders.filter(folder => folder !== active)] : folders;
+    let failed = false;
+    let timedOut = false;
+    for (const folder of ordered) {
+      let checkout: string;
+      let topLevel: string;
+      let origin: string;
+      try {
+        checkout = await realpath(folder);
+        ({ topLevel, origin } = await this.inspect(checkout));
+      } catch (error: unknown) {
+        failed = true;
+        timedOut ||= isProbeTimeout(error);
+        continue;
+      }
       const remote = originIdentity(origin);
-      if (await realpath(topLevel.trim()) !== checkout || !remote ||
-          remote.owner.toLowerCase() !== identity.owner.toLowerCase() ||
-          remote.name.toLowerCase() !== identity.name.toLowerCase())
-        throw new ReviewRepositoryUnavailableError();
+      if (!remote || remote.owner.toLowerCase() !== identity.owner.toLowerCase() ||
+          remote.name.toLowerCase() !== identity.name.toLowerCase()) continue;
+      try {
+        if (await realpath(topLevel.trim()) !== checkout) continue;
+      } catch (error: unknown) {
+        failed = true;
+        timedOut ||= isProbeTimeout(error);
+        continue;
+      }
       const attemptsRoot = resolve(this.userDataRoot(), 'review', 'attempts', identity.owner, identity.name);
       await mkdir(attemptsRoot, { recursive: true });
-      return { repoRoot: checkout, attemptsRoot };
-    } catch {
-      throw new ReviewRepositoryUnavailableError();
+      const roots = { repoRoot: checkout, attemptsRoot };
+      this.rootsCache.set(key, { roots, expiresAt: Date.now() + ROOTS_TTL_MS });
+      return roots;
     }
+    if (timedOut) throw new ReviewGitTimeoutError();
+    if (failed) throw new ReviewGitProbeError();
+    throw new ReviewRepositoryUnavailableError(identity);
   }
 
   async settings(): Promise<unknown> { return this.settingsStore.getSettings(); }

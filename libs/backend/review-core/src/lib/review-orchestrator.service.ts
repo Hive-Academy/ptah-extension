@@ -13,6 +13,7 @@ import { TriageStageRunner } from './stages/triage-stage.runner';
 import { LensStageRunner } from './stages/lens-stage.runner';
 import { VerificationStageRunner } from './stages/verification-stage.runner';
 import { PublicationStageRunner } from './stages/publication-stage.runner';
+import { classifyReviewFailure, sanitizeReviewFailureMessage, type ReviewFailureStage } from './review-failure';
 
 const ContextSchema = z.object({ attemptRoot: z.string().min(1), baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   incrementalScope: z.object({ headSha: z.string(), previousReviewedHeadSha: z.string().nullable(), changedPaths: z.array(z.string()),
@@ -27,7 +28,7 @@ const VerificationSchema = z.array(z.object({ lens: z.string(), finding: Candida
     z.object({ status: z.literal('completed'), family: z.string(), evidenceStrength: z.enum(['strong', 'weaker']).optional(), output: VerifierVerdictSchema })]),
 }));
 /** An attempt gets its own review window; drain's deadline only limits new claims. */
-const REVIEW_ATTEMPT_WINDOW_MS = 30 * 60_000;
+const REVIEW_ATTEMPT_WINDOW_MS = 60 * 60_000;
 
 export class ReviewPollDisabledError extends Error {
   constructor() { super('Review repository is disabled'); }
@@ -54,7 +55,9 @@ export class ReviewOrchestratorService {
 
   async lastPollAt(repo: RepoIdentity): Promise<number | null> { return this.repository.getLastPollAt(repo); }
 
-  async pollAndRecord(repo: RepoIdentity): Promise<number> {
+  async pollAndRecord(input: RepoIdentity): Promise<number> {
+    // Callers may pass a full RepositorySettings entry; downstream schemas are strict identities.
+    const repo: RepoIdentity = { owner: input.owner, name: input.name };
     const settings = await this.settingsStore.getSettings();
     if (!settings?.repositories.some((entry) => entry.enabled && entry.owner === repo.owner && entry.name === repo.name))
       throw new ReviewPollDisabledError();
@@ -71,14 +74,27 @@ export class ReviewOrchestratorService {
 
   /** Bind this to cron's named handler job. It only discovers and enqueues. */
   async discoveryHandler(): Promise<{ summary: string }> {
-    const count = await this.discovery.run();
+    const count = await this.pollEnabledRepositories();
     return { summary: `Enqueued ${count} review heads` };
   }
 
   async startupPoll(lastDiscoveryAt: number | null, repo?: RepoIdentity): Promise<number> {
-    await this.queue.reconcileStartup([]);
     if (lastDiscoveryAt !== null && Date.now() - lastDiscoveryAt < 48 * 60 * 60 * 1000) return 0;
-    const count = repo ? await this.pollAndRecord(repo) : await this.discovery.run();
+    return repo ? this.pollAndRecord(repo) : this.pollEnabledRepositories();
+  }
+
+  async reconcileStartup(): Promise<number> {
+    return this.queue.reconcileStartup([]);
+  }
+
+  /** Polls every enabled repository; one repository's failure does not stop the others. */
+  private async pollEnabledRepositories(): Promise<number> {
+    const settings = await this.settingsStore.getSettings();
+    let count = 0;
+    for (const repo of settings?.repositories.filter((entry) => entry.enabled) ?? []) {
+      try { count += await this.pollAndRecord(repo); }
+      catch (error: unknown) { this.logger.error('Review discovery failed', error instanceof Error ? error : new Error(String(error))); }
+    }
     return count;
   }
 
@@ -100,6 +116,7 @@ export class ReviewOrchestratorService {
 
   private async process(claim: ReviewQueueClaim, signal?: AbortSignal): Promise<void> {
     let status: 'succeeded' | 'partial' | 'failed' | 'superseded' = 'succeeded';
+    let failureStage: ReviewFailureStage = 'discovery';
     let attemptDeadline = Date.now() + REVIEW_ATTEMPT_WINDOW_MS;
     const pendingHeartbeats = new Set<Promise<void>>();
     const heartbeat = setInterval(() => {
@@ -116,10 +133,12 @@ export class ReviewOrchestratorService {
     try {
       if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
+      failureStage = 'context';
       const context = await this.stage(claim, 'context', 0, ContextSchema, () => this.context.run(claim, attemptDeadline, signal), signal);
       if (!context) { status = 'partial'; return; }
       if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
+      failureStage = 'lanes';
       const triage = await this.stage(claim, 'triage', 1, z.unknown(), () => this.triage.run(claim, context, attemptDeadline, signal), signal);
       if (!triage) { status = 'partial'; return; }
       if (typeof triage === 'object' && 'status' in triage && triage.status === 'partial' &&
@@ -128,21 +147,35 @@ export class ReviewOrchestratorService {
       if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
       const lensResults = await this.lenses.run(claim, context, attemptDeadline, signal);
+      if (context.coverage.some((entry) => entry.startsWith('prompt:truncated:'))) status = 'partial';
       if (lensResults.some((entry) => entry.result.status === 'partial')) status = 'partial';
       if (lensResults.length > 0 && lensResults.every((entry) => entry.result.status === 'partial' && entry.result.reason === 'deadline')) return;
       if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
+      failureStage = 'verification';
       const verdicts = await this.stage(claim, 'verification', 3, VerificationSchema, () => this.verification.run(claim, context, lensResults, attemptDeadline, signal), signal);
       if (!verdicts) { status = 'partial'; return; }
       if (verdicts.some((entry) => entry.verification === 'unavailable')) status = 'partial';
       if (signal?.aborted) { status = 'partial'; return; }
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
+      failureStage = 'publication';
       const publication = await this.stage(claim, 'publication', 4, z.object({ artifactPath: z.string(), exportPath: z.string(),
-        acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts, signal), signal);
+        acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts, signal,
+          typeof triage === 'object' && triage !== null && 'status' in triage && triage.status === 'completed'), signal);
       if (!publication) status = 'partial';
     } catch (error: unknown) {
-      status = 'failed';
-      this.logger.error('Review attempt failed', error instanceof Error ? error : new Error(String(error)));
+      if (signal?.aborted) {
+        status = 'partial';
+      } else {
+        status = 'failed';
+        const failure = classifyReviewFailure(error, failureStage);
+        this.logger.error(new Error('Review attempt failed: ' + failure.message), { attemptId: claim.attemptId, ...failure });
+        try {
+          await this.repository.saveFailure(claim.attemptId, failure);
+        } catch (_saveError: unknown) {
+          this.logger.error('Review failure persistence failed', new Error('Review failure persistence failed'));
+        }
+      }
     } finally {
       clearInterval(heartbeat);
       await Promise.allSettled(pendingHeartbeats);
@@ -187,7 +220,7 @@ export class ReviewOrchestratorService {
       await this.repository.saveStage({ ...row, state: 'completed', endedAt: new Date().toISOString(), outcome: 'completed', artifactPath });
       return value;
     } catch (error: unknown) {
-      if (!signal?.aborted) await this.repository.saveStage({ ...row, state: 'failed', endedAt: new Date().toISOString(), errorSummary: error instanceof Error ? error.message : 'Unknown stage error' });
+      if (!signal?.aborted) await this.repository.saveStage({ ...row, state: 'failed', endedAt: new Date().toISOString(), errorSummary: sanitizeReviewFailureMessage(error instanceof Error ? error.message : 'Unknown stage error') });
       throw error;
     }
   }

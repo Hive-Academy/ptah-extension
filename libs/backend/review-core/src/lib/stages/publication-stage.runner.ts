@@ -27,7 +27,7 @@ export class PublicationStageRunner {
   ) {}
 
   async run(claim: ReviewQueueClaim, context: ContextStageResult, lenses: LensStageResult,
-    verdicts: VerificationResult[], signal?: AbortSignal): Promise<PublicationResult> {
+    verdicts: VerificationResult[], signal?: AbortSignal, triageCompleted = true): Promise<PublicationResult> {
     if (signal?.aborted) throw new Error('Review publication aborted');
     const operatorSettings = await this.environment.settings();
     const baseConfig = await this.environment.baseConfig(claim.repo, context.baseSha);
@@ -55,14 +55,15 @@ export class PublicationStageRunner {
     const verified = verifiedReviewFindings(verdicts);
     if (secrets.some((secret) => secret.length >= 4 && JSON.stringify(verified).includes(secret)))
       throw new Error('Review finding contains redaction secret');
-    if (this.sqlite && (!this.publication || !this.policy.publication(operatorSettings, baseConfig).allowed) && !signal?.aborted)
+    if (this.sqlite && (!this.publication || claim.dryRun || !this.policy.publication(operatorSettings, baseConfig, claim.repo).allowed) && !signal?.aborted)
       persistVerifiedFindings(this.sqlite.db, claim.attemptId, verified);
-    const walkthrough = await this.writer.readWalkthrough(out);
+    const walkthrough = triageCompleted ? await this.writer.readWalkthrough(out) : '';
     if (signal?.aborted) throw new Error('Review publication aborted');
     const preview: ReviewPreviewInput = {
       headSha: claim.headSha, walkthrough, accepted, suppressed,
       verification: verdicts.map(({ finding, verification }) => ({ finding, label: verification })),
-      selectedLenses: [{ lens: 'triage', family: 'coordinator', scope: context.coverage.join('; '), outcome: 'completed' },
+      selectedLenses: [{ lens: 'triage', family: 'coordinator', scope: context.coverage.join('; '),
+        outcome: triageCompleted ? 'completed' : 'unavailable' },
         ...lenses.map(({ lens, result }) => ({ lens, family: result.status === 'completed' ? result.family : 'unavailable',
           scope: context.coverage.join('; '), outcome: result.status === 'completed' ? 'completed' : `unavailable: ${result.reason}` }))],
       secrets,
@@ -72,7 +73,7 @@ export class PublicationStageRunner {
     const exportPath = await this.writer.writeExport(out, preview, settings);
     if (signal?.aborted) throw new Error('Review publication aborted');
     if (this.sqlite) await persistExportArtifact(this.sqlite.db, claim.attemptId, exportPath);
-    if (this.publication) await this.publication.publish(claim, walkthrough, context.promptInput.diff,
+    if (this.publication && triageCompleted) await this.publication.publish(claim, walkthrough, context.promptInput.diff,
       verdicts, operatorSettings, baseConfig, secrets, context.incrementalScope, signal);
     return { artifactPath, exportPath, acceptedCount: accepted.length, suppressedCount: suppressed.length };
   }

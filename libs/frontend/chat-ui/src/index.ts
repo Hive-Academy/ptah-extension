@@ -263,6 +263,11 @@ export {
   knownSubtotalOf,
 } from './lib/molecules/session/session-stats-view';
 export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
+export {
+  InspectorLinkedSessionsComponent,
+  type InspectorLinkedSessionEntry,
+  type InspectorLinkedSessionRelation,
+} from './lib/molecules/session/inspector-stats/inspector-linked-sessions.component';
 export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
 export {
   sessionContextCue,

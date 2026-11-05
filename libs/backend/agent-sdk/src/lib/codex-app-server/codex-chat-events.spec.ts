@@ -1,3 +1,6 @@
+// The presentation helper now comes from the codex-runtime barrel, which
+// loads tsyringe registrations; production entry points load this first.
+import 'reflect-metadata';
 import type { CodexRuntimeEvent } from '@ptah-extension/codex-runtime';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { CodexChatEvents, tokenUsage } from './codex-chat-events';

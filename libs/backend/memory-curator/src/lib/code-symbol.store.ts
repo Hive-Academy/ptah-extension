@@ -14,6 +14,7 @@ import {
   type CodeSymbolHitPage,
 } from '@ptah-extension/memory-contracts';
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
+import { SearchFlight } from './search-flight';
 
 export interface CodeSymbolInsert {
   readonly workspaceRoot: string;
@@ -149,6 +150,7 @@ const EXACT_NAME_COLUMNS = `cs.rowid AS rowid, cs.id AS id, cs.workspace_root AS
 
 @injectable()
 export class CodeSymbolStore implements ICodeSymbolReader {
+  private readonly searchFlight = new SearchFlight<CodeSymbolHitPage>();
   private embedderWarnedOnce = false;
   /**
    * Set after orphan `code_symbols_vec` rows have been removed for the
@@ -700,6 +702,16 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     topK = 10,
     workspaceRoot?: string,
   ): Promise<CodeSymbolHitPage> {
+    const changes = this.connection.db.prepare('SELECT total_changes() AS n').get() as { n: number };
+    const key = JSON.stringify([query.trim(), topK, workspaceRoot, changes.n]);
+    return this.searchFlight.run(key, () => this.searchSymbolsInner(query, topK, workspaceRoot));
+  }
+
+  private async searchSymbolsInner(
+    query: string,
+    topK: number,
+    workspaceRoot?: string,
+  ): Promise<CodeSymbolHitPage> {
     const limit = Math.max(1, Math.min(CODE_SEARCH_MAX_TOP_K, topK));
     const trimmed = query.trim();
     if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
@@ -712,7 +724,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       try {
         vecRows = await this.vecSearchSymbols(
           trimmed,
-          limit * 4,
+          100,
           workspaceRoot,
         );
       } catch (err: unknown) {
@@ -876,9 +888,13 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       const params: unknown[] = [match];
       if (workspaceRoot) params.push(workspaceRoot);
       params.push(limit);
-      return this.connection.db
+      const startedAt = performance.now();
+      const rows = this.connection.db
         .prepare(sql)
         .all(...params) as CodeSymbolHitRow[];
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (elapsedMs > 200) this.logger.warn('[code-symbol-store] slow query', { statement: 'code_symbols_fts.bm25', elapsedMs });
+      return rows;
     };
     try {
       return executeFtsQueryPlan(plan, limit, run, (row) => row.rowid);
@@ -898,12 +914,25 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, limit) as CodeVecRow[];
+    const startedAt = performance.now();
+    const distRows = workspaceRoot
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM code_symbols_vec v
+          JOIN code_symbols cs ON cs.rowid = v.rowid
+          WHERE cs.workspace_root = ?
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, workspaceRoot, Math.min(limit, 100)) as CodeVecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as CodeVecRow[];
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (elapsedMs > 200) {
+      this.logger.warn('[code-symbol-store] slow query', {
+        statement: 'code_symbols_vec.knn', elapsedMs,
+      });
+    }
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
     const wsFilter = workspaceRoot ? 'AND cs.workspace_root = ?' : '';

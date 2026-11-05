@@ -9,17 +9,17 @@ class FakeRepository implements IReviewQueueRepository {
   attempts: Array<ReviewQueueAttempt & { status: 'queued' | 'running' | 'superseded' | 'done'; leaseOwner?: string }> = [];
   expired = 0;
   async recordDraft(): Promise<void> { return; }
-  async enqueueDiscovered(value: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt> {
+  async enqueueDiscovered(value: ReviewQueueHead, queuedAt: string, dryRun: boolean): Promise<ReviewQueueAttempt> {
     const existing = this.attempts.find((attempt) => attempt.headSha === value.headSha && attempt.trigger === 'poll');
     if (existing) return existing;
     for (const attempt of this.attempts) if (attempt.prNumber === value.prNumber && attempt.status !== 'done') attempt.status = 'superseded';
-    const attempt = { ...value, attemptId: `poll-${this.attempts.length}`, trigger: 'poll' as const, queuedAt, status: 'queued' as const };
+    const attempt = { ...value, attemptId: `poll-${this.attempts.length}`, trigger: 'poll' as const, queuedAt, dryRun, status: 'queued' as const };
     this.attempts.push(attempt);
     return attempt;
   }
-  async enqueueManual(value: ReviewQueueHead, attemptId: string, queuedAt: string): Promise<ReviewQueueAttempt> {
+  async enqueueManual(value: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun?: boolean): Promise<ReviewQueueAttempt> {
     if (this.attempts.some((a) => a.attemptId === attemptId)) throw new Error('Duplicate attempt');
-    const attempt = { ...value, attemptId, trigger: 'manual' as const, queuedAt, status: 'queued' as const };
+    const attempt = { ...value, attemptId, trigger: 'manual' as const, queuedAt, dryRun, status: 'queued' as const };
     this.attempts.push(attempt);
     return attempt;
   }

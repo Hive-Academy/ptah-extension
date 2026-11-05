@@ -494,7 +494,8 @@ describe.each([true, false])(
       const host = render({
         toolName: 'mcp__server__run',
         status: 'error',
-        toolOutput: '## Log\n- Permission denied was seen, then retry succeeded',
+        toolOutput:
+          '## Log\n- Permission denied was seen, then retry succeeded',
         error: 'Permission denied',
       });
       await fixture.whenStable();
@@ -649,3 +650,31 @@ describe.each([true, false])(
     });
   },
 );
+
+describe('ToolOutputDisplayComponent patch routing', () => {
+  it('routes FileChange input to the patch card without output text', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ToolOutputDisplayComponent],
+      providers: [provideSurfaceActiveTesting(), provideMarkdown()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ToolOutputDisplayComponent);
+    fixture.componentRef.setInput('node', {
+      id: 'patch',
+      type: 'tool',
+      status: 'complete',
+      content: null,
+      children: [],
+      startTime: 0,
+      toolName: 'FileChange',
+      toolInput: {
+        changes: [{ path: '/a.ts', kind: { type: 'add' }, diff: '' }],
+      },
+    } as ExecutionNode);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-file-change-diff',
+      ),
+    ).not.toBeNull();
+  });
+});

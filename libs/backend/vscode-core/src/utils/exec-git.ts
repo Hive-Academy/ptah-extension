@@ -52,6 +52,21 @@ export const MIN_GIT_MAX_CONCURRENT = 2;
 const LONG_GIT_CALL_MS = 60_000;
 
 /**
+ * Longest a short git call waits for a slot when its caller set neither a
+ * `queueDeadline` nor a `signal`. It is below the renderer's 75 s RPC budget,
+ * so a call whose caller already gave up is dropped with
+ * {@link GitQueueDeadlineError} instead of spawning git late. Long calls
+ * (timeout above 60 s, e.g. worktree commands) are exempt.
+ */
+export const DEFAULT_GIT_QUEUE_WAIT_MS = 60_000;
+
+/**
+ * A background waiter that has waited this long is served ahead of newer
+ * interactive work, so a steady interactive stream cannot starve it.
+ */
+export const BACKGROUND_AGING_MS = 5_000;
+
+/**
  * How long a killed child may keep its gate slot while it dies. The slot is
  * released on `close`; this is only the ceiling for a child that never
  * reports one (a failed tree kill, a lost worker message).
@@ -113,6 +128,14 @@ export class GitCancelledError extends Error {
   }
 }
 
+export class GitQueueDeadlineError extends Error {
+  readonly code = 'GIT_QUEUE_DEADLINE' as const;
+  constructor(readonly subcommand: string | undefined) {
+    super(`git ${subcommand} queue deadline expired before spawn`);
+    this.name = 'GitQueueDeadlineError';
+  }
+}
+
 /**
  * git's C-locale message when another process holds the index lock, e.g.
  * `fatal: Unable to create '/repo/.git/index.lock': File exists.`
@@ -139,6 +162,17 @@ interface GitSlotWaiter {
   readonly enqueuedAt: number;
   readonly lane: GitGateLane;
   readonly grant: (release: GitSlotRelease) => void;
+  readonly reject: (error: Error) => void;
+  readonly deadline?: number;
+  readonly signal?: AbortSignal;
+  readonly subcommand?: string;
+  cleanup?: () => void;
+}
+
+export interface GitQueueOptions {
+  deadline?: number;
+  signal?: AbortSignal;
+  subcommand?: string;
 }
 
 /**
@@ -270,18 +304,47 @@ export class GitProcessGate {
   acquire(
     workspace: string,
     lane: GitGateLane = 'interactive',
+    options: GitQueueOptions = {},
   ): Promise<GitSlotRelease> {
-    return new Promise((grant) => {
+    return new Promise((grant, reject) => {
+      if (options.signal?.aborted) {
+        reject(new GitCancelledError(options.subcommand));
+        return;
+      }
+      if (options.deadline !== undefined && options.deadline <= this.now()) {
+        reject(new GitQueueDeadlineError(options.subcommand));
+        return;
+      }
       const queues = this.queues[lane];
-      const waiter: GitSlotWaiter = { enqueuedAt: this.now(), lane, grant };
+      const waiter: GitSlotWaiter = { enqueuedAt: this.now(), lane, grant, reject, ...options };
       const queue = queues.get(workspace);
       if (queue) queue.push(waiter);
       else queues.set(workspace, [waiter]);
+      const drop = (error: Error): void => {
+        const pending = queues.get(workspace);
+        const index = pending?.indexOf(waiter) ?? -1;
+        if (index < 0 || !pending) return;
+        pending.splice(index, 1);
+        if (pending.length === 0) queues.delete(workspace);
+        waiter.cleanup?.();
+        reject(error);
+      };
+      const onAbort = (): void => drop(new GitCancelledError(options.subcommand));
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+      const timer = options.deadline === undefined ? undefined : setTimeout(
+        () => drop(new GitQueueDeadlineError(options.subcommand)),
+        Math.max(0, options.deadline - this.now()),
+      );
+      waiter.cleanup = () => {
+        options.signal?.removeEventListener('abort', onAbort);
+        if (timer) clearTimeout(timer);
+      };
       this.dispatch();
     });
   }
 
   private admit(waiter: GitSlotWaiter): void {
+    waiter.cleanup?.();
     this.live++;
     if (waiter.lane === 'background') this.backgroundLive++;
     const waited = this.now() - waiter.enqueuedAt;
@@ -309,20 +372,38 @@ export class GitProcessGate {
         this.backgroundLive < this.maxConcurrent - 1
           ? this.head('background')
           : undefined;
-      const chosen =
-        interactive && background
-          ? interactive[1][0].enqueuedAt <= background[1][0].enqueuedAt
-            ? interactive
-            : background
-          : (interactive ?? background);
+      const chosen = this.pickLane(interactive, background);
       if (!chosen) return;
       const [workspace, queue] = chosen;
       const waiter = queue.shift() as GitSlotWaiter;
       const queues = this.queues[waiter.lane];
       queues.delete(workspace);
       if (queue.length > 0) queues.set(workspace, queue);
+      if (waiter.signal?.aborted || (waiter.deadline !== undefined && waiter.deadline <= this.now())) {
+        waiter.cleanup?.();
+        waiter.reject(waiter.signal?.aborted
+          ? new GitCancelledError(waiter.subcommand)
+          : new GitQueueDeadlineError(waiter.subcommand));
+        continue;
+      }
       this.admit(waiter);
     }
+  }
+
+  /**
+   * Interactive work goes first, except that a background head which has
+   * waited at least {@link BACKGROUND_AGING_MS}, and longer than the
+   * interactive head, is served next so watcher refreshes cannot starve.
+   */
+  private pickLane(
+    interactive: [string, GitSlotWaiter[]] | undefined,
+    background: [string, GitSlotWaiter[]] | undefined,
+  ): [string, GitSlotWaiter[]] | undefined {
+    if (!interactive || !background) return interactive ?? background;
+    const interactiveSince = interactive[1][0]?.enqueuedAt ?? Number.POSITIVE_INFINITY;
+    const backgroundSince = background[1][0]?.enqueuedAt ?? Number.POSITIVE_INFINITY;
+    const aged = this.now() - backgroundSince >= BACKGROUND_AGING_MS;
+    return aged && backgroundSince < interactiveSince ? background : interactive;
   }
 
   private reportSaturation(waitedMs: number): void {
@@ -463,6 +544,8 @@ const GIT_DETERMINISTIC_ENV: Readonly<Record<string, string>> = {
 
 export interface ExecGitOptions {
   timeoutMs?: number;
+  /** Absolute wall-clock time at which a queued call is no longer useful. */
+  queueDeadline?: number;
   /**
    * Payload written to the child's stdin before the pipe is closed. Required
    * by subcommands that read a patch or blob from standard input
@@ -676,55 +759,18 @@ export async function execGitBuffer(
   cwd: string,
   options?: ExecGitOptions,
 ): Promise<ExecGitBufferResult> {
+  const long = (options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) > LONG_GIT_CALL_MS;
   const lane: GitGateLane =
-    options?.priority === 'background' ||
-    (options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) > LONG_GIT_CALL_MS
-      ? 'background'
-      : 'interactive';
+    options?.priority === 'background' || long ? 'background' : 'interactive';
   const signal = options?.signal;
   if (signal?.aborted) throw new GitCancelledError(args[0]);
-  const acquired = gitProcessGate().acquire(cwd, lane);
-  const release = signal
-    ? await acquireUnlessAborted(acquired, signal, args[0])
-    : await acquired;
-  return runGitChild(args, cwd, options, release);
-}
-
-/**
- * Wait for a gate slot, rejecting at once if `signal` aborts first. The gate
- * cannot drop a queued waiter, so a slot granted after the abort is released
- * the moment it arrives: a cancelled call never holds one.
- *
- * A signal that is already aborted never fires `abort` again, so it is
- * rejected on entry rather than waiting on an event that cannot come. A gate
- * that rejects (it does not today) settles the call with that rejection
- * instead of leaving it pending forever.
- */
-function acquireUnlessAborted(
-  acquired: Promise<GitSlotRelease>,
-  signal: AbortSignal,
-  subcommand: string | undefined,
-): Promise<GitSlotRelease> {
-  return new Promise((resolve, reject) => {
-    let cancelled = false;
-    const onAbort = (): void => {
-      cancelled = true;
-      reject(new GitCancelledError(subcommand));
-    };
-    if (signal.aborted) onAbort();
-    else signal.addEventListener('abort', onAbort, { once: true });
-    acquired.then(
-      (release) => {
-        signal.removeEventListener('abort', onAbort);
-        if (cancelled) release();
-        else resolve(release);
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
-      },
-    );
+  const deadline =
+    options?.queueDeadline ??
+    (signal || long ? undefined : Date.now() + DEFAULT_GIT_QUEUE_WAIT_MS);
+  const release = await gitProcessGate().acquire(cwd, lane, {
+    signal, deadline, subcommand: args[0],
   });
+  return runGitChild(args, cwd, options, release);
 }
 
 /**

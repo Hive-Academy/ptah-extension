@@ -28,7 +28,7 @@ function fixture() {
   const key = (name: string, ordinal: number) => `${name}:${ordinal}`;
   const repository: IReviewRepository = {
     getLastReviewedHead: jest.fn().mockResolvedValue(null), getOpenFailures: jest.fn().mockResolvedValue([]),
-    getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(),
+    getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(), saveFailure: jest.fn(),
     enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(),
     claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
     heartbeat: jest.fn(), release: jest.fn().mockResolvedValue(true), reconcileExpiredLeases: jest.fn().mockResolvedValue(0),
@@ -66,11 +66,43 @@ function fixture() {
     new ReviewPolicyService(), repository, github,
     { resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null }, logger,
     settingsStore);
-  return { settingsStore, coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,
+  return { settingsStore, coordinator, stages, checkpoints, repository, logger, claimMock, release, discover, contextRun, triageRun, lensRun,
     verificationRun, publicationRun, github };
 }
 
 describe('ReviewOrchestratorService', () => {
+  it('does not save a failure when shutdown aborts an in-flight attempt', async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.contextRun.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new Error('shutdown');
+    });
+    await f.coordinator.drain('worker', Date.now() + 500, controller.signal);
+    expect(f.repository.saveFailure).not.toHaveBeenCalled();
+    expect(f.release).not.toHaveBeenCalled();
+  });
+
+  it('contains failure persistence errors and releases the attempt as failed', async () => {
+    const f = fixture();
+    f.contextRun.mockRejectedValueOnce(new Error('stage failed'));
+    jest.mocked(f.repository.saveFailure).mockRejectedValueOnce(new Error('secret persistence failure'));
+    await expect(f.coordinator.drain('worker', Date.now() + 500)).resolves.toBeDefined();
+    expect(f.release).toHaveBeenCalledWith(claim.attemptId, 'worker', 'failed');
+    expect(f.logger.error).toHaveBeenCalledWith('Review failure persistence failed',
+      new Error('Review failure persistence failed'));
+  });
+  it('persists and logs redacted failure details', async () => {
+    const f = fixture();
+    f.contextRun.mockRejectedValueOnce(new Error('failed at C:\\private\\repo with ghp_123456789012345678901234'));
+    await f.coordinator.drain('worker', Date.now() + 500);
+    expect(f.repository.saveFailure).toHaveBeenCalledWith('attempt-1', expect.objectContaining({ stage: 'context', code: 'unknown', message: expect.not.stringContaining('ghp_') }));
+    const saved = jest.mocked(f.repository.saveFailure).mock.calls[0][1];
+    expect(saved.message).not.toContain('C:\\private');
+    expect(f.stages.get('context:0')?.errorSummary).toBe(saved.message);
+    expect(jest.mocked(f.logger.error).mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(jest.mocked(f.logger.error).mock.calls[0][1]).toEqual(expect.objectContaining({ attemptId: 'attempt-1', code: 'unknown' }));
+  });
   it('records failed discovery and successful retry through the repository', async () => {
     const f = fixture();
     const repo = claim.repo;
@@ -111,6 +143,12 @@ describe('ReviewOrchestratorService', () => {
     expect(f.discover).not.toHaveBeenCalled();
     expect(await f.coordinator.startupPoll(Date.now() - 49 * 60 * 60 * 1000)).toBe(1);
     expect(f.discover).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles the queue independently of startup discovery', async () => {
+    const f = fixture();
+    await f.coordinator.reconcileStartup();
+    expect(f.discover).not.toHaveBeenCalled();
   });
 
   it('reuses a completed context checkpoint without rerunning context', async () => {

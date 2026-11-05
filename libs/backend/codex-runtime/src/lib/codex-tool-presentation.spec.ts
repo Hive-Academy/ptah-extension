@@ -1,7 +1,7 @@
 import type {
   CodexApprovalRequest,
   CodexJsonValue,
-} from '@ptah-extension/codex-runtime';
+} from './codex-runtime.types';
 import {
   CODEX_DENIED_TOOL_RESULT_TEXT,
   presentCodexApproval,
@@ -28,6 +28,50 @@ function approval(
     details,
   };
 }
+
+describe('shell wrapper display', () => {
+  it.each([
+    [
+      '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command "rg -n test"',
+      'rg -n test',
+    ],
+    [
+      "pwsh -NonInteractive -ExecutionPolicy Bypass -Command 'rg test'",
+      'rg test',
+    ],
+    ['cmd.exe /c rg test', 'rg test'],
+    ['cmd.exe /c a && b', 'a && b'],
+    ['cmd /c "a && b"', 'a && b'],
+    ['cmd.exe /d /s /c "a && b"', 'a && b'],
+    ['pwsh -Command "echo first\r\necho second"', 'echo first\r\necho second'],
+  ])('unwraps %s', (raw, display) => {
+    expect(
+      presentCodexTool('commandExecution', { command: raw }).toolInput,
+    ).toEqual({ command: display });
+  });
+  it('leaves uncertain syntax alone', () => {
+    const raw = 'pwsh -Command "echo "nested""';
+    expect(
+      presentCodexTool('commandExecution', { command: raw }).toolInput,
+    ).toMatchObject({ command: raw });
+  });
+  it.each([
+    'pwsh -Command "a" "b"',
+    'pwsh -Command "a"; echo "b"',
+    'pwsh -Command "a \\" b"',
+    'pwsh -Command "a" trailing',
+    'pwsh -EncodedCommand ZQBjAGgAbwA=',
+    'pwsh -File script.ps1',
+    'pwsh -Command echo hi',
+    'C:\\Program Files\\PowerShell\\pwsh.exe -Command "echo hi"',
+    'pwsh -Command "   "',
+    'cmd /c "   "',
+  ])('preserves unparseable %s', (raw) => {
+    expect(
+      presentCodexTool('commandExecution', { command: raw }).toolInput,
+    ).toEqual({ command: raw });
+  });
+});
 
 describe('presentCodexTool', () => {
   it.each([
@@ -77,7 +121,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'single added file maps to Write and keeps the changes',
+      case: 'single added file maps to FileChange and keeps the changes',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -85,7 +129,7 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'Write',
+        toolName: 'FileChange',
         toolInput: {
           file_path: '/workspace/a.ts',
           changes: [
@@ -95,7 +139,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'single updated file keeps the raw name',
+      case: 'single updated file maps to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -103,16 +147,21 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
+          file_path: '/workspace/a.ts',
           changes: [
-            { path: '/workspace/a.ts', diff: '~line', kind: { type: 'update' } },
+            {
+              path: '/workspace/a.ts',
+              diff: '~line',
+              kind: { type: 'update' },
+            },
           ],
         },
       },
     },
     {
-      case: 'single deleted file keeps the raw name',
+      case: 'single deleted file maps to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -120,16 +169,21 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
+          file_path: '/workspace/a.ts',
           changes: [
-            { path: '/workspace/a.ts', diff: '-line', kind: { type: 'delete' } },
+            {
+              path: '/workspace/a.ts',
+              diff: '-line',
+              kind: { type: 'delete' },
+            },
           ],
         },
       },
     },
     {
-      case: 'multiple changes keep the raw name',
+      case: 'multiple changes map to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -138,7 +192,7 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
           changes: [
             { path: '/workspace/a.ts', diff: '+a', kind: { type: 'add' } },
@@ -314,7 +368,11 @@ describe('presentCodexToolResult', () => {
     },
     {
       case: 'a failed call whose start was not seen passes the output through',
-      completed: { toolName: undefined, status: 'failed' as const, output: 'x' },
+      completed: {
+        toolName: undefined,
+        status: 'failed' as const,
+        output: 'x',
+      },
       expected: { output: 'x', isError: true },
     },
   ])('presents $case', ({ completed, expected }) => {
@@ -323,6 +381,12 @@ describe('presentCodexToolResult', () => {
 });
 
 describe('presentCodexApproval', () => {
+  it('shows the full wrapped command without a display-only raw field', () => {
+    const command = 'pwsh -NoProfile -Command "echo hi"';
+    expect(
+      presentCodexApproval(approval('command', { command })).toolInput,
+    ).toEqual({ command });
+  });
   it.each([
     {
       case: 'command with reason',
@@ -499,5 +563,26 @@ describe('presentCodexApproval', () => {
     );
     expect(presented.description.length).toBe(500);
     expect(presented.description.endsWith('…')).toBe(true);
+  });
+});
+
+describe('Codex patch presentation', () => {
+  it('keeps the move destination on an updated file', () => {
+    const change = {
+      path: '/old.ts',
+      kind: { type: 'update', move_path: '/new.ts' },
+      diff: '@@ -1 +1 @@',
+    };
+    expect(presentCodexTool('fileChange', { changes: [change] })).toEqual({
+      toolName: 'FileChange',
+      toolInput: { file_path: '/old.ts', changes: [change] },
+    });
+  });
+
+  it('keeps an empty change list raw', () => {
+    expect(presentCodexTool('fileChange', { changes: [] })).toEqual({
+      toolName: 'fileChange',
+      toolInput: { changes: [] },
+    });
   });
 });

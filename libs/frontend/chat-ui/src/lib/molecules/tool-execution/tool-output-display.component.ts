@@ -6,11 +6,14 @@ import {
 } from '@angular/core';
 import { TodoListDisplayComponent } from './todo-list-display.component';
 import { DiffDisplayComponent } from './diff-display.component';
+import { FileChangeDiffComponent } from './file-change-diff.component';
 import { CodeOutputComponent } from './code-output.component';
 import {
   type ExecutionNode,
   isTodoWriteToolInput,
   isEditToolInput,
+  isFileChangeToolInput,
+  type FileChangeToolInput,
   isEditToolOutput,
   type TodoWriteToolInput,
   type EditToolInput,
@@ -57,9 +60,14 @@ const MARKDOWN_MAY_HIDE_TEXT = /[\r\n<&\\[\]`~]/;
 @Component({
   selector: 'ptah-tool-output-display',
   standalone: true,
-  imports: [TodoListDisplayComponent, DiffDisplayComponent, CodeOutputComponent],
+  imports: [
+    TodoListDisplayComponent,
+    DiffDisplayComponent,
+    FileChangeDiffComponent,
+    CodeOutputComponent,
+  ],
   template: `
-    @if (node().toolOutput || editInput()) {
+    @if (node().toolOutput || editInput() || fileChangeInput()) {
       <div>
         @if (todoInput()) {
           <div
@@ -68,6 +76,8 @@ const MARKDOWN_MAY_HIDE_TEXT = /[\r\n<&\\[\]`~]/;
             Tasks
           </div>
           <ptah-todo-list-display [toolInput]="todoInput()!" />
+        } @else if (fileChangeInput()) {
+          <ptah-file-change-diff [toolInput]="fileChangeInput()!" />
         } @else if (editInput()) {
           <ptah-diff-display
             [toolInput]="editInput()!"
@@ -188,6 +198,14 @@ export class ToolOutputDisplayComponent {
   /**
    * Computed: Get replacement count from Edit tool output
    */
+  readonly fileChangeInput = computed((): FileChangeToolInput | null => {
+    const node = this.node();
+    return node.toolName === 'FileChange' &&
+      isFileChangeToolInput(node.toolInput)
+      ? node.toolInput
+      : null;
+  });
+  /** Replacement count from Edit output. */
   readonly editReplacements = computed((): number => {
     const node = this.node();
     if (node?.toolName !== 'Edit') return 0;

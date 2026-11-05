@@ -5,6 +5,9 @@ import {
   type GitWatchRootsResult,
 } from '@ptah-extension/shared';
 
+export const WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS = 5_000;
+export const WATCH_ROOTS_FAILURE_BACKOFF_MAX_MS = 60_000;
+
 /**
  * Keeps the backend's secondary git watchers on the roots the dock cares
  * about (TASK_2026_855), through the declarative `git:watchRoots` lease.
@@ -30,6 +33,7 @@ import {
 export class GitRootWatchLeaseService {
   static readonly DEBOUNCE_MS = 300;
   static readonly RENEW_INTERVAL_MS = 60_000;
+  static readonly REJECTED_ROOT_BACKOFF_MS = 60_000;
   /** The renderer asks for at most this many roots; the backend caps too. */
   static readonly MAX_ROOTS = 4;
 
@@ -46,10 +50,16 @@ export class GitRootWatchLeaseService {
    */
   private sentKey: string | null = '';
   /** Keys of the roots the backend rejected for the current set. */
-  private rejected = new Set<string>();
+  private rejected = new Map<string, number>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private renewTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
+  private failureUntil = 0;
+  private failureDelay = WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private sending = false;
+  /** A flush arrived while an RPC was in flight; send the latest set after it. */
+  private flushAfterSend = false;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.dispose());
@@ -63,7 +73,8 @@ export class GitRootWatchLeaseService {
   update(roots: readonly (string | null)[]): void {
     if (this.destroyed || this.vscode.config().isElectron !== true) return;
     this.roots = leaseRoots(roots);
-    this.rejected = new Set();
+    const requested = new Set(this.roots.map((root) => normalizeWorkspaceRoot(root)));
+    this.rejected = new Map([...this.rejected].filter(([root]) => requested.has(root)));
     if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
@@ -72,8 +83,10 @@ export class GitRootWatchLeaseService {
   }
 
   private flush(): void {
-    const roots = this.roots;
-    if (roots.length === 0) {
+    const roots = this.roots.filter(
+      (root) => (this.rejected.get(normalizeWorkspaceRoot(root)) ?? 0) <= Date.now(),
+    );
+    if (this.roots.length === 0) {
       this.stopRenewal();
     } else if (this.renewTimer === null) {
       this.renewTimer = setInterval(
@@ -87,9 +100,9 @@ export class GitRootWatchLeaseService {
   /** Renew the set minus the rejected roots; nothing left releases it. */
   private renew(): void {
     const live = this.roots.filter(
-      (root) => !this.rejected.has(normalizeWorkspaceRoot(root)),
+      (root) => (this.rejected.get(normalizeWorkspaceRoot(root)) ?? 0) <= Date.now(),
     );
-    if (live.length === 0) this.stopRenewal();
+    if (this.roots.length === 0) this.stopRenewal();
     void this.send(live, true);
   }
 
@@ -98,8 +111,14 @@ export class GitRootWatchLeaseService {
    * always sends, because renewing is what keeps the lease alive.
    */
   private async send(roots: readonly string[], renew: boolean): Promise<void> {
+    if (this.destroyed || Date.now() < this.failureUntil) return;
+    if (this.sending) {
+      if (!renew) this.flushAfterSend = true;
+      return;
+    }
     const key = roots.map((root) => normalizeWorkspaceRoot(root)).join('\n');
     if (!renew && key === this.sentKey) return;
+    this.sending = true;
     try {
       const result = await rpcCall<GitWatchRootsResult>(
         this.vscode,
@@ -111,24 +130,48 @@ export class GitRootWatchLeaseService {
       );
       if (this.destroyed) return;
       if (result.success) {
+        this.failureUntil = 0;
+        this.failureDelay = WATCH_ROOTS_FAILURE_BACKOFF_INITIAL_MS;
+        if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+        this.retryTimer = null;
         this.sentKey = key;
-        this.rejected = new Set(
-          (result.data?.rejected ?? []).map((root) =>
-            normalizeWorkspaceRoot(root),
-          ),
-        );
+        const refused = new Set((result.data?.rejected ?? []).map(normalizeWorkspaceRoot));
+        for (const root of roots) {
+          const key = normalizeWorkspaceRoot(root);
+          if (refused.has(key)) this.rejected.set(key, Date.now() + GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+          else this.rejected.delete(key);
+        }
         return;
       }
       console.warn('[GitRootWatchLeaseService] git:watchRoots failed', {
         error: result.error,
       });
       this.sentKey = null;
+      this.backoff();
     } catch (error: unknown) {
-      // degradation-audit: reported - logged; the next update or renewal
-      // retries, and the dock still reads git state on every scope switch.
+      // degradation-audit: reported - logged once per failed RPC and retried after backoff.
       console.warn('[GitRootWatchLeaseService] git:watchRoots threw', error);
       this.sentKey = null;
+      this.backoff();
+    } finally {
+      this.sending = false;
+      // Only a set that changed while this RPC was in flight is sent again;
+      // a root the backend just rejected is not a reason to resend.
+      if (this.flushAfterSend && !this.destroyed) {
+        this.flushAfterSend = false;
+        if (Date.now() >= this.failureUntil) this.flush();
+      }
     }
+  }
+
+  private backoff(): void {
+    this.failureUntil = Date.now() + this.failureDelay;
+    this.failureDelay = Math.min(this.failureDelay * 2, WATCH_ROOTS_FAILURE_BACKOFF_MAX_MS);
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.flush();
+    }, this.failureUntil - Date.now());
   }
 
   private stopRenewal(): void {
@@ -140,6 +183,7 @@ export class GitRootWatchLeaseService {
 
   private dispose(): void {
     this.destroyed = true;
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;

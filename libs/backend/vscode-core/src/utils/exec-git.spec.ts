@@ -81,12 +81,15 @@ jest.mock('os', () => ({
 
 import * as os from 'os';
 import {
+  BACKGROUND_AGING_MS,
   configureGitProcessGate,
+  DEFAULT_GIT_QUEUE_WAIT_MS,
   execGit,
   execGitBuffer,
   GitCancelledError,
   GitOutputLimitError,
   GitProcessGate,
+  GitQueueDeadlineError,
   GitTimeoutError,
   isIndexLockFailure,
   resetGitProcessGateForTests,
@@ -769,7 +772,7 @@ describe('GitProcessGate', () => {
     expect(gate.liveCount).toBe(3);
   });
 
-  it('picks the longer-waiting head when both lanes are admissible', async () => {
+  it('admits interactive work ahead of an older background waiter', async () => {
     let now = 0;
     const gate = new GitProcessGate(2, undefined, () => now);
     const holderA = await gate.acquire('/ws');
@@ -782,10 +785,51 @@ describe('GitProcessGate', () => {
 
     holderA();
     await Promise.resolve();
-    expect(order).toEqual(['bg']);
+    expect(order).toEqual(['int']);
     holderB();
     await Promise.resolve();
-    expect(order).toEqual(['bg', 'int']);
+    expect(order).toEqual(['int', 'bg']);
+  });
+
+  it('serves an aged background waiter ahead of a steady interactive stream', async () => {
+    let now = 0;
+    const gate = new GitProcessGate(2, undefined, () => now);
+    let holder = await gate.acquire('/ws');
+    await gate.acquire('/ws');
+    const order: string[] = [];
+    void gate.acquire('/ws', 'background').then(() => order.push('bg'));
+    now = 1;
+    void gate.acquire('/ws').then((release) => {
+      order.push('int-1');
+      holder = release;
+    });
+
+    // Young background head: interactive still goes first.
+    holder();
+    await Promise.resolve();
+    expect(order).toEqual(['int-1']);
+
+    // The interactive lane is refilled, but the background head is now old.
+    now = BACKGROUND_AGING_MS + 1;
+    void gate.acquire('/ws').then(() => order.push('int-2'));
+    holder();
+    await Promise.resolve();
+    expect(order).toEqual(['int-1', 'bg']);
+  });
+
+  it('removes an expired queued waiter without granting a slot', async () => {
+    let now = 0;
+    const gate = new GitProcessGate(2, undefined, () => now);
+    const first = await gate.acquire('/ws');
+    const second = await gate.acquire('/ws');
+    const expired = gate.acquire('/ws', 'interactive', { deadline: 5, subcommand: 'status' });
+    expect(gate.queuedCount).toBe(1);
+    now = 6;
+    first();
+    await expect(expired).rejects.toBeInstanceOf(GitQueueDeadlineError);
+    expect(gate.queuedCount).toBe(0);
+    expect(gate.liveCount).toBe(1);
+    second();
   });
 });
 
@@ -917,6 +961,55 @@ describe('git process supervision', () => {
 
     held[1].emit('close', 0);
     await expect(second).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it('drops a short call that outwaits the default queue deadline without spawning it', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    // Two interactive holders fill both slots. Their own timeout (60 s) fires
+    // with the queue deadline, but a timed-out child keeps its slot until it
+    // closes, so the queued call is still waiting when its deadline passes.
+    const holders = [
+      execGit(['status'], WS, { timeoutMs: 60_000 }).catch(() => undefined),
+      execGit(['status'], WS, { timeoutMs: 60_000 }).catch(() => undefined),
+    ];
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    const late = execGit(['log'], WS);
+    const lateRejected = expect(late).rejects.toBeInstanceOf(GitQueueDeadlineError);
+    await drain();
+
+    await jest.advanceTimersByTimeAsync(DEFAULT_GIT_QUEUE_WAIT_MS + 1);
+    await lateRejected;
+    for (const child of [...held]) child.emit('close', 0);
+    await Promise.all(holders);
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a long call queued past the default queue deadline', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+    resetGitProcessGateForTests();
+
+    const holder = execGit(['fetch'], WS, { timeoutMs: 300_000 });
+    const queued = execGit(['worktree', 'add'], WS, { timeoutMs: 300_000 });
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(DEFAULT_GIT_QUEUE_WAIT_MS + 1);
+    held[0].emit('close', 0);
+    await holder;
+    await drain();
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    held[1].emit('close', 0);
+    await expect(queued).resolves.toMatchObject({ exitCode: 0 });
   });
 
   it('starts the timeout clock at spawn, not while queued', async () => {

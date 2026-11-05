@@ -73,6 +73,7 @@ import {
   isUnsafeWorkspacePath,
   type IPlatformInfo,
   type IWorkspaceProvider,
+  type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import type { ChatSessionDriverLock } from './session-driver-lock-coordinator.interface';
 import type {
@@ -423,6 +424,8 @@ export class ChatSessionService {
       SessionIdResolvedCallbackRegistry | undefined = undefined,
     @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
     private readonly driverLock: ChatSessionDriverLock,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { isOptional: true })
+    private readonly fileSystemProvider: IFileSystemProvider | undefined = undefined,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -1950,6 +1953,36 @@ export class ChatSessionService {
         });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
+      const savedFolder = metadata?.workingDirectory;
+      if (savedFolder && this.fileSystemProvider) {
+        let present = false;
+        let unreadable = false;
+        try {
+          await this.fileSystemProvider.stat(savedFolder);
+          present = true;
+        } catch (error: unknown) {
+          // degradation-audit: reported - logged here; an unreadable folder is
+          // refused like a missing one, but marked retryable (it may recover).
+          const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+          unreadable = code !== 'ENOENT' && code !== 'ENOTDIR' &&
+            code !== 'FileNotFound' && code !== 'NotADirectory';
+          this.logger.warn('[ChatSessionService] could not check the saved working directory', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (!present) {
+          return {
+            success: false,
+            errorCode: 'SESSION_FOLDER_UNAVAILABLE',
+            // A missing folder is terminal; a failed check may recover.
+            ...(unreadable ? {} : { retryable: false as const }),
+            error: unreadable
+              ? 'The saved working directory could not be read'
+              : 'The saved working directory no longer exists',
+          };
+        }
+      }
       const result = await this.historyRead.readForResume(sessionId, {
         includeBlockOwners: params.historyBlockOwners === true,
       });

@@ -14,6 +14,8 @@
  */
 
 import 'reflect-metadata';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   CLI_AGENT_RUNTIME_TOKENS: {
@@ -101,7 +103,15 @@ interface Harness {
   turnState: SessionTurnStateRegistry;
 }
 
-function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
+function makeHarness(
+  ptahCliOverride?: ChatPtahCliService,
+  handoffTurnFlush?: {
+    onCallerTurnFlushed(notice: {
+      readonly tabId: string;
+      readonly sessionId: string;
+    }): void;
+  } | null,
+): Harness {
   const logger = createMockLogger();
   const webviewManager: jest.Mocked<WebviewManager> = {
     sendMessage: jest.fn().mockResolvedValue(undefined),
@@ -165,6 +175,8 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
     sessionMetadataStore as unknown as SessionMetadataStore,
     ptahCliOverride ?? (ptahCli as unknown as ChatPtahCliService),
     turnState,
+    null,
+    handoffTurnFlush ?? null,
   );
 
   return {
@@ -1359,5 +1371,95 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
     expect(states).toHaveLength(1);
     expect(states[0].sessionId).toBe(SESSION_ID);
     expect(states[0].phase).toBe('idle');
+  });
+});
+
+describe('ChatStreamBroadcaster handoff flush hook (TASK_2026_876)', () => {
+  it('calls the hook only after flush resolves, and after chat:complete', async () => {
+    const order: string[] = [];
+    const hook = {
+      onCallerTurnFlushed: jest.fn(() => {
+        order.push('hook');
+      }),
+    };
+    const h = makeHarness(undefined, hook);
+    let opened = false;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = () => {
+        opened = true;
+        resolve();
+      };
+    });
+    h.webviewManager.broadcastMessage.mockImplementation((type: string) => {
+      order.push(`broadcast:${type}`);
+      return opened ? Promise.resolve() : gate;
+    });
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('text_delta');
+      yield makeEvent('message_complete');
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(hook.onCallerTurnFlushed).not.toHaveBeenCalled();
+    release();
+    await running;
+    expect(hook.onCallerTurnFlushed).toHaveBeenCalledTimes(1);
+    expect(hook.onCallerTurnFlushed).toHaveBeenCalledWith({
+      tabId: TAB_ID,
+      sessionId: SESSION_ID,
+    });
+    const complete = order.indexOf('broadcast:chat:complete');
+    const hooked = order.indexOf('hook');
+    expect(complete).toBeGreaterThan(-1);
+    expect(hooked).toBeGreaterThan(complete);
+  });
+
+  it('calls the hook after the error flush, not before it', async () => {
+    const hook = { onCallerTurnFlushed: jest.fn() };
+    const h = makeHarness(undefined, hook);
+    let opened = false;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = () => {
+        opened = true;
+        resolve();
+      };
+    });
+    h.webviewManager.broadcastMessage.mockImplementation(() =>
+      opened ? Promise.resolve() : gate,
+    );
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('text_delta');
+      throw new Error('stream exploded');
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(hook.onCallerTurnFlushed).not.toHaveBeenCalled();
+    release();
+    await running;
+    expect(hook.onCallerTurnFlushed).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not wired to session:turnEnded', () => {
+    const candidates = [
+      join(process.cwd(), 'src/lib/handlers/session-lifecycle-notifier.ts'),
+      join(
+        process.cwd(),
+        'libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts',
+      ),
+    ];
+    const found = candidates.find((candidate) => existsSync(candidate));
+    if (!found) {
+      throw new Error(`session-lifecycle-notifier.ts not in ${candidates.join(', ')}`);
+    }
+    const source = readFileSync(found, 'utf8');
+    expect(source).not.toContain('onCallerTurnFlushed');
+    expect(source).not.toContain('HANDOFF_TURN_FLUSH');
+    expect(source).toContain('handleTurnEnded');
   });
 });

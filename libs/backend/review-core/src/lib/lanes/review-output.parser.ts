@@ -21,9 +21,10 @@ export class ReviewOutputParser {
 
   parseVerdict(raw: string, expectedSha: string, expectedFamily: string): VerifierVerdict {
     const verdict = this.parse(raw, VerifierVerdictSchema);
-    if (verdict.headSha !== ShaSchema.parse(expectedSha) || verdict.verifierFamily !== expectedFamily)
+    if (verdict.headSha !== ShaSchema.parse(expectedSha))
       throw new Error('Verifier output identity mismatch');
-    return verdict;
+    // The lane cannot know which family the host selected; the host value is authoritative.
+    return { ...verdict, verifierFamily: expectedFamily };
   }
 
   parseVerdictBatch(raw: string, expectedSha: string, expectedFamily: string): (VerifierVerdict & { identity: VerifierIdentityRelation })[] {
@@ -31,9 +32,10 @@ export class ReviewOutputParser {
     const verdicts = rows.map((row) => {
       const { identity, ...base } = row;
       const parsed = identityRelation.safeParse(identity);
-      return { ...VerifierVerdictSchema.parse(base), identity: parsed.success ? parsed.data : uncertainIdentity };
+      return { ...VerifierVerdictSchema.parse(base), verifierFamily: expectedFamily,
+        identity: parsed.success ? parsed.data : uncertainIdentity };
     });
-    if (verdicts.some((verdict) => verdict.headSha !== ShaSchema.parse(expectedSha) || verdict.verifierFamily !== expectedFamily))
+    if (verdicts.some((verdict) => verdict.headSha !== ShaSchema.parse(expectedSha)))
       throw new Error('Verifier output identity mismatch');
     if (new Set(verdicts.map((verdict) => verdict.candidateId)).size !== verdicts.length)
       throw new Error('Duplicate verifier candidate ID');

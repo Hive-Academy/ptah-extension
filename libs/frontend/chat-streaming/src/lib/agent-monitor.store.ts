@@ -1770,8 +1770,12 @@ export class AgentMonitorStore implements OnDestroy {
         cliSessionId: info.cliSessionId || agent.cliSessionId,
         // Last chance to attribute a card that was spawned before its session
         // resolved — the exit payload often carries the id the spawn lacked.
+        // A tab id that already resolved maps to its SDK id (TASK_2026_876).
         parentSessionId:
-          knownSessionId(info.parentSessionId) ?? agent.parentSessionId,
+          knownSessionId(
+            this.sessionAliases.get(info.parentSessionId ?? '') ??
+              info.parentSessionId,
+          ) ?? agent.parentSessionId,
         completedAt,
         permissionQueue: [],
         supportsContinuation:
@@ -2238,6 +2242,13 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Tab ID → resolved SDK session ID (TASK_2026_876). Kept after resolution
+   * so a reparent that names the tab ID still lands on the SDK ID when
+   * SESSION_ID_RESOLVED arrived first.
+   */
+  private readonly sessionAliases = new Map<string, string>();
+
+  /**
    * Update parentSessionId for all agents that were spawned with a tab ID
    * before the real SDK session UUID was resolved.
    * Called when SESSION_ID_RESOLVED fires, mirroring the backend's
@@ -2249,6 +2260,7 @@ export class AgentMonitorStore implements OnDestroy {
    * them. They remain in the unscoped tray; no session action may claim them.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    this.sessionAliases.set(tabId, realSessionId);
     this.updateAgents((list) => {
       let changed = false;
       const next = list.map((a) => {
@@ -2277,6 +2289,52 @@ export class AgentMonitorStore implements OnDestroy {
       return changed ? next : map;
     });
     this.rekeyUnmatchedSubagentEntries(tabId, realSessionId);
+  }
+
+  /**
+   * Move the named agents to a new owner session (`agent-monitor:reparented`,
+   * TASK_2026_876). A session handoff that keeps its lanes hands them to the
+   * successor; the parent is the successor's tab id until
+   * {@link resolveParentSessionId} moves it onto the SDK id.
+   *
+   * Only the listed agents move, and a `SubagentRecord` moves only when its
+   * `agentId` is listed. An agent this store does not know is ignored; an
+   * ownerless agent is never claimed by a session it was not named for.
+   */
+  reparentAgents(
+    agentIds: readonly string[],
+    parentSessionId: string,
+  ): void {
+    if (!parentSessionId || agentIds.length === 0) return;
+    const target =
+      this.sessionAliases.get(parentSessionId) ?? parentSessionId;
+    const ids = new Set(agentIds);
+    this.updateAgents((list) => {
+      let changed = false;
+      const next = list.map((a) => {
+        if (ids.has(a.agentId) && a.parentSessionId !== target) {
+          changed = true;
+          return { ...a, parentSessionId: target };
+        }
+        return a;
+      });
+      return changed ? next : list;
+    });
+    this._subagents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [key, rec] of map) {
+        if (
+          rec.agentId !== undefined &&
+          ids.has(rec.agentId) &&
+          rec.parentSessionId !== target
+        ) {
+          changed = true;
+          next.set(key, { ...rec, parentSessionId: target });
+        }
+      }
+      return changed ? next : map;
+    });
   }
 
   clearCompleted(): void {

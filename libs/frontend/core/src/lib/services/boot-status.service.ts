@@ -213,7 +213,11 @@ export class BootStatusService implements MessageHandler {
    * A `boot:progress` push is different: it is replayed and racing the pull,
    * so it goes through the no-regression step fold.
    */
-  handleMessage(message: { type: string; payload?: unknown }): void {
+  handleMessage(message: {
+    type: string;
+    payload?: unknown;
+    replayed?: unknown;
+  }): void {
     if (message.type === MESSAGE_TYPES.BOOT_PROGRESS) {
       this.foldHostSteps([message.payload]);
       return;
@@ -221,6 +225,17 @@ export class BootStatusService implements MessageHandler {
     if (message.type !== MESSAGE_TYPES.BOOT_READINESS_CHANGED) return;
     const snapshot = toReadinessSnapshot(message.payload);
     if (!snapshot) return;
+    // The renderer bootstrap (apps/ptah-extension-webview main.ts) replays
+    // pushes that arrived before this listener existed, marked `replayed`.
+    // Such a push is older than any pull answered during bootstrap, so it is
+    // held to the pull's monotonic rule instead of being authoritative.
+    if (
+      message.replayed === true &&
+      this.hasSnapshot &&
+      !isAtLeastAsAdvanced(snapshot, this._status())
+    ) {
+      return;
+    }
     this.adopt(snapshot);
   }
 

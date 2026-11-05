@@ -25,3 +25,14 @@ export interface SessionHandoffOpenedPayload {
   /** Epoch milliseconds the new session was started at. */
   readonly startedAt: number;
 }
+
+/**
+ * Payload for `sessionHandoff:linked` (TASK_2026_876).
+ *
+ * Both ids are resolved SDK session ids. The webview reloads
+ * `session:handoffChain` when the open session is either end.
+ */
+export interface SessionHandoffLinkedPayload {
+  readonly fromSessionId: string;
+  readonly toSessionId: string;
+}

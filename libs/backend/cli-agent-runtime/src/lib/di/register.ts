@@ -42,6 +42,7 @@ import { SessionChildRegistry } from '../session-children/session-child.registry
 import { ChildWorktreeProvisioner } from '../session-children/child-worktree.provisioner';
 import { SessionSpawnerService } from '../session-children/session-spawner.service';
 import { SessionHandoffService } from '../session-children/session-handoff.service';
+import { SessionHandoffChainStore } from '../session-children/session-handoff-chain.store';
 import { AgentRoleResolver } from '../roles';
 import {
   PtahCliRegistry,
@@ -374,13 +375,20 @@ export function registerCliAgentRuntimeServices(
     { useClass: SessionSpawnerService },
     { lifecycle: Lifecycle.Singleton },
   );
-  // Session handoff (TASK_2026_655). No subscriptions; it looks the same
-  // `CHILD_CHAT_SESSION_HOST` up at call time, like the spawner.
-  container.register(
-    CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF,
-    { useClass: SessionHandoffService },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // Session handoff (TASK_2026_655, TASK_2026_876). One singleton serves the
+  // tool port and the flush stop, so they share one armed set. The chain
+  // store is registered first: the service's optional inject resolves it.
+  container.registerSingleton(SessionHandoffChainStore);
+  container.register(CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF_CHAIN, {
+    useToken: SessionHandoffChainStore,
+  });
+  container.registerSingleton(SessionHandoffService);
+  container.register(CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF, {
+    useToken: SessionHandoffService,
+  });
+  container.register(CLI_AGENT_RUNTIME_TOKENS.HANDOFF_TURN_FLUSH, {
+    useToken: SessionHandoffService,
+  });
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER,
     { useClass: AgentRoleResolver },

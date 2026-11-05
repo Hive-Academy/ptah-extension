@@ -11,6 +11,8 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { resolve } from 'node:path';
+import { resolveReviewRootsForPath } from '../services/review/resolve-review-roots-for-path';
 import { registerElectronCodexReadinessAndLogin } from './codex-login-composition';
 
 import {
@@ -68,6 +70,7 @@ import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   CLI_AGENT_RUNTIME_TOKENS,
+  type IAgentSpawnTrustedRoots,
   createContainerHarnessCliDetector,
   AgentProcessManager,
   AgentSpawnEnvironment,
@@ -328,6 +331,9 @@ export function registerPhase2Libraries(
     platform: process,
   });
   registerCliAgentRuntimeServices(container, logger);
+  container.register<IAgentSpawnTrustedRoots>(CLI_AGENT_RUNTIME_TOKENS.AGENT_SPAWN_TRUSTED_ROOTS, {
+    useValue: { roots: () => [resolve(app.getPath('userData'), 'review', 'attempts')] },
+  });
   container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, {
     useValue: mcpAttachmentObserver,
   });
@@ -420,7 +426,7 @@ export function registerPhase2Libraries(
         return policy.eligibility({ owner: target.repo.owner, name: target.repo.name,
           authorLogin: pull.authorLogin, state: pull.state, draft: pull.draft,
           headIsFork: pull.headIsFork, headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId,
-          settings, baseConfig: config }).eligible && policy.publication(settings, config).allowed;
+          settings, baseConfig: config }).eligible && policy.publication(settings, config, target.repo).allowed;
       } }),
     });
     container.register(REVIEW_CORE_TOKENS.GITHUB, { useToken: REVIEW_GITHUB_TOKENS.REVIEW_PORT });
@@ -454,7 +460,8 @@ export function registerPhase2Libraries(
     container.register(ReviewFiles, {
       useFactory: (provider) => {
         const environment = provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT);
-        return new ReviewFiles(() => environment.resolve({ owner: 'Hive-Academy', name: 'PtahCode' }));
+        return new ReviewFiles((path) => resolveReviewRootsForPath(
+          path, environment, provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE)));
       },
     });
     container.register(REVIEW_CONTEXT_TOKENS.FILES, { useToken: ReviewFiles });
@@ -463,7 +470,8 @@ export function registerPhase2Libraries(
       useFactory: (provider) => {
         const environment = provider.resolve<ReviewStageEnvironment>(REVIEW_CORE_TOKENS.ENVIRONMENT);
         return new ReviewLaneFiles(provider.resolve(ReviewWorktreeService),
-          () => environment.resolve({ owner: 'Hive-Academy', name: 'PtahCode' }));
+          (path) => resolveReviewRootsForPath(
+            path, environment, provider.resolve<IReviewSettingsStore>(REVIEW_CORE_TOKENS.SETTINGS_STORE)));
       },
     });
     try {

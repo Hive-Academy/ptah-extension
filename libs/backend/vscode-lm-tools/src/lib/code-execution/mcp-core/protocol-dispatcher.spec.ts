@@ -4763,33 +4763,77 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
       expect(getInfo).not.toHaveBeenCalled();
     }
 
-    function expectSpooledUnderHostRoot(): void {
-      expect(onlySpoolFile(hostRoot)).toBe(JSON.stringify(payload));
+    /**
+     * Run `work` with the system temp directory pointed at a fresh folder,
+     * and return that folder. An untrusted declared root spools there: never
+     * under the declared path, and never under the host's open folder, which
+     * is another project when the caller runs in a different checkout
+     * (TASK_2026_882_01ef).
+     */
+    async function withTempRoot(work: () => Promise<void>): Promise<string> {
+      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-2f-temp-'));
+      tempRoots.push(tempRoot);
+      // Spy on the core module itself: the `import * as os` namespace only
+      // exposes non-configurable getters onto it.
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(tempRoot);
+      try {
+        await work();
+      } finally {
+        tmp.mockRestore();
+      }
+      return tempRoot;
+    }
+    const tempRoots: string[] = [];
+    afterEach(() => {
+      for (const root of tempRoots.splice(0)) {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    function expectSpooledUnderTempOnly(tempRoot: string): void {
+      expect(onlySpoolFile(tempRoot)).toBe(JSON.stringify(payload));
       expect(fs.existsSync(path.join(outside, '.ptah'))).toBe(false);
+      expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
     }
 
-    it('ignores an unknown absolute declared root, and spools under the known folder', async () => {
-      await callWithDeclaredRoot(outside);
+    it('spools under the declared root when it is a known folder', async () => {
+      await callWithDeclaredRoot(hostRoot);
 
-      expectSpooledUnderHostRoot();
+      expect(onlySpoolFile(hostRoot)).toBe(JSON.stringify(payload));
     });
 
-    it('ignores a declared root whose parent segments leave the known folder, and spools under the known folder', async () => {
+    it('spools under the first known folder when the caller declares no root', async () => {
+      await callTool('ptah_project_detect_monorepo', {}, oversizedDeps(), {
+        _callerWorkspaceRoot: undefined,
+      });
+
+      expect(onlySpoolFile(hostRoot)).toBe(JSON.stringify(payload));
+    });
+
+    it('ignores an unknown absolute declared root, and spools under the system temp directory, not the known folder', async () => {
+      const tempRoot = await withTempRoot(() => callWithDeclaredRoot(outside));
+
+      expectSpooledUnderTempOnly(tempRoot);
+    });
+
+    it('ignores a declared root whose parent segments leave the known folder, and spools under the system temp directory', async () => {
       const declared = [hostRoot, '..', path.basename(outside)].join(path.sep);
 
-      await callWithDeclaredRoot(declared);
+      const tempRoot = await withTempRoot(() => callWithDeclaredRoot(declared));
 
-      expectSpooledUnderHostRoot();
+      expectSpooledUnderTempOnly(tempRoot);
     });
 
-    it('does not trust a subfolder of a known folder, and spools under the known folder', async () => {
+    it('does not trust a subfolder of a known folder, and spools under the system temp directory', async () => {
       const sub = path.join(hostRoot, 'sub');
       fs.mkdirSync(sub);
 
-      await callWithDeclaredRoot(sub);
+      const tempRoot = await withTempRoot(() => callWithDeclaredRoot(sub));
 
       expect(fs.existsSync(path.join(sub, '.ptah'))).toBe(false);
-      expectSpooledUnderHostRoot();
+      expectSpooledUnderTempOnly(tempRoot);
     });
 
     it('does not trust a junction/symlink under a known folder that points outside it', async () => {
@@ -4808,19 +4852,22 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
         return;
       }
 
-      await callWithDeclaredRoot(link);
+      const tempRoot = await withTempRoot(() => callWithDeclaredRoot(link));
 
-      expectSpooledUnderHostRoot();
+      expectSpooledUnderTempOnly(tempRoot);
     });
 
     it('never spools to (or touches) a declared UNC share the host does not know', async () => {
       const realpath = jest.spyOn(fs.promises, 'realpath');
       try {
-        await callWithDeclaredRoot('\\\\server\\share');
-        await callWithDeclaredRoot('\\\\?\\UNC\\server\\share');
+        const tempRoot = await withTempRoot(async () => {
+          await callWithDeclaredRoot('\\\\server\\share');
+          await callWithDeclaredRoot('\\\\?\\UNC\\server\\share');
+        });
 
+        expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
         const files = fs
-          .readdirSync(spoolDir(hostRoot))
+          .readdirSync(spoolDir(tempRoot))
           .filter((n) => n !== '.gitignore');
         expect(files).toHaveLength(2);
         for (const [arg] of realpath.mock.calls) {

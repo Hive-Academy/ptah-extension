@@ -21,7 +21,7 @@ const ReviewRootsSchema = z.object({
 export type ReviewRoots = z.infer<typeof ReviewRootsSchema>;
 
 export class ReviewRepositoryUnavailableError extends Error {
-  constructor() { super('Review repository is not configured'); }
+  constructor(repo?: RepoIdentity) { super(repo ? `No local checkout of ${repo.owner}/${repo.name} is open in Ptah. Add its folder as a workspace.` : 'Review repository is not configured'); }
 }
 
 export interface ReviewStageEnvironment {
@@ -86,7 +86,7 @@ export class ContextStageRunner {
     check();
     const roots = await resolveReviewRoots(this.environment, claim.repo);
     check();
-    const paths = await this.worktree.create(claim.repo, roots.repoRoot, roots.attemptsRoot, claim.attemptId, claim.headSha, workSignal);
+    const paths = await this.worktree.create(claim.repo, roots.repoRoot, roots.attemptsRoot, claim.attemptId, claim.headSha, claim.prNumber, workSignal);
     check();
     const diff = await this.github.getDiff(claim.repo as RepoIdentity, claim.prNumber, claim.headSha);
     check();
