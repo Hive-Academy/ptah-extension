@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/chat-ui/display-panel';
 import {
   ArtifactStore,
+  DisplayWindowSync,
   type DisplayDockSelection,
   type DisplayDockState,
   type DisplayDockTabState,
@@ -37,6 +38,7 @@ function selectionForKey(key: string): DisplayDockSelection {
   if (key.startsWith(ARTIFACT_KEY_PREFIX)) {
     return { kind: 'artifact', artifactId: key.slice(ARTIFACT_KEY_PREFIX.length) };
   }
+  if (key.startsWith('file:')) return { kind: 'file', fileKey: key };
   return { kind: 'surface', surfaceKey: key };
 }
 
@@ -46,7 +48,9 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
   if (selection.kind === 'artifact') {
     return `${ARTIFACT_KEY_PREFIX}${selection.artifactId}`;
   }
-  return selection.surfaceKey;
+  if (selection.kind === 'file') return selection.fileKey;
+  if (selection.kind === 'surface') return selection.surfaceKey;
+  return null;
 }
 
 /**
@@ -62,13 +66,23 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
+    @if (window && tabId()) {
+      <div class="flex shrink-0 items-center justify-end gap-1 px-2 py-1">
+        @if (window.error(); as error) { <p role="alert" class="mr-auto text-xs text-error">{{ error }}</p> }
+        <button type="button" class="btn btn-ghost btn-xs" (click)="toggleWindow()">
+          {{ window.detached() ? 'Dock' : 'Detach' }}
+        </button>
+      </div>
+    }
     @if (linkError()) {
       <p role="alert" class="px-1 pb-1 text-xs text-error">{{ linkError() }}</p>
     }
     @if (artifactStore.lastError(); as error) {
       <p role="status" class="px-1 pb-1 text-xs text-error">{{ error }}</p>
     }
-    @if (!hasContent()) {
+    @if (window?.detached()) {
+      <p class="p-2 text-xs text-base-content-muted" role="status">Display is in a separate window.</p>
+    } @else if (!hasContent()) {
       <p
         class="p-2 text-xs text-base-content-muted"
         data-testid="rail-display-empty"
@@ -82,6 +96,7 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
             class="min-h-0 flex-1"
             [surfaces]="surfaces()"
             [artifacts]="artifacts()"
+            [files]="files()"
             [open]="true"
             [fullscreenArtifactId]="fullscreenArtifactId()"
             [selectedKey]="selectedKey()"
@@ -118,6 +133,7 @@ export class CommandRailDisplayComponent {
   public readonly dock = input<DisplayDockState | null>(null);
 
   protected readonly artifactStore = inject(ArtifactStore);
+  protected readonly window = inject(DisplayWindowSync, { optional: true });
   private readonly rpc = inject(ClaudeRpcService);
 
   /** The Live tab's dock state, when there is a dock and a tab. */
@@ -127,6 +143,7 @@ export class CommandRailDisplayComponent {
     return dock && id ? dock.tab(id) : null;
   });
   protected readonly surfaces = computed(() => this.tabState()?.surfaces ?? NO_SURFACES);
+  protected readonly files = computed(() => this.tabState()?.files ?? []);
   protected readonly viewStates = computed(
     () => this.tabState()?.viewStates ?? NO_VIEW_STATES,
   );
@@ -152,7 +169,7 @@ export class CommandRailDisplayComponent {
       : NO_ARTIFACTS;
   });
   protected readonly hasContent = computed(
-    () => this.surfaces().length > 0 || this.artifacts().length > 0,
+    () => this.surfaces().length > 0 || this.artifacts().length > 0 || this.files().length > 0,
   );
 
   /** Without a dock the selection is local; a new tab starts with none. */
@@ -179,6 +196,12 @@ export class CommandRailDisplayComponent {
 
   protected retry(): void {
     this.attempt.update((value) => value + 1);
+  }
+
+  protected toggleWindow(): void {
+    const displayWindow = this.window;
+    if (!displayWindow) return;
+    void (displayWindow.detached() ? displayWindow.attach() : displayWindow.detach());
   }
 
   /** The panel's Retry on a missing artifact: list the tab's artifacts again. */

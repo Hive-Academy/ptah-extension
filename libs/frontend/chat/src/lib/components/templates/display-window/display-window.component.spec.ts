@@ -9,6 +9,7 @@ import {
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ArtifactRecord } from '@ptah-extension/shared';
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 import {
   toWire,
   type DisplayWindowView,
@@ -29,6 +30,7 @@ const artifact: ArtifactRecord = {
 class StubPanel {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly artifacts = input<readonly ArtifactRecord[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
@@ -132,6 +134,17 @@ describe('DisplayWindowComponent', () => {
       '[data-testid="display-window-title"]',
     );
     expect(title?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Display · 1');
+  });
+
+  it('passes file metadata and the active selection to the shared viewer without reading inactive files', async () => {
+    const active: DisplayFileItem = { kind: 'markdown-file', key: 'file:active', path: '/root/active.md', workspaceRoot: '/root', title: 'active.md', readStatus: 'unread' };
+    const inactive: DisplayFileItem = { kind: 'pdf-file', key: 'file:inactive', path: '/root/inactive.pdf', workspaceRoot: '/root', title: 'inactive.pdf', readStatus: 'unread' };
+    replies['displayWindow:getState'] = { success: true, data: { state: { tabId: 'tab-1', revision: 3, state: toWire(view({ files: [active, inactive], artifacts: [], selectedKey: active.key, count: 2 })) } } };
+    const fixture = await render();
+    expect(panel(fixture).files()).toEqual([active, inactive]);
+    expect(panel(fixture).selectedKey()).toBe(active.key);
+    expect(call).not.toHaveBeenCalledWith('file:viewContent', expect.anything());
+    expect(call).not.toHaveBeenCalledWith('file:viewBinary', expect.anything());
   });
 
   it('applies the snapshot theme to the document root', async () => {

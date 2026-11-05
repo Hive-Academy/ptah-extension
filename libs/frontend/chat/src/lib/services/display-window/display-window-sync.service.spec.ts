@@ -372,6 +372,24 @@ describe('DisplayWindowSync', () => {
     expect(sync.detached()).toBe(false);
   });
 
+  it('binds the single window to the focused Command Center session and restores chat', async () => {
+    const { sync, dock: chatDock } = setup();
+    const commandDock = new DisplayDockState();
+    const focusedSession = signal<string | null>('command-root');
+    commandDock.openFile('command-root', { kind: 'markdown-file', path: '/root/report.md', workspaceRoot: '/root', title: 'report.md' });
+    const unbind = sync.bindSource({ tabId: focusedSession, dock: commandDock });
+    await sync.detach();
+    expect(sync.count()).toBe(1);
+    sync.handleMessage({ type: 'displayWindow:action', payload: { tabId: 'command-root', action: { type: 'select', key: 'file:chosen' } } });
+    expect(commandDock.tab('command-root').selection).toEqual({ kind: 'file', fileKey: 'file:chosen' });
+    expect(chatDock.tab('tab-1').selection).toBeNull();
+    focusedSession.set('command-child');
+    expect(sync.count()).toBe(0);
+    unbind();
+    chatDock.openFile('tab-1', { kind: 'image-file', path: '/root/photo.png', workspaceRoot: '/root', title: 'photo.png' });
+    expect(sync.count()).toBe(1);
+  });
+
   it('unbinding stops the actions and the snapshot', async () => {
     TestBed.configureTestingModule({
       providers: [

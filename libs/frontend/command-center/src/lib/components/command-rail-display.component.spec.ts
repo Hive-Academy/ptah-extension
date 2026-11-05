@@ -2,8 +2,8 @@ import { Component, input, output, signal } from '@angular/core';
 import { DeferBlockBehavior, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { DisplayPanelComponent } from '@ptah-extension/chat-ui/display-panel';
-import type { DisplaySurface } from '@ptah-extension/chat-ui';
-import { ArtifactStore, DisplayDockState } from '@ptah-extension/chat';
+import type { DisplayFileItem, DisplaySurface } from '@ptah-extension/chat-ui';
+import { ArtifactStore, DisplayDockState, DisplayWindowSync } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ArtifactRecord } from '@ptah-extension/shared';
@@ -17,6 +17,7 @@ import { CommandRailDisplayComponent } from './command-rail-display.component';
 class StubDisplayPanelComponent {
   public readonly surfaces = input<readonly DisplaySurface[]>([]);
   public readonly artifacts = input<readonly unknown[]>([]);
+  public readonly files = input<readonly DisplayFileItem[]>([]);
   public readonly open = input(true);
   public readonly fullscreenArtifactId = input<string | null>(null);
   public readonly selectedKey = input<string | null>(null);
@@ -50,6 +51,12 @@ describe('CommandRailDisplayComponent', () => {
   let dock: DisplayDockState;
   let store: ArtifactStore;
   const call = jest.fn();
+  const displayWindow = {
+    detached: signal(false),
+    error: signal<string | null>(null),
+    detach: jest.fn(async () => undefined),
+    attach: jest.fn(async () => undefined),
+  };
 
   function mount() {
     dock = new DisplayDockState();
@@ -60,6 +67,7 @@ describe('CommandRailDisplayComponent', () => {
         // The real store, so the panel list comes from its cross-bucket lookup.
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: DisplayWindowSync, useValue: displayWindow },
       ],
     });
     TestBed.overrideComponent(CommandRailDisplayComponent, {
@@ -111,6 +119,28 @@ describe('CommandRailDisplayComponent', () => {
     });
     const panel = await settle(fixture);
     expect(panel?.surfaces()).toEqual([chart]);
+  });
+
+  it('mounts the shared panel with file items and selects them in the dock', async () => {
+    const fixture = mount();
+    dock.openFile('tab-1', { kind: 'markdown-file', path: '/root/report.md', workspaceRoot: '/root', title: 'report.md' });
+    const panel = await settle(fixture);
+    expect(panel?.files()).toHaveLength(1);
+    const key = panel?.files()[0].key;
+    expect(key).toBeDefined();
+    if (!key) return;
+    panel?.selectedKeyChange.emit(key);
+    expect(dock.tab('tab-1').selection).toEqual({ kind: 'file', fileKey: key });
+  });
+
+  it('uses the existing detached window control', async () => {
+    const fixture = mount();
+    dock.openFile('tab-1', { kind: 'image-file', path: '/root/photo.png', workspaceRoot: '/root', title: 'photo.png' });
+    await settle(fixture);
+    const button = (fixture.nativeElement as HTMLElement).querySelector('button');
+    expect(button?.textContent).toContain('Detach');
+    button?.click();
+    expect(displayWindow.detach).toHaveBeenCalledTimes(1);
   });
 
   it('writes selection to the dock per tab, so a tab change resets it', async () => {

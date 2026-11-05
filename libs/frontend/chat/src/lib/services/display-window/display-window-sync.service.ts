@@ -103,6 +103,7 @@ export class DisplayWindowSync implements MessageHandler {
   readonly error = this._error.asReadonly();
 
   private readonly source = signal<DisplayWindowSource | null>(null);
+  private readonly sources: DisplayWindowSource[] = [];
 
   /** The bound tab's display view, or `null` with no source or no tab. */
   private readonly view = computed(
@@ -140,9 +141,14 @@ export class DisplayWindowSync implements MessageHandler {
    * clears the binding only if it is still this source.
    */
   bindSource(source: DisplayWindowSource): () => void {
+    this.sources.push(source);
     this.source.set(source);
     return () => {
-      if (untracked(this.source) === source) this.source.set(null);
+      const index = this.sources.lastIndexOf(source);
+      if (index < 0) return;
+      this.sources.splice(index, 1);
+      if (untracked(this.source) === source)
+        this.source.set(this.sources.at(-1) ?? null);
     };
   }
 

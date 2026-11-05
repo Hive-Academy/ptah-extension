@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { ArtifactStore, DisplayDockState } from '@ptah-extension/chat';
+import { ArtifactStore, DisplayDockState, DisplayWindowSync } from '@ptah-extension/chat';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   sessionContextCue,
@@ -192,6 +192,9 @@ export class CommandCenterPageComponent {
    */
   protected readonly displayDock: DisplayDockState | null = this.isElectron
     ? new DisplayDockState()
+    : null;
+  private readonly displayWindow = this.isElectron
+    ? inject(DisplayWindowSync)
     : null;
 
   /**
@@ -405,7 +408,14 @@ export class CommandCenterPageComponent {
       this.measureOverlay();
       this.scrollToNewPendingCard();
     });
-    if (this.displayDock) this.wireDisplayDock(this.displayDock);
+    if (this.displayDock) {
+      this.wireDisplayDock(this.displayDock);
+      const unbind = this.displayWindow?.bindSource({
+        tabId: computed(() => this.liveTarget().tabId),
+        dock: this.displayDock,
+      });
+      if (unbind) this.destroyRef.onDestroy(unbind);
+    }
   }
 
   /**
