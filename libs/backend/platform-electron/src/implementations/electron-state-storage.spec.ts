@@ -43,6 +43,39 @@ describe('ElectronStateStorage — Electron-specific behaviour', () => {
     provider = new ElectronStateStorage(storage, 'state.json');
   });
 
+  it('writes within one second during continuous updates', async () => {
+    jest.useFakeTimers();
+    try {
+      const updates: Promise<void>[] = [];
+      for (let i = 0; i < 10; i++) {
+        updates.push(provider.update('count', i));
+        await jest.advanceTimersByTimeAsync(100);
+      }
+      await Promise.all(updates);
+      expect(JSON.parse(await fs.readFile(path.join(storage, 'state.json'), 'utf8'))).toEqual({ count: 9 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not report an earlier failed write after a later commit succeeds', async () => {
+    let attempts = 0;
+    provider = new ElectronStateStorage(storage, 'state.json', undefined, undefined,
+      async (filePath, contents) => {
+        attempts++;
+        if (attempts === 1) throw new Error('first write failed');
+        await fs.writeFile(filePath, contents, 'utf8');
+      });
+    const first = provider.update('value', 1);
+    const firstResult = expect(first).rejects.toThrow('first write failed');
+    await expect(provider.flush()).rejects.toThrow('first write failed');
+    await firstResult;
+    const second = provider.update('value', 2);
+    await provider.flush();
+    await expect(second).resolves.toBeUndefined();
+    await expect(provider.flush()).resolves.toBeUndefined();
+  });
+
   it('coalesces updates and flushes pending changes on dispose', async () => {
     jest.useFakeTimers();
     try {

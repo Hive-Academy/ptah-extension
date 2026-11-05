@@ -140,6 +140,19 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
     ]);
   });
 
+  it('continues draining queued events after a send fails', () => {
+    const report = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    win.webContents.send.mockImplementationOnce(() => { throw new Error('uncloneable event'); });
+    for (let i = 0; i <= STREAM_BATCH_MAX_EVENTS; i++) {
+      bridge.sendToRenderer({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i } });
+    }
+    jest.runAllTimers();
+    expect(win.webContents.send).toHaveBeenCalledTimes(2);
+    expect(win.sent).toHaveLength(1);
+    expect(report).toHaveBeenCalled();
+    report.mockRestore();
+  });
+
   it('batches agent output within 64ms and preserves per-agent order', () => {
     const deltas = [
       { agentId: 'a1', stdoutDelta: 'first' },

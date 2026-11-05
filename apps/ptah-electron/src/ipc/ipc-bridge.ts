@@ -389,24 +389,29 @@ export class IpcBridge {
       this.flushDeferredMessages();
       return;
     }
-    if (events.length === 1) {
-      const singleMessage = {
-        type: events[0].type,
-        payload: events[0].payload,
-      };
-      win.webContents.send('to-renderer', singleMessage);
-      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
-        tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+    try {
+      if (events.length === 1) {
+        const singleMessage = {
+          type: events[0].type,
+          payload: events[0].payload,
+        };
+        win.webContents.send('to-renderer', singleMessage);
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+        }
+      } else {
+        const batchMessage = {
+          type: MESSAGE_TYPES.BATCH,
+          payload: { events },
+        };
+        win.webContents.send('to-renderer', batchMessage);
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+        }
       }
-    } else {
-      const batchMessage = {
-        type: MESSAGE_TYPES.BATCH,
-        payload: { events },
-      };
-      win.webContents.send('to-renderer', batchMessage);
-      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
-        tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
-      }
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failed batch is discarded; the queue continues.
+      console.error('[IpcBridge] stream send failed:', error instanceof Error ? error : new Error(String(error)));
     }
     if (this.streamQueue.length > 0) {
       this.scheduleStreamQueueDrain();
@@ -419,7 +424,12 @@ export class IpcBridge {
     while (this.deferredMessages.length > 0) {
       const next = this.deferredMessages.shift();
       if (next?.kind === 'direct') {
-        this.sendDirectMessage(next.message);
+        try {
+          this.sendDirectMessage(next.message);
+        } catch (error: unknown) {
+          // degradation-audit: reported - a failed direct send cannot strand later stream events.
+          console.error('[IpcBridge] deferred send failed:', error instanceof Error ? error : new Error(String(error)));
+        }
         continue;
       }
       if (next?.kind === 'stream') {

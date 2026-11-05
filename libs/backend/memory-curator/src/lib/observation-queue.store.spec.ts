@@ -125,14 +125,15 @@ describe('ObservationQueueStore (native-gated)', () => {
     return { service, store };
   }
 
-  maybe('limits a synchronous transaction and schedules the rest', async () => {
+  maybe('limits a scheduled transaction and schedules the rest', async () => {
     const { service, store } = await bootstrap();
     jest.useFakeTimers();
     try {
       for (let i = 0; i < 20; i++) store.enqueue({
         sessionId: 'capped', workspaceRoot: null, kind: 'tool-use',
       });
-      store.flush();
+      // The scheduled tick writes one bounded batch, then schedules the rest.
+      jest.runOnlyPendingTimers();
       expect(store.pendingCount).toBe(4);
       jest.runOnlyPendingTimers();
       expect(store.pendingCount).toBe(0);
@@ -675,6 +676,20 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
     }
   });
 
+  maybe('public flush drains every pending batch', () => {
+    const { service, store } = bootstrap();
+    try {
+      for (let i = 0; i < 48; i++) {
+        store.enqueue({ sessionId: 'public-flush', workspaceRoot: null, kind: 'tool-use' });
+      }
+      store.flush();
+      expect(store.pendingCount).toBe(0);
+      expect(store.countUnprocessed('public-flush')).toBe(48);
+    } finally {
+      service.close();
+    }
+  });
+
   maybe('synchronous reads and rekey drain every pending bounded batch', async () => {
     const { service, store } = await bootstrap();
     try {
@@ -846,7 +861,7 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
     second.close();
   });
 
-  it('drops the batch and warns when persistence is unavailable', () => {
+  it('retains the batch and warns when persistence is unavailable', () => {
     const logger = makeLogger();
     const connection = {
       get db(): never {
@@ -861,10 +876,27 @@ describe('ObservationQueueStore — batching, budget and statement cache', () =>
       kind: 'tool-use',
     });
     expect(() => store.flush()).not.toThrow();
-    expect(store.pendingCount).toBe(0);
+    expect(store.pendingCount).toBe(1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('persistence unavailable'),
-      expect.objectContaining({ dropped: 1 }),
+      expect.objectContaining({ retained: 1 }),
     );
+  });
+
+  it('stops after one failed transaction and refuses a stale read', () => {
+    const logger = makeLogger();
+    const transaction = jest.fn(() => { throw new Error('SQLITE_BUSY'); });
+    const connection = {
+      db: { prepare: jest.fn(() => ({ run: jest.fn() })), transaction },
+    } as unknown as SqliteConnectionService;
+    const store = new ObservationQueueStore(logger, connection);
+    for (let i = 0; i < 15; i++) {
+      store.enqueue({ sessionId: 'busy', workspaceRoot: null, kind: 'tool-use' });
+    }
+    store.flush();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(store.pendingCount).toBe(15);
+    expect(() => store.peekForSession('busy')).toThrow('Observation queue persistence failed');
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
 });

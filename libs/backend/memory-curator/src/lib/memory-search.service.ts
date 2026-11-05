@@ -280,7 +280,7 @@ export class MemorySearchService implements IMemoryReader {
       counter,
       {
         q: (filter.query ?? '').trim().toLowerCase(),
-        k: filter.topK ?? 0,
+        k: Math.max(1, Math.min(100, filter.topK ?? 20)),
         t: filter.type ? [...filter.type].sort() : [],
         c: filter.concepts ? [...filter.concepts].sort() : [],
         f: filter.files ? [...filter.files].sort() : [],
@@ -500,11 +500,7 @@ export class MemorySearchService implements IMemoryReader {
     );
   }
 
-  /**
-   * vec0 KNN cannot take a join filter, so the `limit` nearest chunks are
-   * chosen before the scope and quarantine predicates apply; out-of-scope and
-   * quarantined chunks can take KNN slots (accepted, no refill round).
-   */
+  /** Scoped searches rank joined rows so other workspaces cannot take the candidate slots. */
   private async vecSearchInner(
     query: string,
     limit: number,
@@ -514,17 +510,24 @@ export class MemorySearchService implements IMemoryReader {
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, Math.min(limit, 100)) as VecRow[];
+    const scope = searchScopePredicate(workspaceRoot);
+    const distRows = scope.sql
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM memory_chunks_vec v
+          JOIN memory_chunks mc ON mc.rowid = v.rowid
+          JOIN memories m ON m.id = mc.memory_id
+          WHERE ${ACTIVE_MEMORY} ${scope.sql}
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, ...scope.params, Math.min(limit, 100)) as VecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as VecRow[];
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_vec.knn', elapsedMs });
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const scope = searchScopePredicate(workspaceRoot);
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
@@ -1013,12 +1016,19 @@ export class MemorySearchService implements IMemoryReader {
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, Math.min(limit, 100)) as Array<{ rowid: number; distance: number }>;
+    const distRows = workspaceRoot
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM memory_chunks_vec v
+          JOIN memory_chunks mc ON mc.rowid = v.rowid
+          JOIN memories m ON m.id = mc.memory_id
+          WHERE ${ACTIVE_MEMORY} AND m.workspace_root IS ?
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, workspaceRoot, Math.min(limit, 100)) as VecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as VecRow[];
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (elapsedMs > 200) this.logger.warn('[memory-curator] slow query', { statement: 'memory_chunks_vec.byMemory', elapsedMs });
     if (distRows.length === 0) return [];

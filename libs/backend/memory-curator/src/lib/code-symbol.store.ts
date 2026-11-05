@@ -915,12 +915,18 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     if (!vec || vec.length !== this.embedder.dim) return [];
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
-    const distRows = this.connection.db
-      .prepare(
-        `SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
-         WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?`,
-      )
-      .all(buf, Math.min(limit, 100)) as CodeVecRow[];
+    const distRows = workspaceRoot
+      ? this.connection.db.prepare(`
+          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
+          FROM code_symbols_vec v
+          JOIN code_symbols cs ON cs.rowid = v.rowid
+          WHERE cs.workspace_root = ?
+          ORDER BY distance ASC LIMIT ?
+        `).all(buf, workspaceRoot, Math.min(limit, 100)) as CodeVecRow[]
+      : this.connection.db.prepare(`
+          SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
+          WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
+        `).all(buf, Math.min(limit, 100)) as CodeVecRow[];
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (elapsedMs > 200) {
       this.logger.warn('[code-symbol-store] slow query', {

@@ -35,4 +35,18 @@ describe('SearchFlight', () => {
     await expect(first).rejects.toThrow('search failed');
     await expect(second).resolves.toBe(2);
   });
+
+  it('releases the queue after a worker never settles', async () => {
+    jest.useFakeTimers();
+    try {
+      const flight = new SearchFlight<number>();
+      const hung = flight.run('hung', () => new Promise<number>(() => undefined));
+      const later = flight.run('later', async () => 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await expect(later).resolves.toBe(2);
+      await expect(flight.run('hung', () => Promise.resolve(3))).resolves.toBe(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

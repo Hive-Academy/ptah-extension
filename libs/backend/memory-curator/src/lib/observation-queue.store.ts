@@ -284,6 +284,7 @@ export class ObservationQueueStore {
 
   /** Rows captured but not yet written. Drained by {@link flush}. */
   private pending: PendingObservation[] = [];
+  private retryPending = false;
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -389,24 +390,29 @@ export class ObservationQueueStore {
     });
 
     if (this.pending.length >= FLUSH_THRESHOLD) {
-      this.flush();
+      if (!this.retryPending) this.flushBatch();
       return;
     }
     this.armFlushTimer();
   }
 
   /**
-   * Write a bounded batch in one transaction, then publish its
-   * capture events.
+   * Write all pending rows in bounded transactions, then publish captures.
    *
    * Idempotent and safe to call at any time: with nothing pending it only
    * disarms the timer. Never throws — the capture path is a hook callback with
    * no caller able to act on a persistence failure, so a failed batch is logged
-   * and dropped exactly as a failed single insert was before.
+   * and retained for a scheduled retry.
    */
   flush(): void {
+    while (this.pending.length > 0 && this.flushBatch()) {
+      // Each transaction is capped; stop at the first failed transaction.
+    }
+  }
+
+  private flushBatch(): boolean {
     this.disarmFlushTimer();
-    if (this.pending.length === 0) return;
+    if (this.pending.length === 0) return true;
 
     const batch = this.pending.splice(0, MAX_TRANSACTION_ROWS);
 
@@ -417,12 +423,14 @@ export class ObservationQueueStore {
       this.logger.warn(
         '[memory-curator] observation-queue flush skipped — persistence unavailable',
         {
-          dropped: batch.length,
+          retained: batch.length,
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      this.scheduleRemainingFlush();
-      return;
+      this.pending.unshift(...batch);
+      this.retryPending = true;
+      this.scheduleRemainingFlush(250);
+      return false;
     }
 
     const started = performance.now();
@@ -434,11 +442,13 @@ export class ObservationQueueStore {
       txn();
     } catch (error: unknown) {
       this.logger.warn('[memory-curator] observation-queue flush failed', {
-        dropped: batch.length,
+        retained: batch.length,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.scheduleRemainingFlush();
-      return;
+      this.pending.unshift(...batch);
+      this.retryPending = true;
+      this.scheduleRemainingFlush(250);
+      return false;
     }
 
     const ms = performance.now() - started;
@@ -448,12 +458,18 @@ export class ObservationQueueStore {
     );
 
     for (const entry of batch) this.emitCapture(entry.capture);
+    this.retryPending = false;
     this.scheduleRemainingFlush();
+    return true;
   }
 
   /** Flush every bounded transaction before a synchronous read or rekey. */
   private flushAll(): void {
-    while (this.pending.length > 0) this.flush();
+    if (this.pending.length > 0 && this.retryPending) {
+      throw new Error('Observation queue persistence failed');
+    }
+    this.flush();
+    if (this.pending.length > 0) throw new Error('Observation queue persistence failed');
   }
 
   /**
@@ -463,19 +479,23 @@ export class ObservationQueueStore {
    * connection.
    */
   dispose(): void {
-    while (this.pending.length > 0) this.flush();
+    if (this.pending.length > 0 && this.retryPending) return;
+    this.flush();
+    if (this.pending.length > 0) return;
     this.disarmFlushTimer();
     this.statements.clear();
     this.cachedDb = null;
     this.captureListeners.clear();
   }
 
-  private scheduleRemainingFlush(): void {
+  private scheduleRemainingFlush(delayMs = 0): void {
     if (this.pending.length === 0 || this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      this.flush();
-    }, 0);
+      this.retryPending = false;
+      this.flushBatch();
+    }, delayMs);
+    this.flushTimer.unref?.();
   }
 
   private armFlushTimer(): void {
@@ -484,7 +504,7 @@ export class ObservationQueueStore {
       // Cleared first so the flush's own `disarmFlushTimer` is a no-op rather
       // than clearing a handle that has already fired.
       this.flushTimer = null;
-      this.flush();
+      this.flushBatch();
     }, FLUSH_INTERVAL_MS);
     // Same defect class as commit 5dc525f02: a ref'd timer on a 250 ms loop
     // keeps the CLI's event loop alive after the work is done.

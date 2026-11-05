@@ -55,6 +55,7 @@ export class ElectronStateStorage
   private writePromise: Promise<void> = Promise.resolve();
   private commitGeneration = 0;
   private writeTimer: ReturnType<typeof setTimeout> | null = null;
+  private maxWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly changedKeys = new Set<string>();
   private pendingWrite: Promise<void> | null = null;
   private resolvePendingWrite: (() => void) | null = null;
@@ -185,6 +186,15 @@ export class ElectronStateStorage
       });
     }
     if (this.writeTimer !== null) clearTimeout(this.writeTimer);
+    if (this.maxWriteTimer === null) {
+      this.maxWriteTimer = setTimeout(() => {
+        this.maxWriteTimer = null;
+        void this.flush().catch((error: unknown) => {
+          // degradation-audit: reported - update callers receive the rejection.
+          this.logger?.error('[platform-electron] global state write failed', error instanceof Error ? error : new Error(String(error)));
+        });
+      }, 1_000);
+    }
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null;
       void this.flush().catch(() => {
@@ -206,6 +216,10 @@ export class ElectronStateStorage
     if (this.writeTimer !== null) {
       clearTimeout(this.writeTimer);
       this.writeTimer = null;
+    }
+    if (this.maxWriteTimer !== null) {
+      clearTimeout(this.maxWriteTimer);
+      this.maxWriteTimer = null;
     }
     const resolve = this.resolvePendingWrite;
     const reject = this.rejectPendingWrite;
@@ -303,12 +317,18 @@ export class ElectronStateStorage
   /** Commit the latest global snapshot, including changes made during a write. */
   async flush(): Promise<void> {
     if (this.workerHost) return;
+    if (this.maxWriteTimer !== null) {
+      clearTimeout(this.maxWriteTimer);
+      this.maxWriteTimer = null;
+    }
     if (this.writeTimer !== null) {
       clearTimeout(this.writeTimer);
       this.writeTimer = null;
     }
     if (this.changedKeys.size === 0) {
-      await this.writePromise;
+      await this.writePromise.catch(() => {
+        // degradation-audit: reported - the failed write rejected its update callers.
+      });
       return;
     }
     const pending = this.pendingWrite;
