@@ -117,13 +117,14 @@ export function presentCodexTool(
   if (toolName === 'commandExecution') {
     const command = input?.['command'];
     if (typeof command !== 'string') return named(toolName, input);
-    const displayCommand = unwrapCommand(command);
     const description = nonEmptyText(input?.['description']);
+    // Only the Bash contract keys: the card renders any other key as an
+    // "Arguments" row, which would repeat the wrapped command. Callers that
+    // need the raw command keep it from their own input.
     return {
       toolName: 'Bash',
       toolInput: {
-        command: displayCommand,
-        ...(displayCommand === command ? {} : { raw_command: command }),
+        command: unwrapCommand(command),
         ...(description ? { description } : {}),
       },
     };

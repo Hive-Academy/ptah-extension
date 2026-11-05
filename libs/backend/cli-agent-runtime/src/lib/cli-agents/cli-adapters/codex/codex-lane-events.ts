@@ -85,7 +85,9 @@ export class CodexLaneEvents {
               content: presented.toolName,
               toolName: presented.toolName,
               toolCallId: event.toolId,
-              toolArgs: JSON.stringify(presented.toolInput ?? event.input),
+              // The raw native input (e.g. the wrapped command); the renderer
+              // uses toolArgs only when toolInput is absent.
+              toolArgs: JSON.stringify(event.input),
               ...(presented.toolInput === undefined
                 ? {}
                 : { toolInput: presented.toolInput }),

@@ -47,7 +47,7 @@ describe('shell wrapper display', () => {
   ])('unwraps %s', (raw, display) => {
     expect(
       presentCodexTool('commandExecution', { command: raw }).toolInput,
-    ).toMatchObject({ command: display, raw_command: raw });
+    ).toEqual({ command: display });
   });
   it('leaves uncertain syntax alone', () => {
     const raw = 'pwsh -Command "echo "nested""';
