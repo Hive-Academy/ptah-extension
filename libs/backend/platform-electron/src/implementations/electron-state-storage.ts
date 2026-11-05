@@ -187,7 +187,10 @@ export class ElectronStateStorage
     if (this.writeTimer !== null) clearTimeout(this.writeTimer);
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null;
-      void this.flush().catch(() => undefined);
+      void this.flush().catch(() => {
+        // degradation-audit: reported - flush() already rejected every
+        // caller awaiting this write with the failure.
+      });
     }, 300);
     await this.pendingWrite;
   }
@@ -316,9 +319,12 @@ export class ElectronStateStorage
     this.rejectPendingWrite = null;
     const changedCount = this.changedKeys.size;
     this.changedKeys.clear();
-    this.writePromise = this.writePromise.catch(() => undefined).then(() =>
-      this.persist(changedCount),
-    );
+    this.writePromise = this.writePromise
+      .catch(() => {
+        // degradation-audit: reported - the previous write's failure was
+        // delivered to its own callers; this write must still run after it.
+      })
+      .then(() => this.persist(changedCount));
     try {
       await this.writePromise;
       resolve?.();

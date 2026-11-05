@@ -19,8 +19,8 @@ async function exists(target: string): Promise<boolean> {
     await stat(target);
     return true;
   } catch {
-    // degradation-audit: expected-absence - a missing path is the answer this
-    // probe exists to give; the caller treats it as "no repository here".
+    // degradation-audit: optional-capability - a missing path is the answer
+    // this probe exists to give; the caller treats it as "no repository here".
     return false;
   }
 }
