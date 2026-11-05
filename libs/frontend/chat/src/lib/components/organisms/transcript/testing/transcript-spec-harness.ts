@@ -28,7 +28,6 @@ import {
 } from '../../message-bubble.component';
 import type { TurnContext } from '../../../../utils/turn-facts.utils';
 import { SessionAgentRosterService } from '../../../../services/session-agents/session-agent-roster.service';
-import { SessionInspectorStore } from '../../../../services/session-inspector/session-inspector.store';
 import { SESSION_CONTEXT } from '../../../../tokens/session-context.token';
 import { ChatTranscriptComponent } from '../chat-transcript.component';
 
@@ -54,7 +53,6 @@ export class TranscriptMessageBubbleStub {
   @Input() logOpen: boolean | null = null;
   @Input() turnLive = false;
   @Input() now = 0;
-  @Input() needsYouCount = 0;
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
   @Output() logToggled = new EventEmitter<TurnLogToggle>();
@@ -139,17 +137,10 @@ export function configureTranscriptTestBed(
         provide: SESSION_CONTEXT,
         useValue: options.sessionContext ?? null,
       },
-      // Turn agents and the live line's needs-you count (A1-3): no agents
-      // and nothing open unless a spec overrides them.
+      // Turn agents (A1-3): no agents unless a spec overrides them.
       {
         provide: SessionAgentRosterService,
         useValue: { roster: () => [] } as unknown as SessionAgentRosterService,
-      },
-      {
-        provide: SessionInspectorStore,
-        useValue: {
-          modelFor: () => signal({ needsYouCount: 0 }),
-        } as unknown as SessionInspectorStore,
       },
     ],
   });

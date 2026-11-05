@@ -32,7 +32,6 @@ import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
 import { hasMermaidFenceLine } from './execution/mermaid-fence-line';
 import {
   TypingCursorComponent,
-  StreamingQuotesComponent,
   CopyButtonComponent,
   AgentAvatarComponent,
   ReportResponseButtonComponent,
@@ -60,7 +59,6 @@ import {
 import { toUserMessageMarkdown } from '../../utils/user-message-markdown.utils';
 import { TurnDisclosureRowComponent } from '../molecules/turn/turn-disclosure-row.component';
 import { TurnActivityPanelComponent } from '../molecules/turn/turn-activity-panel.component';
-import { TurnLiveLineComponent } from '../molecules/turn/turn-live-line.component';
 
 /** The disclosure toggle of a turn, emitted for the transcript's per-turn flag. */
 export interface TurnLogToggle {
@@ -98,10 +96,10 @@ function turnHasActivityData(turn: TurnContext): boolean {
  *
  * Assistant messages render the clean turn (design-spec §3): disclosure row,
  * collapsible work log, answer, action row (copy, report, `Show
- * activity`), activity panel and live line. Turn-level rows sit on the turn's
- * first (disclosure) or last (actions, panel, live line) assistant
- * message; the transcript supplies the turn facts, the per-turn log flag,
- * the live clock and the needs-you count. Every log and
+ * activity`) and activity panel. Turn-level rows sit on the turn's
+ * first (disclosure) or last (actions, panel) assistant message; the
+ * transcript supplies the turn facts, the per-turn log flag and the live
+ * clock. Every log and
  * answer row renders through the unchanged `ptah-execution-node`.
  *
  * User messages keep today's right-aligned bubble inside
@@ -116,13 +114,11 @@ function turnHasActivityData(turn: TurnContext): boolean {
     ExecutionNodeComponent,
     MermaidMessageTextComponent,
     TypingCursorComponent,
-    StreamingQuotesComponent,
     CopyButtonComponent,
     AgentAvatarComponent,
     ReportResponseButtonComponent,
     TurnDisclosureRowComponent,
     TurnActivityPanelComponent,
-    TurnLiveLineComponent,
     LucideAngularModule,
   ],
   templateUrl: './message-bubble.component.html',
@@ -207,9 +203,6 @@ export class MessageBubbleComponent {
   /** The transcript's one live clock (Unix ms); a constant for settled turns. */
   readonly now = input<number>(0);
 
-  /** The session's needs-you aggregate, fed to the live turn only. */
-  readonly needsYouCount = input<number>(0);
-
   /**
    * Whether the parent tab's session is currently active in the SDK
    * (has a live `Query` handle). When false, the rewind button is
@@ -265,7 +258,7 @@ export class MessageBubbleComponent {
   protected readonly activityOpen = signal(false);
 
   /** Without a turn the message stands alone, so it is its turn's last. */
-  private readonly isLastOfTurn = computed(
+  protected readonly isLastOfTurn = computed(
     () => this.turn()?.isLastAssistant ?? true,
   );
 
@@ -347,19 +340,6 @@ export class MessageBubbleComponent {
     const turn = this.turn();
     return turn !== null && turnHasActivityData(turn);
   });
-
-  /** Live line: last message of a live turn (§3.7). */
-  protected readonly showLiveLine = computed(
-    () => this.turn() !== null && this.isLastOfTurn() && this.turnLive(),
-  );
-
-  /**
-   * Streaming quotes (B-13): while streaming and the log has no row yet.
-   * The live line shows the same sentences, so only one of them shows.
-   */
-  protected readonly showStreamingQuotes = computed(
-    () => this.isStreaming() && !this.hasLog() && !this.showLiveLine(),
-  );
 
   /**
    * `ptah-ui` fence rendering context for the execution tree: built only for
