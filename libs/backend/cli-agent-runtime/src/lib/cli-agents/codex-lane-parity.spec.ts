@@ -290,7 +290,7 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
     expect(h.context).not.toBe(chatContext);
     expect(h.profile.consumer).toBe('lane');
     expect(h.profile.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [cwd],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(h.profile.approvalPolicy).toBe('never');
     expect(chatProfile.consumer).toBe('chat');
@@ -345,10 +345,10 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
     expect(profileA.developerPrompt).not.toContain('Beta instructions');
     expect(profileB.developerPrompt).not.toContain('Alpha instructions');
     expect(profileA.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [cwd],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(profileB.sandboxPolicy).toEqual({
-      mode: 'workspace-write', networkAccess: false, writableRoots: [otherWork],
+      mode: 'danger-full-access', networkAccess: true, writableRoots: [],
     });
     expect(profileA.developerPrompt).not.toContain('beta-server');
     expect(profileB.developerPrompt).not.toContain('alpha-server');

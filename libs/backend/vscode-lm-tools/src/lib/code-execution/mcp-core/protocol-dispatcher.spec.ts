@@ -1370,6 +1370,7 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
       'ptah_agent_status',
       'ptah_agent_stop',
       'ptah_agent_message',
+      'ptah_agent_message_status',
       'ptah_agent_wait',
       'ptah_route_decide',
       'ptah_outcome_report',
@@ -8171,7 +8172,7 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(await list('admin')).toEqual(coding);
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
       // ptah_session_handoff, always-on (TASK_2026_655).
-      expect(coding).toHaveLength(hasIDECapabilities ? 66 : 63);
+      expect(coding).toHaveLength(hasIDECapabilities ? 67 : 64);
       expect(coding.map((tool) => tool.name)).toContain(
         'ptah_artifact_publish',
       );

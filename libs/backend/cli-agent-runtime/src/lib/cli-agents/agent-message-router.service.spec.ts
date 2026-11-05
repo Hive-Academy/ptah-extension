@@ -259,6 +259,22 @@ describe('AgentMessageRouter', () => {
       expect(dispatcher.continueConversation).toHaveBeenCalledTimes(1);
     });
 
+    it('fails every queued message for a superseded session', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      const dispatcher = createDispatcher();
+      const first = await router.route(AGENT_ID, tracked, 'first', dispatcher);
+      const second = await router.route(AGENT_ID, tracked, 'second', dispatcher);
+      tracked.info = { ...tracked.info, cliSessionId: 'session-2' };
+
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+      expect(tracked.pendingMessages).toEqual([]);
+      expect(router.messageStatus(AGENT_ID, tracked, first.messageId!)).toEqual({ status: 'failed', reason: 'session_changed' });
+      expect(router.messageStatus(AGENT_ID, tracked, second.messageId!)).toEqual({ status: 'failed', reason: 'session_changed' });
+      expect(dispatcher.continueConversation).not.toHaveBeenCalled();
+    });
+
     it('settles concurrent flush calls once and marks in-flight teardown failed', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = continuableRecord();

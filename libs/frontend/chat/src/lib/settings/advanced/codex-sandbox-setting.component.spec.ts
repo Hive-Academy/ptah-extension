@@ -130,6 +130,9 @@ describe('CodexSandboxSettingComponent', () => {
     expect(byTestId('codex-sandbox-windows-note')?.textContent?.trim()).toBe(
       CODEX_WINDOWS_WORKSPACE_WRITE_NOTE,
     );
+    const noNetworkHelp = host().querySelector('#codex-sandbox-workspace-write-no-network-help')?.textContent ?? '';
+    expect(noNetworkHelp).toContain('on Windows, network blocking is incomplete');
+    expect(noNetworkHelp).not.toContain('It cannot use the network');
     expect(byTestId('codex-sandbox-confirm')).toBeNull();
   });
 
@@ -267,12 +270,42 @@ describe('CodexSandboxSettingComponent', () => {
       return rpcError('host offline');
     });
     await pick('read-only');
-    expect(checkedMode()).toBe('workspace-write-network');
+    expect(checkedMode()).toBeUndefined();
+    expect(byTestId('codex-sandbox-effective')?.textContent?.trim()).toBe('Effective policy unknown.');
     expect(feedback.toast()).toEqual({
       tone: 'alert',
       message: 'Could not confirm whether Codex sandbox mode was saved.',
       canUndo: false,
     });
+  });
+
+  it('shows an unknown effective policy after an acknowledged write with a failed read-back until reload succeeds', async () => {
+    effective = 'read-only';
+    await create();
+    let failRead = true;
+    call.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'agent:getConfig') {
+        return failRead
+          ? rpcError('host offline')
+          : rpcSuccess({ codexSandboxMode: effective } as AgentOrchestrationConfig);
+      }
+      if (method === 'agent:setConfig') {
+        effective = (params as { codexSandboxMode: CodexSandboxMode }).codexSandboxMode;
+        return rpcSuccess({ success: true });
+      }
+      return rpcError('unexpected');
+    });
+
+    await pick('workspace-write-network');
+    expect(checkedMode()).toBeUndefined();
+    expect(byTestId('codex-sandbox-effective')?.textContent?.trim()).toBe('Effective policy unknown.');
+    expect(feedback.toast()?.message).toBe('Could not confirm whether Codex sandbox mode was saved.');
+
+    failRead = false;
+    byTestId<HTMLButtonElement>('codex-sandbox-reload')?.click();
+    await settle();
+    expect(checkedMode()).toBe('workspace-write-network');
+    expect(byTestId('codex-sandbox-effective')?.textContent?.trim()).toBe('In effect: Workspace write with network');
   });
 
   it('shows the mode the host reports when an acknowledged write does not take effect', async () => {

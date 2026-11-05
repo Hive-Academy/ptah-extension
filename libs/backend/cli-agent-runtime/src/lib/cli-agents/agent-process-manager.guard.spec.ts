@@ -121,6 +121,7 @@ function makeLane(options: LaneOptions = {}): FakeLane {
   const handle = {
     abort,
     done,
+    getSessionId: () => 'thread-guard-test',
     onOutput: jest.fn(),
     onSegment: (listener: (segment: CliOutputSegment) => void) => {
       segmentListener = listener;

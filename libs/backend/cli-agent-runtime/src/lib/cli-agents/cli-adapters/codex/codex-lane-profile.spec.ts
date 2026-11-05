@@ -202,11 +202,11 @@ describe('buildCodexLaneProfileSettings', () => {
     });
     expect(profile.consumer).toBe('lane');
     expect(profile.effort).toBe('high');
-    // D26: every native lane level is workspace-write in its cwd, no network.
+    // The visible Codex sandbox setting defaults to full access.
     expect(profile.approvalPolicy).toBe('never');
-    expect(profile.sandboxPolicy.mode).toBe('workspace-write');
-    expect(profile.sandboxPolicy.networkAccess).toBe(false);
-    expect(profile.fullAccessStatus).toBe('unproved-disabled');
+    expect(profile.sandboxPolicy.mode).toBe('danger-full-access');
+    expect(profile.sandboxPolicy.networkAccess).toBe(true);
+    expect(profile.fullAccessStatus).toBe('explicit');
     expect(profile.lane?.suppressedTools.length).toBeGreaterThan(0);
   });
 
@@ -222,9 +222,9 @@ describe('buildCodexLaneProfileSettings', () => {
         paths,
       });
       expect(profile.approvalPolicy).toBe('never');
-      expect(profile.sandboxPolicy.mode).toBe('workspace-write');
-      expect(profile.sandboxPolicy.networkAccess).toBe(false);
-      expect(profile.fullAccessStatus).toBe('unproved-disabled');
+      expect(profile.sandboxPolicy.mode).toBe('danger-full-access');
+      expect(profile.sandboxPolicy.networkAccess).toBe(true);
+      expect(profile.fullAccessStatus).toBe('explicit');
     },
   );
 

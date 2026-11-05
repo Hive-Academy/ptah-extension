@@ -321,6 +321,12 @@ export class AgentMessageRouter {
 
     if (!tracked.info.cliSessionId || tracked.info.cliSessionId !== next.cliSessionId) {
       this.setTerminal(agentId, next.messageId, { status: 'failed', reason: 'session_changed' });
+      for (let index = tracked.pendingMessages.length - 1; index >= 0; index -= 1) {
+        const entry = tracked.pendingMessages[index];
+        if (entry.cliSessionId !== next.cliSessionId) continue;
+        this.setTerminal(agentId, entry.messageId, { status: 'failed', reason: 'session_changed' });
+        tracked.pendingMessages.splice(index, 1);
+      }
       return;
     }
 

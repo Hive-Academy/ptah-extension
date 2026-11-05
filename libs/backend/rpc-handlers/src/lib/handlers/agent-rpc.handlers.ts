@@ -1993,9 +1993,15 @@ export class AgentRpcHandlers {
     return isLaneRepeatCallStopAt(value) ? value : fallback;
   }
 
-  /** Read the Codex lane web-search switch; a non-boolean reads as the default. */
+  /** Read the Codex sandbox mode; only an absent key reads as the default, null is invalid. */
   private getCodexSandboxMode(): CodexSandboxMode {
-    const value: unknown = this.getAgentCfg('codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE);
+    const absent = Symbol('codexSandboxMode absent');
+    const stored: unknown = this.workspace.getConfiguration<unknown>(
+      'ptah',
+      'agentOrchestration.codexSandboxMode',
+      absent,
+    );
+    const value = stored === absent ? DEFAULT_CODEX_SANDBOX_MODE : stored;
     const parsed = codexSandboxModeSchema.safeParse(value);
     if (!parsed.success) throw new Error('Invalid agentOrchestration.codexSandboxMode setting');
     return parsed.data;

@@ -161,7 +161,7 @@ describe('StdioMcpServerService', () => {
   });
 
   describe('handleToolsList', () => {
-    it('returns exactly the 12 MVP tool definitions with MCP-wire names', () => {
+    it('returns exactly the 13 MVP tool definitions with MCP-wire names', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req);
@@ -171,6 +171,7 @@ describe('StdioMcpServerService', () => {
         'agent_status',
         'agent_read',
         'agent_message',
+        'agent_message_status',
         'agent_report',
         'agent_stop',
         'agent_list',
@@ -180,7 +181,7 @@ describe('StdioMcpServerService', () => {
         'outcome_report',
         'session_submit',
       ]);
-      expect(tools).toHaveLength(12);
+      expect(tools).toHaveLength(13);
       expect(tools.every((t) => !t.name.startsWith('ptah_'))).toBe(true);
       expect(
         (
@@ -201,12 +202,12 @@ describe('StdioMcpServerService', () => {
       expect(tools.map((t) => t.name)).toEqual(['agent_spawn', 'agent_list']);
     });
 
-    it('ignores an empty allowedTools array (returns all 12 tools)', () => {
+    it('ignores an empty allowedTools array (returns all 13 tools)', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req, []);
       const tools = (resp.result as { tools: { name: string }[] }).tools;
-      expect(tools).toHaveLength(12);
+      expect(tools).toHaveLength(13);
     });
 
     it('declares each served tool’s result ceiling in _meta (review r3: R3-06)', () => {
@@ -228,6 +229,7 @@ describe('StdioMcpServerService', () => {
         agent_status: 8000,
         agent_read: 8000,
         agent_message: 8000,
+        agent_message_status: 8000,
         agent_report: 8000,
         agent_stop: 8000,
         agent_list: 8000,

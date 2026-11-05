@@ -69,7 +69,8 @@ function profileAtLevel(
   return {
     ...profile,
     permissionLevel,
-    ...resolveCodexLevelPolicy(profile.consumer, permissionLevel, profile.cwd),
+    codexSandboxMode: 'workspace-write-no-network',
+    ...resolveCodexLevelPolicy(profile.consumer, permissionLevel, profile.cwd, 'workspace-write-no-network'),
     profileFingerprint,
   };
 }
@@ -2632,7 +2633,6 @@ describe('CodexRuntime', () => {
     const cases: NonNullable<CodexExecutionProfile['lane']>[] = [
       { ...baseLane, maxTurns: 1 },
       { ...baseLane, maxBudgetUsd: 0.5 },
-      { ...baseLane, explicitFullAccess: true },
       { ...baseLane, suppressedTools: ['shell'] },
     ];
     for (const lane of cases) {

@@ -212,7 +212,7 @@ describe('CodexAppServerLaneAdapter', () => {
     for (let tick = 0; tick < 100 && jest.mocked(h.runtime.open).mock.calls.length === 0; tick += 1)
       await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
-    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'workspace-write');
+    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'danger-full-access');
     expect(h.runtime.open).toHaveBeenCalled();
     expect(h.identities.persist).not.toHaveBeenCalled();
     release?.();
@@ -240,7 +240,7 @@ describe('CodexAppServerLaneAdapter', () => {
     const denied = new CodexLaneWriteDacDeniedError('/work');
     h.preflight.check.mockRejectedValueOnce(denied);
     await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }))).rejects.toBe(denied);
-    expect(h.preflight.check).toHaveBeenLastCalledWith('/work', 'workspace-write');
+    expect(h.preflight.check).toHaveBeenLastCalledWith('/work', 'danger-full-access');
     expect(h.identities.persist).toHaveBeenCalledTimes(1);
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(h.writers.has('thread-1')).toBe(false);
@@ -299,7 +299,7 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.profile.lane).toMatchObject({ agentsEnabled: false, pluginsEnabled: false,
       appsEnabled: false, includeSkillInstructions: false, disabledUserMcpServers: ['user-server'],
       autoCompactTokens: 120000, toolOutputTokenLimit: 2500, webSearch: 'live', explicitFullAccess: false });
-    expect(h.profile.sandboxPolicy).toEqual({ mode: 'workspace-write', networkAccess: false, writableRoots: ['/work'] });
+    expect(h.profile.sandboxPolicy).toEqual({ mode: 'danger-full-access', networkAccess: true, writableRoots: [] });
     expect(h.profile.mcpServers[0]).toMatchObject({ name: 'ptah', url: expect.stringContaining('/agent/lane-1') });
     expect(handle.getSessionId?.()).toBe('thread-1');
     h.context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'Hello' });
@@ -733,7 +733,7 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.profile.lane?.includeSkillInstructions).toBeUndefined();
     expect(h.profile.lane?.disabledUserMcpServers).toEqual(['user-server']);
     expect(h.profile.mcpServers[0]?.name).toBe('ptah');
-    expect(h.profile.sandboxPolicy.mode).toBe('workspace-write');
+    expect(h.profile.sandboxPolicy.mode).toBe('danger-full-access');
     expect(notices).toEqual(['rejected']);
     expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('Codex rejected the lane config') });
     await terminal(h.context);

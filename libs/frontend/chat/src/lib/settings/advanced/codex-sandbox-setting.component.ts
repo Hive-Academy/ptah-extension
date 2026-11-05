@@ -54,7 +54,7 @@ const CHOICE_TEXT: Readonly<
   },
   'workspace-write-no-network': {
     label: 'Workspace write, no network',
-    help: 'Codex can change files in this workspace. It cannot use the network.',
+    help: 'Codex can change files in this workspace. Network access is disabled where supported; on Windows, network blocking is incomplete and Codex may still connect.',
   },
   'workspace-write-network': {
     label: 'Workspace write with network',
@@ -267,8 +267,17 @@ function isSandboxMode(value: unknown): value is CodexSandboxMode {
             aria-live="polite"
             data-testid="codex-sandbox-effective"
           >
-            In effect: {{ effectiveLabel() }}
+            @if (saved() === null) {
+              Effective policy unknown.
+            } @else {
+              In effect: {{ effectiveLabel() }}
+            }
           </p>
+          @if (saved() === null) {
+            <button type="button" [class]="'btn btn-outline btn-sm ' + focusRing"
+              [ptahBusyDisabled]="busy()" (click)="reload()"
+              data-testid="codex-sandbox-reload">Reload effective policy</button>
+          }
           <p
             id="codex-sandbox-precedence"
             class="text-xs text-base-content-muted"
@@ -313,7 +322,7 @@ export class CodexSandboxSettingComponent implements OnInit {
 
   protected readonly load = signal<'loading' | 'error' | 'ready'>('loading');
   /** The effective mode the host last reported; the last confirmed value. */
-  private readonly saved = signal<CodexSandboxMode | null>(null);
+  protected readonly saved = signal<CodexSandboxMode | null>(null);
   /** A pick awaiting the full access confirm or its write; the radios show it meanwhile. */
   private readonly pending = signal<CodexSandboxMode | null>(null);
   protected readonly confirming = signal(false);
@@ -419,7 +428,10 @@ export class CodexSandboxSettingComponent implements OnInit {
     const answer = await this.set(mode);
     if (answer === 'refused') return { ok: false, message: NOT_SAVED };
     const effective = await this.readEffective();
-    if (effective === null) return { ok: false, message: NOT_CONFIRMED };
+    if (effective === null) {
+      this.saved.set(null);
+      return { ok: false, message: NOT_CONFIRMED };
+    }
     this.saved.set(effective);
     if (effective === mode) return { ok: true };
     return {
@@ -448,6 +460,7 @@ export class CodexSandboxSettingComponent implements OnInit {
       this.logger.warn('CodexSandboxSetting', 'agent:setConfig refused');
       return 'refused';
     } catch (error: unknown) {
+      // degradation-audit: reported - the setting stays unconfirmed and the transport failure is logged by type.
       this.logger.warn('CodexSandboxSetting', 'agent:setConfig failed', {
         errorType: errorTypeOf(error),
       });
@@ -470,6 +483,7 @@ export class CodexSandboxSettingComponent implements OnInit {
       );
       return null;
     } catch (error: unknown) {
+      // degradation-audit: reported - a failed effective-setting read is logged and shown as unknown.
       this.logger.warn('CodexSandboxSetting', 'agent:getConfig failed', {
         errorType: errorTypeOf(error),
       });
