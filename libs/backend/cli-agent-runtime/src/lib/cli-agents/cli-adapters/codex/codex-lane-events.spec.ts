@@ -1,3 +1,4 @@
+import { CODEX_DENIED_TOOL_RESULT_TEXT, presentCodexTool } from '@ptah-extension/codex-runtime';
 import type { CodexRuntimeEvent } from '@ptah-extension/codex-runtime';
 import { CodexLaneEvents } from './codex-lane-events';
 
@@ -25,13 +26,13 @@ describe('CodexLaneEvents', () => {
     const map = mapper();
     expect(map({ type: 'userInputAsync', itemId: 'question', text: 'Choose one',
       questions: [{ title: 'Which?', options: ['A'] }],
-    }).segments).toEqual([{ type: 'text', content: 'Choose one' }]);
+    }).segments).toEqual([{ type: 'text', content: 'Choose one', messageId: 'question' }]);
   });
   it('preserves ordered partial text and emits only a missing final suffix', () => {
     const map = mapper();
     expect(
       map({ type: 'textDelta', itemId: 'a', delta: 'Hello' }).segments,
-    ).toEqual([{ type: 'text', content: 'Hello' }]);
+    ).toEqual([{ type: 'text', content: 'Hello', messageId: 'a' }]);
     expect(
       map({ type: 'textDelta', itemId: 'b', delta: 'Other' }).segments[0]
         ?.content,
@@ -54,7 +55,7 @@ describe('CodexLaneEvents', () => {
     expect(
       map({ type: 'reasoning', itemId: 'a', text: 'Think', phase: 'delta' })
         .segments,
-    ).toEqual([{ type: 'thinking', content: 'Think' }]);
+    ).toEqual([{ type: 'thinking', content: 'Think', messageId: 'a' }]);
     expect(
       map({ type: 'reasoning', itemId: 'a', text: 'Think', phase: 'final' })
         .segments,
@@ -93,8 +94,8 @@ describe('CodexLaneEvents', () => {
           output: 'result',
         }).segments[0],
       ).toEqual({
-        type: status === 'completed' ? 'tool-result' : 'tool-result-error',
-        content: 'result',
+        type: status === 'failed' ? 'tool-result-error' : 'tool-result',
+        content: status === 'cancelled' ? CODEX_DENIED_TOOL_RESULT_TEXT : 'result',
         toolCallId: 'tool-1',
         toolName: 'read',
       });
@@ -135,7 +136,7 @@ describe('CodexLaneEvents', () => {
       type: 'tool-result-error',
       content: 'MCP tool call requires approval, but approval policy is never',
       toolCallId: 'mcp-1',
-      toolName: 'ptah/ptah_agent_report',
+      toolName: 'mcp__ptah__ptah_agent_report',
     }]);
   });
 
@@ -156,8 +157,26 @@ describe('CodexLaneEvents', () => {
       type: 'tool-result-error',
       content: 'Tool call failed',
       toolCallId: 'mcp-2',
-      toolName: 'ptah/ptah_agent_message',
+      toolName: 'mcp__ptah__ptah_agent_message',
     }]);
+  });
+
+  it('presents command failures by exit code and file additions as Write', () => {
+    const map = mapper();
+    const started = map({ type: 'toolStarted', toolId: 'command', toolName: 'commandExecution', input: { command: 'cmd.exe /c rg -n test' } }).segments[0];
+    expect(started).toMatchObject({ toolName: 'Bash', toolInput: { command: 'rg -n test', raw_command: 'cmd.exe /c rg -n test' } });
+    expect(map({ type: 'toolCompleted', toolId: 'command', status: 'completed', output: 'oops', exitCode: 2 }).segments[0]).toMatchObject({ type: 'tool-result-error', content: 'oops\nCommand failed with exit code 2' });
+    expect(map({ type: 'toolStarted', toolId: 'file', toolName: 'fileChange', input: { changes: [{ path: '/new', kind: { type: 'add' } }] } }).segments[0]).toMatchObject({ toolName: 'Write' });
+    expect(map({ type: 'toolCompleted', toolId: 'file', status: 'completed', output: null }).segments[0]).toMatchObject({ toolName: 'Write' });
+    expect(map({ type: 'file', itemId: 'file', path: '/new', operation: 'add' }).segments[0]).toMatchObject({ type: 'file-change', toolCallId: 'file' });
+  });
+
+  it('keeps separate message identities for adjacent items', () => {
+    const map = mapper();
+    expect(map({ type: 'textDelta', itemId: 'first', delta: 'A' }).segments[0]?.messageId).toBe('first');
+    expect(map({ type: 'textFinal', itemId: 'first', text: 'AB' }).segments[0]?.messageId).toBe('first');
+    expect(map({ type: 'textDelta', itemId: 'second', delta: 'C' }).segments[0]?.messageId).toBe('second');
+    expect(map({ type: 'reasoning', itemId: 'thought', text: 'think', phase: 'delta' }).segments[0]?.messageId).toBe('thought');
   });
 
   it('emits only the latest reported usage once at terminal', () => {
@@ -310,7 +329,7 @@ describe('CodexLaneEvents', () => {
         operation,
         diff: 'diff',
       }).segments,
-    ).toEqual([{ type: 'file-change', content: '/file', changeKind }]);
+    ).toEqual([{ type: 'file-change', content: '/file', changeKind, toolCallId: 'file' }]);
   });
 
   it('represents unsupported image rendering and compaction honestly', () => {

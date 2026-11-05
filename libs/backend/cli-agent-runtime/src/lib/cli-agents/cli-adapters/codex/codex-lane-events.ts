@@ -1,6 +1,8 @@
-import type {
-  CodexReportedUsage,
-  CodexRuntimeEvent,
+import {
+  presentCodexTool,
+  presentCodexToolResult,
+  type CodexReportedUsage,
+  type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import type { CliOutputSegment } from '@ptah-extension/shared';
 
@@ -20,7 +22,11 @@ export class CodexLaneEvents {
   private sequence = -1;
   private readonly text = new Map<string, string>();
   private readonly reasoning = new Map<string, string>();
-  private readonly tools = new Map<string, string>();
+  /** toolId -> raw Codex tool name and the name its tool-call row showed. */
+  private readonly tools = new Map<
+    string,
+    { readonly raw: string; readonly presented: string }
+  >();
   private usage?: CodexReportedUsage;
   private errorEmitted = false;
 
@@ -58,42 +64,67 @@ export class CodexLaneEvents {
           event.phase === 'final',
           'thinking',
         );
-      case 'toolStarted':
-        this.tools.set(event.toolId, event.toolName);
+      case 'toolStarted': {
+        const input =
+          event.input !== null &&
+          typeof event.input === 'object' &&
+          !Array.isArray(event.input)
+            ? { ...event.input }
+            : undefined;
+        const presented = presentCodexTool(event.toolName, input);
+        // The result row must carry the same name as its call row (Write for a
+        // single add needs the input, which the completion does not have).
+        this.tools.set(event.toolId, {
+          raw: event.toolName,
+          presented: presented.toolName,
+        });
         return {
           segments: [
             {
               type: 'tool-call',
-              content: event.toolName,
-              toolName: event.toolName,
+              content: presented.toolName,
+              toolName: presented.toolName,
               toolCallId: event.toolId,
-              toolArgs: JSON.stringify(event.input),
-              ...(event.input !== null &&
-              typeof event.input === 'object' &&
-              !Array.isArray(event.input)
-                ? { toolInput: { ...event.input } }
-                : {}),
+              toolArgs: JSON.stringify(presented.toolInput ?? event.input),
+              ...(presented.toolInput === undefined
+                ? {}
+                : { toolInput: presented.toolInput }),
             },
           ],
         };
+      }
       case 'toolCompleted': {
-        const toolName = this.tools.get(event.toolId);
+        const tool = this.tools.get(event.toolId);
         this.tools.delete(event.toolId);
+        const result = presentCodexToolResult({
+          toolName: tool?.raw,
+          status: event.status,
+          output: event.output,
+          exitCode: event.exitCode,
+          errorText: event.errorText,
+        });
+        const presentedName = tool?.presented;
         return {
           segments: [
             {
               type:
-                event.status === 'completed'
+                event.status === 'cancelled'
                   ? 'tool-result'
-                  : 'tool-result-error',
+                  : result.isError
+                    ? 'tool-result-error'
+                    : 'tool-result',
               content:
-                event.status === 'failed' && event.output == null
-                  ? (event.errorText?.trim() || 'Tool call failed')
-                  : typeof event.output === 'string'
-                    ? event.output
-                    : JSON.stringify(event.output),
+                result.output == null
+                  ? event.status === 'failed'
+                    ? 'Tool call failed'
+                    : ''
+                  : typeof result.output === 'string'
+                    ? result.output
+                    : JSON.stringify(result.output),
               toolCallId: event.toolId,
-              ...(toolName === undefined ? {} : { toolName }),
+              ...(presentedName === undefined
+                ? {}
+                : { toolName: presentedName }),
             },
           ],
         };
@@ -104,6 +135,7 @@ export class CodexLaneEvents {
             {
               type: 'file-change',
               content: event.path,
+              toolCallId: event.itemId,
               changeKind: {
                 add: 'added',
                 update: 'modified',
@@ -187,7 +219,9 @@ export class CodexLaneEvents {
         ? value.slice(previous.length)
         : value;
     store.set(id, final ? value : previous + value);
-    return { segments: content === '' ? [] : [{ type, content }] };
+    return {
+      segments: content === '' ? [] : [{ type, content, messageId: id }],
+    };
   }
 }
 
