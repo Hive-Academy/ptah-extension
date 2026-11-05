@@ -36,10 +36,14 @@ function commandFor(cwd: string): string {
   const script = `$path = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${pathBase64}'))
 try {
   $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  $owner = (New-Object System.IO.DirectoryInfo $path).GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if ($owner -eq $me) { [Console]::Out.WriteLine(0); exit 0 }
+  $sid = [System.Security.Principal.SecurityIdentifier]
+  $acl = (New-Object System.IO.DirectoryInfo $path).GetAccessControl([System.Security.AccessControl.AccessControlSections]'Owner, Access')
+  # An OWNER RIGHTS (S-1-3-4) ACE replaces the owner's implicit READ_CONTROL and
+  # WRITE_DAC, so ownership proves WRITE_DAC only when the DACL has no such ACE.
+  $ownerRights = @($acl.GetAccessRules($true, $true, $sid) | Where-Object { $_.IdentityReference.Value -eq 'S-1-3-4' }).Count
+  if ($acl.GetOwner($sid).Value -eq $me -and $ownerRights -eq 0) { [Console]::Out.WriteLine(0); exit 0 }
 } catch {
-  # Ownership lookup failed; the CreateFileW probe below remains authoritative.
+  # Ownership or DACL lookup failed; the CreateFileW probe below remains authoritative.
 }
 $sig = @'
 using System;

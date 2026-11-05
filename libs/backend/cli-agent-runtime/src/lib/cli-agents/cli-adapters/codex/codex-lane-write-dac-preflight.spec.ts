@@ -125,15 +125,17 @@ describe('CodexLaneWriteDacPreflight', () => {
     expect(Buffer.from(payload ?? '', 'base64').toString('utf16le')).toContain("O'Brien-\u0645\u0635\u0631");
   });
 
-  it('checks the current owner before compiling the CreateFileW probe', async () => {
+  it('takes the owner fast path only without an OWNER RIGHTS ACE, before compiling the probe', async () => {
     const h = setup('0');
     await h.check.check('C:\\owned', 'workspace-write');
     const encoded = jest.mocked(h.runner.run).mock.calls[0][0];
     const script = Buffer.from(encoded, 'base64').toString('utf16le');
+    const fastPath = "if ($acl.GetOwner($sid).Value -eq $me -and $ownerRights -eq 0) { [Console]::Out.WriteLine(0); exit 0 }";
     expect(script).toContain('[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value');
-    expect(script).toContain('GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner)');
-    expect(script).toContain('if ($owner -eq $me) { [Console]::Out.WriteLine(0); exit 0 }');
-    expect(script.indexOf('if ($owner -eq $me)')).toBeLessThan(script.indexOf('Add-Type'));
+    expect(script).toContain("GetAccessControl([System.Security.AccessControl.AccessControlSections]'Owner, Access')");
+    expect(script).toContain("$_.IdentityReference.Value -eq 'S-1-3-4'");
+    expect(script).toContain(fastPath);
+    expect(script.indexOf(fastPath)).toBeLessThan(script.indexOf('Add-Type'));
     expect(script).toContain('CreateFileW(path, 0x00040000, 7, IntPtr.Zero, 3, 0x02000000');
   });
 
