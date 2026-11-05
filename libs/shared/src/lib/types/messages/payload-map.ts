@@ -9,6 +9,7 @@ import type {
 import type { FlatStreamEventUnion } from '../execution';
 import type { PermissionPromptCancelledPayload } from '../session-runtime.types';
 import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
+import type { ChatQueuedMessageStateEvent } from '../rpc/rpc-chat.types';
 import type { CodexLoginState, KimiCodeLoginState } from '../rpc/rpc-auth.types';
 
 import type {
@@ -353,6 +354,7 @@ export interface MessagePayloadMap {
   'attention:changed': AttentionChangedPayload;
   'attention:openTarget': AttentionOpenTargetPayload;
   'chat:streamSnapshot': ChatStreamSnapshotPayload;
+  'chat:queued-message-state': ChatQueuedMessageStateEvent;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;
   'chat:sessionStart': ChatSessionStartPayload;

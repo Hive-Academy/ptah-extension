@@ -319,6 +319,7 @@ export const DEFAULT_ALLOWED_PUSH_TYPES: ReadonlySet<string> = new Set<string>([
   'chat:toolProgress',
   'chat:complete',
   'chat:streamSnapshot',
+  'chat:queued-message-state',
   'chat:error',
   'chat:sessionEnded',
   'session:turnEnded',

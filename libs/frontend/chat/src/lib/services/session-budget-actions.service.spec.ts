@@ -1,11 +1,14 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { QueuedFollowUpStore } from '@ptah-extension/chat-state';
 import type { SessionStatus } from '@ptah-extension/chat-types';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import { SessionBudgetActionsService } from './session-budget-actions.service';
+import { FollowUpQueueService } from './chat-store/follow-up-queue.service';
+import { SessionAutoHandoffService } from './session-auto-handoff.service';
 import {
   SESSION_HANDOFF_COMMAND,
   SESSION_WRAP_UP_PROMPT,
@@ -57,10 +60,12 @@ describe('SessionBudgetActionsService', () => {
     const tabId = signal<string | null>('tab-abc');
     // Default: the workspace has no `session-handoff` skill.
     const rpcCallMock = jest.fn().mockResolvedValue(commandsResult());
+    const withdrawMock = jest.fn().mockResolvedValue(true);
 
     TestBed.configureTestingModule({
       providers: [
         SessionBudgetActionsService,
+        { provide: FollowUpQueueService, useValue: { withdraw: withdrawMock } },
         {
           provide: ActionBannerService,
           useValue: { showError: showErrorMock },
@@ -77,6 +82,8 @@ describe('SessionBudgetActionsService', () => {
       ],
     });
     const service = TestBed.inject(SessionBudgetActionsService);
+    const followUpStore = TestBed.inject(QueuedFollowUpStore);
+    const autoHandoff = TestBed.inject(SessionAutoHandoffService);
     service.connect({
       activeTab: tab,
       tabId,
@@ -90,6 +97,9 @@ describe('SessionBudgetActionsService', () => {
       sendOrQueueMessageMock,
       showErrorMock,
       rpcCallMock,
+      withdrawMock,
+      followUpStore,
+      autoHandoff,
     };
   }
 
@@ -148,7 +158,59 @@ describe('SessionBudgetActionsService', () => {
     });
   });
 
+  describe('automatic hand-off cancellation', () => {
+    it('withdraws only its queued follow-up and keeps the session cancelled', async () => {
+      const { service, followUpStore, autoHandoff, withdrawMock } = setup();
+      const queued = { clientMessageId: 'handoff-1', tabId: 'tab-abc', sessionId: SESSION };
+      followUpStore.add({ ...queued, content: '/session-handoff', isCommand: true, phase: 'held' });
+      autoHandoff.claim(SESSION);
+      autoHandoff.recordQueued(SESSION, queued);
+
+      expect(service.autoHandoffQueued()).toBe(true);
+      await service.cancelAutoHandoff();
+
+      expect(withdrawMock).toHaveBeenCalledWith(queued, { restore: false });
+      expect(autoHandoff.entry(SESSION)?.state).toBe('cancelled');
+      expect(service.wrapUpSent()).toBe(false);
+    });
+
+    it('reverts cancellation when a turn already claimed the follow-up', async () => {
+      const { service, followUpStore, autoHandoff, withdrawMock } = setup();
+      const queued = { clientMessageId: 'handoff-2', tabId: 'tab-abc', sessionId: SESSION };
+      followUpStore.add({ ...queued, content: '/session-handoff', isCommand: true, phase: 'queued' });
+      autoHandoff.claim(SESSION);
+      autoHandoff.recordQueued(SESSION, queued);
+      withdrawMock.mockResolvedValueOnce(false);
+
+      await service.cancelAutoHandoff();
+
+      expect(autoHandoff.entry(SESSION)?.state).toBe('fired');
+      expect(service.autoHandoffQueued()).toBe(true);
+    });
+  });
+
   describe('sendWrapUp', () => {
+    it('keeps the button disabled while a queued wrap-up waits, then re-enables it if withdrawn', async () => {
+      const { service, sendOrQueueMessageMock, followUpStore, showErrorMock } = setup();
+      const queued = { clientMessageId: 'wrap-1', tabId: 'tab-abc', sessionId: SESSION };
+      followUpStore.add({
+        ...queued,
+        content: 'wrap up',
+        isCommand: false,
+        phase: 'queued',
+      });
+      sendOrQueueMessageMock.mockResolvedValueOnce({ success: true, queued });
+
+      await service.sendWrapUp();
+      expect(service.wrapUpSent()).toBe(true);
+      followUpStore.settle(queued.clientMessageId, 'withdrawn');
+      expect(service.wrapUpSent()).toBe(false);
+      expect(showErrorMock).toHaveBeenCalledWith(
+        'The wrap-up request was not sent: it was stopped or failed before it ran.',
+        'tab-abc',
+      );
+    });
+
     it('sends the wrap-up prompt through the composer send path, once', async () => {
       const { service, sendOrQueueMessageMock } = setup();
 

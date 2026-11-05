@@ -112,6 +112,14 @@ export interface AIMessageOptions {
    * `session-ended`) and nothing is queued.
    */
   readonly admission?: 'require-idle';
+  /**
+   * Backend-owned follow-up (TASK_2026_884). When set, `clientMessageId` is
+   * required. A send during a running turn is held for this exact session and
+   * admitted as the next turn; state changes are reported through
+   * `FollowUpQueueOperations.onQueuedFollowUpState`. Never folded into the
+   * running turn.
+   */
+  readonly queueIntent?: 'next-turn';
 }
 
 /**

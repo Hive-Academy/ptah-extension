@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import type { QueuedCommand } from './chat-store/conversation.service';
+import type { QueuedFollowUpRef } from '@ptah-extension/chat-state';
 
 /** `fired`: the automatic hand-off ran for the session; `cancelled`: the user cancelled it. */
 export type AutoHandoffState = 'fired' | 'cancelled';
@@ -8,12 +8,10 @@ export type AutoHandoffState = 'fired' | 'cancelled';
 export interface AutoHandoffEntry {
   readonly state: AutoHandoffState;
   /**
-   * The queue entry the command became, by identity (not by text); `null`
-   * before the send and when it was sent straight away.
+   * The queued follow-up the command became, by identity (not by text);
+   * `null` before the send and when it was sent straight away.
    */
-  readonly queued: QueuedCommand | null;
-  /** True while that entry waits behind other queued text (held). */
-  readonly held: boolean;
+  readonly queued: QueuedFollowUpRef | null;
 }
 
 /**
@@ -51,19 +49,15 @@ export class SessionAutoHandoffService {
    */
   claim(sessionId: string): boolean {
     if (this._entries().has(sessionId)) return false;
-    this.set(sessionId, { state: 'fired', queued: null, held: false });
+    this.set(sessionId, { state: 'fired', queued: null });
     return true;
   }
 
-  /** Record the queue entry a fired session's command became. */
-  recordQueued(
-    sessionId: string,
-    queued: QueuedCommand | null,
-    held: boolean,
-  ): void {
+  /** Record the queued follow-up a fired session's command became. */
+  recordQueued(sessionId: string, queued: QueuedFollowUpRef | null): void {
     const current = this.entry(sessionId);
     if (current?.state !== 'fired') return;
-    this.set(sessionId, { ...current, queued, held });
+    this.set(sessionId, { ...current, queued });
   }
 
   /** The user cancelled it: it never fires again for the session. */
@@ -72,8 +66,17 @@ export class SessionAutoHandoffService {
     this.set(sessionId, {
       state: 'cancelled',
       queued: current?.queued ?? null,
-      held: false,
     });
+  }
+
+  /**
+   * Undo a {@link cancel} whose withdraw came too late: a turn already took
+   * the command, so the hand-off did fire.
+   */
+  revertCancel(sessionId: string): void {
+    const current = this.entry(sessionId);
+    if (current?.state !== 'cancelled') return;
+    this.set(sessionId, { state: 'fired', queued: current.queued });
   }
 
   /**

@@ -148,6 +148,26 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   ): ReturnType<IAgentAdapter['sendMessageToSession']> {
     return this.adapter(args[0], true).sendMessageToSession(...args);
   }
+  onQueuedFollowUpState(
+    listener: Parameters<NonNullable<IAgentAdapter['onQueuedFollowUpState']>>[0],
+  ): () => void {
+    const unsubscribeLegacy = this.legacy.onQueuedFollowUpState?.(listener);
+    const unsubscribeNative = this.native.onQueuedFollowUpState?.(listener);
+    return () => { unsubscribeLegacy?.(); unsubscribeNative?.(); };
+  }
+  withdrawQueuedFollowUp(sessionId: SessionId, clientMessageId: string): Promise<boolean> {
+    return this.adapter(sessionId).withdrawQueuedFollowUp?.(sessionId, clientMessageId)
+      ?? Promise.resolve(false);
+  }
+  listQueuedFollowUps(sessionId: SessionId): ReturnType<NonNullable<IAgentAdapter['listQueuedFollowUps']>> {
+    return this.adapter(sessionId).listQueuedFollowUps?.(sessionId) ?? [];
+  }
+  steerQueuedFollowUp(
+    sessionId: SessionId, clientMessageId: string,
+  ): ReturnType<NonNullable<IAgentAdapter['steerQueuedFollowUp']>> {
+    return this.adapter(sessionId).steerQueuedFollowUp?.(sessionId, clientMessageId)
+      ?? Promise.resolve({ ok: false, code: 'UNSUPPORTED' });
+  }
   isSessionActive(
     ...args: Parameters<IAgentAdapter['isSessionActive']>
   ): boolean {

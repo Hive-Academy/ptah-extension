@@ -430,6 +430,8 @@ describe.each([
       'mcpToolProfile',
       'ptahUiFence',
       'accountSelection',
+      // Backend-owned follow-up queue (TASK_2026_884).
+      'queueIntent',
     ],
   ],
 ] as const)(

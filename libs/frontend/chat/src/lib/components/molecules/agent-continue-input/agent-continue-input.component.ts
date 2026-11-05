@@ -253,7 +253,6 @@ export class AgentContinueInputComponent {
 
   /**
    * Put a queued message back in the box so it can be edited or dropped.
-   * Mirrors `ChatStore.moveQueueToInput`.
    */
   protected unqueue(): void {
     const pending = this.followUps.unqueue(this.agent().agentId);

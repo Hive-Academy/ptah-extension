@@ -17,6 +17,7 @@
  *   SLASH_COMMAND_ROUTER      ← SDK_CONTEXT, STREAM_BROADCASTER
  *   MCP_STATUS                ← (no chat deps)
  *   HISTORY_READ              ← (no chat deps)
+ *   FOLLOW_UP_QUEUE           ← (no chat deps)
  *   SESSION                   ← all of the above
  *   CARRY_OVER                ← SESSION, HISTORY_READ, RUNTIME_PROFILE
  *   SURFACE_SUBMIT_TURN       ← STREAM_BROADCASTER
@@ -59,6 +60,7 @@ import { ChatCarryOverService } from './session/chat-carry-over.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
+import { ChatFollowUpQueueService } from './follow-up/chat-follow-up-queue.service';
 import {
   SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
   SURFACE_SUBMIT_TURN_OPTIONS,
@@ -100,6 +102,12 @@ export function registerChatServices(container: DependencyContainer): void {
   container.registerSingleton(
     CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR,
     SessionDriverLockCoordinator,
+  );
+  // Registered BEFORE `SESSION`, which injects it. Its constructor subscribes
+  // to the adapter's queued follow-up states (TASK_2026_884).
+  container.registerSingleton(
+    CHAT_TOKENS.FOLLOW_UP_QUEUE,
+    ChatFollowUpQueueService,
   );
   // No output-style registration here. `OutputStyleSessionActivationService`
   // moved to `output-styles` when the CLI-agent spawn path started needing the

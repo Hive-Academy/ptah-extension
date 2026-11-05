@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -13,175 +13,34 @@ import {
   MessageSenderService,
   type SendOutcome,
 } from '../message-sender.service';
-import type {
-  SendMessageOptions,
-  SessionStatus,
-  StreamingState,
-  TabState,
-} from '@ptah-extension/chat-types';
-import {
-  ConversationService,
-  type QueuedCommand,
-} from './conversation.service';
+import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-
-/**
- * The ONE definition of "this tab is still generating".
- *
- * Two readers, and they must never disagree: `MessageDispatchService`, which
- * decides send-vs-queue, and the chat input's Stop button, which is the only
- * way out of the queue-only state this returns `true` for. Gate the affordance
- * on a different signal than the gate that creates the state and you get a tab
- * that can neither send nor stop (TASK_2026_382 review B5).
- *
- * Three sources, OR'd:
- *
- * 1. `status` — the root-turn phase written by the backend `turn_state` stream.
- * 2. `isStreamingTab` — the `_streamingTabIds` spinner set, which the SDK's
- *    pause/resume self-heal can leave set while `status` reverted to `loaded`.
- *    Routing a follow-up to `send()` there spins up a fresh AbortController and
- *    KILLS the in-flight stream.
- * 3. An UNSETTLED TREE — the condition the user can actually see, because the
- *    live bubble in the transcript is rendered from `streamingState`, not from
- *    the phase the other two read. A writer that clears the turn flags without
- *    settling the tree opens a window where the transcript shows a streaming
- *    bubble while the predicate says idle.
- *
- * ## The tree condition has a BOUNDED EXIT, and that is load-bearing
- *
- * `streamingState != null` alone is a latch, not a predicate.
- * `StreamingHandlerService` mints an empty `StreamingState` for events routed
- * to a tab that has none, only `message_start` ever sets `currentMessageId`,
- * and `MessageFinalizationService.finalizeCurrentMessage` early-returns on a
- * null `currentMessageId`. So one stray post-turn event — the late
- * `agent_progress` / `agent_completed` / `message_complete` that TASK_2026_360
- * documents as routine — used to pin a `loaded` tab into queue-only mode with
- * NO drain able to fire and no recovery short of a reload.
- *
- * A tree with no `currentMessageId` is a tree nothing can finalize, so it is
- * not a turn in flight — it is debris. Treat it as idle. A real streaming
- * window always has one: `message_start` sets it and it survives until
- * `applyFinalizedTurn` / `clearStreamingForLoaded` clears the turn.
- *
- * ## The `awaiting-background` / `sleeping` exclusion is also load-bearing
- *
- * `chat-types.ts` defines both as "agent itself is idle, USER INPUT REMAINS
- * ENABLED", with background tasks or session crons still running. A subagent's
- * next `message_start` builds a fresh `streamingState` there, so the field is
- * non-null while sending is correct by design — and queuing would strand the
- * message, because neither drain fires: the root-turn flush
- * (`streaming-handler.service.ts`) needs a `message_complete` with no
- * `parentToolUseId` (the root turn already ended, and subagent completions all
- * carry one), and `handleSessionStats` returns `null` whenever `streamingState`
- * is present. Do not widen this back to an unconditional check.
- *
- * The rest of the `SessionStatus` union needs no exclusion: `streaming` /
- * `resuming` are already caught by source 1; `fresh` / `draft` / `loaded` claim
- * no live tree, so a tree present under them IS the accidental window this
- * exists for; `switching` is a momentary UI transition during which a live tree
- * still ends with a root `message_complete`, so the queue drains.
- *
- * This is NOT the deleted TASK_2026_360 self-heal. That heuristic lived in the
- * streaming WRITE path and re-derived "the agent is busy" from event content,
- * re-lighting the spinner with nothing left to clear it. This reads tab state
- * that already exists and writes nothing.
- */
-export function isTabBusyGenerating(input: {
-  status: SessionStatus | null | undefined;
-  streamingState: StreamingState | null | undefined;
-  isStreamingTab: boolean;
-}): boolean {
-  const { status, streamingState, isStreamingTab } = input;
-  const hasUnsettledTree =
-    streamingState != null &&
-    streamingState.currentMessageId != null &&
-    status !== 'awaiting-background' &&
-    status !== 'sleeping';
-  return (
-    status === 'streaming' ||
-    status === 'resuming' ||
-    hasUnsettledTree ||
-    isStreamingTab
-  );
-}
+import { FollowUpQueueService } from './follow-up-queue.service';
+import { isTabBusyGenerating } from './tab-busy';
 
 /**
  * MessageDispatchService - Send-or-queue routing + slash-command guard.
  *
  * Responsibilities:
- * - sendOrQueueMessage: routes content to MessageSender or ConversationService.queueOrAppendMessage
- *   based on streaming state of the target tab; auto-denies that tab's in-flight permissions
- *   with the user's content as `deny_with_message` reason
- * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
- *   non-Anthropic providers — those commands require Claude-specific model behaviour
- * - sendQueuedMessage: post-streaming queue flush via
- *   MessageSenderService.continueExistingSessionForQueueFlush, forwarding the
- *   stored queuedOptions (files + images + effort) so queued attachments reach
- *   the backend without aborting the previous stream's controller
+ * - sendOrQueueMessage: a tab that can take a turn now gets a normal send
+ *   (MessageSender); a busy tab, one held by the Command Center send lock, or
+ *   one with follow-ups already waiting hands the message to
+ *   `FollowUpQueueService`, which gives it to the backend queue of the
+ *   captured session at once (TASK_2026_884). Busy: the tab's in-flight
+ *   permissions are auto-denied with the user's content as the
+ *   `deny_with_message` reason.
+ * - Blocks SDK-native slash commands (`/context`, `/cost`) for
+ *   non-Anthropic providers — those commands require Claude-specific runtime
+ *   tables.
  */
 @Injectable({ providedIn: 'root' })
 export class MessageDispatchService {
-  private readonly queuedOutcomeListeners = new Map<
-    QueuedCommand,
-    (delivered: boolean) => void
-  >();
   private readonly tabManager = inject(TabManagerService);
   private readonly authState = inject(AuthStateService);
   private readonly messageSender = inject(MessageSenderService);
-  private readonly conversation = inject(ConversationService);
+  private readonly followUps = inject(FollowUpQueueService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sendLock = inject(CommandCenterSendLockService);
-  private readonly destroyRef = inject(DestroyRef);
-
-  constructor() {
-    let destroyed = false;
-    const unsubscribe = this.sendLock.onRelease((rootTabId) => {
-      queueMicrotask(() => {
-        if (destroyed || this.sendLock.isHeld(rootTabId)) return;
-        const tab = this.tabManager.findTabByIdAcrossWorkspaces(rootTabId)?.tab;
-        if (
-          !tab?.queuedContent?.trim() ||
-          isTabBusyGenerating({
-            status: tab.status,
-            streamingState: tab.streamingState,
-            isStreamingTab: this.tabManager.isTabStreaming(rootTabId),
-          })
-        ) {
-          return;
-        }
-        void this.sendQueuedMessage(rootTabId, tab.queuedContent);
-      });
-    });
-    this.destroyRef.onDestroy(() => {
-      destroyed = true;
-      unsubscribe();
-    });
-  }
-
-  /** Report each flush outcome of this exact queued slash command. */
-  onQueuedCommandOutcome(
-    command: QueuedCommand,
-    listener: (delivered: boolean) => void,
-  ): void {
-    this.queuedOutcomeListeners.set(command, listener);
-  }
-
-  isQueuedCommandPending(command: QueuedCommand): boolean {
-    return this.conversation.isQueuedCommand(command);
-  }
-
-  private settleQueuedCommand(
-    command: QueuedCommand | null,
-    failed: boolean,
-  ): void {
-    if (!command) return;
-    const listener = this.queuedOutcomeListeners.get(command);
-    if (!listener) return;
-    listener(!failed);
-    if (!failed || !this.conversation.isQueuedCommand(command)) {
-      this.queuedOutcomeListeners.delete(command);
-    }
-  }
 
   /**
    * SDK-native slash commands whose output is only correct on a first-party
@@ -204,11 +63,11 @@ export class MessageDispatchService {
    * Smart send or queue routing
    * Delegates to MessageSenderService for streaming check, ConversationService for queue.
    *
-   * Resolves with the outcome. A queued message counts as accepted (it is
-   * delivered when the running turn ends); a blocked slash command or a
-   * rejected send resolves `success: false`, after the in-transcript notice.
-   * A slash command queued behind queued text also carries `heldCommand`
-   * (see `ConversationService.queueOrAppendMessage`).
+   * Resolves with the outcome. A queued message resolves at once with
+   * `success: true` and its `queued` identity, before any RPC, so the
+   * composer clears; its delivery or failure is reported through
+   * `QueuedFollowUpStore`. A blocked slash command or a rejected send
+   * resolves `success: false`, after the in-transcript notice.
    */
   async sendOrQueueMessage(
     content: string,
@@ -245,9 +104,11 @@ export class MessageDispatchService {
     });
 
     if (
-      isStreaming ||
-      (resolvedTabId != null &&
-        this.sendLock.isHeld(resolvedTabId, options?.ownerToken))
+      resolvedTabId != null &&
+      (isStreaming ||
+        this.sendLock.isHeld(resolvedTabId, options?.ownerToken) ||
+        // Something is already waiting: a normal send would overtake it.
+        this.followUps.hasPending(resolvedTabId))
     ) {
       // The message steers ITS tab's turn, so only that tab's pending prompts
       // are answered with it. The queue is global: denying every request would
@@ -264,11 +125,10 @@ export class MessageDispatchService {
           reason: content,
         });
       }
-      const queued = this.conversation.queueOrAppendMessage(content, options);
-      if (!queued) return { success: true };
-      return queued.held
-        ? { success: true, queuedCommand: queued, heldCommand: queued.held }
-        : { success: true, queuedCommand: queued };
+      const queued = this.followUps.enqueue(resolvedTabId, content, options);
+      return queued
+        ? { success: true, queued }
+        : { success: false, error: 'Invalid message content' };
     }
     const previousTerminalReason = dispatchTab?.lastTerminalReason;
     const outcome = await this.messageSender.send(content, options);
@@ -289,98 +149,6 @@ export class MessageDispatchService {
     return outcome;
   }
 
-  /**
-   * Send queued message without interrupting current execution (graceful re-steering)
-   *
-   * Replaces interruptAndSend. Instead of aborting the current execution
-   * (which kills running sub-agents), we simply send the queued message.
-   * The SDK handles message queueing natively - agents continue running
-   * while the new user message is processed in order.
-   *
-   * Routes through `MessageSenderService.continueExistingSessionForQueueFlush`
-   * so the flush reuses the existing AbortController (if any) instead of
-   * installing a fresh one — see the dedicated method for the rationale.
-   *
-   * @param tabId - Tab to send the queued message for
-   * @param content - Message content to send
-   */
-  async sendQueuedMessage(
-    tabId: string,
-    content: string,
-    options?: { ownerToken?: string },
-  ): Promise<void> {
-    if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
-    let queuedOptions: SendMessageOptions | undefined;
-    let queuedContent = content;
-    const queuedCommand = this.conversation.queuedCommandForFlush(tabId);
-    let delivered = false;
-    try {
-      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      const previousTerminalReason = tab?.lastTerminalReason;
-      if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
-      const sessionId = tab?.claudeSessionId;
-      if (!sessionId) {
-        // A queue flush only fires on turn-end, and a completed turn must have
-        // a bound session. Reaching here means that invariant broke — rather
-        // than silently starting a NEW conversation the user didn't ask for,
-        // warn and leave the message queued so it survives for retry/restore.
-        console.warn(
-          '[ChatStore] sendQueuedMessage: no session bound at queue flush — keeping message queued',
-          { tabId },
-        );
-        this.tabManager.setQueuedContent(tabId, content);
-        this.settleQueuedCommand(queuedCommand, true);
-        return;
-      }
-      queuedContent = tab?.queuedContent ?? content;
-      queuedOptions = tab?.queuedOptions ?? undefined;
-      // The composer becomes active while this request is in flight. Clearing
-      // first makes any text entered during the await a distinct new draft.
-      this.tabManager.clearQueuedContentAndOptions(tabId);
-      const outcome =
-        await this.messageSender.continueExistingSessionForQueueFlush(
-          queuedContent,
-          sessionId,
-          { ...queuedOptions, tabId, ownerToken: options?.ownerToken },
-        );
-      if (outcome?.cancelled === true) {
-        this.restoreCancelledSend(tabId, previousTerminalReason);
-        this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        this.settleQueuedCommand(queuedCommand, true);
-        return;
-      }
-      if (outcome?.errorAlreadyShown === true) {
-        // CHAT_ERROR already settled this command. Do not requeue it or
-        // release a held command as though the failed operation succeeded.
-        this.settleQueuedCommand(queuedCommand, true);
-        return;
-      }
-      if (outcome && !outcome.success) {
-        this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        this.settleQueuedCommand(queuedCommand, true);
-        this.showSendFailure(
-          tabId,
-          outcome.error,
-          outcome.errorIsFullText === true,
-        );
-      } else {
-        delivered = true;
-        this.settleQueuedCommand(queuedCommand, false);
-      }
-    } catch (error) {
-      this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-      this.settleQueuedCommand(queuedCommand, true);
-      console.error('[ChatStore] sendQueuedMessage failed:', error);
-      this.showSendFailure(
-        tabId,
-        error instanceof Error ? error.message : undefined,
-      );
-    }
-    // Outside the try: the text is sent, so nothing here may re-queue it. A
-    // slash command held behind it is queued next, as its own turn.
-    if (delivered) this.conversation.releaseHeldCommand(tabId, queuedContent);
-  }
-
   private restoreCancelledSend(
     tabId: string,
     previousTerminalReason: TabState['lastTerminalReason'],
@@ -390,41 +158,6 @@ export class MessageDispatchService {
     this.tabManager.setLastTerminalReason(
       tabId,
       previousTerminalReason ?? null,
-    );
-  }
-
-  /**
-   * A compose action can append a new prompt while an earlier terminal-turn
-   * flush is in flight. Keep both prompts if that flush is refused or fails.
-   */
-  private restoreQueuedMessage(
-    tabId: string,
-    content: string,
-    options: SendMessageOptions | undefined,
-  ): void {
-    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab || tab.queuedContent === content) return;
-
-    const newerContent = tab.queuedContent?.trim();
-    if (!newerContent) {
-      if (options) {
-        this.tabManager.setQueuedContentAndOptions(tabId, content, options);
-      } else {
-        this.tabManager.setQueuedContent(tabId, content);
-      }
-      return;
-    }
-
-    const newerOptions = tab.queuedOptions;
-    this.tabManager.setQueuedContentAndOptions(
-      tabId,
-      `${content}\n${newerContent}`,
-      {
-        ...newerOptions,
-        ...options,
-        files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
-        images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
-      },
     );
   }
 

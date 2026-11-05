@@ -21,6 +21,8 @@ import {
   ProviderCapabilities,
   AISessionConfig,
   AIMessageOptions,
+  type QueuedFollowUpSnapshot,
+  type QueuedFollowUpStateChange,
   EffortLevel,
   SessionId,
   FlatStreamEventUnion,
@@ -292,8 +294,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
     this.statsOwner.setLiveSessionIdsProvider(() =>
-      this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
-        this.sessionKeys(id as SessionId)));
+      this.sessionLifecycle
+        .getLiveSessionIds()
+        .flatMap((id) => this.sessionKeys(id as SessionId)),
+    );
     // An idle-evicted record never reaches `endSession`; its budget entry is
     // released here so it does not outlive the record.
     this.stopEvictionRelease = this.sessionLifecycle.onSessionEvicted((keys) =>
@@ -815,7 +819,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
     this.flushAllPendingUserActivity();
-    const endedIds = this.sessionLifecycle.getLiveSessionIds().flatMap((id) => this.sessionKeys(id as SessionId));
+    const endedIds = this.sessionLifecycle
+      .getLiveSessionIds()
+      .flatMap((id) => this.sessionKeys(id as SessionId));
     for (const id of endedIds) this.statsOwner.requestFinalization(id);
     const sessionDisposal = this.sessionLifecycle
       .disposeAllSessions()
@@ -965,8 +971,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       budgetKeys.push(...this.sessionKeys(id as SessionId));
     }
     await this.sessionLifecycle.disposeSessionsForWorkspace(workspacePath);
-    const liveIds = new Set(this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
-      this.sessionKeys(id as SessionId)));
+    const liveIds = new Set(
+      this.sessionLifecycle
+        .getLiveSessionIds()
+        .flatMap((id) => this.sessionKeys(id as SessionId)),
+    );
     for (const id of budgetKeys) {
       if (!liveIds.has(id)) this.statsOwner.requestFinalization(id);
     }
@@ -1588,8 +1597,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   getLiveSessionUsageIds(): string[] {
-    return this.sessionLifecycle.getLiveSessionIds().flatMap((id) =>
-      this.sessionKeys(id as SessionId));
+    return this.sessionLifecycle
+      .getLiveSessionIds()
+      .flatMap((id) => this.sessionKeys(id as SessionId));
   }
 
   /**
@@ -1841,8 +1851,29 @@ export class SdkAgentAdapter implements IAgentAdapter {
         origin: options?.origin,
         admission: options?.admission,
         clientMessageId: options?.clientMessageId,
+        queueIntent: options?.queueIntent,
       },
     );
+  }
+
+  onQueuedFollowUpState(
+    listener: (change: QueuedFollowUpStateChange) => void,
+  ): () => void {
+    return this.sessionLifecycle.onQueuedFollowUpState(listener);
+  }
+
+  withdrawQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): Promise<boolean> {
+    return this.sessionLifecycle.withdrawQueuedFollowUp(
+      sessionId,
+      clientMessageId,
+    );
+  }
+
+  listQueuedFollowUps(sessionId: SessionId): readonly QueuedFollowUpSnapshot[] {
+    return this.sessionLifecycle.listQueuedFollowUps(sessionId);
   }
 
   async executeSlashCommand(

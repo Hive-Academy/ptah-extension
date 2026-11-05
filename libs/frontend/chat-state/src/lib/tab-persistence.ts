@@ -277,8 +277,10 @@ export function sanitizeRestoredTab(tab: TabState): TabState {
     // The live flat-event model belongs to a process that no longer exists.
     streamingState: null,
     status: NON_RESTORABLE_STATUSES.has(tab.status) ? 'loaded' : tab.status,
-    // Queued input is auto-sent when the CURRENT turn finishes. There is no
-    // current turn after a reload, so the queue has nothing to attach to.
+    // Follow-ups are not tab state any more (TASK_2026_884): the backend
+    // holds them per session and `QueuedFollowUpStore` mirrors them, filled
+    // again from `chat:queued-list` when the session view opens. A legacy
+    // blob's renderer-side queue is dropped so nothing auto-sends it.
     queuedContent: null,
     queuedOptions: null,
     // Messaging attachment is a live, push-driven flag — a restored tab is

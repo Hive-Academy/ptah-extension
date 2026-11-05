@@ -876,20 +876,22 @@ class RuntimeContext implements CodexContext {
     });
   }
 
-  steer(input: CodexTurnInput): Promise<CodexTurnReceipt> {
+  steer(input: CodexTurnInput, expectedTurnId?: string): Promise<CodexTurnReceipt> {
     return this.serialize(async () => {
+      if (expectedTurnId && (this.state !== 'running' || this.activeTurn !== expectedTurnId))
+        throw new Error('Codex turn changed before steer');
       if (this.state === 'idle') return this.start(input);
       if (this.state !== 'running' || !this.activeTurn)
         throw new Error('Codex turn cannot be steered');
-      const expectedTurnId = this.activeTurn;
+      const activeTurnId = this.activeTurn;
       const wireInput = this.wireInput(input);
       try {
         const result = await this.process.request('turn/steer', {
           threadId: this.identity.threadId,
-          expectedTurnId,
+          expectedTurnId: activeTurnId,
           input: wireInput,
         });
-        if (result.turnId !== expectedTurnId)
+        if (result.turnId !== activeTurnId)
           throw new Error('Codex steer identity mismatch');
         this.assertOpen();
         return {

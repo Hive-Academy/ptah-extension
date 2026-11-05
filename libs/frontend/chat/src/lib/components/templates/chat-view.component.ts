@@ -17,7 +17,6 @@ import {
 } from '@angular/core';
 import {
   LucideAngularModule,
-  Bell,
   Clock,
   Pencil,
   Trash2,
@@ -34,6 +33,7 @@ import {
   connectDisplaySidebar,
   type DisplaySidebarConnection,
 } from './display-sidebar-wiring';
+import { QueuedFollowUpsComponent } from '../molecules/queued-follow-ups/queued-follow-ups.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import { BackgroundTaskTilesContainerComponent } from '../molecules/background-task-tiles/background-task-tiles-container.component';
 import { ChatSessionLayoutComponent } from './chat-session-layout.component';
@@ -212,6 +212,7 @@ const VIEW_PANEL_KEY = '';
     SidebarTabComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
+    QueuedFollowUpsComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -519,7 +520,6 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _actionInFlight = signal<Set<string>>(new Set());
 
   /** Lucide icon references for template binding */
-  protected readonly BellIcon = Bell;
   protected readonly ClockIcon = Clock;
   protected readonly PencilIcon = Pencil;
   protected readonly TrashIcon = Trash2;
@@ -1376,13 +1376,6 @@ export class ChatViewComponent implements OnDestroy {
     ));
   });
 
-  readonly resolvedQueuedContent = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.queuedContent ?? null)
-      : this.chatStore.queuedContent();
-  });
-
   constructor() {
     effect((onCleanup) => {
       const tabId = this.resolvedTabId();
@@ -1584,32 +1577,6 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Edit queued message — pushes content back to the input and clears the queue.
-   * Uses restoreContentToInput so the user can modify and re-send.
-   */
-  editQueue(): void {
-    const content = this.resolvedQueuedContent();
-    if (!content) return;
-
-    const tabId = this.resolvedTabId() ?? undefined;
-    this.chatStore.clearQueuedContent(tabId);
-
-    const chatInput = this.chatInputRef();
-    if (chatInput) {
-      chatInput.restoreContentToInput(content);
-    }
-  }
-
-  /**
-   * Cancel queued message (user-requested cancellation).
-   * Uses resolvedTabId to target the tab this view renders.
-   */
-  cancelQueue(): void {
-    const tabId = this.resolvedTabId() ?? undefined;
-    this.chatStore.clearQueuedContent(tabId);
-  }
-
-  /**
    * Handle per-agent resume action from the resume notification banner.
    * Builds a structured resume prompt and sends it via ChatStore,
    * then clears the resumable subagents to dismiss the banner.
@@ -1685,7 +1652,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Budget banner "Cancel" on a queued automatic hand-off. */
   protected onBudgetCancelAutoHandoff(): void {
-    this._budgetActions.cancelAutoHandoff();
+    void this._budgetActions.cancelAutoHandoff();
   }
 
   /**

@@ -1,22 +1,15 @@
 /**
- * ConversationService - Queue and Abort Logic
+ * ConversationService - Abort Logic
  *
  * Extracted from ChatStore to handle conversation-related operations:
- * - Queueing/appending content while a turn is streaming
- * - Aborting the current message (with optional sub-agent confirmation)
+ * - Aborting the current message (with optional sub-agent confirmation),
+ *   returning the follow-ups the Stop withdrew to the composer
+ *   (TASK_2026_884; queueing itself lives in `FollowUpQueueService`)
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import {
-  DestroyRef,
-  Injectable,
-  effect,
-  inject,
-  signal,
-  untracked,
-  Injector,
-} from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, Injector } from '@angular/core';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
@@ -25,44 +18,8 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
-import { MessageValidationService } from '../message-validation.service';
+import { FollowUpQueueService } from './follow-up-queue.service';
 import { SessionLoaderService } from './session-loader.service';
-
-/**
- * The backend's slash-command test (`SlashCommandInterceptor.isSlashCommand`):
- * a message is routed as a command only when it STARTS with one.
- */
-const SLASH_COMMAND = /^\/[a-zA-Z]/;
-
-/**
- * A slash command {@link ConversationService.queueOrAppendMessage} queued:
- * its identity on the tab's queue, so a caller can tell and withdraw exactly
- * that entry even when the user queues identical text.
- */
-export interface QueuedCommand {
-  readonly tabId: string;
-  readonly content: string;
-  /**
-   * Set when it waits behind queued text: settles `true` when it becomes the
-   * tab's queued message, `false` when it is dropped. `null` when it went
-   * straight into the tab's queued message.
-   */
-  readonly held: Promise<boolean> | null;
-}
-
-/** A slash command waiting behind a tab's queued text. */
-interface HeldCommand {
-  readonly content: string;
-  readonly handle: QueuedCommand;
-  /** `true` once it is the tab's queued message, `false` when dropped. */
-  readonly settle: (queued: boolean) => void;
-}
-
-/** A tab's held commands and the queued text the first one waits behind. */
-interface HeldCommands {
-  behind: string;
-  readonly commands: HeldCommand[];
-}
 
 interface AbortTarget {
   readonly tabId: string;
@@ -75,7 +32,7 @@ export class ConversationService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly messageFinalization = inject(MessageFinalizationService);
-  private readonly validator = inject(MessageValidationService);
+  private readonly followUps = inject(FollowUpQueueService);
   private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
   private readonly logger = inject(LoggingService);
   private readonly _isStopping = signal(false);
@@ -86,11 +43,6 @@ export class ConversationService {
   }>();
   private readonly _isAutoSending = signal(false);
   readonly isAutoSending = this._isAutoSending.asReadonly();
-  private readonly _queueRestoreSignal = signal<{
-    tabId: string;
-    content: string;
-  } | null>(null);
-  readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
   /**
    * Turn key ({@link currentTurnKey}) of the last abort whose `chat:abort` RPC
    * was issued and answered successfully. A repeat Stop on that same turn skips
@@ -105,67 +57,17 @@ export class ConversationService {
    */
   private readonly _lastAbortedTurnKey = signal<string | null>(null);
 
-  /**
-   * Slash commands queued while the tab already had queued text, per tab,
-   * oldest first (TASK_2026_655). Appended to that text, a command would no
-   * longer start the message and would be sent as plain text, so each one
-   * waits as its own turn: once the text in front of it is sent, it becomes
-   * the tab's queued message ({@link releaseHeldCommand}).
-   */
-  private readonly heldCommands = new Map<string, HeldCommands>();
-
-  /**
-   * The slash command each tab's queued message starts with, when it was
-   * queued (or released from held) as one. Replaced whenever a new message
-   * starts the queue and dropped once the queued message is delivered or
-   * removed, so a later identical command is a different entry.
-   */
-  private readonly queueHeads = new Map<string, QueuedCommand>();
-
   constructor() {
-    // Held commands are released only by a flush of the tab's queue, which
-    // needs the queue and the tab's session. Every event that ends that wait
-    // without a flush settles them as dropped:
-    // - `close` / `forceClose` remove the tab.
-    // - `reset` (`/clear`) discards the queue and unbinds the session; a
-    //   command released afterwards would sit on a session-less tab that no
-    //   turn end flushes. That includes a command held behind the `/clear`
-    //   flush itself: its `chat:complete` reset arrives before the reply.
     inject(DestroyRef).onDestroy(
       this.tabManager.onTabClosed(({ tabId }) => {
         this.messageFinalization.clearPendingPrompts(tabId);
-        this.queueHeads.delete(tabId);
-        this.dropHeldCommands(tabId);
       }),
     );
-    // A removed workspace takes its tabs, active and parked, with no close
-    // event (the layout ends their sessions itself).
-    effect(() => {
-      if (!this.tabManager.removedWorkspace$()) return;
-      untracked(() => this.dropHeldCommandsOfRemovedTabs());
-    });
   }
 
   /** The host has confirmed this exact SDK session's stream and record ended. */
   retireEndedSessionPrompts(tabId: string, sessionId: string): void {
     this.messageFinalization.clearPendingPromptsForSession(tabId, sessionId);
-  }
-
-  private dropHeldCommandsOfRemovedTabs(): void {
-    for (const tabId of Array.from(this.heldCommands.keys())) {
-      if (!this.tabManager.findTabByIdAcrossWorkspaces(tabId)) {
-        this.dropHeldCommands(tabId);
-      }
-    }
-  }
-
-  /**
-   * Clear the queue restore signal after content has been consumed by ChatInputComponent.
-   * Must be called after restoration to prevent the effect from re-firing
-   * on every activeTab() change.
-   */
-  clearQueueRestoreSignal(): void {
-    this._queueRestoreSignal.set(null);
   }
 
   private activeAbortTarget(): AbortTarget | null {
@@ -207,199 +109,10 @@ export class ConversationService {
   }
 
   /**
-   * Queue or append message content to active tab
-   * If content already queued, append with newline separator.
-   * Options (files, images, effort) are stored only for the first queued message;
-   * subsequent appends are text-only.
-   *
-   * Exception: a slash command is not appended to queued text. It is held as
-   * its own turn behind that text (see {@link QueuedCommand.held}).
-   *
-   * Returns the {@link QueuedCommand} for a queued or held slash command;
-   * every other call returns `null`.
-   */
-  public queueOrAppendMessage(
-    content: string,
-    options?: SendMessageOptions,
-  ): QueuedCommand | null {
-    const targetTabId = options?.tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return null;
-    const validation = this.validator.validate(content);
-    if (!validation.valid) {
-      console.warn(
-        `[ConversationService] Invalid queue content: ${validation.reason}`,
-      );
-      return null;
-    }
-    const sanitized = this.validator.sanitize(content);
-
-    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
-    const existingQueue = targetTab?.queuedContent?.trim() ?? '';
-
-    const isCommand = SLASH_COMMAND.test(sanitized.trim());
-    if (isCommand && (existingQueue || this.heldCommands.has(targetTabId))) {
-      return this.holdCommand(targetTabId, sanitized, existingQueue);
-    }
-
-    if (existingQueue) {
-      this.tabManager.setQueuedContent(
-        targetTabId,
-        `${existingQueue}\n${sanitized}`,
-      );
-    } else if (options) {
-      this.tabManager.setQueuedContentAndOptions(
-        targetTabId,
-        sanitized,
-        options,
-      );
-    } else {
-      this.tabManager.setQueuedContent(targetTabId, sanitized);
-    }
-    if (existingQueue) return null;
-    // A new message starts the queue: any earlier head is gone.
-    this.queueHeads.delete(targetTabId);
-    if (!isCommand) return null;
-    const head: QueuedCommand = {
-      tabId: targetTabId,
-      content: sanitized,
-      held: null,
-    };
-    this.queueHeads.set(targetTabId, head);
-    return head;
-  }
-
-  private holdCommand(
-    tabId: string,
-    content: string,
-    behind: string,
-  ): QueuedCommand {
-    let settle!: (queued: boolean) => void;
-    const promise = new Promise<boolean>((resolve) => (settle = resolve));
-    const handle: QueuedCommand = { tabId, content, held: promise };
-    const command: HeldCommand = { content, handle, settle };
-    const held = this.heldCommands.get(tabId);
-    if (held) {
-      held.commands.push(command);
-    } else {
-      this.heldCommands.set(tabId, { behind, commands: [command] });
-    }
-    return handle;
-  }
-
-  /**
-   * Make the tab's oldest held command its queued message, so it is sent as
-   * its own turn when the running turn ends.
-   *
-   * - `sent`: the queued text a flush just delivered. When it is not the text
-   *   the command waited behind (with any text appended to it), the queue was
-   *   reset in between, and the held commands are dropped instead of sent.
-   * - Omitted `sent`: the user removed the queued text (cancel or edit).
-   *
-   * When newer text was queued meanwhile, the command keeps waiting behind it.
-   */
-  releaseHeldCommand(tabId: string, sent?: string): void {
-    // The queued message was delivered or removed: its head is gone.
-    this.queueHeads.delete(tabId);
-    const held = this.heldCommands.get(tabId);
-    if (!held) return;
-    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab || (sent !== undefined && !sent.trim().startsWith(held.behind))) {
-      this.dropHeldCommands(tabId);
-      return;
-    }
-    const waiting = tab.queuedContent?.trim();
-    if (waiting) {
-      held.behind = waiting;
-      return;
-    }
-    const [next, ...rest] = held.commands;
-    // The removed text's attachments must not travel with the command.
-    this.tabManager.clearQueuedContentAndOptions(tabId);
-    this.tabManager.setQueuedContent(tabId, next.content);
-    this.queueHeads.set(tabId, next.handle);
-    if (rest.length > 0) {
-      this.heldCommands.set(tabId, { behind: next.content, commands: rest });
-    } else {
-      this.heldCommands.delete(tabId);
-    }
-    next.settle(true);
-  }
-
-  /**
-   * Whether `command` is still waiting on its tab: held, or the start of the
-   * tab's queued message as that same entry (not identical text queued later).
-   */
-  isQueuedCommand(command: QueuedCommand): boolean {
-    const held = this.heldCommands.get(command.tabId);
-    if (held?.commands.some((entry) => entry.handle === command)) return true;
-    if (this.queueHeads.get(command.tabId) !== command) return false;
-    const tab = this.tabManager.findTabByIdAcrossWorkspaces(command.tabId)?.tab;
-    const queued = tab?.queuedContent?.trim() ?? '';
-    return (
-      queued === command.content || queued.startsWith(`${command.content}\n`)
-    );
-  }
-
-  queuedCommandForFlush(tabId: string): QueuedCommand | null {
-    const command = this.queueHeads.get(tabId);
-    return command && this.isQueuedCommand(command) ? command : null;
-  }
-
-  /**
-   * Withdraw exactly `command` (the automatic hand-off's Cancel), keeping
-   * everything else queued on the tab, including identical text the user
-   * queued. A held entry settles as dropped. As the queued message's head it
-   * is cut off the front: text appended after it stays, and a command held
-   * behind it moves up. Returns false when it is no longer queued.
-   */
-  withdrawQueuedCommand(command: QueuedCommand): boolean {
-    const { tabId } = command;
-    const held = this.heldCommands.get(tabId);
-    const index =
-      held?.commands.findIndex((entry) => entry.handle === command) ?? -1;
-    if (held && index >= 0) {
-      const [withdrawn] = held.commands.splice(index, 1);
-      if (held.commands.length === 0) this.heldCommands.delete(tabId);
-      withdrawn.settle(false);
-      return true;
-    }
-    if (!this.isQueuedCommand(command)) return false;
-    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    const rest = (tab?.queuedContent?.trim() ?? '')
-      .slice(command.content.length)
-      .trim();
-    if (rest) this.tabManager.setQueuedContent(tabId, rest);
-    else this.tabManager.clearQueuedContentAndOptions(tabId);
-    this.releaseHeldCommand(tabId);
-    return true;
-  }
-
-  /**
-   * Drop the tab's held commands, after a Stop, a failed turn, a tab close or
-   * reset, or a workspace removal: like the queued text, they must not be
-   * sent on their own later.
-   */
-  dropHeldCommands(tabId: string): void {
-    const held = this.heldCommands.get(tabId);
-    if (!held) return;
-    this.heldCommands.delete(tabId);
-    for (const command of held.commands) command.settle(false);
-  }
-
-  /**
-   * Clear queued content and options for a specific tab or the active tab.
-   * @param tabId - Optional tab ID. Falls back to active tab if not provided.
-   */
-  public clearQueuedContent(tabId?: string): void {
-    const targetTabId = tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
-
-    this.tabManager.resetQueuedContentAndOptions(targetTabId);
-  }
-
-  /**
    * Abort current message
-   * Handles queued content restoration and calls backend to stop Claude CLI process
+   * Calls the backend to stop the turn and returns the follow-ups the Stop
+   * withdrew (backend-confirmed first, then the ones the renderer held) to
+   * the composer, in FIFO order
    *
    * Lifecycle ownership depends on whether the abort reached a live stream:
    *
@@ -445,19 +158,16 @@ export class ConversationService {
       const { tabId, sessionId } = target;
       const turnKey = this.currentTurnKey(sessionId, tab);
 
+      // Taken before any await: once the turn ends, a held item would start
+      // its own turn.
+      const heldTexts = this.followUps.takeHeldForStop(tabId, sessionId);
       if (turnKey !== null && turnKey === this._lastAbortedTurnKey()) {
+        this.followUps.restoreAfterStop(tabId, undefined, heldTexts);
         this.idleAbortedTabLocally(target);
         return true;
       }
 
-      const queuedContent = tab.queuedContent;
       this.tabManager.setLastTerminalReason(tabId, 'aborted_streaming');
-
-      if (queuedContent && queuedContent.trim()) {
-        this._queueRestoreSignal.set({ tabId, content: queuedContent });
-        this.clearQueuedContent(tabId);
-      }
-      this.dropHeldCommands(tabId);
       this._lastAbortedTurnKey.set(turnKey);
       let result: Awaited<
         ReturnType<typeof this.claudeRpcService.call<'chat:abort'>>
@@ -471,11 +181,15 @@ export class ConversationService {
         // so no ordered turn_state will ever arrive for this session, and a
         // later Stop on this same turn must be able to retry the RPC.
         this.logger.error('ConversationService', 'chat:abort RPC failed', error);
+        this.followUps.restoreAfterStop(tabId, undefined, heldTexts);
         this._lastAbortedTurnKey.set(null);
         this.idleAbortedTabLocally(target);
         return false;
       }
 
+      // Only items the backend confirmed it withdrew: an item a turn had
+      // already claimed is running and is not unsent.
+      this.followUps.restoreAfterStop(tabId, result.data?.withdrawn, heldTexts);
       if (result.success) {
         this.messageFinalization.clearPendingPromptsForSession(tabId, sessionId);
       } else {

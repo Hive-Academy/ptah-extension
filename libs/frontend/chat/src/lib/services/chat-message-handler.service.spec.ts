@@ -32,6 +32,7 @@ import { ChatStore } from './chat.store';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
 import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
 import { HandoffChainClient } from './session-inspector/handoff-chain.client';
+import { FollowUpQueueService } from './chat-store/follow-up-queue.service';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -105,6 +106,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
+  let handleQueuedState: jest.Mock;
 
   function registerSurfaceAdapter(surfaceId: SurfaceId): void {
     surfaceRegistry.register(
@@ -115,6 +117,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   }
 
   beforeEach(() => {
+    handleQueuedState = jest.fn();
     chatStore = {
       permissionRequests: jest.fn(() => []),
       handlePermissionAutoResolved: jest.fn(),
@@ -160,6 +163,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       providers: [
         ChatMessageHandler,
         { provide: ChatStore, useValue: chatStore },
+        { provide: FollowUpQueueService, useValue: { handleStateEvent: handleQueuedState } },
         {
           provide: StreamFlushScheduler,
           useValue: {
@@ -192,6 +196,17 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     consoleWarnSpy = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
+  });
+
+  it('forwards a queued state push for a hidden tab to the queue owner', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      tabId: 'hidden-tab',
+      clientMessageId: 'message-1',
+      state: 'delivered' as const,
+    };
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_QUEUED_MESSAGE_STATE, payload });
+    expect(handleQueuedState).toHaveBeenCalledWith(payload);
   });
 
   it('retires pending ids only on a confirmed session-ended message', () => {

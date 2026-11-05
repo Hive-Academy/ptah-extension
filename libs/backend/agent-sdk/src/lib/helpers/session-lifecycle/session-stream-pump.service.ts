@@ -34,6 +34,8 @@ import type {
   AIMessageOptions,
   SessionId,
   InlineImageAttachment,
+  QueuedFollowUpSnapshot,
+  QueuedFollowUpStateChange,
 } from '@ptah-extension/shared';
 
 import { SdkError, SessionAdmissionRefusedError } from '../../errors';
@@ -48,11 +50,79 @@ import type {
 } from './session-registry.service';
 
 export class SessionStreamPump {
+  private readonly followUpListeners = new Set<
+    (change: QueuedFollowUpStateChange) => void
+  >();
   constructor(
     private readonly logger: Logger,
     private readonly registry: SessionRegistry,
     private readonly messageFactory: SdkMessageFactory,
-  ) {}
+  ) {
+    registry.onRecordRemoved((record) => {
+      for (const turn of record.messageQueue) {
+        if (turn.followUp && turn.sessionId) {
+          this.emit({
+            sessionId: turn.sessionId,
+            clientMessageId: turn.followUp.clientMessageId,
+            state: 'failed',
+            reason: 'Session ended',
+          });
+        }
+      }
+      record.messageQueue.length = 0;
+    });
+  }
+
+  onQueuedFollowUpState(
+    listener: (change: QueuedFollowUpStateChange) => void,
+  ): () => void {
+    this.followUpListeners.add(listener);
+    return () => this.followUpListeners.delete(listener);
+  }
+
+  listQueuedFollowUps(sessionId: SessionId): readonly QueuedFollowUpSnapshot[] {
+    return (
+      this.registry
+        .find(sessionId as string)
+        ?.messageQueue.flatMap((turn) =>
+          turn.followUp ? [turn.followUp] : [],
+        ) ?? []
+    );
+  }
+
+  withdrawQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): boolean {
+    const record = this.registry.find(sessionId as string);
+    if (!record) return false;
+    const index = record.messageQueue.findIndex(
+      (turn) =>
+        turn.followUp?.clientMessageId === clientMessageId &&
+        turn.recordToken === record.token,
+    );
+    if (index < 0) return false;
+    const [turn] = record.messageQueue.splice(index, 1);
+    this.emit({
+      sessionId: turn.sessionId ?? sessionId,
+      clientMessageId,
+      state: 'withdrawn',
+    });
+    return true;
+  }
+
+  private emit(change: QueuedFollowUpStateChange): void {
+    for (const listener of this.followUpListeners) {
+      try {
+        listener(change);
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[SessionLifecycle] Follow-up listener failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
+  }
 
   /**
    * Create a user message stream for SDK consumption
@@ -68,6 +138,8 @@ export class SessionStreamPump {
   ): AsyncIterable<SDKUserMessage> {
     const registry = this.registry;
     const logger = this.logger;
+    const emit = (change: QueuedFollowUpStateChange) => this.emit(change);
+    const ownerToken = registry.find(sessionId as string)?.token;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -79,9 +151,24 @@ export class SessionStreamPump {
             );
             return;
           }
+          if (
+            session.abortController.signal.aborted ||
+            session.token !== ownerToken
+          )
+            return;
           while (session.messageQueue.length > 0 && !session.turnInFlight) {
             const turn = session.messageQueue.shift();
             if (turn) {
+              if (turn.recordToken && turn.recordToken !== session.token) {
+                if (turn.followUp && turn.sessionId)
+                  emit({
+                    sessionId: turn.sessionId,
+                    clientMessageId: turn.followUp.clientMessageId,
+                    state: 'failed',
+                    reason: 'Session ended',
+                  });
+                continue;
+              }
               // Claim the turn BEFORE yielding: this both ends the drain loop
               // after one message and blocks any message that arrives while
               // the SDK is generating (TASK_2026_294).
@@ -89,7 +176,8 @@ export class SessionStreamPump {
               session.yieldSequence = (session.yieldSequence ?? 0) + 1;
               if (
                 session.interruptAwaitingResultYieldSequence !== null &&
-                session.yieldSequence > session.interruptAwaitingResultYieldSequence + 1
+                session.yieldSequence >
+                  session.interruptAwaitingResultYieldSequence + 1
               ) {
                 session.interruptAwaitingResultYieldSequence = null;
                 session.interruptedTurnUserMessageUuid = null;
@@ -104,14 +192,19 @@ export class SessionStreamPump {
                 session.retirementWake?.();
               }
               if (session.awaitingEcho !== null) {
-                logger.debug(
-                  '[SessionLifecycle] Replacing unechoed turn',
-                  { unechoedTurnDropped: true },
-                );
+                logger.debug('[SessionLifecycle] Replacing unechoed turn', {
+                  unechoedTurnDropped: true,
+                });
               }
               session.awaitingEcho = turn;
               session.currentTurnClientMessageId = turn.clientMessageId ?? null;
               session.currentTurnUserMessageUuid = turn.message.uuid;
+              if (turn.followUp && turn.sessionId)
+                emit({
+                  sessionId: turn.sessionId,
+                  clientMessageId: turn.followUp.clientMessageId,
+                  state: 'delivered',
+                });
               logger.debug(
                 `[SessionLifecycle] Yielding message (${session.messageQueue.length} held)`,
               );
@@ -233,11 +326,14 @@ export class SessionStreamPump {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
       clientMessageId?: string;
+      queueIntent?: AIMessageOptions['queueIntent'];
       beforeEnqueue?: () => void;
       background?: boolean;
     },
   ): Promise<void> {
     const requireIdle = options?.admission === 'require-idle';
+    if (options?.queueIntent && !options.clientMessageId)
+      throw new SdkError('Queued follow-up requires clientMessageId');
     const markActive = (): void => {
       if (!options?.background) this.registry.markActive(sessionId as string);
     };
@@ -258,6 +354,13 @@ export class SessionStreamPump {
     } else {
       markActive();
     }
+    if (
+      options?.queueIntent &&
+      session.followUpIds?.has(options.clientMessageId!)
+    )
+      return;
+    if (options?.queueIntent)
+      session.followUpIds?.add(options.clientMessageId!);
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,
@@ -266,13 +369,27 @@ export class SessionStreamPump {
       originKind: options?.origin?.kind,
     });
 
-    const sdkUserMessage = await this.messageFactory.createUserMessage({
-      content,
-      sessionId,
-      files,
-      images,
-      origin: options?.origin,
-    });
+    let sdkUserMessage: SDKUserMessage;
+    try {
+      sdkUserMessage = await this.messageFactory.createUserMessage({
+        content,
+        sessionId,
+        files,
+        images,
+        origin: options?.origin,
+      });
+    } catch (error: unknown) {
+      if (options?.queueIntent)
+        session.followUpIds?.delete(options.clientMessageId!);
+      throw error;
+    }
+    if (
+      options?.queueIntent &&
+      (this.registry.find(sessionId as string) !== session ||
+        session.abortController.signal.aborted)
+    ) {
+      throw new SdkError('Session ended before follow-up admission');
+    }
     if (requireIdle) {
       // Synchronous from here to the push: no competing send, teardown or
       // turn start can interleave between this check and the enqueue.
@@ -280,10 +397,27 @@ export class SessionStreamPump {
       options?.beforeEnqueue?.();
       markActive();
     }
+    const followUp: QueuedFollowUpSnapshot | undefined = options?.queueIntent
+      ? {
+          clientMessageId: options.clientMessageId!,
+          content,
+          files: files ? [...files] : undefined,
+          images: images ? images.map((image) => ({ ...image })) : undefined,
+        }
+      : undefined;
     session.messageQueue.push({
       message: sdkUserMessage,
       clientMessageId: options?.clientMessageId,
+      followUp,
+      sessionId: followUp ? sessionId : undefined,
+      recordToken: followUp ? session.token : undefined,
     });
+    if (followUp)
+      this.emit({
+        sessionId,
+        clientMessageId: followUp.clientMessageId,
+        state: 'queued',
+      });
     if (session.resolveNext) {
       session.resolveNext();
       session.resolveNext = null;

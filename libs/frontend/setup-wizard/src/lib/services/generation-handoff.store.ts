@@ -1,5 +1,8 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  QueuedFollowUpStore,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { WizardRpcService } from './wizard-rpc.service';
 import { findBoundGenerationTab } from './bound-generation-tab';
@@ -14,6 +17,8 @@ export interface GuidanceHandoff {
 @Injectable({ providedIn: 'root' })
 export class GenerationHandoffStore {
   private readonly tabs = inject(TabManagerService);
+  /** Follow-ups waiting for the bound tab (TASK_2026_884). */
+  private readonly followUps = inject(QueuedFollowUpStore);
   private readonly launcher = inject(GenerationWorkflowLauncherService);
   private readonly rpc = inject(WizardRpcService);
   private readonly pendingValue = signal<GuidanceHandoff | null>(null);
@@ -136,8 +141,7 @@ export class GenerationHandoffStore {
         (tab.streamingState?.currentMessageId != null &&
           tab.status !== 'awaiting-background' &&
           tab.status !== 'sleeping') ||
-        Boolean(tab.queuedContent?.trim()) ||
-        Boolean(tab.queuedOptions)
+        this.followUps.forTab(tab.id).length > 0
       ) {
         this.outcomeValue.set('manual-recovery');
         return;

@@ -115,6 +115,18 @@ describe('Electron RPC surface', () => {
     );
   });
 
+  it('serves the backend-owned follow-up queue methods (TASK_2026_884)', () => {
+    const queueMethods = [
+      'chat:queued-list',
+      'chat:queued-withdraw',
+      'chat:queued-steer',
+    ];
+    expect(surface.registered).toEqual(expect.arrayContaining(queueMethods));
+    for (const method of queueMethods) {
+      expect(surface.excluded).not.toContain(method);
+    }
+  });
+
   it('serves artifact listing and external link opening', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),

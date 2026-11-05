@@ -42,4 +42,10 @@ export const CHAT_TOKENS = {
    * (Electron); `ChatSessionService` injects it as optional.
    */
   HOST_ROUTING_COORDINATOR: Symbol.for('ChatHostRoutingCoordinator'),
+  /**
+   * Chat side of the backend-owned follow-up queue (TASK_2026_884): item →
+   * tab bindings, the `CHAT_QUEUED_MESSAGE_STATE` push, Stop withdrawal.
+   * Injected by `SESSION` and `ChatRpcHandlers`.
+   */
+  FOLLOW_UP_QUEUE: Symbol.for('ChatFollowUpQueueService'),
 } as const;
