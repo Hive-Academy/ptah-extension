@@ -60,6 +60,7 @@ export class CodexChatPeerQueue {
       rejectAdmission = reject;
     });
     // Held entries have no waiting caller after enqueue returns.
+    // degradation-audit: reported - a rejected admission reaches the user through the entry's state callback.
     void admitted.catch(() => undefined);
     pending.push({ run, resolve: resolveAdmission, reject: rejectAdmission,
       admitted: false, idle: false, admissionId: undefined, followUp: snapshot,
