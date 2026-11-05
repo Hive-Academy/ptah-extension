@@ -21,6 +21,11 @@ export function sceneStartFrames(sceneLengths: number[]): number[] {
   return starts;
 }
 
+/** Returns the playback speed needed to fit `frames` into `seconds`. */
+export function speedToFit(frames: number, seconds: number, fps: number): number {
+  return frames / (seconds * fps);
+}
+
 /** Parses a "mm:ss" timestamp into seconds. */
 export function parseTimestamp(value: string): number {
   const [minutes, seconds] = value.split(':').map(Number);
