@@ -15,12 +15,13 @@ export const TRIBUNAL_POINTS: readonly string[] = [
 const SEATS = [-8, -4, 0, 4, 8] as const;
 
 /**
- * Tribunal. Composition "the bench": a narrow copy column on the left and a
- * medium clip right of centre, with a fan of five empty console windows (the
- * panel's seats) rising from behind its top edge. The last point is set as
- * the verdict and lands last. Scroll: the header lines, the clip rises, then
- * the pinned steps seat the panel and bring the points in, the verdict
- * last. Two canvas bolts flank the clip: one in the gutter beside the copy,
+ * Tribunal. Composition "the bench": a big clip anchored right with a fan of
+ * five empty console windows (the panel's seats) rising from behind its top
+ * edge; on desktop the larger copy column overlaps the clip's left edge on an
+ * ink scrim, so the headline stays on screen while pinned. The last point is
+ * set as the verdict and lands last. Scroll: the header lines, the clip
+ * rises, then the pinned steps seat the panel and bring the points in, the
+ * verdict last. Two canvas bolts flank the clip: one under its right part,
  * one along its right edge.
  */
 @Component({
@@ -50,9 +51,8 @@ const SEATS = [-8, -4, 0, 4, 8] as const;
             }
           </ul>
         </div>
-        <ptah-flank-bolt class="tb-bolt tb-bolt-gutter" axis="vertical" [seed]="83" [strike]="strike()" />
-
         <div class="tb-clip">
+          <ptah-flank-bolt class="tb-bolt tb-bolt-floor" axis="horizontal" [seed]="83" [strike]="strike()" />
           <div class="tb-bench" aria-hidden="true">
             @for (tilt of seats; track $index; let i = $index) {
               <span class="tb-seat" [class.is-in]="seated() > i" [style.--tilt]="tilt + 'deg'" [style.--at]="i">

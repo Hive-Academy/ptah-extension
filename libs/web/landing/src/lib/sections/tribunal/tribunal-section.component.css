@@ -127,35 +127,56 @@
 }
 
 @media (min-width: 1024px) {
-  /* Uneven grid: a narrow copy column, a bolt gutter, then the clip. */
+  /*
+   * A big clip anchored right; the copy column overlaps its left edge (the
+   * sessions column) on an ink scrim, so the headline stays on screen while
+   * the stage is pinned. The copy is set larger than the other sections.
+   */
   .tb-stage {
-    grid-template-columns: minmax(15rem, 1fr) clamp(4rem, 6vw, 6.5rem) minmax(0, min(56vw, calc(68vh * 1.6)));
-    align-items: center;
-    gap: 0;
-    width: min(100%, 90rem);
+    --section-title-size: clamp(2.4rem, 4.4vw, 4rem);
+    --section-subline-size: 1.15rem;
+    display: block;
+    width: min(100%, 100rem);
     margin: 0 auto;
-    padding: 0 clamp(3rem, 5vw, 5rem) 0 clamp(0rem, 3vw, 3rem);
+    padding: 0 clamp(3rem, 5vw, 5rem) 0 0;
   }
 
   .tb-text {
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: end;
-    width: min(100%, 24rem);
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    left: clamp(0rem, 3vw, 3rem);
+    width: min(34rem, 38vw);
+    isolation: isolate;
+    transform: translateY(-50%);
+  }
+
+  .tb-text::before {
+    position: absolute;
+    z-index: -1;
+    inset: -1.75rem -4rem -1.75rem -2rem;
+    content: '';
+    border-radius: 0.75rem;
+    background: linear-gradient(90deg, rgb(8 9 12 / 94%) calc(100% - 7rem), rgb(8 9 12 / 0%));
+  }
+
+  .tb-point {
+    max-width: none;
+    font-size: 1.15rem;
   }
 
   .tb-clip {
-    grid-column: 3;
-    grid-row: 1;
+    width: min(66vw, calc(76vh * 1.6));
+    margin-left: auto;
   }
 
-  /* Gutter bolt: between the copy and the clip, touching neither. */
-  .tb-bolt-gutter {
+  /* Floor bolt: under the clip's right part, clear of the copy column. */
+  .tb-bolt-floor {
     display: block;
-    position: relative;
-    grid-column: 2;
-    grid-row: 1;
-    align-self: stretch;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    left: 38%;
+    height: 2.75rem;
   }
 
   /* Outer bolt: along the clip's right edge, below the bench. */

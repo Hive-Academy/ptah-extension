@@ -34,18 +34,18 @@ const RAIL_RUNNING = 9;
       <div class="frame-atmosphere cc-atmosphere" aria-hidden="true"></div>
       <div class="frame-grain" aria-hidden="true"></div>
 
-      <div class="cc-head">
-        <ptah-section-header
-          titleId="command-center-title"
-          align="start"
-          [eyebrow]="eyebrow()"
-          [headline]="headline()"
-          [subline]="subline()"
-          [progress]="headerProgress()"
-        />
-      </div>
-
       <div class="cc-stage" data-stage data-layout="rail-bleed" [style.--enter]="scroll.enter()">
+        <!-- Desktop: over the clip's top-left on an ink scrim, so it stays on screen while pinned. -->
+        <div class="cc-head" data-overlap>
+          <ptah-section-header
+            titleId="command-center-title"
+            align="start"
+            [eyebrow]="eyebrow()"
+            [headline]="headline()"
+            [subline]="subline()"
+            [progress]="headerProgress()"
+          />
+        </div>
         <div class="cc-clip">
           <ptah-flank-bolt class="cc-bolt cc-bolt-edge" axis="vertical" [seed]="31" [strike]="strike()" />
           <ptah-flank-bolt class="cc-bolt cc-bolt-floor" axis="horizontal" [seed]="47" [strike]="strike()" />

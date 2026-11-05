@@ -44,15 +44,17 @@ describe('TribunalSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('lays out the bench: copy column, then the clip, flanked by two bolts and no seam bolt', () => {
+  it('lays out the bench: copy over the clip edge, the clip flanked by two bolts, no seam bolt', () => {
     const { root, fixture } = mount();
     const stage = root.querySelector('[data-stage]');
     expect(stage?.getAttribute('data-layout')).toBe('bench');
+    // The copy is inside the pinned stage (so it stays on screen), the bolts belong to the clip.
     expect(Array.from(stage?.children ?? []).map((el) => el.className.split(' ')[0])).toEqual([
       'tb-text',
-      'tb-bolt',
       'tb-clip',
     ]);
+    expect(root.querySelectorAll('.tb-clip > ptah-flank-bolt')).toHaveLength(2);
+    expect(root.querySelector('.tb-bolt-floor')?.getAttribute('data-axis')).toBe('horizontal');
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
     expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
     expect(root.querySelector('ptah-seam-bolt')).toBeNull();

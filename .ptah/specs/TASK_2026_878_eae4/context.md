@@ -72,3 +72,10 @@ Equal priority with the README refresh (TASK_2026_877_85fa).
 - Replace the small seam bolt at the start of each section with TWO bolts that flank the
   section video (one each side, or a placement that fits the section's new layout). Same
   periodic, crisp lightning; the two strike at different times; never over video or text.
+
+## Owner feedback round 3 (after PR #940 draft)
+
+- Elements MAY overlap/overflow each other (e.g. a headline over the pinned clip), so the S1/S4
+  headlines can stay on screen instead of scrolling off while the clip is pinned.
+- S4 tribunal (the last video): bigger headline/text and a bigger clip, fix their position.
+- Everything else stays as is (mobile order unchanged, hero arcs unchanged).

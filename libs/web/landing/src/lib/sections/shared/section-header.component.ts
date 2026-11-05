@@ -80,7 +80,8 @@ import { REVEAL } from './section-scroll';
       .section-title {
         margin: 0;
         color: #fff;
-        font-size: clamp(2rem, 3.8vw, 3.25rem);
+        /* A section may set a larger title through the custom property. */
+        font-size: var(--section-title-size, clamp(2rem, 3.8vw, 3.25rem));
         font-weight: 700;
         letter-spacing: -0.025em;
         line-height: 0.98;
@@ -92,7 +93,7 @@ import { REVEAL } from './section-scroll';
         width: min(100%, 56ch);
         margin: clamp(1.1rem, 2.2vw, 1.6rem) auto 0;
         color: #e9ebef;
-        font-size: clamp(0.98rem, 1.15vw, 1.125rem);
+        font-size: var(--section-subline-size, clamp(0.98rem, 1.15vw, 1.125rem));
         line-height: 1.6;
         text-wrap: balance;
       }

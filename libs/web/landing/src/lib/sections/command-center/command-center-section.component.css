@@ -105,8 +105,29 @@
 }
 
 @media (min-width: 1024px) {
+  /*
+   * The header rides in the pinned stage, over the clip's top-left (the
+   * sessions column), so the headline stays on screen during the steps. An
+   * ink scrim behind it keeps the copy AA readable over the video.
+   */
   .cc-head {
-    margin-left: clamp(0rem, 3vw, 3rem);
+    position: absolute;
+    z-index: 4;
+    top: clamp(1.5rem, 4vh, 3rem);
+    left: clamp(0rem, 3vw, 3rem);
+    width: min(34rem, 40vw);
+    margin: 0;
+    isolation: isolate;
+    pointer-events: none;
+  }
+
+  .cc-head::before {
+    position: absolute;
+    z-index: -1;
+    inset: -1.5rem -4rem -1.75rem -2rem;
+    content: '';
+    border-radius: 0.75rem;
+    background: linear-gradient(90deg, rgb(8 9 12 / 94%) calc(100% - 7rem), rgb(8 9 12 / 0%));
   }
 
   /*

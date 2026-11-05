@@ -59,6 +59,10 @@ describe('CommandCenterSectionComponent', () => {
     expect(clip?.querySelector('ptah-console-clip')).not.toBeNull();
     expect(clip?.querySelector('[data-rail]')).not.toBeNull();
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
+    // The header rides in the pinned stage, ahead of the clip, so it stays on screen.
+    const stage = root.querySelector('[data-stage]');
+    expect(stage?.firstElementChild?.matches('.cc-head[data-overlap]')).toBe(true);
+    expect(stage?.querySelector('h2#command-center-title')).not.toBeNull();
     fixture.destroy();
   });
 
