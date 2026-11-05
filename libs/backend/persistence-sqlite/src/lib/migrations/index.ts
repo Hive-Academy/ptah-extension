@@ -92,6 +92,9 @@ import { sql as sql0063SessionAutoLinks } from './0063_session_auto_links';
 import { sql as sql0064LaneOutcomeTaskKindSource } from './0064_lane_outcome_task_kind_source';
 import { sql as sql0065PtahReview } from './0065_ptah_review';
 import { sql as sql0066ReviewPublication } from './0066_review_publication';
+import { sql as sql0067ReviewFailureRecords } from './0067_review_failure_records';
+import { sql as sql0068ReviewHeadBackoff } from './0068_review_head_backoff';
+import { sql as sql0069ReviewAttemptDryRun } from './0069_review_attempt_dry_run';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -468,4 +471,15 @@ export const MIGRATIONS: readonly Migration[] = [
     name: '0066_review_publication',
     sql: sql0066ReviewPublication,
   },
+  {
+    version: 67,
+    name: '0067_review_failure_records',
+    sql: sql0067ReviewFailureRecords,
+  },
+  {
+    version: 68,
+    name: '0068_review_head_backoff',
+    sql: sql0068ReviewHeadBackoff,
+  },
+  { version: 69, name: '0069_review_attempt_dry_run', sql: sql0069ReviewAttemptDryRun },
 ];
