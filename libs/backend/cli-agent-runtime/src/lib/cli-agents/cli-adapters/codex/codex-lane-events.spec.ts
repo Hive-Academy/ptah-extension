@@ -161,7 +161,7 @@ describe('CodexLaneEvents', () => {
     }]);
   });
 
-  it('presents command failures by exit code and file additions as Write', () => {
+  it('presents command failures by exit code and file additions as FileChange', () => {
     const map = mapper();
     const started = map({ type: 'toolStarted', toolId: 'command', toolName: 'commandExecution', input: { command: 'cmd.exe /c rg -n test' } }).segments[0];
     expect(started).toMatchObject({ toolName: 'Bash', toolInput: { command: 'rg -n test' } });
@@ -169,8 +169,8 @@ describe('CodexLaneEvents', () => {
     // The raw wrapped command stays in toolArgs for the trace.
     expect(started?.toolArgs).toBe(JSON.stringify({ command: 'cmd.exe /c rg -n test' }));
     expect(map({ type: 'toolCompleted', toolId: 'command', status: 'completed', output: 'oops', exitCode: 2 }).segments[0]).toMatchObject({ type: 'tool-result-error', content: 'oops\nCommand failed with exit code 2' });
-    expect(map({ type: 'toolStarted', toolId: 'file', toolName: 'fileChange', input: { changes: [{ path: '/new', kind: { type: 'add' } }] } }).segments[0]).toMatchObject({ toolName: 'Write' });
-    expect(map({ type: 'toolCompleted', toolId: 'file', status: 'completed', output: null }).segments[0]).toMatchObject({ toolName: 'Write' });
+    expect(map({ type: 'toolStarted', toolId: 'file', toolName: 'fileChange', input: { changes: [{ path: '/new', kind: { type: 'add' }, diff: 'new content' }] } }).segments[0]).toMatchObject({ toolName: 'FileChange' });
+    expect(map({ type: 'toolCompleted', toolId: 'file', status: 'completed', output: null }).segments[0]).toMatchObject({ toolName: 'FileChange' });
     expect(map({ type: 'file', itemId: 'file', path: '/new', operation: 'add' }).segments[0]).toMatchObject({ type: 'file-change', toolCallId: 'file' });
   });
 

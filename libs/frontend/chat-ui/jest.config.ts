@@ -17,6 +17,9 @@ export default {
   // `ngx-markdown` dies on `Unexpected token 'export'`. Named explicitly, same
   // as libs/frontend/chat, so component-level specs (e.g. code-output) run.
   transformIgnorePatterns: ['node_modules/(?!(.*\\.mjs$|marked|ngx-markdown))'],
+  moduleNameMapper: {
+    '^@ptah-extension/git-ui/diff-renderer$': '<rootDir>/src/__mocks__/ptah-git-ui-diff-renderer.ts',
+  },
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

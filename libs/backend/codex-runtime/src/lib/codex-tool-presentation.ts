@@ -225,27 +225,31 @@ function failedCommandResultText(
   return body.trim() === '' ? line : `${body}\n${line}`;
 }
 
-/**
- * Present a file change. A single `add` maps to a Claude `Write`: the header
- * shows the clickable path (tool-call-header.component.ts:413-426) and the
- * body lists `file_path` and `changes` as argument rows
- * (tool-input-display.component.ts:322-341). An `update` does not map: an
- * `Edit` card hides its input body and renders its diff only from
- * `old_string`/`new_string`, so it keeps the raw `fileChange` name.
- */
+/** Present validated Codex patches without treating them as replacement text. */
 function presentFileChange(
   input: Readonly<Record<string, unknown>> | undefined,
 ): { toolName: string; toolInput?: Record<string, unknown> } {
   const changes = input?.['changes'];
-  if (!Array.isArray(changes) || changes.length !== 1)
+  if (!Array.isArray(changes) || changes.length === 0)
     return named('fileChange', input);
-  const change = record(changes[0]);
-  const path = nonEmptyText(change['path']);
-  if (record(change['kind'])['type'] !== 'add' || path === undefined)
-    return named('fileChange', input);
-  return { toolName: 'Write', toolInput: { file_path: path, changes } };
+  const valid = changes.filter((value: unknown) => {
+    const change = record(value);
+    const kind = record(change['kind'])['type'];
+    return (
+      nonEmptyText(change['path']) !== undefined &&
+      typeof change['diff'] === 'string' &&
+      (kind === 'add' || kind === 'delete' || kind === 'update')
+    );
+  });
+  if (valid.length === 0) return named('fileChange', input);
+  return {
+    toolName: 'FileChange',
+    toolInput: {
+      changes: valid,
+      ...(valid.length === 1 ? { file_path: record(valid[0])['path'] } : {}),
+    },
+  };
 }
-
 /**
  * Present an approval request with the tool name, input and description the
  * permission card renders. Descriptions carry no protocol ids and are capped.

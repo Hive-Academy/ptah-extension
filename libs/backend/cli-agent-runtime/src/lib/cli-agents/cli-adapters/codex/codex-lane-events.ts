@@ -72,8 +72,8 @@ export class CodexLaneEvents {
             ? { ...event.input }
             : undefined;
         const presented = presentCodexTool(event.toolName, input);
-        // The result row must carry the same name as its call row (Write for a
-        // single add needs the input, which the completion does not have).
+        // The result row must carry the presented name from the call row;
+        // completions do not carry the original file-change input.
         this.tools.set(event.toolId, {
           raw: event.toolName,
           presented: presented.toolName,

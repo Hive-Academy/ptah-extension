@@ -121,7 +121,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'single added file maps to Write and keeps the changes',
+      case: 'single added file maps to FileChange and keeps the changes',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -129,7 +129,7 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'Write',
+        toolName: 'FileChange',
         toolInput: {
           file_path: '/workspace/a.ts',
           changes: [
@@ -139,7 +139,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'single updated file keeps the raw name',
+      case: 'single updated file maps to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -147,8 +147,9 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
+          file_path: '/workspace/a.ts',
           changes: [
             {
               path: '/workspace/a.ts',
@@ -160,7 +161,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'single deleted file keeps the raw name',
+      case: 'single deleted file maps to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -168,8 +169,9 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
+          file_path: '/workspace/a.ts',
           changes: [
             {
               path: '/workspace/a.ts',
@@ -181,7 +183,7 @@ describe('presentCodexTool', () => {
       },
     },
     {
-      case: 'multiple changes keep the raw name',
+      case: 'multiple changes map to FileChange',
       toolName: 'fileChange',
       input: {
         changes: [
@@ -190,7 +192,7 @@ describe('presentCodexTool', () => {
         ],
       },
       expected: {
-        toolName: 'fileChange',
+        toolName: 'FileChange',
         toolInput: {
           changes: [
             { path: '/workspace/a.ts', diff: '+a', kind: { type: 'add' } },
@@ -561,5 +563,26 @@ describe('presentCodexApproval', () => {
     );
     expect(presented.description.length).toBe(500);
     expect(presented.description.endsWith('…')).toBe(true);
+  });
+});
+
+describe('Codex patch presentation', () => {
+  it('keeps the move destination on an updated file', () => {
+    const change = {
+      path: '/old.ts',
+      kind: { type: 'update', move_path: '/new.ts' },
+      diff: '@@ -1 +1 @@',
+    };
+    expect(presentCodexTool('fileChange', { changes: [change] })).toEqual({
+      toolName: 'FileChange',
+      toolInput: { file_path: '/old.ts', changes: [change] },
+    });
+  });
+
+  it('keeps an empty change list raw', () => {
+    expect(presentCodexTool('fileChange', { changes: [] })).toEqual({
+      toolName: 'fileChange',
+      toolInput: { changes: [] },
+    });
   });
 });
