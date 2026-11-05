@@ -27,6 +27,8 @@ import {
 } from '@ptah-extension/shared';
 import {
   parseToolInputCached,
+  parseStreamingToolInputCached,
+  streamingToolInputHead,
   type StreamingState,
 } from '@ptah-extension/chat-types';
 import { MAX_DEPTH } from '../execution-tree.constants';
@@ -167,7 +169,14 @@ export function buildToolNode(
   const inputKey = `${toolStart.toolCallId}-input`;
   const inputString = state.toolInputAccumulators.get(inputKey) || '';
   let toolInput: Record<string, unknown> | undefined;
-  if (inputString && resultEvent) {
+  if (inputString && !resultEvent) {
+    // Still streaming: render the fields recovered so far (cached, bounded).
+    toolInput =
+      parseStreamingToolInputCached(toolStart.toolCallId, inputString) ??
+      (toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0
+        ? toolStart.toolInput
+        : { __raw: streamingToolInputHead(inputString) });
+  } else if (inputString) {
     // Shared, cached parse: `result.data` is read-only and shared with other
     // consumers of the same tool call.
     const result = parseToolInputCached(toolStart.toolCallId, inputString);
@@ -193,12 +202,6 @@ export function buildToolNode(
         });
       }
     }
-  } else if (inputString) {
-    toolInput = {
-      __streaming: true,
-      __rawSnippet:
-        inputString.substring(0, 50) + (inputString.length > 50 ? '...' : ''),
-    } as Record<string, unknown>;
   } else if (
     toolStart.toolInput &&
     Object.keys(toolStart.toolInput).length > 0
