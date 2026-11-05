@@ -59,6 +59,7 @@ export {
   IndexingRpcHandlers,
   TasksRpcHandlers,
   SessionOrganizationRpcHandlers,
+  SessionHandoffChainRpcHandlers,
   LanePlanLimitsRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,

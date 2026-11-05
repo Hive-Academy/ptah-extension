@@ -93,6 +93,12 @@ describe('Electron RPC surface', () => {
     expect(surface.excluded).not.toContain('git:watchRoots');
   });
 
+  it('serves the session handoff chain (TASK_2026_876)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['session:handoffChain']),
+    );
+  });
+
   it('serves artifact listing and external link opening', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
