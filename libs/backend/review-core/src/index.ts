@@ -48,3 +48,4 @@ export { FindingIdentityService } from './lib/publication/finding-identity.servi
 export type { FindingIdentityCandidate, PriorFindingIdentity, IdentityDecision } from './lib/publication/finding-identity.service';
 export { FindingRecheckService } from './lib/publication/finding-recheck.service';
 export type { FindingRecheckInput, FindingRecheckDecision } from './lib/publication/finding-recheck.service';
+export { sanitizeReviewFailureMessage } from './lib/review-failure-sanitizer';

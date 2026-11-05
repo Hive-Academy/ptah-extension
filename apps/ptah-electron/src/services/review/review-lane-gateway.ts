@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentProcessManager, AgentSpawnEnvironment, CliDetectionService, LaneLimitLookupService } from '@ptah-extension/cli-agent-runtime';
 import type { CliDetectionResult } from '@ptah-extension/shared';
-import type { IReviewLaneGateway, ReviewLaneCapability } from '@ptah-extension/review-core';
+import { type IReviewLaneGateway, type ReviewLaneCapability } from '@ptah-extension/review-core';
 
 const spawnInputSchema = z.object({
   laneId: z.string().min(1).max(128), cwd: z.string().min(1),
@@ -41,22 +41,38 @@ export class ReviewLaneGateway implements IReviewLaneGateway {
     const lane = installed.find((entry) => idOf(entry) === parsed.laneId);
     if (!lane) throw new Error('Review lane unavailable');
     const [limit] = await this.limits.lookup([lane], { signal: input.signal });
-    if (!limit || limit.state.state !== 'confirmed-room') throw new Error('Review lane has no confirmed room');
+    if (limit?.state.state === 'at-limit') throw new Error('Review lane is at its limit');
     const result = await this.manager.spawn({ task: parsed.prompt, cli: lane.cli,
       ...(lane.ptahCliId ? { ptahCliId: lane.ptahCliId } : {}), workingDirectory: parsed.cwd,
-      taskKind: 'review' });
+      taskKind: 'review', attachMcp: false, deliverables: ['out/lane-output.json'] });
     const agentId = String(result.agentId);
     if (input.signal.aborted) {
       await this.manager.stop(agentId);
       throw new Error('Review lane cancelled');
     }
-    const waited = await this.manager.waitForAgents([agentId], 'all', 15 * 60_000, input.signal);
-    if (waited.cancelled || waited.timedOut) {
+    // Continuation-capable SDK handles can keep their process alive after the
+    // turn completes. waitForAgents listens for process exit, which may be the
+    // five-minute idle release rather than the end of the review turn.
+    const deadline = Date.now() + 15 * 60_000;
+    try {
+      while (true) {
+        if (input.signal.aborted) throw new Error('cancelled');
+        if (Date.now() >= deadline) throw new Error('timeout');
+        // Review attempts live outside the active editor workspace, so the
+        // caller-scoped getStatus API would reject this internal lane.
+        const status = this.manager.findAgentInfo(agentId);
+        if (!status) throw new Error('status-failed: missing agent');
+        if (status.status === 'completed') return;
+        if (status.status === 'failed' || status.status === 'stopped' || status.status === 'timeout') {
+          const detail = status.status === 'timeout' ? 'timeout' :
+            `status-failed: ${status.failureKind ?? status.exitCode ?? status.status}`;
+          throw new Error(detail);
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now()))));
+      }
+    } finally {
+      // stop preserves the completed status while releasing a live SDK handle.
       await this.manager.stop(agentId);
-      throw new Error('Review lane deadline reached');
     }
-    const terminal = waited.entries[0];
-    if (terminal?.state !== 'exited' || terminal.info.status !== 'completed')
-      throw new Error('Review lane failed');
   }
 }

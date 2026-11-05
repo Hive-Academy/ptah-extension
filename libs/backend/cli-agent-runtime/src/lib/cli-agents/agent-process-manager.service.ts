@@ -495,7 +495,7 @@ export class AgentProcessManager {
     // workspace root, which is where every CLI-discoverable directory lives.
     await this.spawnEnvironment.runHarnessPreflight(workingDirectory);
     const mcpPort =
-      adapter.supportsMcp !== false
+      request.attachMcp !== false && adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
     const gated = request.resumeSessionId
@@ -525,7 +525,7 @@ export class AgentProcessManager {
       roleChannel: adapter.roleChannel,
       binaryPath: detection.path,
       mcpPort,
-      expectsMcp: adapter.supportsMcp !== false,
+      expectsMcp: request.attachMcp !== false && adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
   }

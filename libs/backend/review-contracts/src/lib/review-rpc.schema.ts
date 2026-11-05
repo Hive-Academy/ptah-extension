@@ -18,16 +18,29 @@ const repo = z.object({ repo: RepoIdentitySchema }).strict();
 const result = z
   .object({ ok: z.boolean(), error: z.string().max(500).optional() })
   .strict();
-export const ReviewSettingsReadSchema = z.object({
-  settings: OperatorSettingsSchema.nullable(),
-  hasToken: z.boolean(),
-  tokenStorage: z.enum(['encrypted', 'plaintext']),
-}).strict();
-export const ReviewSettingsUpdateSchema = z.object({
-  settings: OperatorSettingsSchema,
-  attestation: z.object({ who: z.string().min(1).max(39),
-    permissions: z.tuple([z.literal('Pull requests: Read and write'), z.literal('Contents: Read'), z.literal('Metadata: Read')]) }).strict().optional(),
-}).strict();
+export const ReviewSettingsReadSchema = z
+  .object({
+    settings: OperatorSettingsSchema.nullable(),
+    hasToken: z.boolean(),
+    tokenStorage: z.enum(['encrypted', 'plaintext']),
+  })
+  .strict();
+export const ReviewSettingsUpdateSchema = z
+  .object({
+    settings: OperatorSettingsSchema,
+    attestation: z
+      .object({
+        who: z.string().min(1).max(39),
+        permissions: z.tuple([
+          z.literal('Pull requests: Read and write'),
+          z.literal('Contents: Read'),
+          z.literal('Metadata: Read'),
+        ]),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 export const ReviewRpcSchemas = {
   'review:listRuns': {
     params: z
@@ -42,19 +55,27 @@ export const ReviewRpcSchemas = {
       .object({
         runs: z.array(ReviewRunSchema).max(100),
         nextCursor: z.string().max(256).nullable(),
-        poll: z.object({ status: z.enum(['succeeded', 'failed']).nullable(), error: z.string().max(500).nullable(),
-          lastSuccessAt: z.string().datetime().nullable(), lastErrorAt: z.string().datetime().nullable() }).strict(),
+        poll: z
+          .object({
+            status: z.enum(['succeeded', 'failed']).nullable(),
+            error: z.string().max(500).nullable(),
+            lastSuccessAt: z.string().datetime().nullable(),
+            lastErrorAt: z.string().datetime().nullable(),
+          })
+          .strict(),
       })
       .strict(),
   },
   'review:getRun': { params: attempt, result: ReviewRunSchema.nullable() },
   'review:listFindings': {
     params: attempt,
-    result: z.object({ findings: z.array(ReviewFindingSchema).max(100) }).strict(),
+    result: z
+      .object({ findings: z.array(ReviewFindingSchema).max(100) })
+      .strict(),
   },
   'review:listRepositories': {
     params: noParams,
-    result: z.array(RepositorySettingsSchema).max(1),
+    result: z.array(RepositorySettingsSchema).max(100),
   },
   'review:getSettings': { params: noParams, result: ReviewSettingsReadSchema },
   'review:updateSettings': {

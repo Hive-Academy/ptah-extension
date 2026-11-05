@@ -189,6 +189,7 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(shell().querySelector('router-outlet')).toBeNull();
     expect(shell().querySelector('ptah-app-shell')).toBeNull();
     expect(backButton()).toBeNull();
+    expect(shell().querySelector('[role="tab"][title="Reviews"]')).toBeNull();
   });
 
   it('shows one real bare outlet and a back button for pre-workspace settings', () => {
@@ -219,7 +220,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Analytics, Setup tabs in order', () => {
+  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Reviews, Analytics, Setup tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -229,7 +230,7 @@ describe('ElectronShellComponent configuration gate', () => {
         '[role="tablist"].electron-tabs button[role="tab"]',
       ),
     );
-    const names = ['Chat', 'Voice', 'Apps', 'Tasks', 'Analytics', 'Setup'];
+    const names = ['Chat', 'Voice', 'Apps', 'Tasks', 'Reviews', 'Analytics', 'Setup'];
     expect(tabs.map((tab) => tab.title)).toEqual(names);
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(names);
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
@@ -239,8 +240,9 @@ describe('ElectronShellComponent configuration gate', () => {
       'false',
       'false',
       'false',
+      'false',
     ]);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(7);
   });
 
   it('opens onboarding from Setup and marks the tab active once the surface settles', () => {

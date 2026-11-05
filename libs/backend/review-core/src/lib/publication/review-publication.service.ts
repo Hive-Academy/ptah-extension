@@ -45,7 +45,7 @@ export class ReviewPublicationService {
   async publish(claim: ReviewQueueClaim, walkthrough: string, diff: string, verdicts: readonly VerificationResult[],
     settingsInput: unknown, baseConfig: unknown | null, secrets: readonly string[],
     scope?: IncrementalScope, signal?: AbortSignal): Promise<void> {
-    const decision = this.policy.publication(settingsInput, baseConfig);
+    const decision = claim.dryRun ? { allowed: false } : this.policy.publication(settingsInput, baseConfig, claim.repo);
     if (!decision.allowed) return;
     const settings = this.policy.effectiveSettings(settingsInput, baseConfig);
     if (!settings) throw new Error('Review publication settings unavailable');

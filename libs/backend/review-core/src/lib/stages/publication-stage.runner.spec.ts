@@ -30,6 +30,18 @@ const settings = { repositories: [{ owner: 'Hive-Academy', name: 'PtahCode', ena
   maxNewInline: 2 };
 
 describe('PublicationStageRunner', () => {
+  it('does not read or publish a walkthrough from partial triage', async () => {
+    const readFile = jest.fn(async () => 'unvalidated walkthrough');
+    const writes = new Map<string, string>();
+    const fs: ReviewArtifactFileSystem = { realpath: async (path) => path,
+      readFile, writeFile: async (path, data) => { writes.set(path, data); } };
+    const runner = new PublicationStageRunner(new ReviewArtifactWriter(fs), new ReviewPolicyService(), {
+      resolve: async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }), settings: async () => settings, baseConfig: async () => null,
+    });
+    const result = await runner.run(claim, context, [], [], undefined, false);
+    expect(readFile).not.toHaveBeenCalled();
+    expect(writes.get(result.artifactPath)).not.toContain('unvalidated walkthrough');
+  });
   it('writes weaker evidence, unavailable checks, suppression and capped inline preview plus export', async () => {
     const writes = new Map<string, string>();
     const fs: ReviewArtifactFileSystem = { realpath: async (path) => path,

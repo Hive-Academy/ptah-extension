@@ -11,6 +11,7 @@ export type ElectronView =
   | 'thoth'
   | 'marketplace'
   | 'tasks'
+  | 'review-runs'
   | 'onboarding';
 
 /**
@@ -32,6 +33,7 @@ const SURFACE_HOSTS: Record<
   // element's selector moved.
   marketplace: 'ptah-marketplace-shell',
   tasks: 'ptah-tasks-view',
+  'review-runs': 'ptah-review-runs-page',
   onboarding: 'ptah-onboarding-shell',
 };
 

@@ -1,4 +1,5 @@
 export const CLI_AGENT_RUNTIME_TOKENS = {
+  AGENT_SPAWN_TRUSTED_ROOTS: Symbol.for('AgentSpawnTrustedRoots'),
   CODEX_ADAPTER_FACTORY: Symbol.for('CodexAdapterFactory'),
   MCP_ATTACHMENT_PROBE: Symbol.for('McpAttachmentProbe'),
   SDK_PTAH_CLI_CONFIG_PERSISTENCE: Symbol.for('SdkPtahCliConfigPersistence'),

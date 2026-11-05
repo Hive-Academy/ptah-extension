@@ -13,7 +13,7 @@ const valid: EligibilityInput = {
 describe('ReviewPolicyService', () => {
   const policy = new ReviewPolicyService();
   it.each([
-    [{ owner: 'Other' }, 'untrusted-repository'],
+    [{ owner: 'Other' }, 'repository-disabled'],
     [{ settings: { ...settings, maintainerLogins: [] } }, 'empty-allowlist'],
     [{ settings: { ...settings, pollMinutes: 0 } }, 'invalid-settings'],
     [{ settings: { ...settings, repositories: [] } }, 'repository-disabled'],
@@ -38,10 +38,18 @@ describe('ReviewPolicyService', () => {
     [settings, null, 'dry-run'],
     [settings, { version: 2 }, 'invalid-config'],
   ] as const)('gates publication: %s', (value, config, reason) => {
-    expect(policy.publication(value, config)).toEqual({ allowed: false, reason });
+    expect(policy.publication(value, config, { owner: 'Hive-Academy', name: 'PtahCode' })).toEqual({ allowed: false, reason });
+  });
+  it('uses the selected repository for eligibility and publication', () => {
+    const second = { owner: 'Other', name: 'Review', enabled: true, dryRun: true, publicationPaused: false };
+    const value = { ...settings, repositories: [{ ...settings.repositories[0], dryRun: false }, second] };
+    expect(policy.eligibility({ ...valid, owner: 'Other', name: 'Review', settings: value }).eligible).toBe(true);
+    expect(policy.publication(value, null, second)).toEqual({ allowed: false, reason: 'dry-run' });
+    expect(policy.publication({ ...value, repositories: [{ ...value.repositories[0], dryRun: true }, { ...second, dryRun: false }] }, null, second))
+      .toEqual({ allowed: true, reason: 'allowed' });
   });
   it('allows publication after dry run is disabled', () => {
-    expect(policy.publication({ ...settings, repositories: [{ ...settings.repositories[0], dryRun: false }] }, null))
+    expect(policy.publication({ ...settings, repositories: [{ ...settings.repositories[0], dryRun: false }] }, null, { owner: 'Hive-Academy', name: 'PtahCode' }))
       .toEqual({ allowed: true, reason: 'allowed' });
   });
 });
