@@ -121,17 +121,19 @@ describe('ReviewSettingsDrawerComponent', () => {
   });
   it('asks for fresh live permission attestation after replacing a token', async () => {
     const setBotToken = jest.fn().mockResolvedValue(true);
+    const botIdentity = signal<{ login: string } | null>(null);
+    const liveAttested = signal(false);
     TestBed.configureTestingModule({
       imports: [ReviewSettingsDrawerComponent],
       providers: [
         {
           provide: ReviewRunsStore,
           useValue: {
-            botIdentity: signal(null),
+            botIdentity,
             botIdentityError: signal(null),
             tokenStorage: signal('encrypted'),
             attestorLogin: signal(''),
-            liveAttested: signal(false),
+            liveAttested,
             credentialState: signal('idle'),
             loadBotIdentity: jest.fn(),
             setBotToken,
@@ -172,6 +174,10 @@ describe('ReviewSettingsDrawerComponent', () => {
       'Enable live publication?',
     );
     expect(setBotToken).toHaveBeenCalledWith('replacement');
+    botIdentity.set({ login: 'review-bot' });
+    fixture.componentRef.setInput('hasToken', true);
+    fixture.componentInstance.confirmLiveEnable();
+    expect(liveAttested()).toBe(true);
   });
 });
 

@@ -176,11 +176,14 @@ export class ReviewSettingsDrawerComponent implements AfterViewInit, OnDestroy {
   private async writeToken(input: HTMLInputElement): Promise<void> {
     const token = input.value;
     input.value = '';
-    if (
-      (await this.store.setBotToken(token)) &&
-      this.draft().repositories.some((repo) => repo.enabled && !repo.dryRun)
-    )
-      this.confirmation.set('live-enable');
+    if (!(await this.store.setBotToken(token))) return;
+    const liveRepo = this.draft().repositories.find(
+      (repo) => repo.enabled && !repo.dryRun,
+    );
+    if (!liveRepo) return;
+    // The new token clears the live gate; confirmLiveEnable needs the repository to re-attest.
+    this.pendingLiveRepository.set(`${liveRepo.owner}/${liveRepo.name}`);
+    this.confirmation.set('live-enable');
   }
   setLogins(event: Event): void {
     if (event.target instanceof HTMLInputElement)
