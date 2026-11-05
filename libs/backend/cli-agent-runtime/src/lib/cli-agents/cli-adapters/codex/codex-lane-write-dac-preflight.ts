@@ -23,8 +23,8 @@ const nativeRunner: WriteDacProbeRunner = {
         if (error) reject(error);
         else resolveOutput(stdout);
       });
-    // degradation-audit: reported - a stdin EPIPE (child already exited) must not
-    // become an unhandled 'error' event; the exec callback reports the outcome.
+    // A stdin EPIPE (child already exited) must not become an unhandled
+    // 'error' event; the execFile callback reports the real outcome.
     child.stdin?.on('error', () => undefined);
     child.stdin?.end();
   }),
