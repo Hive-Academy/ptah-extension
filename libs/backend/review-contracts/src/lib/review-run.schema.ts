@@ -2,7 +2,13 @@ import { z } from 'zod';
 import { ShaSchema, ReviewPathSchema } from './review-finding.schema';
 
 export const RepoIdentitySchema = z
-  .object({ owner: z.literal('Hive-Academy'), name: z.literal('PtahCode') })
+  .object({
+    owner: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
+    name: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,100}$/)
+      .refine((name) => name !== '.' && name !== '..'),
+  })
   .strict();
 export type RepoIdentity = z.infer<typeof RepoIdentitySchema>;
 export const ReviewStageNameSchema = z.enum([
@@ -25,16 +31,24 @@ export const ReviewStateSchema = z.enum([
   'skipped',
   'interrupted',
 ]);
-export const ReviewLaneAvailabilitySchema = z.object({
-  confirmed: z.number().int().min(0).max(1000),
-  unknown: z.number().int().min(0).max(1000),
-  atLimit: z.number().int().min(0).max(1000),
-}).strict();
-export const ReviewPollResultSchema = z.object({
-  at: z.string().datetime(),
-  enqueued: z.number().int().min(0).max(10000),
-  error: z.string().max(500).nullable(),
-}).strict();
+export const ReviewFailureStageSchema = z.enum(['discovery', 'context', 'lanes', 'verification', 'publication', 'other']);
+export const ReviewFailureCodeSchema = z.enum(['checkout-missing', 'head-missing', 'git-timeout', 'git-failed', 'command-scope', 'github-auth', 'github-rate-limit', 'github-http', 'lane-unavailable', 'lane-timeout', 'lane-failed', 'prompt-too-large', 'schema-invalid', 'persistence', 'unknown']);
+export const ReviewFailureSchema = z.object({ stage: ReviewFailureStageSchema, code: ReviewFailureCodeSchema, message: z.string().max(300) }).strict();
+export const ReviewHeadRetrySchema = z.object({ failureCount: z.number().int().min(0), nextEligibleAt: z.string().datetime().nullable(), automaticRetriesStopped: z.boolean() }).strict();
+export const ReviewLaneAvailabilitySchema = z
+  .object({
+    confirmed: z.number().int().min(0).max(1000),
+    unknown: z.number().int().min(0).max(1000),
+    atLimit: z.number().int().min(0).max(1000),
+  })
+  .strict();
+export const ReviewPollResultSchema = z
+  .object({
+    at: z.string().datetime(),
+    enqueued: z.number().int().min(0).max(10000),
+    error: z.string().max(500).nullable(),
+  })
+  .strict();
 export const StageRecordSchema = z
   .object({
     name: ReviewStageNameSchema,
@@ -59,6 +73,8 @@ export const ReviewRunSchema = z
     trigger: z.enum(['poll', 'manual']),
     configHash: ShaSchema.nullable(),
     status: ReviewStateSchema,
+    failure: ReviewFailureSchema.nullable().optional(),
+    headRetry: ReviewHeadRetrySchema.nullable().optional(),
     createdAt: z.string().datetime(),
     startedAt: z.string().datetime().nullable(),
     completedAt: z.string().datetime().nullable(),
@@ -69,7 +85,7 @@ export const ReviewRunSchema = z
     laneAvailability: ReviewLaneAvailabilitySchema.optional(),
     lastPoll: ReviewPollResultSchema.nullable().optional(),
     health: z.enum(['online', 'offline', 'degraded']).optional(),
-    stages: z.array(StageRecordSchema).max(8),
+    stages: z.array(StageRecordSchema).max(16),
   })
   .strict();
 export type ReviewRun = z.infer<typeof ReviewRunSchema>;

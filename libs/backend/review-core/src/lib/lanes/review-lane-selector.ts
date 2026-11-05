@@ -25,7 +25,7 @@ export class ReviewLaneSelector {
     const unavailable: ReviewLaneKind[] = [];
     const usedFamilies = new Set<string>();
     for (const kind of kinds.slice(0, 6)) {
-      const candidates = capabilities.filter((lane) => lane.limitState === 'confirmed-room');
+      const candidates = capabilities.filter((lane) => lane.limitState !== 'at-limit');
       if (kind === 'verifier' && lensAuthorFamily) candidates.sort((a, b) =>
         Number(a.family === lensAuthorFamily) - Number(b.family === lensAuthorFamily));
       const lane = candidates.find((entry) => !usedFamilies.has(entry.family)) ?? candidates[0];

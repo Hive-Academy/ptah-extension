@@ -7,6 +7,7 @@ import { ReviewLaneSelector, type ReviewLaneCapability, type ReviewLaneKind } fr
 import { ReviewOutputParser } from './review-output.parser';
 import { REVIEW_CORE_TOKENS } from '../../di/tokens';
 import type { ReviewStageEnvironment } from '../stages/context-stage.runner';
+import { sanitizeReviewFailureMessage } from '../review-failure-sanitizer';
 
 export interface IReviewLaneGateway {
   list(): Promise<{ lanes: ReviewLaneCapability[]; maxConcurrentAgents: number }>;
@@ -15,9 +16,10 @@ export interface IReviewLaneGateway {
 
 /** The adapter owns creation and exact-SHA, read-only materialization of src. */
 export interface IReviewLaneFiles {
-  prepare(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<void>;
+  prepare(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<string>;
   sourceChecksum(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<string>;
   readOutput(attemptRoot: string, name: 'lane-output.json' | 'walkthrough.md'): Promise<string>;
+  clearOutput(attemptRoot: string): Promise<void>;
 }
 
 export interface ReviewLaneRequest {
@@ -35,8 +37,8 @@ export interface ReviewLaneRequest {
 }
 
 export type ReviewLaneResult =
-  | { status: 'completed'; family: string; evidenceStrength?: 'strong' | 'weaker'; output: ReturnType<ReviewOutputParser['parseLens']> | ReturnType<ReviewOutputParser['parseVerdict']> | ReturnType<ReviewOutputParser['parseVerdictBatch']> }
-  | { status: 'partial'; reason: string };
+  | { status: 'completed'; family: string; limitCheck?: 'unavailable'; evidenceStrength?: 'strong' | 'weaker'; output: ReturnType<ReviewOutputParser['parseLens']> | ReturnType<ReviewOutputParser['parseVerdict']> | ReturnType<ReviewOutputParser['parseVerdictBatch']> }
+  | { status: 'partial'; reason: string; limitCheck?: 'unavailable' };
 
 @injectable()
 export class ReviewLaneRunner {
@@ -58,17 +60,20 @@ export class ReviewLaneRunner {
     ShaSchema.parse(request.headSha);
     z.string().min(1).max(128).parse(request.attemptId);
     if (!Number.isFinite(request.runDeadlineMs)) throw new Error('Invalid run deadline');
-    const limit = request.kind === 'triage' ? 180_000 : request.kind === 'verifier' ? 300_000 : 480_000;
+    const limit = request.kind === 'triage' ? 180_000 : 480_000;
     const deadline = Math.min(request.runDeadlineMs, this.clock.now() + limit);
     if (this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
     const capacity = z.object({
       lanes: z.array(z.object({ id: z.string().min(1), family: z.string().min(1), limitState: z.enum(['confirmed-room', 'unknown', 'at-limit']) }).strict()).max(100),
       maxConcurrentAgents: z.number().int().nonnegative(),
     }).strict().parse(await this.gateway.list());
+    if (request.signal?.aborted) return { status: 'partial', reason: 'aborted' };
     if (this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
     const choice = this.selector.select([request.kind], capacity.lanes, request.lensAuthorFamily).selected[0];
     if (!choice) return { status: 'partial', reason: 'no-confirmed-room' };
     const operatorSettings = OperatorSettingsSchema.parse(await this.environment.settings());
+    if (request.signal?.aborted) return { status: 'partial', reason: 'aborted' };
+    if (this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
     const lease = this.admission.acquire(`${request.prKey}:${request.attemptId}`, deadline, capacity.maxConcurrentAgents, operatorSettings.laneCapPerPr);
     if (lease.status === 'partial') return { status: 'partial', reason: lease.reason };
     const controller = new AbortController();
@@ -77,35 +82,57 @@ export class ReviewLaneRunner {
     if (request.signal?.aborted) controller.abort();
     const timer = this.clock.setTimeout(() => controller.abort(), Math.max(0, deadline - this.clock.now()));
     try {
-      await this.files.prepare(request.repo, request.attemptRoot, request.headSha, controller.signal);
-      const before = await this.files.sourceChecksum(request.repo, request.attemptRoot, request.headSha, controller.signal);
-      if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
+      const before = await this.files.prepare(request.repo, request.attemptRoot, request.headSha, controller.signal);
+      if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: request.signal?.aborted ? 'aborted' : 'deadline' };
+      await this.files.clearOutput(request.attemptRoot);
       let spawnError: unknown;
       try {
         await this.gateway.spawn({ laneId: choice.lane.id, cwd: request.attemptRoot, prompt: request.prompt, signal: controller.signal });
       } catch (error: unknown) { spawnError = error; }
       const after = await this.files.sourceChecksum(request.repo, request.attemptRoot, request.headSha, controller.signal);
       if (before !== after) throw new Error('Lane mutated source');
-      if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
+      if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: request.signal?.aborted ? 'aborted' : 'deadline' };
       if (spawnError !== undefined) throw spawnError;
-      const raw = await this.files.readOutput(request.attemptRoot, 'lane-output.json');
-      const output = request.kind === 'verifier'
-        ? request.verifierBatch ? this.parser.parseVerdictBatch(raw, request.headSha, choice.lane.family)
-          : this.parser.parseVerdict(raw, request.headSha, choice.lane.family)
-        : this.parser.parseLens(raw, request.headSha, request.kind === 'triage' ? undefined : request.kind as Lens);
+      let raw: string;
+      try {
+        raw = (await this.files.readOutput(request.attemptRoot, 'lane-output.json')).replace(/^\uFEFF/, '');
+      } catch (error: unknown) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT')
+          throw new Error('output-missing');
+        throw error;
+      }
+      if (!raw.trim()) throw new Error('output-missing');
+      let output: ReturnType<ReviewOutputParser['parseLens']> | ReturnType<ReviewOutputParser['parseVerdict']> | ReturnType<ReviewOutputParser['parseVerdictBatch']>;
+      try {
+        output = request.kind === 'verifier'
+          ? request.verifierBatch ? this.parser.parseVerdictBatch(raw, request.headSha, choice.lane.family)
+            : this.parser.parseVerdict(raw, request.headSha, choice.lane.family)
+          : this.parser.parseLens(raw, request.headSha, request.kind === 'triage' ? undefined : request.kind as Lens);
+      } catch (error: unknown) {
+        const detail = error instanceof z.ZodError ? error.issues.map((issue) => issue.path.join('.') || '<root>').join(', ') :
+          error instanceof Error ? error.message : 'unknown';
+        throw new Error(`output-invalid: ${sanitizeReviewFailureMessage(detail).slice(0, 160)}`);
+      }
       if (request.kind === 'triage') {
-        const walkthrough = await this.files.readOutput(request.attemptRoot, 'walkthrough.md');
+        const walkthrough = (await this.files.readOutput(request.attemptRoot, 'walkthrough.md')).replace(/^\uFEFF/, '');
         if (!/^#{1,3} Observed behavior\s*$/mi.test(walkthrough) ||
             !/^#{1,3} Inferred risks\s*$/mi.test(walkthrough) ||
             !/^#{1,3} Risk map\s*$/mi.test(walkthrough))
           throw new Error('Triage walkthrough missing required headings');
       }
       return { status: 'completed', family: choice.lane.family,
+        ...(choice.lane.limitState === 'unknown' ? { limitCheck: 'unavailable' as const } : {}),
         ...(request.kind === 'verifier' ? { evidenceStrength: choice.lane.family === request.lensAuthorFamily ? 'weaker' as const : 'strong' as const } : {}), output };
     } catch (error: unknown) {
+      if (controller.signal.aborted || this.clock.now() >= deadline)
+        return { status: 'partial', reason: request.signal?.aborted ? 'aborted' : 'deadline' };
       const failure = error instanceof Error ? error : new Error('Review lane failed');
       this.logger.error(new Error(failure.message === 'Lane mutated source' ? 'Lane mutated source' : 'Review lane failed'));
-      return { status: 'partial', reason: failure.message === 'Lane mutated source' ? 'source-mutated' : 'lane-failed' };
+      const precise = /^(output-missing|output-invalid:|status-failed:|timeout|cancelled)/.test(failure.message);
+      return { status: 'partial', reason: failure.message === 'Lane mutated source' ? 'source-mutated' :
+        precise ? sanitizeReviewFailureMessage(failure.message) :
+          `lane-failed: ${sanitizeReviewFailureMessage(choice.lane.id).slice(0, 80)}; ${sanitizeReviewFailureMessage(failure.name).slice(0, 40)}; ${sanitizeReviewFailureMessage(failure.message)}`,
+        ...(choice.lane.limitState === 'unknown' ? { limitCheck: 'unavailable' as const } : {}) };
     } finally {
       this.clock.clearTimeout(timer);
       request.signal?.removeEventListener('abort', onAbort);

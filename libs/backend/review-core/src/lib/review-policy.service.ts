@@ -3,6 +3,7 @@ import {
   OperatorSettingsSchema,
   RepoReviewConfigV1Schema,
   type RepoReviewConfigV1,
+  type RepoIdentity,
 } from '@ptah-extension/review-contracts';
 
 export type EligibilityReason =
@@ -38,13 +39,13 @@ export interface EffectiveReviewSettings {
 export class ReviewPolicyService {
   eligibility(input: EligibilityInput): EligibilityDecision {
     const reject = (reason: EligibilityReason): EligibilityDecision => ({ eligible: false, reason });
-    if (input.owner !== 'Hive-Academy' || input.name !== 'PtahCode') return reject('untrusted-repository');
     const settings = OperatorSettingsSchema.safeParse(input.settings);
     if (!settings.success) {
       if (this.isEmptyAllowlist(input.settings)) return reject('empty-allowlist');
       return reject('invalid-settings');
     }
-    if (!settings.data.repositories.some((repo) => repo.enabled)) return reject('repository-disabled');
+    if (settings.data.maintainerLogins.length === 0) return reject('empty-allowlist');
+    if (!settings.data.repositories.some((repo) => repo.enabled && repo.owner.toLowerCase() === input.owner.toLowerCase() && repo.name.toLowerCase() === input.name.toLowerCase())) return reject('repository-disabled');
     if (input.baseConfig !== null && !RepoReviewConfigV1Schema.safeParse(input.baseConfig).success) return reject('invalid-config');
     if (input.state !== 'open') return reject('closed-or-merged');
     if (input.draft) return reject('draft');
@@ -53,12 +54,12 @@ export class ReviewPolicyService {
     return { eligible: true, reason: 'eligible' };
   }
 
-  publication(settingsInput: unknown, baseConfig: unknown | null): PublicationDecision {
+  publication(settingsInput: unknown, baseConfig: unknown | null, target: RepoIdentity): PublicationDecision {
     const settings = OperatorSettingsSchema.safeParse(settingsInput);
     if (!settings.success) return { allowed: false, reason: 'invalid-settings' };
     if (baseConfig !== null && !RepoReviewConfigV1Schema.safeParse(baseConfig).success) return { allowed: false, reason: 'invalid-config' };
     if (settings.data.globalPublicationPaused) return { allowed: false, reason: 'global-pause' };
-    const repo = settings.data.repositories[0];
+    const repo = settings.data.repositories.find((entry) => entry.owner.toLowerCase() === target.owner.toLowerCase() && entry.name.toLowerCase() === target.name.toLowerCase());
     if (!repo?.enabled) return { allowed: false, reason: 'repository-disabled' };
     if (repo.publicationPaused) return { allowed: false, reason: 'repository-pause' };
     if (repo.dryRun) return { allowed: false, reason: 'dry-run' };

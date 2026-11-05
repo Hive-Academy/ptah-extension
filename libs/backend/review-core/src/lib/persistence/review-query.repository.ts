@@ -13,7 +13,9 @@ export interface IReviewQueryRepository {
 const rowSchema = z.object({ attempt_id: z.string(), owner: z.string(), name: z.string(), pr_number: z.number(),
   head_sha: z.string(), trigger: z.enum(['automatic', 'manual']), state: z.string(), queued_at: z.number(),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), deadline_at: z.number().nullable(),
-  config_snapshot_hash: z.string().nullable(), result_status: z.enum(['succeeded', 'partial', 'failed', 'superseded']).nullable() });
+  config_snapshot_hash: z.string().nullable(), result_status: z.enum(['succeeded', 'partial', 'failed', 'superseded']).nullable(),
+  failure_stage: z.string().nullable().optional(), failure_code: z.string().nullable().optional(), failure_message: z.string().nullable().optional(),
+  failure_count: z.number().optional(), next_eligible_at: z.number().nullable().optional() });
 const stageSchema = z.object({ stage: z.string(), state: z.string(), outcome: z.string().nullable(), family: z.string().nullable(), scope: z.string().nullable(),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), error_summary: z.string().nullable(), artifact_path: z.string().nullable() });
 const findingSchema = z.object({ payload_json: z.string() });
@@ -26,7 +28,9 @@ const redact = (value: string): string => value
   .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\b/g, '[REDACTED]')
   .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, '[REDACTED]')
   .replace(/\b(authorization|x-api-key|api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
-const SELECT = `SELECT a.*, r.owner, r.name FROM review_attempts a JOIN review_repositories r ON r.repo_id = a.repo_id`;
+const SELECT = `SELECT a.*, r.owner, r.name, h.failure_count, h.next_eligible_at FROM review_attempts a
+  JOIN review_repositories r ON r.repo_id = a.repo_id
+  LEFT JOIN review_heads h ON h.repo_id = a.repo_id AND h.pr_number = a.pr_number AND h.head_sha = a.head_sha`;
 
 @injectable()
 export class ReviewQueryRepository implements IReviewQueryRepository {
@@ -39,7 +43,7 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
     const outcome = checkpoint ? checkpointSchema.parse(checkpoint).outcome : null;
     const coverage = outcome === null ? null : coverageSchema.parse(JSON.parse(outcome)).coverage;
     const stages = this.sqlite.db.prepare(`SELECT stage, state, outcome, family, scope, started_at, ended_at, error_summary, artifact_path
-      FROM review_stages WHERE attempt_id = ? AND stage NOT LIKE 'checkpoint:%' ORDER BY started_at, ordinal LIMIT 8`).all(row.attempt_id)
+      FROM review_stages WHERE attempt_id = ? AND stage NOT LIKE 'checkpoint:%' ORDER BY started_at, ordinal LIMIT 16`).all(row.attempt_id)
       .map((value) => {
         const stage = stageSchema.parse(value);
         const status = stage.outcome === 'partial' ? 'partial' : stage.state === 'completed' ? 'succeeded' : stage.state === 'cancelled' ? 'superseded' : stage.state;
@@ -47,7 +51,7 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
         return { name: lens === null ? stage.stage : 'lenses', status, family: stage.family,
           scope: lens ?? stage.scope,
           durationMs: stage.started_at !== null && stage.ended_at !== null ? Math.max(0, stage.ended_at - stage.started_at) : null,
-          error: stage.error_summary === null ? null : 'Review stage failed',
+          error: stage.error_summary === null ? null : lens === null ? 'Review stage failed' : stage.error_summary,
           artifactPath: stage.artifact_path ? basename(stage.artifact_path) : null };
       });
     const status = row.result_status ?? (row.state === 'cancelled' ? 'superseded' : row.state);
@@ -57,6 +61,9 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
       trigger: row.trigger === 'automatic' ? 'poll' : 'manual',
       configHash: row.config_snapshot_hash,
       status, createdAt: iso(row.queued_at), startedAt: row.started_at === null ? null : iso(row.started_at),
+      failure: row.failure_stage && row.failure_code && row.failure_message ? { stage: row.failure_stage, code: row.failure_code, message: row.failure_message } : null,
+      headRetry: row.failure_count === undefined ? null : { failureCount: row.failure_count,
+        nextEligibleAt: row.next_eligible_at == null ? null : iso(row.next_eligible_at), automaticRetriesStopped: row.failure_count >= 3 },
       completedAt: row.ended_at === null ? null : iso(row.ended_at),
       deadlineAt: row.deadline_at === null ? null : iso(row.deadline_at),
       coverage: coverage ?? [], stages });
@@ -79,8 +86,11 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
     const page = rows.slice(0, input.limit);
     const last = page.length ? rowSchema.parse(page[page.length - 1]) : null;
     const pollRaw = this.sqlite.db.prepare(`SELECT r.poll_status, r.poll_error, p.last_success_at, p.last_error_at
-      FROM review_repositories r LEFT JOIN review_poll_state p ON p.repo_id = r.repo_id WHERE r.repo_id = ?`)
-      .get('hive-academy/ptahcode');
+      FROM review_repositories r LEFT JOIN review_poll_state p ON p.repo_id = r.repo_id
+      WHERE (? IS NULL AND r.enabled = 1) OR (lower(r.owner) = lower(?) AND lower(r.name) = lower(?))
+      ORDER BY CASE WHEN r.poll_status = 'failed' THEN 0 ELSE 1 END,
+        COALESCE(p.last_error_at, p.last_success_at, r.last_poll_at, 0) DESC LIMIT 1`)
+      .get(input.repo?.owner ?? null, input.repo?.owner ?? '', input.repo?.name ?? '');
     const poll = pollRaw ? pollRowSchema.parse(pollRaw) : null;
     return ReviewRpcSchemas['review:listRuns'].result.parse({ runs: page.map((row) => this.mapRun(row)),
       nextCursor: rows.length > input.limit && last ? `${last.queued_at}:${last.attempt_id}` : null,

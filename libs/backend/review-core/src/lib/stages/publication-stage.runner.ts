@@ -55,7 +55,7 @@ export class PublicationStageRunner {
     const verified = verifiedReviewFindings(verdicts);
     if (secrets.some((secret) => secret.length >= 4 && JSON.stringify(verified).includes(secret)))
       throw new Error('Review finding contains redaction secret');
-    if (this.sqlite && (!this.publication || !this.policy.publication(operatorSettings, baseConfig).allowed) && !signal?.aborted)
+    if (this.sqlite && (!this.publication || claim.dryRun || !this.policy.publication(operatorSettings, baseConfig, claim.repo).allowed) && !signal?.aborted)
       persistVerifiedFindings(this.sqlite.db, claim.attemptId, verified);
     const walkthrough = await this.writer.readWalkthrough(out);
     if (signal?.aborted) throw new Error('Review publication aborted');

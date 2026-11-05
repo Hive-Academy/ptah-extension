@@ -5,7 +5,6 @@ import { ReviewQueueService } from '../review-queue.service';
 import { ReviewPolicyService } from '../review-policy.service';
 import type { ReviewStageEnvironment } from './context-stage.runner';
 
-export const REVIEW_REPO: RepoIdentity = { owner: 'Hive-Academy', name: 'PtahCode' };
 
 /** The scheduler awaits only discovery and enqueue; no review lane runs here. */
 @injectable()
@@ -17,7 +16,7 @@ export class DiscoveryStageRunner {
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
   ) {}
 
-  async run(repo: RepoIdentity = REVIEW_REPO): Promise<number> {
+  async run(repo: RepoIdentity): Promise<number> {
     let page = 1;
     let count = 0;
     do {
@@ -30,8 +29,8 @@ export class DiscoveryStageRunner {
           headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId, settings, baseConfig });
         if (decision.reason === 'draft') await this.queue.recordDraft({ repo, prNumber: pull.number, headSha: pull.headSha });
         if (!decision.eligible) continue;
-        await this.queue.discover({ repo, prNumber: pull.number, headSha: pull.headSha });
-        count++;
+        const attempt = await this.queue.discover({ repo, prNumber: pull.number, headSha: pull.headSha });
+        if (!attempt.skipped) count++;
       }
       if (result.nextPage === null) break;
       page = result.nextPage;

@@ -12,6 +12,11 @@ describe('ReviewQueryRepository', () => {
       const migration = MIGRATIONS.find((entry) => entry.version === 65);
       if (!migration?.sql) throw new Error('Review migration missing');
       db.exec(migration.sql);
+      for (const version of [67, 68]) {
+        const addition = MIGRATIONS.find((entry) => entry.version === version);
+        if (!addition?.sql) throw new Error('Review migration missing: ' + version);
+        db.exec(addition.sql);
+      }
       const now = Date.UTC(2026, 0, 1);
       const sha = 'a'.repeat(40);
       db.prepare(`INSERT INTO review_repositories (repo_id, owner, name, created_at, updated_at)
@@ -68,13 +73,28 @@ describe('ReviewQueryRepository', () => {
       expect((await query.listRuns({ limit: 10 })).runs.find((run) => run.attemptId === 'a5'))
         .toMatchObject({ status: 'superseded' });
       expect((await query.getRun('a3'))?.stages).toMatchObject([{ name: 'lenses', scope: 'security-privacy',
-        status: 'partial', error: 'Review stage failed' }]);
+        status: 'partial', error: 'deadline' }]);
+      for (const stage of ['discovery', 'context', 'checks', 'triage', 'lens:correctness-lifecycle',
+        'lens:contracts-callers', 'lens:host-di-config', 'verification']) {
+        db.prepare(`INSERT INTO review_stages (attempt_id, stage, ordinal, state)
+          VALUES ('a3', ?, 0, 'completed')`).run(stage);
+      }
+      expect((await query.getRun('a3'))?.stages).toHaveLength(9);
       const findings = await query.listFindings('a3');
       expect(findings).toHaveLength(1);
       expect(JSON.stringify(findings)).not.toContain(secret);
       const first = await query.listRuns({ state: 'partial', limit: 1 });
       expect(first.poll).toEqual({ status: 'failed', error: 'github-poll-failed', lastSuccessAt: null,
         lastErrorAt: new Date(now + 5).toISOString() });
+      db.prepare(`INSERT INTO review_repositories (repo_id, owner, name, enabled, poll_status, poll_error, created_at, updated_at)
+        VALUES ('other/repo', 'Other', 'Repo', 1, 'failed', 'other-poll-failed', ?, ?)`).run(now, now);
+      db.prepare(`INSERT INTO review_poll_state (repo_id, last_error_at, last_error)
+        VALUES ('other/repo', ?, 'other-poll-failed')`).run(now + 10);
+      expect((await query.listRuns({ limit: 10 })).poll.error).toBe('other-poll-failed');
+      expect((await query.listRuns({ repo: { owner: 'Hive-Academy', name: 'PtahCode' }, limit: 10 })).poll.error)
+        .toBe('github-poll-failed');
+      db.prepare(`UPDATE review_repositories SET enabled = 0 WHERE repo_id = 'other/repo'`).run();
+      expect((await query.listRuns({ limit: 10 })).poll.error).toBe('github-poll-failed');
       expect(first.runs.map((run) => run.attemptId)).toEqual(['a3']);
       expect(first.nextCursor).not.toBeNull();
       const second = await query.listRuns({ state: 'partial', limit: 1, cursor: first.nextCursor ?? undefined });
