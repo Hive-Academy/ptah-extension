@@ -86,9 +86,50 @@ describe('parseWroteLines', () => {
     expect(parseWroteLines('team leader returned prose')).toEqual({
       refusal: 'none',
     });
-    expect(parseWroteLines('- WROTE: /not-at-start')).toEqual({
+    expect(parseWroteLines('note - WROTE: /not-at-start')).toEqual({
       refusal: 'none',
     });
+    expect(parseWroteLines('-- WROTE: /double-marker')).toEqual({
+      refusal: 'none',
+    });
+    expect(parseWroteLines('-WROTE: /no-space-after-marker')).toEqual({
+      refusal: 'none',
+    });
+    expect(parseWroteLines('- wrote: /lowercase')).toEqual({ refusal: 'none' });
+    expect(parseWroteLines('**wrote:** /lowercase-bold')).toEqual({
+      refusal: 'none',
+    });
+  });
+
+  it('accepts one markdown list marker and the bold prefix forms', () => {
+    expect(parseWroteLines('- WROTE: /abs/dash.md')).toEqual({
+      paths: ['/abs/dash.md'],
+    });
+    expect(parseWroteLines('  * WROTE: /abs/star.md')).toEqual({
+      paths: ['/abs/star.md'],
+    });
+    expect(parseWroteLines('**WROTE:** /abs/bold-in.md')).toEqual({
+      paths: ['/abs/bold-in.md'],
+    });
+    expect(parseWroteLines('**WROTE**: /abs/bold-out.md')).toEqual({
+      paths: ['/abs/bold-out.md'],
+    });
+    expect(
+      parseWroteLines(`- **WROTE:** \`/abs/My Folder/a.md\` ${EM} done`),
+    ).toEqual({ paths: ['/abs/My Folder/a.md'] });
+    expect(parseWroteLines('- `WROTE: /abs/code.md`')).toEqual({
+      paths: ['/abs/code.md'],
+    });
+  });
+
+  it('keeps the bounds for list and bold forms', () => {
+    expect(parseWroteLines('- WROTE:')).toEqual({ refusal: 'malformed' });
+    expect(parseWroteLines('**WROTE:**   ')).toEqual({ refusal: 'malformed' });
+    expect(parseWroteLines(`- WROTE: /${'a'.repeat(1024)}`)).toEqual({
+      refusal: 'malformed',
+    });
+    const many = Array.from({ length: 21 }, (_, i) => `- **WROTE:** /p/${i}`);
+    expect(parseWroteLines(many.join('\n'))).toEqual({ refusal: 'too-many' });
   });
 
   it('returns too-many for 21 distinct paths and accepts 20', () => {

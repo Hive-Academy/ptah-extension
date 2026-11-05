@@ -129,6 +129,28 @@ describe('checkDeliverable', () => {
     expect(fs.statPaths).toEqual([await fsRealpath(file)]);
   });
 
+  it('does not count a directory or the root itself as a deliverable', async () => {
+    const root = join(dir, 'repo');
+    write(join(root, 'docs', 'a.md'), 'content');
+    const fs = tracing(nodeFs());
+    const missing = { check: { exists: false, bytes: 0, mtimeMs: null } };
+    await expect(checkDeliverable(fs, root, 'docs')).resolves.toEqual(missing);
+    await expect(checkDeliverable(fs, root, 'docs/')).resolves.toEqual(missing);
+    await expect(checkDeliverable(fs, root, root)).resolves.toEqual(missing);
+    await expect(checkDeliverable(fs, root, '.')).resolves.toEqual(missing);
+    // The type check is on the File bit, so a vscode File|SymbolicLink counts.
+    const linked = tracing({
+      stat: async (target: string) => ({
+        ...(await nodeStat(target)),
+        type: FileType.File | FileType.SymbolicLink,
+      }),
+      realpath: (target: string) => fsRealpath(target),
+    });
+    await expect(
+      checkDeliverable(linked, root, 'docs/a.md'),
+    ).resolves.toMatchObject({ check: { exists: true, bytes: 7 } });
+  });
+
   it('accepts a relative entry inside the root', async () => {
     const root = join(dir, 'repo');
     write(join(root, 'rel.txt'), 'xyz');

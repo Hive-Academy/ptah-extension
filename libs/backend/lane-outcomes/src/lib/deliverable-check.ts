@@ -6,11 +6,14 @@
  * a filesystem call. `checkDeliverable` then realpaths the root and the entry
  * and repeats that relative-path test. A real path outside the real root is
  * `outside-root` and is never stat'ed. A missing path, including a dangling
- * symlink, cannot leak data and is reported as not found. Error results carry
+ * symlink, cannot leak data and is reported as not found. A path that is not
+ * a regular file (a directory, the root itself) is also not a deliverable and
+ * reads as not found. Error results carry
  * a code only, never a path or a provider message.
  */
 
 import { isAbsolute, relative, resolve, sep, win32 } from 'node:path';
+import { FileType } from '@ptah-extension/platform-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 
 export interface DeliverableCheck {
@@ -65,6 +68,9 @@ export async function checkDeliverable(
     return { errorCode: OUTSIDE_ROOT };
   try {
     const stat = await fs.stat(realPath.path);
+    // Only a regular file is a deliverable. A directory, the root included,
+    // has a non-zero size but no File bit; vscode may OR SymbolicLink in.
+    if ((stat.type & FileType.File) === 0) return missingFile();
     return { check: { exists: true, bytes: stat.size, mtimeMs: stat.mtime } };
   } catch (error: unknown) {
     return fromFsError(error);

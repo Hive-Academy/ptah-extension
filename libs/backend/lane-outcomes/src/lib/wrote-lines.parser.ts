@@ -2,9 +2,10 @@
  * Parse `WROTE:` lines from a subagent's final message.
  *
  * The message is untrusted. Only the last {@link WROTE_SCAN_MAX_CHARS}
- * characters are scanned. A hit is a line that, after trim and at most one
- * leading backtick, starts with the case-sensitive prefix `WROTE:`. The path
- * is the text after that prefix, cut at the first ` — ` (U+2014). A path
+ * characters are scanned. A hit is a line that, after trim, at most one
+ * markdown list marker (`- ` or `* `) and at most one leading backtick, starts
+ * with the case-sensitive prefix `WROTE:`, or its bold forms `**WROTE:**` and
+ * `**WROTE**:`. The path is the text after that prefix, cut at the first ` — ` (U+2014). A path
  * wrapped in backticks or quotes keeps its interior, including spaces. An
  * unwrapped path ends at the first whitespace, and then loses one run of
  * trailing sentence punctuation (. , ; : ! ? ). A path with spaces must be
@@ -21,6 +22,14 @@ const WROTE_PATH_MAX_CHARS = 1024;
 /** `DeliverablesPayloadSchema` path count (`report-effect.ts`). */
 const WROTE_MAX_PATHS = 20;
 const WROTE_PREFIX = 'WROTE:';
+/** Bold forms first: `**WROTE:**` would otherwise leave a `**` in the body. */
+const WROTE_PREFIXES: readonly string[] = [
+  '**WROTE:**',
+  '**WROTE**:',
+  WROTE_PREFIX,
+];
+/** One markdown bullet; `**` is bold, not a bullet, since a space must follow. */
+const LIST_MARKER = /^[-*]\s+/;
 const EM_DASH_CUT = ' \u2014 ';
 
 export type WroteRefusal = 'none' | 'too-many' | 'malformed';
@@ -57,10 +66,11 @@ export function parseWroteLines(message: string): WroteLinesParse {
 
 /** Text after `WROTE:`, or null when the line is not a hit. */
 function wroteBody(line: string): string | null {
-  let text = line.trim();
+  let text = line.trim().replace(LIST_MARKER, '');
   if (text.startsWith('`')) text = text.slice(1);
-  if (!text.startsWith(WROTE_PREFIX)) return null;
-  return text.slice(WROTE_PREFIX.length);
+  const prefix = WROTE_PREFIXES.find((p) => text.startsWith(p));
+  if (prefix === undefined) return null;
+  return text.slice(prefix.length);
 }
 
 function pathFromWroteBody(body: string): string {

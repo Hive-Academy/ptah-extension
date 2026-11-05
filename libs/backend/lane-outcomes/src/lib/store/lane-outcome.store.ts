@@ -68,6 +68,14 @@ export function applyOutcomeEffect(
     // Every applied declaration sets deliverablesDeclaredAt, so a host report
     // never replaces one; the stores call this inside their transaction.
     if (effect.hostObserved && row.deliverablesDeclaredAt !== null) return row;
+    // A classified failure (e.g. a subagent timeout) outranks files the host
+    // saw on disk; only an explicit report may replace that verdict.
+    if (
+      effect.hostObserved &&
+      row.verdict === 'failed' &&
+      row.failureClass !== null
+    )
+      return row;
     const explicitTaskKind =
       effect.taskKind !== undefined && row.taskKindSource !== 'explicit';
     return {
