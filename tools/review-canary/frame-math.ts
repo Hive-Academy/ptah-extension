@@ -36,3 +36,8 @@ export function parseTimestamp(value: string): number {
 export function secondsToFrames(seconds: number, fps: number): number {
   return Math.round(seconds * fps);
 }
+
+/** Converts a frame count into seconds at the given frame rate. */
+export function framesToSeconds(frames: number, fps: number): number {
+  return frames / fps;
+}
