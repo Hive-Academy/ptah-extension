@@ -2221,6 +2221,7 @@ export class AgentProcessManager {
   async sendToAgent(
     agentId: string,
     message: string,
+    delivery: 'queue' | 'steer' = 'queue',
   ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
@@ -2253,7 +2254,11 @@ export class AgentProcessManager {
       );
     }
 
-    return this.messageRouter.route(agentId, tracked, message, this);
+    return this.messageRouter.route(agentId, tracked, message, this, delivery);
+  }
+
+  getAgentMessageStatus(agentId: string, messageId: string) {
+    return this.messageRouter.messageStatus(agentId, this.agents.get(agentId), messageId);
   }
 
   /**

@@ -9,6 +9,7 @@ import {
 } from './codex-lane-config.builder';
 
 export interface CodexLaneProfileInput {
+  readonly codexSandboxMode?: CodexProfileSettings['codexSandboxMode'];
   readonly config: CodexLaneConfigInput;
   readonly identity: Pick<
     CodexProfileSettings,
@@ -139,6 +140,7 @@ export function buildCodexLaneProfileSettings(
       : undefined;
   const settings: CodexProfileSettings = {
     ...input.identity,
+    ...(input.codexSandboxMode ? { codexSandboxMode: input.codexSandboxMode } : {}),
     consumer: 'lane',
     cwd: config.workingDirectory,
     permissionLevel: input.permissionLevel,

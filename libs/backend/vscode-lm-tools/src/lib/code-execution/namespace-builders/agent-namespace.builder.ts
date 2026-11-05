@@ -504,12 +504,13 @@ export function buildAgentNamespace(
       return agentProcessManager.readOutput(agentId, tail, offset);
     },
 
-    message: async (agentId, message) => {
+    message: async (agentId, message, delivery) => {
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
       // discarded. A `void` return would have made both look like a success.
-      return agentProcessManager.sendToAgent(agentId, message);
+      return agentProcessManager.sendToAgent(agentId, message, delivery);
     },
+    messageStatus: async (agentId, messageId) => agentProcessManager.getAgentMessageStatus(agentId, messageId),
 
     report: async (input) => {
       if (!deliverAgentReport) {

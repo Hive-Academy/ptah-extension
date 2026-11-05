@@ -2024,6 +2024,7 @@ export function formatAgentMessage(
         p: [
           `**Agent ID:** ${result.agentId}`,
           `**Mode:** ${result.mode}`,
+          ...(result.messageId ? [`**Message ID:** ${result.messageId}`] : []),
           AGENT_MESSAGE_MODE_NOTES[result.mode],
           ...(result.detail ? [`**Detail:** ${result.detail}`] : []),
         ].join('  \n'),

@@ -102,7 +102,10 @@ class FakeContext implements CodexContext {
     this.turnNumber += 1;
     return { threadId: this.identity.threadId, turnId: `turn-${this.turnNumber}`, revision: this.turnNumber };
   }
-  async steer(input: CodexTurnInput) { return this.startTurn(input); }
+  async steer(input: CodexTurnInput): Promise<CodexTurnReceipt> {
+    this.inputs.push(input);
+    return { threadId: this.identity.threadId, turnId: `turn-${this.turnNumber}`, revision: this.turnNumber };
+  }
   async interrupt() { return false; }
   async updateNextTurn() { return { timing: 'nextTurn' as const, revision: 1 }; }
   async compact() { return undefined; }
@@ -604,11 +607,11 @@ describe('CodexAppServerLaneAdapter', () => {
     handle.abort.abort();
   });
 
-  it('advertises queue only and closes the context on abort', async () => {
+  it('advertises steer and closes the context on abort', async () => {
     jest.useFakeTimers();
     try {
       const h = harness();
-      expect(h.adapter.capabilities()).toEqual({ steer: false, interrupt: false, continuation: true });
+      expect(h.adapter.capabilities()).toEqual({ steer: true, interrupt: false, continuation: true });
       const handle = await h.adapter.runSdk(options());
       handle.abort.abort();
       expect(await handle.done).toBe(1);
@@ -618,6 +621,21 @@ describe('CodexAppServerLaneAdapter', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('acknowledges explicit steer only for the active turn', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options());
+    for (let tick = 0; tick < 20 && h.context.inputs.length === 0; tick += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(handle.steer?.('follow up')).resolves.toBeUndefined();
+    expect(h.context.inputs.at(-1)?.text).toBe('follow up');
+    jest.spyOn(h.context, 'steer').mockResolvedValueOnce({ threadId: h.context.identity.threadId, turnId: 'stale-turn', revision: 1 });
+    await expect(handle.steer?.('stale')).rejects.toThrow('Codex active turn changed');
+    await terminal(h.context);
+    await handle.done;
+    handle.abort.abort();
   });
 
   it('closes the opened context once when startup aborts in the open race', async () => {
@@ -958,7 +976,7 @@ describe('CodexAppServerLaneAdapter', () => {
     });
 
     await expect(h.adapter.detect()).resolves.toEqual({
-      cli: 'codex', installed: false, messagingMode: 'queue',
+      cli: 'codex', installed: false, messagingMode: 'steer',
     });
     expect(h.binary.resolve).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).toHaveBeenCalledWith('[CodexAppServerLaneAdapter] Codex home is empty');
@@ -971,7 +989,7 @@ describe('CodexAppServerLaneAdapter', () => {
     await expect(h.adapter.detect()).resolves.toMatchObject({
       installed: true, path: '/bin/codex', version: '0.165.0',
       codexSource: 'installed', codexReason: 'Using installed Codex 0.165.0',
-      messagingMode: 'queue',
+      messagingMode: 'steer',
     });
     expect(h.credentials.check).toHaveBeenCalledTimes(1);
     jest.mocked(h.credentials.check).mockResolvedValue('stale');

@@ -23,6 +23,7 @@ import {
   buildAgentStatusTool,
   buildAgentReadTool,
   buildAgentMessageTool,
+  buildAgentMessageStatusTool,
   buildAgentReportTool,
   buildAgentStopTool,
   buildAgentListTool,
@@ -62,6 +63,7 @@ export const MCP_MVP_TOOL_NAMES = [
   'agent_status',
   'agent_read',
   'agent_message',
+  'agent_message_status',
   'agent_report',
   'agent_stop',
   'agent_list',
@@ -107,6 +109,10 @@ export function buildMcpAgentReadTool(): MCPToolDefinition {
 
 export function buildMcpAgentMessageTool(): MCPToolDefinition {
   return rename(buildAgentMessageTool(), 'agent_message');
+}
+
+export function buildMcpAgentMessageStatusTool(): MCPToolDefinition {
+  return rename(buildAgentMessageStatusTool(), 'agent_message_status');
 }
 
 export function buildMcpAgentReportTool(): MCPToolDefinition {
@@ -196,7 +202,7 @@ export function buildMcpSessionSubmitTool(): MCPToolDefinition {
 }
 
 /**
- * Build the full 12-tool MVP list advertised by `tools/list`. Order is
+ * Build the full MVP list advertised by `tools/list`. Order is
  * deterministic so external hosts that fingerprint the catalog see stable
  * output across `mcp-serve` boots. `session_submit` stays last.
  */
@@ -206,6 +212,7 @@ export function buildMcpMvpTools(): readonly MCPToolDefinition[] {
     buildMcpAgentStatusTool(),
     buildMcpAgentReadTool(),
     buildMcpAgentMessageTool(),
+    buildMcpAgentMessageStatusTool(),
     buildMcpAgentReportTool(),
     buildMcpAgentStopTool(),
     buildMcpAgentListTool(),

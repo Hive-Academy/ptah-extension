@@ -296,8 +296,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     // Positive turn and money limits have no App Server enforcement mapping.
     if (
       profile.lane?.maxTurns ||
-      profile.lane?.maxBudgetUsd ||
-      profile.lane?.explicitFullAccess
+      profile.lane?.maxBudgetUsd
     )
       throw new Error(
         'Codex profile requires unsupported runtime configuration',

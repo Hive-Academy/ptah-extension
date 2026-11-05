@@ -87,6 +87,7 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.codexAutoCompactTokens',
   'agentOrchestration.codexToolOutputTokenLimit',
   'agentOrchestration.codexWebSearch',
+  'agentOrchestration.codexSandboxMode',
   'agentOrchestration.laneRepeatCallStopAt',
   'agentOrchestration.subagentPromptCacheTtl',
   'agentOrchestration.hostRouting',
