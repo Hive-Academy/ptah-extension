@@ -145,6 +145,12 @@ describe('ReviewOrchestratorService', () => {
     expect(f.discover).toHaveBeenCalledTimes(1);
   });
 
+  it('reconciles the queue independently of startup discovery', async () => {
+    const f = fixture();
+    await f.coordinator.reconcileStartup();
+    expect(f.discover).not.toHaveBeenCalled();
+  });
+
   it('reuses a completed context checkpoint without rerunning context', async () => {
     const f = fixture();
     f.stages.set('context:0', { attemptId: claim.attemptId, stage: 'context', ordinal: 0, state: 'completed',

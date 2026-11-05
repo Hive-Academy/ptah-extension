@@ -16,10 +16,11 @@ describe('review worker activation', () => {
     const drain = jest.fn((_owner: string, _deadline: number, _signal: AbortSignal) =>
       new Promise<number>((resolve) => { finishDrain = resolve; }));
     const startupPoll = jest.fn(async () => 0);
+    const reconcileStartup = jest.fn(async () => 0);
     const resolve = jest.fn(async () => ({ repoRoot: '/repo', attemptsRoot: '/attempts' }));
     const controller = new AbortController();
     scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, {
-      useValue: { drain, startupPoll, lastPollAt: async () => null, pollAndRecord: async () => 0 },
+      useValue: { drain, startupPoll, reconcileStartup, lastPollAt: async () => null, pollAndRecord: async () => 0 },
     });
     scope.register(REVIEW_CORE_TOKENS.ENVIRONMENT, { useValue: { resolve } });
     scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => null } });
@@ -36,6 +37,8 @@ describe('review worker activation', () => {
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'handler:review:discover' }));
     expect(handlers.has('review:discover')).toBe(true);
     expect(drain).toHaveBeenCalledTimes(1);
+    expect(reconcileStartup).toHaveBeenCalledTimes(1);
+    expect(startupPoll).not.toHaveBeenCalled();
     controller.abort();
     expect(drain.mock.calls[0][2].aborted).toBe(true);
     jest.advanceTimersByTime(60_000);
@@ -63,7 +66,7 @@ describe('review worker activation', () => {
     });
     const scope = container.createChildContainer();
     scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useValue: {
-      drain: async () => 0, startupPoll: async () => 0, lastPollAt: async () => null, pollAndRecord,
+      drain: async () => 0, startupPoll: async () => 0, reconcileStartup: async () => 0, lastPollAt: async () => null, pollAndRecord,
     } });
     scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => ({ repositories: repos, pollMinutes: 10 }) } });
     scope.register(CRON_TOKENS.CRON_JOB_STORE, { useValue: { upsert: jest.fn() } });
@@ -89,7 +92,7 @@ describe('review worker activation', () => {
     const startupPoll = jest.fn(async () => { throw new Error('remote failure'); });
       const scope = container.createChildContainer();
       scope.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useValue: {
-        drain: async () => 0, startupPoll, lastPollAt: async () => null, pollAndRecord: async () => 0,
+        drain: async () => 0, startupPoll, reconcileStartup: async () => 0, lastPollAt: async () => null, pollAndRecord: async () => 0,
       } });
       scope.register(REVIEW_CORE_TOKENS.SETTINGS_STORE, { useValue: { getSettings: async () => ({ repositories: [repo] }) } });
       scope.register(CRON_TOKENS.CRON_JOB_STORE, { useValue: { upsert: jest.fn() } });

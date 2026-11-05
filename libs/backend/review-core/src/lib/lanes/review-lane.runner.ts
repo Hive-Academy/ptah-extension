@@ -82,6 +82,7 @@ export class ReviewLaneRunner {
     request.signal?.addEventListener('abort', onAbort, { once: true });
     if (request.signal?.aborted) controller.abort();
     const timer = this.clock.setTimeout(() => controller.abort(), Math.max(0, deadline - this.clock.now()));
+    let completed = false;
     try {
       const before = await this.files.prepare(request.repo, request.attemptRoot, request.headSha, controller.signal);
       if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: request.signal?.aborted ? 'aborted' : 'deadline' };
@@ -121,6 +122,7 @@ export class ReviewLaneRunner {
             !/^#{1,3} Risk map\s*$/mi.test(walkthrough))
           throw new Error('Triage walkthrough missing required headings');
       }
+      completed = true;
       return { status: 'completed', family: choice.lane.family,
         ...(choice.lane.limitState === 'unknown' ? { limitCheck: 'unavailable' as const } : {}),
         ...(request.kind === 'verifier' ? { evidenceStrength: choice.lane.family === request.lensAuthorFamily ? 'weaker' as const : 'strong' as const } : {}), output };
@@ -135,6 +137,12 @@ export class ReviewLaneRunner {
           `lane-failed: ${sanitizeReviewFailureMessage(choice.lane.id).slice(0, 80)}; ${sanitizeReviewFailureMessage(failure.name).slice(0, 40)}; ${sanitizeReviewFailureMessage(failure.message)}`,
         ...(choice.lane.limitState === 'unknown' ? { limitCheck: 'unavailable' as const } : {}) };
     } finally {
+      if (request.kind === 'triage' && !completed) {
+        try { await this.files.clearOutput(request.attemptRoot, true); }
+        catch (cleanupError: unknown) {
+          this.logger.error('Review triage output cleanup failed', cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
+        }
+      }
       this.clock.clearTimeout(timer);
       request.signal?.removeEventListener('abort', onAbort);
       lease.release();

@@ -79,9 +79,12 @@ export class ReviewOrchestratorService {
   }
 
   async startupPoll(lastDiscoveryAt: number | null, repo?: RepoIdentity): Promise<number> {
-    await this.queue.reconcileStartup([]);
     if (lastDiscoveryAt !== null && Date.now() - lastDiscoveryAt < 48 * 60 * 60 * 1000) return 0;
     return repo ? this.pollAndRecord(repo) : this.pollEnabledRepositories();
+  }
+
+  async reconcileStartup(): Promise<number> {
+    return this.queue.reconcileStartup([]);
   }
 
   /** Polls every enabled repository; one repository's failure does not stop the others. */
@@ -157,7 +160,8 @@ export class ReviewOrchestratorService {
       if (!await this.guard(claim, signal)) { status = signal?.aborted ? 'partial' : 'superseded'; return; }
       failureStage = 'publication';
       const publication = await this.stage(claim, 'publication', 4, z.object({ artifactPath: z.string(), exportPath: z.string(),
-        acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts, signal), signal);
+        acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts, signal,
+          typeof triage === 'object' && triage !== null && 'status' in triage && triage.status === 'completed'), signal);
       if (!publication) status = 'partial';
     } catch (error: unknown) {
       if (signal?.aborted) {

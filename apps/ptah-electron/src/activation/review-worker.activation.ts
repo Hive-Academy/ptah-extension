@@ -38,6 +38,7 @@ export async function startReviewWorker(
     timezone: 'UTC', prompt: `handler:${HANDLER}`, enabled: true });
 
   try {
+    await orchestrator.reconcileStartup();
     const settings = await settingsStore.getSettings();
     const enabled = (settings?.repositories.filter((entry) => entry.enabled) ?? [])
       .map((entry) => ({ owner: entry.owner, name: entry.name }));

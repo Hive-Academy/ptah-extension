@@ -122,41 +122,46 @@ export class ReviewRunsStore {
     this.refreshError.set(false);
     this.refreshErrorMessage.set(null);
     let selectedRepo: RepositorySettings | null = null;
-    const previousPoll = this.poll();
     try {
-      const repo =
-        this.repositories().find((entry) =>
-          `${entry.owner}/${entry.name}` === this.repoFilter() && entry.enabled,
-        ) ?? this.repositories().find((entry) => entry.enabled) ??
-        this.repositories()[0];
-      selectedRepo = repo ?? null;
-      if (!repo) {
+      const repositories = await this.request('review:listRepositories',
+        ReviewRpcSchemas['review:listRepositories'].params.parse({}),
+        ReviewRpcSchemas['review:listRepositories'].result);
+      this.repositories.set(repositories);
+      const enabled = repositories.filter((entry) => entry.enabled);
+      const repos = this.repoFilter() === 'all' ? enabled : enabled.filter((entry) =>
+        `${entry.owner}/${entry.name}` === this.repoFilter());
+      selectedRepo = repos.length === 1 ? repos[0] : null;
+      if (repos.length === 0) {
         await this.load();
         return;
       }
-      const result = await this.request(
-        'review:refresh',
-        ReviewRpcSchemas['review:refresh'].params.parse({
-          repo: { owner: repo.owner, name: repo.name },
-        }),
-        ReviewRpcSchemas['review:refresh'].result,
-      );
-      if (!result.ok) throw new Error('Review poll failed');
+      const previousPoll = await Promise.all(repos.map((repo) => this.repositoryPoll(repo)));
+      for (const repo of repos) {
+        const result = await this.request('review:refresh',
+          ReviewRpcSchemas['review:refresh'].params.parse({ repo: { owner: repo.owner, name: repo.name } }),
+          ReviewRpcSchemas['review:refresh'].result);
+        if (!result.ok) throw new Error('Review poll failed');
+      }
       await this.load();
       this.isRefreshing.set(true);
       const deadline = Date.now() + REVIEW_REFRESH_TIMEOUT_MS;
+      let refreshedPoll = await Promise.all(repos.map((repo) => this.repositoryPoll(repo)));
       while (this.state() === 'ready' && Date.now() < deadline &&
-        this.poll()?.lastSuccessAt === previousPoll?.lastSuccessAt &&
-        this.poll()?.lastErrorAt === previousPoll?.lastErrorAt) {
+        refreshedPoll.some((poll, index) => poll.lastSuccessAt === previousPoll[index].lastSuccessAt &&
+          poll.lastErrorAt === previousPoll[index].lastErrorAt)) {
         await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
         await this.load();
         this.isRefreshing.set(true);
+        refreshedPoll = await Promise.all(repos.map((repo) => this.repositoryPoll(repo)));
       }
-      if (this.poll()?.status === 'failed') {
+      const failedIndex = refreshedPoll.findIndex((poll, index) =>
+        poll.status === 'failed' && poll.lastErrorAt !== previousPoll[index].lastErrorAt);
+      if (failedIndex >= 0) {
         this.refreshError.set(true);
-        if (selectedRepo && this.poll()?.error?.startsWith('No local checkout of '))
+        const failedRepo = repos[failedIndex];
+        if (refreshedPoll[failedIndex].error?.startsWith('No local checkout of '))
           this.refreshErrorMessage.set(
-            `No local checkout of ${selectedRepo.owner}/${selectedRepo.name} is open in Ptah. Add its folder as a workspace.`,
+            `No local checkout of ${failedRepo.owner}/${failedRepo.name} is open in Ptah. Add its folder as a workspace.`,
           );
       }
     } catch (error: unknown) {
@@ -170,6 +175,13 @@ export class ReviewRunsStore {
     } finally {
       this.isRefreshing.set(false);
     }
+  }
+
+  private async repositoryPoll(repo: RepoIdentity): Promise<NonNullable<z.output<typeof ReviewRpcSchemas['review:listRuns']['result']>['poll']>> {
+    const result = await this.request('review:listRuns',
+      ReviewRpcSchemas['review:listRuns'].params.parse({ repo: { owner: repo.owner, name: repo.name }, limit: 1 }),
+      ReviewRpcSchemas['review:listRuns'].result);
+    return result.poll;
   }
 
   setRepoFilter(repo: string): void {

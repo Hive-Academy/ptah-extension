@@ -120,10 +120,11 @@ describe('ReviewRunsStore', () => {
     call.mockClear();
     await store.refresh();
     expect(call.mock.calls.map(([method]) => method)).toEqual([
-      'review:refresh',
-      'review:listRepositories',
-      'review:listRuns',
+      'review:listRepositories', 'review:listRuns', 'review:refresh',
+      'review:listRepositories', 'review:listRuns', 'review:listRuns',
     ]);
+    expect(call).toHaveBeenCalledWith('review:listRuns',
+      { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, limit: 1 }, expect.anything());
     expect(call).toHaveBeenCalledWith(
       'review:refresh',
       { repo: { owner: 'Hive-Academy', name: 'PtahCode' } },
@@ -132,14 +133,14 @@ describe('ReviewRunsStore', () => {
     expect(store.state()).toBe('ready');
 
     call.mockClear();
-    call.mockImplementationOnce(() =>
-      Promise.resolve({ isSuccess: () => false, data: null }),
-    );
+    call.mockImplementation((method: string) => Promise.resolve({
+      isSuccess: () => method !== 'review:refresh',
+      data: method === 'review:listRepositories' ? repositories : method === 'review:listRuns' ? list : null,
+    }));
     await store.refresh();
     expect(call.mock.calls.map(([method]) => method)).toEqual([
-      'review:refresh',
-      'review:listRepositories',
-      'review:listRuns',
+      'review:listRepositories', 'review:listRuns', 'review:refresh',
+      'review:listRepositories', 'review:listRuns',
     ]);
     expect(store.state()).toBe('ready');
     expect(store.refreshError()).toBe(true);
@@ -167,7 +168,75 @@ describe('ReviewRunsStore', () => {
       await jest.advanceTimersByTimeAsync(1_000);
       await refresh;
       expect(store.runs()).toEqual([run]);
-      expect(listCalls).toBe(3);
+      expect(listCalls).toBe(4);
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('loads repositories before refreshing when the store has no repository cache', async () => {
+    const repository = { owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false };
+    let refreshed = false;
+    call.mockImplementation((method: string) => {
+      if (method === 'review:refresh') refreshed = true;
+      return Promise.resolve({ isSuccess: () => true, data: method === 'review:listRepositories' ? [repository]
+        : method === 'review:refresh' ? { ok: true } : { runs: [], nextCursor: null, poll: {
+          status: 'succeeded', error: null, lastSuccessAt: refreshed ? '2026-11-05T00:00:00.000Z' : null, lastErrorAt: null } } });
+    });
+    await store.refresh();
+    expect(call.mock.calls.map(([method]) => method)).toEqual([
+      'review:listRepositories', 'review:listRuns', 'review:refresh',
+      'review:listRepositories', 'review:listRuns', 'review:listRuns',
+    ]);
+    expect(store.repositories()).toEqual([repository]);
+    expect(store.refreshError()).toBe(false);
+  });
+
+  it('tracks the selected repository when another repository has a stale failure', async () => {
+    const repositories = [
+      { owner: 'One', name: 'Alpha', enabled: true, dryRun: true, publicationPaused: false },
+      { owner: 'Two', name: 'Beta', enabled: true, dryRun: true, publicationPaused: false },
+    ];
+    let refreshed = false;
+    call.mockImplementation((method: string, params: { repo?: { owner: string } }) => {
+      if (method === 'review:refresh') refreshed = true;
+      const selected = params?.repo?.owner === 'Two';
+      return Promise.resolve({ isSuccess: () => true, data: method === 'review:listRepositories' ? repositories
+        : method === 'review:refresh' ? { ok: true } : { runs: [], nextCursor: null, poll: selected
+          ? { status: 'succeeded', error: null, lastSuccessAt: refreshed ? '2026-11-05T00:00:00.000Z' : null, lastErrorAt: null }
+          : { status: 'failed', error: 'old Alpha failure', lastSuccessAt: null, lastErrorAt: '2026-11-04T00:00:00.000Z' } } });
+    });
+    await store.load();
+    store.setRepoFilter('Two/Beta');
+    await store.refresh();
+    expect(store.refreshError()).toBe(false);
+    expect(call).toHaveBeenCalledWith('review:refresh', { repo: { owner: 'Two', name: 'Beta' } }, { timeout: 120_000 });
+  });
+
+  it('waits for every enabled repository when refreshing all', async () => {
+    jest.useFakeTimers();
+    const repositories = [
+      { owner: 'One', name: 'Alpha', enabled: true, dryRun: true, publicationPaused: false },
+      { owner: 'Two', name: 'Beta', enabled: true, dryRun: true, publicationPaused: false },
+    ];
+    let refreshes = 0;
+    let betaFinished = false;
+    call.mockImplementation((method: string, params: { repo?: { owner: string } }) => {
+      if (method === 'review:refresh') refreshes++;
+      const completed = params?.repo?.owner === 'One' ? refreshes > 0 : betaFinished;
+      return Promise.resolve({ isSuccess: () => true, data: method === 'review:listRepositories' ? repositories
+        : method === 'review:refresh' ? { ok: true } : { runs: [], nextCursor: null, poll: {
+          status: 'succeeded', error: null, lastSuccessAt: completed ? '2026-11-05T00:00:00.000Z' : null, lastErrorAt: null } } });
+    });
+    try {
+      await store.load();
+      const pending = store.refresh();
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(50);
+      expect(store.isRefreshing()).toBe(true);
+      betaFinished = true;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await pending;
+      expect(refreshes).toBe(2);
+      expect(store.refreshError()).toBe(false);
     } finally { jest.useRealTimers(); }
   });
 
@@ -189,12 +258,15 @@ describe('ReviewRunsStore', () => {
     );
     await store.load();
     call.mockClear();
-    call.mockRejectedValueOnce(new Error('timeout'));
+    call.mockImplementation((method: string) => method === 'review:refresh'
+      ? Promise.reject(new Error('timeout')) : Promise.resolve({ isSuccess: () => true,
+        data: method === 'review:listRepositories'
+          ? [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }]
+          : { runs: [], nextCursor: null, poll } }));
     await store.refresh();
     expect(call.mock.calls.map(([method]) => method)).toEqual([
-      'review:refresh',
-      'review:listRepositories',
-      'review:listRuns',
+      'review:listRepositories', 'review:listRuns', 'review:refresh',
+      'review:listRepositories', 'review:listRuns',
     ]);
     expect(store.poll()?.status).toBe('failed');
     expect(store.refreshError()).toBe(true);
@@ -211,14 +283,18 @@ describe('ReviewRunsStore', () => {
 
   it('shows a repository-specific checkout error after Refresh', async () => {
     const repository = { owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false };
-    call.mockImplementation((method: string) => Promise.resolve({
+    let refreshed = false;
+    call.mockImplementation((method: string) => {
+      if (method === 'review:refresh') refreshed = true;
+      return Promise.resolve({
       isSuccess: () => true,
       data: method === 'review:listRepositories' ? [repository]
         : method === 'review:listRuns' ? { runs: [], nextCursor: null, poll: {
           status: 'failed', error: 'No local checkout of Hive-Academy/PtahCode is open in Ptah. Add its folder as a workspace.',
-          lastSuccessAt: null, lastErrorAt: new Date().toISOString(),
+          lastSuccessAt: null, lastErrorAt: refreshed ? '2026-11-05T00:00:00.000Z' : '2026-11-04T00:00:00.000Z',
         } } : { ok: true },
-    }));
+      });
+    });
     await store.load();
     await store.refresh();
     expect(store.refreshErrorMessage()).toContain('No local checkout of Hive-Academy/PtahCode');

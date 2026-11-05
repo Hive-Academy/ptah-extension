@@ -62,7 +62,7 @@ describe('ReviewLaneRunner', () => {
     });
     expect(await runner.run(request)).toMatchObject({ status: 'completed' });
     expect(await runner.run(request)).toMatchObject({ status: 'partial', reason: 'output-missing' });
-    expect(files.clearOutput).toHaveBeenCalledTimes(2);
+    expect(files.clearOutput).toHaveBeenCalledTimes(3);
   });
 
   it('reads the file after spawn instead of treating stdout as the payload', async () => {
@@ -98,6 +98,14 @@ describe('ReviewLaneRunner', () => {
     files.readOutput = jest.fn().mockImplementation(async (_root: string, name: string) => name === 'walkthrough.md'
       ? '# Observed behavior\n' : JSON.stringify({ schemaVersion: 1, headSha: sha, findings: [], coverage: [] }));
     expect(await runner.run(request)).toMatchObject({ status: 'partial', reason: expect.stringContaining('lane-failed: lane; Error; Triage walkthrough') });
+    expect(files.clearOutput).toHaveBeenLastCalledWith('/attempt', true);
+    expect(files.clearOutput).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes a partial walkthrough when triage is aborted after spawn', async () => {
+    gateway.spawn = async () => { now = 1000; };
+    expect(await runner.run(request)).toMatchObject({ status: 'partial', reason: 'deadline' });
+    expect(files.clearOutput).toHaveBeenLastCalledWith('/attempt', true);
   });
 
   it('runs when capacity is unknown and records the missing check', async () => {

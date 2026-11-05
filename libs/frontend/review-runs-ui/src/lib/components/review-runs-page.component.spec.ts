@@ -57,7 +57,12 @@ describe('ReviewRunsPageComponent', () => {
     call.mockClear();
     (fixture.nativeElement.querySelector('[aria-label="Refresh review runs"]') as HTMLButtonElement).click();
     await fixture.whenStable();
-    expect(call.mock.calls.map(([method]) => method)).toEqual(['review:refresh', 'review:listRepositories', 'review:listRuns']);
+    expect(call.mock.calls.map(([method]) => method)).toEqual([
+      'review:listRepositories', 'review:listRuns', 'review:refresh',
+      'review:listRepositories', 'review:listRuns', 'review:listRuns',
+    ]);
+    expect(call).toHaveBeenCalledWith('review:listRuns',
+      { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, limit: 1 }, expect.anything());
   });
 
   it('routes failed-poll Retry to refresh and history-error Retry to load', async () => {
