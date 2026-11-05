@@ -1,5 +1,7 @@
 import { inject, injectable } from 'tsyringe';
+import { posix } from 'node:path';
 import { ReviewFindingSchema, type CandidateFinding, type VerifierVerdict } from '@ptah-extension/review-contracts';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { ReviewLaneRunner, type ReviewLaneResult } from '../lanes/review-lane.runner';
 import type { ReviewQueueClaim } from '../review-queue.service';
@@ -19,17 +21,64 @@ export interface VerificationResult {
   identity?: VerifierIdentityRelation;
 }
 
+interface LensCandidate {
+  id: string;
+  lens: string;
+  authorFamily: string;
+  finding: CandidateFinding;
+}
+
+const severityRank: Record<CandidateFinding['severity'], number> = {
+  Critical: 4, Major: 3, Minor: 2, Nitpick: 1,
+};
+
+/** A current-run defect has one source anchor and category; prior-run identity is handled separately. */
+function uniqueLensCandidates(candidates: readonly LensCandidate[]): LensCandidate[] {
+  const unique: LensCandidate[] = [];
+  const byAnchor = new Map<string, number>();
+  for (const candidate of candidates) {
+    const { finding } = candidate;
+    // Findings without an anchor cannot be safely equated by source location.
+    if (finding.line === null) {
+      unique.push(candidate);
+      continue;
+    }
+    const key = JSON.stringify([posix.normalize(finding.path), finding.line, finding.category]);
+    const priorIndex = byAnchor.get(key);
+    if (priorIndex === undefined) {
+      byAnchor.set(key, unique.length);
+      unique.push(candidate);
+      continue;
+    }
+    const prior = unique[priorIndex];
+    // This pass only coalesces independent lenses. Preserve within-lens findings.
+    if (prior.lens === candidate.lens) {
+      unique.push(candidate);
+      continue;
+    }
+    if (severityRank[finding.severity] > severityRank[prior.finding.severity] ||
+      (finding.severity === prior.finding.severity && finding.confidence > prior.finding.confidence)) {
+      unique[priorIndex] = candidate;
+    }
+  }
+  return unique;
+}
+
 @injectable()
 export class VerificationStageRunner {
   constructor(@inject(ReviewLaneRunner) private readonly lanes: ReviewLaneRunner,
-    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: { readonly db: SqliteDatabase } | null = null) {}
+    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: { readonly db: SqliteDatabase } | null = null,
+    @inject(TOKENS.LOGGER) private readonly logger: Pick<Logger, 'debug'> | null = null) {}
   async run(claim: ReviewQueueClaim, context: ContextStageResult, lenses: LensStageResult, deadline: number, signal?: AbortSignal): Promise<VerificationResult[]> {
-    const candidates = lenses.flatMap((entry) => {
+    const allCandidates = lenses.flatMap((entry) => {
       const result = entry.result;
       return result.status === 'completed' && 'findings' in result.output
         ? result.output.findings.map((finding, index) => ({ id: `${entry.lens}-${index}`, lens: entry.lens,
           authorFamily: result.family, finding })) : [];
     });
+    const candidates = uniqueLensCandidates(allCandidates);
+    if (candidates.length < allCandidates.length)
+      this.logger?.debug(`[Review] Merged ${allCandidates.length - candidates.length} cross-lens findings at identical source anchors`);
     if (candidates.length === 0 || signal?.aborted) return [];
     const repository = this.sqlite ? new PublicationOutboxRepository(this.sqlite.db) : null;
     const redacted = (text: string): string => text.slice(0, 300).replace(/(?:[A-Za-z]:\\[^\s]+|\/(?:Users|home|tmp|var|private)\/[^\s]+|(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{8,}|ignore previous instructions|system prompt|developer message)/gi, '[redacted]');
