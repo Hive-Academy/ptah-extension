@@ -1770,8 +1770,12 @@ export class AgentMonitorStore implements OnDestroy {
         cliSessionId: info.cliSessionId || agent.cliSessionId,
         // Last chance to attribute a card that was spawned before its session
         // resolved — the exit payload often carries the id the spawn lacked.
+        // A tab id that already resolved maps to its SDK id (TASK_2026_876).
         parentSessionId:
-          knownSessionId(info.parentSessionId) ?? agent.parentSessionId,
+          knownSessionId(
+            this.sessionAliases.get(info.parentSessionId ?? '') ??
+              info.parentSessionId,
+          ) ?? agent.parentSessionId,
         completedAt,
         permissionQueue: [],
         supportsContinuation:

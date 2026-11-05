@@ -653,7 +653,10 @@ export class SessionHandoffService implements ISessionHandoff, IHandoffTurnFlush
 
   /** Drop a bind whose successor tab is no longer a live session. */
   private dropGoneSuccessors(): void {
-    for (const tabId of [...this.pending.keys()]) {
+    for (const [tabId, bind] of [...this.pending.entries()]) {
+      // An uncommitted bind belongs to a start that has not settled yet;
+      // the start path deletes it on timeout or refusal.
+      if (!bind.committed) continue;
       let found: ReturnType<SessionLifecycleManager['find']> | undefined;
       try {
         found = this.lifecycle.find(tabId);
