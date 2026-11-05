@@ -51,6 +51,25 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
   // is Electron-only, see expected-absent.ts.
   'git:watchRoots',
+  // Remote machines (TASK_2026_858) — `remoteMachines` capability is
+  // Electron-only, see expected-absent.ts.
+  'machines:add',
+  'machines:list',
+  'machines:pair',
+  'machines:pairViaSsh',
+  'machines:permission.respond',
+  'machines:readiness',
+  'machines:remove',
+  'machines:retry',
+  'machines:session.attach',
+  'machines:session.continue',
+  'machines:session.detach',
+  'machines:session.replay',
+  'machines:session.start',
+  'machines:session.stop',
+  'machines:sessions',
+  'machines:sshAliases',
+  'machines:workspaces',
   // Claude account management (TASK_2026_712 D30) — `providerAccounts`
   // capability is Electron-only, see expected-absent.ts.
   'provider:addAccount',
@@ -65,14 +84,18 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'provider:signOutAccount',
   'provider:startAccountSignIn',
   // ptah-review is Electron-only in P1; the CLI serves no review methods.
+  'review:clearBotToken',
   'review:exportRun',
+  'review:getBotIdentity',
   'review:getRun',
   'review:getSettings',
   'review:listFindings',
   'review:listRepositories',
   'review:listRuns',
   'review:refresh',
+  'review:rerun',
   'review:retryHead',
+  'review:setBotToken',
   'review:setPublicationPause',
   'review:updateSettings',
   'update:check-now',
@@ -89,6 +112,12 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] =
 
 describe('CLI RPC surface', () => {
   const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
+
+  it('serves the session handoff chain (TASK_2026_876)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['session:handoffChain']),
+    );
+  });
 
   it('serves artifact methods with the optional store absent', () => {
     expect(surface.registered).toEqual(

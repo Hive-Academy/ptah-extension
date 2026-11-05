@@ -47,7 +47,10 @@ import {
   type TrackedSession,
 } from './codex-chat-session-controls';
 import { z } from 'zod';
-import { publishUntilAdmitted, type CodexChatAdmission } from './codex-chat-admission';
+import {
+  publishUntilAdmitted,
+  type CodexChatAdmission,
+} from './codex-chat-admission';
 import { CodexChatPeerQueue } from './codex-chat-peer-queue';
 import { SessionAdmissionRefusedError } from '../errors/session-admission-refused.error';
 import {
@@ -67,7 +70,10 @@ export interface CodexChatMetadataPort {
     checkpoint?: unknown;
     messageCount: number;
   }>;
-  persistUsage?(sessionId: SessionId, checkpoint: CodexUsageCheckpoint): Promise<void>;
+  persistUsage?(
+    sessionId: SessionId,
+    checkpoint: CodexUsageCheckpoint,
+  ): Promise<void>;
 }
 
 /** Composition owns registration; every scope must bind this sink before resolving runtime. */
@@ -129,6 +135,7 @@ export interface CodexChatAdapterPorts {
    * staging call neither hook; a losing open does not close a published winner's state.
    */
   readonly sessions?: CodexChatSessionLifecycle;
+  readonly driver: CodexChatDriverGate;
   /** Drain follow-up streams into the same chat channel as the initial stream. */
   publish(
     sessionId: SessionId,
@@ -142,6 +149,21 @@ export interface CodexChatSessionLifecycle {
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
   ): void;
   closed(sessionId: SessionId): void;
+}
+
+export interface CodexChatDriverLease {
+  release(): void;
+}
+
+export interface CodexChatDriverGate {
+  admit(
+    sessionId: SessionId,
+    context: {
+      tabId?: string;
+      consumer: 'chat' | 'gateway';
+      kind: 'start' | 'resume';
+    },
+  ): Promise<CodexChatDriverLease>;
 }
 
 /** Thin native consumer. No SDK, proxy, transcript storage, or protocol parsing. */
@@ -160,7 +182,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private readonly controls: CodexChatSessionControls;
   private readonly peerQueue: CodexChatPeerQueue;
   private missingUsageStoreReported = false;
-  private readonly usagePersistenceDisabled = new WeakSet<CodexSessionUsageOwner>();
+  private readonly usagePersistenceDisabled =
+    new WeakSet<CodexSessionUsageOwner>();
 
   constructor(
     private readonly ports: CodexChatAdapterPorts,
@@ -243,7 +266,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.ports.checkOptions(config);
       const session = this.session(id);
       const keys = (['model', 'effort', 'permissionLevel'] as const).filter(
-        key => config[key] !== undefined && config[key] !== session.settings[key],
+        (key) =>
+          config[key] !== undefined && config[key] !== session.settings[key],
       );
       if (keys.length > 0) {
         this.ports.logger.info(
@@ -257,8 +281,14 @@ export class CodexChatAdapter implements NativeChatAdapter {
       return this.turn(session, {
         text: config.prompt ?? '',
         attachments: [
-          ...(config.files ?? []).map((path) => ({ type: 'file' as const, path })),
-          ...(config.images ?? []).map((image) => ({ type: 'image' as const, ...image })),
+          ...(config.files ?? []).map((path) => ({
+            type: 'file' as const,
+            path,
+          })),
+          ...(config.images ?? []).map((image) => ({
+            type: 'image' as const,
+            ...image,
+          })),
         ],
       });
     }
@@ -282,30 +312,72 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let context: CodexContext | undefined;
     let session: TrackedSession | undefined;
     let stagedId: SessionId | undefined;
+    let lease: CodexChatDriverLease | undefined;
+    let admissionRejected = false;
     try {
       const consumer = config.consumer ?? 'chat';
-      const clientMessageId = z.string().min(1).optional().parse(
-        'clientMessageId' in config ? config.clientMessageId : undefined,
-      );
-      const profileConfig = 'clientMessageId' in config
-        ? (({ clientMessageId: _clientMessageId, ...rest }) => rest)(config)
-        : config;
+      const clientMessageId = z
+        .string()
+        .min(1)
+        .optional()
+        .parse(
+          'clientMessageId' in config ? config.clientMessageId : undefined,
+        );
+      const profileConfig =
+        'clientMessageId' in config
+          ? (({ clientMessageId: _clientMessageId, ...rest }) => rest)(config)
+          : config;
       const prepared = await this.prepareProfile(profileConfig, resumeId);
       this.checkOpening(opening, generation);
+      if (resumeId) {
+        try {
+          lease = await this.ports.driver.admit(resumeId, {
+            tabId: config.tabId,
+            consumer,
+            kind: 'resume',
+          });
+        } catch (error) {
+          admissionRejected = true;
+          throw error;
+        }
+        this.checkOpening(opening, generation);
+      }
       scope = this.createScope(() => sink);
       context = await this.openContext(scope, prepared, consumer);
       const id = SessionId.from(context.identity.threadId);
+      if (resumeId && id !== resumeId)
+        throw new CodexChatAdapterError('identity-mismatch', 'identity');
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      sink = this.buildSink(id, context, prepared.profile.cwd, () => session, consumer);
+      if (!resumeId) {
+        try {
+          lease = await this.ports.driver.admit(id, {
+            tabId: config.tabId,
+            consumer,
+            kind: 'start',
+          });
+        } catch (error) {
+          admissionRejected = true;
+          throw error;
+        }
+      }
+      this.checkOpening(opening, generation);
+      sink = this.buildSink(
+        id,
+        context,
+        prepared.profile.cwd,
+        () => session,
+        consumer,
+      );
       stagedId = id;
       this.ports.sessions?.opened(id, prepared);
       this.checkOpening(opening, generation);
       await this.persistMetadata(id, context, config);
       this.checkOpening(opening, generation);
-      let savedUsage: Awaited<ReturnType<NonNullable<
-        CodexChatMetadataPort['readUsage']>>> | undefined;
+      let savedUsage:
+        | Awaited<ReturnType<NonNullable<CodexChatMetadataPort['readUsage']>>>
+        | undefined;
       let readUsageFailed = false;
       try {
         savedUsage = await this.ports.metadata.readUsage?.(id);
@@ -317,32 +389,55 @@ export class CodexChatAdapter implements NativeChatAdapter {
           error instanceof Error ? error : new Error(String(error)),
         );
       }
-      const usageOwner = savedUsage?.checkpoint === undefined
-        ? new CodexSessionUsageOwner(id, context.identity.threadId)
-        : CodexSessionUsageOwner.restore(id, context.identity.threadId, savedUsage.checkpoint);
-      if (readUsageFailed || (resumeId && savedUsage?.checkpoint === undefined)) {
+      const usageOwner =
+        savedUsage?.checkpoint === undefined
+          ? new CodexSessionUsageOwner(id, context.identity.threadId)
+          : CodexSessionUsageOwner.restore(
+              id,
+              context.identity.threadId,
+              savedUsage.checkpoint,
+            );
+      if (
+        readUsageFailed ||
+        (resumeId && savedUsage?.checkpoint === undefined)
+      ) {
         usageOwner.markMissingCheckpoint();
       }
       if (readUsageFailed) this.usagePersistenceDisabled.add(usageOwner);
       if (usageOwner.getDiagnostics().length) {
-        this.ports.logger.warn('[CodexChatAdapter] Native usage coverage is partial.', {
-          sessionId: id,
-          diagnostics: usageOwner.getDiagnostics(),
-        });
+        this.ports.logger.warn(
+          '[CodexChatAdapter] Native usage coverage is partial.',
+          {
+            sessionId: id,
+            diagnostics: usageOwner.getDiagnostics(),
+          },
+        );
       }
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
+      if (!lease) throw new CodexChatAdapterError('unavailable', 'open');
       session = this.publishSession(
-        id, context, sink, scope, prepared.profile, usageOwner,
-        prepared.billingMode ?? 'unknown', savedUsage?.messageCount ?? 0,
+        id,
+        context,
+        sink,
+        scope,
+        prepared.profile,
+        usageOwner,
+        prepared.billingMode ?? 'unknown',
+        savedUsage?.messageCount ?? 0,
+        lease,
       );
       this.resolved?.(config.tabId, id);
-      return this.turn(session, {
-        text: config.prompt ?? '',
-        attachments: prepared.profile.attachments,
-      }, clientMessageId);
+      return this.turn(
+        session,
+        {
+          text: config.prompt ?? '',
+          attachments: prepared.profile.attachments,
+        },
+        clientMessageId,
+      );
     } catch (error) {
-      const failure = this.failure(error, 'open');
+      const failure = admissionRejected ? error : this.failure(error, 'open');
       if (session) this.sessions.delete(session.id);
       if (stagedId && !this.sessions.has(stagedId)) {
         try {
@@ -352,7 +447,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
         }
       }
       sink?.dispose();
-      await this.cleanupOpen(context, scope);
+      try {
+        await this.cleanupOpen(context, scope);
+      } finally {
+        lease?.release();
+      }
       throw failure;
     } finally {
       this.opening.delete(key);
@@ -401,7 +500,10 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
   }
 
-  private runtimeForScope(scope: CodexChatScope, consumer: 'chat' | 'gateway'): CodexRuntime {
+  private runtimeForScope(
+    scope: CodexChatScope,
+    consumer: 'chat' | 'gateway',
+  ): CodexRuntime {
     return this.ports.resolveRuntime
       ? this.ports.resolveRuntime(scope.container, consumer)
       : scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
@@ -417,11 +519,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       config.sessionName,
       'name' in config ? config.name : undefined,
     ].find((candidate) => candidate?.trim());
-    return this.ports.metadata.save(
-      id,
-      context.identity,
-      title,
-    );
+    return this.ports.metadata.save(id, context.identity, title);
   }
 
   private publishSession(
@@ -433,6 +531,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     usageOwner: CodexSessionUsageOwner,
     billingMode: 'subscription' | 'api-key' | 'unknown',
     messageCount: number,
+    lease: CodexChatDriverLease,
   ): TrackedSession {
     const session: TrackedSession = {
       settings: {
@@ -440,11 +539,12 @@ export class CodexChatAdapter implements NativeChatAdapter {
         effort: profile.effort,
         permissionLevel: profile.permissionLevel,
       },
+      lease,
       id,
       token: randomUUID(),
       consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
-        profile,
+      profile,
       usageOwner,
       billingMode,
       messageCount,
@@ -530,7 +630,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
       },
       this.ports.logger,
-      () => getSession()?.context.turnPermissionLevel ?? context.turnPermissionLevel,
+      () =>
+        getSession()?.context.turnPermissionLevel ??
+        context.turnPermissionLevel,
       process.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
@@ -546,7 +648,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
     admission?: CodexChatAdmission,
     inboundPeer?: { readonly label: string },
   ): Promise<void> {
-    const iterator = this.turn(session, input, clientMessageId, admission, inboundPeer)[Symbol.asyncIterator]();
+    const iterator = this.turn(
+      session,
+      input,
+      clientMessageId,
+      admission,
+      inboundPeer,
+    )[Symbol.asyncIterator]();
     try {
       await this.safe('publish', () =>
         this.ports.publish(session.id, {
@@ -595,39 +703,50 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
       throw new CodexChatAdapterError('unavailable', 'turn');
-    return streamCodexChatTurn(session, input, {
-      turnState: this.turnState,
-      logger: this.ports.logger,
-      markUnsupported: (context, method) => this.runtimeForScope(
-        session.scope, session.consumer === 'gateway' ? 'gateway' : 'chat',
-      ).markUnsupported(context, method),
-      completedTurn: (id) => this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
-      callbacks: (id, turn) => this.ports.callbacks(id, turn),
-      stats: (result) => this.stats?.(result),
-      persistUsage: (id, checkpoint) => {
-        // An unreadable checkpoint may contain threads absent from this owner.
-        if (this.usagePersistenceDisabled.has(session.usageOwner)) return Promise.resolve();
-        if (this.ports.metadata.persistUsage) {
-          return this.ports.metadata.persistUsage(id, checkpoint);
-        }
-        // Optional capability: this host has no durable usage store.
-        if (!this.missingUsageStoreReported) {
-          this.missingUsageStoreReported = true;
-          this.ports.logger.warn(
-            '[CodexChatAdapter] Native usage checkpoint persistence unavailable.',
-            { sessionId: id },
-          );
-        }
-        return Promise.resolve();
+    return streamCodexChatTurn(
+      session,
+      input,
+      {
+        turnState: this.turnState,
+        logger: this.ports.logger,
+        markUnsupported: (context, method) =>
+          this.runtimeForScope(
+            session.scope,
+            session.consumer === 'gateway' ? 'gateway' : 'chat',
+          ).markUnsupported(context, method),
+        completedTurn: (id) =>
+          this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
+        callbacks: (id, turn) => this.ports.callbacks(id, turn),
+        stats: (result) => this.stats?.(result),
+        persistUsage: (id, checkpoint) => {
+          // An unreadable checkpoint may contain threads absent from this owner.
+          if (this.usagePersistenceDisabled.has(session.usageOwner))
+            return Promise.resolve();
+          if (this.ports.metadata.persistUsage) {
+            return this.ports.metadata.persistUsage(id, checkpoint);
+          }
+          // Optional capability: this host has no durable usage store.
+          if (!this.missingUsageStoreReported) {
+            this.missingUsageStoreReported = true;
+            this.ports.logger.warn(
+              '[CodexChatAdapter] Native usage checkpoint persistence unavailable.',
+              { sessionId: id },
+            );
+          }
+          return Promise.resolve();
+        },
+        interrupt: (id) => this.interruptCurrentTurn(id),
+        close: (active) => this.close(active),
+        notifyCompaction: (active, trigger) =>
+          this.notifyCompaction(active, trigger),
+        error: (code, operation) => new CodexChatAdapterError(code, operation),
+        failure: (error, operation) => this.failure(error, operation),
+        onIdle: (active) => this.peerQueue.onIdle(active),
+        admission,
       },
-      interrupt: (id) => this.interruptCurrentTurn(id),
-      close: (active) => this.close(active),
-      notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
-      error: (code, operation) => new CodexChatAdapterError(code, operation),
-      failure: (error, operation) => this.failure(error, operation),
-      onIdle: (active) => this.peerQueue.onIdle(active),
-      admission,
-    }, clientMessageId, inboundPeer);
+      clientMessageId,
+      inboundPeer,
+    );
   }
   async sendMessageToSession(
     ...[id, text, options]: Parameters<IAgentAdapter['sendMessageToSession']>
@@ -635,13 +754,20 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let clientMessageId: string | undefined;
     let inboundPeer: { readonly label: string } | undefined;
     try {
-      clientMessageId = z.string().min(1).optional().parse(options?.clientMessageId);
+      clientMessageId = z
+        .string()
+        .min(1)
+        .optional()
+        .parse(options?.clientMessageId);
       if (options?.origin?.kind === 'peer') {
-        const origin = z.object({
-          kind: z.literal('peer'),
-          from: z.string().min(1),
-          name: z.string().optional(),
-        }).passthrough().parse(options.origin);
+        const origin = z
+          .object({
+            kind: z.literal('peer'),
+            from: z.string().min(1),
+            name: z.string().optional(),
+          })
+          .passthrough()
+          .parse(options.origin);
         inboundPeer = { label: origin.name?.trim() || 'peer session' };
       }
     } catch (error) {
@@ -667,31 +793,53 @@ export class CodexChatAdapter implements NativeChatAdapter {
     }
     const session = this.session(id);
     if (inboundPeer) {
-      await this.peerQueue.send(session, () => publishUntilAdmitted(
-        (admission) => this.publish(
-          session, { text, attachments }, clientMessageId, admission, inboundPeer,
-        ),
-        this.ports.logger,
-      ), requireIdle ? id : undefined);
+      await this.peerQueue.send(
+        session,
+        () =>
+          publishUntilAdmitted(
+            (admission) =>
+              this.publish(
+                session,
+                { text, attachments },
+                clientMessageId,
+                admission,
+                inboundPeer,
+              ),
+            this.ports.logger,
+          ),
+        requireIdle ? id : undefined,
+      );
       return;
     }
     if (this.peerQueue.hasPending(session))
       throw new CodexChatAdapterError('busy', 'turn');
     try {
       await publishUntilAdmitted(
-        (admission) => this.publish(
-          session, { text, attachments }, clientMessageId, admission, inboundPeer,
-        ),
+        (admission) =>
+          this.publish(
+            session,
+            { text, attachments },
+            clientMessageId,
+            admission,
+            inboundPeer,
+          ),
         this.ports.logger,
       );
     } catch (error) {
-      if (requireIdle && error instanceof CodexChatAdapterError &&
-          error.operation === 'turn' &&
-          (error.code === 'busy' || error.code === 'unavailable')) {
-        const ended = this.sessions.get(id) !== session ||
-          !!session.closing || session.abort.signal.aborted;
+      if (
+        requireIdle &&
+        error instanceof CodexChatAdapterError &&
+        error.operation === 'turn' &&
+        (error.code === 'busy' || error.code === 'unavailable')
+      ) {
+        const ended =
+          this.sessions.get(id) !== session ||
+          !!session.closing ||
+          session.abort.signal.aborted;
         throw new SessionAdmissionRefusedError(
-          ended ? 'session-ended' : 'busy', id, { cause: error },
+          ended ? 'session-ended' : 'busy',
+          id,
+          { cause: error },
         );
       }
       throw error;
@@ -724,10 +872,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
    * interrupts the current turn while retaining the native thread.
    * `false` makes the broadcaster clear turn state, as after the first turn.
    */
-  endSessionIfTokenMatches(
-    _id: SessionId,
-    _token: string,
-  ): Promise<boolean> {
+  endSessionIfTokenMatches(_id: SessionId, _token: string): Promise<boolean> {
     return this.controls.endSessionIfTokenMatches(_id, _token);
   }
   private close(session: Session): Promise<void> {
@@ -795,15 +940,16 @@ export class CodexChatAdapter implements NativeChatAdapter {
     throw new CodexChatAdapterError('unsupported', operation);
   }
   private failure(error: unknown, operation: string): CodexChatAdapterError {
-    const failure = error instanceof CodexChatAdapterError
-      ? error
-      : new CodexChatAdapterError(
-          isCodexResumeProfileChangedError(error)
-            ? 'resume-profile-changed'
-            : 'runtime-failed',
-          operation,
-          { cause: error },
-        );
+    const failure =
+      error instanceof CodexChatAdapterError
+        ? error
+        : new CodexChatAdapterError(
+            isCodexResumeProfileChangedError(error)
+              ? 'resume-profile-changed'
+              : 'runtime-failed',
+            operation,
+            { cause: error },
+          );
     if (failure.code === 'cancelled') return failure;
     this.ports.logger.error(
       `[CodexChatAdapter] ${failure.code}: ${operation}.`,

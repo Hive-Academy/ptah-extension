@@ -156,6 +156,12 @@ describe('SettingsToastComponent', () => {
       expect(query('settings-toast')?.hasAttribute('role')).toBe(false);
       expect(query('settings-toast')?.hasAttribute('aria-live')).toBe(false);
     });
+
+    it('the floating card takes the glass overlay role, so glass themes give it a near-opaque fill', () => {
+      feedback.announce('Saved', 'status');
+      fixture.detectChanges();
+      expect(query('settings-toast')?.getAttribute('data-glass-surface')).toBe('overlay');
+    });
   });
 
   it('announces a success in the polite region, with an Undo that performs the undo write', async () => {
@@ -231,6 +237,7 @@ describe('SettingsToastComponent', () => {
       const toast = query('settings-toast-inline');
       expect(toast?.hasAttribute('role')).toBe(false);
       expect(toast?.className).not.toContain('shadow-lg');
+      expect(toast?.hasAttribute('data-glass-surface')).toBe(false);
       expect(toast?.closest('.fixed')).toBeNull();
       expect(query('settings-toast-inline-message')?.textContent).toBe('Saved opus tier model to All Ptah apps.');
       await afterAnnounceTick();

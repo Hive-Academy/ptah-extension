@@ -94,6 +94,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'peerSession:', // Other Claude Code sessions on this machine (list, send)
   'surface:', // TASK_2026_538 surface state RPC
   'diagnostics:', // Per-workspace `go vet` consent (go-vet-consent-get, go-vet-consent-set)
+  'machines:', // Remote Ptah workers over SSH (list, pair, readiness, session.*) — TASK_2026_858
 ] as const;
 
 export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';

@@ -8,24 +8,32 @@ import {
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import type { CodexChatSession as Session } from './codex-chat-turn-stream';
-import type { CodexChatAdapterPorts } from './codex-chat-adapter';
+import type {
+  CodexChatAdapterPorts,
+  CodexChatDriverLease,
+} from './codex-chat-adapter';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
 
 export type TrackedSession = Session & {
+  lease: CodexChatDriverLease;
   settings: Pick<CodexExecutionProfile, 'model' | 'effort' | 'permissionLevel'>;
 };
 
 interface SessionControlsDependencies {
   readonly sessions: Map<SessionId, TrackedSession>;
   readonly opening: Map<string, { cancelled: boolean }>;
-  readonly ports: Pick<CodexChatAdapterPorts, 'sessions' | 'callbacks' | 'publish' | 'logger'>;
+  readonly ports: Pick<
+    CodexChatAdapterPorts,
+    'sessions' | 'callbacks' | 'publish' | 'logger'
+  >;
   session(id: SessionId): TrackedSession;
   unsupported(operation: string): never;
   failure(error: unknown, operation: string): CodexChatAdapterError;
   safe<T>(operation: string, action: () => Promise<T>): Promise<T>;
   close(session: Session): Promise<void>;
   interruptCurrentTurn(id: SessionId): Promise<boolean>;
-  compactionStart(): Parameters<IAgentAdapter['setCompactionStartCallback']>[0] | undefined;
+  compactionStart():
+    Parameters<IAgentAdapter['setCompactionStartCallback']>[0] | undefined;
 }
 
 /** Session lifecycle and native controls; the adapter retains the public surface. */
@@ -52,7 +60,10 @@ export class CodexChatSessionControls {
     return this.deps.sessions.has(id) || this.deps.opening.has(id);
   }
   isSessionActive(id: SessionId): boolean {
-    return this.deps.sessions.has(id) || this.deps.opening.get(id)?.cancelled === false;
+    return (
+      this.deps.sessions.has(id) ||
+      this.deps.opening.get(id)?.cancelled === false
+    );
   }
   canSendFollowUp(id: SessionId): boolean {
     const session = this.deps.sessions.get(id);
@@ -81,7 +92,10 @@ export class CodexChatSessionControls {
     if (session) await this.deps.close(session);
   }
   /** Stream exit keeps the native thread; explicit teardown closes it. */
-  async endSessionIfTokenMatches(_id: SessionId, _token: string): Promise<boolean> {
+  async endSessionIfTokenMatches(
+    _id: SessionId,
+    _token: string,
+  ): Promise<boolean> {
     return false;
   }
   close(session: Session): Promise<void> {
@@ -92,14 +106,18 @@ export class CodexChatSessionControls {
     }
     session.busy = false;
     session.blocked = false;
-    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
-    session.abort.abort();
-    session.sink.dispose();
     session.closing = this.deps.safe('close', async () => {
       try {
+        if (session.turnId) session.sink.endTurn(session.id, session.turnId);
+        session.abort.abort();
+        session.sink.dispose();
         await session.context.close();
       } finally {
-        await session.scope.dispose();
+        try {
+          await session.scope.dispose();
+        } finally {
+          (session as TrackedSession).lease.release();
+        }
       }
     });
     return session.closing;
@@ -132,7 +150,10 @@ export class CodexChatSessionControls {
       const accepted = await this.deps.interruptCurrentTurn(id);
       if (!accepted) {
         if (!session.busy) return;
-        this.deps.ports.logger.warn('[CodexChatAdapter] turn interrupt was refused; closing context.', { sessionId: id });
+        this.deps.ports.logger.warn(
+          '[CodexChatAdapter] turn interrupt was refused; closing context.',
+          { sessionId: id },
+        );
         await this.deps.close(session);
         return;
       }
@@ -198,7 +219,9 @@ export class CodexChatSessionControls {
         await session.context.updateNextTurn({ permissionLevel: level });
       } catch (error) {
         if (error instanceof CodexContextStateError && error.state === 'closed')
-          throw new CodexChatAdapterError('unavailable', 'permission', { cause: error });
+          throw new CodexChatAdapterError('unavailable', 'permission', {
+            cause: error,
+          });
         throw error;
       }
     });

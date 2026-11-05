@@ -76,7 +76,52 @@ function makeHarness() {
     permissionLevel: 'yolo',
     currentModel: 'claude-sonnet-4-5',
   });
-  const lifecycle = { find: jest.fn((id: string) => records.get(id)) };
+  const lifecycle = {
+    find: jest.fn((id: string) => records.get(id)),
+    endSession: jest.fn(async () => undefined),
+  };
+  const turnState = { forceIdle: jest.fn() };
+  const stopLogger = { error: jest.fn(), warn: jest.fn(), info: jest.fn() };
+  const chain = {
+    append: jest.fn(
+      async (_from: string, _to: string, _workspace?: string) => undefined,
+    ),
+    read: jest.fn(async () => [] as readonly string[]),
+    onLinkWritten: jest.fn(() => () => undefined),
+  };
+  const idListeners: Array<
+    (payload: {
+      tabId: string | undefined;
+      realSessionId: string;
+      previousSessionId?: string;
+      timestamp: number;
+    }) => void
+  > = [];
+  const idResolved = {
+    register: jest.fn(
+      (
+        cb: (payload: {
+          tabId: string | undefined;
+          realSessionId: string;
+          previousSessionId?: string;
+          timestamp: number;
+        }) => void,
+      ) => {
+        idListeners.push(cb);
+        return () => {
+          const index = idListeners.indexOf(cb);
+          if (index >= 0) idListeners.splice(index, 1);
+        };
+      },
+    ),
+  };
+  const notifyResolved = (payload: {
+    tabId: string | undefined;
+    realSessionId: string;
+    previousSessionId?: string;
+  }): void => {
+    for (const cb of [...idListeners]) cb({ timestamp: 1, ...payload });
+  };
   const children = new Set<string>();
   // The depth guard is faked; the parent links are a real registry.
   const links = new SessionChildRegistry();
@@ -143,6 +188,10 @@ function makeHarness() {
       adapter?: unknown;
       container?: DependencyContainer | null;
       mcpStatus?: unknown;
+      turnState?: unknown;
+      logger?: unknown;
+      idResolved?: unknown;
+      chain?: unknown;
     } = {},
   ) =>
     new SessionHandoffService(
@@ -156,6 +205,10 @@ function makeHarness() {
         ? (overrides.container ?? null)
         : containerWith(host),
       ('mcpStatus' in overrides ? overrides.mcpStatus : mcpStatus) as never,
+      ('turnState' in overrides ? overrides.turnState : turnState) as never,
+      ('logger' in overrides ? overrides.logger : stopLogger) as never,
+      ('idResolved' in overrides ? overrides.idResolved : idResolved) as never,
+      ('chain' in overrides ? overrides.chain : chain) as never,
     );
 
   const request = (
@@ -182,6 +235,11 @@ function makeHarness() {
     registry,
     links,
     agents,
+    lifecycle,
+    turnState,
+    stopLogger,
+    chain,
+    notifyResolved,
   };
 }
 
@@ -650,7 +708,7 @@ describe('SessionHandoffService', () => {
       expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
     });
 
-    it('keeps the caller reserved until a late success, then records it', async () => {
+    it('keeps the caller reserved until a late success, then does not record it', async () => {
       const h = makeHarness();
       const { settle } = await startHanging(h);
 
@@ -664,14 +722,19 @@ describe('SessionHandoffService', () => {
 
       settle({ started: true, uiAnnounced: true });
       await flush();
-      const lateTab = h.host.startHandoffSession.mock.calls[0][0].tabId;
-
-      await expect(h.service.handoff(h.request())).resolves.toEqual({
-        ok: false,
-        refusal: 'already-handed-off',
-        detail: `this session already handed off to tab ${lateTab}`,
+      const lateTab = h.host.startHandoffSession.mock.calls[0]?.[0].tabId;
+      h.notifyResolved({
+        tabId: lateTab,
+        realSessionId: '99999999-aaaa-4bbb-8ccc-dddddddddddd',
       });
-      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(1);
+      await flush();
+
+      await expect(h.service.handoff(h.request())).resolves.toMatchObject({
+        ok: true,
+      });
+      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(2);
+      expect(h.lifecycle.endSession).not.toHaveBeenCalled();
+      expect(h.chain.append).not.toHaveBeenCalled();
     });
 
     it('frees the caller after a late failure', async () => {
@@ -897,5 +960,211 @@ describe('SessionHandoffService', () => {
     expect(
       h.host.startHandoffSession.mock.calls[1][0].descriptor.fromTabId,
     ).toBe(first.tabId);
+  });
+
+  describe('kept-handoff stop and chain bind (TASK_2026_876)', () => {
+    const SUCCESSOR_SDK = '99999999-aaaa-4bbb-8ccc-dddddddddddd';
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+    it('arms only after a kept success and endSession uses the caller tab id after flush', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live');
+      const result = await h.service.handoff(h.request());
+      if (!result.ok) throw new Error('handoff should start');
+
+      expect(h.lifecycle.endSession).not.toHaveBeenCalled();
+      expect(h.chain.append).not.toHaveBeenCalled();
+      h.service.onCallerTurnFlushed({ tabId: 'other-tab', sessionId: 'other' });
+      await tick();
+      expect(h.lifecycle.endSession).not.toHaveBeenCalled();
+
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+
+      expect(h.lifecycle.endSession).toHaveBeenCalledTimes(1);
+      expect(h.lifecycle.endSession).toHaveBeenCalledWith(CALLER);
+      expect(h.lifecycle.endSession).not.toHaveBeenCalledWith(CALLER_SDK);
+      expect(h.lifecycle.endSession).not.toHaveBeenCalledWith('lane-a');
+      expect(h.lifecycle.endSession).not.toHaveBeenCalledWith('child-live');
+      expect(h.turnState.forceIdle.mock.calls.map((call) => call[0])).toEqual([
+        CALLER,
+        CALLER_SDK,
+      ]);
+      expect(h.links.get('child-live')?.terminalStatus).toBeUndefined();
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'kept',
+      );
+
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      expect(h.lifecycle.endSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('commits an SDK id resolved during the awaited start', async () => {
+      const h = makeHarness();
+      h.host.startHandoffSession.mockImplementationOnce(async (input: HandoffChatSessionStartInput) => {
+        h.notifyResolved({ tabId: input.tabId, realSessionId: SUCCESSOR_SDK });
+        expect(h.chain.append).not.toHaveBeenCalled();
+        return { started: true, uiAnnounced: true };
+      });
+      const result = await h.service.handoff(h.request());
+      expect(result.ok).toBe(true);
+      await tick();
+      expect(h.chain.append).toHaveBeenCalledWith(CALLER_SDK, SUCCESSOR_SDK, root);
+    });
+
+    it('keeps caller live until stop resolves and retries a rejected stop on the next flush', async () => {
+      const h = makeHarness();
+      let release: () => void = () => undefined;
+      h.lifecycle.endSession.mockImplementationOnce(
+        () =>
+          new Promise<undefined>((resolve) => {
+            release = () => resolve(undefined);
+          }),
+      );
+      await h.service.handoff(h.request());
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      expect(h.turnState.forceIdle).not.toHaveBeenCalled();
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      expect(h.lifecycle.endSession).toHaveBeenCalledTimes(1);
+      release();
+      await tick();
+      expect(h.turnState.forceIdle).toHaveBeenCalled();
+
+      const retry = makeHarness();
+      retry.lifecycle.endSession.mockRejectedValueOnce(new Error('stop failed'));
+      await retry.service.handoff(retry.request());
+      retry.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      expect(retry.turnState.forceIdle).not.toHaveBeenCalled();
+      expect(retry.stopLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('caller stop failed'), expect.any(Error),
+      );
+      retry.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      expect(retry.lifecycle.endSession).toHaveBeenCalledTimes(2);
+      expect(retry.turnState.forceIdle).toHaveBeenCalled();
+    });
+
+    it('matches a flush that names only the caller SDK id', async () => {
+      const h = makeHarness();
+      await h.service.handoff(h.request());
+      h.service.onCallerTurnFlushed({
+        tabId: 'not-the-caller',
+        sessionId: CALLER_SDK,
+      });
+      await tick();
+      expect(h.lifecycle.endSession).toHaveBeenCalledWith(CALLER);
+    });
+
+    it('does not arm on refusal', async () => {
+      const h = makeHarness();
+      h.host.startHandoffSession.mockResolvedValueOnce({
+        started: false,
+        error: 'boom',
+      });
+      await h.service.handoff(h.request());
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      expect(h.lifecycle.endSession).not.toHaveBeenCalled();
+      expect(h.chain.append).not.toHaveBeenCalled();
+      expect(h.turnState.forceIdle).not.toHaveBeenCalled();
+    });
+
+    it('stops a caller with no SDK id and writes no edge', async () => {
+      const h = makeHarness();
+      const caller = h.records.get(CALLER);
+      if (!caller) throw new Error('caller');
+      caller.realSessionId = null;
+      h.records.delete(CALLER_SDK);
+      const result = await h.service.handoff(h.request());
+      if (!result.ok) throw new Error('handoff should start');
+      h.notifyResolved({ tabId: result.tabId, realSessionId: SUCCESSOR_SDK });
+      await tick();
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER });
+      await tick();
+      expect(h.chain.append).not.toHaveBeenCalled();
+      expect(h.lifecycle.endSession).toHaveBeenCalledWith(CALLER);
+      expect(h.turnState.forceIdle.mock.calls.map((call) => call[0])).toEqual([
+        CALLER,
+      ]);
+    });
+
+    it('appends the resolved SDK ids for the handoff workspace', async () => {
+      const h = makeHarness();
+      const result = await h.service.handoff(h.request());
+      if (!result.ok) throw new Error('handoff should start');
+      h.notifyResolved({
+        tabId: undefined,
+        realSessionId: SUCCESSOR_SDK,
+        previousSessionId: result.tabId,
+      });
+      h.notifyResolved({ tabId: result.tabId, realSessionId: '' });
+      await tick();
+      expect(h.chain.append).not.toHaveBeenCalled();
+
+      const again = await h.service.handoff(h.request({ label: 'second' }));
+      expect(again).toMatchObject({ ok: false, refusal: 'already-handed-off' });
+
+      const fresh = makeHarness();
+      const kept = await fresh.service.handoff(fresh.request());
+      if (!kept.ok) throw new Error('handoff should start');
+      fresh.notifyResolved({
+        tabId: kept.tabId,
+        realSessionId: SUCCESSOR_SDK,
+        previousSessionId: 'rotated-away',
+      });
+      await tick();
+      expect(fresh.chain.append).toHaveBeenCalledWith(
+        CALLER_SDK,
+        SUCCESSOR_SDK,
+        root,
+      );
+    });
+
+    it('drops a pending bind when the successor tab is gone', async () => {
+      const h = makeHarness();
+      const result = await h.service.handoff(h.request());
+      if (!result.ok) throw new Error('handoff should start');
+      h.records.delete(result.tabId);
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER_SDK });
+      await tick();
+      h.notifyResolved({ tabId: result.tabId, realSessionId: SUCCESSOR_SDK });
+      await tick();
+      expect(h.chain.append).not.toHaveBeenCalled();
+    });
+
+    it('still ends the caller when forceIdle throws, and logs a rejected endSession', async () => {
+      const h = makeHarness();
+      h.turnState.forceIdle.mockImplementation(() => {
+        throw new Error('turn state down');
+      });
+      await h.service.handoff(h.request());
+      h.service.onCallerTurnFlushed({ tabId: CALLER, sessionId: CALLER });
+      await tick();
+      expect(h.lifecycle.endSession).toHaveBeenCalledWith(CALLER);
+      expect(h.stopLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('forceIdle'),
+        expect.any(Error),
+      );
+
+      const rejected = makeHarness();
+      rejected.lifecycle.endSession.mockRejectedValueOnce(new Error('abort failed'));
+      await rejected.service.handoff(rejected.request());
+      expect(() =>
+        rejected.service.onCallerTurnFlushed({
+          tabId: CALLER,
+          sessionId: CALLER,
+        }),
+      ).not.toThrow();
+      await tick();
+      expect(rejected.stopLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('caller stop failed'),
+        expect.any(Error),
+      );
+    });
   });
 });

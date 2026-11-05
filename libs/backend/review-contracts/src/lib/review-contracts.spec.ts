@@ -34,7 +34,12 @@ describe('review contracts', () => {
     const parsed = RepoReviewConfigV1Schema.parse({ version: 1 });
     expect(parsed.minimumSeverity).toBe('Minor');
     expect(parsed.checks).toEqual({ eslint: true, degradationAudit: true });
-    expect(RepoReviewConfigV1Schema.parse({ version: 1, checks: { eslint: false, degradationAudit: true } }).checks.eslint).toBe(false);
+    expect(
+      RepoReviewConfigV1Schema.parse({
+        version: 1,
+        checks: { eslint: false, degradationAudit: true },
+      }).checks.eslint,
+    ).toBe(false);
     expect(Object.keys(parsed.lenses)).toEqual([
       'correctness-lifecycle',
       'contracts-callers',
@@ -143,13 +148,94 @@ describe('review contracts', () => {
         .success,
     ).toBe(false);
     expect(ReviewRunSchema.safeParse({}).success).toBe(false);
-    expect(ReviewRpcSchemas['review:listRuns'].params.safeParse({ state: 'interrupted' }).success).toBe(true);
-    expect(CandidateFindingSchema.safeParse({ ...finding, verification: 'cross-family' }).success).toBe(true);
-    expect(CandidateFindingSchema.safeParse({ ...finding, verification: 'unverified' }).success).toBe(false);
+    expect(
+      ReviewRpcSchemas['review:listRuns'].params.safeParse({
+        state: 'interrupted',
+      }).success,
+    ).toBe(true);
+    expect(
+      CandidateFindingSchema.safeParse({
+        ...finding,
+        verification: 'cross-family',
+      }).success,
+    ).toBe(true);
+    expect(
+      CandidateFindingSchema.safeParse({
+        ...finding,
+        verification: 'unverified',
+      }).success,
+    ).toBe(false);
     expect(ReviewFindingSchema.safeParse(finding).success).toBe(false);
-    expect(ReviewFindingSchema.safeParse({ ...finding, verification: 'same-family-weaker' }).success).toBe(true);
-    expect(ReviewRpcSchemas['review:listFindings'].params.safeParse({ attemptId: 'attempt-1' }).success).toBe(true);
-    expect(ReviewRpcSchemas['review:updateSettings'].params.safeParse({ settings: {}, token: 'secret' }).success).toBe(false);
-    expect(ReviewRpcSchemas['review:getSettings'].result.safeParse({ settings: {}, hasToken: true, token: 'secret' }).success).toBe(false);
+    expect(
+      ReviewFindingSchema.safeParse({
+        ...finding,
+        verification: 'same-family-weaker',
+      }).success,
+    ).toBe(true);
+    expect(
+      ReviewRpcSchemas['review:listFindings'].params.safeParse({
+        attemptId: 'attempt-1',
+      }).success,
+    ).toBe(true);
+    expect(
+      ReviewRpcSchemas['review:updateSettings'].params.safeParse({
+        settings: {},
+        token: 'secret',
+      }).success,
+    ).toBe(false);
+    expect(
+      ReviewRpcSchemas['review:getSettings'].result.safeParse({
+        settings: {},
+        hasToken: true,
+        token: 'secret',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('review repository allowlist', () => {
+  it('accepts different repositories and rejects case-insensitive duplicates', () => {
+    const settings = {
+      repositories: [
+        {
+          owner: 'Acme',
+          name: 'Widget',
+          enabled: false,
+          dryRun: true,
+          publicationPaused: false,
+        },
+        {
+          owner: 'Other',
+          name: 'Tools',
+          enabled: false,
+          dryRun: true,
+          publicationPaused: false,
+        },
+      ],
+      maintainerLogins: [],
+      pollMinutes: 10,
+      globalPublicationPaused: false,
+      fallbackFamilies: [],
+    };
+    expect(OperatorSettingsSchema.safeParse(settings).success).toBe(true);
+    expect(
+      OperatorSettingsSchema.safeParse({
+        ...settings,
+        repositories: [
+          ...settings.repositories,
+          { ...settings.repositories[0], owner: 'acme', name: 'widget' },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+import { ReviewFailureSchema } from './review-run.schema';
+
+describe('review failure contract', () => {
+  it('accepts safe failure details and rejects unknown codes', () => {
+    const failure = { stage: 'context', code: 'checkout-missing', message: 'Checkout unavailable' };
+    expect(ReviewFailureSchema.parse(failure)).toEqual(failure);
+    expect(ReviewFailureSchema.safeParse({ ...failure, code: 'secret' }).success).toBe(false);
+    expect(ReviewFailureSchema.safeParse({ ...failure, message: 'x'.repeat(301) }).success).toBe(false);
   });
 });

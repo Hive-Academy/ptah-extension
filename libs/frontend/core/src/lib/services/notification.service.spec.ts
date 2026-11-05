@@ -47,6 +47,16 @@ describe('NotificationService', () => {
     expect(attentionRequestKey('permission', '1')).not.toBe(attentionRequestKey('permission', '2'));
   });
 
+  it('does not restore a resolved question from an in-flight host snapshot', () => {
+    const item = request('snapshot-question', {
+      key: attentionRequestKey('question', 'snapshot-question'), kind: 'question',
+    });
+    service.upsert(item);
+    service.resolve(item.key);
+    service.upsert({ ...item, source: 'host' });
+    expect(service.needsYou()).toEqual([]);
+  });
+
   it('dedupes repeated request snapshots and preserves a dismissed live row', () => {
     const item = request('one');
     service.upsert(item);

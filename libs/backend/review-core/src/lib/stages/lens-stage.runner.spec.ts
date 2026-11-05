@@ -16,7 +16,8 @@ describe('LensStageRunner checkpoints', () => {
     const stages = new Map<string, ReviewStageRecord>();
     const checkpoints = new Map<string, unknown>();
     const repository: IReviewRepository = {
-      getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(),
+      getLastReviewedHead: jest.fn().mockResolvedValue(null), getOpenFailures: jest.fn().mockResolvedValue([]),
+      getLastPollAt: jest.fn().mockResolvedValue(null), recordPoll: jest.fn(), saveFailure: jest.fn(),
       enqueueDiscovered: jest.fn(), enqueueManual: jest.fn(), recordDraft: jest.fn(), claimNext: jest.fn(), heartbeat: jest.fn(), release: jest.fn(),
       reconcileExpiredLeases: jest.fn(), getAttempt: jest.fn(),
       getStages: async () => [...stages.values()],
@@ -30,12 +31,16 @@ describe('LensStageRunner checkpoints', () => {
     checkpoints.set(prior, { status: 'partial', reason: 'no-confirmed-room' });
     const lanes = Object.create(ReviewLaneRunner.prototype) as ReviewLaneRunner;
     const run = jest.spyOn(lanes, 'run').mockResolvedValue({ status: 'partial', reason: 'deadline' });
+    run.mockResolvedValueOnce({ status: 'completed', family: 'codex', limitCheck: 'unavailable',
+      output: { schemaVersion: 1, headSha: sha, findings: [], coverage: [] } });
     const results = await new LensStageRunner(lanes, repository).run(claim, context, Date.now() + 10_000);
     expect(results).toHaveLength(4);
     expect(results[0].result).toEqual({ status: 'partial', reason: 'no-confirmed-room' });
     expect(run).toHaveBeenCalledTimes(3);
     expect(stages.get('lens:security-privacy')?.state).toBe('interrupted');
     expect(checkpoints.get('lens:security-privacy')).toEqual({ status: 'partial', reason: 'deadline' });
+    expect(stages.get('lens:security-privacy')?.errorSummary).toBe('deadline');
+    expect(stages.get('lens:contracts-callers')?.errorSummary).toBe('Ran without a limit check');
   });
 });
 

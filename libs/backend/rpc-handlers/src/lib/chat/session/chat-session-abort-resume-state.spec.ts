@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — `chat:abort` and the durable resumable-subagent list
  * (TASK_2026_592 Batch 4).
@@ -182,6 +183,13 @@ function makeHarness(): Harness {
     null,
     null,
     { onTurnAborted } as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
 
   return { service, registry, store, live, interruptSession, onTurnAborted };

@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import 'reflect-metadata';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,6 +26,7 @@ function service() {
   const isStreaming = jest.fn().mockReturnValue(false);
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const subject = Object.assign(Object.create(ChatSessionService.prototype), {
+    driverLock: createFakeDriverLockCoordinator(),
     sdkAdapter: { isSessionActive, resumeSession },
     streamBroadcaster: { isStreaming, streamEventsToWebview: jest.fn() },
     historyRead: {

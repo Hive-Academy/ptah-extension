@@ -63,13 +63,24 @@ export * from './rpc/rpc-lane-outcome.types';
 
 export * from './rpc/rpc-decision-model-catalog.types';
 
+// Remote machines (`machines:*`, TASK_2026_858 W11). Merged into
+// RpcMethodRegistry through `extends`.
+export * from './rpc/rpc-machines.types';
+
 import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
 import type { ProviderAccountRpcMethodRegistry } from './rpc/rpc-provider-accounts.types';
-export type { ReviewRpcMethodRegistry } from './rpc-review.types';
-import type { ReviewRpcMethodRegistry } from './rpc-review.types';
+import type { MachinesRpcMethodRegistry } from './rpc/rpc-machines.types';
+export type {
+  ReviewRpcMethodRegistry,
+  ReviewP2RpcMethodRegistry,
+} from './rpc-review.types';
+import type {
+  ReviewRpcMethodRegistry,
+  ReviewP2RpcMethodRegistry,
+} from './rpc-review.types';
 import type {
   AttentionGetSnapshotParams,
   AttentionGetSnapshotResult,
@@ -184,6 +195,8 @@ import type {
   SessionSetOrganizationResult,
   SessionGetOrganizationParams,
   SessionGetOrganizationResult,
+  SessionHandoffChainParams,
+  SessionHandoffChainResult,
   SessionLinkTaskParams,
   SessionLinkTaskResult,
   SessionUnlinkTaskParams,
@@ -864,8 +877,7 @@ export type McpHomeInstallTarget = Extract<
  * {@link McpHomeInstallTarget}, or that is made with no workspace open, is
  * refused before anything is written.
  */
-export interface McpDirectoryScopedInstallParams
-  extends McpDirectoryInstallParams {
+export interface McpDirectoryScopedInstallParams extends McpDirectoryInstallParams {
   scope?: CapabilityScope;
 }
 
@@ -873,8 +885,7 @@ export interface McpDirectoryScopedInstallParams
  * Result of `mcpDirectory:install`. `scope` echoes the scope the server
  * resolved, so the UI does not have to assume the default.
  */
-export interface McpDirectoryScopedInstallResult
-  extends McpDirectoryInstallResult {
+export interface McpDirectoryScopedInstallResult extends McpDirectoryInstallResult {
   scope?: CapabilityScope;
 }
 
@@ -1006,11 +1017,19 @@ export interface InstallScopeRpcMethodRegistry {
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
  * Install-scope methods from {@link InstallScopeRpcMethodRegistry} join the
  * same way, each once its handler serves it.
+ *
+ * Remote machine methods (`machines:*`, TASK_2026_858) are declared in
+ * `rpc/rpc-machines.types.ts` as `MachinesRpcMethodRegistry` and merged in
+ * through `extends`; their `RPC_METHOD_ENTRIES` keys are listed below. They
+ * are owned by the host-owned `host.remoteMachines` manifest entry, gated on
+ * the `remoteMachines` capability.
  */
 export interface RpcMethodRegistry
   extends
     ProviderAccountRpcMethodRegistry,
+    MachinesRpcMethodRegistry,
     ReviewRpcMethodRegistry,
+    ReviewP2RpcMethodRegistry,
     Pick<
       InstallScopeRpcMethodRegistry,
       | 'mcpDirectory:makeGlobal'
@@ -1140,6 +1159,12 @@ export interface RpcMethodRegistry
   'session:getOrganization': {
     params: SessionGetOrganizationParams;
     result: SessionGetOrganizationResult;
+  };
+  // Durable handoff chain (TASK_2026_876). Served on every host; no chain
+  // or no store answers `{ sessions: [] }`.
+  'session:handoffChain': {
+    params: SessionHandoffChainParams;
+    result: SessionHandoffChainResult;
   };
   'session:linkTask': {
     params: SessionLinkTaskParams;
@@ -2033,7 +2058,11 @@ export interface RpcMethodRegistry
   };
   'settings:getMotion': {
     params: Record<string, never>;
-    result: { success: boolean; preference?: 'always' | 'system' | 'reduce'; error?: string };
+    result: {
+      success: boolean;
+      preference?: 'always' | 'system' | 'reduce';
+      error?: string;
+    };
   };
   'settings:setMotion': {
     params: { preference: 'always' | 'system' | 'reduce' };
@@ -2671,8 +2700,14 @@ export interface RpcMethodRegistry
     params: TasksGetArtifactParams;
     result: TasksGetArtifactResult;
   };
-  'tasks:readFolderMarkdown': { params: TasksReadFolderMarkdownParams; result: TasksReadFolderMarkdownResult };
-  'tasks:listFolderEntries': { params: TasksListFolderEntriesParams; result: TasksListFolderEntriesResult };
+  'tasks:readFolderMarkdown': {
+    params: TasksReadFolderMarkdownParams;
+    result: TasksReadFolderMarkdownResult;
+  };
+  'tasks:listFolderEntries': {
+    params: TasksListFolderEntriesParams;
+    result: TasksListFolderEntriesResult;
+  };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
   'tasks:sweepFinished': {
     params: TasksSweepParams;
@@ -3464,6 +3499,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:status': true,
   'session:setOrganization': true,
   'session:getOrganization': true,
+  'session:handoffChain': true,
   'session:linkTask': true,
   'session:unlinkTask': true,
   'session:addPrLink': true,
@@ -3814,6 +3850,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'review:retryHead': true,
   'review:refresh': true,
   'review:exportRun': true,
+  'review:getBotIdentity': true,
+  'review:setBotToken': true,
+  'review:clearBotToken': true,
+  'review:rerun': true,
 
   'gateway:status': true,
   'gateway:start': true,
@@ -3908,6 +3948,27 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'surface:select': true,
   'surface:action': true,
   'surface:operation': true,
+
+  // TASK_2026_858 remote machines (registry merged via `extends`), in
+  // `MACHINES_RPC_METHOD_NAMES` order. Capability-gated to Electron in
+  // RPC_HANDLER_MANIFEST (`host.remoteMachines`).
+  'machines:list': true,
+  'machines:sshAliases': true,
+  'machines:add': true,
+  'machines:pair': true,
+  'machines:pairViaSsh': true,
+  'machines:remove': true,
+  'machines:retry': true,
+  'machines:readiness': true,
+  'machines:workspaces': true,
+  'machines:sessions': true,
+  'machines:session.attach': true,
+  'machines:session.detach': true,
+  'machines:session.replay': true,
+  'machines:session.start': true,
+  'machines:session.continue': true,
+  'machines:session.stop': true,
+  'machines:permission.respond': true,
 };
 
 /**

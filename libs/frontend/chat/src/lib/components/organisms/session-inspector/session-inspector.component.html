@@ -182,6 +182,15 @@
       </div>
     }
 
+    @if (linkedSessions().length > 0) {
+      <ptah-inspector-linked-sessions
+        class="block"
+        [entries]="linkedSessions()"
+        [currentSessionId]="m.sessionId"
+        (openSession)="openLinkedSession($event)"
+      />
+    }
+
     <ptah-inspector-agents-section
       data-inspector-section="agents"
       tabindex="-1"

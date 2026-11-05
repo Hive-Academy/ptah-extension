@@ -330,8 +330,8 @@ export function sessionHandoffReply(
         text: joinBlocks(
           `Opened a new session ${where}.`,
           adopted,
-          'tabOpened: true. Tell the user it is open and ask them to close ' +
-            'this session. Do no further work here.',
+          'tabOpened: true. Tell the user the new session is open and this ' +
+            'session was stopped and its history was kept. Do no further work here.',
         ),
       };
     }
@@ -340,10 +340,9 @@ export function sessionHandoffReply(
       text: joinBlocks(
         `Started a new session ${where}.`,
         adopted,
-        'tabOpened: false. No Ptah window took the tab; it is listed in the ' +
-          'session sidebar. Tell the user to open it from the session list ' +
-          'in the Ptah sessions panel, and to close this session only after ' +
-          'they have found it. Do no further work here.',
+        'tabOpened: false. The new session started, no tab appeared, and it ' +
+          'is in the session list. Tell the user this session was stopped ' +
+          'and its history was kept. Do no further work here.',
       ),
     };
   }

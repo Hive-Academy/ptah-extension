@@ -21,6 +21,7 @@ import {
   isReadToolInput,
   isWriteToolInput,
   isEditToolInput,
+  isFileChangeToolInput,
   isBashToolInput,
 } from '@ptah-extension/shared';
 import {
@@ -349,6 +350,12 @@ export class ToolCallHeaderComponent {
    */
   protected readonly targetLabel = computed(() => {
     const input = this.node().toolInput;
+    if (
+      this.node().toolName === 'FileChange' &&
+      isFileChangeToolInput(input) &&
+      input.changes.length > 1
+    )
+      return input.changes.length + ' files';
     if (isBashToolInput(input)) {
       if (input.description) return input.description;
       return this.isCollapsed() ? input.command.split(/\r\n|\r|\n/)[0] : '';
@@ -418,7 +425,7 @@ export class ToolCallHeaderComponent {
       typeof toolInput === 'object' &&
       'file_path' in toolInput &&
       typeof toolInput['file_path'] === 'string' &&
-      /read|write|edit|replace|create_file|patch_file/.test(toolName)
+      /read|write|edit|replace|create_file|patch_file|filechange/.test(toolName)
     ) {
       return true;
     }

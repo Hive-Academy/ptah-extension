@@ -85,7 +85,7 @@ import {
   ConfirmationDialogService,
   commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
-import { StreamRouter } from '@ptah-extension/chat-routing';
+import { questionBelongsToTab } from '../../services/question-visibility';
 import {
   SESSION_CONTEXT,
   SESSION_DISPLAY_DOCK,
@@ -275,7 +275,6 @@ export class ChatViewComponent implements OnDestroy {
    * {@link resolvedQuestionRequests}. The verdict lives on the router so this
    * view and the routing itself can never disagree about who owns a prompt.
    */
-  private readonly _streamRouter = inject(StreamRouter);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly sessionHistoryReplayer = inject(SessionHistoryReplayer);
   private readonly historyPaging = inject(HistoryPagingService);
@@ -1355,65 +1354,27 @@ export class ChatViewComponent implements OnDestroy {
    * that previously caused silent hangs because the payload's raw ids no
    * longer matched any tile).
    *
-   * Fallback ladder (only when the router did NOT resolve any target tabs
-   * for the question — e.g. payload arrived before the binding was visible
-   * to the router):
-   *   1. Legacy id-equality match against the tile's `resolvedTabId` /
-   *      `resolvedSessionId`. Same as before — covers the happy path before
-   *      any rotation/late resolution.
-   *   2. If that yields nothing AND this tile is the active tab (or no
-   *      canvas context is in play), still show the question. This prevents
-   *      silent drops; the backend's `awaitQuestionResponse` has
-   *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
-   *      the tool call forever.
-   *
-   * Rung 2 is a safety net for questions NOBODY owns, and it must stay that
-   * way. A workflow surface (New Project, harness builder) raises questions
-   * whose `tabId`/`sessionId` is its own correlation id, which resolves to a
-   * `SurfaceId` rather than a tab — so rung 1 misses by construction and the
-   * net used to fire, painting the workflow's question onto whichever canvas
-   * tile happened to be focused while the workflow's own panel stayed empty.
-   * A claimed correlation id means the prompt HAS an owner and this tile is
-   * not it; showing it here is a mis-route, not a rescue (TASK_2026_317).
+   * Router targets win. Before attachment, workflow claims exclude a question;
+   * otherwise its tab or session id must match this view. The routing revision
+   * invalidates this projection when targets arrive.
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
     if (allQuestions.length === 0) return [];
+    // Read after the empty check: a new question re-runs this computed anyway.
+    this.chatStore.routingTargetRevision();
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
-    const activeTabId = this._tabManager.activeTabId();
-    const isActiveTile = tabId !== null && tabId === activeTabId;
+    const sessionId = this.resolvedSessionId();
 
-    return allQuestions.filter((q) => {
-      const targets = this.chatStore.questionTargetTabsFor(q.id);
-      if (targets.length > 0) {
-        return tabId !== null && targets.includes(tabId);
-      }
-      const legacyMatch =
-        tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
-      if (legacyMatch) return true;
-      if (this.isClaimedByWorkflowSurface(q)) return false;
-      return isActiveTile;
-    });
+    return allQuestions.filter(q => questionBelongsToTab(
+      q,
+      this.chatStore.questionTargetTabsFor(q.id),
+      this.chatStore.isQuestionClaimedByWorkflow(q),
+      tabId,
+      sessionId,
+    ));
   });
-
-  /**
-   * True when an INTERACTIVE workflow surface owns this question — it has a
-   * panel of its own to render the card on, so the active-tile safety net in
-   * {@link resolvedQuestionRequests} must stand down rather than adopt it.
-   *
-   * Delegated to the router rather than reading the claim map directly. A raw
-   * claim lookup is not the same question: Tribunal claims its CONDUCTOR TAB's
-   * id against a surface it never registers, and treating that as "owned
-   * elsewhere" would have hidden the conductor's own prompts from every tile
-   * but the one already matching by id.
-   */
-  private isClaimedByWorkflowSurface(q: {
-    readonly tabId?: string;
-    readonly sessionId?: string;
-  }): boolean {
-    return this._streamRouter.interactiveSurfaceOwning(q) !== null;
-  }
 
   readonly resolvedQueuedContent = computed(() => {
     const tab = this.resolvedTab();

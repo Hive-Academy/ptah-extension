@@ -74,3 +74,20 @@ export interface ISessionHandoff {
   /** Never throws: every failure is a closed refusal. */
   handoff(request: SessionHandoffRequest): Promise<SessionHandoffResult>;
 }
+
+/**
+ * Notice from the chat stream broadcaster after a turn's terminal flush.
+ * Not part of {@link ISessionHandoff}: the tool returns before the stop.
+ */
+export interface HandoffTurnFlushNotice {
+  readonly tabId: string;
+  readonly sessionId: string;
+}
+
+/**
+ * One-shot caller stop armed by a kept handoff. Registered on the same
+ * singleton as {@link ISessionHandoff} under `HANDOFF_TURN_FLUSH`.
+ */
+export interface IHandoffTurnFlush {
+  onCallerTurnFlushed(notice: HandoffTurnFlushNotice): void;
+}

@@ -215,9 +215,7 @@ describe('AgentMonitorTreeBuilderService', () => {
     });
 
     // TASK_2026_628 batch 4e: indexed assembly + tool-input parse cache.
-    function event(
-      fields: Record<string, unknown>,
-    ): FlatStreamEventUnion {
+    function event(fields: Record<string, unknown>): FlatStreamEventUnion {
       return fields as unknown as FlatStreamEventUnion;
     }
 
@@ -370,7 +368,11 @@ describe('AgentMonitorTreeBuilderService', () => {
       const tree = service.buildTreeFromSegments('agent-1', [
         { type: 'text', content: 'Now ', messageId: 'msg-a' },
         { type: 'text', content: 'delegating.', messageId: 'msg-a' },
-        { type: 'text', content: 'The review is complete.', messageId: 'msg-b' },
+        {
+          type: 'text',
+          content: 'The review is complete.',
+          messageId: 'msg-b',
+        },
       ]);
       expect(tree.map((node) => [node.type, node.content])).toEqual([
         ['text', 'Now delegating.'],
@@ -397,6 +399,35 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(tree).toHaveLength(1);
       expect(tree[0].type).toBe('thinking');
       expect(tree[0].content).toBe('hmm ok');
+    });
+
+    it('starts a new thinking node when the provider message changes', () => {
+      const tree = service.buildTreeFromSegments('agent-1', [
+        { type: 'thinking', content: 'first ', messageId: 'msg-a' },
+        { type: 'thinking', content: 'thought', messageId: 'msg-a' },
+        { type: 'thinking', content: 'second thought', messageId: 'msg-b' },
+      ]);
+      expect(tree.map((node) => node.content)).toEqual([
+        'first thought',
+        'second thought',
+      ]);
+    });
+
+    it('keeps each unique file path on a paired multi-file tool', () => {
+      const tree = service.buildTreeFromSegments('agent-1', [
+        {
+          type: 'tool-call',
+          toolCallId: 'change-1',
+          toolName: 'fileChange',
+          content: '',
+        },
+        { type: 'tool-result', toolCallId: 'change-1', content: '' },
+        { type: 'file-change', toolCallId: 'change-1', content: 'src/a.ts' },
+        { type: 'file-change', toolCallId: 'change-1', content: 'src/b.ts' },
+        { type: 'file-change', toolCallId: 'change-1', content: 'src/a.ts' },
+      ]);
+      expect(tree).toHaveLength(1);
+      expect(tree[0].toolOutput).toBe('src/a.ts\nsrc/b.ts');
     });
 
     it('pairs a tool-call with a tool-result by toolCallId', () => {

@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,6 +55,7 @@ import type {
   SentryService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   ChatResumeParams,
@@ -106,6 +108,12 @@ function makeService(params: {
   upgradeLegacyPluginConfigAncestorRoots?: jest.Mock;
   sessionEndRegister?: jest.Mock;
   restoreAgents?: jest.Mock;
+  driverLock?: {
+    beginDrive?: jest.Mock;
+    abandonDrive?: jest.Mock;
+    settleDrive?: jest.Mock;
+    assertDriveHeld?: jest.Mock;
+  };
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -245,10 +253,95 @@ function makeService(params: {
     params.restoreAgents
       ? ({ restoreAgents: params.restoreAgents } as never)
       : null,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { ...createFakeDriverLockCoordinator(), ...params.driverLock } as never,
+    { stat: async (path: string) => {
+      const result = await (params.fileExists ?? jest.fn().mockResolvedValue(true))(path);
+      if (!result) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return { type: 2 };
+    } } as never,
   );
 }
 
 describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
+  it('returns a terminal code before reading history when the saved cwd disappeared', async () => {
+    const readSessionHistory = jest.fn();
+    const svc = makeService({
+      metadata: { workingDirectory: `${OPEN_FOLDER}/deleted` },
+      fileExists: jest.fn().mockResolvedValue(false),
+      readSessionHistory,
+    });
+    const result = await svc.resumeSession({ sessionId: SESSION_ID, tabId: TAB_ID, workspacePath: OPEN_FOLDER });
+    expect(result).toMatchObject({ success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' });
+    expect(readSessionHistory).not.toHaveBeenCalled();
+  });
+  it('refuses activation before SDK resume when another holder owns the lock', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      resumeSession,
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(new Error('worker A holds the session')),
+      },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.stringContaining('worker A'),
+    });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+  it('keeps the loaded transcript and reports a lock refusal as an activation error', async () => {
+    const resumeSession = jest.fn();
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      resumeSession,
+      readSessionHistory: jest.fn().mockResolvedValue({
+        events: [{ id: 'ev1', eventType: 'message_start' } as never],
+        stats: null,
+      }),
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(
+            new RpcUserError(
+              'Session is being driven by worker A. Stop it there and retry.',
+              'SESSION_DRIVEN_ELSEWHERE',
+            ),
+          ),
+        abandonDrive,
+        settleDrive,
+      },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result).toMatchObject({
+      success: true,
+      activated: false,
+      events: [{ id: 'ev1' }],
+      activationError: expect.stringContaining('worker A'),
+      activationErrorCode: 'SESSION_DRIVEN_ELSEWHERE',
+    });
+    expect(resumeSession).not.toHaveBeenCalled();
+    expect(abandonDrive).not.toHaveBeenCalled();
+    expect(settleDrive).not.toHaveBeenCalled();
+  });
   it.each([
     {
       roots: [`${TEST_ROOT}/my-repo/ancestor`],
@@ -583,6 +676,63 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     );
   });
 
+  it('settles, not abandons, the drive after a successful activation (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      resumeSession: jest.fn().mockResolvedValue((async function* () {})()),
+      driverLock: {
+        beginDrive: jest.fn().mockResolvedValue('attempt-1'),
+        abandonDrive,
+        settleDrive,
+      },
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      activate: true,
+    });
+    expect(result.activated).toBe(true);
+    expect(settleDrive).toHaveBeenCalledWith(SESSION_ID, 'attempt-1');
+    expect(abandonDrive).not.toHaveBeenCalled();
+  });
+
+  it('settles, not abandons, the drive after a successful rewind activation (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const settleDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      metadata: { workingDirectory: OPEN_FOLDER },
+      resumeSession: jest.fn(async () => (async function* () {})()),
+      driverLock: {
+        beginDrive: jest.fn().mockResolvedValue('attempt-1'),
+        abandonDrive,
+        settleDrive,
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toEqual({ resumed: true });
+    expect(settleDrive).toHaveBeenCalledWith(SESSION_ID, 'attempt-1');
+    expect(abandonDrive).not.toHaveBeenCalled();
+  });
+
+  it('abandons the drive when rewind activation fails (N1)', async () => {
+    const abandonDrive = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService({
+      metadata: { workingDirectory: `${OPEN_FOLDER}/.claude/worktrees/gone` },
+      fileExists: jest.fn(async (path: string) => path === OPEN_FOLDER),
+      resumeSession: jest.fn(),
+      driverLock: {
+        beginDrive: jest.fn().mockResolvedValue('attempt-1'),
+        abandonDrive,
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toMatchObject({ resumed: false });
+    expect(abandonDrive).toHaveBeenCalledWith(SESSION_ID, 'attempt-1');
+  });
+
   it('auto-resume refuses a missing worktree without calling SDK resume', async () => {
     const resumeSession = jest.fn(async () =>
       (async function* () {
@@ -598,6 +748,42 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     await expect(
       svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
     ).resolves.toMatchObject({ resumed: false });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('checks the held drive before SDK auto-resume', async () => {
+    const resumeSession = jest.fn();
+    const svc = makeService({
+      metadata: { workingDirectory: OPEN_FOLDER },
+      resumeSession,
+      driverLock: {
+        assertDriveHeld: jest
+          .fn()
+          .mockRejectedValue(new Error('lock unavailable')),
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toMatchObject({ resumed: false });
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses rewind admission before checking stream liveness or resuming SDK', async () => {
+    const resumeSession = jest.fn();
+    const isStreaming = jest.fn().mockReturnValue(false);
+    const svc = makeService({
+      resumeSession,
+      isStreaming,
+      driverLock: {
+        beginDrive: jest
+          .fn()
+          .mockRejectedValue(new Error('worker A holds the session')),
+      },
+    });
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).rejects.toThrow('worker A');
+    expect(isStreaming).not.toHaveBeenCalled();
     expect(resumeSession).not.toHaveBeenCalled();
   });
 
@@ -837,6 +1023,25 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(readSessionHistory).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['missing', Object.assign(new Error('missing'), { code: 'ENOENT' }), false],
+    ['not a directory', Object.assign(new Error('parent is file'), { code: 'ENOTDIR' }), false],
+    ['permission', Object.assign(new Error('denied'), { code: 'EACCES' }), undefined],
+    ['transient I/O', Object.assign(new Error('I/O'), { code: 'EIO' }), undefined],
+  ])('classifies saved folder %s without losing retryability', async (_label, failure, retryable) => {
+    const svc = makeService({
+      metadata: { workingDirectory: '/saved/worktree' },
+      fileExists: jest.fn().mockRejectedValue(failure),
+    });
+    const result = await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    });
+    expect(result).toMatchObject({ success: false, errorCode: 'SESSION_FOLDER_UNAVAILABLE' });
+    expect(result.retryable).toBe(retryable);
+  });
+
   it('keeps legacy metadata behavior when continuity fields are absent', async () => {
     const readSessionHistory = jest
       .fn()
@@ -863,3 +1068,4 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     });
   });
 });
+

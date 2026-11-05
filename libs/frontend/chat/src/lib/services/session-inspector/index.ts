@@ -18,6 +18,11 @@ export {
   type LaneRequestEntry,
 } from './session-inspector-requests';
 export { SessionInspectorStore } from './session-inspector.store';
+export {
+  HandoffChainClient,
+  linkedSessionEntries,
+  parseHandoffChainResult,
+} from './handoff-chain.client';
 export { InspectorOpenStateService } from './inspector-open-state.service';
 export { InspectorDockWidthStore } from './inspector-dock-width.store';
 export { InspectorDockController } from './inspector-dock.controller';

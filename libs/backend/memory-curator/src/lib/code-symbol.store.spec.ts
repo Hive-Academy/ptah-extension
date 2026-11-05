@@ -593,6 +593,31 @@ describe('CodeSymbolStore (native-gated)', () => {
     }
   });
 
+  maybe('scoped semantic search reaches a match beyond 100 other workspaces', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      const others = Array.from({ length: 101 }, (_, i) => makeEntry({
+        workspaceRoot: '/ws/other',
+        filePath: `/ws/other/src/${i}.ts`,
+        symbolName: `other${i}`,
+        subject: `code:/ws/other/src/${i}.ts#other${i}`,
+        text: 'unrelated symbol',
+      }));
+      await store.insertBatch([...others, makeEntry({
+        workspaceRoot: '/ws/target',
+        filePath: '/ws/target/src/target.ts',
+        symbolName: 'target',
+        subject: 'code:/ws/target/src/target.ts#target',
+        text: 'unrelated symbol',
+      })]);
+      const page = await store.searchSymbols('semantic only', 5, '/ws/target');
+      expect(page.bm25Only).toBe(false);
+      expect(page.hits.map((hit) => hit.symbolName)).toContain('target');
+    } finally {
+      service.close();
+    }
+  });
+
   maybe(
     'searchSymbols falls back to BM25-only when vec is unavailable',
     async () => {

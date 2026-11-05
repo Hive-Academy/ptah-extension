@@ -11,6 +11,14 @@ const ok = (stdout = ''): ReviewCommandResult => ({ exitCode: 0, stdout, stderr:
 const logger = { error: jest.fn() } as Pick<Logger, 'error'> as Logger;
 
 describe('review exact SHA context', () => {
+  it('diffs only commits after the prior reviewed head', async () => {
+    const runner: IReviewCommandRunner = { run: jest.fn(async () => ok('diff --git a/src/new.ts b/src/new.ts\n+export const changed = true;')) };
+    const context = new ReviewContextService(runner);
+    const result = await context.diffSince(repo, '/repo', 'b'.repeat(40), 'a'.repeat(40));
+    expect(result.changedPaths).toEqual(['src/new.ts']);
+    expect(runner.run).toHaveBeenCalledWith(repo, 'git',
+      ['diff', '--no-ext-diff', '--no-renames', 'b'.repeat(40), 'a'.repeat(40), '--'], '/repo', 60_000, undefined);
+  });
   const files: IReviewContextFiles = {
     mkdir: jest.fn(async () => undefined),
     read: jest.fn(async () => Buffer.from('contents')),
@@ -21,14 +29,15 @@ describe('review exact SHA context', () => {
   it('rejects a detached worktree whose HEAD differs from the requested SHA', async () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('b'.repeat(40)) : ok()) };
     const service = new ReviewWorktreeService(runner, files, logger);
-    await expect(service.create(repo, '/repo', '/attempts', 'attempt-1', 'a'.repeat(40))).rejects.toThrow('HEAD differs');
-    expect(runner.run).toHaveBeenCalledWith(repo, 'git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 30_000, undefined);
+    await expect(service.create(repo, '/repo', '/attempts', 'attempt-1', 'a'.repeat(40), 1)).rejects.toThrow('HEAD differs');
+    expect(runner.run).toHaveBeenCalledWith(repo, 'git', ['worktree', 'add', '--detach', resolve('/attempts', 'attempt-1', 'src'), 'a'.repeat(40)], '/repo', 180_000, undefined);
   });
 
   it('finds unchanged callers outside the diff and flags a changed lockfile', async () => {
     const runner: IReviewCommandRunner = { run: jest.fn(async () => ok('src/caller.ts:12:target()\n')) };
     const context = await new ReviewContextService(runner).build(repo, '/repo', ['src/export.ts', 'package-lock.json'], ['target']);
     expect(context.callers).toEqual([{ symbol: 'target', path: 'src/caller.ts', line: 12, outsideDiff: true }]);
+    expect(context.dependentPaths).toEqual(['src/caller.ts']);
     expect(context.changedLockfiles).toEqual(['package-lock.json']);
   });
 
@@ -74,12 +83,13 @@ describe('review exact SHA context', () => {
   });
 
   it('detects source checksum drift after lanes', async () => {
-    let content = 'before';
-    const mutableFiles = { ...files, read: jest.fn(async () => Buffer.from(content)) };
-    const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('a'.repeat(40)) : args[0] === 'ls-files' ? ok('src/main.ts\0') : ok()) };
-    const service = new ReviewWorktreeService(runner, mutableFiles, logger);
+    let blob = 'b'.repeat(40);
+    const runner: IReviewCommandRunner = { run: jest.fn(async (_repo, _cmd, args) => args[0] === 'rev-parse' ? ok('a'.repeat(40)) :
+      args[0] === 'ls-files' ? ok(`100644 ${blob} 0\tsrc/main.ts\0`) : ok()) };
+    const service = new ReviewWorktreeService(runner, files, logger);
     const snapshot = await service.snapshot(repo, '/repo', 'a'.repeat(40));
-    content = 'after';
+    expect(snapshot.files).toEqual(['src/main.ts']);
+    blob = 'c'.repeat(40);
     await expect(service.assertIntegrity(repo, '/repo', snapshot)).rejects.toThrow('checksum changed');
   });
 });

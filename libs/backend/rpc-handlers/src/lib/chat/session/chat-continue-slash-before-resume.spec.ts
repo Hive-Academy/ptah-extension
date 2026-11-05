@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -268,6 +269,16 @@ function makeHarness(
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
 
   return {
@@ -396,9 +407,11 @@ describe('chat:continue — inactive session + plain text (unchanged)', () => {
           new Error('storage unavailable'),
         );
       } else {
-        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots.mockResolvedValue({
-          status: 'malformed',
-        });
+        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots.mockResolvedValue(
+          {
+            status: 'malformed',
+          },
+        );
       }
 
       const result = await h.service.continueSession(params('continue'));
@@ -410,10 +423,9 @@ describe('chat:continue — inactive session + plain text (unchanged)', () => {
       });
       expect(h.resumeSession).toHaveBeenCalledTimes(1);
       expect(h.streamEventsToWebview).toHaveBeenCalledTimes(1);
-      expect(h.metadataStore.upgradeLegacyPluginConfigAncestorRoots).toHaveBeenCalledWith(
-        SESSION_ID,
-        [TEST_ROOT],
-      );
+      expect(
+        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots,
+      ).toHaveBeenCalledWith(SESSION_ID, [TEST_ROOT]);
     },
   );
   it('resumes exactly as before and sends the message', async () => {
@@ -696,10 +708,9 @@ describe('Apps MCP tool profile threading', () => {
       expect(executeSlashCommand).toHaveBeenCalledTimes(1);
       const [, , { sessionConfig }] = executeSlashCommand.mock.calls[0];
       expect(sessionConfig.pluginConfigAncestorRoots).toEqual([TEST_ROOT]);
-      expect(h.metadataStore.upgradeLegacyPluginConfigAncestorRoots).toHaveBeenCalledWith(
-        SESSION_ID,
-        [TEST_ROOT],
-      );
+      expect(
+        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots,
+      ).toHaveBeenCalledWith(SESSION_ID, [TEST_ROOT]);
       if (mcpToolProfile) expect(sessionConfig.mcpToolProfile).toBe('apps');
       else expect(sessionConfig).not.toHaveProperty('mcpToolProfile');
     },

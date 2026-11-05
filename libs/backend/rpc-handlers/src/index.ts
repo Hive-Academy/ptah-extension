@@ -6,6 +6,8 @@
  * used by both VS Code and Electron applications.
  */
 
+export { SessionDriverLockCoordinator } from './lib/chat/session/session-driver-lock-coordinator';
+
 export {
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
@@ -59,6 +61,7 @@ export {
   IndexingRpcHandlers,
   TasksRpcHandlers,
   SessionOrganizationRpcHandlers,
+  SessionHandoffChainRpcHandlers,
   LanePlanLimitsRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
@@ -161,7 +164,10 @@ export {
   type CodexRuntimeAdmissionDeps,
 } from './lib/chat/codex-host/codex-chat-host-ports';
 export { resolveSavedCodexPermissionLevel } from './lib/chat/codex-host/codex-saved-permission-level';
-export { createCodexChatUserQuestions, type CodexChatUserQuestionsDeps } from './lib/chat/codex-host/codex-chat-user-questions';
+export {
+  createCodexChatUserQuestions,
+  type CodexChatUserQuestionsDeps,
+} from './lib/chat/codex-host/codex-chat-user-questions';
 export {
   createNativeSessionControls,
   createLegacySessionControlPorts,

@@ -428,6 +428,8 @@ export interface ChatResumeResult {
    */
   activationErrorCode?: RpcUserErrorCode;
   error?: string;
+  /** Explicitly terminal failures must not trigger a resume retry. */
+  retryable?: false;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;
   /** Stored provider on success; provider needing auth when errorCode is 'AUTH_REQUIRED'. */

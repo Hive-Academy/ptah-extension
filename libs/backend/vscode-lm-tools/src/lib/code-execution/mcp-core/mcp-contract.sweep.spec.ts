@@ -2260,12 +2260,38 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
     30_000,
   );
 
+  /**
+   * Sweep with the system temp directory pointed at this test's spool root.
+   * A declared caller root that names no host folder spools under the system
+   * temp directory, never under the host's first open folder (another
+   * project for a lane in a different checkout, TASK_2026_882_01ef). The spy
+   * keeps those spool files inside the per-test fixture.
+   */
+  async function sweepWithTempAtSpoolRoot(
+    host: Parameters<typeof sweepAllTools>[0],
+    extra: Partial<MCPRequest>,
+  ): ReturnType<typeof sweepAllTools> {
+    if (extra._callerWorkspaceRoot === undefined) {
+      return sweepAllTools(host, extra);
+    }
+    // Spy on the core module itself: the `import * as os` namespace only
+    // exposes non-configurable getters onto it.
+    const tmp = jest
+      .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+      .mockReturnValue(spoolRoot);
+    try {
+      return await sweepAllTools(host, extra);
+    } finally {
+      tmp.mockRestore();
+    }
+  }
+
   it(
     'HTTP, IDE capabilities, WORKSPACE caller: every tool passes the same full contract under ' +
       'a declared caller workspace root (the one caller-kind field the generic dispatch path ' +
       'itself reads — `resolveSpoolRoot`)',
     async () => {
-      const failures = await sweepAllTools(
+      const failures = await sweepWithTempAtSpoolRoot(
         { hasIDECapabilities: true, hasSqliteLayer: true },
         { _callerWorkspaceRoot: 'not-a-known-workspace-folder' },
       );
@@ -2342,7 +2368,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
   it.each(REMAINING_MATRIX_CELLS)(
     'HTTP matrix cell %s: every listed tool is executed under that identity and passes the full contract',
     async (_label, ide, sqlite, extra) => {
-      const failures = await sweepAllTools(
+      const failures = await sweepWithTempAtSpoolRoot(
         { hasIDECapabilities: ide, hasSqliteLayer: sqlite },
         extra,
       );

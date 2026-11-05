@@ -9,11 +9,13 @@ import type { ReviewStageEnvironment, ContextStageResult } from './context-stage
 import type { LensStageResult } from './lens-stage.runner';
 import { persistVerifiedFindings, verifiedReviewFindings } from './publication-finding.persistence';
 import { persistExportArtifact } from './publication-artifact.persistence';
+import { ReviewPublicationService } from '../publication/review-publication.service';
+import { PublicationOutboxRepository } from '../publication/publication-outbox.repository';
 import type { VerificationResult } from './verification-stage.runner';
 
 export interface PublicationResult { artifactPath: string; exportPath: string; acceptedCount: number; suppressedCount: number }
 
-/** Dry run only. This stage has no GitHub port and cannot mutate a PR. */
+/** Writes the local artifact, then publishes when live policy permits. */
 @injectable()
 export class PublicationStageRunner {
   constructor(
@@ -21,12 +23,15 @@ export class PublicationStageRunner {
     @inject(ReviewPolicyService) private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.ENVIRONMENT) private readonly environment: ReviewStageEnvironment,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION) private readonly sqlite: { readonly db: SqliteDatabase } | null = null,
+    @inject(ReviewPublicationService) private readonly publication: ReviewPublicationService | null = null,
   ) {}
 
   async run(claim: ReviewQueueClaim, context: ContextStageResult, lenses: LensStageResult,
-    verdicts: VerificationResult[], signal?: AbortSignal): Promise<PublicationResult> {
+    verdicts: VerificationResult[], signal?: AbortSignal, triageCompleted = true): Promise<PublicationResult> {
     if (signal?.aborted) throw new Error('Review publication aborted');
-    const settings = this.policy.effectiveSettings(await this.environment.settings(), await this.environment.baseConfig(claim.repo, context.baseSha));
+    const operatorSettings = await this.environment.settings();
+    const baseConfig = await this.environment.baseConfig(claim.repo, context.baseSha);
+    const settings = this.policy.effectiveSettings(operatorSettings, baseConfig);
     if (signal?.aborted) throw new Error('Review publication aborted');
     if (!settings) throw new Error('Review settings unavailable for dry-run preview');
     const secrets = await this.environment.redactionSecrets?.() ?? [];
@@ -36,7 +41,11 @@ export class PublicationStageRunner {
     const suppressed: ReviewPreviewInput['suppressed'] = [];
     for (const item of verdicts) {
       if (item.result.status === 'completed' && 'verdict' in item.result.output && item.result.output.verdict === 'accepted') {
-        accepted.push(item.finding);
+        const identity = this.sqlite && this.publication
+          ? new PublicationOutboxRepository(this.sqlite.db).proposeIdentity(claim.attemptId,
+            item.result.output.candidateId, { ...item.finding, verification: item.verification === 'unavailable' ? 'same-family-weaker' : item.verification }, item.identity) : null;
+        if (identity?.relation === 'uncertain') suppressed.push({ finding: item.finding, reason: 'identity-uncertain' });
+        else accepted.push(item.finding);
       } else {
         const reason = item.result.status === 'partial' ? `Verification unavailable: ${item.result.reason}`
           : 'verdict' in item.result.output ? `${item.result.output.verdict}: ${item.result.output.reason}` : 'Verification unavailable';
@@ -46,13 +55,15 @@ export class PublicationStageRunner {
     const verified = verifiedReviewFindings(verdicts);
     if (secrets.some((secret) => secret.length >= 4 && JSON.stringify(verified).includes(secret)))
       throw new Error('Review finding contains redaction secret');
-    if (this.sqlite && !signal?.aborted) persistVerifiedFindings(this.sqlite.db, claim.attemptId, verified);
-    const walkthrough = await this.writer.readWalkthrough(out);
+    if (this.sqlite && (!this.publication || claim.dryRun || !this.policy.publication(operatorSettings, baseConfig, claim.repo).allowed) && !signal?.aborted)
+      persistVerifiedFindings(this.sqlite.db, claim.attemptId, verified);
+    const walkthrough = triageCompleted ? await this.writer.readWalkthrough(out) : '';
     if (signal?.aborted) throw new Error('Review publication aborted');
     const preview: ReviewPreviewInput = {
       headSha: claim.headSha, walkthrough, accepted, suppressed,
       verification: verdicts.map(({ finding, verification }) => ({ finding, label: verification })),
-      selectedLenses: [{ lens: 'triage', family: 'coordinator', scope: context.coverage.join('; '), outcome: 'completed' },
+      selectedLenses: [{ lens: 'triage', family: 'coordinator', scope: context.coverage.join('; '),
+        outcome: triageCompleted ? 'completed' : 'unavailable' },
         ...lenses.map(({ lens, result }) => ({ lens, family: result.status === 'completed' ? result.family : 'unavailable',
           scope: context.coverage.join('; '), outcome: result.status === 'completed' ? 'completed' : `unavailable: ${result.reason}` }))],
       secrets,
@@ -62,6 +73,8 @@ export class PublicationStageRunner {
     const exportPath = await this.writer.writeExport(out, preview, settings);
     if (signal?.aborted) throw new Error('Review publication aborted');
     if (this.sqlite) await persistExportArtifact(this.sqlite.db, claim.attemptId, exportPath);
+    if (this.publication && triageCompleted) await this.publication.publish(claim, walkthrough, context.promptInput.diff,
+      verdicts, operatorSettings, baseConfig, secrets, context.incrementalScope, signal);
     return { artifactPath, exportPath, acceptedCount: accepted.length, suppressedCount: suppressed.length };
   }
 }

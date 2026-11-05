@@ -34,6 +34,9 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   // Secondary per-root git watchers (`git:watchRoots`) need the desktop
   // watcher pool and a renderer to lease them (TASK_2026_855).
   'gitRootWatch',
+  // Remote machines (`machines:*`) are driven from the desktop app, whose
+  // main process owns the SSH transport and pairing tokens (TASK_2026_858).
+  'remoteMachines',
 ] as const;
 
 /**

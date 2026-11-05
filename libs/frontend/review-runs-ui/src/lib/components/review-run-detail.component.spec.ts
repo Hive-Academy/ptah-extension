@@ -1,3 +1,5 @@
+import { signal } from '@angular/core';
+import { ReviewRunsStore } from '../review-runs.store';
 import { TestBed } from '@angular/core/testing';
 import type { ReviewRun } from '@ptah-extension/review-contracts';
 import { ReviewRunDetailComponent } from './review-run-detail.component';
@@ -14,7 +16,7 @@ const run: ReviewRun = {
 
 describe('ReviewRunDetailComponent', () => {
   it('labels partial coverage and same-family verification, and closes on Escape', () => {
-    TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent] });
+    TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent], providers: [{ provide: ReviewRunsStore, useValue: { rerunState: signal('idle'), hasToken: signal(false), settings: signal(null), rerun: jest.fn() } }] });
     const fixture = TestBed.createComponent(ReviewRunDetailComponent);
     fixture.componentRef.setInput('run', run);
     const close = jest.fn(); fixture.componentInstance.closed.subscribe(close);
@@ -23,5 +25,40 @@ describe('ReviewRunDetailComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Weaker evidence');
     fixture.nativeElement.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(close).toHaveBeenCalledTimes(1);
+  });
+  it('shows each lens outcome and sanitized reason', () => {
+    TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent], providers: [{ provide: ReviewRunsStore, useValue: {
+      rerunState: signal('idle'), hasToken: signal(false), settings: signal(null), rerun: jest.fn(),
+    } }] });
+    const fixture = TestBed.createComponent(ReviewRunDetailComponent);
+    fixture.componentRef.setInput('run', { ...run, stages: [
+      { name: 'lenses', status: 'partial', family: null, scope: 'correctness-lifecycle', durationMs: 1000,
+        error: 'lane-failed: codex; exit 1', artifactPath: null },
+      { name: 'lenses', status: 'succeeded', family: 'codex', scope: 'security-privacy', durationMs: 2000,
+        error: 'Ran without a limit check', artifactPath: null },
+    ] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('correctness-lifecycle');
+    expect(fixture.nativeElement.textContent).toContain('lane-failed: codex; exit 1');
+    expect(fixture.nativeElement.textContent).toContain('security-privacy');
+    expect(fixture.nativeElement.textContent).toContain('Ran without a limit check');
+  });
+  it('asks before starting a live rerun', () => {
+    TestBed.configureTestingModule({ imports: [ReviewRunDetailComponent], providers: [{ provide: ReviewRunsStore, useValue: {
+      rerunState: signal('idle'), hasToken: signal(true), settings: signal({ globalPublicationPaused: false }), rerun: jest.fn(),
+    } }] });
+    const fixture = TestBed.createComponent(ReviewRunDetailComponent);
+    fixture.componentRef.setInput('run', run);
+    fixture.detectChanges();
+    const store = TestBed.inject(ReviewRunsStore);
+    const live = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.includes('Rerun live'));
+    live?.click(); fixture.detectChanges();
+    expect(store.rerun).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Start live rerun?');
+    const acknowledgement = fixture.nativeElement.querySelector('#review-live-rerun-confirm')?.parentElement?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    acknowledgement.click(); fixture.detectChanges();
+    fixture.nativeElement.querySelector('#review-live-rerun-confirm')?.parentElement?.querySelectorAll('button')[1]?.click();
+    expect(store.rerun).toHaveBeenCalledWith(run.attemptId, false);
   });
 });

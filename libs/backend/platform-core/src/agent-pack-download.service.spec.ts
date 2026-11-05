@@ -791,15 +791,23 @@ describe('AgentPackDownloadService', () => {
     });
 
     /**
-     * Hold every read of `dest` until the test releases it; resolves once
-     * `count` reads are held.
+     * Hold every read of `dest` until the test releases it. `firstHeld`
+     * lets each test establish which install owns the first release slot.
      */
     function holdReads(
       dest: string,
       count: number,
-    ): { allHeld: Promise<void>; release: Array<() => void> } {
+    ): {
+      firstHeld: Promise<void>;
+      allHeld: Promise<void>;
+      release: Array<() => void>;
+    } {
       const release: Array<() => void> = [];
+      let signalFirst: () => void = () => undefined;
       let signal: () => void = () => undefined;
+      const firstHeld = new Promise<void>((resolve) => {
+        signalFirst = resolve;
+      });
       const allHeld = new Promise<void>((resolve) => {
         signal = resolve;
       });
@@ -807,10 +815,11 @@ describe('AgentPackDownloadService', () => {
         if (file !== dest || release.length >= count) return Promise.resolve();
         return new Promise<void>((resume) => {
           release.push(resume);
+          if (release.length === 1) signalFirst();
           if (release.length === count) signal();
         });
       };
-      return { allHeld, release };
+      return { firstHeld, allHeld, release };
     }
 
     it('two create-only installers paused after their read: the second keeps the first', async () => {
@@ -829,6 +838,7 @@ describe('AgentPackDownloadService', () => {
           guard: { mode: 'create-only' },
         },
       ]);
+      await gate.firstHeld;
       const second = b.installFiles(targetDir, [
         {
           file: 'react-expert.md',
@@ -864,6 +874,7 @@ describe('AgentPackDownloadService', () => {
           guard: { mode: 'create-only' },
         },
       ]);
+      await gate.firstHeld;
       const replacer = b.installFiles(targetDir, [
         {
           file: 'react-expert.md',
@@ -927,6 +938,7 @@ describe('AgentPackDownloadService', () => {
           guard: { mode: 'replace', baselineHash },
         },
       ]);
+      await gate.firstHeld;
       const second = b.installFiles(targetDir, [
         {
           file: 'react-expert.md',

@@ -68,6 +68,7 @@ export {
 export { DisplayWindowComponent } from './lib/components/templates/display-window/display-window.component';
 export { DisplayWindowStateHandler } from './lib/components/templates/display-window/display-window-state.handler';
 export { RAIL_MIN_CONTENT_WIDTH } from './lib/components/templates/chat-view.component';
+export { questionBelongsToTab } from './lib/services/question-visibility';
 export { RailTranscriptRetentionCoordinator } from './lib/services/rail-transcript-retention-coordinator.service';
 export {
   SESSION_WORKFLOW_ADDONS,

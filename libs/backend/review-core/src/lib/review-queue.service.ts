@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import { ShaSchema, type RepoIdentity } from '@ptah-extension/review-contracts';
+import { RepoIdentitySchema, ShaSchema, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { REVIEW_CORE_TOKENS } from '../di/tokens';
 
@@ -13,6 +13,8 @@ export interface ReviewQueueAttempt extends ReviewQueueHead {
   attemptId: string;
   trigger: 'poll' | 'manual';
   queuedAt: string;
+  skipped?: boolean;
+  dryRun?: boolean;
 }
 export interface ReviewQueueLease {
   owner: string;
@@ -31,9 +33,9 @@ export interface ReviewQueueClaim extends ReviewQueueAttempt {
  * interrupted stage; heartbeat/release compare the current lease owner.
  */
 export interface IReviewQueueRepository {
-  enqueueDiscovered(head: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt>;
+  enqueueDiscovered(head: ReviewQueueHead, queuedAt: string, dryRun: boolean): Promise<ReviewQueueAttempt>;
   recordDraft(head: ReviewQueueHead, queuedAt: string): Promise<void>;
-  enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string): Promise<ReviewQueueAttempt>;
+  enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun?: boolean): Promise<ReviewQueueAttempt>;
   claimNext(owner: string, now: string, expiresAt: string): Promise<ReviewQueueClaim | null>;
   heartbeat(attemptId: string, owner: string, now: string, expiresAt: string): Promise<boolean>;
   release(attemptId: string, owner: string, status: 'succeeded' | 'partial' | 'failed' | 'superseded', now: string): Promise<boolean>;
@@ -49,9 +51,9 @@ export class ReviewQueueService {
   ) {}
 
   /** Called by polling; repository supersedes older active heads transactionally. */
-  discover(head: ReviewQueueHead): Promise<ReviewQueueAttempt> {
+  discover(head: ReviewQueueHead, dryRun = true): Promise<ReviewQueueAttempt> {
     this.validateHead(head);
-    return this.repository.enqueueDiscovered(head, this.clock.now().toISOString());
+    return this.repository.enqueueDiscovered(head, this.clock.now().toISOString(), dryRun);
   }
 
   recordDraft(head: ReviewQueueHead): Promise<void> {
@@ -60,10 +62,10 @@ export class ReviewQueueService {
   }
 
   /** Caller supplies a unique ID; repository must enforce uniqueness atomically. */
-  retry(head: ReviewQueueHead, attemptId: string): Promise<ReviewQueueAttempt> {
+  retry(head: ReviewQueueHead, attemptId: string, dryRun = true): Promise<ReviewQueueAttempt> {
     this.validateHead(head);
     if (!attemptId.trim() || attemptId.length > 64) throw new Error('Invalid review attempt ID');
-    return this.repository.enqueueManual(head, attemptId, this.clock.now().toISOString());
+    return this.repository.enqueueManual(head, attemptId, this.clock.now().toISOString(), dryRun);
   }
 
   claim(owner: string, leaseMs: number): Promise<ReviewQueueClaim | null> {
@@ -86,13 +88,18 @@ export class ReviewQueueService {
   /** Caller fetches current open heads; run independently of cron catch-up. */
   async reconcileStartup(heads: ReviewQueueHead[]): Promise<number> {
     await this.repository.reconcileExpiredLeases(this.clock.now().toISOString());
-    for (const head of heads) await this.discover(head);
-    this.logger.info(`Review startup reconciled ${heads.length} heads`);
-    return heads.length;
+    const latest = new Map<string, ReviewQueueHead>();
+    for (const head of heads) {
+      this.validateHead(head);
+      latest.set(`${head.repo.owner}/${head.repo.name}#${head.prNumber}`, head);
+    }
+    for (const head of latest.values()) await this.discover(head);
+    this.logger.info(`Review startup reconciled ${latest.size} heads`);
+    return latest.size;
   }
 
   private validateHead(head: ReviewQueueHead): void {
-    if (head.repo.owner !== 'Hive-Academy' || head.repo.name !== 'PtahCode' ||
+    if (!RepoIdentitySchema.safeParse(head.repo).success ||
         !Number.isInteger(head.prNumber) || head.prNumber < 1 ||
         !ShaSchema.safeParse(head.headSha).success) throw new Error('Invalid review queue head');
   }

@@ -1,4 +1,4 @@
-import { Lexer, getDefaults, type Token } from 'marked';
+import { Lexer, Tokenizer, getDefaults, type Token } from 'marked';
 import { countTokens } from '../token-measure';
 import type { ReduceResult } from '../reducer.types';
 import { reduceMarkdown } from './markdown.reducer';
@@ -799,147 +799,216 @@ describe('reduceMarkdown — size and preserved content', () => {
 
 describe('reduceMarkdown — cost on crafted input', () => {
   const n = 65_000;
-  /** Crafted ~65,000-char lines; `true` when the container-prefix guard must stop them. */
-  const crafted: Array<[string, string, boolean]> = [
+  /**
+   * Crafted lines built around a run of `k` characters (65,000 for the
+   * specs); `true` when the container-prefix guard must stop them.
+   */
+  const crafted: Array<[string, (k: number) => string, boolean]> = [
     // A backtick in the rest makes each of these a plain line, not an opener.
-    ['a backtick run then `x', '`'.repeat(n) + '`x', false],
-    ['a fence, 65,000 spaces, then `x', '```' + ' '.repeat(n) + '`x', false],
+    ['a backtick run then `x', (k) => '`'.repeat(k) + '`x', false],
+    [
+      'a fence, 65,000 spaces, then `x',
+      (k) => '```' + ' '.repeat(k) + '`x',
+      false,
+    ],
     // `.` stops at U+2028 and a lone CR, so a `(.*)$` after the run would
     // backtrack through all 65,000 backticks (the Batch 2a r3 finding).
     [
       'a backtick run then U+2028',
-      '`'.repeat(n) + String.fromCharCode(0x2028) + '`',
+      (k) => '`'.repeat(k) + String.fromCharCode(0x2028) + '`',
       false,
     ],
-    ['a backtick run then a lone CR', '`'.repeat(n) + '\r`', false],
-    ['65,000 spaces then x', ' '.repeat(n) + 'x', false],
-    ['65,000 spaces then a fence run', ' '.repeat(n) + '```', false],
-    ['a hash run then x', '#'.repeat(n) + 'x', false],
-    ['an = underline run', 'paragraph\n' + '='.repeat(n) + 'x', false],
+    ['a backtick run then a lone CR', (k) => '`'.repeat(k) + '\r`', false],
+    ['65,000 spaces then x', (k) => ' '.repeat(k) + 'x', false],
+    ['65,000 spaces then a fence run', (k) => ' '.repeat(k) + '```', false],
+    ['a hash run then x', (k) => '#'.repeat(k) + 'x', false],
+    ['an = underline run', (k) => 'paragraph\n' + '='.repeat(k) + 'x', false],
     [
       'a long tilde fence closed by a longer run',
-      '~'.repeat(n) + ' info\ncode\n' + '~'.repeat(n + 3),
+      (k) => '~'.repeat(k) + ' info\ncode\n' + '~'.repeat(k + 3),
       false,
     ],
-    ['a - underline run', 'paragraph\n' + '-'.repeat(n) + 'x', true],
-    ['a list marker then 65,000 spaces', '- ' + ' '.repeat(n), true],
+    ['a - underline run', (k) => 'paragraph\n' + '-'.repeat(k) + 'x', true],
+    ['a list marker then 65,000 spaces', (k) => '- ' + ' '.repeat(k), true],
   ];
 
   /**
-   * Load-robust timing (Batch 2c, authorized test-only change). A run over
-   * its absolute bound still passes when it is under HARD_CEILING_MS and
-   * within LOAD_FACTOR of a linear reference document timed right after it,
-   * under the same load: with 16 busy processes on the machine the 1,500 ms
-   * bound failed at 3,577 ms on the list-heavy document, while a
-   * super-linear path at the cap takes many seconds and fails either way.
-   * Two references, one per bound (Node 24, idle, fastest of three):
-   * `small` (plain sections at 256 KiB, 22 ms) for the 250 ms specs, whose
-   * shapes run at 0.3x of it or less; `cap` (a list with lazy continuation
-   * at 256 KiB, 235 ms) for the 1,500 ms specs, whose slowest shape (the
-   * 16-level list, 462 ms) runs at 2.0x of it.
+   * Cost bounds that do not depend on machine speed (TASK_2026_875, D6).
+   * They replace absolute millisecond bounds that failed on loaded CI
+   * runners. The risk guarded is super-linear work at the 256 KiB cap:
+   * regex backtracking over a long run (the crafted lines), and marked
+   * re-reading the rest of a block quote on each restart (the families the
+   * restart-cost guard stops). Each shape is reduced at full size and at
+   * 1/SCALE of it, and two growths per character are bounded: a linear path
+   * grows about 1x, a quadratic one about SCALE (8x).
+   *
+   * - Offered characters (deterministic): the source passed to marked's
+   *   re-entrant block entry points, `blockTokens` and the `blockquote` and
+   *   `list` tokenizers that a quote restart calls again on the rest of the
+   *   quote. Growth is 1.00 for every lexed shape here. With the restart
+   *   guard off, `> - x\nx\n` grew 7.9x from 4 KiB to 32 KiB.
+   * - Time (same moment, same shape): the fastest of ROUNDS interleaved
+   *   samples. A small sample reduces the small document SCALE times, so
+   *   both samples last about as long and share the machine load. No counter
+   *   sees backtracking inside one regex call or the line-array copies of a
+   *   restart, so time stays for them. Linear shapes measured 0.6x-1.6x
+   *   (4-core machine, load average 9-14). An injected backtracking regex
+   *   measured 7.2x-8.1x, and `> x\nx\n` with the guard off 10.1x.
    */
-  const LOAD_FACTOR = 4;
-  const HARD_CEILING_MS = 10_000;
+  const SCALE = 8;
+  const MAX_OFFERED_GROWTH = 1.5;
+  const MAX_TIME_GROWTH = 4;
+  const ROUNDS = 3;
+  /** Shortest sample worth timing; very fast paths repeat until they reach it. */
+  const MIN_SAMPLE_MS = 10;
   const TIMING_TEST_TIMEOUT_MS = 120_000;
-  const atCap = (head: string, unit: string): string =>
-    head + unit.repeat(Math.floor((262_144 - head.length) / unit.length));
-  const referenceDocs = {
-    small: atCap(
-      '# Doc\n\n',
-      '## Section heading\n\nA plain paragraph of ordinary prose that fills the section body.\n\n',
-    ),
-    cap: atCap('# A\n', '- x\nx\n'),
-  };
 
-  function fastestMs(doc: string): number {
-    let elapsed = Infinity;
-    for (let run = 0; run < 3; run++) {
-      const start = performance.now();
+  const sumOfSources = (
+    calls: ReadonlyArray<readonly [string, ...unknown[]]>,
+  ): number => calls.reduce((sum, [src]) => sum + src.length, 0);
+
+  /**
+   * Reduces `doc` once with marked's re-entrant block entry points spied,
+   * and returns the result with the characters offered to them.
+   */
+  function offeredChars(doc: string): {
+    result: ReduceResult;
+    offered: number;
+  } {
+    const blockTokens = jest.spyOn(Lexer.prototype, 'blockTokens');
+    const blockquote = jest.spyOn(Tokenizer.prototype, 'blockquote');
+    const list = jest.spyOn(Tokenizer.prototype, 'list');
+    try {
+      const result = reduceMarkdown(doc, { budgetTokens: 2000 });
+      const offered =
+        sumOfSources(blockTokens.mock.calls) +
+        sumOfSources(blockquote.mock.calls) +
+        sumOfSources(list.mock.calls);
+      return { result, offered };
+    } finally {
+      blockTokens.mockRestore();
+      blockquote.mockRestore();
+      list.mockRestore();
+    }
+  }
+
+  function sampleMs(doc: string, times: number): number {
+    const start = performance.now();
+    for (let run = 0; run < times; run++) {
       reduceMarkdown(doc, { budgetTokens: 2000 });
-      elapsed = Math.min(elapsed, performance.now() - start);
     }
-    return elapsed;
+    return performance.now() - start;
   }
 
-  function expectLinearTime(
-    elapsed: number,
-    bound: number,
-    reference: keyof typeof referenceDocs,
-  ): void {
-    if (elapsed < bound) {
-      return;
-    }
-    expect(elapsed).toBeLessThan(HARD_CEILING_MS);
-    expect(elapsed).toBeLessThan(LOAD_FACTOR * fastestMs(referenceDocs[reference]));
-  }
-
-  it.each(crafted)('handles %s quickly', (_label, line, guarded) => {
-    const doc = ['# Start', 'intro', line, '## End', 'outro'].join('\n');
-    expect(doc.length).toBeLessThanOrEqual(262_144);
-    const lexed = jest.spyOn(Lexer.prototype, 'blockTokens');
+  /**
+   * Time per character of `large` over time per character of `small`: the
+   * fastest of ROUNDS interleaved samples of each. A small sample reduces
+   * `small` `copies` times, so it lasts about as long as a large one.
+   */
+  function timeGrowth(small: string, large: string): number {
     countTokens('warm up the encoder');
-    const start = performance.now();
-    const result = reduce(doc, 4000);
-    const elapsed = performance.now() - start;
-    expect(lexed.mock.calls.length > 0).toBe(!guarded);
-    expect(
-      (result.notes ?? []).includes(
-        'container nesting too deep to outline safely',
-      ),
-    ).toBe(guarded);
-    expectVerbatimSubsequence(result.text, doc);
-    expectLinearTime(elapsed, 250, 'small');
-  }, TIMING_TEST_TIMEOUT_MS);
-
-  it('returns every crafted line in one document unchanged by the size cap, quickly', () => {
-    const doc = ['# Start', 'intro', ...crafted.map(([, line]) => line)].join(
-      '\n',
+    const copies = Math.max(1, Math.round(large.length / small.length));
+    let largeMs = sampleMs(large, 1);
+    const repeats = Math.max(
+      1,
+      Math.ceil(MIN_SAMPLE_MS / Math.max(largeMs, 0.001)),
     );
-    expect(doc.length).toBeGreaterThan(262_144);
-    const start = performance.now();
-    const result = reduce(doc, 4000);
-    const elapsed = performance.now() - start;
-    expect(result.notes).toEqual(['input larger than 256 KiB; not outlined']);
-    expectLinearTime(elapsed, 250, 'small');
-  }, TIMING_TEST_TIMEOUT_MS);
-
-  /**
-   * Bound for one reduction at the size cap. The slowest lexed family, the
-   * 16-level list below, measured (Node 24, this machine, unspied) 363-469 ms
-   * per run when idle and 746-1,093 ms under parallel load; lexing alone was
-   * 327-439 ms idle. With the fastest of three runs this leaves about 2x over
-   * the loaded minimum and 4x over the idle one.
-   */
-  const MAX_CAP_MS = 1500;
-
-  /**
-   * The fastest of three unspied runs: one slow run under a loaded machine
-   * (the parallel Nx targets) or a recursive `blockTokens` spy says nothing
-   * about the reducer, while three slow runs do.
-   */
-  function timedReduce(doc: string): { result: ReduceResult; elapsed: number } {
-    countTokens('warm up the encoder');
-    let elapsed = Infinity;
-    let result: ReduceResult | undefined;
-    for (let run = 0; run < 3; run++) {
-      const start = performance.now();
-      result = reduceMarkdown(doc, { budgetTokens: 2000 });
-      elapsed = Math.min(elapsed, performance.now() - start);
+    if (repeats > 1) {
+      largeMs = sampleMs(large, repeats);
     }
-    return { result: result as ReduceResult, elapsed };
+    let smallMs = Infinity;
+    for (let round = 0; round < ROUNDS; round++) {
+      if (round > 0) {
+        largeMs = Math.min(largeMs, sampleMs(large, repeats));
+      }
+      smallMs = Math.min(smallMs, sampleMs(small, repeats * copies));
+    }
+    return largeMs / large.length / (smallMs / (copies * small.length));
   }
 
-  it('lexes a 256 KiB list-heavy document within the cap bound', () => {
-    const line = '- '.repeat(16) + 'x\n';
-    const doc = '# Top\n\n' + line.repeat(Math.floor((262_144 - 7) / line.length));
-    expect(doc.length).toBeLessThanOrEqual(262_144);
-    expect(doc.length).toBeGreaterThan(262_144 - line.length);
-    const { result, elapsed } = timedReduce(doc);
-    // An outline can only come from the lexed tokens.
-    expectValidResult(result, doc);
-    expect(result.reducer).toBe('markdown-outline');
-    expectLinearTime(elapsed, MAX_CAP_MS, 'cap');
-  }, TIMING_TEST_TIMEOUT_MS);
+  /**
+   * Both sizes take the same path, and neither the offered characters nor
+   * the time per character grows with the size. A guarded path never lexes,
+   * so only its time is bounded.
+   */
+  function expectLinearCost(small: string, large: string): void {
+    const smallRun = offeredChars(small);
+    const largeRun = offeredChars(large);
+    expect(smallRun.result.reducer).toBe(largeRun.result.reducer);
+    if (largeRun.result.reducer === 'markdown-unchanged') {
+      // The one note names the reason; an outline's notes count lines.
+      expect(smallRun.result.notes).toEqual(largeRun.result.notes);
+    }
+    expect(smallRun.offered > 0).toBe(largeRun.offered > 0);
+    if (smallRun.offered > 0) {
+      const offeredGrowth =
+        largeRun.offered / large.length / (smallRun.offered / small.length);
+      expect(offeredGrowth).toBeLessThan(MAX_OFFERED_GROWTH);
+    }
+    expect(timeGrowth(small, large)).toBeLessThan(MAX_TIME_GROWTH);
+  }
+
+  const craftedDoc = (line: string): string =>
+    ['# Start', 'intro', line, '## End', 'outro'].join('\n');
+
+  it.each(crafted)(
+    'handles %s in linear time',
+    (_label, line, guarded) => {
+      const doc = craftedDoc(line(n));
+      expect(doc.length).toBeLessThanOrEqual(262_144);
+      const lexed = jest.spyOn(Lexer.prototype, 'blockTokens');
+      const result = reduce(doc, 4000);
+      expect(lexed.mock.calls.length > 0).toBe(!guarded);
+      lexed.mockRestore();
+      expect(
+        (result.notes ?? []).includes(
+          'container nesting too deep to outline safely',
+        ),
+      ).toBe(guarded);
+      expectVerbatimSubsequence(result.text, doc);
+      expectLinearCost(craftedDoc(line(n / SCALE)), doc);
+    },
+    TIMING_TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * The size check is the reducer's first statement, so this path does O(1)
+   * work and has no growth to time: a microsecond sample is all jitter. The
+   * cost it protects against is lexing an over-cap document, which the spy
+   * rules out deterministically.
+   */
+  it('returns every crafted line in one document unchanged by the size cap, without lexing', () => {
+    const doc = [
+      '# Start',
+      'intro',
+      ...crafted.map(([, line]) => line(n)),
+    ].join('\n');
+    expect(doc.length).toBeGreaterThan(262_144);
+    const lexed = jest.spyOn(Lexer.prototype, 'blockTokens');
+    const result = reduce(doc, 4000);
+    expect(result.notes).toEqual(['input larger than 256 KiB; not outlined']);
+    expect(lexed).not.toHaveBeenCalled();
+  });
+
+  /** `head` plus as many whole `unit`s as fit in `size` characters. */
+  const atSize = (size: number, head: string, unit: string): string =>
+    head + unit.repeat(Math.floor((size - head.length) / unit.length));
+
+  it(
+    'lexes a 256 KiB list-heavy document in linear time',
+    () => {
+      const line = '- '.repeat(16) + 'x\n';
+      const doc = atSize(262_144, '# Top\n\n', line);
+      expect(doc.length).toBeLessThanOrEqual(262_144);
+      expect(doc.length).toBeGreaterThan(262_144 - line.length);
+      const result = reduceMarkdown(doc, { budgetTokens: 2000 });
+      // An outline can only come from the lexed tokens.
+      expectValidResult(result, doc);
+      expect(result.reducer).toBe('markdown-outline');
+      expectLinearCost(atSize(262_144 / SCALE, '# Top\n\n', line), doc);
+    },
+    TIMING_TEST_TIMEOUT_MS,
+  );
 
   const lazyQuoteNote = 'block quote continuation too costly to outline safely';
   /** [label, first lines, repeated unit, whether the lazy-quote guard stops it] */
@@ -947,7 +1016,12 @@ describe('reduceMarkdown — cost on crafted input', () => {
     ['lazy block quote', '# A\n', '> x\nx\n', true],
     ['lazy nested block quote', '# A\n', '> > x\n> x\n', true],
     // Each `- ` line is a new top-level item, which ends the quote before it.
-    ['block quote with lazy text in each list item', '# A\n', '- > x\n  x\n', false],
+    [
+      'block quote with lazy text in each list item',
+      '# A\n',
+      '- > x\n  x\n',
+      false,
+    ],
     ['lazy list in a block quote', '# A\n', '> - x\nx\n', true],
     ['plain block quote', '# A\n', '> x\n', false],
     ['list with lazy continuation', '# A\n', '- x\nx\n', false],
@@ -957,23 +1031,23 @@ describe('reduceMarkdown — cost on crafted input', () => {
   ];
 
   it.each(families)(
-    'finishes a %s at the size cap within the cap bound',
+    'finishes a %s at the size cap in linear time',
     (_label, head, unit, guarded) => {
-      const doc =
-        head + unit.repeat(Math.floor((262_144 - head.length) / unit.length));
+      const doc = atSize(262_144, head, unit);
       expect(doc.length).toBeLessThanOrEqual(262_144);
       expect(doc.length).toBeGreaterThan(262_144 - unit.length);
-      const { result, elapsed } = timedReduce(doc);
+      const lexed = jest.spyOn(Lexer.prototype, 'blockTokens');
+      const result = reduceMarkdown(doc, { budgetTokens: 2000 });
+      const lexCalls = lexed.mock.calls.length;
+      lexed.mockRestore();
       expectValidResult(result, doc);
       if (guarded) {
         expect(result.notes).toEqual([lazyQuoteNote]);
-        const lexed = jest.spyOn(Lexer.prototype, 'blockTokens');
-        reduceMarkdown(doc, { budgetTokens: 2000 });
-        expect(lexed).not.toHaveBeenCalled();
+        expect(lexCalls).toBe(0);
       } else {
         expect(result.reducer).toBe('markdown-outline');
       }
-      expectLinearTime(elapsed, MAX_CAP_MS, 'cap');
+      expectLinearCost(atSize(262_144 / SCALE, head, unit), doc);
     },
     TIMING_TEST_TIMEOUT_MS,
   );

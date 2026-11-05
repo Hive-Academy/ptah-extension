@@ -25,6 +25,8 @@ export class NotificationService {
   private readonly destroyRef = inject(DestroyRef);
   private readonly entries = signal<readonly AttentionItem[]>([]);
   private readonly sources = new Map<string, Map<string, AttentionItem>>();
+  /** Resolved question ids are unique; stale host snapshots cannot revive them. */
+  private readonly resolvedQuestions = new Set<string>();
   private readonly sounded = new Set<string>();
   private readonly dismissed = new Map<string, string>();
   private readonly hiddenRecent = new Set<string>();
@@ -70,6 +72,7 @@ export class NotificationService {
 
   upsert(item: AttentionItem): void {
     if (!item.key || !Number.isSafeInteger(item.generation)) return;
+    if (item.kind === 'question' && item.source === 'host' && this.resolvedQuestions.has(item.key)) return;
     if (item.kind === 'info' || item.kind === 'success') return;
     const perSource = this.sources.get(item.key) ?? new Map<string, AttentionItem>();
     const previousSource = perSource.get(item.source);
@@ -133,6 +136,12 @@ export class NotificationService {
   }
 
   resolve(key: string, generation?: number, source?: string): void {
+    if (!source && key.startsWith('question:')) {
+      this.resolvedQuestions.add(key);
+      if (this.resolvedQuestions.size > 256) {
+        this.resolvedQuestions.delete(this.resolvedQuestions.values().next().value!);
+      }
+    }
     const perSource = this.sources.get(key);
     if (perSource) {
       for (const [name, value] of perSource) {

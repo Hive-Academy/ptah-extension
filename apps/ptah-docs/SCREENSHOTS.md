@@ -11,7 +11,18 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 - Redact: Real API keys, tokens, email, license keys — use `sk-...REDACTED`
 - Annotations (optional): Use a subtle gold arrow/box `#D4AF37` to match brand
 
-**Total: 50 screenshots across 15 sections**
+**Total: 56 screenshots across 16 sections**
+
+## Ptah v2 desktop (6 planned, 1 captured)
+
+| Filename | Shows | Page |
+| --- | --- | --- |
+| `v2-session-rail.png` | Canvas session rail with multiple active tiles | Pending — test skipped until its mock seed exists |
+| `v2-voice-stage.png` | Voice tab Command Center stage | Pending — test skipped until its mock seed exists |
+| `v2-apps.png` | Apps conversation beside an agent-built surface | Pending — test skipped until its mock seed exists |
+| `v2-thoth-memory.png` | Thoth Memory tab and curator entries | GitHub README |
+| `v2-attention-bell.png` | Open notification bell with pending items | Pending — test skipped until its mock seed exists |
+| `v2-display-panel.png` | Display panel with a UI block or artifact | Pending — test skipped until its mock seed exists |
 
 ---
 

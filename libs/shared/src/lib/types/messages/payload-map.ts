@@ -114,7 +114,11 @@ import type {
 import type { SessionMcpStatusPayload } from './session-mcp-status';
 import type { PlanLimitsSnapshot } from '../plan-limit.types';
 import type { AgentSessionOpenedPayload } from './agent-session';
-import type { SessionHandoffOpenedPayload } from './session-handoff';
+import type { AgentMonitorReparentedPayload } from './agent-monitor';
+import type {
+  SessionHandoffLinkedPayload,
+  SessionHandoffOpenedPayload,
+} from './session-handoff';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -134,6 +138,10 @@ import type {
   BootReadinessChangedPayload,
 } from '../rpc/rpc-readiness.types';
 import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
+import type {
+  MachinesEventPayload,
+  MachinesStatePayload,
+} from '../rpc/rpc-machines.types';
 import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { DashboardSpecEnvelope } from '../../../mcp-apps-contracts/dashboard-spec.types';
@@ -449,6 +457,8 @@ export interface MessagePayloadMap {
   'session:organizationChanged': SessionOrganizationChangedPayload;
   'agentSession:opened': AgentSessionOpenedPayload;
   'sessionHandoff:opened': SessionHandoffOpenedPayload;
+  'sessionHandoff:linked': SessionHandoffLinkedPayload;
+  'agent-monitor:reparented': AgentMonitorReparentedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
@@ -476,6 +486,8 @@ export interface MessagePayloadMap {
   'git:operationOutput': GitOperationOutputPayload;
   'file:content-changed': FileContentChangedPayload;
   'library:changed': LibraryChangedPayload;
+  'machines:event': MachinesEventPayload;
+  'machines:state': MachinesStatePayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

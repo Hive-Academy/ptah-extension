@@ -59,6 +59,19 @@ function build(
 }
 
 describe('GitRootResolver', () => {
+  it('caches a missing worktree refusal without spawning git and retries when it reappears', async () => {
+    const { resolver, probe } = build();
+    probe.directoryExists.mockResolvedValue(false);
+    await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'))
+      .rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'))
+      .rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    expect(probe.listWorktrees).not.toHaveBeenCalled();
+    probe.directoryExists.mockResolvedValue(true);
+    await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'))
+      .resolves.toBe(WORKTREE);
+    expect(probe.listWorktrees).toHaveBeenCalledTimes(1);
+  });
   it('returns the active workspace root when no root is named', async () => {
     const { resolver, probe } = build();
 

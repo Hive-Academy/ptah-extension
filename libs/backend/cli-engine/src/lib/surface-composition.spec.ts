@@ -36,6 +36,8 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
@@ -54,7 +56,10 @@ import {
   SURFACE_UPDATE_TOOL_NAME,
   SURFACE_GET_STATE_TOOL_NAME,
 } from '@ptah-extension/vscode-lm-tools';
-import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
+import {
+  resolveRpcHandlerPlan,
+  type HostProfile,
+} from '@ptah-extension/rpc-handlers';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
@@ -87,7 +92,9 @@ function envelope(): SurfaceEnvelope {
     catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'profile',
     title: { text: 'Profile' },
-    components: [{ kind: 'text', id: 'name', label: 'Name', path: 'form.name' }],
+    components: [
+      { kind: 'text', id: 'name', label: 'Name', path: 'form.name' },
+    ],
     dataModel: { form: { name: 'Ada' } },
   };
 }
@@ -121,8 +128,10 @@ function formEnvelope(): SurfaceEnvelope {
  * `key: 'surface'` step (code-logic-review-batch-14.md, "smallest practical
  * follow-up"), not through a name import.
  */
-function registerSurfaceRpc(container: DependencyContainer): void {
-  const profile = createCliRpcHostProfile('cli');
+function registerSurfaceRpc(
+  container: DependencyContainer,
+  profile: HostProfile = createCliRpcHostProfile('cli'),
+): void {
   const step = resolveRpcHandlerPlan(profile).find((s) => s.key === 'surface');
   if (!step) {
     throw new Error(
@@ -169,7 +178,10 @@ describe('CLI surface composition — collaborator-level (Req 7.4, 11.2)', () =>
       });
       expect(state).toBeInstanceOf(SurfaceStateService);
       expect(
-        container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, true),
+        container.isRegistered(
+          CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY,
+          true,
+        ),
       ).toBe(true);
       for (const token of Object.values(CODEX_RUNTIME_TOKENS)) {
         expect(container.isRegistered(token, true)).toBe(
@@ -296,7 +308,11 @@ describe('CLI surface composition — real two-consumer round trip (Req 7.4, F1)
       correlationId: 'c-change-1',
     });
     expect(change.success).toBe(true);
-    expect(change.data).toEqual({ status: 'applied', operationId, revision: 2 });
+    expect(change.data).toEqual({
+      status: 'applied',
+      operationId,
+      revision: 2,
+    });
 
     const reply = await handleSurfaceToolCall(
       SURFACE_GET_STATE_TOOL_NAME,
@@ -438,5 +454,68 @@ describe('CLI surface composition — defensive missing collaborators (Req 7.4, 
     expect(operation.data).toMatchObject({ status: 'rejected' });
     expect((operation.data as { status: string }).status).not.toBe('pending');
     expect((operation.data as { status: string }).status).not.toBe('unknown');
+  });
+});
+
+/**
+ * TASK_2026_858 C5: `CliBootstrapOptions.hostProfile` replaces the derived
+ * `createCliRpcHostProfile(host)` only when given. `CliDIContainer.setup()` is
+ * the whole CLI bootstrap (see `container-diagnostics-override.spec.ts`), so
+ * the call site is pinned by reading its source, and the injected profile's
+ * effect is exercised through the real plan + registration path.
+ */
+describe('CLI surface composition — injected host profile (TASK_2026_858 C5)', () => {
+  function injectedProfile(): HostProfile {
+    const base = createCliRpcHostProfile('cli');
+    return {
+      ...base,
+      capabilities: { ...base.capabilities, goVetDiagnostics: false },
+    };
+  }
+
+  it('container.ts uses options.hostProfile when given and derives the CLI profile otherwise', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'container.ts'),
+      'utf8',
+    );
+
+    expect(source.match(/registerRpcSurface\(/g)).toHaveLength(1);
+    expect(source).toMatch(
+      /registerRpcSurface\(\s*container,\s*options\.hostProfile \?\? createCliRpcHostProfile\(host\),?\s*\);/,
+    );
+  });
+
+  it('with-engine.ts forwards hostProfile into the bootstrap options', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'bootstrap', 'with-engine.ts'),
+      'utf8',
+    );
+
+    expect(source).toMatch(
+      /if \(opts\.hostProfile !== undefined\)\s*bootOptions\.hostProfile = opts\.hostProfile;/,
+    );
+  });
+
+  it('the injected profile, not the derived one, decides the registered surface', async () => {
+    const derivedKeys = resolveRpcHandlerPlan(
+      createCliRpcHostProfile('cli'),
+    ).map((step) => step.key);
+    const injectedKeys = resolveRpcHandlerPlan(injectedProfile()).map(
+      (step) => step.key,
+    );
+    expect(derivedKeys).toContain('diagnosticsConsent');
+    expect(injectedKeys).not.toContain('diagnosticsConsent');
+    expect(injectedKeys).toContain('surface');
+
+    const { container: c } = composeFullMode();
+    try {
+      registerSurfaceRpc(c, injectedProfile());
+      const rpc = c.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
+      expect(rpc.getRegisteredMethods()).toEqual(
+        expect.arrayContaining(['surface:action', 'surface:operation']),
+      );
+    } finally {
+      await c.dispose();
+    }
   });
 });

@@ -12,6 +12,7 @@ import {
   type AgentProcessInfo,
   type AgentOutputDelta,
   type AgentPermissionRequest,
+  type AgentMonitorReparentedPayload,
 } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
@@ -20,6 +21,42 @@ import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
  * flushes, or output from a background window would pile up unseen.
  */
 const OUTPUT_FLUSH_FALLBACK_MS = 100;
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Validate an `agent-monitor:reparented` payload (TASK_2026_876): a non-empty
+ * `parentSessionId` and an `agentIds` array of non-empty strings. Returns
+ * `null` for anything else; the caller logs the shape and drops it.
+ * Hand-written to keep Zod out of the initial bundle (TASK_2026_187 Unit 10).
+ */
+export function parseAgentMonitorReparented(
+  value: unknown,
+): AgentMonitorReparentedPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const p = value as Record<string, unknown>;
+  const agentIds = p['agentIds'];
+  const parentSessionId = p['parentSessionId'];
+  if (
+    !isNonEmptyString(parentSessionId) ||
+    !Array.isArray(agentIds) ||
+    !agentIds.every(isNonEmptyString)
+  ) {
+    return null;
+  }
+  return { agentIds: [...agentIds], parentSessionId };
+}
+
+/** Type and top-level keys of a refused payload; never its values. */
+function describePayload(payload: unknown): string {
+  if (payload === null) return 'null';
+  if (Array.isArray(payload)) return `array(${payload.length})`;
+  if (typeof payload !== 'object') return typeof payload;
+  const name = (payload as object).constructor?.name ?? 'object';
+  return `${name}{${Object.keys(payload as object).join(',')}}`;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorMessageHandler implements MessageHandler {
@@ -40,6 +77,7 @@ export class AgentMonitorMessageHandler implements MessageHandler {
     MESSAGE_TYPES.AGENT_MONITOR_EXITED,
     MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
     MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+    MESSAGE_TYPES.AGENT_MONITOR_REPARENTED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -67,6 +105,18 @@ export class AgentMonitorMessageHandler implements MessageHandler {
           message.payload as AgentPermissionRequest,
         );
         break;
+      case MESSAGE_TYPES.AGENT_MONITOR_REPARENTED: {
+        const parsed = parseAgentMonitorReparented(message.payload);
+        if (!parsed) {
+          console.warn(
+            '[AgentMonitorMessageHandler] agent-monitor:reparented payload rejected — dropped',
+            describePayload(message.payload),
+          );
+          break;
+        }
+        this.store.reparentAgents(parsed.agentIds, parsed.parentSessionId);
+        break;
+      }
     }
   }
 

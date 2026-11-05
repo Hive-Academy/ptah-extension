@@ -17,8 +17,10 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
   is taken over automatically.
   - Tune per shell: `PTAH_VERIFY_SLOTS` (default 3; 1 restores one check at a time),
     `PTAH_VERIFY_MIN_FREE_GB` (default 5), `PTAH_VERIFY_SETTLE_SEC` (default 30).
-- The caps are in config: `nx.json` runs one task at a time and `jest.preset.js` gives Jest 2
-  workers per check. Do not raise them: Nx tasks, Jest workers and lock slots multiply. Run any
+- `npm run verify` runs lint/typecheck with 2 Nx tasks (override with
+  `PTAH_VERIFY_LINT_PARALLEL`) before tests with 1 Nx task and 2 Jest workers
+  (`jest.preset.js`). Both phases run and report failures. Do not raise the test caps or
+  `nx.json` `parallel: 1`: Nx tasks, Jest workers and lock slots multiply. Run any
   other heavy command under the same lock:
   `node scripts/verify.mjs --exec --task <name> -- <command> [args...]`.
 - Test, lint and typecheck results are cached in one Nx cache that the main checkout and every

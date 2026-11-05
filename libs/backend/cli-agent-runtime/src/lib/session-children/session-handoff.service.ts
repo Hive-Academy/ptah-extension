@@ -12,19 +12,26 @@
  * CLI lanes and its child sessions are re-parented to its tab before the
  * start is awaited, so their completions and reports reach the session that
  * continues the task. If the start fails or misses its deadline, the work is
- * given back to the caller. The caller itself is not stopped.
+ * given back to the caller. A kept success stops the caller only after the
+ * turn that returned the tool result has flushed. Timeout, refusal, and a
+ * start that resolves after the deadline do not stop it and do not record it.
  *
- * No event subscriptions, so nothing needs disposing. Each start has one
- * deadline timer, cleared when the start settles or the deadline fires. The
- * state is a bounded record of callers that already handed off and the
- * callers whose start has not settled yet, both keyed by the caller's tab id.
+ * The service subscribes to SDK session-id resolution so a kept handoff can
+ * record a chain edge once the successor's real id exists. The disposer is
+ * held for the process lifetime. Each start has one deadline timer, cleared
+ * when the start settles or the deadline fires. The state is a bounded record
+ * of callers that already handed off, the callers whose start has not settled
+ * yet, the one-shot stops, and the pending chain binds.
  */
 import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { promises as fs } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import {
   SDK_TOKENS,
+  type SessionIdResolvedCallbackRegistry,
+  type SessionIdResolvedPayload,
   type SessionLifecycleManager,
+  type SessionTurnStateRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -38,13 +45,16 @@ import {
   type IAgentAdapter,
   type SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import type { IChildChatSessionHost } from './child-chat-session-host.port';
 import { SessionChildRegistry } from './session-child.registry';
 import { safeErrorKind } from './safe-error-kind';
+import type { ISessionHandoffChain } from './session-handoff-chain.port';
 import type {
+  HandoffTurnFlushNotice,
+  IHandoffTurnFlush,
   ISessionHandoff,
   SessionHandoffRefusalCode,
   SessionHandoffRequest,
@@ -94,8 +104,21 @@ interface HandedOff {
   readonly tabId: string;
 }
 
+/** Successor tab id → the caller SDK id and the workspace the edge belongs to. */
+interface PendingChainBind {
+  readonly callerSdkId: string;
+  readonly workspaceRoot: string;
+  committed: boolean;
+  resolvedSdkId?: string;
+}
+
+interface ArmedCallerStop {
+  readonly callerTabId: string;
+  readonly callerSdkId: string | null;
+}
+
 @injectable()
-export class SessionHandoffService implements ISessionHandoff {
+export class SessionHandoffService implements ISessionHandoff, IHandoffTurnFlush {
   /** Keyed by the caller's tab id, in insertion order (oldest first). */
   private readonly handedOff = new Map<string, HandedOff>();
   /**
@@ -104,6 +127,12 @@ export class SessionHandoffService implements ISessionHandoff {
    * second session.
    */
   private readonly inFlight = new Set<string>();
+  /** One-shot stops, keyed by the caller tab id. Deleted before `endSession`. */
+  private readonly armed = new Map<string, ArmedCallerStop>();
+  private readonly stopping = new Set<string>();
+  /** Kept successors whose SDK id is not known yet. Not the 64-cap refusal map. */
+  private readonly pending = new Map<string, PendingChainBind>();
+  private readonly releaseIdResolved: () => void;
 
   constructor(
     @inject(SessionChildRegistry)
@@ -130,7 +159,27 @@ export class SessionHandoffService implements ISessionHandoff {
     /** Absent or port-less (CLI host) → `mcp-unavailable`. */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpStatus: IMcpServerStatus | null = null,
-  ) {}
+    /** Absent → the stop still ends the session, without clearing turn state. */
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY, { isOptional: true })
+    private readonly turnState: Pick<SessionTurnStateRegistry, 'forceIdle'> | null = null,
+    /** Absent → stop and chain failures are logged on the output channel by kind. */
+    @inject(TOKENS.LOGGER, { isOptional: true })
+    private readonly logger: Logger | null = null,
+    /** Absent → a kept handoff still stops, and writes no chain edge. */
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
+      isOptional: true,
+    })
+    private readonly idResolved: SessionIdResolvedCallbackRegistry | null = null,
+    /** Absent → a kept handoff still stops, and writes no chain edge. */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF_CHAIN, { isOptional: true })
+    private readonly chain: ISessionHandoffChain | null = null,
+  ) {
+    this.releaseIdResolved = this.idResolved
+      ? this.idResolved.register((payload) => {
+          this.onSessionIdResolved(payload);
+        })
+      : () => undefined;
+  }
 
   async handoff(request: SessionHandoffRequest): Promise<SessionHandoffResult> {
     try {
@@ -188,6 +237,7 @@ export class SessionHandoffService implements ISessionHandoff {
     // The caller may be named by its tab id or its SDK id; both resolve to
     // one record, whose tab id keys every duplicate check and reservation.
     const key = record.tabId;
+    this.dropGoneSuccessors();
     const earlier = this.findHandedOff(key, record.realSessionId);
     if (earlier) {
       return this.refuse(
@@ -208,6 +258,7 @@ export class SessionHandoffService implements ISessionHandoff {
     // to close. The adoption is provisional until the start settles.
     const tabId = SessionId.create();
     const adoption = this.adoptWork(record, tabId);
+    this.bindPendingChain(record, tabId, paths.root);
     // Never rejects; releases the reservation only when the start settles,
     // even after the deadline below has answered the caller.
     const attempt = this.start(host, request, record, paths, tabId)
@@ -226,6 +277,7 @@ export class SessionHandoffService implements ISessionHandoff {
       SESSION_HANDOFF_START_TIMEOUT_MS,
     );
     if (result === TIMED_OUT) {
+      this.pending.delete(tabId);
       // The session may still open late, but the caller is told it did not
       // start, so the caller keeps its work: a late success adopts nothing.
       this.settleAdoption(adoption, tabId, 'reverted');
@@ -235,10 +287,21 @@ export class SessionHandoffService implements ISessionHandoff {
       );
     }
     if (!result.ok) {
+      this.pending.delete(tabId);
       this.settleAdoption(adoption, tabId, 'reverted');
       return result;
     }
     this.settleAdoption(adoption, tabId, 'kept');
+    this.remember(record.tabId, {
+      sdkSessionId: record.realSessionId,
+      tabId,
+    });
+    this.armCallerStop(record);
+    const pending = this.pending.get(tabId);
+    if (pending) {
+      pending.committed = true;
+      if (pending.resolvedSdkId) this.commitPendingChain(tabId, pending);
+    }
     if (adoption.lanes.length > 0 || adoption.children.length > 0) {
       this.log(
         `${record.tabId}: the new session adopted ${adoption.lanes.length} ` +
@@ -306,10 +369,8 @@ export class SessionHandoffService implements ISessionHandoff {
         SESSION_HANDOFF_START_FAILED_DETAIL,
       );
     }
-    this.remember(record.tabId, {
-      sdkSessionId: record.realSessionId,
-      tabId,
-    });
+    // `remember`, the stop, and the chain bind run only after `guardAndStart`
+    // sees this result inside the deadline. A late resolution writes nothing.
     this.log(
       `${record.tabId} handed off to ${tabId} in ${paths.cwd}` +
         (outcome.uiAnnounced ? '' : ' (no webview took the tab)'),
@@ -331,7 +392,7 @@ export class SessionHandoffService implements ISessionHandoff {
   /**
    * The new session takes over the caller's background work, so its later
    * completions and reports reach the session that continues the task, not
-   * the one the user is told to close. The caller is matched by both its tab
+   * the one that stops after this turn flushes. The caller is matched by both its tab
    * id and its SDK id: work records whichever it had when it started.
    * Runs before the start is awaited, so the new session has only its tab id.
    *
@@ -497,6 +558,123 @@ export class SessionHandoffService implements ISessionHandoff {
       if (entry.sdkSessionId === callerSdkId) return entry;
     }
     return undefined;
+  }
+
+  /**
+   * Stop the armed caller after its turn flushed. A notice matches when
+   * either id is the caller tab id or the caller SDK id. The arm is consumed
+   * before `endSession`, so an abort that re-enters the flush cannot stop twice.
+   */
+  onCallerTurnFlushed(notice: HandoffTurnFlushNotice): void {
+    this.dropGoneSuccessors();
+    const arm = this.takeArmed(notice);
+    if (!arm) return;
+    this.stopping.add(arm.callerTabId);
+    void this.stopCaller(arm);
+  }
+
+  private armCallerStop(record: CallerRecord): void {
+    this.armed.set(record.tabId, {
+      callerTabId: record.tabId,
+      callerSdkId: record.realSessionId,
+    });
+  }
+
+  private takeArmed(notice: HandoffTurnFlushNotice): ArmedCallerStop | undefined {
+    for (const [key, arm] of this.armed) {
+      const ids = [arm.callerTabId, arm.callerSdkId].filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      );
+      if (!this.stopping.has(key) && (ids.includes(notice.tabId) || ids.includes(notice.sessionId))) {
+        this.armed.delete(key);
+        return arm;
+      }
+    }
+    return undefined;
+  }
+
+  private async stopCaller(arm: ArmedCallerStop): Promise<void> {
+    try {
+      await this.lifecycle.endSession(SessionId.from(arm.callerTabId));
+    } catch (error: unknown) {
+      // degradation-audit: reported - reportError logs the stop failure; the caller is re-armed so the next flush retries.
+      this.reportError('handoff caller stop failed', error);
+      this.armed.set(arm.callerTabId, arm);
+      this.stopping.delete(arm.callerTabId);
+      return;
+    }
+    const ids = [arm.callerTabId, arm.callerSdkId].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    );
+    for (const id of ids) {
+      try {
+        this.turnState?.forceIdle(id);
+      } catch (error: unknown) {
+        this.reportError('handoff forceIdle failed', error);
+      }
+    }
+    this.stopping.delete(arm.callerTabId);
+  }
+
+  private bindPendingChain(
+    record: CallerRecord,
+    successorTabId: string,
+    workspaceRoot: string,
+  ): void {
+    const callerSdkId = record.realSessionId?.trim() ?? '';
+    if (!callerSdkId) return;
+    this.pending.set(successorTabId, { callerSdkId, workspaceRoot, committed: false });
+  }
+
+  private onSessionIdResolved(payload: SessionIdResolvedPayload): void {
+    const tabId = payload.tabId;
+    if (!tabId) return;
+    const pending = this.pending.get(tabId);
+    if (!pending) return;
+    const successorSdkId = payload.realSessionId.trim();
+    if (!successorSdkId) {
+      this.pending.delete(tabId);
+      return;
+    }
+    pending.resolvedSdkId = successorSdkId;
+    if (pending.committed) this.commitPendingChain(tabId, pending);
+  }
+
+  private commitPendingChain(tabId: string, pending: PendingChainBind): void {
+    this.pending.delete(tabId);
+    const chain = this.chain;
+    if (!chain) return;
+    void chain
+      .append(pending.callerSdkId, pending.resolvedSdkId!, pending.workspaceRoot)
+      .catch((error: unknown) => {
+        this.reportError('handoff chain append failed', error);
+      });
+  }
+
+  /** Drop a bind whose successor tab is no longer a live session. */
+  private dropGoneSuccessors(): void {
+    for (const [tabId, bind] of [...this.pending.entries()]) {
+      // An uncommitted bind belongs to a start that has not settled yet;
+      // the start path deletes it on timeout or refusal.
+      if (!bind.committed) continue;
+      let found: ReturnType<SessionLifecycleManager['find']> | undefined;
+      try {
+        found = this.lifecycle.find(tabId);
+      } catch (error: unknown) {
+        this.reportError('handoff successor lookup failed', error);
+        continue;
+      }
+      if (!found) this.pending.delete(tabId);
+    }
+  }
+
+  private reportError(message: string, error: unknown): void {
+    const reported = error instanceof Error ? error : new Error(String(error));
+    if (this.logger) {
+      this.logger.error(`${LOG_PREFIX} ${message}`, reported);
+      return;
+    }
+    this.log(`${message}: ${safeErrorKind(error)}`);
   }
 
   private remember(callerTabId: string, entry: HandedOff): void {

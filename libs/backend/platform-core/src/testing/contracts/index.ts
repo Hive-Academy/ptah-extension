@@ -57,3 +57,5 @@ export {
   runDisplayWindowHostContract,
   type DisplayWindowHostContractSetup,
 } from './run-display-window-host-contract';
+
+export { runSessionDriverLockContract } from './run-session-driver-lock-contract';

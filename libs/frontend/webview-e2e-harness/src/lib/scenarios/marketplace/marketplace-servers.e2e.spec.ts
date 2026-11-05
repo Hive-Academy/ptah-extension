@@ -391,9 +391,18 @@ test.describe('webview > marketplace > workspace switch with a detail open (TASK
       page.locator('[data-testid="marketplace-breadcrumb"] [aria-current="page"]'),
     ).toHaveText('MCP Servers');
     await expect(page.locator('[data-testid="marketplace-shell"]')).toBeVisible();
-    await expect(page.locator('[data-testid="server-detail-not-found"]')).toBeVisible({
+    // The remounted shell measures width 0 (compact tier) until its
+    // ResizeObserver reports, so it first renders the detail in the overlay
+    // drawer and then swaps to the docked inspector; the drawer's leave
+    // animation keeps a second "Not found" node in the DOM for a moment. An
+    // unscoped locator hits Playwright's strict mode in that window (CI runs
+    // 41792889338, 41586018715, ...), so scope to the docked branch this test
+    // asserts and then wait for the drawer to finish leaving.
+    const dockedBody = page.locator('[data-testid="docked-inspector-body"]');
+    await expect(dockedBody.locator('[data-testid="server-detail-not-found"]')).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.locator('[data-testid="native-drawer-body"]')).toHaveCount(0);
 
     // A still-present ref re-renders normally after the switch.
     await page.locator('a[data-nav-id="servers"]').click();
@@ -404,7 +413,7 @@ test.describe('webview > marketplace > workspace switch with a detail open (TASK
       .first();
     await expect(firecrawlRow).toBeVisible();
     await firecrawlRow.locator('[data-testid="provider-row-open"]').click();
-    await expect(page.locator('[data-testid="server-detail-title"]')).toContainText(
+    await expect(dockedBody.locator('[data-testid="server-detail-title"]')).toContainText(
       'firecrawl',
     );
   });

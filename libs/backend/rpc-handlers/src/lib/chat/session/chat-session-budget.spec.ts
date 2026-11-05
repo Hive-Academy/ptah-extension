@@ -1,3 +1,4 @@
+import { createFakeDriverLockCoordinator } from '../../../test-utils/fake-driver-lock-coordinator';
 /**
  * ChatSessionService — session budget on `chat:resume` (TASK_2026_597 N7).
  *
@@ -222,6 +223,14 @@ function makeHarness(budget: BudgetFake | null): Harness {
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     null,
     budget,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createFakeDriverLockCoordinator(),
   );
 
   return { service, readForResume };

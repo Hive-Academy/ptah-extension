@@ -1,0 +1,202 @@
+    <div class="fixed inset-0 z-50 bg-black/60">
+      <aside
+        class="surface-1 absolute inset-y-0 right-0 w-full max-w-xl overflow-y-auto border-l border-base-300 p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-settings-title"
+        (keydown)="onKeydown($event)"
+      >
+        <header class="flex items-start justify-between gap-3">
+          <div>
+            <h2
+              id="review-settings-title"
+              class="text-xl font-semibold"
+              tabindex="-1"
+            >
+              Review settings
+            </h2>
+            <p class="text-sm text-base-content-muted">
+              Settings apply to the next run.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            aria-label="Close review settings"
+            (click)="closed.emit()"
+          >
+            Close
+          </button>
+        </header>
+        @if (loadState() === 'loading') {
+          <p class="mt-5" role="status">Loading review settings…</p>
+        } @else if (loadState() === 'error') {
+          <div class="alert alert-error mt-5" role="alert">
+            Review settings are unavailable.
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              (click)="retry.emit()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else {
+          <div class="mt-6 space-y-5">
+            <ptah-review-repositories-editor
+              [draft]="draft()" [hasToken]="hasToken()"
+              [botConnected]="!!store.botIdentity()"
+              [newRepository]="newRepository()"
+              [repositoryError]="repositoryError()"
+              (removed)="removeRepository($event)"
+              (enabledChanged)="setRepositoryEnabled($event.repo, $event.event)"
+              (dryRunChanged)="setRepositoryDryRun($event.repo, $event.event)"
+              (pauseChanged)="setRepositoryPause($event.repo, $event.event)"
+              (newRepositoryChanged)="setNewRepository($event)"
+              (added)="addRepository()" />
+            <section>
+              <h3 class="font-semibold">Maintainer allowlist</h3>
+              <label
+                class="text-xs text-base-content-muted"
+                for="review-attestor"
+                >Your maintainer GitHub login for live permission
+                attestation</label
+              >
+              <input
+                id="review-attestor"
+                class="input input-bordered w-full"
+                [value]="store.attestorLogin()"
+                (input)="setAttestor($event)"
+              />
+              <label
+                class="text-xs text-base-content-muted"
+                for="review-maintainers"
+                >GitHub logins, comma separated</label
+              >
+              <input
+                id="review-maintainers"
+                class="input input-bordered w-full"
+                [value]="draft().maintainerLogins.join(', ')"
+                (input)="setLogins($event)"
+                autocomplete="off"
+              />
+            </section>
+            <section class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <h3 class="font-semibold">Minimum severity</h3>
+                <p class="text-sm">{{ minimumSeverity() }}</p>
+              </div>
+              <label class="text-sm"
+                >Poll interval (minutes)<input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="input input-bordered w-full"
+                  [value]="draft().pollMinutes"
+                  (input)="setNumber('pollMinutes', $event)"
+              /></label>
+              <label class="text-sm"
+                >Max inline comments<input
+                  type="number"
+                  min="0"
+                  max="100"
+                  class="input input-bordered w-full"
+                  [value]="draft().maxNewInline"
+                  (input)="setNumber('maxNewInline', $event)"
+              /></label>
+              <label class="text-sm"
+                >Confidence floor<input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  class="input input-bordered w-full"
+                  [value]="draft().confidenceFloor"
+                  (input)="setNumber('confidenceFloor', $event)"
+              /></label>
+              <label class="text-sm"
+                >Lane cap per PR<input
+                  type="number"
+                  min="1"
+                  max="6"
+                  class="input input-bordered w-full"
+                  [value]="draft().laneCapPerPr"
+                  (input)="setNumber('laneCapPerPr', $event)"
+              /></label>
+            </section>
+            <ptah-review-bot-identity [hasToken]="hasToken()"
+              (submitted)="submitToken($event)"
+              (removeRequested)="confirmation.set('remove-token')" />
+            <section>
+              <label class="flex items-center gap-2 text-sm"
+                ><input
+                  type="checkbox"
+                  class="toggle toggle-warning"
+                  [checked]="draft().globalPublicationPaused"
+                  (change)="setGlobalPause($event)"
+                />Pause all publication</label
+              >
+            </section>
+            <section>
+              <h3 class="font-semibold">Effective repository configuration</h3>
+              <p class="text-sm text-base-content-muted">
+                Configuration details and validation state unavailable.
+              </p>
+            </section>
+            @if (saveError()) {
+              <p class="text-sm text-error" role="alert">{{ saveError() }}</p>
+            }
+            <button
+              type="button"
+              class="btn btn-primary"
+              [disabled]="saving()"
+              (click)="save.emit()"
+            >
+              {{ saving() ? 'Saving…' : 'Save review settings' }}
+            </button>
+          </div>
+        }
+      </aside>
+      @if (confirmation() === 'pause-off') {
+        <ptah-review-confirm-dialog
+          dialogId="review-resume-confirm"
+          title="Resume live publication?"
+          description="Turning pause off can allow this repository to publish comments on eligible pull requests. CodeRabbit remains enabled."
+          confirmLabel="Resume publication"
+          [requirePermissions]="true"
+          (cancelled)="confirmation.set(null)"
+          (confirmed)="confirmPauseOff()"
+        />
+      }
+      @if (confirmation() === 'live-enable') {
+        <ptah-review-confirm-dialog
+          dialogId="review-live-enable-confirm"
+          title="Enable live publication?"
+          description="Confirm the bot token permissions for this repository before saving."
+          confirmLabel="Enable live publication"
+          [requirePermissions]="true"
+          (cancelled)="confirmation.set(null)"
+          (confirmed)="confirmLiveEnable()"
+        />
+      }
+      @if (confirmation() === 'remove-token') {
+        <ptah-review-confirm-dialog
+          dialogId="review-remove-token-confirm"
+          title="Remove bot connection?"
+          description="Future live publication will stop until another bot token is connected."
+          confirmLabel="Remove connection"
+          (cancelled)="confirmation.set(null)"
+          (confirmed)="confirmRemoveToken()"
+        />
+      }
+      @if (confirmation() === 'replace-token') {
+        <ptah-review-confirm-dialog
+          dialogId="review-replace-token-confirm"
+          title="Replace bot connection?"
+          description="Future live publication will use the new bot token."
+          confirmLabel="Replace connection"
+          (cancelled)="confirmation.set(null)"
+          (confirmed)="confirmReplaceToken()"
+        />
+      }
+    </div>

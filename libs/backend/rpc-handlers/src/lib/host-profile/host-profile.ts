@@ -42,8 +42,12 @@ export interface HostWiring {
 export interface HostProfile {
   /** Platform label used in logs and the Sentry drift payload. */
   readonly platform: RpcRegistrationPlatform;
-  /** Host identity — distinguishes `cli` from `tui` on the shared platform. */
-  readonly host: 'vscode' | 'electron' | 'cli' | 'tui';
+  /**
+   * Host identity — distinguishes `cli` from `tui` on the shared platform.
+   * `worker` is the headless remote Ptah worker (TASK_2026_858), which runs
+   * the CLI engine on the `cli` platform under its own label.
+   */
+  readonly host: 'vscode' | 'electron' | 'cli' | 'tui' | 'worker';
   /** What this host can serve. */
   readonly capabilities: HostCapabilities;
   /**
@@ -86,6 +90,7 @@ const ALL_DISABLED: HostCapabilities = {
   lanePlanLimits: false,
   providerAccounts: false,
   gitRootWatch: false,
+  remoteMachines: false,
 };
 
 /**

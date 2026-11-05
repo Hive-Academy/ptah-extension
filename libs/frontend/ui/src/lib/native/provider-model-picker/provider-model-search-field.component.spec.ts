@@ -238,6 +238,30 @@ describe('ProviderModelSearchFieldComponent', () => {
     expect(root().querySelector('[role="listbox"]')).toBeNull();
   });
 
+  it('shows a spinner and the loading label while loading, stays closed, and closes an open list when a load starts', () => {
+    create({ loading: true, loadingLabel: 'Loading models…' });
+    expect(input().value).toBe('');
+    expect(input().placeholder).toBe('Loading models…');
+    expect(input().getAttribute('aria-busy')).toBe('true');
+    expect(input().getAttribute('aria-disabled')).toBe('true');
+    expect(input().classList).toContain('cursor-progress');
+    expect(
+      root().querySelector('[data-testid="provider-model-picker-loading"]'),
+    ).not.toBeNull();
+    focus();
+    key('ArrowDown');
+    expect(root().querySelector('[role="listbox"]')).toBeNull();
+
+    fixture.componentRef.setInput('loading', false);
+    fixture.detectChanges();
+    input().blur();
+    focus();
+    expect(root().querySelector('[role="listbox"]')).not.toBeNull();
+    fixture.componentRef.setInput('loading', true);
+    fixture.detectChanges();
+    expect(root().querySelector('[role="listbox"]')).toBeNull();
+  });
+
   it('names the combobox from the ariaLabel input', () => {
     create({ ariaLabel: 'Main agent model' });
     expect(input().getAttribute('role')).toBe('combobox');

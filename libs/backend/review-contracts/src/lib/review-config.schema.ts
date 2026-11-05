@@ -58,7 +58,9 @@ export const RepoReviewConfigV1Schema = z
         'host-di-config': true,
       }),
     minimumSeverity: SeveritySchema.default('Minor'),
-    checks: z.object({ eslint: z.boolean(), degradationAudit: z.boolean() }).strict()
+    checks: z
+      .object({ eslint: z.boolean(), degradationAudit: z.boolean() })
+      .strict()
       .default({ eslint: true, degradationAudit: true }),
   })
   .strict();
@@ -66,8 +68,11 @@ export type RepoReviewConfigV1 = z.infer<typeof RepoReviewConfigV1Schema>;
 
 export const RepositorySettingsSchema = z
   .object({
-    owner: z.literal('Hive-Academy'),
-    name: z.literal('PtahCode'),
+    owner: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
+    name: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,100}$/)
+      .refine((name) => name !== '.' && name !== '..'),
     enabled: z.boolean(),
     dryRun: z.boolean(),
     publicationPaused: z.boolean(),
@@ -77,10 +82,18 @@ export type RepositorySettings = z.infer<typeof RepositorySettingsSchema>;
 
 export const OperatorSettingsSchema = z
   .object({
-    repositories: z.array(RepositorySettingsSchema).max(1),
+    repositories: z
+      .array(RepositorySettingsSchema)
+      .max(100)
+      .refine(
+        (repos) =>
+          new Set(
+            repos.map((repo) => `${repo.owner}/${repo.name}`.toLowerCase()),
+          ).size === repos.length,
+        'Duplicate repository',
+      ),
     maintainerLogins: z
       .array(login)
-      .min(1)
       .max(100)
       .refine(
         (values) =>

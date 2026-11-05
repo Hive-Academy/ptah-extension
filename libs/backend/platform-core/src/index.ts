@@ -402,4 +402,33 @@ export {
   isSdkAuthSecretKey,
   authProviderIdOfSecretKey,
 } from './provider-key-slots';
-export type { SessionUsageSink, SessionUsageContribution, SessionUsageModelDelta } from './interfaces/session-usage-sink.interface';
+export type {
+  SessionUsageSink,
+  SessionUsageContribution,
+  SessionUsageModelDelta,
+} from './interfaces/session-usage-sink.interface';
+export type {
+  ISessionDriverLock,
+  DriverHolder,
+  DriverLockAcquisition,
+  HeldDriverLock,
+  DriverLockReleaseGate,
+} from './interfaces/session-driver-lock.interface';
+export { KernelSessionDriverLock } from './session-driver-lock/kernel-session-driver-lock';
+export { NullSessionDriverLock } from './session-driver-lock/null-session-driver-lock';
+export { createSessionDriverLock } from './session-driver-lock/create-session-driver-lock';
+export { sessionDriverEndpoint } from './session-driver-lock/endpoint-names';
+
+export {
+  listLocalDriverLocks,
+  requestRelease,
+} from './session-driver-lock/local-lock-client';
+export type {
+  LocalLockListing,
+  RequestReleaseResult,
+} from './session-driver-lock/local-lock-client';
+export type {
+  ControlListing,
+  ListedControlLock,
+  ControlReleaseResult,
+} from './session-driver-lock/control-endpoint';

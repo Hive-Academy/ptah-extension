@@ -32,7 +32,10 @@ import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { runCursorApiKeyMigration } from '@ptah-extension/rpc-handlers';
+import {
+  runCursorApiKeyMigration,
+  type HostProfile,
+} from '@ptah-extension/rpc-handlers';
 import {
   activateThoth,
   disposeThoth,
@@ -190,6 +193,11 @@ export interface WithEngineOptions {
   workspaceIndex?: boolean;
   pushAdapter?: CliWebviewManagerAdapter;
   /**
+   * RPC host profile forwarded to `CliBootstrapOptions.hostProfile`. Omit it
+   * to keep the profile derived from `host`.
+   */
+  hostProfile?: HostProfile;
+  /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
    * callers omit this; the default invokes the real bootstrap.
    */
@@ -264,6 +272,8 @@ export async function withEngine<T>(
   if (globals.cwd !== undefined) bootOptions.workspacePath = globals.cwd;
   if (opts.pushAdapter !== undefined)
     bootOptions.pushAdapter = opts.pushAdapter;
+  if (opts.hostProfile !== undefined)
+    bootOptions.hostProfile = opts.hostProfile;
   const ptahDirOverride =
     globals.config ?? process.env['PTAH_CONFIG_PATH'] ?? undefined;
   if (ptahDirOverride) bootOptions.userDataPath = ptahDirOverride;

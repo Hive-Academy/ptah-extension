@@ -14,6 +14,7 @@ import {
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  GIT_ROOT_UNAVAILABLE_MESSAGE,
   MESSAGE_TYPES,
   type GitInfoResult,
   type GitStatusUpdatePayload,
@@ -29,6 +30,8 @@ const LOG_PREFIX = '[ChangeSetStore]';
 export const RECONCILE_FRESHNESS_MS = 5_000;
 /** Reconcile triggers for one session coalesce into one run after this delay. */
 export const RECONCILE_DEBOUNCE_MS = 1_000;
+export const RECONCILE_FAILURE_BACKOFF_MS = 30_000;
+export const MAX_CONCURRENT_RECONCILES = 2;
 /**
  * How long after `session:turnEnded` a turn's change set may still arrive. The
  * recorder snapshots git status and reads numstat before it pushes
@@ -40,7 +43,7 @@ export const TURN_CHANGE_SET_GRACE_MS = 5_000;
 const MAX_CHANGE_SETS_PER_SESSION = 100;
 /** Sessions whose change sets stay in memory; the oldest non-active is dropped. */
 const MAX_CACHED_SESSIONS = 8;
-const RPC_TIMEOUT_MS = 30_000;
+const RPC_TIMEOUT_MS = 75_000;
 
 const FILE_STATUSES: ReadonlySet<TurnChangeSetFileStatus> = new Set([
   'A',
@@ -293,7 +296,11 @@ export class ChangeSetStore implements MessageHandler {
   private readonly forced = new Set<string>();
   private readonly pushedStatus = new Map<string, GitInfoResult>();
   private readonly inFlight = new Set<string>();
+  private readonly queued = new Set<string>();
+  private readonly failedUntil = new Map<string, number>();
   private readonly rerun = new Set<string>();
+  static readonly UNAVAILABLE_ROOT_BACKOFF_MS = 60_000;
+  private readonly unavailableRoots = new Map<string, { root: string; until: number }>();
   /**
    * Bumped by every applied or dropped snapshot and by every accepted status
    * push; a read whose start generation is no longer current is discarded.
@@ -557,6 +564,9 @@ export class ChangeSetStore implements MessageHandler {
   }
 
   private forget(sessionId: string): void {
+    this.queued.delete(sessionId);
+    this.failedUntil.delete(sessionId);
+    this.unavailableRoots.delete(sessionId);
     const timer = this.timers.get(sessionId);
     if (timer !== undefined) clearTimeout(timer);
     this.timers.delete(sessionId);
@@ -585,7 +595,9 @@ export class ChangeSetStore implements MessageHandler {
   }
 
   private requestReconcile(sessionId: string, force: boolean): void {
-    if (!this.rootFor(sessionId)) return;
+    const root = this.rootFor(sessionId);
+    if (!root || (this.unavailableRoots.get(sessionId)?.root === root &&
+      (this.unavailableRoots.get(sessionId)?.until ?? 0) > Date.now())) return;
     if (force) this.forced.add(sessionId);
     if (this.timers.has(sessionId)) return;
     this.timers.set(
@@ -600,6 +612,8 @@ export class ChangeSetStore implements MessageHandler {
   private async reconcile(sessionId: string): Promise<void> {
     const root = this.rootFor(sessionId);
     if (!root) return;
+    if ((this.unavailableRoots.get(sessionId)?.root === root &&
+      (this.unavailableRoots.get(sessionId)?.until ?? 0) > Date.now())) return;
     // A pushed status costs no RPC and is newer than a read in flight, so it
     // applies even while one runs; that read is then discarded by generation.
     const pushed = this.pushedStatus.get(sessionId);
@@ -609,8 +623,13 @@ export class ChangeSetStore implements MessageHandler {
       this.setSnapshot(sessionId, toSnapshot(root, pushed));
       return;
     }
+    if ((this.failedUntil.get(sessionId) ?? 0) > Date.now()) return;
     if (this.inFlight.has(sessionId)) {
       this.rerun.add(sessionId);
+      return;
+    }
+    if (this.inFlight.size >= MAX_CONCURRENT_RECONCILES) {
+      this.queued.add(sessionId);
       return;
     }
     const force = this.forced.delete(sessionId);
@@ -635,14 +654,28 @@ export class ChangeSetStore implements MessageHandler {
         RPC_TIMEOUT_MS,
       );
       if (result.success && result.data) {
+        this.unavailableRoots.delete(sessionId);
+        this.failedUntil.delete(sessionId);
         snapshot = toSnapshot(root, result.data);
       } else {
         console.warn(`${LOG_PREFIX} Reconcile read failed.`, result.error);
+        if (result.error === GIT_ROOT_UNAVAILABLE_MESSAGE) {
+          this.unavailableRoots.set(sessionId, { root, until: Date.now() + ChangeSetStore.UNAVAILABLE_ROOT_BACKOFF_MS });
+        } else {
+          this.failedUntil.set(sessionId, Date.now() + RECONCILE_FAILURE_BACKOFF_MS);
+        }
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - log the failed read and suppress repeats during backoff.
       console.warn(`${LOG_PREFIX} Reconcile read failed.`, error);
+      this.failedUntil.set(sessionId, Date.now() + RECONCILE_FAILURE_BACKOFF_MS);
     } finally {
       this.inFlight.delete(sessionId);
+      for (const next of this.queued) {
+        if (this.inFlight.size >= MAX_CONCURRENT_RECONCILES) break;
+        this.queued.delete(next);
+        void this.reconcile(next);
+      }
     }
 
     // A pushed status or an eviction since the read started is newer.

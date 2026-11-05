@@ -48,6 +48,10 @@ describe('CanvasLaneViewComponent', () => {
   const subagents = signal(new Map<string, any>());
   const background = signal<any[]>([]);
   const permissionRequests = signal<any[]>([]);
+  const questionRequests = signal<any[]>([]);
+  const routingTargetRevision = signal(0);
+  const questionTargetTabsFor = jest.fn((): readonly string[] => []);
+  const isQuestionClaimedByWorkflow = jest.fn(() => false);
   const stopAgent = jest.fn().mockResolvedValue(undefined);
   const backgroundAgent = jest.fn().mockResolvedValue(undefined);
   const sendMessageToAgent = jest.fn().mockResolvedValue(true);
@@ -70,6 +74,10 @@ describe('CanvasLaneViewComponent', () => {
     subagents.set(new Map());
     background.set([]);
     permissionRequests.set([]);
+    questionRequests.set([]);
+    routingTargetRevision.set(0);
+    questionTargetTabsFor.mockReset().mockReturnValue([]);
+    isQuestionClaimedByWorkflow.mockReset().mockReturnValue(false);
     stopAgent.mockClear();
     backgroundAgent.mockClear();
     sendMessageToAgent.mockClear();
@@ -126,7 +134,8 @@ describe('CanvasLaneViewComponent', () => {
         },
         {
           provide: ChatStore,
-          useValue: { getPermissionForTool, handlePermissionResponse },
+          useValue: { getPermissionForTool, handlePermissionResponse, questionRequests,
+            routingTargetRevision, questionTargetTabsFor, isQuestionClaimedByWorkflow },
         },
         {
           provide: TabManagerService,
@@ -171,6 +180,41 @@ describe('CanvasLaneViewComponent', () => {
     TestBed.overrideComponent(AgentCardComponent, {
       set: { template: '<span>CLI card</span>', imports: [] },
     });
+  });
+
+  it('shows pending questions in a subagent lane only for its session', () => {
+    subagents.set(new Map([['sub', { parentToolUseId: 'sub', parentSessionId: 'owner' }]]));
+    questionRequests.set([
+      { id: 'owned', sessionId: 'owner', questions: [] },
+      { id: 'other', sessionId: 'elsewhere', questions: [] },
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'sub:sub');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-question-card')).toHaveLength(1);
+    fixture.componentRef.setInput('laneKey', 'orchestrator');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-question-card')).toHaveLength(0);
+  });
+
+  it('uses late router targets and excludes workflow claims in a subagent lane', () => {
+    subagents.set(new Map([['sub', { parentToolUseId: 'sub', parentSessionId: 'owner' }]]));
+    questionRequests.set([{ id: 'routed', sessionId: 'stale', questions: [] }]);
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'sub:sub');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingQuestions()).toEqual([]);
+    questionTargetTabsFor.mockReturnValue(['tab']);
+    routingTargetRevision.update(value => value + 1);
+    expect(fixture.componentInstance.pendingQuestions().map(request => request.id)).toEqual(['routed']);
+    questionTargetTabsFor.mockReturnValue([]);
+    isQuestionClaimedByWorkflow.mockReturnValue(true);
+    routingTargetRevision.update(value => value + 1);
+    expect(fixture.componentInstance.pendingQuestions()).toEqual([]);
   });
 
   it('renders one card, expands it once, and destroys it on lane switch', () => {

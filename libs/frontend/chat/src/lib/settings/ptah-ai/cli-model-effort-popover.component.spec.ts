@@ -277,8 +277,24 @@ describe('CliModelEffortPopoverComponent', () => {
         error: null,
       });
       fixture.detectChanges();
-      expect(searchField().disabled()).toBe(true);
-      expect(searchField().defaultLabel()).toBe('Loading models…');
+      expect(searchField().loading()).toBe(true);
+      expect(searchField().defaultLabel()).toBe('Provider default');
+      const combobox = fixture.nativeElement.querySelector(
+        'input[role="combobox"]',
+      ) as HTMLInputElement;
+      expect(combobox.value).toBe('');
+      expect(combobox.placeholder).toContain('Loading');
+      expect(combobox.getAttribute('aria-busy')).toBe('true');
+      expect(combobox.classList).toContain('cursor-progress');
+      expect(combobox.classList).not.toContain('cursor-not-allowed');
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="provider-model-picker-loading"]',
+        ),
+      ).not.toBeNull();
+      expect(query('cli-matrix-models-loading')?.textContent).toContain(
+        'Loading the model list',
+      );
       state.delegatedModelOptions.set({
         status: 'error',
         data: null,

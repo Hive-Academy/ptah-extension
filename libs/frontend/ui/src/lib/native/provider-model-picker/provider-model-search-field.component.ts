@@ -22,6 +22,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   input,
   output,
   signal,
@@ -74,29 +75,42 @@ let nextPopupId = 0;
       (mousedown)="keepFocusOnPick($event)"
     >
       <div autocompleteInput class="relative">
-        <svg
-          class="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-base-content-muted"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
+        @if (loading()) {
+          <span
+            class="loading loading-spinner pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-base-content-muted"
+            aria-hidden="true"
+            data-testid="provider-model-picker-loading"
+          ></span>
+        } @else {
+          <svg
+            class="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-base-content-muted"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        }
         <input
           type="text"
           role="combobox"
           aria-autocomplete="list"
           autocomplete="off"
-          class="input input-sm h-8 min-h-8 w-full rounded-lg border border-surface-border bg-surface-0 pl-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+          class="input input-sm h-8 min-h-8 w-full rounded-lg border border-surface-border bg-surface-0 pl-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] aria-disabled:opacity-60"
+          [class.cursor-not-allowed]="disabled() && !loading()"
+          [class.cursor-progress]="loading()"
           data-testid="provider-model-picker-search"
           [attr.id]="inputId()"
           [value]="displayValue()"
-          [placeholder]="placeholder() ?? selectedLabel()"
-          [readOnly]="disabled()"
-          [attr.aria-disabled]="disabled() ? 'true' : null"
+          [placeholder]="
+            loading() ? loadingLabel() : (placeholder() ?? selectedLabel())
+          "
+          [readOnly]="inactive()"
+          [attr.aria-disabled]="inactive() ? 'true' : null"
+          [attr.aria-busy]="loading() ? 'true' : null"
           [attr.aria-label]="ariaLabel()"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="listboxId"
@@ -178,6 +192,15 @@ export class ProviderModelSearchFieldComponent {
    * never native `disabled`, so a save started from this field never drops focus to the page (Batch 54.1).
    */
   readonly disabled = input<boolean>(false);
+
+  /**
+   * The catalogue is loading: the field shows a spinner and {@link loadingLabel}, a progress cursor and `aria-busy`,
+   * and behaves as disabled (focusable, nothing opens) until the list arrives.
+   */
+  readonly loading = input<boolean>(false);
+
+  /** Text the field shows while {@link loading}. */
+  readonly loadingLabel = input<string>('Loading models…');
 
   /** Accessible name of the combobox. */
   readonly ariaLabel = input<string>('Model');
@@ -289,9 +312,20 @@ export class ProviderModelSearchFieldComponent {
     return this.compact() ? this.compactLabel(option) : option.name;
   });
 
+  /** Empty while loading, so the placeholder shows {@link loadingLabel}. */
   protected readonly displayValue = computed<string>(() =>
-    this._open() ? this._query() : this.selectedLabel(),
+    this.loading() ? '' : this._open() ? this._query() : this.selectedLabel(),
   );
+
+  /** Disabled or loading: the field keeps focus, but nothing opens or changes. */
+  protected readonly inactive = computed(() => this.disabled() || this.loading());
+
+  constructor() {
+    // A reload that starts while the list is open (e.g. Retry) closes it, so a stale catalogue row cannot be picked.
+    effect(() => {
+      if (this.loading()) this.close();
+    });
+  }
 
   /** Compact rows lead with the id; the sentinel and the pinned action row keep their label. */
   protected compactLabel(option: ProviderModelSearchOption): string {
@@ -301,7 +335,7 @@ export class ProviderModelSearchFieldComponent {
   }
 
   protected openPanel(): void {
-    if (this.disabled() || this._open()) return;
+    if (this.inactive() || this._open()) return;
     this._query.set('');
     this._open.set(true);
   }
@@ -312,7 +346,7 @@ export class ProviderModelSearchFieldComponent {
   }
 
   protected onInput(event: Event): void {
-    if (this.disabled()) return;
+    if (this.inactive()) return;
     this._query.set((event.target as HTMLInputElement).value);
     this._open.set(true);
   }
@@ -323,7 +357,7 @@ export class ProviderModelSearchFieldComponent {
   ): void {
     // Disabled (a save runs, or the list is loading): the field keeps focus, so Esc still reaches an enclosing popover
     // or drawer, but nothing opens or changes (TASK_2026_555 Batch 54.1).
-    if (this.disabled()) return;
+    if (this.inactive()) return;
     if (!this._open()) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();

@@ -63,6 +63,7 @@ export class ToolIconComponent {
         return this.TerminalIcon;
       case 'Grep':
         return this.SearchIcon;
+      case 'FileChange':
       case 'Edit':
         return this.FileEditIcon;
       case 'Glob':
@@ -102,6 +103,7 @@ export class ToolIconComponent {
         return 'text-warning'; // warning (amber) - shell commands
       case 'Grep':
         return 'text-secondary'; // secondary - search operations
+      case 'FileChange':
       case 'Edit':
         return 'text-accent'; // accent - file modifications
       case 'Glob':

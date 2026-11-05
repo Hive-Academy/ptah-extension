@@ -73,7 +73,9 @@ import {
   isUnsafeWorkspacePath,
   type IPlatformInfo,
   type IWorkspaceProvider,
+  type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
+import type { ChatSessionDriverLock } from './session-driver-lock-coordinator.interface';
 import type {
   IAgentAdapter,
   AgentSessionStartConfig,
@@ -394,13 +396,15 @@ export class ChatSessionService {
     @inject(HarnessProposalTurnAttributionService, { isOptional: true })
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
     @inject(ProviderAccountService, { isOptional: true })
-    private readonly accounts?: ProviderAccountService,
+    private readonly accounts: ProviderAccountService | undefined = undefined,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
       isOptional: true,
     })
-    private readonly activeProvider?: ActiveProviderResolver,
+    private readonly activeProvider:
+      ActiveProviderResolver | undefined = undefined,
     @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
-    private readonly runtimeProfile?: ChatRuntimeProfileService,
+    private readonly runtimeProfile:
+      ChatRuntimeProfileService | undefined = undefined,
     /**
      * Optional, and null on hosts without native runtimes: those keep the
      * broadcaster-only liveness check of {@link hasLiveSessionStream}.
@@ -412,11 +416,16 @@ export class ChatSessionService {
      * VS Code and the CLI it is absent and no turn is admitted.
      */
     @inject(CHAT_TOKENS.HOST_ROUTING_COORDINATOR, { isOptional: true })
-    private readonly hostRouting?: ChatHostRouting,
+    private readonly hostRouting: ChatHostRouting | undefined = undefined,
     @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
       isOptional: true,
     })
-    private readonly sessionIdResolvedEvents?: SessionIdResolvedCallbackRegistry,
+    private readonly sessionIdResolvedEvents:
+      SessionIdResolvedCallbackRegistry | undefined = undefined,
+    @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
+    private readonly driverLock: ChatSessionDriverLock,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { isOptional: true })
+    private readonly fileSystemProvider: IFileSystemProvider | undefined = undefined,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -954,14 +963,16 @@ export class ChatSessionService {
     if (adapterError?.code === 'cancelled') {
       return { success: false, cancelled: true };
     }
-    const optionError = error instanceof CodexChatOptionError
-      ? error
-      : adapterError?.cause instanceof CodexChatOptionError
-        ? adapterError.cause
-        : undefined;
+    const optionError =
+      error instanceof CodexChatOptionError
+        ? error
+        : adapterError?.cause instanceof CodexChatOptionError
+          ? adapterError.cause
+          : undefined;
     // The adapter normally maps the refusal to its own code; the cause check
     // also covers an adapter error that kept the typed refusal as its cause.
-    const resumeProfileChanged = adapterError?.code === 'resume-profile-changed' ||
+    const resumeProfileChanged =
+      adapterError?.code === 'resume-profile-changed' ||
       isCodexResumeProfileChangedError(adapterError?.cause);
     // Show the fixed refusal text. The chat UI prints an uncoded `error`
     // and replaces `CODEX_RUNTIME_FAILED` with a generic sentence, so this
@@ -996,7 +1007,11 @@ export class ChatSessionService {
     } else {
       return undefined;
     }
-    return { success: false, error: failure.message, errorCode: failure.errorCode };
+    return {
+      success: false,
+      error: failure.message,
+      errorCode: failure.errorCode,
+    };
   }
 
   /**
@@ -1027,7 +1042,10 @@ export class ChatSessionService {
    * transcript, so its message and stack reach no logger, Sentry or result:
    * only its loggable class name does.
    */
-  private carryOverStartFailure(error: unknown, tabId: string): ChatStartResult {
+  private carryOverStartFailure(
+    error: unknown,
+    tabId: string,
+  ): ChatStartResult {
     if (error instanceof CarryOverProviderChangedError) {
       this.logger.debug('[carry-over] start refused: active provider changed', {
         tabId,
@@ -1087,6 +1105,7 @@ export class ChatSessionService {
     launch?: CarryOverLaunch,
   ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    this.driverLock.beginRecordAdmission(params.tabId);
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -1217,6 +1236,7 @@ export class ChatSessionService {
             }
           : {}),
       });
+      await this.driverLock.assertRecordAdmission(tabId);
       // Only a plain prompt: a slash command that starts a new query is not
       // an interactive turn to route. A carry-over turn holds the old
       // transcript, which must not reach the routing model (AC 8.1).
@@ -1227,6 +1247,12 @@ export class ChatSessionService {
       return { success: true };
     } catch (error) {
       if (launch) return this.carryOverStartFailure(error, params.tabId);
+      if (error instanceof RpcUserError)
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+        };
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1241,6 +1267,8 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      this.driverLock.endRecordAdmission(params.tabId);
     }
   }
 
@@ -1525,9 +1553,10 @@ export class ChatSessionService {
         // Spreads to at most one field — `outputStyleName` for the flag tier or
         // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
         // both (R3 / Req 5.3).
-        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-          workspaceRoot: workspaceId,
-        });
+        const outputStyle =
+          await this.outputStyleActivation.resolveSessionFields({
+            workspaceRoot: workspaceId,
+          });
         // Read after the last await before prepare(), so the model and the
         // provider profile see the same provider.
         const modelIsStored = !options?.model;
@@ -1617,18 +1646,23 @@ export class ChatSessionService {
         ...startConfig,
         pluginConfigAncestorRoots: undefined,
       };
-      const stream = execution.runtime === 'codex-app-server'
-        ? await this.sessionMetadataStore.withCodexStartLineage(
-            input.pluginConfigAncestorRoots ?? [],
-            () => this.sdkAdapter.startChatSession(codexStartConfig),
-          )
-        : await this.sdkAdapter.startChatSession(startConfig);
+      const stream =
+        execution.runtime === 'codex-app-server'
+          ? await this.sessionMetadataStore.withCodexStartLineage(
+              input.pluginConfigAncestorRoots ?? [],
+              () => this.sdkAdapter.startChatSession(codexStartConfig),
+            )
+          : await this.sdkAdapter.startChatSession(startConfig);
       if (execution.runtime === 'codex-app-server') {
         this.pendingLineage.delete(tabId);
         try {
-          await this.runtimeProfile?.publishRuntimeNotices(execution, { tabId });
+          await this.runtimeProfile?.publishRuntimeNotices(execution, {
+            tabId,
+          });
         } catch {
-          this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+          this.logger.warn(
+            '[RPC] Model substitution notice failed; continuing session stream',
+          );
         }
       }
       this.streamBroadcaster.streamEventsToWebview(
@@ -1651,6 +1685,7 @@ export class ChatSessionService {
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    let driveAttempt: string | undefined;
     try {
       const { prompt, sessionId, tabId, name } = params;
       this.logger.debug('RPC: chat:continue called', {
@@ -1662,6 +1697,7 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      driveAttempt = await this.driverLock.beginDrive(sessionId, tabId);
       await this.gateAccount({
         sessionId,
         accountSelection: params.accountSelection,
@@ -1729,6 +1765,7 @@ export class ChatSessionService {
           };
         }
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
       } else {
         const resumeOutcome = await this.autoResumeIfInactive(
           sessionId,
@@ -1738,7 +1775,10 @@ export class ChatSessionService {
           mcpRegisteredForSubagents,
           { deliversFollowUp: true },
         );
-        if ('error' in resumeOutcome) return resumeOutcome.error;
+        if ('error' in resumeOutcome) {
+          await this.driverLock.abandonDrive(sessionId, driveAttempt);
+          return resumeOutcome.error;
+        }
         justResumed = resumeOutcome.justResumed;
         promptDelivered = resumeOutcome.promptDelivered === true;
       }
@@ -1763,6 +1803,7 @@ export class ChatSessionService {
             : params,
         );
       if (slashResult) {
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
         if (slashResult.success && slashLineage?.legacy) {
           await this.upgradeLegacyLineage(sessionId, slashLineage.roots);
         }
@@ -1832,7 +1873,8 @@ export class ChatSessionService {
         nativeFollowUp =
           !this.streamBroadcaster.isStreaming(sessionId as string) &&
           !this.streamBroadcaster.isStreaming(tabId) &&
-          this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) === true;
+          this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) ===
+            true;
         await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
           files,
           images,
@@ -1860,6 +1902,7 @@ export class ChatSessionService {
       }
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
+      await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1885,6 +1928,8 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      await this.driverLock.settleDrive(params.sessionId, driveAttempt);
     }
   }
 
@@ -1898,6 +1943,7 @@ export class ChatSessionService {
     params: ChatResumeParams & MainSessionAccountSelection,
   ): Promise<ChatResumeResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    let driveAttempt: string | undefined;
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
@@ -1907,6 +1953,36 @@ export class ChatSessionService {
         });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
+      const savedFolder = metadata?.workingDirectory;
+      if (savedFolder && this.fileSystemProvider) {
+        let present = false;
+        let unreadable = false;
+        try {
+          await this.fileSystemProvider.stat(savedFolder);
+          present = true;
+        } catch (error: unknown) {
+          // degradation-audit: reported - logged here; an unreadable folder is
+          // refused like a missing one, but marked retryable (it may recover).
+          const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+          unreadable = code !== 'ENOENT' && code !== 'ENOTDIR' &&
+            code !== 'FileNotFound' && code !== 'NotADirectory';
+          this.logger.warn('[ChatSessionService] could not check the saved working directory', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (!present) {
+          return {
+            success: false,
+            errorCode: 'SESSION_FOLDER_UNAVAILABLE',
+            // A missing folder is terminal; a failed check may recover.
+            ...(unreadable ? {} : { retryable: false as const }),
+            error: unreadable
+              ? 'The saved working directory could not be read'
+              : 'The saved working directory no longer exists',
+          };
+        }
+      }
       const result = await this.historyRead.readForResume(sessionId, {
         includeBlockOwners: params.historyBlockOwners === true,
       });
@@ -2006,7 +2082,26 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
+        try {
+          driveAttempt = await this.driverLock.beginDrive(
+            sessionId,
+            params.tabId,
+          );
+        } catch (error) {
+          // A lock refusal is an activation failure, not a load failure: the
+          // transcript still reaches the tab, read-only, with the reason.
+          if (!(error instanceof RpcUserError)) throw error;
+          activationError = error.message;
+          activationErrorCode = error.errorCode;
+          this.logger.warn('[RPC] chat:resume activate:true — drive refused', {
+            sessionId,
+            tabId: params.tabId,
+            activationErrorCode,
+          });
+        }
+        if (!driveAttempt) {
+          activated = false;
+        } else if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
@@ -2026,8 +2121,10 @@ export class ChatSessionService {
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
           } else if (activateResult.error.cancelled) {
+            await this.driverLock.abandonDrive(sessionId, driveAttempt);
             return { success: false, cancelled: true };
           } else {
+            await this.driverLock.abandonDrive(sessionId, driveAttempt);
             activationError =
               activateResult.error.error ?? 'Auto-resume failed';
             activationErrorCode = activateResult.error.errorCode;
@@ -2084,6 +2181,8 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      if (driveAttempt)
+        await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -2109,6 +2208,9 @@ export class ChatSessionService {
         error: error instanceof Error ? error.message : String(error),
         ...this.authErrorFields(error),
       };
+    } finally {
+      if (driveAttempt)
+        await this.driverLock.settleDrive(params.sessionId, driveAttempt);
     }
   }
 
@@ -2282,27 +2384,36 @@ export class ChatSessionService {
         accountRefusal: refusal.accountRefusal,
       };
     }
-    if (this.hasLiveSessionStream(sessionId, tabId)) {
-      return { alreadyActive: true };
-    }
+    const driveAttempt = await this.driverLock.beginDrive(sessionId, tabId);
+    try {
+      if (this.hasLiveSessionStream(sessionId, tabId)) {
+        return { alreadyActive: true };
+      }
 
-    const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
-      sessionId,
-      tabId,
-      workspacePath,
-      systemPrompt,
-    });
+      const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
+        sessionId,
+        tabId,
+        workspacePath,
+        systemPrompt,
+      });
 
-    if ('error' in outcome) {
-      return {
-        resumed: false,
-        error: outcome.error.error ?? 'Auto-resume failed',
-      };
+      if ('error' in outcome) {
+        await this.driverLock.abandonDrive(sessionId, driveAttempt);
+        return {
+          resumed: false,
+          error: outcome.error.error ?? 'Auto-resume failed',
+        };
+      }
+      // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
+      // `{ justResumed: false }` it meant "already live", which we already
+      // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
+      return { resumed: true };
+    } catch (error) {
+      await this.driverLock.abandonDrive(sessionId, driveAttempt);
+      throw error;
+    } finally {
+      await this.driverLock.settleDrive(sessionId, driveAttempt);
     }
-    // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
-    // `{ justResumed: false }` it meant "already live", which we already
-    // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
-    return { resumed: true };
   }
 
   /**
@@ -2543,7 +2654,10 @@ export class ChatSessionService {
               providerProfile: execution.providerProfile,
               // Named only: the resume reuses the stored binding (no second lease).
               ...(accountSelection
-                ? { accountSelection, admissionDeadline: params.admissionDeadline }
+                ? {
+                    accountSelection,
+                    admissionDeadline: params.admissionDeadline,
+                  }
                 : {}),
             }
           : {
@@ -2553,6 +2667,7 @@ export class ChatSessionService {
               ...(params.images !== undefined ? { images: params.images } : {}),
             }),
       };
+      await this.driverLock.assertDriveHeld(sessionId, tabId);
       const stream = await this.sdkAdapter.resumeSession(
         sessionId,
         execution.runtime === 'codex-app-server'
@@ -2566,7 +2681,9 @@ export class ChatSessionService {
             sessionId,
           });
         } catch {
-          this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+          this.logger.warn(
+            '[RPC] Model substitution notice failed; continuing session stream',
+          );
         }
       }
       // Not awaited: the renderer's chat:continue timeout is shorter than a

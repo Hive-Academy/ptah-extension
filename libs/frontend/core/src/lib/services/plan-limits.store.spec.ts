@@ -198,7 +198,7 @@ describe('PlanLimitsStore', () => {
       ]);
     });
 
-    it('drops a response that a newer load superseded (generation guard)', async () => {
+    it('coalesces overlapping scope updates into one trailing load', async () => {
       const first = deferred<RpcResult<never>>();
       const second = deferred<RpcResult<never>>();
       rpc.call
@@ -209,16 +209,14 @@ describe('PlanLimitsStore', () => {
       const older = pane.update({ sessionIds: ['old'], ownerKeys: [] });
       const newer = pane.update({ sessionIds: ['new'], ownerKeys: [] });
 
-      second.resolve(
-        rpcSuccess(snapshot(T0, [owner('new-owner')])) as RpcResult<never>,
-      );
-      await newer;
-      expect(store.ownerByKey('new-owner')).not.toBeNull();
-
       first.resolve(
-        rpcSuccess(snapshot(T0 + 10, [owner('old-owner')])) as RpcResult<never>,
       );
       await older;
+      expect(rpc.call).toHaveBeenCalledTimes(2);
+      second.resolve(
+        rpcSuccess(snapshot(T0 + 20, [owner('new-owner')])) as RpcResult<never>,
+      );
+      await newer;
       expect(store.ownerByKey('old-owner')).toBeNull();
       expect(store.ownerByKey('new-owner')).not.toBeNull();
       expect(store.loading()).toBe(false);
@@ -233,9 +231,11 @@ describe('PlanLimitsStore', () => {
 
       const older = store.load();
       const newer = store.load();
+      expect(rpc.call).toHaveBeenCalledTimes(1);
       first.resolve(rpcSuccess(snapshot(T0, [])) as RpcResult<never>);
       await older;
       expect(store.loading()).toBe(true);
+      expect(rpc.call).toHaveBeenCalledTimes(2);
 
       second.resolve(rpcSuccess(snapshot(T0, [])) as RpcResult<never>);
       await newer;

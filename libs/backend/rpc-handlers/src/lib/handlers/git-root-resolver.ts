@@ -79,6 +79,7 @@ export const READ_ONLY_GIT_METHODS: ReadonlySet<string> = new Set([
 interface ReadProbeEntry {
   readonly expiresAt: number;
   readonly result: Promise<string | undefined>;
+  missing?: boolean;
 }
 
 /** The message of the {@link GitRootResolver} refusal (shared with the webview). */
@@ -131,19 +132,25 @@ export class GitRootResolver {
   }
 
   /** The worktree probe for a read: shared in flight and for a short TTL. */
-  private probeForRead(requested: string): Promise<string | undefined> {
+  private async probeForRead(requested: string): Promise<string | undefined> {
     const now = (this.deps.now ?? Date.now)();
     const cached = this.readProbes.get(requested);
-    if (cached && cached.expiresAt > now) return cached.result;
+    if (cached && cached.expiresAt > now) {
+      if (!cached.missing || !(await this.deps.probe.directoryExists(requested))) {
+        return cached.result;
+      }
+      this.readProbes.delete(requested);
+    }
     this.pruneExpired(now);
 
     const { workspace, probe, platform } = this.deps;
-    const result = findRegisteredWorktree(
-      workspace,
-      probe,
-      requested,
-      platform,
-    );
+    let missing = false;
+    const result = probe.directoryExists(requested).then((exists) => {
+      missing = !exists;
+      return exists
+        ? findRegisteredWorktree(workspace, probe, requested, platform)
+        : undefined;
+    });
     const entry: ReadProbeEntry = {
       expiresAt: now + READ_PROBE_TTL_MS,
       result,
@@ -154,9 +161,12 @@ export class GitRootResolver {
         this.readProbes.delete(requested);
       }
     };
-    // Keep confirmations only; a refusal is re-probed on the next read.
+    // A missing root is cheap to recheck and expensive to re-probe with git.
     void result.then((worktree) => {
-      if (!worktree) forget();
+      if (!worktree) {
+        if (missing) entry.missing = true;
+        else forget();
+      }
     }, forget);
     return result;
   }

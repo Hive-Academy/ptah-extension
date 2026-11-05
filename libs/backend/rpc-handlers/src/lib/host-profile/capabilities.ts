@@ -96,6 +96,13 @@ export const RPC_CAPABILITIES = [
    * Electron only.
    */
   'gitRootWatch',
+  /**
+   * Host can drive Ptah workers on remote machines over SSH (`machines:*`,
+   * TASK_2026_858): pairing, readiness, and attaching to remote sessions.
+   * Electron only; the methods are served by Electron main, which owns the
+   * SSH transport and the pairing tokens.
+   */
+  'remoteMachines',
 ] as const;
 
 export type Capability = (typeof RPC_CAPABILITIES)[number];
