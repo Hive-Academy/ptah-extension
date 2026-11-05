@@ -7,13 +7,29 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
+import os from 'node:os';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(import.meta.url);
 
+/** Refusals start with this text and exit 2 in both dev scripts. */
+export const REFUSAL = /^Refusing |^Existing database lacks seed_meta marker/;
+
+/**
+ * HOME, else the OS account home. Without either the profile cannot be
+ * located, so the script refuses instead of guessing.
+ */
+export function homeDirectory() {
+  if (process.env.HOME) return process.env.HOME;
+  let home = '';
+  try { home = os.homedir(); } catch { /* no passwd entry: refused below */ }
+  if (!home) throw new Error('Refusing to run: HOME is unset and os.homedir() is unavailable');
+  return home;
+}
+
 export function safeDbPath(input) {
   const path = resolve(input);
-  const home = realpathSync(process.env.HOME);
+  const home = realpathSync(homeDirectory());
   const profile = join(home, '.ptah');
   const realProfile = existsSync(profile) ? realpathSync(profile) : profile;
   const real = existsSync(path)
@@ -123,4 +139,4 @@ async function main() {
   } finally { db.close(); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = /Refusing Ptah profile path|Existing database lacks seed_meta marker/.test(error.message) ? 2 : 1; });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = REFUSAL.test(error.message) ? 2 : 1; });

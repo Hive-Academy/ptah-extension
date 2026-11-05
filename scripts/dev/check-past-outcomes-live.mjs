@@ -9,7 +9,7 @@
  * run one subagent and inspect its row with a read-only SQLite query.
  */
 import { createRequire } from 'node:module';
-import { safeDbPath, loadSource } from './seed-lane-outcomes.mjs';
+import { REFUSAL, safeDbPath, loadSource } from './seed-lane-outcomes.mjs';
 
 const require = createRequire(import.meta.url);
 const usage = 'Usage: node scripts/dev/check-past-outcomes-live.mjs --db <seeded path> [--lane-ids <csv>] [--task-kind <kind>] [--live] [--ab] [--base-url <url>] [--model <model>]';
@@ -102,4 +102,7 @@ async function main() {
   } finally { db.close(); }
 }
 
-main().catch((error) => { console.error(error.stack ?? error.message); process.exitCode = 1; });
+main().catch((error) => {
+  if (REFUSAL.test(error.message ?? '')) { console.error(error.message); process.exitCode = 2; return; }
+  console.error(error.stack ?? error.message); process.exitCode = 1;
+});
