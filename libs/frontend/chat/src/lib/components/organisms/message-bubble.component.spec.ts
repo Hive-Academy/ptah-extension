@@ -87,6 +87,35 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
   }
 
+  it('shows only the typing cursor for a streaming message with no rows yet', () => {
+    fixture = TestBed.createComponent(MessageBubbleComponent);
+    fixture.componentRef.setInput(
+      'message',
+      createExecutionChatMessage({
+        id: 'empty-stream',
+        role: 'assistant',
+        rawContent: '',
+        streamingState: {
+          id: 'root',
+          type: 'message',
+          status: 'streaming',
+          content: null,
+          children: [],
+          isCollapsed: false,
+        },
+      }),
+    );
+    fixture.componentRef.setInput('isStreaming', true);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="streaming-empty-cursor"]')).not.toBeNull();
+    expect(root.querySelector('ptah-streaming-quotes')).toBeNull();
+
+    fixture.componentRef.setInput('isStreaming', false);
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="streaming-empty-cursor"]')).toBeNull();
+  });
+
   it('forwards the opt-in agent tile mode to each execution tree row', () => {
     setMessage(
       createExecutionChatMessage({

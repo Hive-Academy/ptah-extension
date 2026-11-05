@@ -70,6 +70,15 @@
         </div>
       }
 
+      <!-- A streaming message with no log row and no answer yet shows only
+           the typing cursor, so the bubble is never empty. -->
+      @if (isStreaming() && !hasLog() && parts.answer.length === 0) {
+        <ptah-typing-cursor
+          colorClass="text-base-content-muted"
+          data-testid="streaming-empty-cursor"
+        />
+      }
+
       @if (parts.answer.length > 0) {
         <div
           class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
