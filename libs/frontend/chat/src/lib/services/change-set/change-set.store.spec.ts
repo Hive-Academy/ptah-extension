@@ -141,7 +141,7 @@ describe('ChangeSetStore', () => {
       await openSession('s1');
 
       expect(rpcCallsFor('git:turnChangeSets')).toEqual([
-        [expect.anything(), 'git:turnChangeSets', { sessionId: 's1' }, 30_000],
+        [expect.anything(), 'git:turnChangeSets', { sessionId: 's1' }, 75_000],
       ]);
       expect(store.changeSetsFor('s1')).toHaveLength(1);
       expect(store.changeSetsFor('other')).toEqual([]);
@@ -260,7 +260,7 @@ describe('ChangeSetStore', () => {
       await passDebounce();
 
       expect(rpcCallsFor('git:info')).toEqual([
-        [expect.anything(), 'git:info', { workspaceRoot: ROOT }, 30_000],
+        [expect.anything(), 'git:info', { workspaceRoot: ROOT }, 75_000],
       ]);
       expect([...store.marksFor(set).reconciled]).toEqual(['src/b.ts']);
       expect([...store.marksFor(set).conflicted]).toEqual(['src/a.ts']);

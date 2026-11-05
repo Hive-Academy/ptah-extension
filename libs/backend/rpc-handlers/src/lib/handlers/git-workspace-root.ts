@@ -57,6 +57,7 @@ export async function findRegisteredWorktree(
   requested: string,
   platform: NodeJS.Platform = process.platform,
 ): Promise<string | undefined> {
+  if (!(await probe.directoryExists(requested))) return undefined;
   const ignoreCase = platform === 'win32' || platform === 'darwin';
   const target = normalizeFolder(requested, ignoreCase);
   for (const folder of workspace.getWorkspaceFolders()) {

@@ -90,7 +90,7 @@ describe('GitStatusService.switchWorkspace freshness (F2)', () => {
     await Promise.resolve();
     expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
       workspaceRoot: '/ws/a',
-    });
+    }, 75_000);
   });
 
   it('skips the eager fetch when switching back within the freshness window', async () => {
@@ -141,7 +141,7 @@ describe('GitStatusService.switchWorkspace freshness (F2)', () => {
     await Promise.resolve();
     expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
       workspaceRoot: '/ws/a',
-    });
+    }, 75_000);
 
     (Date.now as jest.Mock).mockRestore();
   });
@@ -793,7 +793,7 @@ describe('GitStatusService keeps last good data when status is unavailable (TASK
       expect(service.staleReason()).toBe('error'); // restored from cache
       expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
         workspaceRoot: '/ws/a',
-      });
+      }, 75_000);
     });
 
     it('discards a failure for a workspace the user has left', async () => {
@@ -1073,6 +1073,6 @@ describe('GitStatusService per-root isolation (TASK_2026_855)', () => {
     await Promise.resolve();
     expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
       workspaceRoot: '/root/0',
-    });
+    }, 75_000);
   });
 });

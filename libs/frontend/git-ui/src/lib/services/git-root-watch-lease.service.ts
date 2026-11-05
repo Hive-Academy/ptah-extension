@@ -30,6 +30,7 @@ import {
 export class GitRootWatchLeaseService {
   static readonly DEBOUNCE_MS = 300;
   static readonly RENEW_INTERVAL_MS = 60_000;
+  static readonly REJECTED_ROOT_BACKOFF_MS = 60_000;
   /** The renderer asks for at most this many roots; the backend caps too. */
   static readonly MAX_ROOTS = 4;
 
@@ -46,7 +47,7 @@ export class GitRootWatchLeaseService {
    */
   private sentKey: string | null = '';
   /** Keys of the roots the backend rejected for the current set. */
-  private rejected = new Set<string>();
+  private rejected = new Map<string, number>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private renewTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
@@ -63,7 +64,8 @@ export class GitRootWatchLeaseService {
   update(roots: readonly (string | null)[]): void {
     if (this.destroyed || this.vscode.config().isElectron !== true) return;
     this.roots = leaseRoots(roots);
-    this.rejected = new Set();
+    const requested = new Set(this.roots.map((root) => normalizeWorkspaceRoot(root)));
+    this.rejected = new Map([...this.rejected].filter(([root]) => requested.has(root)));
     if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
@@ -72,8 +74,10 @@ export class GitRootWatchLeaseService {
   }
 
   private flush(): void {
-    const roots = this.roots;
-    if (roots.length === 0) {
+    const roots = this.roots.filter(
+      (root) => (this.rejected.get(normalizeWorkspaceRoot(root)) ?? 0) <= Date.now(),
+    );
+    if (this.roots.length === 0) {
       this.stopRenewal();
     } else if (this.renewTimer === null) {
       this.renewTimer = setInterval(
@@ -87,9 +91,9 @@ export class GitRootWatchLeaseService {
   /** Renew the set minus the rejected roots; nothing left releases it. */
   private renew(): void {
     const live = this.roots.filter(
-      (root) => !this.rejected.has(normalizeWorkspaceRoot(root)),
+      (root) => (this.rejected.get(normalizeWorkspaceRoot(root)) ?? 0) <= Date.now(),
     );
-    if (live.length === 0) this.stopRenewal();
+    if (this.roots.length === 0) this.stopRenewal();
     void this.send(live, true);
   }
 
@@ -112,11 +116,12 @@ export class GitRootWatchLeaseService {
       if (this.destroyed) return;
       if (result.success) {
         this.sentKey = key;
-        this.rejected = new Set(
-          (result.data?.rejected ?? []).map((root) =>
-            normalizeWorkspaceRoot(root),
-          ),
-        );
+        const refused = new Set((result.data?.rejected ?? []).map(normalizeWorkspaceRoot));
+        for (const root of roots) {
+          const key = normalizeWorkspaceRoot(root);
+          if (refused.has(key)) this.rejected.set(key, Date.now() + GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+          else this.rejected.delete(key);
+        }
         return;
       }
       console.warn('[GitRootWatchLeaseService] git:watchRoots failed', {

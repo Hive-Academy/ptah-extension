@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
-import { MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
+import { GIT_ROOT_UNAVAILABLE_MESSAGE, MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
 import {
   SessionGitStatsStore,
   sessionBranch,
@@ -33,6 +33,20 @@ function deferred<T>() {
 }
 
 describe(SessionGitStatsStore.name, () => {
+  it('stops re-requesting an unavailable root while it remains tracked', async () => {
+    tabs.set('one', { tab: { claudeSessionId: 'session' } });
+    call.mockResolvedValue({ success: false, error: GIT_ROOT_UNAVAILABLE_MESSAGE });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      store.track('/gone', 'one');
+      await tick();
+      turn('session');
+      await tick();
+      expect(call).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
   let store: SessionGitStatsStore;
   const tabs = new Map<string, { tab: { claudeSessionId: string | null } }>();
   beforeEach(() => {

@@ -94,20 +94,26 @@ describe('GitRootWatchLeaseService', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
-  it('stops renewing roots the backend rejected until the set changes (M3)', async () => {
+  it('suppresses a rejected root within its backoff until it leaves the requested set', async () => {
     mockRpcCall.mockResolvedValueOnce({
       success: true,
       data: { watched: ['/wt/a'], rejected: ['/wt/gone'], evicted: [] },
     });
     service.update(['/wt/a', '/wt/gone']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    // Well inside both the renewal interval and the rejection backoff.
     await jest.advanceTimersByTimeAsync(
-      GitRootWatchLeaseService.RENEW_INTERVAL_MS,
+      GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS / 2,
     );
 
-    expect(sentRoots()).toEqual([['/wt/a', '/wt/gone'], ['/wt/a']]);
+    expect(sentRoots()).toEqual([['/wt/a', '/wt/gone']]);
 
-    // A new set from the dock asks for every root again.
+    // A new set keeps the rejected root suppressed while its backoff runs.
+    service.update(['/wt/gone', '/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots().at(-1)).toEqual(['/wt/b']);
+    service.update(['/wt/b']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     service.update(['/wt/gone', '/wt/b']);
     await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(sentRoots().at(-1)).toEqual(['/wt/gone', '/wt/b']);
@@ -124,7 +130,32 @@ describe('GitRootWatchLeaseService', () => {
       GitRootWatchLeaseService.RENEW_INTERVAL_MS * 3,
     );
 
+    expect(sentRoots()).toEqual([['/wt/gone'], ['/wt/gone'], ['/wt/gone'], ['/wt/gone']]);
+  });
+
+  it('rechecks a restored root once per backoff window without deselection', async () => {
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { watched: [], rejected: ['/wt/gone'], evicted: [] },
+    });
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { watched: [], rejected: ['/wt/gone'], evicted: [] },
+    });
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
     expect(sentRoots()).toEqual([['/wt/gone'], []]);
+
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+    expect(sentRoots().at(-1)).toEqual(['/wt/gone']);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(2);
+    service.update(['/wt/gone']);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.DEBOUNCE_MS);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(2);
+    await jest.advanceTimersByTimeAsync(GitRootWatchLeaseService.REJECTED_ROOT_BACKOFF_MS);
+    expect(sentRoots().filter((roots) => roots.includes('/wt/gone'))).toHaveLength(3);
   });
 
   it('does not resend a set the backend already holds', async () => {

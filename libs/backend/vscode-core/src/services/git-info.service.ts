@@ -14,6 +14,7 @@ import {
   execGit,
   execGitBuffer,
   GitOutputLimitError,
+  GitQueueDeadlineError,
   GitTimeoutError,
   isIndexLockFailure,
   GIT_STATUS_MAX_OUTPUT_BYTES,
@@ -75,6 +76,7 @@ import {
 } from './git-review-reader.service';
 import { parseStatusV2Z } from './git/git-status-parser';
 import { GitRepoWriteLock } from './git/git-write-lock';
+import { GitRootCache } from './git/git-root-cache';
 import {
   GitCommitRunner,
   type GitCommitRunOptions,
@@ -149,7 +151,11 @@ function unavailableReason(
   stderr = '',
 ): GitStatusUnavailableReason {
   if (error instanceof GitOutputLimitError) return 'output-too-large';
-  if (error instanceof GitTimeoutError) return 'timeout';
+  // A call dropped from a saturated queue is a timeout too: it opens the same
+  // backoff, so the watcher does not queue another run behind the backlog.
+  if (error instanceof GitTimeoutError || error instanceof GitQueueDeadlineError) {
+    return 'timeout';
+  }
   return isIndexLockFailure(stderr) ? 'locked' : 'error';
 }
 
@@ -720,6 +726,8 @@ export class GitInfoService {
    * single-flight only.
    */
   private readonly readCache = new Map<string, unknown>();
+  private readonly rootCache = new GitRootCache();
+  private readonly infoCache = new Map<string, { value: GitInfoResult; until: number }>();
 
   /**
    * One flight record per read key (same keys as {@link readCache}): the
@@ -766,7 +774,11 @@ export class GitInfoService {
    */
   invalidateReadCache(workspacePath?: string): void {
     this.cacheGeneration++;
+    if (workspacePath) this.infoCache.delete(workspacePath);
+    else this.infoCache.clear();
     this.reviewReader.invalidate(workspacePath);
+    // A mutation or watcher event can replace the repository at this path.
+    this.rootCache.invalidate(workspacePath);
     if (!workspacePath) {
       this.invalidatedAllAt = this.cacheGeneration;
       this.readCache.clear();
@@ -948,9 +960,16 @@ export class GitInfoService {
   }
 
   async getGitInfo(workspacePath: string): Promise<GitInfoResult> {
-    return this.singleFlight(`info|${workspacePath}|`, workspacePath, () =>
-      this.computeGitInfo(workspacePath),
-    );
+    const cached = this.infoCache.get(workspacePath);
+    if (cached && cached.until > Date.now()) return cached.value;
+    return this.singleFlight(`info|${workspacePath}|`, workspacePath, async () => {
+      const generation = this.cacheGeneration;
+      const value = await this.computeGitInfo(workspacePath);
+      if (generation >= this.generationOf(workspacePath) && !value.statusUnavailable) {
+        this.infoCache.set(workspacePath, { value, until: Date.now() + 2_500 });
+      }
+      return value;
+    });
   }
 
   /**
@@ -1732,6 +1751,13 @@ export class GitInfoService {
    * to it — not to a workspace folder that is a repository subdirectory.
    */
   async resolveRepositoryRoot(
+    workspacePath: string,
+    priority?: ExecGitOptions['priority'],
+  ): Promise<string | null> {
+    return this.rootCache.resolve(workspacePath, () => this.probeRepositoryRoot(workspacePath, priority));
+  }
+
+  private async probeRepositoryRoot(
     workspacePath: string,
     priority?: ExecGitOptions['priority'],
   ): Promise<string | null> {
