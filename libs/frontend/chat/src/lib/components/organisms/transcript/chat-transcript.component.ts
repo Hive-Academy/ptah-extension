@@ -90,7 +90,6 @@ import {
 } from '../../../services/stream-presentation-store.service';
 import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
-import { SessionInspectorStore } from '../../../services/session-inspector/session-inspector.store';
 import type { TurnContext } from '../../../utils/turn-facts.utils';
 import {
   liveTurnIdsOf,
@@ -853,17 +852,6 @@ export class ChatTranscriptComponent {
     'second',
     () => this.hasLiveTurn() && this.workActive(),
   );
-
-  /**
-   * The session's needs-you aggregate for the live turn's line (§3.7, B2),
-   * the same source as the header chip; `0` without a live turn or a tab.
-   * The inspector store is resolved only when a turn is live.
-   */
-  protected readonly needsYouCount = computed(() => {
-    if (!this.hasLiveTurn() || !this._tab()) return 0;
-    return this.injector.get(SessionInspectorStore).modelFor(this.tabId())()
-      .needsYouCount;
-  });
 
   /**
    * The display-panel feed (TASK_2026_623, component 7): host sources,

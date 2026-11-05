@@ -1,6 +1,6 @@
 @if (message().role === 'assistant') {
   <!-- Assistant turn (design-spec §3): disclosure row, work log, answer,
-       agent chips, action row, activity panel, live line. Every log and
+       agent chips, action row, activity panel. Every log and
        answer row renders through the unchanged ptah-execution-node with the
        inputs of its root 'message' case (decisions row 32). -->
   <article
@@ -68,10 +68,6 @@
             </ol>
           </div>
         </div>
-      }
-
-      @if (showStreamingQuotes()) {
-        <ptah-streaming-quotes />
       }
 
       @if (parts.answer.length > 0) {
@@ -173,14 +169,6 @@
           }
         }
       }
-    }
-
-    @if (showLiveLine()) {
-      <ptah-turn-live-line
-        [startTs]="turn()!.startTs"
-        [now]="now()"
-        [needsYouCount]="needsYouCount()"
-      />
     }
   </article>
 } @else {
