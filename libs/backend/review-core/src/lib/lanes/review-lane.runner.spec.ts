@@ -160,6 +160,12 @@ describe('ReviewLaneRunner', () => {
     expect(setTimer).toHaveBeenCalledWith(expect.any(Function), 480_000);
   });
 
+  it('allows triage a 480 second lane window', async () => {
+    const setTimer = jest.spyOn(clock, 'setTimeout');
+    expect(await runner.run({ ...request, runDeadlineMs: 600_000 })).toMatchObject({ status: 'completed' });
+    expect(setTimer).toHaveBeenCalledWith(expect.any(Function), 480_000);
+  });
+
   it('labels same-family verification weaker', async () => {
     files.readOutput = jest.fn().mockResolvedValue(JSON.stringify({ schemaVersion: 1, candidateId: 'candidate', headSha: sha, verdict: 'inconclusive', checkedEvidence: [{ path: 'a.ts', line: 1, observation: 'checked' }], reason: 'no disproof', confidence: 0.5, verifierFamily: 'family-a' }));
     expect(await runner.run({ ...request, kind: 'verifier', lensAuthorFamily: 'family-a' }))

@@ -45,7 +45,6 @@ export class ReviewLaneFiles implements IReviewLaneFiles {
       } catch (error: unknown) {
         // fs errors can come from another realm (Jest), so avoid instanceof Error.
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-          // degradation-audit: reported — an absent prior output is the expected clean state.
           continue;
         }
         throw error;

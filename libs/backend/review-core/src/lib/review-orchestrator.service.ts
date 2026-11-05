@@ -28,7 +28,7 @@ const VerificationSchema = z.array(z.object({ lens: z.string(), finding: Candida
     z.object({ status: z.literal('completed'), family: z.string(), evidenceStrength: z.enum(['strong', 'weaker']).optional(), output: VerifierVerdictSchema })]),
 }));
 /** An attempt gets its own review window; drain's deadline only limits new claims. */
-const REVIEW_ATTEMPT_WINDOW_MS = 30 * 60_000;
+const REVIEW_ATTEMPT_WINDOW_MS = 60 * 60_000;
 
 export class ReviewPollDisabledError extends Error {
   constructor() { super('Review repository is disabled'); }

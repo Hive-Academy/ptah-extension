@@ -80,11 +80,11 @@ export class SqliteReviewRepository implements IReviewRepository {
       headSha: a.head_sha, trigger: a.trigger === 'automatic' ? 'poll' : 'manual', queuedAt: new Date(a.queued_at).toISOString(), dryRun: a.dry_run === 1 };
   }
 
-  async enqueueDiscovered(head: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt> {
-    return this.enqueue(head, 'automatic', null, queuedAt);
+  async enqueueDiscovered(head: ReviewQueueHead, queuedAt: string, dryRun = true): Promise<ReviewQueueAttempt> {
+    return this.enqueue(head, 'automatic', null, queuedAt, dryRun);
   }
 
-  async enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun = false): Promise<ReviewQueueAttempt> {
+  async enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun = true): Promise<ReviewQueueAttempt> {
     return this.enqueue(head, 'manual', attemptId, queuedAt, dryRun);
   }
 
@@ -109,7 +109,7 @@ export class SqliteReviewRepository implements IReviewRepository {
     })();
   }
 
-  private enqueue(head: ReviewQueueHead, trigger: 'automatic' | 'manual', id: string | null, queuedAt: string, dryRun = false): ReviewQueueAttempt {
+  private enqueue(head: ReviewQueueHead, trigger: 'automatic' | 'manual', id: string | null, queuedAt: string, dryRun = true): ReviewQueueAttempt {
     const db = this.sqlite.db;
     const at = ms(queuedAt);
     return db.transaction(() => {

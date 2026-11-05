@@ -33,7 +33,7 @@ export interface ReviewQueueClaim extends ReviewQueueAttempt {
  * interrupted stage; heartbeat/release compare the current lease owner.
  */
 export interface IReviewQueueRepository {
-  enqueueDiscovered(head: ReviewQueueHead, queuedAt: string): Promise<ReviewQueueAttempt>;
+  enqueueDiscovered(head: ReviewQueueHead, queuedAt: string, dryRun: boolean): Promise<ReviewQueueAttempt>;
   recordDraft(head: ReviewQueueHead, queuedAt: string): Promise<void>;
   enqueueManual(head: ReviewQueueHead, attemptId: string, queuedAt: string, dryRun?: boolean): Promise<ReviewQueueAttempt>;
   claimNext(owner: string, now: string, expiresAt: string): Promise<ReviewQueueClaim | null>;
@@ -51,9 +51,9 @@ export class ReviewQueueService {
   ) {}
 
   /** Called by polling; repository supersedes older active heads transactionally. */
-  discover(head: ReviewQueueHead): Promise<ReviewQueueAttempt> {
+  discover(head: ReviewQueueHead, dryRun = true): Promise<ReviewQueueAttempt> {
     this.validateHead(head);
-    return this.repository.enqueueDiscovered(head, this.clock.now().toISOString());
+    return this.repository.enqueueDiscovered(head, this.clock.now().toISOString(), dryRun);
   }
 
   recordDraft(head: ReviewQueueHead): Promise<void> {
@@ -62,7 +62,7 @@ export class ReviewQueueService {
   }
 
   /** Caller supplies a unique ID; repository must enforce uniqueness atomically. */
-  retry(head: ReviewQueueHead, attemptId: string, dryRun = false): Promise<ReviewQueueAttempt> {
+  retry(head: ReviewQueueHead, attemptId: string, dryRun = true): Promise<ReviewQueueAttempt> {
     this.validateHead(head);
     if (!attemptId.trim() || attemptId.length > 64) throw new Error('Invalid review attempt ID');
     return this.repository.enqueueManual(head, attemptId, this.clock.now().toISOString(), dryRun);

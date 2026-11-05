@@ -404,9 +404,18 @@ export class ReviewRpcHandlers {
           ReviewRpcSchemas['review:retryHead'].params.parse(raw);
         const pull = await this.github.getPull(repo, prNumber);
         const attemptId = ulid();
+        let settings: Awaited<ReturnType<IReviewSettingsStore['getSettings']>> = null;
+        try {
+          settings = await this.settings.getSettings();
+        } catch (_error: unknown) {
+          this.logger.info('Review settings unavailable for retry; queueing dry-run');
+        }
+        const dryRun = settings?.repositories.find((entry) => entry.owner.toLowerCase() === repo.owner.toLowerCase() &&
+          entry.name.toLowerCase() === repo.name.toLowerCase())?.dryRun ?? true;
         await this.queue.retry(
           { repo, prNumber, headSha: pull.headSha },
           attemptId,
+          dryRun,
         );
         return ReviewRpcSchemas['review:retryHead'].result.parse({
           ok: true,

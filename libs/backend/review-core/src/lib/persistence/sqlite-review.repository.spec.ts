@@ -29,6 +29,15 @@ function setup() {
 }
 
 describe('SqliteReviewRepository', () => {
+  it.each([[true, 1], [false, 0]])('persists automatic dry-run mode %s as %i', async (dryRun, stored) => {
+    const { db, repository } = setup();
+    try {
+      const queued = await repository.enqueueDiscovered(head(9, 'e'), at(0), dryRun);
+      expect(queued.dryRun).toBe(dryRun);
+      expect(db.prepare('SELECT dry_run FROM review_attempts WHERE attempt_id = ?').get(queued.attemptId))
+        .toEqual({ dry_run: stored });
+    } finally { db.close(); }
+  });
   it('persists dry-run intent through a queue claim', async () => {
     const { db, repository } = setup();
     try {

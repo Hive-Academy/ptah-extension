@@ -29,7 +29,7 @@ describe('DiscoveryStageRunner', () => {
       baseConfig: async () => null,
     });
     expect(await runner.run(REVIEW_REPO)).toBe(1);
-    expect(enqueueDiscovered).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 7, headSha: sha }, '2026-11-03T00:00:00.000Z');
+    expect(enqueueDiscovered).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 7, headSha: sha }, '2026-11-03T00:00:00.000Z', true);
     expect(recordDraft).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 8, headSha: sha }, '2026-11-03T00:00:00.000Z');
     expect(claimNext).not.toHaveBeenCalled();
   });

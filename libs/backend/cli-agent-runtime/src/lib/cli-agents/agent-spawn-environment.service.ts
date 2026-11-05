@@ -440,7 +440,6 @@ export class AgentSpawnEnvironment {
     );
     const realTrustedRoots = resolvedRoots.flatMap((result) => {
       if (result.status === 'fulfilled') return [result.value];
-      // degradation-audit: reported — an optional trusted root may not exist yet; the workspace and other roots still validate.
       this.logger.warn('[AgentSpawnEnvironment] Skipping unresolved trusted root', {
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),
       });

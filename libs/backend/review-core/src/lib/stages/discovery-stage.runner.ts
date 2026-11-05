@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import type { IGitHubReviewPort, RepoIdentity } from '@ptah-extension/review-contracts';
+import { OperatorSettingsSchema, type IGitHubReviewPort, type RepoIdentity } from '@ptah-extension/review-contracts';
 import { REVIEW_CORE_TOKENS } from '../../di/tokens';
 import { ReviewQueueService } from '../review-queue.service';
 import { ReviewPolicyService } from '../review-policy.service';
@@ -22,6 +22,11 @@ export class DiscoveryStageRunner {
     do {
       const result = await this.github.listOpenPulls(repo, undefined, page);
       const settings = await this.environment.settings();
+      // Unreadable settings queue the attempt as dry-run (fail safe).
+      const parsed = OperatorSettingsSchema.safeParse(settings);
+      const dryRun = !parsed.success ? true : parsed.data.repositories.find((entry) =>
+        entry.owner.toLowerCase() === repo.owner.toLowerCase() &&
+        entry.name.toLowerCase() === repo.name.toLowerCase())?.dryRun ?? true;
       for (const pull of result.items) {
         const baseConfig = await this.environment.baseConfig(repo, pull.baseSha);
         const decision = this.policy.eligibility({ owner: repo.owner, name: repo.name,
@@ -29,7 +34,7 @@ export class DiscoveryStageRunner {
           headRepoId: pull.headRepoId, baseRepoId: pull.baseRepoId, settings, baseConfig });
         if (decision.reason === 'draft') await this.queue.recordDraft({ repo, prNumber: pull.number, headSha: pull.headSha });
         if (!decision.eligible) continue;
-        const attempt = await this.queue.discover({ repo, prNumber: pull.number, headSha: pull.headSha });
+        const attempt = await this.queue.discover({ repo, prNumber: pull.number, headSha: pull.headSha }, dryRun);
         if (!attempt.skipped) count++;
       }
       if (result.nextPage === null) break;

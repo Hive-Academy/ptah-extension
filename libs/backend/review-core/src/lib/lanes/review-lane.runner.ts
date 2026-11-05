@@ -60,7 +60,7 @@ export class ReviewLaneRunner {
     ShaSchema.parse(request.headSha);
     z.string().min(1).max(128).parse(request.attemptId);
     if (!Number.isFinite(request.runDeadlineMs)) throw new Error('Invalid run deadline');
-    const limit = request.kind === 'triage' ? 180_000 : 480_000;
+    const limit = 480_000;
     const deadline = Math.min(request.runDeadlineMs, this.clock.now() + limit);
     if (this.clock.now() >= deadline) return { status: 'partial', reason: 'deadline' };
     const capacity = z.object({

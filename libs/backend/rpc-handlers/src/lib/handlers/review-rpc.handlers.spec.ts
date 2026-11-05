@@ -275,7 +275,18 @@ describe('ReviewRpcHandlers', () => {
     expect(queue.retry).toHaveBeenCalledWith(
       expect.objectContaining({ headSha: 'a'.repeat(40) }),
       (result as { attemptId: string }).attemptId,
+      true,
     );
+  });
+  it('uses current live settings for manual retry and fails closed when settings are missing', async () => {
+    const { invoke, github, queue, store } = suite();
+    (github.getPull as jest.Mock).mockResolvedValue({ headSha: 'a'.repeat(40) });
+    (store.getSettings as jest.Mock).mockResolvedValueOnce({ ...settings, repositories: [{ ...settings.repositories[0], dryRun: false }] })
+      .mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('settings unavailable'));
+    await invoke('review:retryHead', { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1 });
+    await invoke('review:retryHead', { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1 });
+    await invoke('review:retryHead', { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1 });
+    expect((queue.retry as jest.Mock).mock.calls.map((call: unknown[]) => call[2])).toEqual([false, true, true]);
   });
   it('registers exactly the review methods', () => {
     const { calls } = suite();
