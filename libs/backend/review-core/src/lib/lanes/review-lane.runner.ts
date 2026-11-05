@@ -19,7 +19,8 @@ export interface IReviewLaneFiles {
   prepare(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<string>;
   sourceChecksum(repo: RepoIdentity, attemptRoot: string, headSha: string, signal?: AbortSignal): Promise<string>;
   readOutput(attemptRoot: string, name: 'lane-output.json' | 'walkthrough.md'): Promise<string>;
-  clearOutput(attemptRoot: string): Promise<void>;
+  /** Removes stale lane output. Only the triage lane owns walkthrough.md. */
+  clearOutput(attemptRoot: string, includeWalkthrough: boolean): Promise<void>;
 }
 
 export interface ReviewLaneRequest {
@@ -84,7 +85,7 @@ export class ReviewLaneRunner {
     try {
       const before = await this.files.prepare(request.repo, request.attemptRoot, request.headSha, controller.signal);
       if (controller.signal.aborted || this.clock.now() >= deadline) return { status: 'partial', reason: request.signal?.aborted ? 'aborted' : 'deadline' };
-      await this.files.clearOutput(request.attemptRoot);
+      await this.files.clearOutput(request.attemptRoot, request.kind === 'triage');
       let spawnError: unknown;
       try {
         await this.gateway.spawn({ laneId: choice.lane.id, cwd: request.attemptRoot, prompt: request.prompt, signal: controller.signal });

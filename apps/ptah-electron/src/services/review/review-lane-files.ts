@@ -32,14 +32,16 @@ export class ReviewLaneFiles implements IReviewLaneFiles {
     return snapshot.checksum;
   }
 
-  async clearOutput(attemptRoot: string): Promise<void> {
+  async clearOutput(attemptRoot: string, includeWalkthrough: boolean): Promise<void> {
     await this.source(attemptRoot);
     const attempt = await realpath(attemptRoot);
     const outPath = resolve(attemptRoot, 'out');
     await mkdir(outPath, { recursive: true });
     const out = await realpath(outPath);
     if (relative(attempt, out) !== 'out') throw new Error('Lane output escapes attempt out/');
-    for (const name of ['lane-output.json', 'walkthrough.md'] as const) {
+    // Publication reads the triage walkthrough after all lanes, so later lanes keep it.
+    const names = includeWalkthrough ? ['lane-output.json', 'walkthrough.md'] : ['lane-output.json'];
+    for (const name of names) {
       try {
         await unlink(resolve(out, name));
       } catch (error: unknown) {

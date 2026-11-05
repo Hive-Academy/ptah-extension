@@ -39,7 +39,7 @@ describe('ReviewLaneRunner', () => {
     expect(files.prepare).toHaveBeenCalledWith(repo, '/attempt', sha, expect.any(AbortSignal));
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/attempt' }));
     expect(files.readOutput).toHaveBeenCalledWith('/attempt', 'lane-output.json');
-    expect(files.clearOutput).toHaveBeenCalledWith('/attempt');
+    expect(files.clearOutput).toHaveBeenCalledWith('/attempt', expect.any(Boolean));
   });
 
   it('does not reuse lane one findings when lane two writes nothing', async () => {

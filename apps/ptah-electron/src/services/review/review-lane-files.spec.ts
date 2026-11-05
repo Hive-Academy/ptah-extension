@@ -29,10 +29,13 @@ describe('ReviewLaneFiles', () => {
       await writeFile(resolve(out, 'walkthrough.md'), '# old');
       const worktree = Object.create(ReviewWorktreeService.prototype) as ReviewWorktreeService;
       const files = new ReviewLaneFiles(worktree, async () => ({ repoRoot: resolve('repo'), attemptsRoot: root }));
-      await files.clearOutput(attempt);
+      await files.clearOutput(attempt, false);
       await expect(readFile(resolve(out, 'lane-output.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      // A lens lane keeps the triage walkthrough for publication.
+      expect(await readFile(resolve(out, 'walkthrough.md'), 'utf8')).toBe('# old');
+      await files.clearOutput(attempt, true);
       await expect(readFile(resolve(out, 'walkthrough.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      await files.clearOutput(attempt);
+      await files.clearOutput(attempt, true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
