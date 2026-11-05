@@ -78,3 +78,5 @@ Decision model served from Chappie: user unit `ptah-chappie-ollama.service` tunn
 ## Lane limits (agent-lanes §5)
 
 - grok (cli grok, family grok): confirmed usage limit 2026-11-04 22:40Z — `402 Payment Required: Grok Build usage balance exhausted`; list row weekly 98%, resets 2026-11-10 17:40 UTC. Skip grok for the rest of this run.
+- antigravity (cli antigravity, family antigravity): confirmed usage limit 2026-11-04 23:55Z — `RESOURCE_EXHAUSTED 429: Individual quota reached`, resets in ~159 h. Skip for this run.
+- Ollama Code (ptahCliId pc-f3384f72-…, family ollama-cloud): list row weekly 100%, resets 2026-11-09 00:00 UTC. Fix-round re-review went to codex instead.
