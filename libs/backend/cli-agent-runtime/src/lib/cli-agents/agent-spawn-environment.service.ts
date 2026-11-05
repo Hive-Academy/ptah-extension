@@ -37,6 +37,11 @@ import {
 } from './agent-process-manager-helpers';
 
 import type { LaneBudgetThresholds } from './lane-budget-guard';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+
+export interface IAgentSpawnTrustedRoots {
+  roots(): readonly string[];
+}
 
 /** Mirrors the `FILE_BASED_SETTINGS_DEFAULTS` lane-guard values. */
 const DEFAULT_LANE_GUARD_THRESHOLDS: LaneBudgetThresholds = {
@@ -99,6 +104,8 @@ export class AgentSpawnEnvironment {
      */
     @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
     private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_SPAWN_TRUSTED_ROOTS, { isOptional: true })
+    private readonly trustedRoots: IAgentSpawnTrustedRoots | null = null,
   ) {}
 
   /**
@@ -428,8 +435,19 @@ export class AgentSpawnEnvironment {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Cannot resolve working directory scope: ${message}`);
     }
+    const resolvedRoots = await Promise.allSettled(
+      (this.trustedRoots?.roots() ?? []).map((root) => fsPromises.realpath(root)),
+    );
+    const realTrustedRoots = resolvedRoots.flatMap((result) => {
+      if (result.status === 'fulfilled') return [result.value];
+      // degradation-audit: reported — an optional trusted root may not exist yet; the workspace and other roots still validate.
+      this.logger.warn('[AgentSpawnEnvironment] Skipping unresolved trusted root', {
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+      return [];
+    });
 
-    if (!isPathWithinRoots(realDirectory, [realWorkspaceRoot])) {
+    if (!isPathWithinRoots(realDirectory, [realWorkspaceRoot, ...realTrustedRoots])) {
       throw new Error(
         `Working directory must be within workspace root. ` +
           `Got: ${dir}, Expected root: ${workspaceRoot}`,

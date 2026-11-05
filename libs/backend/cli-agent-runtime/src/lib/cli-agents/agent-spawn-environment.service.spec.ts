@@ -63,6 +63,7 @@ function makeEnvironment(
     harnessPreflight?: { ensure: jest.Mock } | null;
     mcpServerStatus?: IMcpServerStatus | null;
     resolver?: ICallerWorkspaceResolver | null;
+    trustedRoots?: readonly string[];
   } = {},
 ): EnvironmentHarness {
   const config = options.config ?? {};
@@ -114,6 +115,7 @@ function makeEnvironment(
     (options.harnessPreflight ?? null) as unknown as EnvironmentArgs[5],
     options.mcpServerStatus ?? null,
     options.resolver ?? null,
+    options.trustedRoots ? { roots: () => options.trustedRoots ?? [] } : null,
   );
   return { environment, logger, sentryService, cliDetection };
 }
@@ -516,6 +518,31 @@ describe('AgentSpawnEnvironment', () => {
   });
 
   describe('validateWorkingDirectory() — no resolver registered', () => {
+    it('accepts the workspace and an injected trusted root, but rejects other directories', async () => {
+      const { environment } = makeEnvironment({ trustedRoots: [ROOT_B] });
+      await expect(environment.validateWorkingDirectory(`${ROOT_A}\\src`)).resolves.toBeUndefined();
+      await expect(environment.validateWorkingDirectory(`${ROOT_B}\\attempt-1`)).resolves.toBeUndefined();
+      await expect(environment.validateWorkingDirectory('D:\\outside\\attempt-1')).rejects.toThrow(/within workspace root/);
+    });
+
+    it('skips an absent trusted root while keeping workspace validation', async () => {
+      const { environment, logger } = makeEnvironment({ trustedRoots: [ROOT_B] });
+      mockedRealpath.mockImplementation(async (input) => {
+        if (String(input) === ROOT_B) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        return String(input);
+      });
+      await expect(environment.validateWorkingDirectory(`${ROOT_A}\\src`)).resolves.toBeUndefined();
+      await expect(environment.validateWorkingDirectory('D:\\outside\\src')).rejects.toThrow(/within workspace root/);
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Skipping unresolved trusted root'), expect.any(Object));
+    });
+
+    it('rejects a symlink from a trusted root to a directory outside it', async () => {
+      const { environment } = makeEnvironment({ trustedRoots: [ROOT_B] });
+      mockedRealpath.mockImplementation(async (input) =>
+        String(input) === `${ROOT_B}\\linked` ? 'D:\\outside\\payload' : String(input));
+      await expect(environment.validateWorkingDirectory(`${ROOT_B}\\linked`)).rejects.toThrow(/within workspace root/);
+    });
+
     it('validates the working directory against the platform provider root, as before', async () => {
       const { environment } = makeEnvironment({ providerRoot: ROOT_A });
       await expect(
