@@ -42,7 +42,7 @@ import type { OperatorSettings, RepositorySettings } from '@ptah-extension/revie
                       class="checkbox checkbox-sm"
                       [checked]="repo.dryRun"
                       [disabled]="
-                        !hasToken() || !botConnected()
+                        repo.dryRun && (!hasToken() || !botConnected())
                       "
                       (change)="dryRunChanged.emit({ repo, event: $event })"
                     />Keep this repository in dry-run</label

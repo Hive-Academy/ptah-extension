@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { StringDecoder } from 'node:string_decoder';
 import { z } from 'zod';
 import { RepoIdentitySchema, type RepoIdentity } from '@ptah-extension/review-contracts';
 import type { IReviewCommandRunner, ReviewCommandResult, ReviewRoots } from '@ptah-extension/review-core';
@@ -105,6 +106,8 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
         stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
+      const stdoutDecoder = new StringDecoder('utf8');
+      const stderrDecoder = new StringDecoder('utf8');
       let timedOut = false;
       let finished = false;
       const abort = (): void => { timedOut = true; child.kill(); };
@@ -117,7 +120,7 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
       }, input.timeoutMs);
       child.once('exit', () => clearTimeout(timer));
       const append = (target: 'stdout' | 'stderr', chunk: Buffer): void => {
-        const value = chunk.toString('utf8');
+        const value = (target === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
         if (target === 'stdout') stdout = (stdout + value).slice(0, maxOutputBytes);
         else stderr = (stderr + value).slice(0, maxOutputBytes);
         if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) >= maxOutputBytes || Buffer.byteLength(value) > maxOutputBytes) {
@@ -137,6 +140,8 @@ export class ReviewCommandRunner implements IReviewCommandRunner {
       child.once('close', (exitCode) => {
         if (finished) return;
         finished = true;
+        stdout += stdoutDecoder.end();
+        stderr += stderrDecoder.end();
         clearTimeout(timer);
         signal?.removeEventListener('abort', abort);
         settle({ exitCode, stdout, stderr, timedOut });

@@ -15,7 +15,7 @@ const rowSchema = z.object({ attempt_id: z.string(), owner: z.string(), name: z.
   started_at: z.number().nullable(), ended_at: z.number().nullable(), deadline_at: z.number().nullable(),
   config_snapshot_hash: z.string().nullable(), result_status: z.enum(['succeeded', 'partial', 'failed', 'superseded']).nullable(),
   failure_stage: z.string().nullable().optional(), failure_code: z.string().nullable().optional(), failure_message: z.string().nullable().optional(),
-  failure_count: z.number().optional(), next_eligible_at: z.number().nullable().optional() });
+  failure_count: z.number().nullable().optional(), next_eligible_at: z.number().nullable().optional() });
 const stageSchema = z.object({ stage: z.string(), state: z.string(), outcome: z.string().nullable(), family: z.string().nullable(), scope: z.string().nullable(),
   started_at: z.number().nullable(), ended_at: z.number().nullable(), error_summary: z.string().nullable(), artifact_path: z.string().nullable() });
 const findingSchema = z.object({ payload_json: z.string() });
@@ -62,7 +62,7 @@ export class ReviewQueryRepository implements IReviewQueryRepository {
       configHash: row.config_snapshot_hash,
       status, createdAt: iso(row.queued_at), startedAt: row.started_at === null ? null : iso(row.started_at),
       failure: row.failure_stage && row.failure_code && row.failure_message ? { stage: row.failure_stage, code: row.failure_code, message: row.failure_message } : null,
-      headRetry: row.failure_count === undefined ? null : { failureCount: row.failure_count,
+      headRetry: row.failure_count == null ? null : { failureCount: row.failure_count,
         nextEligibleAt: row.next_eligible_at == null ? null : iso(row.next_eligible_at), automaticRetriesStopped: row.failure_count >= 3 },
       completedAt: row.ended_at === null ? null : iso(row.ended_at),
       deadlineAt: row.deadline_at === null ? null : iso(row.deadline_at),

@@ -160,10 +160,18 @@ export class ReviewOrchestratorService {
         acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts, signal), signal);
       if (!publication) status = 'partial';
     } catch (error: unknown) {
-      status = 'failed';
-      const failure = classifyReviewFailure(error, failureStage);
-      this.logger.error(new Error('Review attempt failed: ' + failure.message), { attemptId: claim.attemptId, ...failure });
-      await this.repository.saveFailure(claim.attemptId, failure);
+      if (signal?.aborted) {
+        status = 'partial';
+      } else {
+        status = 'failed';
+        const failure = classifyReviewFailure(error, failureStage);
+        this.logger.error(new Error('Review attempt failed: ' + failure.message), { attemptId: claim.attemptId, ...failure });
+        try {
+          await this.repository.saveFailure(claim.attemptId, failure);
+        } catch (_saveError: unknown) {
+          this.logger.error('Review failure persistence failed', new Error('Review failure persistence failed'));
+        }
+      }
     } finally {
       clearInterval(heartbeat);
       await Promise.allSettled(pendingHeartbeats);

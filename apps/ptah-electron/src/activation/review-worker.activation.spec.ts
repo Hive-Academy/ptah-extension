@@ -58,7 +58,7 @@ describe('review worker activation', () => {
     ];
     const handlers = new Map<string, (context: { signal: AbortSignal }) => Promise<unknown>>();
     const pollAndRecord = jest.fn(async (repo: { owner: string }) => {
-      if (repo.owner === 'One') throw new Error('poll failed');
+      if (repo.owner === 'One') throw new Error('ghp_secret_poll_credential');
       return 2;
     });
     const scope = container.createChildContainer();
@@ -79,7 +79,8 @@ describe('review worker activation', () => {
     // The worker passes strict identities, never the full settings entry.
     expect(pollAndRecord).toHaveBeenCalledWith({ owner: 'One', name: 'Alpha' });
     expect(pollAndRecord).toHaveBeenCalledWith({ owner: 'Two', name: 'Beta' });
-    expect(logger.error).toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith('Review poll failed', new Error('Review poll failed'));
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('ghp_secret');
     handle?.dispose();
   });
   it('routes startup polling through the orchestrator and logs failure', async () => {
@@ -99,6 +100,6 @@ describe('review worker activation', () => {
       handle?.dispose();
       await handle?.awaitStopped();
       expect(startupPoll).toHaveBeenCalledWith(null, { owner: repo.owner, name: repo.name });
-      expect(logger.error).toHaveBeenCalledWith('Review startup poll failed', expect.any(Error));
+      expect(logger.error).toHaveBeenCalledWith('Review startup poll failed', new Error('Review startup poll failed'));
   });
 });

@@ -71,6 +71,27 @@ function fixture() {
 }
 
 describe('ReviewOrchestratorService', () => {
+  it('does not save a failure when shutdown aborts an in-flight attempt', async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.contextRun.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new Error('shutdown');
+    });
+    await f.coordinator.drain('worker', Date.now() + 500, controller.signal);
+    expect(f.repository.saveFailure).not.toHaveBeenCalled();
+    expect(f.release).not.toHaveBeenCalled();
+  });
+
+  it('contains failure persistence errors and releases the attempt as failed', async () => {
+    const f = fixture();
+    f.contextRun.mockRejectedValueOnce(new Error('stage failed'));
+    jest.mocked(f.repository.saveFailure).mockRejectedValueOnce(new Error('secret persistence failure'));
+    await expect(f.coordinator.drain('worker', Date.now() + 500)).resolves.toBeDefined();
+    expect(f.release).toHaveBeenCalledWith(claim.attemptId, 'worker', 'failed');
+    expect(f.logger.error).toHaveBeenCalledWith('Review failure persistence failed',
+      new Error('Review failure persistence failed'));
+  });
   it('persists and logs redacted failure details', async () => {
     const f = fixture();
     f.contextRun.mockRejectedValueOnce(new Error('failed at C:\\private\\repo with ghp_123456789012345678901234'));

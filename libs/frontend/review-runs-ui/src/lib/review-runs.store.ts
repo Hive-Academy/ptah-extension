@@ -122,6 +122,7 @@ export class ReviewRunsStore {
     this.refreshError.set(false);
     this.refreshErrorMessage.set(null);
     let selectedRepo: RepositorySettings | null = null;
+    const previousPoll = this.poll();
     try {
       const repo =
         this.repositories().find((entry) =>
@@ -142,6 +143,15 @@ export class ReviewRunsStore {
       );
       if (!result.ok) throw new Error('Review poll failed');
       await this.load();
+      this.isRefreshing.set(true);
+      const deadline = Date.now() + REVIEW_REFRESH_TIMEOUT_MS;
+      while (this.state() === 'ready' && Date.now() < deadline &&
+        this.poll()?.lastSuccessAt === previousPoll?.lastSuccessAt &&
+        this.poll()?.lastErrorAt === previousPoll?.lastErrorAt) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+        await this.load();
+        this.isRefreshing.set(true);
+      }
       if (this.poll()?.status === 'failed') {
         this.refreshError.set(true);
         if (selectedRepo && this.poll()?.error?.startsWith('No local checkout of '))
@@ -366,7 +376,7 @@ export class ReviewRunsStore {
     try {
       const result = await this.request(
         'review:setPublicationPause',
-        ReviewRpcSchemas['review:setPublicationPause'].params.parse({ paused, repo }),
+        ReviewRpcSchemas['review:setPublicationPause'].params.parse({ paused, repo: repo ? { owner: repo.owner, name: repo.name } : undefined }),
         ReviewRpcSchemas['review:setPublicationPause'].result,
       );
       if (!result.ok) throw new Error('Publication pause update failed');

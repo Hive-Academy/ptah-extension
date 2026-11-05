@@ -30,7 +30,7 @@ export async function startReviewWorker(
       try {
         const last = await orchestrator.lastPollAt(repo);
         if (last === null || Date.now() - last >= settings.pollMinutes * 60_000) count += await orchestrator.pollAndRecord(repo);
-      } catch (error: unknown) { logger.error('Review poll failed', error instanceof Error ? error : new Error(String(error))); }
+      } catch (_error: unknown) { logger.error('Review poll failed', new Error('Review poll failed')); }
     }
     return { summary: `Enqueued ${count} review heads` };
   });
@@ -43,7 +43,7 @@ export async function startReviewWorker(
       .map((entry) => ({ owner: entry.owner, name: entry.name }));
     for (const repo of enabled) {
       try { await orchestrator.startupPoll(await orchestrator.lastPollAt(repo), repo); }
-      catch (error: unknown) { logger.error('Review startup poll failed', error instanceof Error ? error : new Error(String(error))); }
+      catch (_error: unknown) { logger.error('Review startup poll failed', new Error('Review startup poll failed')); }
     }
   } catch (_error: unknown) {
     logger.error('Review startup poll failed', new Error('Review startup poll failed'));

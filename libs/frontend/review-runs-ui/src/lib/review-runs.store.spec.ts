@@ -104,6 +104,7 @@ describe('ReviewRunsStore', () => {
         lastErrorAt: null,
       },
     };
+    let refreshed = false;
     call.mockImplementation((method: string) =>
       Promise.resolve({
         isSuccess: () => true,
@@ -111,8 +112,8 @@ describe('ReviewRunsStore', () => {
           method === 'review:listRepositories'
             ? repositories
             : method === 'review:listRuns'
-              ? list
-              : { ok: true },
+              ? { ...list, poll: { ...list.poll, lastSuccessAt: refreshed ? '2026-11-03T10:00:00.000Z' : null } }
+              : (refreshed = true, { ok: true }),
       }),
     );
     await store.load();
@@ -144,6 +145,30 @@ describe('ReviewRunsStore', () => {
     expect(store.refreshError()).toBe(true);
     expect(store.runs()).toEqual([run]);
     expect(store.isRefreshing()).toBe(false);
+  });
+
+  it('reloads again when a non-blocking refresh poll completes', async () => {
+    jest.useFakeTimers();
+    let listCalls = 0;
+    call.mockImplementation((method: string) => Promise.resolve({
+      isSuccess: () => true,
+      data: method === 'review:listRepositories'
+        ? [{ owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false }]
+        : method === 'review:refresh' ? { ok: true } : {
+          runs: ++listCalls >= 3 ? [run] : [], nextCursor: null,
+          poll: { status: 'succeeded', error: null,
+            lastSuccessAt: listCalls >= 3 ? '2026-11-03T10:00:00.000Z' : null, lastErrorAt: null },
+        },
+    }));
+    try {
+      await store.load();
+      const refresh = store.refresh();
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await refresh;
+      expect(store.runs()).toEqual([run]);
+      expect(listCalls).toBe(3);
+    } finally { jest.useRealTimers(); }
   });
 
   it('reloads after a timed-out Refresh and keeps the failed poll visible', async () => {
@@ -304,6 +329,21 @@ describe('ReviewRunsStore', () => {
       'Publication pause update failed',
       expect.any(Error),
     );
+  });
+  it('sends only repository identity for a publication pause', async () => {
+    const repo = { owner: 'Hive-Academy', name: 'PtahCode', enabled: true, dryRun: true, publicationPaused: false };
+    const settings = { repositories: [repo], maintainerLogins: ['maintainer'], pollMinutes: 30,
+      globalPublicationPaused: false, laneCapPerPr: 6, confidenceFloor: 0.8,
+      maxNewInline: 10, fallbackFamilies: [] };
+    call.mockResolvedValueOnce({ isSuccess: () => true,
+      data: { settings, hasToken: true, tokenStorage: 'encrypted' } })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: null })
+      .mockResolvedValueOnce({ isSuccess: () => true, data: { ok: true } });
+    await store.loadSettings();
+    await store.setPublicationPause(true, true, repo);
+    expect(call).toHaveBeenLastCalledWith('review:setPublicationPause',
+      { paused: true, repo: { owner: repo.owner, name: repo.name } }, { timeout: 5_000 });
+    expect(store.settings()?.repositories[0].publicationPaused).toBe(true);
   });
   it('does not turn publication pause off without explicit confirmation', async () => {
     const settings = {

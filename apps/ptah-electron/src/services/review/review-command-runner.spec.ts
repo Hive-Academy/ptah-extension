@@ -27,6 +27,33 @@ function mockChild(largeOutput: boolean): childProcess.ChildProcess {
 }
 
 describe('ReviewCommandRunner', () => {
+  it('preserves a UTF-8 filename split between stdout chunks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ptah-review-utf8-'));
+    const checkout = join(root, 'repo');
+    const attempts = join(root, 'attempts');
+    const source = join(attempts, 'claim', 'src');
+    await Promise.all([mkdir(checkout), mkdir(source, { recursive: true })]);
+    try {
+      jest.mocked(childProcess.spawn).mockImplementationOnce(() => {
+        const stdout = new PassThrough();
+        const stderr = new PassThrough();
+        const child = Object.assign(new childProcess.ChildProcess(), { stdout, stderr });
+        jest.spyOn(child, 'kill').mockReturnValue(true);
+        queueMicrotask(() => {
+          const bytes = Buffer.from('café.ts\0');
+          stdout.emit('data', bytes.subarray(0, 4));
+          stdout.emit('data', bytes.subarray(4));
+          Object.defineProperty(child, 'exitCode', { value: 0, configurable: true });
+          child.emit('exit', 0, null);
+          child.emit('close', 0, null);
+        });
+        return child;
+      });
+      const runner = new ReviewCommandRunner(async () => ({ repoRoot: checkout, attemptsRoot: attempts }));
+      await expect(runner.run(repoA, 'git', ['ls-files', '-s', '-z'], source, 1_000))
+        .resolves.toMatchObject({ stdout: 'café.ts\0', timedOut: false });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   beforeEach(() => {
     jest.mocked(childProcess.spawn).mockImplementation((_command, args) =>
       mockChild(args?.[0] === '-e' || args?.[0] === 'ls-files'));

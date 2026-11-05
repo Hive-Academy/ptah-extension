@@ -66,6 +66,15 @@ describe('ReviewQueryRepository', () => {
       db.prepare(`INSERT INTO review_poll_state (repo_id, last_error_at, last_error)
         VALUES ('hive-academy/ptahcode', ?, 'github-poll-failed')`).run(now + 5);
       expect(await query.getRun('a4')).toMatchObject({ configHash: null, deadlineAt: null, coverage: [] });
+      db.pragma('foreign_keys = OFF');
+      db.prepare('DELETE FROM review_heads WHERE repo_id = ? AND pr_number = ? AND head_sha = ?')
+        .run('hive-academy/ptahcode', 1, sha);
+      db.pragma('foreign_keys = ON');
+      expect(await query.getRun('a4')).toMatchObject({ headRetry: null });
+      expect((await query.listRuns({ limit: 10 })).runs.find((run) => run.attemptId === 'a4'))
+        .toMatchObject({ headRetry: null });
+      db.prepare(`INSERT INTO review_heads (repo_id, pr_number, head_sha, state, discovered_at)
+        VALUES ('hive-academy/ptahcode', 1, ?, 'active', ?)`).run(sha, now);
       expect((await query.listRuns({ limit: 10 })).runs.find((run) => run.attemptId === 'a5'))
         .toMatchObject({ status: 'superseded' });
       expect(await query.getRun('a5')).toMatchObject({ status: 'superseded' });
