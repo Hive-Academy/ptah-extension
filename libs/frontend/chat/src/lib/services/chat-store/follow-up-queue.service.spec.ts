@@ -336,7 +336,7 @@ describe('FollowUpQueueService', () => {
       expect(service.endStop(S1)).toEqual([{
         clientMessageId: item.clientMessageId, content: 'recover me', tabId: 'tab-1',
       }]);
-      expect(store.get(item.clientMessageId)).toBeUndefined();
+      expect(store.get(item.clientMessageId)).toBeNull();
     });
     it('restores a withdrawn item to its originating tab', async () => {
       tabs.set([makeTab(), makeTab({ id: 'tab-2', claudeSessionId: S1 })]);
