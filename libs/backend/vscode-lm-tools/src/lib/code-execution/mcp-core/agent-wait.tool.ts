@@ -287,6 +287,9 @@ function stopReasonOf(info: AgentProcessInfo): string {
     case 'timeout':
       return 'no output for the inactivity window, treated as hung and killed';
     case 'stopped':
+      if (info.stopReason === 'host-restarted') {
+        return 'interrupted by a Ptah host restart; resume its CLI session';
+      }
       return info.stopReason === 'repeat-call'
         ? 'stopped by Ptah: repeated the same call in a loop'
         : 'stopped on request';

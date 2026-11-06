@@ -576,9 +576,8 @@ export interface MonitoredAgent {
   /** Classified failure reason of the run, from `AgentProcessInfo`. */
   failureKind?: AgentFailureKind;
   /**
-   * Why the host stopped the lane (`repeat-call`).
-   * Copied from `AgentProcessInfo.stopReason`. Absent when the lane ended
-   * on its own or the caller stopped it.
+   * Why the host stopped the lane, including an interruption by a host restart.
+   * Copied from `AgentProcessInfo.stopReason` or derived during history restore.
    */
   stopReason?: LaneStopReason;
   /**
@@ -2128,7 +2127,6 @@ export class AgentMonitorStore implements OnDestroy {
   ): void {
     if (cliSessions.length === 0) return;
     const parentSessionId = knownSessionId(rawParentSessionId);
-
     this.updateAgents((list) => {
       // Finished cards of this session are rebuilt from `cliSessions`. A card
       // this app run watched live keeps what it folded (see liveUsageOf).
@@ -2148,6 +2146,9 @@ export class AgentMonitorStore implements OnDestroy {
         const live = liveUsageOf(rebuilt.get(ref.agentId), ref);
 
         const ts = new Date(ref.startedAt).getTime();
+        // The backend restore read already turned a lane left running by an
+        // earlier host run into `stopped`/`host-restarted` with a bounded
+        // instant. A `running` ref here names a lane live in this host run.
         const completedAt =
           ref.completedAt === undefined ? NaN : Date.parse(ref.completedAt);
         const restoredEvents = ref.streamEvents ? [...ref.streamEvents] : [];
@@ -2166,6 +2167,9 @@ export class AgentMonitorStore implements OnDestroy {
           model: ref.model,
           task: ref.task,
           status: ref.status,
+          ...(ref.stopReason !== undefined
+            ? { stopReason: ref.stopReason }
+            : {}),
           startedAt: Number.isNaN(ts) ? Date.now() : ts,
           completedAt: Number.isNaN(completedAt) ? undefined : completedAt,
           // Persisted stdout is kept to 100 KB by the backend, twice the live

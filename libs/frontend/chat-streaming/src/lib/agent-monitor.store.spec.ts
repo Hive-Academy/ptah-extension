@@ -607,6 +607,59 @@ describe('AgentMonitorStore', () => {
     ).toBeUndefined();
   });
 
+  it('shows a backend-normalized host interruption at its stored instant', () => {
+    const interruptedId = AgentId.create();
+    const interruptedAt = '2026-10-17T10:05:30.000Z';
+    store.loadCliSessions(
+      [
+        {
+          cliSessionId: 'cli-interrupted',
+          cli: 'codex',
+          agentId: interruptedId,
+          task: 'Review',
+          startedAt: '2026-10-17T09:05:30.000Z',
+          completedAt: interruptedAt,
+          lastActivityAt: interruptedAt,
+          status: 'stopped',
+          stopReason: 'host-restarted',
+        },
+      ],
+      'session-1',
+    );
+
+    expect(
+      store.agents().find((agent) => agent.agentId === interruptedId),
+    ).toMatchObject({
+      status: 'stopped',
+      stopReason: 'host-restarted',
+      completedAt: Date.parse(interruptedAt),
+      restored: true,
+    });
+  });
+
+  it('keeps a lane the backend reports running as live, not interrupted', () => {
+    const liveId = AgentId.create();
+    store.loadCliSessions(
+      [
+        {
+          cliSessionId: 'cli-live',
+          cli: 'codex',
+          agentId: liveId,
+          task: 'Review',
+          startedAt: '2026-10-17T09:05:30.000Z',
+          lastActivityAt: '2026-10-17T10:05:30.000Z',
+          status: 'running',
+        },
+      ],
+      'session-1',
+    );
+
+    const restored = store.agents().find((agent) => agent.agentId === liveId);
+    expect(restored?.status).toBe('running');
+    expect(restored?.stopReason).toBeUndefined();
+    expect(restored?.completedAt).toBeUndefined();
+  });
+
   function spawnAgent(
     agentId: string,
     parentSessionId?: string,

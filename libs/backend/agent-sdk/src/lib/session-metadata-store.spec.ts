@@ -53,6 +53,14 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import { createCodexThreadIdentityStore } from './wiring/codex-thread-identity-store';
+import * as hostRunIdModule from './host-run-id';
+import {
+  HOST_RUN_HEARTBEAT_INTERVAL_MS,
+  HOST_RUN_LEASE_KEY,
+  HOST_RUN_LEASE_RETENTION_MS,
+  HOST_RUN_STALE_AFTER_MS,
+} from './host-run-lease';
+import { currentHostRunId } from './host-run-id';
 import { initializeSessionRuntimeIdentityLookup } from './wiring/session-runtime-identity-cache';
 import type {
   AgentId,
@@ -120,6 +128,11 @@ describe('SessionMetadataStore', () => {
     storage = createMockStateStorage();
     logger = createMockLogger();
     store = new SessionMetadataStore(storage, asLogger(logger));
+  });
+
+  // A running reference arms the host-run heartbeat; stop it after each test.
+  afterEach(async () => {
+    await flushSessionMetadataStores();
   });
 
   // -------------------------------------------------------------------------
@@ -1694,6 +1707,178 @@ describe('SessionMetadataStore', () => {
       expect(refs).toEqual([
         cliRef({ cliSessionId: 'cli-a', agentId: 'agent-a' as AgentId }),
       ]);
+    });
+
+    it('leaves a running reference written by this host run live', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ status: 'running', completedAt: undefined }),
+      );
+
+      const [read] = await store.getCliSessionsForRestore('sess-1');
+      expect(read.status).toBe('running');
+      expect(read.stopReason).toBeUndefined();
+      expect(read.completedAt).toBeUndefined();
+      expect(read).not.toHaveProperty('hostRunId');
+
+      const reloaded = new SessionMetadataStore(storage, asLogger(logger));
+      const [again] = await reloaded.getCliSessionsForRestore('sess-1');
+      const stored = await reloaded.get('sess-1');
+      expect(again.status).toBe('running');
+      expect(stored?.cliSessions?.[0]).toMatchObject({
+        status: 'running',
+        hostRunId: currentHostRunId(),
+      });
+    });
+
+    describe('across host runs sharing one store', () => {
+      const T0 = Date.parse('2026-10-17T12:00:00.000Z');
+      let hostRun: jest.SpyInstance<string, []>;
+
+      beforeEach(() => {
+        jest.useFakeTimers();
+        jest.setSystemTime(T0);
+        hostRun = jest.spyOn(hostRunIdModule, 'currentHostRunId');
+      });
+
+      afterEach(async () => {
+        await flushSessionMetadataStores();
+        hostRun.mockRestore();
+        jest.useRealTimers();
+      });
+
+      /** Host A persists a running lane, then host B opens the same store. */
+      async function runningLaneOfHostA(): Promise<{
+        hostA: SessionMetadataStore;
+        hostB: SessionMetadataStore;
+      }> {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        await hostA.addCliSession(
+          'sess-1',
+          cliRef({ status: 'running', completedAt: undefined }),
+        );
+        await hostA.flush();
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = new SessionMetadataStore(storage, asLogger(logger));
+        return { hostA, hostB };
+      }
+
+      async function storedRef(
+        reader: SessionMetadataStore,
+      ): Promise<CliSessionReference | undefined> {
+        return (await reader.get('sess-1'))?.cliSessions?.[0];
+      }
+
+      it('keeps a lane of another live host running and unchanged on disk', async () => {
+        const { hostB } = await runningLaneOfHostA();
+        // Host A keeps beating: its interval fires inside this window.
+        await jest.advanceTimersByTimeAsync(120_000);
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('running');
+        expect(read.stopReason).toBeUndefined();
+        expect(await storedRef(hostB)).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
+          'host-run-a': T0 + 120_000,
+        });
+      });
+
+      it('interrupts a lane once after its host stops beating', async () => {
+        const { hostA, hostB } = await runningLaneOfHostA();
+        // A crash: the heartbeat timer dies with the process, the entry stays.
+        await hostA.flushForShutdown();
+        await storage.update(HOST_RUN_LEASE_KEY, { 'host-run-a': T0 });
+        await jest.advanceTimersByTimeAsync(HOST_RUN_STALE_AFTER_MS + 1_000);
+        const firstRestoreAt = Date.now();
+
+        const [first] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(first).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restarted',
+          completedAt: new Date(firstRestoreAt).toISOString(),
+          lastActivityAt: new Date(firstRestoreAt).toISOString(),
+        });
+        expect(first).not.toHaveProperty('hostRunId');
+        expect(await storedRef(hostB)).not.toHaveProperty('hostRunId');
+
+        jest.setSystemTime(firstRestoreAt + 601_000);
+        hostRun.mockReturnValue('host-run-c');
+        const laterHost = new SessionMetadataStore(storage, asLogger(logger));
+        const [second] = await laterHost.getCliSessionsForRestore('sess-1');
+
+        expect(second).toEqual(first);
+        expect(second.lastActivityAt).toBe(first.lastActivityAt);
+      });
+
+      it('interrupts a lane at once after its host exited cleanly', async () => {
+        const { hostA, hostB } = await runningLaneOfHostA();
+        await hostA.flushForShutdown();
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restarted',
+        });
+        expect(storage.__state.entries.has(HOST_RUN_LEASE_KEY)).toBe(false);
+      });
+
+      it('disposes the heartbeat timer on shutdown', async () => {
+        const { hostA } = await runningLaneOfHostA();
+        expect(jest.getTimerCount()).toBe(1);
+
+        await hostA.flushForShutdown();
+
+        expect(jest.getTimerCount()).toBe(0);
+        await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS * 3);
+        expect(storage.__state.entries.has(HOST_RUN_LEASE_KEY)).toBe(false);
+      });
+
+      it('prunes expired, future and malformed lease entries on heartbeat', async () => {
+        await storage.update(HOST_RUN_LEASE_KEY, {
+          'host-run-old': T0 - HOST_RUN_LEASE_RETENTION_MS - 1,
+          'host-run-recent': T0 - 60_000,
+          'host-run-future': T0 + 3_600_000,
+        });
+        await runningLaneOfHostA();
+
+        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
+          'host-run-a': T0,
+          'host-run-recent': T0 - 60_000,
+        });
+
+        await storage.update(HOST_RUN_LEASE_KEY, { 'host-run-x': 'yesterday' });
+        await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS);
+        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
+          'host-run-a': T0 + HOST_RUN_HEARTBEAT_INTERVAL_MS,
+        });
+      });
+    });
+
+    it('interrupts a legacy running reference that has no host-run stamp', async () => {
+      storage.__state.seed(METADATA_KEY, [
+        fatDetail([
+          {
+            ...fatRef('agent-a', 'cli-a'),
+            status: 'running',
+            completedAt: undefined,
+          },
+        ]),
+      ]);
+
+      const [read] = await store.getCliSessionsForRestore('sess-1');
+
+      expect(read).toMatchObject({
+        status: 'stopped',
+        stopReason: 'host-restarted',
+      });
     });
 
     it('returns an empty list for a session with no CLI agents', async () => {

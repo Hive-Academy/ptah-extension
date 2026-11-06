@@ -208,6 +208,8 @@ export interface AgentProcessInfo {
   turnSeq?: number;
   /** ISO timestamp when agent finished (completed/failed/stopped/timeout). Used to freeze timer display. */
   completedAt?: string;
+  /** ISO timestamp of the latest lane output or terminal event. */
+  lastActivityAt?: string;
   exitCode?: number;
   readonly pid?: number;
   /** CLI-native session ID from the init event. Enables session resume. */
@@ -278,8 +280,8 @@ export interface AgentProcessInfo {
    */
   readonly originalTask?: string;
   /**
-   * Why the lane ended: a host repeat-call guard or a classified provider
-   * limit/auth error. Unset for ordinary completion and caller stops.
+   * Why the lane ended: a host restart, repeat-call guard, or a classified
+   * provider limit/auth error. Unset for ordinary completion and caller stops.
    */
   stopReason?: LaneStopReason;
   /** Known provider reset time, in Unix milliseconds, for a usage-limit exit. */
@@ -300,12 +302,11 @@ export interface AgentProcessInfo {
 }
 
 /**
- * Why the host's lane guard stopped a lane (TASK_2026_597, R9.4):
- * `repeat-call` — it repeated one identical tool call up to the repeat
- * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
- * tool-call budget; a repeat loop is the only host stop.
+ * Why the host ended a lane: `host-restarted` marks a persisted `running`
+ * process that the previous host run left behind. The other values name lane
+ * guard and provider failures.
  */
-export type LaneStopReason = 'repeat-call' | 'usage-limit' | 'auth' | 'session-mismatch';
+export type LaneStopReason = 'host-restarted' | 'repeat-call' | 'usage-limit' | 'auth' | 'session-mismatch';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -702,8 +703,18 @@ export interface CliSessionReference {
   readonly startedAt: string;
   /** ISO timestamp when the CLI run finished. Absent in older sessions. */
   readonly completedAt?: string;
+  /** ISO timestamp of the last observed output or event. Absent in older sessions. */
+  readonly lastActivityAt?: string;
   /** Final agent status */
   readonly status: AgentStatus;
+  /** Why the host stopped the lane. Persisted with an interrupted restore. */
+  readonly stopReason?: LaneStopReason;
+  /**
+   * Host process run that wrote a `running` reference; internal restore
+   * bookkeeping, never returned by the restore read. A running reference from
+   * another run (or with none) is durably normalized as `host-restarted`.
+   */
+  readonly hostRunId?: string;
   /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */
   readonly stdout?: string;
   /** Persisted structured output segments. Absent in older sessions. */

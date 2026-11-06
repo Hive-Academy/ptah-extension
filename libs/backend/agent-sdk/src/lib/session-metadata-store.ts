@@ -58,6 +58,13 @@ import {
   type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
+import { currentHostRunId } from './host-run-id';
+import {
+  HOST_RUN_LEASE_KEY,
+  HostRunLease,
+  isHostRunLive,
+  type HostRunLeases,
+} from './host-run-lease';
 import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import {
@@ -849,6 +856,81 @@ function restoreQuotaOwner(ref: CliSessionReference): CliSessionReference {
     : { ...rest, ...scope };
 }
 
+const RESTORE_CLOCK_SKEW_MS = 60_000;
+const persistedActivitySchema = z.iso.datetime({ offset: true });
+
+/** A `running` reference another host run wrote, or a legacy unstamped one. */
+function isForeignRunningReference(ref: CliSessionReference): boolean {
+  return (
+    typeof ref === 'object' &&
+    ref !== null &&
+    ref.status === 'running' &&
+    ref.hostRunId !== currentHostRunId()
+  );
+}
+
+/**
+ * A foreign `running` reference whose writer is gone: unstamped (legacy), or
+ * its host run's heartbeat is missing or stale. A live other host sharing this
+ * store keeps its lanes `running`.
+ */
+function isStaleRunningReference(
+  ref: CliSessionReference,
+  leases: HostRunLeases,
+  now: number,
+): boolean {
+  return (
+    isForeignRunningReference(ref) &&
+    (ref.hostRunId === undefined || !isHostRunLive(leases, ref.hostRunId, now))
+  );
+}
+
+/** The host-run stamp is restore bookkeeping and never leaves the store. */
+function withoutHostRunId(ref: CliSessionReference): CliSessionReference {
+  if (typeof ref !== 'object' || ref === null || !('hostRunId' in ref)) {
+    return ref;
+  }
+  const { hostRunId: _hostRunId, ...rest } = ref;
+  return rest;
+}
+
+/** Only `running` references carry the stamp of the run that wrote them. */
+function stampHostRun(ref: CliSessionReference): CliSessionReference {
+  return ref.status === 'running'
+    ? { ...ref, hostRunId: currentHostRunId() }
+    : withoutHostRunId(ref);
+}
+
+/** Restore projection: validated owner, no internal host-run stamp. */
+function projectForRestore(ref: CliSessionReference): CliSessionReference {
+  return withoutHostRunId(restoreQuotaOwner(ref));
+}
+
+/** Normalize a process left running by an earlier host run exactly once. */
+function restoreInterruptedReference(
+  ref: CliSessionReference,
+  restoredAt: string,
+  leases: HostRunLeases,
+): CliSessionReference {
+  if (!isStaleRunningReference(ref, leases, Date.parse(restoredAt))) {
+    return ref;
+  }
+  const activity = persistedActivitySchema.safeParse(ref.lastActivityAt);
+  const interruptedAt =
+    activity.success &&
+    Date.parse(activity.data) <=
+      Date.parse(restoredAt) + RESTORE_CLOCK_SKEW_MS
+      ? activity.data
+      : restoredAt;
+  return {
+    ...withoutHostRunId(ref),
+    status: 'stopped',
+    completedAt: interruptedAt,
+    lastActivityAt: interruptedAt,
+    stopReason: 'host-restarted',
+  };
+}
+
 /**
  * Every live store, so a host's shutdown path can drain the coalesced write
  * queue without holding a container reference.
@@ -1049,7 +1131,17 @@ export class SessionMetadataStore {
     private readonly usageSink?: SessionUsageSink | null,
   ) {
     LIVE_STORES.add(new WeakRef(this));
+    this.hostLease = new HostRunLease(
+      {
+        read: () => this.readStorage<unknown>(HOST_RUN_LEASE_KEY),
+        write: (value) => this.storage.update(HOST_RUN_LEASE_KEY, value),
+      },
+      this.logger,
+    );
   }
+
+  /** This host run's heartbeat; armed by the first `running` reference write. */
+  private readonly hostLease: HostRunLease;
 
   /**
    * With the global store, agent output lives in its session's folder, so the
@@ -1693,6 +1785,8 @@ export class SessionMetadataStore {
    * the rejection to.
    */
   async flushForShutdown(): Promise<void> {
+    // Never throws: lease write failures are logged inside the lease.
+    await this.hostLease.dispose();
     if (this.strays.size > 0) {
       this.logger.warn(
         '[SessionMetadataStore] Shutdown with session metadata still in memory for inactive workspaces — not persisted',
@@ -2156,7 +2250,36 @@ export class SessionMetadataStore {
     sessionId: string,
   ): Promise<CliSessionReference[]> {
     const metadata = await this.get(sessionId);
-    return (metadata?.cliSessions ?? []).map(restoreQuotaOwner);
+    const stored = metadata?.cliSessions ?? [];
+    if (!stored.some(isForeignRunningReference)) {
+      return stored.map(projectForRestore);
+    }
+    const leases = await this.hostLease.read();
+    const now = Date.now();
+    if (!stored.some((ref) => isStaleRunningReference(ref, leases, now))) {
+      return stored.map(projectForRestore);
+    }
+
+    // A running reference whose host run is gone (no stamp, or no fresh
+    // heartbeat) gets one durable interruption instant, so later hosts cannot
+    // restart its resume grace period. References of this run, or of another
+    // live host sharing the store, are left alone: this read also runs when
+    // the UI opens a session.
+    let refs: readonly CliSessionReference[] = [];
+    await this.enqueueWrite(async () => {
+      const current = await this.get(sessionId);
+      if (!current) return;
+      const restoredAt = new Date().toISOString();
+      const existing = current.cliSessions ?? [];
+      refs = existing.map((ref) =>
+        restoreInterruptedReference(ref, restoredAt, leases),
+      );
+      if (refs.some((ref, index) => ref !== existing[index])) {
+        await this._saveInternal({ ...current, cliSessions: refs });
+        this.emitChange('updated', sessionId, current.workspaceId);
+      }
+    });
+    return refs.map(projectForRestore);
   }
 
   /**
@@ -2195,6 +2318,9 @@ export class SessionMetadataStore {
     sessionId: string,
     cliSession: CliSessionReference,
   ): Promise<void> {
+    // The heartbeat is durable before this run's first `running` reference,
+    // so another host reading the store never sees the reference unleased.
+    if (cliSession.status === 'running') await this.hostLease.start();
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
       if (!metadata) {
@@ -2220,9 +2346,11 @@ export class SessionMetadataStore {
         ...(prior?.replacesCliSessionIds ?? []),
       ]);
       allReplacedIds.delete(cliSession.cliSessionId);
-      const replacement: CliSessionReference = allReplacedIds.size > 0
-        ? { ...cliSession, replacesCliSessionIds: [...allReplacedIds] }
-        : cliSession;
+      const replacement: CliSessionReference = stampHostRun(
+        allReplacedIds.size > 0
+          ? { ...cliSession, replacesCliSessionIds: [...allReplacedIds] }
+          : cliSession,
+      );
 
       let updated: readonly CliSessionReference[];
       // Re-association: a session ID resumed under a new agent, or a new ID

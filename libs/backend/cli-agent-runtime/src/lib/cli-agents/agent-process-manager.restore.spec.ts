@@ -13,6 +13,7 @@
 import 'reflect-metadata';
 import type {
   ICallerWorkspaceResolver,
+  IOutputChannel,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type {
@@ -24,6 +25,10 @@ import { AgentProcessManager } from './agent-process-manager.service';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import {
+  LaneResumeGate,
+  type LaneResumeGateInput,
+} from './lane-resume-gate';
 
 // `readOutput` runs the id through `AgentId.from`, which validates the UUID
 // shape — spec ids have to be real v4-shaped strings, not readable labels.
@@ -39,6 +44,7 @@ function makeManager(options: {
   providerRoot: string | undefined;
   resolver?: ICallerWorkspaceResolver | null;
   rememberLaneOwner?: jest.Mock;
+  evaluateResume?: jest.Mock;
 }): AgentProcessManager {
   const logger = {
     info: jest.fn(),
@@ -91,8 +97,8 @@ function makeManager(options: {
         reason: 'chat-runtime-unavailable',
       })),
     } as unknown as Args[7],
-    // Never consulted: these tests make no resume spawn.
-    { evaluate: jest.fn() } as unknown as Args[8],
+    // The default is never consulted: these tests make no resume spawn.
+    { evaluate: options.evaluateResume ?? jest.fn() } as unknown as Args[8],
     // No quota owner and no ledger: plan limits are pinned by the manager spec.
     {
       ownerForLane: jest.fn(() => undefined),
@@ -218,24 +224,219 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(manager.readOutput(RESTORED_ID).stdout).toBe('live output');
   });
 
-  it("normalizes a ref persisted as 'running' to 'stopped' — its process died with the host", () => {
+  it("restores a ref persisted as 'running' as a host interruption without an exit code", () => {
     const manager = makeManager({ providerRoot: ROOT_A });
+    const lastActivityAt = '2026-09-01T10:59:30.000Z';
+
+    manager.restoreAgents(
+      [makeRef({ status: 'running', lastActivityAt })],
+      ROOT_A,
+    );
+
+    const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
+    expect(info).toMatchObject({
+      status: 'stopped',
+      stopReason: 'host-restarted',
+      completedAt: lastActivityAt,
+      lastActivityAt,
+    });
+    expect(info.exitCode).toBeUndefined();
+  });
+
+  it('loads an old running ref without activity and uses restore time as the interruption', () => {
+    const manager = makeManager({ providerRoot: ROOT_A });
+    const beforeRestore = Date.now();
 
     manager.restoreAgents([makeRef({ status: 'running' })], ROOT_A);
 
-    expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).status).toBe(
-      'stopped',
+    const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
+    expect(info.status).toBe('stopped');
+    expect(info.stopReason).toBe('host-restarted');
+    expect(Date.parse(info.lastActivityAt ?? '')).toBeGreaterThanOrEqual(
+      beforeRestore,
     );
+    expect(info.completedAt).toBe(info.lastActivityAt);
+  });
+
+  it('resumes an interrupted long-running lane from last activity, not spawn', async () => {
+    const evaluateResume = jest.fn().mockResolvedValue({
+      decision: 'resume',
+      reason: 'within the context and idle limits',
+      contextTokens: null,
+      source: 'estimate',
+      idleMs: 30_000,
+    });
+    const manager = makeManager({ providerRoot: ROOT_A, evaluateResume });
+    const now = Date.now();
+    const lastActivityAt = new Date(now - 30_000).toISOString();
+    manager.restoreAgents(
+      [
+        makeRef({
+          status: 'running',
+          startedAt: new Date(now - 3_600_000).toISOString(),
+          lastActivityAt,
+        }),
+      ],
+      ROOT_A,
+    );
+
+    const gated = await manager['gateResume'](
+      'Continue the work',
+      'cli-session-1',
+      'codex',
+    );
+
+    expect(evaluateResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliSessionId: 'cli-session-1',
+        lastActivityAt: Date.parse(lastActivityAt),
+      }),
+    );
+    expect(gated.resumeDecision).toEqual({
+      decision: 'resumed',
+      reason: 'within the context and idle limits',
+      sessionKnown: true,
+    });
+  });
+
+  it('refuses resume through the real gate after the idle limit', async () => {
+    const now = Date.now();
+    const output: IOutputChannel = {
+      name: 'Ptah',
+      appendLine: jest.fn(),
+      append: jest.fn(),
+      clear: jest.fn(),
+      show: jest.fn(),
+      dispose: jest.fn(),
+    };
+    const gate = new LaneResumeGate(
+      output,
+      jest.fn(async () => null),
+      () => now,
+    );
+    const evaluateResume = jest.fn((input: LaneResumeGateInput) =>
+      gate.evaluate(input),
+    );
+    const manager = makeManager({ providerRoot: ROOT_A, evaluateResume });
+    manager.restoreAgents(
+      [
+        makeRef({
+          cli: 'copilot',
+          status: 'running',
+          startedAt: new Date(now - 3_600_000).toISOString(),
+          lastActivityAt: new Date(now - 601_000).toISOString(),
+        }),
+      ],
+      ROOT_A,
+    );
+
+    const gated = await manager['gateResume'](
+      'Continue the work',
+      'cli-session-1',
+      'copilot',
+    );
+
+    expect(gated.resumeDecision).toEqual({
+      decision: 'fresh',
+      reason: 'idle 601s exceeds 600s',
+      sessionKnown: true,
+    });
+  });
+
+  it('clamps a future checkpoint before the real resume idle gate', async () => {
+    jest.useFakeTimers();
+    try {
+      const now = Date.parse('2026-10-17T12:00:00.000Z');
+      jest.setSystemTime(now);
+      const output: IOutputChannel = {
+        name: 'Ptah',
+        appendLine: jest.fn(),
+        append: jest.fn(),
+        clear: jest.fn(),
+        show: jest.fn(),
+        dispose: jest.fn(),
+      };
+      const gate = new LaneResumeGate(
+        output,
+        jest.fn(async () => null),
+        () => Date.now(),
+      );
+      const manager = makeManager({
+        providerRoot: ROOT_A,
+        evaluateResume: jest.fn((input: LaneResumeGateInput) =>
+          gate.evaluate(input),
+        ),
+      });
+      manager.restoreAgents(
+        [
+          makeRef({
+            cli: 'copilot',
+            status: 'running',
+            startedAt: new Date(now - 3_600_000).toISOString(),
+            lastActivityAt: new Date(now + 3_600_000).toISOString(),
+          }),
+        ],
+        ROOT_A,
+      );
+
+      jest.setSystemTime(now + 601_000);
+      const gated = await manager['gateResume'](
+        'Continue the work',
+        'cli-session-1',
+        'copilot',
+      );
+
+      expect(manager.findAgentInfo(RESTORED_ID)?.lastActivityAt).toBe(
+        new Date(now).toISOString(),
+      );
+      expect(gated.resumeDecision).toEqual({
+        decision: 'fresh',
+        reason: 'idle 601s exceeds 600s',
+        sessionKnown: true,
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('passes an interrupted legacy lane restore time to the resume gate', async () => {
+    const evaluateResume = jest.fn().mockResolvedValue({
+      decision: 'resume',
+      reason: 'within the context and idle limits',
+      contextTokens: null,
+      source: 'estimate',
+      idleMs: 0,
+    });
+    const manager = makeManager({ providerRoot: ROOT_A, evaluateResume });
+    const beforeRestore = Date.now();
+    manager.restoreAgents(
+      [
+        makeRef({
+          status: 'running',
+          startedAt: new Date(beforeRestore - 3_600_000).toISOString(),
+        }),
+      ],
+      ROOT_A,
+    );
+
+    await manager['gateResume']('Continue', 'cli-session-1', 'codex');
+
+    const input = evaluateResume.mock.calls[0][0] as { lastActivityAt: number };
+    expect(input.lastActivityAt).toBeGreaterThanOrEqual(beforeRestore);
+    expect(input.lastActivityAt).toBeLessThanOrEqual(Date.now());
   });
 
   it.each(['completed', 'failed', 'timeout', 'stopped'] as const)(
     'carries the terminal status %s through unchanged',
     (status) => {
       const manager = makeManager({ providerRoot: ROOT_A });
-      manager.restoreAgents([makeRef({ status })], ROOT_A);
-      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).status).toBe(
-        status,
+      manager.restoreAgents(
+        [makeRef({ status, completedAt: '2026-09-01T10:05:00.000Z' })],
+        ROOT_A,
       );
+      const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
+      expect(info.status).toBe(status);
+      expect(info.completedAt).toBe('2026-09-01T10:05:00.000Z');
     },
   );
 

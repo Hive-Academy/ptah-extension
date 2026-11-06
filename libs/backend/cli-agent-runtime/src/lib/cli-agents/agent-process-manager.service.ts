@@ -102,6 +102,7 @@ import {
   resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
+import { laneLastActivityAt, restoreLaneLifecycle } from './lane-restore';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { MCP_ATTACHMENT_TIMEOUT_MS } from './mcp-attachment-probe.port';
@@ -664,7 +665,7 @@ export class AgentProcessManager {
     const lane = this.laneRecordsForSession(resumeSessionId);
     const latest = lane[lane.length - 1];
     const lastActivityAt = latest
-      ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
+      ? laneLastActivityAt(latest.info)
       : Number.NaN;
     const lastRequestContext = [...lane]
       .reverse()
@@ -1126,6 +1127,7 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
+        lastActivityAt: startedAt,
         turnSeq: 1,
         parentSessionId: this.resumedOwner(
           meta.parentSessionId,
@@ -1654,6 +1656,7 @@ export class AgentProcessManager {
     workingDirectory: string,
   ): number {
     let restored = 0;
+    const restoredAt = new Date().toISOString();
 
     for (const ref of refs) {
       const agentId = String(ref.agentId);
@@ -1664,14 +1667,11 @@ export class AgentProcessManager {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
         ...laneAccountFields(ref),
+        ...restoreLaneLifecycle(ref, restoredAt),
         agentId: ref.agentId,
         cli: ref.cli,
         task: ref.task,
         workingDirectory,
-        // A reference persisted as `running` describes a process that died with
-        // the run that wrote it. Carrying it through would show a spinner that
-        // never resolves and would count against the concurrency cap.
-        status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
@@ -2426,11 +2426,13 @@ export class AgentProcessManager {
       clearTimeout(tracked.exitEmitHandle);
       tracked.exitEmitHandle = undefined;
     }
+    const continuedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       turnSeq: (tracked.info.turnSeq ?? 1) + 1,
       status: 'running',
       completedAt: undefined,
+      lastActivityAt: continuedAt,
       exitCode: undefined,
       stopReason: undefined,
       stopResetAt: undefined,
@@ -2539,10 +2541,12 @@ export class AgentProcessManager {
     // on the completion signal it pushes first. Stamping the terminal status
     // here makes `handleExit` take its no-op branch and keeps the ONE signal
     // for this ending honest (TASK_2026_515).
+    const stoppedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'stopped',
-      completedAt: new Date().toISOString(),
+      completedAt: stoppedAt,
+      lastActivityAt: stoppedAt,
     };
     const droppedIds = tracked.pendingMessages.map((entry) => entry.messageId);
     this.messageRouter.discardPending(agentId, tracked);
@@ -2736,6 +2740,10 @@ export class AgentProcessManager {
     // Throttled to OUTPUT_FLUSH_INTERVAL, so re-arming here costs one timer per
     // 200 ms rather than one per token.
     if (tracked.info.status === 'running') {
+      tracked.info = {
+        ...tracked.info,
+        lastActivityAt: new Date().toISOString(),
+      };
       this.armInactivityWatchdog(agentId, tracked);
     }
 
@@ -2788,10 +2796,12 @@ export class AgentProcessManager {
     );
     this.flushDelta(agentId);
     clearTimeout(tracked.timeoutHandle);
+    const timedOutAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
-      completedAt: new Date().toISOString(),
+      completedAt: timedOutAt,
+      lastActivityAt: timedOutAt,
     };
     this.releaseLaneGuard(agentId);
     // BEFORE the kill, not after: on the SDK path the kill is an abort whose
@@ -3026,6 +3036,7 @@ export class AgentProcessManager {
         status,
         exitCode: code ?? undefined,
         completedAt: new Date(observedAt).toISOString(),
+        lastActivityAt: new Date(observedAt).toISOString(),
         failureKind: limit ? limit.failureKind : undefined,
         stopReason,
         stopResetAt: limit?.resetsAt ?? (registeredResets.length > 0 ? Math.min(...registeredResets) : undefined),
@@ -3048,9 +3059,11 @@ export class AgentProcessManager {
       tracked.rateLimitMatched = rateLimited;
       this.recordLaneLimits(tracked, code === 0 && !structuredLimitTexts.length ? null : limit, observedAt);
     } else if (!tracked.info.completedAt) {
+      const completedAt = new Date().toISOString();
       tracked.info = {
         ...tracked.info,
-        completedAt: new Date().toISOString(),
+        completedAt,
+        lastActivityAt: completedAt,
       };
     }
     this.events.emit('agent:turn-settled', { ...tracked.info, turnSeq: tracked.info.turnSeq });
