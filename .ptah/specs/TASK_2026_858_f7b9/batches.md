@@ -1161,7 +1161,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 - A1 Duplex spec and removal specs pass; verify passes
 
-## Batch 22: C9 Electron host wiring — PENDING
+## Batch 22: C9 Electron host wiring — COMPLETE (Codex; Phase E review pending)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1173,7 +1173,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E (last) | Phase review: **code-logic + review-security for Phase E (Batches 20-22)**
 - Verify: `npm run verify -- -p ptah-electron`
 
-### Task 22.1: Register singletons, capability, dispose; restore surface spec — PENDING
+### Task 22.1: Register singletons, capability, dispose; restore surface spec — COMPLETE
 
 - Files: W/`apps/ptah-electron/src/rpc-host-profile.ts`, W/`apps/ptah-electron/src/di/phase-4-handlers.ts`,
   W/`apps/ptah-electron/src/di/rpc-surface.spec.ts`, W/`apps/ptah-electron/src/activation/wire-runtime.ts`
@@ -1184,7 +1184,7 @@ MachinesRpcHandlers`; `MachinesService` disposed on quit; "excludes nothing" res
 - Validation notes: registration failure only warns (`register-rpc-surface.ts:183-196`)
 - Implementation details: none
 
-### Task 22.2: Confirm Electron `ws` declaration — PENDING
+### Task 22.2: Confirm Electron `ws` declaration — COMPLETE (declared, no change)
 
 - Depends on: Task 22.1
 - File: none to change unless Batch 1 got it wrong; report only

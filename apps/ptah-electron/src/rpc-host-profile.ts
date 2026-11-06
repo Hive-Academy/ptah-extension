@@ -15,6 +15,7 @@ import {
   ElectronFileOpenRpcHandlers,
   type HostProfile,
 } from '@ptah-extension/rpc-handlers';
+import { MachinesRpcHandlers } from '@ptah-extension/remote-machines';
 
 export function createElectronRpcHostProfile(
   container: DependencyContainer,
@@ -53,9 +54,11 @@ export function createElectronRpcHostProfile(
       // Serves `git:watchRoots`; the `GitRootWatcherPool` behind it is bound
       // in `phase-4-handlers.ts` and attached by the heavy boot.
       gitRootWatch: true,
+      remoteMachines: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,
+      'host.remoteMachines': MachinesRpcHandlers,
     },
     wiring: {
       worktree: true,
