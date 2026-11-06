@@ -46,15 +46,15 @@ describe('AgentFollowUpQueueService', () => {
     expect(sendMessage).toHaveBeenLastCalledWith('agent-1', 'first\nsecond', 'queue');
   });
 
-  it('clears the queued projection when an accepted message has already started', async () => {
+  it('sends new text separately when an accepted message has already started', async () => {
     service.enqueue('agent-1', 'first');
     await settle();
     cancelMessage.mockResolvedValueOnce({ ...receipt, state: 'started', reason: 'already-started' });
     service.enqueue('agent-1', 'second');
     await settle();
-    expect(service.queued('agent-1')).toBe('first');
+    expect(sendMessage).toHaveBeenLastCalledWith('agent-1', 'second', 'queue');
     expect(service.error('agent-1')).toContain('already started');
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('takes queued text back for editing and cancels its receipt', async () => {

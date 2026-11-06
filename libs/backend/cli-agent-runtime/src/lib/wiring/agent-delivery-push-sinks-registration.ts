@@ -58,7 +58,10 @@ export function registerAgentDeliveryPushSinks(
           createdAt: envelope.createdAt,
           verdict: envelope.verdict,
           stopReason: envelope.stopReason,
-          preview: envelope.kind === 'report' ? envelope.body.replace(/\s+/g, ' ').trim().slice(0, 160) : undefined,
+          preview: envelope.kind === 'report'
+            ? envelope.body.replace(/^<agent-report[^>]*>\s*/, '').replace(/\s*<\/agent-report>\s*$/, '')
+              .replace(/\s+/g, ' ').trim().slice(0, 160)
+            : undefined,
         });
         if (!payload.success) {
           logger.warn(`${tag} Invalid parent delivery push payload`);

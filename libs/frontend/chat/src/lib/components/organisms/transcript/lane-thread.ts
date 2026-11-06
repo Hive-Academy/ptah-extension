@@ -49,7 +49,7 @@ export function laneThreadEntries(
       parentSignal: signalFor(event.state) });
   }
   if (completion) {
-    const delivery = parentDelivery.find(event => event.kind === 'completion');
+    const delivery = [...parentDelivery].reverse().find(event => event.kind === 'completion');
     const verdict = delivery?.verdict === 'delivered' ? 'Deliverables written'
       : delivery?.verdict === 'no-deliverable' ? 'No deliverable'
       : delivery?.verdict === 'failed' ? 'Failed'

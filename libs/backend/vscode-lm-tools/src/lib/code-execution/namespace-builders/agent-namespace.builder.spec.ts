@@ -1039,11 +1039,23 @@ describe('buildAgentNamespace — thin delegates', () => {
       'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       'go left',
       undefined,
+      undefined,
+      undefined,
     );
     expect(outcome).toEqual({
       mode: 'interrupt-resume',
       detail: 'turn aborted',
     });
+  });
+
+  it('message() forwards partial-turn-loss consent on the fallback path', async () => {
+    const { deps, mocks } = makeDeps();
+    await buildAgentNamespace(deps).message(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left', 'now', true,
+    );
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left', 'now', undefined, true,
+    );
   });
 
   it('report() forwards to the wired deliverAgentReport', async () => {

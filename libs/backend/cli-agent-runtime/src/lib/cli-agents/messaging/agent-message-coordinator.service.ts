@@ -70,7 +70,7 @@ export class AgentMessageCoordinator {
     const tracked = this.manager.getMessageRoutableAgent(request.agentId);
     const manifest = info?.potentialCapabilities ?? (info && this.detection.getAdapter(info.cli)?.capabilities());
     if (!manifest || !info) {
-      const unavailable = { state: 'unsupported' as const, reason: 'Agent record is unavailable.' };
+      const unavailable = { state: 'unsupported' as const, reason: 'not_found' };
       return planAgentDelivery({
         agentId: request.agentId, delivery: request.delivery ?? 'queue', info,
         hasLiveHandle: false,
@@ -126,7 +126,10 @@ export class AgentMessageCoordinator {
       const current = this.manager.findAgentInfo(request.agentId);
       this.add(this.started, request.agentId, receipt.id);
       const started = await this.receipts.transition(receipt.id, { state: 'started', mode: result.mode, turnSeq: current?.turnSeq ?? info?.turnSeq ?? 1 });
-      return { mode: result.mode, messageId: receipt.id, receipt: started ?? receipt };
+      const latest = this.manager.findAgentInfo(request.agentId);
+      if (latest && latest.status !== 'running') await this.onTurnSettled(latest);
+      return { mode: result.mode, messageId: receipt.id,
+        receipt: await this.receipts.get(request.agentId, receipt.id) ?? started ?? receipt };
     } catch (error: unknown) {
       this.remove(this.queued, request.agentId, receipt.id);
       const interrupted = error instanceof AgentInterruptedDeliveryError;

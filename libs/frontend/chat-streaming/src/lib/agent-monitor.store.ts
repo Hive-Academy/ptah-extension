@@ -861,7 +861,8 @@ export class AgentMonitorStore implements OnDestroy {
     const events = this._parentDelivery().get(agentId) ?? [];
     const label = (kind: 'completion' | 'report') => {
       const state = [...events].reverse().find((event) => event.kind === kind)?.state;
-      return state === 'delivered' ? 'Sent to parent' : String(state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent';
+      return state === 'delivered' ? 'Sent to parent' : state === 'expired' ? 'Expired — not sent to parent'
+        : state === 'pending' ? 'Waiting for parent' : '';
     };
     return { completion: label('completion'), report: label('report') };
   }

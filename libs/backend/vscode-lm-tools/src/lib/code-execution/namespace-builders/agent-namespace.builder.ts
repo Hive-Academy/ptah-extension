@@ -523,7 +523,7 @@ export function buildAgentNamespace(
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
       // discarded. A `void` return would have made both look like a success.
-      return agentProcessManager.sendToAgent(agentId, message, delivery);
+      return agentProcessManager.sendToAgent(agentId, message, delivery, undefined, allowPartialTurnLoss);
     },
     messageStatus: async (agentId, messageId) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');

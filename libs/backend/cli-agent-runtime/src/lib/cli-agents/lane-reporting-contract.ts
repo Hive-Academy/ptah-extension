@@ -61,8 +61,8 @@ export function renderLaneCompletionContract(
       'is recorded for the session that spawned you. It may be pending until ' +
       'parent activity, then sent — it is how the ' +
       'orchestrator learns what you did without reading your whole output. ' +
-      'If it returns `delivered: false`, put the same summary in your final ' +
-      'message instead.',
+      'If it returns `pending: true`, do not resend the report. If it returns ' +
+      '`delivered: false` with a `reason`, put the same summary in your final message.',
     'Never end a turn claiming success for a file you did not write.',
   );
 

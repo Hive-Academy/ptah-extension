@@ -193,6 +193,13 @@ describe('LaneCompletionNotifier.signal', () => {
     expect(h.envelope()).toContain('stop-reason="usage-limit"');
     expect(h.envelope()).toContain('reset-at="2026-09-21T12:00:00.000Z"');
   });
+  it('omits an invalid usage-limit reset time while delivering completion', async () => {
+    const h = createHarness();
+    await expect(h.notifier.signal(createInfo({ stopReason: 'usage-limit', stopResetAt: NaN })))
+      .resolves.toMatchObject({ delivered: true });
+    expect(h.envelope()).toContain('stop-reason="usage-limit"');
+    expect(h.envelope()).not.toContain('reset-at=');
+  });
   it('records orphan lane usage with its workspace and execution host', () => {
     const recordUsage = jest.fn();
     const sink: SessionUsageSink = { recordUsage };

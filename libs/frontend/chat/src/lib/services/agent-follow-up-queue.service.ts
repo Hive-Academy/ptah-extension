@@ -100,7 +100,7 @@ export class AgentFollowUpQueueService {
   /** Coalesce another thought into the accepted message while it can still be cancelled. */
   enqueue(agentId: string, message: string): void {
     const prior = this.queued(agentId);
-    const text = prior ? `${prior}\n${message}` : message;
+    let text = prior ? `${prior}\n${message}` : message;
     this._queued.update((map) => withEntry(map, agentId, text));
     this._errors.update((map) => withoutEntry(map, agentId));
     const revision = (this.revisions.get(agentId) ?? 0) + 1;
@@ -112,11 +112,12 @@ export class AgentFollowUpQueueService {
         const cancelled = await this.store.cancelMessage(agentId, accepted.id);
         if (cancelled.reason !== 'cancelled-by-user') {
           this.cancelled.delete(accepted.id);
-          this._queued.update((map) => withoutEntry(map, agentId));
-          this._errors.update((map) => withEntry(map, agentId, 'Message already started and could not be edited.'));
-          return;
+          text = message;
+          this._queued.update((map) => withEntry(map, agentId, text));
+          this._errors.update((map) => withEntry(map, agentId, 'Earlier message already started; sending this one separately.'));
+        } else {
+          this.accepted.delete(agentId);
         }
-        this.accepted.delete(agentId);
       }
       if (this.revisions.get(agentId) !== revision) return;
       const outcome = await this.store.sendMessage(agentId, text, 'queue');

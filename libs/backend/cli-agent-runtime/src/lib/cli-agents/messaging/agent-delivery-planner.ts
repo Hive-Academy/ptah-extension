@@ -15,7 +15,8 @@ export function planAgentDelivery(input: AgentDeliveryPlanInput): AgentMessagePr
   const has = (key: keyof typeof messaging) => messaging[key].state === 'supported';
   const base = { agentId, delivery, effectiveCapabilities };
   const refuse = (reason: string): AgentMessagePreview => ({ ...base, mode: 'unsupported', supported: false, usesResume: false, reason });
-  if (!info) return refuse('Agent record is unavailable.');
+  // Stable code: `agent:continue` maps `not_found` to its typed RPC error.
+  if (!info) return refuse('not_found');
   const running = info.status === 'running';
   const cold = !hasLiveHandle;
   if (cold) {

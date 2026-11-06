@@ -41,4 +41,9 @@ describe('planAgentDelivery', () => {
     expect(preview).toMatchObject({ mode: 'start-turn', usesResume: true, supported: true });
   });
 
+  it('refuses a missing agent record with the stable not_found reason', () => {
+    const preview = planAgentDelivery({ agentId, delivery: 'queue', effectiveCapabilities: caps, hasLiveHandle: false });
+    expect(preview).toMatchObject({ mode: 'unsupported', supported: false, reason: 'not_found' });
+  });
+
 });

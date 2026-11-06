@@ -396,7 +396,7 @@ export class LaneCompletionNotifier {
     );
 
     const queueReviewCapture = (): void => {
-      if (LaneCompletionNotifier.capturesReview(info, signal))
+      if (firstSignal && LaneCompletionNotifier.capturesReview(info, signal))
         void this.captureReview(info, key, signal.deliverables).catch((error: unknown) => {
           this.logger.error('[LaneCompletionNotifier] Review capture failed',
             error instanceof Error ? error : new Error('Review capture failed'));
@@ -436,9 +436,12 @@ export class LaneCompletionNotifier {
         originName: `${signal.cli} · ${signal.agentLabel}`,
         createdAt: Date.now(),
       });
-      if (!saved) return this.refuse('delivery-failed', signal, {
-        parentSessionId, detail: 'pending-capacity-exceeded',
-      });
+      if (!saved) {
+        queueReviewCapture();
+        return this.refuse('delivery-failed', signal, {
+          parentSessionId, detail: 'pending-capacity-exceeded',
+        });
+      }
       await this.parentDelivery.drain(parentSessionId);
       const state = this.parentDelivery.find(key)?.state;
       const delivered = state === 'delivered';
@@ -769,9 +772,9 @@ export class LaneCompletionNotifier {
   private completionEnvelope(signal: LaneCompletionSignal, info: AgentProcessInfo): string {
     const body = buildLaneCompletionEnvelope(signal);
     if (info.stopReason !== 'usage-limit' && info.stopReason !== 'auth') return body;
-    const reset = info.stopResetAt !== undefined
-      ? ` reset-at="${new Date(info.stopResetAt).toISOString()}"`
-      : '';
+    const resetDate = info.stopResetAt === undefined ? undefined : new Date(info.stopResetAt);
+    const reset = resetDate && Number.isFinite(resetDate.getTime())
+      ? ` reset-at="${resetDate.toISOString()}"` : '';
     return body.replace('<agent-lane-completed ',
       `<agent-lane-completed stop-reason="${info.stopReason}"${reset} `);
   }

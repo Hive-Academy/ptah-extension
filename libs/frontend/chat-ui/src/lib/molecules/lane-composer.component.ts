@@ -134,6 +134,7 @@ export class LaneComposerComponent {
       const agentId = this.agentId();
       this.draft.set('');
       this.error.set(null);
+      this.sending.set(false);
       untracked(() => { this.menuOpen.set(false); this.confirmLoss.set(false); this.returnFocus.set(false); });
       void this.loadPreviews(agentId);
     });
@@ -194,6 +195,7 @@ export class LaneComposerComponent {
 
   protected onEnter(event: Event): void {
     const key = event as KeyboardEvent;
+    if (key.isComposing || key.keyCode === 229) return;
     if (key.shiftKey && this.variant() === 'full') return;
     key.preventDefault();
     if (key.ctrlKey || key.metaKey) this.requestNow();

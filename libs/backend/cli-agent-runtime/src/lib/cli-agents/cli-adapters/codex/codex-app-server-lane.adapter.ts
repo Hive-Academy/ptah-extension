@@ -259,6 +259,12 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
             ? 'workspace-write-network'
             : 'workspace-write-no-network'
         : policySandboxMode;
+    if (options.network === 'allow' &&
+      (codexSandboxMode === 'read-only' || codexSandboxMode === 'workspace-write-no-network' ||
+        (!codexSandboxMode && (resolved.lane.codexSandboxMode === 'read-only' ||
+          resolved.lane.codexSandboxMode === 'workspace-write-no-network')))) {
+      throw new Error('The configured Codex sandbox cannot provide network access.');
+    }
     const projected = buildCodexLaneProfileSettings({
       ...resolved.lane,
       ...(codexSandboxMode ? { codexSandboxMode } : {}),
