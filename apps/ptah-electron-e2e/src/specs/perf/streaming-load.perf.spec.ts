@@ -44,6 +44,7 @@ import { launchPtah, resolveElectronEntry } from '../../support/electron-launche
  *   PTAH_PERF_MEMORY_ROOTS memory/symbol scoping roots (';' list, cycled over sessions)
  *   PTAH_PERF_MEMORY_QUERY / PTAH_PERF_SYMBOL_QUERY  canary queries that must match DB rows
  *   PTAH_PERF_EXPECT_SEARCH_WORKER  "1" requires the search worker to start cleanly (fix builds)
+ *   PTAH_PERF_WARMUP_MS    bounded warm-up before the window (default 180000: on the 1.3 GB DB the search worker needs about 95 s after launch)
  *   PTAH_PERF_ENFORCE      "0" reports without failing the test
  */
 
@@ -351,6 +352,90 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
     });
     expect(quiet, 'backend never answered a no-op RPC quickly after boot').toBeGreaterThanOrEqual(0);
 
+    const memoryRoots = (process.env['PTAH_PERF_MEMORY_ROOTS'] ?? '')
+      .split(';')
+      .filter((r) => r.length > 0);
+    if (memoryRoots.length === 0) memoryRoots.push(...roots);
+
+    // Warm-up (not measured, not counted): the window only starts once the search backend is
+    // really up. Fix builds must have logged "[sqlite-search-worker] ready", and a canary
+    // memory:search must return results via the vector path (bm25Only:false). A backend that
+    // never gets there is recorded and fails the run instead of being measured half-working.
+    const warmStarted = Date.now();
+    const warmMaxMs = Number(process.env['PTAH_PERF_WARMUP_MS'] ?? '180000');
+    const needWorker = process.env['PTAH_PERF_EXPECT_SEARCH_WORKER'] === '1';
+    const warmLogsDir = path.join(userDataDir, 'logs');
+    const workerLogged = (): boolean => {
+      if (!fs.existsSync(warmLogsDir)) return false;
+      return fs
+        .readdirSync(warmLogsDir)
+        .filter((n) => /^Ptah Electron-.*\.log$/.test(n))
+        .some((n) =>
+          fs.readFileSync(path.join(warmLogsDir, n), 'utf8').includes('[sqlite-search-worker] ready'),
+        );
+    };
+    const warmup = {
+      durationMs: 0,
+      attempts: 0,
+      workerReady: !needWorker,
+      canaryOk: !dbSource,
+      satisfied: false,
+      lastCanary: { nonEmpty: false, bm25Only: null as boolean | null, error: '' },
+    };
+    while (Date.now() - warmStarted < warmMaxMs) {
+      if (!warmup.workerReady) warmup.workerReady = workerLogged();
+      if (warmup.workerReady && !warmup.canaryOk) {
+        warmup.attempts += 1;
+        warmup.lastCanary = await page.evaluate(
+          async (a) => {
+            const w = window as unknown as { vscode: { postMessage(m: unknown): void } };
+            const id = `warm-${Date.now()}-${Math.random()}`;
+            return await new Promise<{ nonEmpty: boolean; bm25Only: boolean | null; error: string }>(
+              (resolve) => {
+                const on = (ev: MessageEvent): void => {
+                  const d = ev.data as
+                    | { correlationId?: string; success?: boolean; error?: string; data?: { hits?: unknown[]; bm25Only?: boolean } }
+                    | undefined;
+                  if (d?.correlationId !== id) return;
+                  clearTimeout(timer);
+                  window.removeEventListener('message', on);
+                  resolve({
+                    nonEmpty: Array.isArray(d.data?.hits) && d.data.hits.length > 0,
+                    bm25Only: d.data?.bm25Only ?? null,
+                    error: d.success === false ? String(d.error ?? '') : '',
+                  });
+                };
+                const timer = setTimeout(() => {
+                  window.removeEventListener('message', on);
+                  resolve({ nonEmpty: false, bm25Only: null, error: 'timeout' });
+                }, a.timeoutMs);
+                window.addEventListener('message', on);
+                w.vscode.postMessage({
+                  type: 'rpc:call',
+                  payload: {
+                    method: 'memory:search',
+                    params: { query: a.query, topK: 10, workspaceRoot: a.root },
+                    correlationId: id,
+                  },
+                });
+              },
+            );
+          },
+          {
+            query: process.env['PTAH_PERF_MEMORY_QUERY'] ?? 'model tier alias mapping',
+            root: memoryRoots[0] ?? roots[0] ?? '',
+            timeoutMs: 30_000,
+          },
+        );
+        warmup.canaryOk = warmup.lastCanary.nonEmpty && warmup.lastCanary.bm25Only === false;
+      }
+      if (warmup.workerReady && warmup.canaryOk) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    warmup.satisfied = warmup.workerReady && warmup.canaryOk;
+    warmup.durationMs = Date.now() - warmStarted;
+    console.log(`[streaming-load] warm-up: ${JSON.stringify(warmup)}`);
+
     // Synthetic stream: text deltas for each session, pushed from the main
     // process exactly like StreamEventBatcher flushes (one 'batch' per tick).
     const sessionIds = roots.map((_, i) => `perf-session-${i}`);
@@ -388,10 +473,6 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
       },
     );
 
-    const memoryRoots = (process.env['PTAH_PERF_MEMORY_ROOTS'] ?? '')
-      .split(';')
-      .filter((r) => r.length > 0);
-    if (memoryRoots.length === 0) memoryRoots.push(...roots);
     const fromIso = new Date().toISOString();
     const stats = await page.evaluate(driveLoad, {
       roots,
@@ -433,6 +514,7 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
       canary: stats.canary,
       bm25OnlyReplies: stats.bm25OnlyReplies,
       vectorReplies: stats.vectorReplies,
+      warmup,
     };
     // Search-worker evidence from the app's own log (fix builds run searches in a utility process).
     const logsDirEarly = path.join(userDataDir, 'logs');
@@ -495,6 +577,7 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
       expect(driver.longFrames.max, 'worst renderer frame gap (ms)').toBeLessThan(FRAME_GAP_MAX_MS);
       expect(Object.keys(driver.driverTimeouts), 'RPCs that never answered').toEqual([]);
       expect(driver.rpcErrors, 'RPCs that answered success:false').toEqual({});
+      expect(driver.warmup.satisfied, 'warm-up: search worker ready and a canary search with the vector path').toBe(true);
       if (dbSource) {
         expect(driver.bm25OnlyReplies, 'memory:search replies without the vector path (embedder unavailable)').toBe(0);
         expect(driver.vectorReplies, 'memory:search replies that used the vector path').toBeGreaterThan(0);
