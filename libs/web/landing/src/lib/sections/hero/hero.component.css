@@ -76,7 +76,7 @@
 .watch-link { padding: .85rem .25rem; color: #fff; }
 .watch-link:hover { color: #ffbb4d; }
 .watch-link span { color: #ffbb4d; font-size: 1.2rem; }
-.scroll-cue { margin: 0; position: absolute; right: 1.5rem; bottom: 1.5rem; left: 1.5rem; display: flex; align-items: center; justify-content: center; gap: .75rem; color: #c5cad3; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
+.scroll-cue { margin: 0; position: absolute; right: 1.5rem; bottom: 1.5rem; left: 1.5rem; display: flex; align-items: center; justify-content: center; gap: .75rem; color: #c5cad3; font-size: .8125rem; letter-spacing: .08em; text-transform: uppercase; }
 .cue-line { width: 2.5rem; height: 1px; background: #f5a524; }
 
 /*

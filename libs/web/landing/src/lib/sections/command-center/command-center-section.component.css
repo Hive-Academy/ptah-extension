@@ -74,7 +74,7 @@
   color: #fff;
   background: #0e1015;
   box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.4;
   opacity: 0;
@@ -168,6 +168,17 @@
     right: 0;
     left: 14%;
     height: 2.75rem;
+  }
+}
+
+/*
+ * Below 1280px the clip is too short for the header (whose subline wraps to
+ * three lines) and the rail to share its height: drop the rail so it hangs
+ * under the clip's lower-left corner, clear of the header copy.
+ */
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  .cc-rail {
+    bottom: -5rem;
   }
 }
 
