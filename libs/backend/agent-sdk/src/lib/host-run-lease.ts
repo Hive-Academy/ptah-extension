@@ -8,7 +8,12 @@ export const HOST_RUN_LEASE_KEY_PREFIX = 'ptah.hostRunLease.';
 export const HOST_RUN_HEARTBEAT_INTERVAL_MS = 30_000;
 /** Three missed heartbeats make a host run stale. */
 export const HOST_RUN_STALE_AFTER_MS = 90_000;
-/** Leases older than this belong to long-gone runs and are pruned. */
+/**
+ * Hard bound on pid evidence. A lease whose heartbeat is older than this is
+ * dead and prunable whatever its pid says. Accepted edge cases: a host paused
+ * for more than 24 h is treated as gone, and a reused pid can keep a dead
+ * run's lanes live for at most 24 h.
+ */
 export const HOST_RUN_LEASE_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const HOST_RUN_CLOCK_SKEW_MS = 60_000;
 
@@ -45,29 +50,39 @@ export interface HostRunLeaseState {
   readonly pid: number | undefined;
 }
 
+export interface HostRunLeaseEntry extends HostRunLeaseState {
+  readonly hostRunId: string;
+}
+
 /** Where leases live: the shared session database, or workspace state. */
 export interface HostRunLeaseStore {
   beat(hostRunId: string, at: number): Promise<void>;
   withdraw(hostRunId: string): Promise<void>;
   read(hostRunId: string): Promise<HostRunLeaseState | undefined>;
-  prune(now: number): Promise<void>;
+  /** Leases with no fresh heartbeat as of `olderThan`: prune candidates. */
+  listStale(olderThan: number): Promise<readonly HostRunLeaseEntry[]>;
 }
 
 /**
  * A stale heartbeat alone does not prove a host dead: a paused host keeps its
- * process. The run is dead only when the heartbeat is stale or missing and its
- * recorded process is gone. Our own pid never vouches for a foreign run: it
- * can only be a reused pid of a run that died before this one started.
+ * process. A run is live while its heartbeat is fresh, or while its recorded
+ * pid is alive and its heartbeat is within {@link HOST_RUN_LEASE_RETENTION_MS}.
+ * Our own pid never vouches for a foreign run: it can only be a reused pid of
+ * a run that died before this one started.
  */
 export function isHostRunAlive(
   lease: HostRunLeaseState | undefined,
   now: number,
   ownPid: number = process.pid,
 ): boolean {
-  if (lease === undefined) return false;
+  if (lease === undefined || lease.heartbeatAt === undefined) return false;
   if (isHostRunLive(lease.heartbeatAt, now)) return true;
   return (
-    lease.pid !== undefined && lease.pid !== ownPid && isProcessAlive(lease.pid)
+    lease.heartbeatAt <= now + HOST_RUN_CLOCK_SKEW_MS &&
+    now - lease.heartbeatAt <= HOST_RUN_LEASE_RETENTION_MS &&
+    lease.pid !== undefined &&
+    lease.pid !== ownPid &&
+    isProcessAlive(lease.pid)
   );
 }
 
@@ -175,9 +190,19 @@ export class HostRunLease {
     return run;
   }
 
+  /** Withdraws only leases proven dead by the same rule liveness reads use. */
   private async prune(): Promise<void> {
     try {
-      await this.store.prune(Date.now());
+      const now = Date.now();
+      const candidates = await this.store.listStale(
+        now - HOST_RUN_STALE_AFTER_MS,
+      );
+      for (const lease of candidates) {
+        if (lease.hostRunId === this.hostRunId) continue;
+        if (!isHostRunAlive(lease, now)) {
+          await this.store.withdraw(lease.hostRunId);
+        }
+      }
     } catch (error: unknown) {
       // degradation-audit: optional-capability - pruning is maintenance only;
       // a failed prune delays cleanup and never changes liveness reads.

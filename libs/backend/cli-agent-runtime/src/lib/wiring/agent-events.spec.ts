@@ -1013,6 +1013,36 @@ describe('wireAgentEventListeners — running activity checkpoints', () => {
     }
   });
 
+  it('releases the throttle when a checkpoint is skipped for a missing parent', async () => {
+    const { addCliSession, durable, attemptsReached } = createWriteLog();
+    let current = buildInfo({
+      cli: 'codex',
+      status: 'running',
+      parentSessionId: undefined,
+      cliSessionId: 'cli-sess-1',
+      lastActivityAt: '2026-10-17T12:00:00.000Z',
+    });
+    const events = wireCheckpointLane(addCliSession, () => current);
+
+    events.emit('agent:output', { agentId: current.agentId });
+    await drainMicrotasks();
+    expect(addCliSession).not.toHaveBeenCalled();
+
+    // The parent resolves one second later, inside the throttle window.
+    current = {
+      ...current,
+      parentSessionId: PARENT_SESSION,
+      lastActivityAt: '2026-10-17T12:00:01.000Z',
+    };
+    events.emit('agent:output', { agentId: current.agentId });
+    await attemptsReached(1);
+
+    expect(durable[0]).toMatchObject({
+      status: 'running',
+      lastActivityAt: '2026-10-17T12:00:01.000Z',
+    });
+  });
+
   it('lets later output retry a checkpoint that failed after its retries', async () => {
     jest.useFakeTimers();
     try {

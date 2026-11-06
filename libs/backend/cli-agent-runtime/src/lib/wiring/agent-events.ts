@@ -475,7 +475,8 @@ function wireCopilotPermissionForwarding(
 /**
  * Persist a CLI session reference to the parent session's metadata store.
  * Fire-and-forget with retry — errors are logged, never thrown. `onFailed`
- * runs once when the reference could not be persisted.
+ * runs once when the reference was not persisted: skipped for a missing
+ * parent or store, or failed after its retries.
  *
  * Exported so `sdk-callbacks.ts` can re-persist exited agents once their
  * parent session IDs resolve from tab ID to real SDK UUID.
@@ -490,6 +491,8 @@ export function persistCliSessionReference(
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
+    // Nothing was persisted: a caller's checkpoint stamp must not stay set.
+    onFailed?.();
     // Named parentless lanes have an awaited durable registry/reference
     // checkpoint. This optional parent-card projection is not that receipt.
     if (laneAccountFields(info).accountBindingId !== undefined) return;
@@ -516,6 +519,7 @@ export function persistCliSessionReference(
       logger.warn(
         `${tag} SessionMetadataStore not registered — CLI session persist skipped`,
       );
+      onFailed?.();
       return;
     }
     const metadataStore = container.resolve<SdkSessionMetadataStoreLike>(

@@ -57,7 +57,10 @@ import {
 import { createCodexThreadIdentityStore } from './wiring/codex-thread-identity-store';
 import * as hostRunIdModule from './host-run-id';
 import * as hostProcessProbe from './host-process-probe';
-import { stateStorageLeaseStore } from './host-run-lease-stores';
+import {
+  repositoryLeaseStore,
+  stateStorageLeaseStore,
+} from './host-run-lease-stores';
 import {
   HOST_RUN_HEARTBEAT_INTERVAL_MS,
   HOST_RUN_LEASE_RETENTION_MS,
@@ -2004,11 +2007,8 @@ describe('SessionMetadataStore', () => {
             rows.delete(hostRunId);
           },
           get: async (hostRunId) => rows.get(hostRunId) ?? null,
-          prune: async (olderThan) => {
-            for (const [id, row] of rows) {
-              if (row.heartbeatAt < olderThan) rows.delete(id);
-            }
-          },
+          listStale: async (olderThan) =>
+            [...rows.values()].filter((row) => row.heartbeatAt < olderThan),
         };
         return { rows, repository };
       }
@@ -2112,6 +2112,72 @@ describe('SessionMetadataStore', () => {
         });
       });
 
+      /** Host B beats once, which prunes the leases it can prove dead. */
+      async function beatAsHostB(
+        repository: IHostRunLeaseRepository,
+      ): Promise<void> {
+        hostRun.mockReturnValue('host-run-b');
+        const lease = new HostRunLease(
+          repositoryLeaseStore(repository),
+          asLogger(logger),
+        );
+        await lease.start();
+        await lease.dispose();
+      }
+
+      const HOUR_MS = 60 * 60 * 1000;
+
+      it('keeps a host paused 23 h with a live pid: live and not pruned', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        jest.setSystemTime(T0 + 23 * HOUR_MS);
+        probe.mockReturnValue(true);
+
+        await beatAsHostB(repository);
+        expect(rows.has('host-run-a')).toBe(true);
+
+        const hostB = storeWithLeases(repository);
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+      });
+
+      it('treats a host silent 25 h as dead whatever its pid: pruned, normalized once', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        jest.setSystemTime(T0 + 25 * HOUR_MS);
+        probe.mockReturnValue(true);
+
+        await beatAsHostB(repository);
+        expect(rows.has('host-run-a')).toBe(false);
+        expect(probe).not.toHaveBeenCalled();
+
+        const hostB = storeWithLeases(repository);
+        const [first] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(first).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+        });
+        jest.setSystemTime(Date.now() + 601_000);
+        hostRun.mockReturnValue('host-run-c');
+        const laterHost = storeWithLeases(repository);
+        const [second] = await laterHost.getCliSessionsForRestore('sess-1');
+        expect(second).toEqual(first);
+      });
+
+      it('prunes a stale lease whose pid is dead', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(false);
+
+        await beatAsHostB(repository);
+
+        expect(rows.has('host-run-a')).toBe(false);
+        expect(probe).toHaveBeenCalledWith(OTHER_PID);
+      });
+
       it('never lets this process pid vouch for a foreign stale run', async () => {
         const { rows, repository } = createLeaseRepository();
         const hostA = await laneOfHostA(repository);
@@ -2164,7 +2230,7 @@ describe('SessionMetadataStore', () => {
               writes.push(-1);
             },
             read: async () => undefined,
-            prune: async () => undefined,
+            listStale: async () => [],
           },
           asLogger(logger),
         );

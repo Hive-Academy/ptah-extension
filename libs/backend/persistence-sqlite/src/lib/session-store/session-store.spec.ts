@@ -317,16 +317,19 @@ describeDb('SqliteHostRunLeaseRepository', () => {
     await expect(electron.withdraw('run-a')).resolves.toBeUndefined();
   });
 
-  it('prunes only leases older than the cutoff', async () => {
+  it('lists only leases older than the cutoff and deletes nothing', async () => {
     await electron.beat('old', 1, 1_000);
     await electron.beat('edge', 2, 5_000);
     await cli.beat('recent', 3, 9_000);
 
-    await cli.prune(5_000);
+    expect(await cli.listStale(5_000)).toEqual([
+      { hostRunId: 'old', pid: 1, heartbeatAt: 1_000 },
+    ]);
+    expect(await electron.get('old')).not.toBeNull();
 
-    expect(await electron.get('old')).toBeNull();
-    expect(await electron.get('edge')).not.toBeNull();
-    expect(await electron.get('recent')).not.toBeNull();
+    // The caller prunes a lease it proved dead by withdrawing it.
+    await cli.withdraw('old');
+    expect(await cli.listStale(5_000)).toEqual([]);
   });
 
   it('reads a malformed row as no lease', async () => {
@@ -336,5 +339,6 @@ describeDb('SqliteHostRunLeaseRepository', () => {
     ).run('bad', 0, 1_000);
 
     expect(await cli.get('bad')).toBeNull();
+    expect(await cli.listStale(5_000)).toEqual([]);
   });
 });

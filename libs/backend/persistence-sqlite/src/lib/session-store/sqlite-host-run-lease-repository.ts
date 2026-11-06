@@ -46,19 +46,29 @@ export class SqliteHostRunLeaseRepository implements IHostRunLeaseRepository {
         'SELECT host_run_id, pid, heartbeat_at FROM host_run_leases WHERE host_run_id = ?',
       )
       .get(hostRunId);
-    const parsed = leaseRowSchema.safeParse(row);
-    if (!parsed.success) return null;
-    return {
-      hostRunId: parsed.data.host_run_id,
-      pid: parsed.data.pid,
-      heartbeatAt: parsed.data.heartbeat_at,
-    };
+    return toLease(row);
   }
 
-  async prune(olderThan: number): Promise<void> {
+  /** Rows that fail validation are left out: they read as no lease anyway. */
+  async listStale(olderThan: number): Promise<readonly HostRunLeaseRecord[]> {
     const db = await this.store.ready();
-    db.prepare('DELETE FROM host_run_leases WHERE heartbeat_at < ?').run(
-      olderThan,
-    );
+    const rows: unknown[] = db
+      .prepare(
+        'SELECT host_run_id, pid, heartbeat_at FROM host_run_leases WHERE heartbeat_at < ?',
+      )
+      .all(olderThan);
+    return rows
+      .map(toLease)
+      .filter((lease): lease is HostRunLeaseRecord => lease !== null);
   }
+}
+
+function toLease(row: unknown): HostRunLeaseRecord | null {
+  const parsed = leaseRowSchema.safeParse(row);
+  if (!parsed.success) return null;
+  return {
+    hostRunId: parsed.data.host_run_id,
+    pid: parsed.data.pid,
+    heartbeatAt: parsed.data.heartbeat_at,
+  };
 }

@@ -24,6 +24,10 @@ export interface IHostRunLeaseRepository {
   withdraw(hostRunId: string): Promise<void>;
   /** The run's lease, or null when absent or unreadable as a lease. */
   get(hostRunId: string): Promise<HostRunLeaseRecord | null>;
-  /** Delete leases whose heartbeat is older than `olderThan` (epoch ms). */
-  prune(olderThan: number): Promise<void>;
+  /**
+   * Valid leases whose heartbeat is older than `olderThan` (epoch ms). The
+   * caller decides which are dead and withdraws only those: a stale heartbeat
+   * alone does not prove a host gone.
+   */
+  listStale(olderThan: number): Promise<readonly HostRunLeaseRecord[]>;
 }
