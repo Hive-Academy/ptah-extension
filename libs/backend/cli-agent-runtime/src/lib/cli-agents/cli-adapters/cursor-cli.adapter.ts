@@ -352,9 +352,13 @@ export class CursorCliAdapter implements CliAdapter {
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     validateLaneSpawnPolicy(this.name, this.capabilities(), options);
     // This handle has no record of what an external resumed thread received.
-    const taskPrompt = buildTaskPrompt({ ...options, lanePolicyDelivery: 'task-prompt' }, this.name);
+    const taskPrompt = buildTaskPrompt(
+      { ...options, lanePolicyDelivery: 'task-prompt' },
+      this.name,
+    );
     const firstTurnPreambles: ResumeDeliveredPreambles = fullPromptPreambles({
-      ...options, lanePolicyDelivery: 'task-prompt',
+      ...options,
+      lanePolicyDelivery: 'task-prompt',
     });
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
@@ -413,7 +417,7 @@ export class CursorCliAdapter implements CliAdapter {
             model: { id: options.model ?? DEFAULT_CURSOR_MODEL },
             local: { cwd: options.workingDirectory },
           };
-          if (options.mcpPort) {
+          if (options.mcpPort && options.mcpToken) {
             agentOptions.mcpServers = {
               ptah: {
                 type: 'http',
@@ -425,6 +429,7 @@ export class CursorCliAdapter implements CliAdapter {
                   options.workingDirectory,
                   options.agentId,
                 ),
+                headers: { Authorization: `Bearer ${options.mcpToken}` },
               },
             };
           }
@@ -547,15 +552,22 @@ export class CursorCliAdapter implements CliAdapter {
       setAgentId: () => {},
       supportsContinuation: () => true,
       continue: (message: string): Promise<ContinuationOutcome> =>
-        Promise.resolve({ done: startTurn(buildTaskPrompt({
-          ...options,
-          task: message,
-          files: undefined,
-          resumeSessionId: capturedAgentId,
-          resumeRestoresContext: !!capturedAgentId,
-          resumeDeliveredPreambles: firstTurnPreambles,
-          lanePolicyDelivery: 'task-prompt',
-        }, this.name)) }),
+        Promise.resolve({
+          done: startTurn(
+            buildTaskPrompt(
+              {
+                ...options,
+                task: message,
+                files: undefined,
+                resumeSessionId: capturedAgentId,
+                resumeRestoresContext: !!capturedAgentId,
+                resumeDeliveredPreambles: firstTurnPreambles,
+                lanePolicyDelivery: 'task-prompt',
+              },
+              this.name,
+            ),
+          ),
+        }),
       supportsInterrupt: () => true,
       interrupt,
     };

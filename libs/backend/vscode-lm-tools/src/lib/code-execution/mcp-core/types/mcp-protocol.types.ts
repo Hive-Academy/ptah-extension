@@ -1,3 +1,8 @@
+import type {
+  McpCallerBinding,
+  McpCallerCapability,
+} from '@ptah-extension/platform-core';
+
 /**
  * MCP (Model Context Protocol) wire types — JSON-RPC 2.0 over any transport.
  *
@@ -52,6 +57,16 @@ export interface MCPRequest {
 
   /** Decoded URL profile, transport-owned; resolved by resolveMcpToolProfile. */
   _callerToolProfile?: string;
+
+  /**
+   * Transport-owned privilege. The HTTP gate sets it from the credential
+   * binding. Absent means in-process or stdio, which stays privileged.
+   * A request body cannot set it: the handler strips the field first.
+   */
+  _callerCapability?: McpCallerCapability;
+
+  /** Transport-owned credential binding. Absent off the HTTP socket. */
+  _callerBinding?: McpCallerBinding;
 
   /**
    * Aborted when the caller stops waiting for this request: the HTTP

@@ -376,7 +376,11 @@ describe('WorkspaceHarnessTarget — retired copy removal proofs (D-2)', () => {
     writeFileSync(join(outside, 'retired-skill', 'SKILL.md'), '# retired\n');
     const hash = (await hashDir(join(outside, 'retired-skill'))) as string;
     mkdirSync(join(ws, '.cursor'), { recursive: true });
-    symlinkSync(outside, join(ws, '.cursor', 'skills'), 'dir');
+    symlinkSync(
+      outside,
+      join(ws, '.cursor', 'skills'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     const run = stubRunner(UNTRACKED_RUN);
 
     const result = await reconcileOnce(

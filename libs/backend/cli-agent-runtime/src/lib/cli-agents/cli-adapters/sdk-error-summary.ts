@@ -43,7 +43,7 @@ export function redactSecrets(
     }
     redacted = redacted.split(value).join(REDACTED_MARKER);
   }
-  return redacted;
+  return redacted.replace(/\/auth\/[A-Za-z0-9_-]+/g, '/auth/[REDACTED]');
 }
 
 /**

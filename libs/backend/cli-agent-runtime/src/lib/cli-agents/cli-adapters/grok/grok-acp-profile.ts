@@ -114,7 +114,7 @@ export const grokAcpProfile: AcpVendorProfile = {
   },
 
   buildMcpServers(options: CliCommandOptions): readonly McpServer[] {
-    if (!options.mcpPort) return [];
+    if (!options.mcpPort || !options.mcpToken) return [];
     return [
       {
         type: 'http',
@@ -124,7 +124,9 @@ export const grokAcpProfile: AcpVendorProfile = {
           options.workingDirectory,
           options.agentId,
         ),
-        headers: [],
+        headers: [
+          { name: 'Authorization', value: `Bearer ${options.mcpToken}` },
+        ],
       },
     ];
   },

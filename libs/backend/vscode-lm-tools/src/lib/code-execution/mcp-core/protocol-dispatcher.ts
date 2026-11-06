@@ -212,6 +212,12 @@ import {
   type McpCaller,
   type McpCallerKind,
 } from './mcp-caller';
+import { isToolPermitted } from './mcp-caller-policy';
+import {
+  MCP_CALLER_FORBIDDEN_CODE,
+  MCP_TOOL_DENIED_MESSAGE,
+} from './mcp-caller-auth.types';
+import type { McpCallerCapability } from '@ptah-extension/platform-core';
 import {
   applyToolResultBudget,
   getToolResultBudget,
@@ -397,6 +403,8 @@ export async function handleMCPRequest(
             callerWorkspaceRoot: request._callerWorkspaceRoot,
             callerAgentId: caller.agentId,
             callerToolProfile: resolveMcpToolProfile(request),
+            callerBinding: request._callerBinding,
+            callerCapability: requestCapability(request),
             signal: request._abortSignal,
           },
           () => handleToolsCall(request, deps, caller.kind),
@@ -503,7 +511,10 @@ function handleToolsList(
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
   const profile = resolveMcpToolProfile(request);
-  const tools = buildToolSet(resolveMcpCaller(request), profile, deps);
+  const capability = requestCapability(request);
+  const tools = buildToolSet(resolveMcpCaller(request), profile, deps).filter(
+    (tool) => isToolPermitted(tool.name, capability),
+  );
 
   markEagerTools(tools, deps, profile);
   declareResultBudgets(tools);
@@ -757,7 +768,9 @@ const AgentMessageArgsSchema = z
   })
   .strict();
 
-const AgentMessageStatusArgsSchema = z.object({ agentId: z.string().min(1), messageId: z.string().uuid() }).strict();
+const AgentMessageStatusArgsSchema = z
+  .object({ agentId: z.string().min(1), messageId: z.string().uuid() })
+  .strict();
 
 /**
  * `ptah_agent_report` arguments (TASK_2026_402).
@@ -901,6 +914,17 @@ async function handleToolsCall(
   const startedAt = performance.now();
   let response: MCPResponse | undefined;
   try {
+    if (
+      !isToolPermitted(toolNameOf(request), requestCapability(request)) ||
+      laneReportTargetsAnotherAgent(request)
+    ) {
+      response = createErrorResponse(
+        request.id,
+        MCP_CALLER_FORBIDDEN_CODE,
+        MCP_TOOL_DENIED_MESSAGE,
+      );
+      return response;
+    }
     response = await dispatchToolsCall(request, deps);
     return response;
   } finally {
@@ -921,6 +945,31 @@ async function handleToolsCall(
       );
     }
   }
+}
+
+/**
+ * HTTP sets `read-only`, `lane-report`, or `privileged`. Any other value,
+ * including absent, is the in-process / stdio path and stays privileged.
+ */
+function requestCapability(request: MCPRequest): McpCallerCapability {
+  return request._callerCapability === 'read-only' ||
+    request._callerCapability === 'lane-report'
+    ? request._callerCapability
+    : 'privileged';
+}
+
+/** Lane-report credentials cannot inspect or report as another agent. */
+function laneReportTargetsAnotherAgent(request: MCPRequest): boolean {
+  if (requestCapability(request) !== 'lane-report') return false;
+  const name = toolNameOf(request);
+  if (name !== 'ptah_agent_report' && name !== 'ptah_agent_message_status') {
+    return false;
+  }
+  const params = request.params as { arguments?: unknown } | null | undefined;
+  const args = params?.arguments;
+  if (args === null || typeof args !== 'object') return false;
+  const agentId = (args as { agentId?: unknown }).agentId;
+  return typeof agentId === 'string' && agentId !== getCallerAgentId();
 }
 
 /** The `tools/call` tool name, or `'unknown'` when the params carry none. */
@@ -1432,10 +1481,27 @@ async function handleIndividualTool(
       }
 
       case 'ptah_agent_message_status': {
-        const parsed = AgentMessageStatusArgsSchema.safeParse(args !== null && typeof args === 'object' ? args : {});
-        if (!parsed.success) return toolErrorResponse(request, `Error: invalid ptah_agent_message_status arguments — ${describeZodIssues(parsed.error)}`);
-        const status = await ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
-        return await createToolSuccessResponse(request, JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...status }), deps);
+        const parsed = AgentMessageStatusArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success)
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_message_status arguments — ${describeZodIssues(parsed.error)}`,
+          );
+        const status = await ptahAPI.agent.messageStatus(
+          parsed.data.agentId,
+          parsed.data.messageId,
+        );
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            agentId: parsed.data.agentId,
+            messageId: parsed.data.messageId,
+            ...status,
+          }),
+          deps,
+        );
       }
 
       case 'ptah_agent_report': {

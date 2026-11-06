@@ -12,6 +12,7 @@ import {
   COULD_NOT_SAVE_PORT,
   COULD_NOT_UPDATE_NAMESPACES,
   COULD_NOT_UPDATE_LOCALHOST,
+  COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
   COULD_NOT_LOAD_MCP_CONFIG,
 } from './mcp-port-config.component';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
@@ -100,6 +101,7 @@ describe('McpPortConfigComponent', () => {
       responses['agent:getConfig'] = () =>
         ok({
           mcpPort: 52000,
+          mcpExternalCallerAccess: 'full',
           disabledMcpNamespaces: ['git'],
           browserAllowLocalhost: true,
         });
@@ -114,6 +116,7 @@ describe('McpPortConfigComponent', () => {
       expect(component.isNamespaceEnabled('git')).toBe(false);
       expect(component.isNamespaceEnabled('browser')).toBe(true);
       expect(component.browserAllowLocalhost()).toBe(true);
+      expect(component.externalCallerAccess()).toBe('full');
     });
 
     it.each<[string, Responder]>([
@@ -129,6 +132,7 @@ describe('McpPortConfigComponent', () => {
       expect(alert.textContent).not.toContain('host detail');
       expect(isDisabledControl(byTestId<HTMLInputElement>('mcp-port-input'))).toBe(true);
       expect(isDisabledControl(byTestId<HTMLButtonElement>('mcp-port-save-btn'))).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLSelectElement>('mcp-external-caller-access'))).toBe(true);
       expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(true);
       expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost'))).toBe(true);
     });
@@ -141,6 +145,7 @@ describe('McpPortConfigComponent', () => {
       component.onAllowLocalhostToggle();
       component.onPortInput(52000);
       await component.savePort();
+      await component.onExternalCallerAccessChange('full');
       await settle();
 
       expect(call).not.toHaveBeenCalledWith('agent:setConfig', expect.anything());
@@ -175,6 +180,68 @@ describe('McpPortConfigComponent', () => {
       await settle();
       expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(false);
     });
+  });
+
+  describe('External MCP callers', () => {
+    it('renders the control and saves the selected value through the RPC', async () => {
+      await render();
+
+      const select = byTestId<HTMLSelectElement>(
+        'mcp-external-caller-access',
+      );
+      expect(select.value).toBe('read-only');
+      expect(element.textContent).toContain('External MCP callers');
+      expect(element.textContent).toContain('Read-only (recommended)');
+      expect(element.textContent).toContain('Full access');
+      expect(element.textContent).toContain('execute_code');
+
+      select.value = 'full';
+      select.dispatchEvent(new Event('change'));
+      await settle();
+
+      expect(call).toHaveBeenCalledWith('agent:setConfig', {
+        mcpExternalCallerAccess: 'full',
+      });
+      expect(component.externalCallerAccess()).toBe('full');
+      expect(component.savedExternalCallerAccess()).toBe('full');
+      expect(
+        byTestId('mcp-external-caller-access-hint').classList,
+      ).toContain('text-warning');
+    });
+
+    it.each<[string, Responder]>([
+      [
+        'a rejected RPC',
+        () => Promise.reject(new Error('host detail: rejected')),
+      ],
+      [
+        'a success:false result',
+        () => ok({ success: false, error: 'host detail: refused' }),
+      ],
+    ])(
+      'restores the saved value and shows an error after %s',
+      async (_, respond) => {
+        responses['agent:setConfig'] = respond;
+        await render();
+
+        const select = byTestId<HTMLSelectElement>(
+          'mcp-external-caller-access',
+        );
+        select.value = 'full';
+        select.dispatchEvent(new Event('change'));
+        fixture.detectChanges();
+        await settle();
+
+        expect(component.externalCallerAccess()).toBe('read-only');
+        expect(component.savedExternalCallerAccess()).toBe('read-only');
+        expect(select.value).toBe('read-only');
+        expect(feedback.toast()?.tone).toBe('alert');
+        expect(feedback.toast()?.message).toBe(
+          COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
+        );
+        expect(feedback.toast()?.message).not.toContain('host detail');
+      },
+    );
   });
 
   describe('MCP Port Policy Bar (A30, R4)', () => {

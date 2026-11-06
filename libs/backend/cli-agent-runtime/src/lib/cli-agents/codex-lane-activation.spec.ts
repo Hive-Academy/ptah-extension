@@ -160,6 +160,11 @@ function activationHarness(adapterOverride?: CliAdapter): ActivationHarness {
     new AgentMessageRouter(logger, detection), environment,
     new AgentOutputBuffer(logger), notifier, gate, owners,
     Object.assign(Object.create(null), ledger) as ManagerArgs[10],
+    undefined, undefined, undefined, undefined, undefined,
+    {
+      issue: jest.fn(() => 'a'.repeat(43)),
+      revokeSubject: jest.fn(),
+    } as ManagerArgs[16],
   );
   return {
     manager, gate, router: new AgentReportRouter(logger, manager, chat),
@@ -334,6 +339,7 @@ describe('native Codex lane activation at the manager boundary', () => {
         expect.objectContaining({ threadId: THREAD }),
         expect.anything(), expect.any(String),
         expect.objectContaining({ selected: expect.objectContaining({ source: 'bundled' }) }),
+        expect.any(Map),
       );
       native.contexts[1].terminal(10);
       await settled();

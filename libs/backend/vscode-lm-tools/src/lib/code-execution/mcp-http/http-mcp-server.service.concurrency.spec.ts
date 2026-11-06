@@ -85,9 +85,11 @@ import {
 import { createMockLogger } from '@ptah-extension/shared/testing';
 // The REAL lock and the REAL facet — that is the entire point of this spec.
 import {
+  CodexTomlMcpFacet,
   createMcpFacet,
   withMcpConfigLock,
 } from '@ptah-extension/harness-sync';
+import type { PtahMcpSlot } from './ptah-mcp-slots';
 
 import { CodeExecutionMCP } from './http-mcp-server.service';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
@@ -229,7 +231,11 @@ describe('CodeExecutionMCP × harness-sync — one .mcp.json, two writers', () =
     });
     expect(servers['ptah']).toEqual({
       type: 'http',
-      url: `http://localhost:${PORT}/workspace/${encodeURIComponent(workspaceRoot)}`,
+      url: expect.stringMatching(
+        new RegExp(
+          `^http://localhost:${PORT}/auth/[A-Za-z0-9_-]{43}/workspace/`,
+        ),
+      ),
     });
     // ...and the user's own server survived both of them.
     expect(servers['my-own-server']).toEqual({
@@ -258,15 +264,72 @@ describe('CodeExecutionMCP × harness-sync — one .mcp.json, two writers', () =
     expect(Object.keys(servers).sort()).toEqual(['github', 'ptah']);
     expect(servers['ptah']).toEqual({
       type: 'http',
-      url: `http://localhost:${PORT}/workspace/${encodeURIComponent(workspaceRoot)}`,
+      url: expect.stringMatching(
+        new RegExp(
+          `^http://localhost:${PORT}/auth/[A-Za-z0-9_-]{43}/workspace/`,
+        ),
+      ),
     });
   });
 
-  // WIRING SMOKE TEST, same caveat as above: the removal path's critical
-  // section is synchronous too, so this also passes with the lock removed.
-  it('WIRING: removing the ptah key leaves a facet write in place', async () => {
+  it('keeps the complete credential file byte-identical across registration passes', async () => {
+    await service.ensureRegisteredForSubagents();
+    const first = readFileSync(configPath);
+    const url = (serversOnDisk()['ptah'] as { url: string }).url;
+    expect(url).toMatch(
+      /^http:\/\/localhost:\d+\/auth\/[A-Za-z0-9_-]{43}\/workspace\//,
+    );
+    await service.ensureRegisteredForSubagents();
+    expect(readFileSync(configPath)).toEqual(first);
+    expect((serversOnDisk()['ptah'] as { url: string }).url).toBe(url);
+  });
+
+  it('keeps every facet credential file byte-identical across writes', async () => {
+    const home = join(workspaceRoot, 'home');
+    const slots: PtahMcpSlot[] = [
+      {
+        target: 'cursor',
+        facet: createMcpFacet('cursor'),
+        workspaceRoot,
+        configPath: join(workspaceRoot, '.cursor', 'mcp.json'),
+      },
+      {
+        target: 'codex',
+        facet: new CodexTomlMcpFacet({ scope: 'workspace', homeDir: home }),
+        workspaceRoot,
+        configPath: join(workspaceRoot, '.codex', 'config.toml'),
+      },
+      {
+        target: 'codex',
+        facet: createMcpFacet('codex', { homeDir: home }),
+        workspaceRoot: '',
+        configPath: join(home, '.codex', 'config.toml'),
+      },
+      {
+        target: 'antigravity',
+        facet: createMcpFacet('antigravity', { homeDir: home }),
+        workspaceRoot: '',
+        configPath: join(home, '.gemini', 'config', 'mcp_config.json'),
+      },
+    ];
+    for (const slot of slots) {
+      const token = 'a'.repeat(43);
+      await expect(service['writeFacetEntry'](slot, PORT, token)).resolves.toBe(
+        true,
+      );
+      const first = readFileSync(slot.configPath);
+      await expect(service['writeFacetEntry'](slot, PORT, token)).resolves.toBe(
+        false,
+      );
+      expect(readFileSync(slot.configPath)).toEqual(first);
+    }
+  });
+
+  // Stop preserves the credential for M1. A concurrent facet write must remain.
+  it('WIRING: stop preserves the ptah key and a concurrent facet write', async () => {
     const facet = createMcpFacet('claude');
     await service.ensureRegisteredForSubagents();
+    const before = serversOnDisk()['ptah'];
 
     await Promise.all([
       facet.write(workspaceRoot, 'github', {
@@ -278,6 +341,6 @@ describe('CodeExecutionMCP × harness-sync — one .mcp.json, two writers', () =
 
     const servers = serversOnDisk();
     expect(servers['github']).toBeDefined();
-    expect(servers).not.toHaveProperty('ptah');
+    expect(servers['ptah']).toEqual(before);
   });
 });

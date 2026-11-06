@@ -14,8 +14,10 @@
  * on the caller. A request that reaches the dispatcher with no URL identity (a
  * bare URL, or an in-process call) resolves to `anonymous`.
  *
- * This is attribution, not authentication: the server binds localhost and
- * checks no credential, so the kind must never gate a trust decision.
+ * This fold is attribution. Trust is the credential binding the HTTP gate
+ * stamps (`_callerCapability` and `_callerBinding`). A request with no
+ * binding is in-process or stdio and stays privileged. The URL kind must
+ * not be treated as a credential.
  */
 
 import type { MCPRequest } from './types/mcp-protocol.types';

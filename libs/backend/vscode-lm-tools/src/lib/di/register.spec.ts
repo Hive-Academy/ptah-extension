@@ -112,6 +112,9 @@ describe('registerVsCodeLmToolsServices', () => {
       expect(child.isRegistered(TOKENS.PTAH_API_BUILDER)).toBe(true);
       expect(child.isRegistered(TOKENS.CODE_EXECUTION_MCP)).toBe(true);
       expect(child.isRegistered(PLATFORM_TOKENS.MCP_SERVER_STATUS)).toBe(true);
+      expect(child.isRegistered(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS)).toBe(
+        true,
+      );
       expect(child.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)).toBe(true);
     });
 
@@ -134,6 +137,7 @@ describe('registerVsCodeLmToolsServices', () => {
             'PTAH_API_BUILDER',
             'CODE_EXECUTION_MCP',
             'MCP_SERVER_STATUS',
+            'MCP_CALLER_CREDENTIALS',
             'PERMISSION_PROMPT_SERVICE',
           ],
         }),

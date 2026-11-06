@@ -109,7 +109,7 @@
  * unconditionally, so gating it now would be a silent removal.
  */
 
-import type { HarnessTargetId, McpServerConfig } from '@ptah-extension/shared';
+import type { HarnessTargetId, McpHttpConfig } from '@ptah-extension/shared';
 import {
   codexProjectTrusted,
   createMcpFacet,
@@ -262,7 +262,7 @@ export function ptahMcpUrl(port: number, workspaceRoot: string): string {
 export function ptahMcpEntry(
   port: number,
   workspaceRoot: string,
-): McpServerConfig {
+): McpHttpConfig {
   return { type: 'http', url: ptahMcpUrl(port, workspaceRoot) };
 }
 

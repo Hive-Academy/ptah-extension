@@ -5,13 +5,17 @@
  */
 import { z } from 'zod';
 import { CODEX_PTAH_TOOL_TIMEOUT_SEC } from './codex-ptah-mcp';
-import type { CodexExecutionProfile } from './codex-runtime.types';
+import type {
+  CodexExecutionProfile,
+  CodexMcpSecrets,
+} from './codex-runtime.types';
 
 const disabledServer = z.strictObject({ enabled: z.literal(false) });
 const ptahServer = z.strictObject({
   url: z.url(),
   tool_timeout_sec: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   default_tools_approval_mode: z.literal('approve'),
+  http_headers: z.strictObject({ Authorization: z.string().min(1) }).optional(),
 });
 const serverName = z
   .string()
@@ -71,13 +75,19 @@ function freeze<T>(value: T): T {
 /** This builder is pure; only a validated lane profile may reach the runtime. */
 export function buildCodexLaneThreadConfig(
   profile: CodexExecutionProfile,
+  secrets: CodexMcpSecrets = new Map(),
 ): CodexLaneThreadConfig {
   if (profile.consumer !== 'lane' || profile.lane === undefined) {
     throw new Error('Codex lane thread config requires a lane profile');
   }
   const { lane } = profile;
-  const ptahServers = profile.mcpServers.filter((server) => server.name === 'ptah');
-  if (ptahServers.length > 1 || profile.mcpServers.length !== ptahServers.length) {
+  const ptahServers = profile.mcpServers.filter(
+    (server) => server.name === 'ptah',
+  );
+  if (
+    ptahServers.length > 1 ||
+    profile.mcpServers.length !== ptahServers.length
+  ) {
     throw new Error('Lane MCP config accepts only one Ptah server');
   }
   const ptah = ptahServers[0];
@@ -87,7 +97,6 @@ export function buildCodexLaneThreadConfig(
   if (
     ptah?.transport === 'http' &&
     (ptah.urlReference !== undefined ||
-      ptah.authReference !== undefined ||
       Object.keys(ptah.headerReferences).length > 0)
   ) {
     throw new Error('Lane Ptah MCP server requires a plain HTTP URL');
@@ -95,13 +104,28 @@ export function buildCodexLaneThreadConfig(
   if (ptah === undefined && lane.ptahToolTimeoutSeconds !== undefined) {
     throw new Error('Ptah tool timeout requires a Ptah MCP server');
   }
+  const laneToken =
+    ptah?.transport === 'http' && ptah.authReference !== undefined
+      ? secrets.get(ptah.authReference)
+      : undefined;
+  if (
+    ptah?.transport === 'http' &&
+    ptah.authReference !== undefined &&
+    !laneToken
+  ) {
+    throw new Error('Codex lane Ptah MCP credential is unavailable');
+  }
   const entries: [
     string,
-    { enabled: false } | {
-      url: string;
-      tool_timeout_sec: number;
-      default_tools_approval_mode: 'approve';
-    },
+    (
+      | { enabled: false }
+      | {
+          url: string;
+          tool_timeout_sec: number;
+          default_tools_approval_mode: 'approve';
+          http_headers?: { Authorization: string };
+        }
+    ),
   ][] = [
     ...[...new Set(lane.disabledUserMcpServers ?? [])]
       .filter((name) => name !== 'ptah')
@@ -118,6 +142,9 @@ export function buildCodexLaneThreadConfig(
           ptah.toolTimeoutSec ??
           CODEX_PTAH_TOOL_TIMEOUT_SEC,
         default_tools_approval_mode: 'approve',
+        ...(laneToken === undefined
+          ? {}
+          : { http_headers: { Authorization: `Bearer ${laneToken}` } }),
       },
     ]);
   }

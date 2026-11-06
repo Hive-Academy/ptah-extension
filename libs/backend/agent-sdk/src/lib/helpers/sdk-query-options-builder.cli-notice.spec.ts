@@ -159,6 +159,12 @@ async function makeHarness(
     undefined,
     mcpStatus,
     mcpBackoff,
+    undefined,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 
   const userMessageStream = (async function* () {

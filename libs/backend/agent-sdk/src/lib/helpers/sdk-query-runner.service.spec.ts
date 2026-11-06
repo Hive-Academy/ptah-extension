@@ -124,6 +124,7 @@ interface RunnerHarness {
   queryFn: jest.Mock;
   subagentHooks: { createHooks: jest.Mock };
   processSpawner: ReturnType<typeof createProcessSpawner>;
+  credentials: { issue: jest.Mock; revokeSubject: jest.Mock };
 }
 
 function makeRunner(
@@ -186,6 +187,10 @@ function makeRunner(
   };
 
   const processSpawner = createProcessSpawner();
+  const credentials = {
+    issue: jest.fn().mockReturnValue('test-token'),
+    revokeSubject: jest.fn(),
+  };
 
   const runner = new SdkQueryRunner(
     asLogger(logger),
@@ -199,6 +204,9 @@ function makeRunner(
     processSpawner as unknown as OffThreadProcessSpawner,
     opts.capabilityResolver ?? null,
     opts.provenanceTap ?? null,
+    null,
+    null,
+    credentials,
   );
 
   return {
@@ -209,10 +217,41 @@ function makeRunner(
     queryFn,
     subagentHooks,
     processSpawner,
+    credentials,
   };
 }
 
 describe('SdkQueryRunner', () => {
+  it('issues and revokes an internal-query credential after close', async () => {
+    const h = makeRunner();
+    const result = await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work/project',
+      model: 'claude-sonnet-4-20250514',
+      prompt: 'hi',
+      mcpServerRunning: true,
+    });
+    const options = (
+      h.queryFn.mock.calls[0] as [{ options: SdkQueryOptions }]
+    )[0].options;
+    expect(options.mcpServers?.['ptah']).toEqual(
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer test-token' },
+      }),
+    );
+    expect(h.credentials.issue).toHaveBeenCalledWith(
+      {
+        kind: 'internal-query',
+        workspaceRoot: '/work/project',
+        capability: 'privileged',
+      },
+      expect.stringMatching(/^claude-internal-query:/),
+      15 * 60 * 1000,
+    );
+    const subject = h.credentials.issue.mock.calls[0][1] as string;
+    result.close();
+    expect(h.credentials.revokeSubject).toHaveBeenCalledWith(subject);
+  });
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -646,7 +685,12 @@ describe('SdkQueryRunner', () => {
     ): Promise<boolean> {
       const h = makeRunner({
         queryFnImpl: ({ options }) => {
-          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          options.spawnClaudeCodeProcess?.({
+            command: 'claude',
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          } as SpawnOptions);
           return createFakeQuery('fresh');
         },
       });
@@ -664,30 +708,47 @@ describe('SdkQueryRunner', () => {
     }
 
     it('settles on a numeric exit status', async () => {
-      await expect(terminatedAfter(new EventEmitter(), [1, null])).resolves.toBe(true);
+      await expect(
+        terminatedAfter(new EventEmitter(), [1, null]),
+      ).resolves.toBe(true);
     });
 
     it('settles on a signal death the spawner observed (the SDK close/abort path)', async () => {
       const child = Object.assign(new EventEmitter(), { exitObserved: true });
-      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(true);
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(
+        true,
+      );
     });
 
     it('reports the spawned child pid from the spawner', async () => {
-      const child = Object.assign(new EventEmitter(), { whenSpawned: Promise.resolve(4321) });
+      const child = Object.assign(new EventEmitter(), {
+        whenSpawned: Promise.resolve(4321),
+      });
       const h = makeRunner({
         queryFnImpl: ({ options }) => {
-          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          options.spawnClaudeCodeProcess?.({
+            command: 'claude',
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          } as SpawnOptions);
           return createFakeQuery('fresh');
         },
       });
       h.processSpawner.spawn.mockReturnValue(child);
-      const handle = h.runner.invokeNamedQuery(h.queryFn as unknown as QueryFunction, emptyPrompt(), {} as SdkQueryOptions);
+      const handle = h.runner.invokeNamedQuery(
+        h.queryFn as unknown as QueryFunction,
+        emptyPrompt(),
+        {} as SdkQueryOptions,
+      );
       await expect(handle.childPid).resolves.toBe(4321);
     });
 
     it('stays unsettled on a synthesized signal-only exit', async () => {
       const child = Object.assign(new EventEmitter(), { exitObserved: false });
-      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(false);
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(
+        false,
+      );
     });
   });
 
@@ -698,13 +759,9 @@ describe('SdkQueryRunner', () => {
         throw new Error('query should not run');
       };
       expect(() =>
-        h.runner.invokeWithLoadedQuery(
-          queryFn,
-          emptyPrompt(),
-          {
-            env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
-          } as SdkQueryOptions,
-        ),
+        h.runner.invokeWithLoadedQuery(queryFn, emptyPrompt(), {
+          env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
+        } as SdkQueryOptions),
       ).toThrow('Codex chat requires a host with the native Codex runtime.');
     });
 
@@ -1349,14 +1406,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
     }, authEnv);
 
     expect(providerOf(authEnv)).toBe('openai-codex');
-    await expect(h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'curate',
-      mcpServerRunning: false,
-      dispatch: ride('memory-curator', 'memory-curator'),
-    })).rejects.toMatchObject({
+    await expect(
+      h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'curate',
+        mcpServerRunning: false,
+        dispatch: ride('memory-curator', 'memory-curator'),
+      }),
+    ).rejects.toMatchObject({
       name: 'AuthRequiredError',
       providerId: 'openai-codex',
       message: 'Codex chat requires a host with the native Codex runtime.',
@@ -1389,14 +1448,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
 
     expect(providerOf({ ...authEnv })).toBe(ANTHROPIC_DIRECT_PROVIDER_ID);
 
-    await expect(h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'curate',
-      mcpServerRunning: false,
-      dispatch: ride('memory-curator', 'memory-curator'),
-    })).rejects.toMatchObject({
+    await expect(
+      h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'curate',
+        mcpServerRunning: false,
+        dispatch: ride('memory-curator', 'memory-curator'),
+      }),
+    ).rejects.toMatchObject({
       name: 'AuthRequiredError',
       providerId: 'openai-codex',
     });
