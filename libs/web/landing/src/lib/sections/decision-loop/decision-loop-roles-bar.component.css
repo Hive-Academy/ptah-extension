@@ -1,0 +1,61 @@
+:host {
+  position: relative;
+  z-index: 3;
+  display: block;
+}
+
+.roles-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.7rem 1rem;
+  color: var(--app-ink);
+  background: var(--app-b1);
+}
+
+.roles-chevron {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--app-info);
+}
+
+.roles-title {
+  flex: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.roles-list {
+  display: none;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The accordion's border-t, filling with the loop as it runs. */
+.roles-progress {
+  display: block;
+  height: 1px;
+  overflow: hidden;
+  background: var(--app-line);
+}
+
+.roles-progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #f5a524, #ffbb4d);
+  transform: scaleX(var(--loop-progress, 1));
+  transform-origin: left center;
+}
+
+@media (min-width: 640px) {
+  .roles-list {
+    display: block;
+  }
+}

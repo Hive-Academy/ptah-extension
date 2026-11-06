@@ -12,20 +12,22 @@ export interface LightningBolt {
   readonly to: BoltPoint;
   /** 0 to 1; 0 draws nothing. */
   readonly intensity: number;
-  /** Half-width of the white-hot core. */
+  /** Brightness `k` of the `k / distance` light: about the white-hot core's half-width. */
   readonly core: number;
-  /** Decay distance of the amber halo. */
+  /** Radius at which the amber halo is cut off. */
   readonly glow: number;
-  /** Re-jags the whole bolt. */
+  /** Shifts the noise field: a different path for every strike. */
   readonly seed: number;
 }
 
-/** Amber, as the rest of the page (#f5a524). */
+/** Amber, as the gold symbols (#f5a524). */
 const HUE = 38;
-/** Widest sideways jag, in CSS pixels (shorter bolts jag less: 9% of their length). */
-const MAX_JAG = 44;
+/** Widest sideways push, in CSS pixels (shorter bolts push less: 14% of their length). */
+const MAX_JAG = 70;
+/** Size of the coarsest noise cell, in CSS pixels: sets how far apart the big bends are. */
+const NOISE_SCALE = 170;
 
-const UNIFORMS = ['uSeg', 'uBolt', 'uShimmer', 'uJag', 'uHue'] as const;
+const UNIFORMS = ['uSeg', 'uBolt', 'uTime', 'uScale', 'uJag', 'uHue'] as const;
 type UniformName = (typeof UNIFORMS)[number];
 
 /**
@@ -102,21 +104,32 @@ export class LightningRenderer {
     this.gl.viewport(0, 0, pixelWidth, pixelHeight);
   }
 
-  /** Draws up to `MAX_BOLTS` bolts; `shimmer` re-jags their finest detail. */
-  public draw(bolts: readonly LightningBolt[], shimmer: number): void {
+  /** Draws up to `MAX_BOLTS` bolts; `time` (seconds) drifts the noise so they writhe. */
+  public draw(bolts: readonly LightningBolt[], time: number): void {
     const gl = this.gl;
     const height = (gl.canvas as HTMLCanvasElement).height;
     const ratio = this.ratio;
     this.segments.fill(0);
     this.shapes.fill(0);
-    bolts.slice(0, MAX_BOLTS).forEach((bolt, i) => {
+    // Runs every frame: written in place, nothing allocated.
+    const count = Math.min(bolts.length, MAX_BOLTS);
+    for (let i = 0; i < count; ++i) {
+      const bolt = bolts[i];
+      const at = i * 4;
       // CSS y runs down, gl_FragCoord y runs up.
-      this.segments.set([bolt.from.x * ratio, height - bolt.from.y * ratio, bolt.to.x * ratio, height - bolt.to.y * ratio], i * 4);
-      this.shapes.set([Math.max(0, bolt.intensity), bolt.core * ratio, Math.max(0.5, bolt.glow * ratio), bolt.seed], i * 4);
-    });
+      this.segments[at] = bolt.from.x * ratio;
+      this.segments[at + 1] = height - bolt.from.y * ratio;
+      this.segments[at + 2] = bolt.to.x * ratio;
+      this.segments[at + 3] = height - bolt.to.y * ratio;
+      this.shapes[at] = Math.max(0, bolt.intensity);
+      this.shapes[at + 1] = bolt.core * ratio;
+      this.shapes[at + 2] = Math.max(0.5, bolt.glow * ratio);
+      this.shapes[at + 3] = bolt.seed;
+    }
     gl.uniform4fv(this.location('uSeg'), this.segments);
     gl.uniform4fv(this.location('uBolt'), this.shapes);
-    gl.uniform1f(this.location('uShimmer'), shimmer);
+    gl.uniform1f(this.location('uTime'), time);
+    gl.uniform1f(this.location('uScale'), NOISE_SCALE * ratio);
     gl.uniform1f(this.location('uJag'), MAX_JAG * ratio);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);

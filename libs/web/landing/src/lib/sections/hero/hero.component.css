@@ -17,6 +17,8 @@
   overflow: hidden;
   padding: 7rem 1.5rem 6rem;
   background: #08090c;
+  /* Scrubbed to 0 with the pinned layer fade (hero-scroll.ts); the copy keeps full opacity. */
+  --frame-fade: 1;
 }
 
 .title-still {
@@ -36,6 +38,7 @@
   z-index: -2;
   inset: 0;
   content: '';
+  opacity: var(--frame-fade);
   background: radial-gradient(ellipse 38% 68% at 100% 55%, rgb(245 165 36 / 15%), transparent 78%),
     linear-gradient(90deg, #08090c, rgb(8 9 12 / 88%) 48%, rgb(8 9 12 / 70%)),
     linear-gradient(0deg, #08090c, transparent 32%, #08090c);

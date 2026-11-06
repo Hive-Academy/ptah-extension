@@ -1,0 +1,169 @@
+/*
+ * App mockup vocabulary for the illustrated section visuals. Values come from
+ * the Electron renderer's default theme, `ptah-glass` (dark), in
+ * apps/ptah-extension-webview/tailwind.config.js: base-100 / 200 / 300, ink,
+ * the semantic status colours and the pill badge radius. Card, badge, chip,
+ * dot and toggle shapes copy the real templates they are named after:
+ *   .app-card    provider-connection-card / decision-model-row (rounded-lg, border base-content/10)
+ *   .app-badge   daisyUI badge-xs/-sm (bg base-300 or outline info/10, "3 roles")
+ *   .app-chip    Accounts tab "Used by" chip (h-5, rounded-full, border base-content/25)
+ *   .app-dot     status dots (h-2 w-2 rounded-full, bg-success / warning / error / muted)
+ *   .app-avatar  connection-card initials box (h-8 w-8, rounded, tone border)
+ *   .app-toggle  host-routing-setting toggle-xs toggle-success
+ * Sizes are in em, so a mockup scales with the font size its host sets.
+ * Every mockup is decorative (aria-hidden); the real copy stays in the page.
+ */
+:host {
+  --app-b1: #17191d;
+  --app-b2: #202329;
+  --app-b3: #2a2e35;
+  --app-ink: #f2f2f1;
+  --app-muted: #a9adb5;
+  --app-line: rgb(242 242 241 / 10%);
+  --app-line-strong: rgb(242 242 241 / 22%);
+  --app-primary: #e4b94a;
+  --app-info: #6aa6ff;
+  --app-success: #3fd08a;
+  --app-warning: #ff9f45;
+  --app-error: #ff6b6b;
+  --app-mono: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+}
+
+.app-card {
+  min-width: 0;
+  border: 1px solid var(--app-line);
+  border-radius: 0.5em;
+  color: var(--app-ink);
+  background: var(--app-b2);
+}
+
+.app-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 1.75em;
+  padding: 0 0.7em;
+  border: 1px solid var(--app-b3);
+  border-radius: 9999px;
+  color: var(--app-ink);
+  background: var(--app-b3);
+  font-size: 0.66em;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-badge.is-info {
+  border-color: rgb(106 166 255 / 30%);
+  background: rgb(106 166 255 / 10%);
+}
+
+.app-badge.is-outline {
+  border-color: var(--app-muted);
+  background: var(--app-b1);
+}
+
+.app-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 1.8em;
+  padding: 0 0.7em;
+  border: 1px solid rgb(242 242 241 / 25%);
+  border-radius: 9999px;
+  color: var(--app-ink);
+  font-size: 0.7em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--app-muted);
+}
+
+.app-dot.is-ok {
+  background: var(--app-success);
+}
+
+.app-dot.is-warn {
+  background: var(--app-warning);
+}
+
+.app-dot.is-err {
+  background: var(--app-error);
+}
+
+.app-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.8em;
+  height: 2.8em;
+  border: 1px solid rgb(228 185 74 / 30%);
+  border-radius: 0.35em;
+  color: var(--app-ink);
+  background: rgb(228 185 74 / 10%);
+  font-size: 0.72em;
+  font-weight: 700;
+}
+
+.app-avatar.is-round {
+  border: 0;
+  border-radius: 50%;
+  background: var(--app-b3);
+}
+
+.app-toggle {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 1.6em;
+  height: 0.95em;
+  border: 1px solid var(--app-success);
+  border-radius: 9999px;
+  background: var(--app-success);
+}
+
+.app-toggle::after {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  content: '';
+  background: var(--app-b1);
+}
+
+.app-muted {
+  color: var(--app-muted);
+}
+
+/* The window chrome every app frame on the page shares (console-clip .clip-window). */
+.app-frame {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid #262a33;
+  border-radius: 0.5rem;
+  background: #0e1015;
+  box-shadow:
+    0 2rem 6rem rgb(0 0 0 / 65%),
+    0 0 4rem rgb(245 165 36 / 10%);
+}
+
+.app-frame::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent 8%, rgb(255 187 77 / 45%) 50%, transparent 92%);
+  pointer-events: none;
+}

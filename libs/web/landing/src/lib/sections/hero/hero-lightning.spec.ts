@@ -70,9 +70,15 @@ function setup(options: { webgl?: boolean; finePointer?: boolean } = {}) {
   const canvas = document.createElement('canvas');
   const host = document.createElement('section');
   const lightning = new HeroLightning(clock.view, artifacts, canvas, symbols, host);
+  // The frame loop reuses its bolt storage, so snapshot what each draw saw.
   const lastBolts = (): LightningBolt[] => {
     const calls = renderer.draw.mock.calls;
-    return calls.length > 0 ? (calls[calls.length - 1][0] as LightningBolt[]) : [];
+    if (calls.length === 0) return [];
+    return (calls[calls.length - 1][0] as LightningBolt[]).map((bolt) => ({
+      ...bolt,
+      from: { ...bolt.from },
+      to: { ...bolt.to },
+    }));
   };
   const lit = (): number[] =>
     symbols.flatMap((symbol, index) => (symbol.classList.contains('lightning-lit') ? [index] : []));
@@ -120,6 +126,11 @@ describe('HeroLightning', () => {
     const peak = lastBolts()[0];
     expect(peak.intensity).toBeGreaterThan(first[0].intensity);
     expect(peak.core).toBeGreaterThan(first[0].core);
+    // The writhe clock runs in seconds from the strike's first frame.
+    const draws = renderer.draw.mock.calls;
+    expect(draws[draws.length - 1][1]).toBeCloseTo((STRIKE.rampMs + 100) / 1000);
+    // Frames reuse one bolt list and its bolts instead of allocating new ones.
+    expect(draws[draws.length - 1][0]).toBe(draws[0][0]);
 
     // The strike is over: no frame during the gap, one timer for the next strike.
     runFrame(1000 + STRIKE_TOTAL_MS);

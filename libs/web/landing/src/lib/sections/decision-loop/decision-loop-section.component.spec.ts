@@ -81,6 +81,22 @@ describe('DecisionLoopSectionComponent', () => {
       ),
     ).toEqual(DECISION_LOOP_STAGES.map((stage) => stage.label));
 
+    // The window reads as the app's Settings: the roles accordion header and
+    // each stage's control, all decorative and in the app's own words.
+    const rolesBar = root.querySelector('ptah-decision-loop-roles-bar .roles-bar');
+    expect(rolesBar?.getAttribute('aria-hidden')).toBe('true');
+    expect(rolesBar?.querySelector('.roles-title')?.textContent?.trim()).toBe(
+      'Background Model Roles',
+    );
+    const cues = Array.from(root.querySelectorAll('li.loop-stage .cue'));
+    expect(cues.map((cue) => cue.getAttribute('aria-hidden'))).toEqual(['true', 'true', 'true']);
+    expect(cues.map((cue) => cue.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Decision model',
+      'Ollama ready',
+      'Routing suggestions',
+    ]);
+    expect(root.querySelector('ptah-decision-loop-track svg.loop-svg-desktop')).not.toBeNull();
+
     // Nothing non-interactive is focusable.
     expect(root.querySelectorAll('[tabindex], button, a, input')).toHaveLength(0);
     destroy();

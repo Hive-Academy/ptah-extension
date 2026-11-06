@@ -72,12 +72,28 @@ describe('AlwaysOnSectionComponent', () => {
     expect(shown('.section-subline')).toBe(0);
     expect(shown('.ao-point')).toBe(0);
     expect(desk?.classList.contains('is-locked')).toBe(false);
+    // Before the hand-off: the app's Session actions menu and the binding picker.
+    expect(desk?.querySelector('.picker-title')?.textContent?.trim()).toBe('Hand off session to…');
+    expect(
+      Array.from(desk?.querySelectorAll('.picker-row .row-text > span:first-child') ?? []).map(
+        (el) => el.textContent?.trim(),
+      ),
+    ).toEqual(['Telegram', 'Discord', 'Slack']);
+    expect(desk?.querySelectorAll('.picker-row.is-off')).toHaveLength(1);
+    expect(desk?.querySelector('.composer-text')).toBeNull();
 
     component.scroll.reveal.set(1);
     component.scroll.steps.set(0.2);
     fixture.detectChanges();
     expect(shown('.ao-point')).toBe(1);
     expect(desk?.classList.contains('is-locked')).toBe(true);
+    // Handed off: resolve-back item, read-only line, locked composer; the picker closes.
+    expect(desk?.querySelector('.picker')).toBeNull();
+    expect(desk?.textContent).toContain('Resolve back to webview');
+    expect(desk?.textContent).toContain('Driven from Telegram · read-only here');
+    expect(desk?.querySelector('.composer-text')?.textContent?.trim()).toBe(
+      'Session is attached to messaging — read-only',
+    );
 
     component.scroll.steps.set(1);
     fixture.detectChanges();

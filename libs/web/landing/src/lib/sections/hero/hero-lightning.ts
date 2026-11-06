@@ -1,15 +1,13 @@
-import {
-  type BoltPoint,
-  type LightningBolt,
-  LightningRenderer,
-} from '../../shared/lightning/lightning-renderer';
+import { type LightningBolt, LightningRenderer } from '../../shared/lightning/lightning-renderer';
 import {
   STRIKE,
   STRIKE_TOTAL_MS,
-  shimmerStep,
+  type StrikeLook,
   strikeGap,
   strikeLook,
+  strikeSeconds,
 } from '../../shared/lightning/strike-envelope';
+import { type Point, center, emptyBolt, nearestIndex, setBolt } from './hero-bolts';
 import { HeroPointer } from './hero-pointer';
 
 const LIT = 'lightning-lit';
@@ -22,9 +20,10 @@ const POINTER_SEED_OFFSET = 31;
  * WebGL context. Each strike joins a pair of opposite symbols (cycling pairs)
  * and, while a mouse hovers the hero, also joins the symbol nearest the mouse
  * to the mouse itself, following it live. Frames run only while a strike is
- * visible; a dark gap sleeps on one timer. The host decides when it runs
- * (`start` / `stop`). Without WebGL it draws nothing. If the context is lost
- * it stops drawing and resumes once the browser restores it.
+ * visible (the bolt writhes to the strike clock); a dark gap sleeps on one
+ * timer, and a frame allocates nothing of its own. The host decides when it
+ * runs (`start` / `stop`). Without WebGL it draws nothing. If the context is
+ * lost it stops drawing and resumes once the browser restores it.
  */
 export class HeroLightning {
   private renderer?: LightningRenderer;
@@ -36,6 +35,13 @@ export class HeroLightning {
   private strikeStart?: number;
   private seed = 0;
   private pairIndex = 0;
+  private readonly look: StrikeLook = { intensity: 0, core: 0, glow: 0 };
+  private readonly centers: Point[];
+  private readonly mouse: Point = { x: 0, y: 0 };
+  private readonly pairBolt = emptyBolt();
+  private readonly mouseBolt = emptyBolt();
+  private readonly pairOnly: readonly LightningBolt[] = [this.pairBolt];
+  private readonly pairAndMouse: readonly LightningBolt[] = [this.pairBolt, this.mouseBolt];
 
   public constructor(
     private readonly view: Window,
@@ -44,6 +50,7 @@ export class HeroLightning {
     private readonly symbols: HTMLElement[],
     pointerHost: HTMLElement,
   ) {
+    this.centers = symbols.map(() => ({ x: 0, y: 0 }));
     if (symbols.length < 2) return;
     this.renderer = LightningRenderer.create(canvas);
     if (!this.renderer) return;
@@ -86,7 +93,7 @@ export class HeroLightning {
     this.timeout = undefined;
     this.frame = undefined;
     this.strikeStart = undefined;
-    this.light(new Set());
+    this.light(-1, -1, -1);
   }
 
   private schedule(delay: number): void {
@@ -115,21 +122,20 @@ export class HeroLightning {
       this.schedule(strikeGap(Math.random));
       return;
     }
-    const look = strikeLook(elapsed, this.seed);
+    const look = strikeLook(elapsed, this.seed, this.look);
     const box = this.artifacts.getBoundingClientRect();
-    const centers = this.symbols.map((symbol) => center(symbol, box));
-    const lit = new Set([this.pairIndex, this.partnerIndex()]);
-    const bolts: LightningBolt[] = [
-      { ...look, from: centers[this.pairIndex], to: centers[this.partnerIndex()], seed: this.seed },
-    ];
-    const mouse = this.pointer?.position(box);
-    if (mouse) {
-      const nearest = nearestIndex(centers, mouse);
-      lit.add(nearest);
-      bolts.push({ ...look, from: centers[nearest], to: mouse, seed: this.seed + POINTER_SEED_OFFSET });
+    for (let i = 0; i < this.symbols.length; ++i) center(this.symbols[i], box, this.centers[i]);
+    const partner = this.partnerIndex();
+    setBolt(this.pairBolt, this.centers[this.pairIndex], this.centers[partner], look, this.seed);
+    let bolts = this.pairOnly;
+    let nearest = -1;
+    if (this.pointer?.positionInto(box, this.mouse)) {
+      nearest = nearestIndex(this.centers, this.mouse);
+      setBolt(this.mouseBolt, this.centers[nearest], this.mouse, look, this.seed + POINTER_SEED_OFFSET);
+      bolts = this.pairAndMouse;
     }
-    this.light(lit);
-    renderer.draw(bolts, shimmerStep(elapsed));
+    this.light(this.pairIndex, partner, nearest);
+    renderer.draw(bolts, strikeSeconds(elapsed));
     this.frame = this.view.requestAnimationFrame(this.draw);
   };
 
@@ -138,8 +144,11 @@ export class HeroLightning {
     return (this.pairIndex + Math.floor(this.symbols.length / 2)) % this.symbols.length;
   }
 
-  private light(lit: ReadonlySet<number>): void {
-    this.symbols.forEach((symbol, index) => symbol.classList.toggle(LIT, lit.has(index)));
+  /** Lights symbols `a`, `b` and `c` (-1 for none) and unlights the rest. */
+  private light(a: number, b: number, c: number): void {
+    for (let i = 0; i < this.symbols.length; ++i) {
+      this.symbols[i].classList.toggle(LIT, i === a || i === b || i === c);
+    }
   }
 
   private resize(): void {
@@ -161,22 +170,4 @@ export class HeroLightning {
     if (!this.running || !this.renderer) return;
     this.schedule(STRIKE.firstDelayMs);
   };
-}
-
-function center(symbol: HTMLElement, box: DOMRect): BoltPoint {
-  const rect = symbol.getBoundingClientRect();
-  return { x: rect.left - box.left + rect.width / 2, y: rect.top - box.top + rect.height / 2 };
-}
-
-function nearestIndex(points: readonly BoltPoint[], target: BoltPoint): number {
-  let best = 0;
-  let bestDistance = Infinity;
-  points.forEach((point, index) => {
-    const distance = Math.hypot(point.x - target.x, point.y - target.y);
-    if (distance < bestDistance) {
-      best = index;
-      bestDistance = distance;
-    }
-  });
-  return best;
 }

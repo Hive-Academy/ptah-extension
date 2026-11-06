@@ -93,7 +93,9 @@ describe('LightningRenderer', () => {
     }
     expect(uniforms.get('uSeg[0]')).toEqual([20, 560, 220, 160, 0, 0, 0, 0]);
     expect(uniforms.get('uBolt[0]')).toEqual([0.5, 2, 6, 7, 0, 0, 0, 0]);
-    expect(mock(gl, 'uniform1f')).toHaveBeenCalledWith('uShimmer', 4);
+    expect(mock(gl, 'uniform1f')).toHaveBeenCalledWith('uTime', 4);
+    expect(mock(gl, 'uniform1f')).toHaveBeenCalledWith('uScale', 340);
+    expect(mock(gl, 'uniform1f')).toHaveBeenCalledWith('uJag', 140);
     expect(mock(gl, 'drawArrays')).toHaveBeenCalledWith(6, 0, 6);
   });
 
@@ -118,5 +120,18 @@ describe('LightningRenderer', () => {
     expect(LIGHTNING_FRAGMENT).not.toContain('OES_standard_derivatives');
     expect(LIGHTNING_FRAGMENT).toContain(`uniform vec4 uSeg[${MAX_BOLTS}]`);
     expect(LIGHTNING_FRAGMENT).toContain(`uniform vec4 uBolt[${MAX_BOLTS}]`);
+  });
+
+  it('skips the noise only beyond the widest push (2 x jag) plus the halo', () => {
+    expect(LIGHTNING_FRAGMENT).toContain('abs(s) > 2.0 * amp + reach');
+  });
+
+  it('keeps noise coordinates in a small wrapped domain for mediump', () => {
+    // The seed is folded into one period and every octave is wrapped before it is sampled.
+    expect(LIGHTNING_FRAGMENT).toContain('mod(mod(seed, 64.0)');
+    expect(LIGHTNING_FRAGMENT).toContain('p = mod(p, PERIOD);');
+    expect(LIGHTNING_FRAGMENT).toContain('vec2 ip = mod(floor(p), PERIOD);');
+    // An integer octave matrix maps the wrap lattice onto itself, so wrapping leaves no seam.
+    expect(LIGHTNING_FRAGMENT).toContain('mat2(2.0, -1.0, 1.0, 2.0)');
   });
 });

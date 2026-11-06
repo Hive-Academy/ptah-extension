@@ -15,7 +15,7 @@
   min-width: 0;
 }
 
-/* The desktop chat window: abstract lines, a composer that locks. */
+/* The desktop app window (always-on-desk); its type scales with this width. */
 .ao-desk {
   position: relative;
   z-index: 1;
@@ -23,6 +23,8 @@
   min-width: 0;
   min-height: 16rem;
   flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
   border: 1px solid #262a33;
   border-radius: 0.5rem;
   background: #0e1015;
@@ -31,108 +33,23 @@
   transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
 }
 
-.desk-bar {
-  display: flex;
-  gap: 0.35rem;
-  padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid #262a33;
-}
-
-.desk-bar i {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: #262a33;
-}
-
-.desk-bar i:first-child {
-  background: #f5a524;
-}
-
-.desk-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.9rem;
-  padding: clamp(1.25rem, 2.5vw, 2rem);
-}
-
-.desk-line {
-  width: calc(var(--line, 0.6) * 100%);
-  height: 0.6rem;
-  border-radius: 0.3rem;
-  background: #262a33;
-}
-
-.desk-line.is-reply {
-  align-self: flex-end;
-  background: rgb(245 165 36 / 22%);
-}
-
-.desk-composer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 clamp(1rem, 2vw, 1.5rem) clamp(1rem, 2vw, 1.5rem);
-  padding: 0.75rem 0.9rem;
-  border: 1px solid #3a3f4b;
-  border-radius: 0.4rem;
-  color: #ffbb4d;
-  transition:
-    border-color 0.4s ease,
-    opacity 0.4s ease;
-}
-
-.composer-caret {
-  width: 1px;
-  height: 1.1rem;
-  background: #ffbb4d;
-  transition: opacity 0.3s ease;
-}
-
-.composer-lock {
-  width: 1.1rem;
-  height: 1.1rem;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-/* Handed over: the composer goes read-only and shows the lock. */
-.ao-desk.is-locked .desk-composer {
-  border-color: rgb(255 187 77 / 55%);
-}
-
-.ao-desk.is-locked .composer-caret {
-  opacity: 0;
-}
-
-.ao-desk.is-locked .composer-lock {
-  opacity: 1;
-}
-
 /* The phone: the three points arrive on it as messages. */
 .ao-phone {
   position: relative;
   z-index: 2;
   width: min(20rem, 88%);
   margin: -4rem 0 0 auto;
-  padding: 2.5rem 1rem 1.5rem;
-  border: 1px solid #3a3f4b;
+  padding: 2.25rem 0.9rem 1.25rem;
+  border: 1px solid var(--app-line-strong);
   border-radius: 1.75rem;
-  background: #0e1015;
-  box-shadow:
-    0 2rem 5rem rgb(0 0 0 / 70%),
-    0 0 0 rgb(245 165 36 / 0%);
-  transition:
-    border-color 0.4s ease,
-    box-shadow 0.4s ease;
+  color: var(--app-ink);
+  background: var(--app-b1);
+  box-shadow: 0 2rem 5rem rgb(0 0 0 / 70%);
+  transition: border-color 0.4s ease;
 }
 
 .ao-phone.is-live {
-  border-color: rgb(255 187 77 / 55%);
-  box-shadow:
-    0 2rem 5rem rgb(0 0 0 / 70%),
-    0 0 3rem rgb(245 165 36 / 14%);
+  border-color: rgb(228 185 74 / 55%);
 }
 
 .phone-notch {
@@ -141,9 +58,24 @@
   left: 50%;
   width: 4.5rem;
   height: 0.4rem;
-  border-radius: 0.2rem;
-  background: #262a33;
+  border-radius: 9999px;
+  background: var(--app-b3);
   transform: translateX(-50%);
+}
+
+/* Chat header: the platform the session was handed to, its dot green once attached. */
+.phone-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.9rem;
+  padding: 0 0.25rem 0.7rem;
+  border-bottom: 1px solid var(--app-line);
+}
+
+.phone-name {
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .ao-points {
@@ -154,13 +86,14 @@
   list-style: none;
 }
 
+/* Messages: the app's card surface (base-200, hairline, rounded) as chat bubbles. */
 .ao-point {
   max-width: 92%;
   padding: 0.7rem 0.9rem;
-  border: 1px solid #262a33;
-  border-radius: 0.9rem 0.9rem 0.9rem 0.25rem;
-  color: #e9ebef;
-  background: #15181f;
+  border: 1px solid var(--app-line);
+  border-radius: 1rem 1rem 1rem 0.3rem;
+  color: var(--app-ink);
+  background: var(--app-b2);
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.4;
@@ -218,9 +151,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desk-composer,
-  .composer-caret,
-  .composer-lock,
   .ao-phone,
   .ao-point {
     transition: none;

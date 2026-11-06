@@ -2,15 +2,15 @@ import {
   STRIKE,
   STRIKE_TOTAL_MS,
   hash01,
-  shimmerStep,
+  strikeSeconds,
   strikeGap,
   strikeLevel,
   strikeLook,
 } from './strike-envelope';
 
 describe('strike envelope', () => {
-  it('is visible for about 1.5 s and dark outside it', () => {
-    expect(STRIKE_TOTAL_MS).toBe(1500);
+  it('is visible for 3.5 s and dark outside it', () => {
+    expect(STRIKE_TOTAL_MS).toBe(3500);
     expect(strikeLevel(-1)).toBe(0);
     expect(strikeLevel(STRIKE_TOTAL_MS)).toBe(0);
     expect(strikeLevel(Number.NaN)).toBe(0);
@@ -52,9 +52,16 @@ describe('strike envelope', () => {
     expect(hash01(4)).toBeLessThan(1);
   });
 
-  it('steps the shimmer and draws the gap from its range', () => {
-    expect(shimmerStep(0)).toBe(0);
-    expect(shimmerStep(STRIKE.shimmerMs * 3 + 1)).toBe(3);
+  it('writes into a reused look instead of allocating one', () => {
+    const out = { intensity: -1, core: -1, glow: -1 };
+    const t = STRIKE.rampMs + 50;
+    expect(strikeLook(t, 5, out)).toBe(out);
+    expect(out).toEqual(strikeLook(t, 5));
+  });
+
+  it('converts the writhe clock and draws the gap from its range', () => {
+    expect(strikeSeconds(-5)).toBe(0);
+    expect(strikeSeconds(2500)).toBe(2.5);
     expect(strikeGap(() => 0)).toBe(STRIKE.minGapMs);
     expect(strikeGap(() => 0.5)).toBe((STRIKE.minGapMs + STRIKE.maxGapMs) / 2);
     expect(strikeGap(() => 0.999)).toBeLessThan(STRIKE.maxGapMs);

@@ -46,7 +46,7 @@ describe('ProvidersSectionComponent', () => {
 
     expect(root.querySelectorAll('.rise:not(.is-in)')).toHaveLength(0);
     expect(root.querySelectorAll('.pv-card.is-in')).toHaveLength(3);
-    expect(root.querySelector('[data-seal]')?.classList.contains('is-in')).toBe(true);
+    expect(root.querySelector('[data-conn]')?.classList.contains('is-in')).toBe(true);
     fixture.destroy();
   });
 
@@ -61,12 +61,37 @@ describe('ProvidersSectionComponent', () => {
     ]);
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
     expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
-    expect(root.querySelector('[data-seal]')?.getAttribute('aria-hidden')).toBe('true');
     expect(root.querySelectorAll('.card-index[aria-hidden="true"]')).toHaveLength(3);
+    // The old illustrated seal is gone; the app's own connection card replaces it.
+    expect(root.querySelector('.pv-seal')).toBeNull();
     fixture.destroy();
   });
 
-  it('reveals the header, then deals the cards and stamps the seal with the second', () => {
+  it('draws the app fragments with the app labels, all decorative', () => {
+    const { root, fixture } = mount();
+    const conn = root.querySelector('[data-conn] .conn');
+    expect(conn?.getAttribute('aria-hidden')).toBe('true');
+    expect(conn?.textContent).toContain('Active for main agent');
+    expect(conn?.textContent).toContain('CLI subscription');
+
+    const cards = Array.from(root.querySelectorAll('.pv-card'));
+    const avatars = cards[0]?.querySelectorAll('.avatars .app-avatar');
+    expect(Array.from(avatars ?? []).map((el) => el.textContent?.trim())).toEqual([
+      'CL',
+      'CO',
+      'CO',
+      'OP',
+      'OL',
+    ]);
+    expect(cards[1]?.querySelector('.accounts')?.getAttribute('aria-hidden')).toBe('true');
+    expect(
+      Array.from(cards[1]?.querySelectorAll('.app-chip') ?? []).map((el) => el.textContent?.trim()),
+    ).toEqual(['Chat', 'Lanes']);
+    expect(cards[2]?.querySelector('.avatars, .accounts')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('reveals the header, then deals the cards and lands the connection card with the second', () => {
     const { component, root, fixture } = mount();
     const shown = (selector: string) => root.querySelectorAll(selector + '.is-in').length;
 
@@ -77,18 +102,18 @@ describe('ProvidersSectionComponent', () => {
     expect(shown('.section-title')).toBe(1);
     expect(shown('.section-subline')).toBe(0);
     expect(shown('.pv-card')).toBe(0);
-    expect(shown('[data-seal]')).toBe(0);
+    expect(shown('[data-conn]')).toBe(0);
 
     component.scroll.reveal.set(1);
     component.scroll.steps.set(0.2);
     fixture.detectChanges();
     expect(shown('.pv-card')).toBe(1);
-    expect(shown('[data-seal]')).toBe(0);
+    expect(shown('[data-conn]')).toBe(0);
 
     component.scroll.steps.set(0.45);
     fixture.detectChanges();
     expect(shown('.pv-card')).toBe(2);
-    expect(shown('[data-seal]')).toBe(1);
+    expect(shown('[data-conn]')).toBe(1);
 
     component.scroll.steps.set(1);
     fixture.detectChanges();

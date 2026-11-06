@@ -22,10 +22,15 @@ export class HeroPointer {
     host.addEventListener('pointerleave', this.onLeave, { passive: true });
   }
 
-  /** The pointer relative to `box` (CSS px), or undefined when it is not over the hero. */
-  public position(box: DOMRect): BoltPoint | undefined {
-    if (!this.client) return undefined;
-    return { x: this.client.x - box.left, y: this.client.y - box.top };
+  /**
+   * Writes the pointer relative to `box` (CSS px) into `out`, so a frame loop
+   * allocates nothing. False, with `out` untouched, when it is not over the hero.
+   */
+  public positionInto(box: DOMRect, out: { x: number; y: number }): boolean {
+    if (!this.client) return false;
+    out.x = this.client.x - box.left;
+    out.y = this.client.y - box.top;
+    return true;
   }
 
   public destroy(): void {
