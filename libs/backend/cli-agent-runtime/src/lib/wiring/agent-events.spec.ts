@@ -109,8 +109,8 @@ describe('agent delivery push sinks', () => {
     const envelope: ParentDeliveryEnvelope = {
       id: 'lane-delivery:completion-1', parentSessionId: PARENT_SESSION,
       agentId: 'agent-1', kind: 'completion', dedupeKey: 'completion-1',
-      body: 'Done', createdAt: 1, state: 'delivered', attempts: 1,
-      verdict: 'no-deliverable', stopReason: 'auth',
+      body: 'Done', createdAt: 1, updatedAt: 2, state: 'delivered', attempts: 1,
+      bodyBytes: 4, verdict: 'no-deliverable', stopReason: 'auth',
     };
     container.resolve<{ changed(receipt: AgentDeliveryReceipt): void }>(
       CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK,
@@ -128,10 +128,13 @@ describe('agent delivery push sinks', () => {
     );
     container.resolve<{ emit(envelope: ParentDeliveryEnvelope): void }>(
       CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK,
-    ).emit({ ...envelope, state: 'expired', lastError: 'delivery-expired' });
+    ).emit({ ...envelope, state: 'blocked-retryable', attempts: 2, lastError: 'busy',
+      nextRetryAt: 30_000, waitingReason: undefined });
     expect(broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
-      expect.objectContaining({ deliveryId: envelope.id, state: 'expired' }),
+      expect.objectContaining({ deliveryId: envelope.id, state: 'blocked-retryable',
+        parentSessionId: PARENT_SESSION, createdAt: 1, updatedAt: 2, attempts: 2,
+        lastError: 'busy', nextRetryAt: 30_000 }),
     );
   });
 });

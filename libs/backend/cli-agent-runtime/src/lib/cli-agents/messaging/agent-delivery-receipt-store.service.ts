@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AgentId, type AgentDeliveryReceipt, type AgentMessageDelivery, type AgentMessagePreviewMode } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { AgentDeliveryReceiptEventSink } from './agent-delivery-receipt-event-sink';
 
 const receiptSchema = z.object({
   id: z.string().uuid(),
@@ -32,9 +33,7 @@ export interface AgentDeliveryReceiptPersistence {
   update(key: string, value: unknown): Promise<void>;
 }
 
-export interface AgentDeliveryReceiptEventSink {
-  changed(receipt: AgentDeliveryReceipt): void;
-}
+export type { AgentDeliveryReceiptEventSink } from './agent-delivery-receipt-event-sink';
 
 export class AgentDeliveryReceiptStore {
   private readonly receipts = new Map<string, AgentDeliveryReceipt>();
