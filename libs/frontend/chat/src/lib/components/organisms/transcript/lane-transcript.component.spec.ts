@@ -51,6 +51,7 @@ import {
   provideSurfaceActiveTesting,
 } from '@ptah-extension/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { createExecutionNode, type ExecutionNode } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
@@ -107,6 +108,7 @@ describe('LaneTranscriptComponent', () => {
       // fix ToolCallItemComponent required both, so every tool row in a lane
       // failed to create (NG0201) and left an empty node.
       providers: [
+        { provide: AgentMonitorStore, useValue: { agentsById: signal(new Map()), receipts: signal(new Map()), receiptLabel: () => 'Queued' } },
         provideSurfaceActiveTesting(),
         {
           provide: VSCodeService,
@@ -137,6 +139,27 @@ describe('LaneTranscriptComponent', () => {
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       ],
     });
+  });
+
+  it('keeps the user bubble visible and labels the lane with its display name', () => {
+    const agentId = 'cli-display';
+    TestBed.overrideProvider(AgentMonitorStore, { useValue: {
+      agentsById: signal(new Map([[agentId, { cli: 'codex', displayName: 'Research lane', status: 'running' }]])),
+      receipts: signal(new Map()), parentDelivery: signal(new Map([[agentId, [{ agentId, kind: 'report', state: 'pending', preview: 'Report' }]]])), receiptLabel: () => 'Queued',
+    } });
+    const fixture = TestBed.createComponent(LaneTranscriptComponent);
+    fixture.componentRef.setInput('laneId', agentId);
+    fixture.componentRef.setInput('nodes', []);
+    fixture.componentRef.setInput('events', [
+      { id: 'start', eventType: 'message_start', messageId: 'prompt', role: 'user', timestamp: 1 },
+      { id: 'text', eventType: 'text_delta', messageId: 'prompt', delta: 'Inspect files', timestamp: 2 },
+    ]);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelectorAll('ptah-message-bubble')).toHaveLength(1);
+    expect(root.querySelector('[aria-label="Parent and lane communication"]')?.textContent).toContain('Parent agent');
+    expect(root.querySelector('[aria-label="Parent and lane communication"]')?.textContent).toContain('Research lane');
+    expect(root.querySelector('[data-ptah-transcript-message-id]')?.textContent).toContain('Inspect files');
   });
 
   it('keeps the live elapsed label ticking through the shared clock', () => {

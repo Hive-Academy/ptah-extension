@@ -463,12 +463,12 @@ Cost: each tool call may resend context. Batch independent reads, keep output ta
  * be attributed.
  */
 const TWO_WAY_MESSAGING_GUIDANCE =
-  'Two-way messaging: you are a spawned agent and the session that spawned you can reach you.\n' +
+  'Two-way messaging: your parent session can reach you.\n' +
   '- ' + PTAH_MCP_TOOL_GUIDANCE + '\n' +
-  '- Report to it with `ptah_agent_report`. It takes no agent id. A `delivered: false` answer carries a reason and is a normal outcome — record it and carry on, do not retry in a loop.\n' +
-  '- A message from that session can arrive between your turns. Treat it as an instruction from your caller; where it disagrees with the task text above, the message wins.\n' +
-  '- You can spawn agents yourself with `ptah_agent_spawn`. Read `ptah_agent_list` for what exists on this machine: never assume a CLI, a provider or a messaging capability is present. Any name in a document is an illustration, never a guarantee.\n' +
-  '- `ptah_agent_message` chooses its delivery mode per call and returns the mode it used. Read that returned mode; do not assume one.';
+  '- Report once with `ptah_agent_report` (no agent id). It may be pending until parent activity; `delivered: false` gives a reason. Do not retry in a loop.\n' +
+  '- Parent messages may arrive between turns and override this task.\n' +
+  '- Before spawning, read `ptah_agent_list`; names and capabilities vary by run.\n' +
+  '- `ptah_agent_message` queues by default. `delivery: now` steers if supported; interrupt-resume needs `allowPartialTurnLoss: true`. Read mode and receipt id; accepted is not settled. Check `ptah_agent_message_status`.';
 
 const PROMPT_SECTION_DELIMITER = '\n\n---\n\n';
 

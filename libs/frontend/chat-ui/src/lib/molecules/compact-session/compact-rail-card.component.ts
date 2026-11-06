@@ -43,7 +43,6 @@ const EMPTY_LANES: CompactLaneSummary = {
   host: {
     class:
       'rc-card block relative overflow-hidden rounded-lg border border-base-content/10 text-base-content',
-    '[class]': "focused() ? 'bg-primary/25' : 'bg-base-200'",
     '[style.height.px]': 'cardHeight()',
     '[class.rc-dense]': 'density() === "dense"',
     '[class.rc-corner-reserved]': 'reserveActionCorner()',
@@ -52,14 +51,26 @@ const EMPTY_LANES: CompactLaneSummary = {
   },
   styles: [
     `
-      /* The focused frame ink, at least 3:1 on the page and on an unfocused
-         card. anubis primary #2563eb: 3.59:1 on base-100, 3.35:1 on base-200.
+      /* The focused frame ink, at least 3:1 on the page and the transparent
+         unfocused card. anubis primary #2563eb: 3.59:1 on base-100.
          anubis-light primary is a bright teal (1.40:1 on its cream), so that
-         theme uses the deep teal primary-content: 9.80:1 and 8.75:1. */
+         theme uses the deep teal primary-content: 9.80:1 on its cream page. */
       :host {
         box-sizing: border-box;
         padding: 4px 10px 4px 14px;
         --rc-focus-frame: oklch(var(--p));
+        --rail-active-fill: color-mix(in oklch, oklch(var(--p)) 22%, oklch(var(--b3)));
+        background-color: transparent;
+      }
+      :host(:hover:not(.rc-focused)) {
+        background-color: oklch(var(--bc) / 0.05);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        :host {
+          transition: background-color 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+            border-color 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+            box-shadow 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
       }
       :host-context([data-theme='anubis-light']) {
         --rc-focus-frame: oklch(var(--pc));
@@ -173,18 +184,20 @@ const EMPTY_LANES: CompactLaneSummary = {
       }
       /* Hover changes paint only (no padding, border width or size), so the
          176/96 px card and the 70 px lane block never shift. The state inks
-         clear 3:1 on base-100/200/300 in both themes (state-ink-contrast.spec). */
+         clear 3:1 on base-100/200/300 in both themes (state-ink-contrast.spec);
+         the inactive card now shows its underlying rail surface. */
       :host(:hover) {
         border-color: var(--rail-state-ink);
       }
       /* The active session: a focus frame (the 1 px border plus a 1 px
          inset ring, so no size change and nothing for the parent's overflow
-         to clip) over the theme's primary-tinted background. After
+         to clip) over a primary tint mixed into base-300. After
          :host(:hover) so hover never repaints the active frame; the left
          state stripe paints over the ring's left edge. */
       :host(.rc-focused) {
         border-color: var(--rc-focus-frame);
         box-shadow: inset 0 0 0 1px var(--rc-focus-frame);
+        background-color: var(--rail-active-fill);
       }
       .rc-action:hover {
         box-shadow: inset 0 0 0 1px currentColor;

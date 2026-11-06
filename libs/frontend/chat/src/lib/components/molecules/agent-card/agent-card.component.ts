@@ -19,6 +19,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { ClaudeRpcService, injectWallClock } from '@ptah-extension/core';
 import { type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
+import { AgentContinueInputComponent } from '../agent-continue-input/agent-continue-input.component';
 import {
   AgentCardHeaderComponent,
 } from './agent-card-header.component';
@@ -43,7 +44,8 @@ import {
     LucideAngularModule,
     AgentCardHeaderComponent,
     CliLaneUsageSummaryComponent,
-      CliAgentOutputComponent,
+    CliAgentOutputComponent,
+    AgentContinueInputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -130,6 +132,9 @@ import {
             [scrollTrigger]="scrollTrigger()"
             [presentation]="presentation()"
           />
+        }
+        @if (presentation() === 'card') {
+          <ptah-agent-continue-input class="block px-2 pb-2" [agent]="agent()" variant="panel" />
         }
       }
     </div>

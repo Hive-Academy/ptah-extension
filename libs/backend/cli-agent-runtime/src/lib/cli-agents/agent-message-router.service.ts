@@ -30,6 +30,7 @@ import type {
   AgentMessagingCapabilities,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import { legacyMessagingCapabilities } from './cli-adapters/cli-adapter.interface';
 
 /**
  * How many messages may wait for an agent's current turn to finish.
@@ -52,6 +53,13 @@ export class AgentMessageError extends Error {
   ) {
     super(message);
     this.name = 'AgentMessageError';
+  }
+}
+
+export class AgentInterruptedDeliveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentInterruptedDeliveryError';
   }
 }
 
@@ -97,7 +105,7 @@ const MAX_TERMINAL_MESSAGES = 64;
  * with a fake and the module graph stays acyclic.
  */
 export interface ContinuationDispatcher {
-  continueConversation(agentId: string, message: string): Promise<void>;
+  continueConversation(agentId: string, message: string, messageId?: string): Promise<void>;
 }
 
 /** Microtask ticks drained while waiting for an aborted turn's exit handling. */
@@ -108,6 +116,7 @@ export class AgentMessageRouter {
   private readonly terminal = new Map<string, AgentMessageStatus>();
   private readonly flushing = new Set<string>();
   private readonly inFlight = new Map<string, string>();
+  private readonly interrupting = new Set<string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
@@ -125,9 +134,11 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     message: string,
     dispatcher: ContinuationDispatcher,
-    delivery: 'queue' | 'steer' = 'queue',
+    delivery: 'queue' | 'now' | 'steer' = 'queue',
+    messageId?: string,
+    allowPartialTurnLoss = false,
   ): Promise<AgentMessageOutcome> {
-    const outcome = await this.select(agentId, tracked, message, dispatcher, delivery);
+    const outcome = await this.select(agentId, tracked, message, dispatcher, delivery, messageId, allowPartialTurnLoss);
     this.logger.info('[AgentMessageRouter] Message routed', {
       agentId,
       cli: tracked.info.cli,
@@ -142,19 +153,21 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     message: string,
     dispatcher: ContinuationDispatcher,
-    delivery: 'queue' | 'steer',
+    delivery: 'queue' | 'now' | 'steer',
+    messageId?: string,
+    allowPartialTurnLoss = false,
   ): Promise<AgentMessageOutcome> {
     const handle = tracked.sdkHandle;
     const caps = this.resolveCapabilities(tracked);
     const turnInFlight = tracked.info.status === 'running';
 
     if (delivery === 'steer') {
-      if (tracked.info.cli !== 'codex' || !turnInFlight || !caps.steer || !handle?.steer)
-        return { mode: 'unsupported', detail: 'Explicit steer is unavailable for this active Codex turn.' };
+      if (!turnInFlight || !caps.steer || !handle?.steer)
+        return { mode: 'unsupported', reasonCode: 'steer-unavailable', detail: 'Explicit steer is unavailable for this active turn.' };
       try {
         await handle.steer(message);
       } catch {
-        return { mode: 'unsupported', detail: 'Codex rejected the steer request.' };
+        return { mode: 'unsupported', reasonCode: 'steer-rejected', detail: 'The live handle rejected the steer request.' };
       }
       return {
         mode: 'steer',
@@ -164,18 +177,32 @@ export class AgentMessageRouter {
       };
     }
 
-    if (turnInFlight && caps.interrupt && handle?.interrupt) {
-      return this.interruptAndResume(agentId, tracked, message, dispatcher);
+    if (delivery === 'now') {
+      if (turnInFlight && caps.steer && handle?.steer) {
+        try {
+          await handle.steer(message);
+          return { mode: 'steer', detail: 'Injected into the active turn.' };
+        } catch (error: unknown) {
+          return { mode: 'unsupported', reasonCode: 'steer-rejected', detail: `Steer rejected: ${describeError(error)}` };
+        }
+      }
+      if (turnInFlight && caps.interrupt && caps.continuation && handle?.interrupt) {
+        if (!allowPartialTurnLoss)
+          return { mode: 'unsupported', reasonCode: 'confirmation-required', detail: 'Confirm partial turn work loss before interrupting.' };
+        return this.interruptAndResume(agentId, tracked, message, dispatcher);
+      }
+      return { mode: 'unsupported', reasonCode: 'immediate-unavailable', detail: 'No immediate delivery mechanism is available.' };
     }
 
     if (caps.continuation) {
       return turnInFlight
-        ? this.park(tracked, message)
+        ? this.park(tracked, message, messageId)
         : this.startNewTurn(agentId, tracked, message, dispatcher);
     }
 
     return {
       mode: 'unsupported',
+      reasonCode: 'continuation-unavailable',
       detail:
         `${tracked.info.cli} offers no mechanism for delivering a message to ` +
         `an agent it has already started: it supports neither mid-turn ` +
@@ -198,11 +225,14 @@ export class AgentMessageRouter {
     message: string,
     dispatcher: ContinuationDispatcher,
   ): Promise<AgentMessageOutcome> {
+    this.interrupting.add(agentId);
     try {
       await tracked.sdkHandle?.interrupt?.();
     } catch (error: unknown) {
+      this.interrupting.delete(agentId);
       return {
         mode: 'unsupported',
+        reasonCode: 'interrupt-failed',
         detail:
           `Interrupting the current ${tracked.info.cli} turn failed: ` +
           `${describeError(error)}. Nothing was delivered and the turn was ` +
@@ -210,18 +240,18 @@ export class AgentMessageRouter {
       };
     }
 
-    await this.awaitTurnSettled(tracked);
-
+    let resubmitted = false;
     try {
+      await this.awaitTurnSettled(tracked);
       await dispatcher.continueConversation(agentId, message);
+      resubmitted = true;
     } catch (error: unknown) {
-      return {
-        mode: 'unsupported',
-        detail:
-          `The ${tracked.info.cli} turn was interrupted but the message could ` +
-          `not be re-submitted: ${describeError(error)}. The interrupted ` +
-          `turn's partial work is gone and the message was not delivered.`,
-      };
+      throw new AgentInterruptedDeliveryError(
+        `The ${tracked.info.cli} turn was interrupted but the message could not be re-submitted: ${describeError(error)}.`,
+      );
+    } finally {
+      this.interrupting.delete(agentId);
+      if (!resubmitted) await this.flushPending(agentId, tracked, dispatcher);
     }
 
     return {
@@ -237,10 +267,12 @@ export class AgentMessageRouter {
   private park(
     tracked: MessageRoutableAgent,
     message: string,
+    receiptId?: string,
   ): AgentMessageOutcome {
     if (tracked.pendingMessages.length >= MAX_PENDING_MESSAGES) {
       return {
         mode: 'unsupported',
+        reasonCode: 'queue-full',
         detail:
           `${tracked.pendingMessages.length} messages are already waiting for ` +
           `this agent's current turn to finish, which is the limit of ` +
@@ -251,8 +283,8 @@ export class AgentMessageRouter {
     }
 
     const cliSessionId = tracked.info.cliSessionId;
-    if (!cliSessionId) return { mode: 'unsupported', detail: 'The agent session is unavailable; nothing was queued.' };
-    const messageId = randomUUID();
+    if (!cliSessionId) return { mode: 'unsupported', reasonCode: 'no-session', detail: 'The agent session is unavailable; nothing was queued.' };
+    const messageId = receiptId ?? randomUUID();
     tracked.pendingMessages.push({ messageId, cliSessionId, text: message });
     return {
       mode: 'queue-next-turn',
@@ -274,12 +306,13 @@ export class AgentMessageRouter {
     } catch (error: unknown) {
       return {
         mode: 'unsupported',
+        reasonCode: 'start-turn-failed',
         detail: `Starting a new turn failed: ${describeError(error)}. Nothing was delivered.`,
       };
     }
 
     return {
-      mode: 'queue-next-turn',
+      mode: 'start-turn',
       detail:
         `The agent had already finished its turn and is still alive, so this ` +
         `message starts a NEW turn on the same conversation rather than ` +
@@ -299,7 +332,7 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     dispatcher: ContinuationDispatcher,
   ): Promise<void> {
-    if (tracked.pendingMessages.length === 0 || this.flushing.has(agentId)) return;
+    if (tracked.pendingMessages.length === 0 || this.flushing.has(agentId) || this.interrupting.has(agentId)) return;
 
     if (tracked.subprocessReleased) {
       const dropped = tracked.pendingMessages.length;
@@ -333,7 +366,7 @@ export class AgentMessageRouter {
     this.flushing.add(agentId);
     this.inFlight.set(agentId, next.messageId);
     try {
-      await dispatcher.continueConversation(agentId, next.text);
+      await dispatcher.continueConversation(agentId, next.text, next.messageId);
       if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
         this.setTerminal(agentId, next.messageId, { status: 'delivered' });
       this.logger.info('[AgentMessageRouter] Delivered queued message', {
@@ -382,6 +415,15 @@ export class AgentMessageRouter {
     return { status: 'unknown' };
   }
 
+  /** Release per-agent routing state when the manager expires its record. */
+  forgetAgent(agentId: string): void {
+    for (const key of this.terminal.keys())
+      if (key.startsWith(`${agentId}:`)) this.terminal.delete(key);
+    this.inFlight.delete(agentId);
+    this.flushing.delete(agentId);
+    this.interrupting.delete(agentId);
+  }
+
   private failPending(agentId: string, tracked: MessageRoutableAgent, reason: string): void {
     for (const entry of tracked.pendingMessages)
       this.setTerminal(agentId, entry.messageId, { status: 'failed', reason });
@@ -421,7 +463,7 @@ export class AgentMessageRouter {
       .getAdapter(tracked.info.cli)
       ?.capabilities();
     return (
-      adapterCaps ?? { steer: false, interrupt: false, continuation: false }
+      adapterCaps ? legacyMessagingCapabilities(adapterCaps) : { steer: false, interrupt: false, continuation: false }
     );
   }
 
@@ -449,5 +491,5 @@ export class AgentMessageRouter {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return error instanceof Error ? 'operation failed' : 'unknown failure';
 }

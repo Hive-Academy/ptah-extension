@@ -77,7 +77,7 @@ describe('unified CLI agent output', () => {
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         {
           provide: AgentMonitorStore,
-          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+          useValue: { tick: signal(0), agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },
         },
         {
           provide: ClaudeRpcService,

@@ -743,6 +743,16 @@ export function buildAgentSpawnTool({
           required: ['kind'],
           additionalProperties: false,
         },
+        permission: {
+          type: 'string',
+          enum: ['plan', 'ask', 'auto-edit', 'yolo'],
+          description: 'Requested lane permission mode. Unsupported choices are refused before spawn.',
+        },
+        network: {
+          type: 'string',
+          enum: ['allow', 'deny'],
+          description: 'Requested network mode. Unsupported choices are refused before spawn.',
+        },
         role: {
           type: 'string',
           description:
@@ -890,8 +900,12 @@ export function buildAgentMessageTool(): MCPToolDefinition {
         },
         delivery: {
           type: 'string',
-          enum: ['queue', 'steer'],
-          description: 'queue (default) waits for a new turn; steer explicitly injects into an active Codex turn.',
+          enum: ['queue', 'now', 'steer'],
+          description: 'queue (default) waits for the next turn; now requests immediate delivery; steer requires live steering.',
+        },
+        allowPartialTurnLoss: {
+          type: 'boolean',
+          description: 'Confirm loss of partial turn work when immediate delivery requires interrupt and resume.',
         },
       },
       required: ['agentId', 'message'],

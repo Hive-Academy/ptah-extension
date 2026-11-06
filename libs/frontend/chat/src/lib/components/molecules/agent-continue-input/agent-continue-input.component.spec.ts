@@ -1,421 +1,185 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { AgentContinueInputComponent } from './agent-continue-input.component';
-import {
-  AgentMonitorStore,
-  type MonitoredAgent,
-} from '@ptah-extension/chat-streaming';
+
+const agentId = '11111111-1111-4111-8111-111111111111';
 
 function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   return {
-    agentId: 'agent-1',
-    cli: 'codex',
-    task: 'Do work',
-    status: 'completed',
-    startedAt: Date.now(),
-    stdout: '',
-    stderr: '',
-    expanded: true,
-    segments: [],
-    streamEvents: [],
-    streamRevision: 0,
-    permissionQueue: [],
-    supportsContinuation: true,
+    agentId, cli: 'codex', task: 'Do work', status: 'running', startedAt: 1,
+    stdout: '', stderr: '', expanded: true, segments: [], streamEvents: [],
+    streamRevision: 0, permissionQueue: [], supportsContinuation: true,
     ...overrides,
   } as MonitoredAgent;
 }
 
+function capabilities(steer: 'supported' | 'unsupported'): NonNullable<MonitoredAgent['effectiveCapabilities']> {
+  return {
+    agentId: agentId as NonNullable<MonitoredAgent['effectiveCapabilities']>['agentId'],
+    resolvedAt: 1, source: 'live-handle',
+    messaging: {
+      steer: { state: steer }, interrupt: { state: 'unsupported' },
+      continuation: { state: 'unsupported' }, resume: { state: 'unsupported' },
+    },
+    mcp: { state: 'unsupported' },
+  };
+}
+
 describe('AgentContinueInputComponent', () => {
   let fixture: ComponentFixture<AgentContinueInputComponent>;
-  let component: AgentContinueInputComponent;
-  let continueAgent: jest.Mock;
-  let resumeAgentWithMessage: jest.Mock;
-  let agents: ReturnType<typeof signal<readonly MonitoredAgent[]>>;
+  let sendMessage: jest.Mock;
+  let cancelMessage: jest.Mock;
+  let state: { queue: { mode: string; usesResume: boolean }; now: { mode: string; lossDisclosure?: { confirmationRequired: boolean } } };
+  const receipts = signal(new Map<string, Array<{ id: string; state: string; delivery: string }>>());
 
-  function setup(agent: MonitoredAgent): void {
-    agents = signal<readonly MonitoredAgent[]>([agent]);
-    continueAgent = jest.fn().mockResolvedValue({ ok: true });
-    resumeAgentWithMessage = jest.fn().mockResolvedValue({ ok: true });
+  function setup(agent = makeAgent(), variant: 'panel' | 'composer' = 'composer'): void {
+    state = { queue: { mode: 'queue-next-turn', usesResume: agent.status !== 'running' && !!agent.cliSessionId }, now: { mode: 'steer' } };
+    receipts.set(new Map());
+    sendMessage = jest.fn().mockResolvedValue({ mode: 'queue-next-turn', receipt: { id: 'm-1', state: 'accepted' } });
+    cancelMessage = jest.fn().mockResolvedValue({ id: 'm-1', reason: 'cancelled-by-user' });
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [AgentContinueInputComponent],
-      providers: [
-        {
-          provide: AgentMonitorStore,
-          useValue: { agents, continueAgent, resumeAgentWithMessage },
-        },
-      ],
+      providers: [{ provide: AgentMonitorStore, useValue: {
+        receipts, agentsById: signal(new Map([[agentId, agent]])), composerState: () => state, previewMessage: jest.fn().mockResolvedValue(undefined),
+        sendMessage, cancelMessage, receiptLabel: () => 'Received', receipt: () => undefined,
+      } }],
     });
     fixture = TestBed.createComponent(AgentContinueInputComponent);
-    component = fixture.componentInstance;
     fixture.componentRef.setInput('agent', agent);
+    fixture.componentRef.setInput('variant', variant);
     fixture.detectChanges();
   }
 
-  /**
-   * Move the agent to a new state the way the app does: the store publishes it
-   * (which is what the root queue service flushes from) and the card input
-   * follows.
-   */
-  function publish(agent: MonitoredAgent): void {
-    agents.set([agent]);
-    fixture.componentRef.setInput('agent', agent);
+  function draft(text: string): HTMLInputElement | HTMLTextAreaElement {
+    const field = fixture.nativeElement.querySelector('textarea, input') as HTMLInputElement | HTMLTextAreaElement;
+    field.value = text;
+    field.dispatchEvent(new Event('input'));
     fixture.detectChanges();
+    return field;
   }
+
+  it('shows full and compact variants', () => {
+    setup();
+    expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
+    setup(makeAgent(), 'panel');
+    expect(fixture.nativeElement.querySelector('input')).not.toBeNull();
+  });
 
   it('shows Stop without a text input while running and Resume when stopped', () => {
     const running = makeAgent({ status: 'running', supportsContinuation: false });
     setup(running);
-    fixture.componentRef.setInput('variant', 'composer');
-    fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
     expect(fixture.nativeElement.querySelector('[aria-label="Stop generating"]')).not.toBeNull();
-    publish({ ...running, status: 'stopped', cliSessionId: 'cli-1' });
+    fixture.componentRef.setInput('agent', { ...running, status: 'stopped', cliSessionId: 'cli-1' });
+    fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[aria-label="Resume codex session"]')).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Stopped');
   });
 
-  it('renders nothing when supportsContinuation is not true', () => {
-    setup(makeAgent({ supportsContinuation: false }));
-    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
-  });
-
-  it('renders nothing when supportsContinuation is undefined', () => {
-    setup(makeAgent({ supportsContinuation: undefined }));
-    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
-  });
-
-  it('renders the input when supportsContinuation is true', () => {
-    setup(makeAgent({ supportsContinuation: true }));
+  it('shows the composer and emits Stop for a running steer-capable lane without continuation', () => {
+    setup(makeAgent({ supportsContinuation: false, effectiveCapabilities: capabilities('supported') }));
     expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
+    const stop = fixture.nativeElement.querySelector('[aria-label="Stop generating"]') as HTMLButtonElement;
+    const requested = jest.fn();
+    fixture.componentInstance.stopRequested.subscribe(requested);
+    stop.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('stopPending', true);
+    fixture.detectChanges();
+    expect(stop.disabled).toBe(true);
   });
 
-  it('leaves the input usable while the agent is running so a follow-up can be queued', () => {
-    setup(makeAgent({ status: 'running', supportsContinuation: true }));
-    const textarea = fixture.nativeElement.querySelector(
-      'textarea',
-    ) as HTMLTextAreaElement;
-    expect(textarea.disabled).toBe(false);
-    expect(component['subtitle']()).toContain('queues');
+  it('shows Stop alone for a running lane without steering or continuation', () => {
+    setup(makeAgent({ supportsContinuation: false, effectiveCapabilities: capabilities('unsupported') }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Stop generating"]')).not.toBeNull();
   });
 
-  it('clears the draft on successful submit', async () => {
-    setup(makeAgent());
-    component['draft'].set('follow up');
-
-    await component['submit']();
-
-    expect(continueAgent).toHaveBeenCalledWith('agent-1', 'follow up');
-    expect(component['draft']()).toBe('');
+  it('renders no message field when continuation is unavailable', () => {
+    setup(makeAgent({ supportsContinuation: false, status: 'completed' }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    setup(makeAgent({ supportsContinuation: undefined, status: 'completed' }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
   });
 
-  it('re-queues rather than erroring when the backend still answers busy', async () => {
-    // The card's status lagged the backend. Erroring here is how the typed
-    // message used to be thrown away.
-    setup(makeAgent());
-    continueAgent.mockResolvedValueOnce({ ok: false, code: 'busy' });
-    component['draft'].set('follow up');
-
-    await component['submit']();
-
-    expect(component['queued']()).toBe('follow up');
-    expect(component['error']()).toBeNull();
+  it('keeps a failed draft and clears only an accepted message', async () => {
+    setup();
+    const field = draft('follow up');
+    sendMessage.mockResolvedValueOnce({ mode: 'unsupported', detail: 'Unavailable' });
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send') as HTMLButtonElement).click();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(field.value).toBe('follow up');
+    expect(fixture.nativeElement.textContent).toContain('Unavailable');
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send') as HTMLButtonElement).click();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'follow up', 'queue', false);
+    expect(field.value).toBe('');
   });
 
-  it('does not call the store when the draft is blank', async () => {
-    setup(makeAgent());
-    component['draft'].set('   ');
-
-    await component['submit']();
-
-    expect(continueAgent).not.toHaveBeenCalled();
+  it('confirms turn loss before Send now', async () => {
+    setup();
+    state.now = { mode: 'interrupt-resume', lossDisclosure: { confirmationRequired: true } };
+    fixture.detectChanges();
+    draft('urgent');
+    (fixture.nativeElement.querySelector('[aria-label="Send options"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send now') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Partial work in this turn will be discarded.');
+    expect(sendMessage).not.toHaveBeenCalled();
+    (fixture.nativeElement.querySelector('[role="alertdialog"] button') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'urgent', 'now', true);
   });
 
-  describe('queue while running, flush at turn end (TASK_2026_294)', () => {
-    it('queues instead of calling the store while the agent is running', async () => {
-      setup(makeAgent({ status: 'running' }));
-      component['draft'].set('give the agent more time');
-
-      await component['submit']();
-
-      expect(continueAgent).not.toHaveBeenCalled();
-      expect(component['queued']()).toBe('give the agent more time');
-      expect(component['draft']()).toBe('');
-    });
-
-    it('coalesces repeat follow-ups into one message', async () => {
-      setup(makeAgent({ status: 'running' }));
-
-      component['draft'].set('first');
-      await component['submit']();
-      component['draft'].set('second');
-      await component['submit']();
-
-      expect(component['queued']()).toBe('first\nsecond');
-    });
-
-    it('sends the queued message once the agent leaves running', async () => {
-      setup(makeAgent({ status: 'running' }));
-      component['draft'].set('follow up');
-      await component['submit']();
-      expect(continueAgent).not.toHaveBeenCalled();
-
-      publish(makeAgent({ status: 'completed' }));
-      await Promise.resolve();
-
-      expect(continueAgent).toHaveBeenCalledWith('agent-1', 'follow up');
-      expect(component['queued']()).toBeNull();
-    });
-
-    it('does not resend on later status changes', async () => {
-      setup(makeAgent({ status: 'running' }));
-      component['draft'].set('follow up');
-      await component['submit']();
-
-      publish(makeAgent({ status: 'completed' }));
-      await Promise.resolve();
-      publish(makeAgent({ status: 'failed' }));
-      await Promise.resolve();
-
-      expect(continueAgent).toHaveBeenCalledTimes(1);
-    });
-
-    it('puts a queued message back in the box on unqueue', async () => {
-      setup(makeAgent({ status: 'running' }));
-      component['draft'].set('follow up');
-      await component['submit']();
-
-      component['unqueue']();
-
-      expect(component['queued']()).toBeNull();
-      expect(component['draft']()).toBe('follow up');
-    });
-
-    it('restores the message when the flush fails, instead of dropping it', async () => {
-      setup(makeAgent({ status: 'running' }));
-      component['draft'].set('follow up');
-      await component['submit']();
-      continueAgent.mockResolvedValueOnce({ ok: false, code: 'unknown' });
-
-      publish(makeAgent({ status: 'completed' }));
-      await Promise.resolve();
-      await Promise.resolve();
-      // The flush ran in the service; the box takes the text back on its
-      // next change detection pass.
-      fixture.detectChanges();
-
-      expect(component['draft']()).toBe('follow up');
-      expect(component['error']()).toContain('Could not send');
-    });
+  it('uses Enter for queue', async () => {
+    setup();
+    const field = draft('first');
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'first', 'queue', false);
   });
 
-  describe('expired records fall back to a session resume', () => {
-    it('resumes the session when continue answers not_found', async () => {
-      setup(makeAgent({ cliSessionId: 'session-9' }));
-      continueAgent.mockResolvedValueOnce({ ok: false, code: 'not_found' });
-      component['draft'].set('follow up');
-
-      await component['submit']();
-
-      // The conversation is still on disk. Telling the user to start a new
-      // agent would throw away the context they are following up ON.
-      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ agentId: 'agent-1' }),
-        'follow up',
-      );
-      expect(component['draft']()).toBe('');
-      expect(component['error']()).toBeNull();
-    });
-
-    it('resumes with a cliSessionId the store merged while continue was pending', async () => {
-      // Direct send: the card had no session id when the user pressed send.
-      setup(makeAgent({ cliSessionId: undefined }));
-      let answer!: (value: { ok: boolean; code?: string }) => void;
-      continueAgent.mockReturnValueOnce(
-        new Promise((resolve) => (answer = resolve)),
-      );
-      component['draft'].set('follow up');
-
-      const sent = component['submit']();
-      agents.set([makeAgent({ cliSessionId: 'sess-late' })]);
-      answer({ ok: false, code: 'not_found' });
-      await sent;
-
-      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ cliSessionId: 'sess-late' }),
-        'follow up',
-      );
-      expect(component['error']()).toBeNull();
-      expect(component['draft']()).toBe('');
-    });
-
-    it('skips the doomed continue call once the card is known expired', async () => {
-      setup(
-        makeAgent({ continuationExpired: true, cliSessionId: 'session-9' }),
-      );
-      component['draft'].set('follow up');
-
-      await component['submit']();
-
-      expect(continueAgent).not.toHaveBeenCalled();
-      expect(resumeAgentWithMessage).toHaveBeenCalled();
-    });
-
-    it('says so when there is no session to resume with', async () => {
-      setup(makeAgent({ cliSessionId: undefined }));
-      continueAgent.mockResolvedValueOnce({ ok: false, code: 'not_found' });
-      component['draft'].set('follow up');
-
-      await component['submit']();
-
-      expect(resumeAgentWithMessage).not.toHaveBeenCalled();
-      expect(component['draft']()).toBe('follow up');
-      expect(component['error']()).toContain('no session to resume');
-    });
-
-    it('keeps the draft and quotes the reason when the resume fails', async () => {
-      setup(
-        makeAgent({ continuationExpired: true, cliSessionId: 'session-9' }),
-      );
-      resumeAgentWithMessage.mockResolvedValueOnce({
-        ok: false,
-        error: 'no such session file',
-      });
-      component['draft'].set('follow up');
-
-      await component['submit']();
-
-      expect(component['draft']()).toBe('follow up');
-      expect(component['error']()).toContain('no such session file');
-    });
-
-    it('announces the resume in the subtitle, but only with a session id', () => {
-      setup(
-        makeAgent({ continuationExpired: true, cliSessionId: 'session-9' }),
-      );
-      expect(component['subtitle']()).toContain('resumes the session');
-
-      setup(makeAgent({ continuationExpired: true, cliSessionId: undefined }));
-      expect(component['subtitle']()).toBe('Send a follow-up');
-    });
+  it('uses Ctrl+Enter for Send now', async () => {
+    setup();
+    const secondField = draft('second');
+    secondField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    await fixture.whenStable();
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'second', 'now', false);
   });
 
-  describe('resume-only agents with a cliSessionId (TASK_2026_399)', () => {
-    it('renders the box when supportsContinuation is absent but a cliSessionId exists', () => {
-      // antigravity and opencode never declare supportsContinuation. Their
-      // finished agents are resumable via cliSessionId, so the box must show.
-      setup(
-        makeAgent({ supportsContinuation: undefined, cliSessionId: 'sess-a' }),
-      );
-      expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
-    });
+  it('closes the Send now menu with Escape', () => {
+    setup();
+    draft('urgent');
+    (fixture.nativeElement.querySelector('[aria-label="Send options"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Send options"]')?.getAttribute('aria-expanded')).toBe('true');
+    fixture.nativeElement.querySelector('input, textarea').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Send options"]')?.getAttribute('aria-expanded')).toBe('false');
+  });
 
-    it('renders nothing when neither supportsContinuation nor a cliSessionId is present', () => {
-      // Offering a box with no continuation path and no session to resume would
-      // lie to the user.
-      setup(
-        makeAgent({ supportsContinuation: undefined, cliSessionId: undefined }),
-      );
-      expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
-    });
+  it('offers Resume with message and no Send now when stopped', () => {
+    setup(makeAgent({ status: 'stopped', supportsContinuation: false, cliSessionId: 'cli-session-123' }));
+    expect(fixture.nativeElement.textContent).toContain('Resume CLI session cli-sess');
+    expect(fixture.nativeElement.textContent).toContain('Resume with message');
+    expect(fixture.nativeElement.textContent).not.toContain('Send now:');
+  });
 
-    it('resumes instead of continuing when continuation is unsupported but a session exists', async () => {
-      setup(
-        makeAgent({ supportsContinuation: undefined, cliSessionId: 'sess-a' }),
-      );
-      expect(component['subtitle']()).toBe(
-        'Send a follow-up — resumes the session',
-      );
-      component['draft'].set('my real follow up');
-
-      await component['submit']();
-
-      expect(continueAgent).not.toHaveBeenCalled();
-      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ agentId: 'agent-1' }),
-        'my real follow up',
-      );
-    });
-
-    it('still continues directly when continuation is supported and not expired', async () => {
-      // Paired isolation for the test above: without it, the resume-only test
-      // would pass even if the component always resumed.
-      setup(
-        makeAgent({
-          supportsContinuation: true,
-          continuationExpired: false,
-          cliSessionId: 'sess-a',
-        }),
-      );
-      expect(component['subtitle']()).toBe('Send a follow-up');
-      component['draft'].set('my real follow up');
-
-      await component['submit']();
-
-      expect(continueAgent).toHaveBeenCalledWith('agent-1', 'my real follow up');
-      expect(resumeAgentWithMessage).not.toHaveBeenCalled();
-    });
-
-    it('falls back to resume when continue answers unsupported, carrying the message', async () => {
-      // Before TASK_2026_399, 'unsupported' hit the generic error branch and the
-      // user's message was lost. It must now route to resume with the message.
-      setup(makeAgent({ supportsContinuation: true, cliSessionId: 'sess-a' }));
-      continueAgent.mockResolvedValueOnce({ ok: false, code: 'unsupported' });
-      component['draft'].set('my real follow up');
-
-      await component['submit']();
-
-      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ agentId: 'agent-1' }),
-        'my real follow up',
-      );
-      expect(component['draft']()).toBe('');
-      expect(component['error']()).toBeNull();
-    });
-
-    it('queues a follow-up while a resume-only agent is running, then flushes it by resume at turn end', async () => {
-      // antigravity and opencode never declare supportsContinuation. The
-      // widened visible gate now shows the box while they are still running,
-      // so a follow-up queues. When the run ends it must flush through
-      // resumeAgentWithMessage, not continueAgent — resumesInstead is true.
-      setup(
-        makeAgent({
-          supportsContinuation: undefined,
-          cliSessionId: 'sess-a',
-          status: 'running',
-        }),
-      );
-      // The widened gate: the box is visible while the agent is still running.
-      expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
-
-      component['draft'].set('my real follow up');
-      await component['submit']();
-
-      // Queued, not delivered yet: neither store method has been called and the
-      // draft is cleared.
-      expect(continueAgent).not.toHaveBeenCalled();
-      expect(resumeAgentWithMessage).not.toHaveBeenCalled();
-      expect(component['queued']()).toBe('my real follow up');
-      expect(component['draft']()).toBe('');
-
-      // The same flush mechanism the TASK_2026_294 queue tests use: publish the
-      // agent leaving running, so the queue service's root effect fires.
-      publish(makeAgent({
-          supportsContinuation: undefined,
-          cliSessionId: 'sess-a',
-          status: 'completed',
-        }));
-      await Promise.resolve();
-
-      // Delivered by resume with the exact text. continueAgent is never called
-      // at any point — a regression that stranded the message or routed it to
-      // continueAgent fails here.
-      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ agentId: 'agent-1' }),
-        'my real follow up',
-      );
-      expect(continueAgent).not.toHaveBeenCalled();
-      expect(component['queued']()).toBeNull();
-    });
+  it('cancels an accepted queued message', async () => {
+    setup();
+    receipts.set(new Map([[agentId, [{ id: 'm-1', state: 'accepted', delivery: 'queue', sender: 'user', preview: 'Queued text' }]]]));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('1 queued');
+    (fixture.nativeElement.querySelector('[aria-label="Edit queued message: Queued text"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(cancelMessage).toHaveBeenCalledWith(agentId, 'm-1');
   });
 });

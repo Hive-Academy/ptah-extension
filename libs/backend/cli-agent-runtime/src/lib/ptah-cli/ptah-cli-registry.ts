@@ -7,6 +7,8 @@ import {
   type AuthEnv,
   type PtahCliConfig,
   type PtahCliSummary,
+  type CliAdapterManifest,
+  type EffectiveLanePolicy,
   type PtahCliState,
   type CliOutputSegment,
   type EffectiveCapabilitySet,
@@ -78,6 +80,7 @@ import {
 } from './helpers/ptah-cli-lane-plan-limits';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
+import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
@@ -287,10 +290,10 @@ export class PtahCliRegistry {
   /**
    * List all configured Ptah CLI agents with their status
    */
-  async listAgents(): Promise<PtahCliSummary[]> {
+  async listAgents(): Promise<(PtahCliSummary & { manifest: CliAdapterManifest })[]> {
     await this.configPersistence.ensureMigrated();
     const configs = this.configPersistence.loadConfigs();
-    const summaries: PtahCliSummary[] = [];
+    const summaries: (PtahCliSummary & { manifest: CliAdapterManifest })[] = [];
 
     for (const agentConfig of configs) {
       const provider = getAnthropicProvider(agentConfig.providerId);
@@ -326,11 +329,39 @@ export class PtahCliRegistry {
         enabled: agentConfig.enabled,
         modelCount,
         reasoningEffort: agentConfig.reasoningEffort,
+        manifest: this.capabilities(agentConfig.providerId),
       });
     }
 
     this.logger.info(`[PtahCliRegistry] Listed ${summaries.length} agents`);
     return summaries;
+  }
+
+  /** Static SDK capabilities for one configured provider lane. */
+  capabilities(providerId: string): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'The SDK prompt mailbox starts a new turn.' },
+        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: 'system-prompt',
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: 'plan', networkModes: ['allow'] },
+        ask: { state: 'supported', nativeMode: 'default', networkModes: ['allow'] },
+        'auto-edit': { state: 'supported', nativeMode: 'acceptEdits', networkModes: ['allow'] },
+        yolo: { state: 'supported', nativeMode: 'bypassPermissions', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'The Claude SDK has no verified general network sandbox.' },
+      },
+      limitReader: providerId === 'claude-cli' || providerId === 'ollama-cloud'
+        ? { state: 'available', source: 'PtahCliLanePlanLimits' }
+        : { state: 'no-reliable-source', reason: 'No provider-specific owner limit reader is registered.' },
+      mcp: { state: 'supported' },
+    };
   }
 
   /**
@@ -706,9 +737,12 @@ export class PtahCliRegistry {
        */
       agentId?: string;
       role?: AgentRoleDefinition;
+      permission?: import('@ptah-extension/shared').LanePermissionMode;
+      network?: import('@ptah-extension/shared').LaneNetworkMode;
     },
   ): Promise<
-    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
+    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void;
+        potentialCapabilities: CliAdapterManifest; effectivePolicy: EffectiveLanePolicy }
     | SpawnAgentFailure
   > {
     const configs = this.configPersistence.loadConfigs();
@@ -720,6 +754,11 @@ export class PtahCliRegistry {
         message: `Ptah CLI agent "${id}" not found in configuration`,
       };
     }
+
+    const lanePolicy = AgentSpawnEnvironment.resolveLanePolicy(
+      { name: 'ptah-cli', capabilities: () => this.capabilities(agentConfig.providerId) },
+      { permission: options?.permission, network: options?.network },
+    );
 
     if (!agentConfig.enabled) {
       this.logger.warn(`[PtahCliRegistry] spawnAgent: agent disabled: ${id}`);
@@ -868,7 +907,17 @@ export class PtahCliRegistry {
         this.messageTransformer,
       ).run({
         queryFn,
-        options: { ...effectiveOptions, abortController },
+        options: {
+          ...effectiveOptions,
+          abortController,
+          ...(lanePolicy.cli === 'ptah-cli' && lanePolicy.permissionMode
+            ? {
+                permissionMode: lanePolicy.permissionMode,
+                allowDangerouslySkipPermissions:
+                  lanePolicy.allowDangerouslySkipPermissions ?? false,
+              }
+            : {}),
+        },
         mailbox,
         providerId: agentConfig.providerId,
         agentName: agentConfig.name,
@@ -892,6 +941,8 @@ export class PtahCliRegistry {
       return {
         handle,
         agentName: agentConfig.name,
+        potentialCapabilities: this.capabilities(agentConfig.providerId),
+        effectivePolicy: lanePolicy.requested,
         /** Call this AFTER spawnFromSdkHandle() returns with the agentId.
          *  Populates the lazy resolver used by SdkPermissionHandler to route
          *  CLI agent permissions to the agent monitor panel. */

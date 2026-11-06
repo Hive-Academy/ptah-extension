@@ -92,7 +92,7 @@ describe('raw stdout fallback', () => {
         },
         {
           provide: AgentMonitorStore,
-          useValue: { agentsById: signal(new Map()) },
+          useValue: { agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },
         },
         {
           provide: WallClockService,

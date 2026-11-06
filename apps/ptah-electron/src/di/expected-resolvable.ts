@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
@@ -80,6 +81,13 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['CODEX_SIGN_IN_QUIT_HANDLE', CODEX_SIGN_IN_QUIT_HANDLE],
   ['SDK_CODEX_LOGIN', AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN],
   ['SDK_CODEX_READINESS', AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS],
+] as const;
+
+/** Runtime-owned message services, available after phase 2 registration. */
+export const EXPECTED_AGENT_MESSAGE_TOKENS = [
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR,
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_STORE,
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
 ] as const;
 
 /**

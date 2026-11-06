@@ -175,10 +175,11 @@ describe('registerCliAgentRuntimeServices — PtahCliRegistry DI smoke', () => {
     expect(deps.processSpawner.constructor.name).toBe(
       'OffThreadProcessSpawner',
     );
-    expect(adapter.capabilities()).toEqual({
-      continuation: true,
-      steer: false,
-      interrupt: false,
+    expect(adapter.capabilities().messaging).toMatchObject({
+      continuation: { state: 'supported' },
+      steer: { state: 'unsupported' },
+      interrupt: { state: 'unsupported' },
+      resume: { state: 'supported' },
     });
   });
 

@@ -50,7 +50,7 @@ describe('AgentCardComponent flat execution header', () => {
         provideMarkdown(),
         {
           provide: AgentMonitorStore,
-          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+          useValue: { tick: signal(0), agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },
         },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },

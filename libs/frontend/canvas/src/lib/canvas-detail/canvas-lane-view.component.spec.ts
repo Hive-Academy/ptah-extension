@@ -178,7 +178,7 @@ describe('CanvasLaneViewComponent', () => {
       },
     });
     TestBed.overrideComponent(AgentCardComponent, {
-      set: { template: '<span>CLI card</span>', imports: [] },
+      set: { template: '<span>CLI card</span>', imports: [], schemas: [NO_ERRORS_SCHEMA] },
     });
   });
 
@@ -289,7 +289,7 @@ describe('CanvasLaneViewComponent', () => {
       'ptah-agent-continue-input',
     );
     expect(input).not.toBeNull();
-    // Below the card, inside the same lane column.
+    expect(fixture.nativeElement.querySelectorAll('ptah-agent-continue-input')).toHaveLength(1);
     expect(card?.nextElementSibling).toBe(input);
     // The main chat shell (TASK_2026_717 D3): the chrome panel, the session
     // layout, and the composer in the centered column.

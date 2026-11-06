@@ -141,7 +141,7 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
-import type { PtahCliSummary } from '@ptah-extension/shared';
+import type { CliAdapterManifest, PtahCliSummary } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -174,7 +174,24 @@ function createMockPtahCliRegistry(): MockPtahCliRegistry {
   };
 }
 
-function makeSummary(overrides: Partial<PtahCliSummary> = {}): PtahCliSummary {
+const manifest: CliAdapterManifest = {
+  messaging: {
+    steer: { state: 'unsupported', reason: 'Unavailable in this fixture.' },
+    interrupt: { state: 'unsupported', reason: 'Unavailable in this fixture.' },
+    continuation: { state: 'supported' },
+    resume: { state: 'supported' },
+  },
+  roleChannel: 'task-prompt',
+  permissionModes: {},
+  networkModes: {
+    allow: { state: 'supported' },
+    deny: { state: 'unsupported', reason: 'Unavailable in this fixture.' },
+  },
+  limitReader: { state: 'no-reliable-source', reason: 'No fixture reader.' },
+  mcp: { state: 'unsupported', reason: 'No fixture transport.' },
+};
+
+function makeSummary(overrides: Partial<PtahCliSummary> = {}): PtahCliSummary & { manifest: CliAdapterManifest } {
   return {
     id: 'agent-1',
     name: 'Test Agent',
@@ -185,6 +202,7 @@ function makeSummary(overrides: Partial<PtahCliSummary> = {}): PtahCliSummary {
     status: 'available',
     enabled: true,
     modelCount: 3,
+    manifest,
     ...overrides,
   };
 }

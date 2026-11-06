@@ -78,6 +78,14 @@ describe('Electron RPC surface', () => {
   });
 
   it('serves every method owned by the live manifest', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'agent:previewMessage',
+        'agent:sendMessage',
+        'agent:getMessageReceipt',
+        'agent:cancelMessage',
+      ]),
+    );
     expect(surface.registered).toEqual(manifestMethods);
     expect(surface.registered.length + surface.excluded.length).toBe(
       manifestMethods.length,

@@ -35,6 +35,8 @@ jest.mock('fs/promises', () => ({
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   CLI_AGENT_RUNTIME_TOKENS: {
     SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
+    AGENT_MESSAGE_COORDINATOR: Symbol.for('AgentMessageCoordinator'),
+    AGENT_LANE_RESUME: Symbol.for('AgentLaneResume'),
   },
   AgentContinueError: class AgentContinueError extends Error {},
   LaneAccountResumeError: class LaneAccountResumeError extends Error {
@@ -156,6 +158,10 @@ function makeHarness(): Harness {
       }),
     ),
   };
+  const resumeService = {
+    resumeRequest: (request: Parameters<typeof processManager.spawn>[0]) => processManager.spawn(request),
+    prepareSdkResume: (request: Parameters<typeof processManager.prepareSdkHandleSpawn>[0]) => processManager.prepareSdkHandleSpawn(request),
+  };
 
   const workspace = {
     getWorkspaceRoot: jest.fn().mockReturnValue(WORKSPACE),
@@ -194,8 +200,8 @@ function makeHarness(): Harness {
     stateStorage as unknown as IStateStorage,
     {} as unknown as CliModelListService,
     {
-      isRegistered: jest.fn().mockReturnValue(false),
-      resolve: jest.fn(),
+      isRegistered: jest.fn((token: unknown) => token === Symbol.for('AgentLaneResume')),
+      resolve: jest.fn((token: unknown) => token === Symbol.for('AgentLaneResume') ? resumeService : undefined),
     } as unknown as DependencyContainer,
     {
       hasProviderKey: jest.fn().mockResolvedValue(false),

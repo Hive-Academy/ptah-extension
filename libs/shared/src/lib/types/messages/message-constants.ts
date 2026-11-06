@@ -261,6 +261,8 @@ export const MESSAGE_TYPES = {
    * path rewrites it to the SDK id.
    */
   AGENT_MONITOR_REPARENTED: 'agent-monitor:reparented',
+  AGENT_MONITOR_MESSAGE_RECEIPT: 'agent-monitor:message-receipt',
+  AGENT_MONITOR_PARENT_DELIVERY: 'agent-monitor:parent-delivery',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
   /**

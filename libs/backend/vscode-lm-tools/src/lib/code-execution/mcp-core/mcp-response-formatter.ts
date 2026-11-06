@@ -2004,6 +2004,7 @@ const AGENT_MESSAGE_MODE_NOTES: Readonly<Record<AgentMessagingMode, string>> = {
   'queue-next-turn':
     'Held and delivered as the next full turn, not mid-turn. The agent acts ' +
     'on it once its current turn settles.',
+  'start-turn': 'Started a new full turn for this agent.',
   unsupported:
     'NOTHING was delivered. The agent did not receive this message — see the ' +
     'reason below and use ptah_agent_list to check what this agent supports.',
