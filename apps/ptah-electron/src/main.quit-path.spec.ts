@@ -101,6 +101,8 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   // disposes it early — and in the BEFORE-persistence half, because a check
   // that completes writes its verdict through the connection about to close.
   'integrityService',
+  // A read-only reader of the database, killed before `SQLite close`.
+  'searchWorker',
   'gitWatcher',
   'symbolWatcher',
   'statusBridgeDisposables',
@@ -210,6 +212,7 @@ function makeFullRefs(order: string[]): BootRefs {
   };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
+  refs.searchWorker = { dispose: record('searchWorker') };
   refs.diagnostics = {
     dispose: record('diagnostics'),
   } as unknown as BootRefs['diagnostics'];

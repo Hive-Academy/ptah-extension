@@ -33,7 +33,10 @@ import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
 import { propagateHarness } from './plugin-activation';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_TOKENS,
+  type EmbedderWorkerClient,
+} from '@ptah-extension/memory-curator';
 import type { DependencyGraphService } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
@@ -684,6 +687,29 @@ export function captureShutdownHandles(
       hostRoutingError instanceof Error ? hostRoutingError.name : 'unknown',
     );
     coordinator.refs.hostRouting = null;
+  }
+
+  // The SQLite search worker is a utilityProcess forked on the first search.
+  // Captured here so `will-quit` kills the instance the stores hold; resolving
+  // forks nothing. Unregistered when memory-curator registration was skipped.
+  try {
+    coordinator.refs.searchWorker = container.isRegistered(
+      MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
+    )
+      ? container.resolve<{ dispose: () => void }>(
+          MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
+        )
+      : null;
+  } catch (searchWorkerError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` leaves the search process to Electron's child teardown.
+    console.warn(
+      '[Ptah Electron] SQLite search worker eager resolve failed (non-fatal):',
+      searchWorkerError instanceof Error
+        ? searchWorkerError.message
+        : String(searchWorkerError),
+    );
+    coordinator.refs.searchWorker = null;
   }
 
   // The watch host is a child process: `will-quit` must kill it through the

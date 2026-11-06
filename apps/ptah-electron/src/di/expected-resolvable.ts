@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
@@ -87,6 +88,7 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
     'SQLITE_SLOW_STATEMENT_SINK',
     PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK,
   ],
+  ['SQLITE_SEARCH_WORKER', MEMORY_TOKENS.SQLITE_SEARCH_WORKER],
 ] as const;
 
 /**

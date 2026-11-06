@@ -1,11 +1,15 @@
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type {
+  CuratorLogger,
+  SqliteDbProvider,
+  VecAvailability,
+} from './sqlite-reader-deps.types';
 import {
   PERSISTENCE_TOKENS,
-  SqliteConnectionService,
-  VecStatusService,
   type IEmbedder,
+  type SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
 import {
   type ICodeSymbolReader,
@@ -15,6 +19,9 @@ import {
 } from '@ptah-extension/memory-contracts';
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { SearchFlight } from './search-flight';
+import { scopedVectorCandidates } from './scoped-vector-search';
+import { MEMORY_TOKENS } from './di/tokens';
+import type { ISqliteSearchWorker } from './search-worker.port';
 
 export interface CodeSymbolInsert {
   readonly workspaceRoot: string;
@@ -150,7 +157,12 @@ const EXACT_NAME_COLUMNS = `cs.rowid AS rowid, cs.id AS id, cs.workspace_root AS
 
 @injectable()
 export class CodeSymbolStore implements ICodeSymbolReader {
+  private readOnlySearch = false;
+
+  /** Worker searches must never run the main connection's vector repair writes. */
+  enableReadOnlySearch(): void { this.readOnlySearch = true; }
   private readonly searchFlight = new SearchFlight<CodeSymbolHitPage>();
+  private revision = 0;
   private embedderWarnedOnce = false;
   /**
    * Set after orphan `code_symbols_vec` rows have been removed for the
@@ -160,12 +172,14 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   private vecOrphansReconciled = false;
 
   constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.LOGGER) private readonly logger: CuratorLogger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    private readonly connection: SqliteDbProvider,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
-    private readonly vecStatus: VecStatusService,
+    private readonly vecStatus: VecAvailability,
+    @inject(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, { isOptional: true })
+    private readonly searchWorker: ISqliteSearchWorker | null = null,
   ) {}
 
   /**
@@ -193,6 +207,12 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     if (!this.vecStatus.available) {
       this.vecOrphansReconciled = false;
       return false;
+    }
+    if (this.readOnlySearch) {
+      const stale = this.connection.db.prepare(
+        `SELECT 1 AS present FROM indexing_state WHERE workspace_fingerprint = ?`,
+      ).get(VEC_STALE_FINGERPRINT);
+      return !stale;
     }
     if (this.vecOrphansReconciled) return true;
 
@@ -230,7 +250,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
    * only after the deletes, inside the same transaction: a failure leaves
    * the marker so the next call tries again. vec0 is deleted by rowid.
    */
-  private dropAllVecRows(db: SqliteConnectionService['db']): void {
+  private dropAllVecRows(db: SqliteDatabase): void {
     const rowids = db
       .prepare(`SELECT rowid AS rowid FROM code_symbols_vec_rowids`)
       .all() as Array<{ rowid: number }>;
@@ -257,7 +277,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
    * virtual table is not that shape, so the predicate runs on the vec0
    * rowid shadow and each orphan is deleted by rowid.
    */
-  private dropOrphanVecRows(db: SqliteConnectionService['db']): void {
+  private dropOrphanVecRows(db: SqliteDatabase): void {
     const orphans = db
       .prepare(
         `SELECT rowid AS rowid FROM code_symbols_vec_rowids
@@ -387,6 +407,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const txn = db.transaction(txnFn) as unknown as (p: Payload) => void;
     try {
       txn({ entries: rows });
+      this.revision++;
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;
@@ -459,6 +480,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
         totalDeleted += txn({
           paths: missing.slice(i, i + PURGE_MISSING_BATCH),
         });
+        this.revision++;
       }
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
@@ -505,7 +527,9 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
     try {
-      return txn({ workspaceRoot, filePath });
+      const removed = txn({ workspaceRoot, filePath });
+      if (removed > 0) this.revision++;
+      return removed;
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;
@@ -580,6 +604,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const txn = db.transaction(txnFn) as unknown as (p: Payload) => void;
     try {
       txn({ entries });
+      this.revision++;
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;
@@ -688,6 +713,12 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     return { items, total };
   }
 
+  searchAsync(params: CodeSymbolSearchParams): Promise<CodeSymbolSearchResult> {
+    return this.searchWorker
+      ? this.searchWorker.searchSymbolPage(params)
+      : Promise.resolve(this.search(params));
+  }
+
   /**
    * Hybrid BM25 (code_symbols_fts) + vector (code_symbols_vec) search over the
    * indexed symbols, plus an exact `symbol_name` candidate list, fused with
@@ -702,9 +733,14 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     topK = 10,
     workspaceRoot?: string,
   ): Promise<CodeSymbolHitPage> {
+    if (this.searchWorker) return this.searchWorker.searchSymbols(query, topK, workspaceRoot);
     const changes = this.connection.db.prepare('SELECT total_changes() AS n').get() as { n: number };
     const key = JSON.stringify([query.trim(), topK, workspaceRoot, changes.n]);
     return this.searchFlight.run(key, () => this.searchSymbolsInner(query, topK, workspaceRoot));
+  }
+
+  getRevision(): number {
+    return this.revision;
   }
 
   private async searchSymbolsInner(
@@ -916,13 +952,11 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const distRows = workspaceRoot
-      ? this.connection.db.prepare(`
-          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
-          FROM code_symbols_vec v
-          JOIN code_symbols cs ON cs.rowid = v.rowid
-          WHERE cs.workspace_root = ?
-          ORDER BY distance ASC LIMIT ?
-        `).all(buf, workspaceRoot, Math.min(limit, 100)) as CodeVecRow[]
+      ? scopedVectorCandidates(
+          this.connection, 'code_symbols_vec', buf, limit,
+          'JOIN code_symbols cs ON cs.rowid = candidates.rowid',
+          'cs.workspace_root = ?', [workspaceRoot], this.logger,
+        )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
           WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
@@ -1044,7 +1078,9 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
     try {
-      return txn({ patterns });
+      const removed = txn({ patterns });
+      if (removed > 0) this.revision++;
+      return removed;
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;
@@ -1081,7 +1117,9 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
     try {
-      return txn({ workspaceRoot });
+      const removed = txn({ workspaceRoot });
+      if (removed > 0) this.revision++;
+      return removed;
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;

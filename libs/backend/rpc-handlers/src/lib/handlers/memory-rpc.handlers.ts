@@ -287,7 +287,7 @@ export class MemoryRpcHandlers {
         // full only after `memory:restoreQuarantined`.
         const memory = this.store.getActiveById(id);
         if (!memory) return { memory: null, chunks: [] };
-        const chunks = this.store.getChunks(id);
+        const chunks = await this.store.getChunksAsync(id);
         try {
           this.store.recordUse([params.id]);
         } catch (error: unknown) {
@@ -425,7 +425,7 @@ export class MemoryRpcHandlers {
           );
         }
         try {
-          const result = this.codeSymbols.search({
+          const result = await this.codeSymbols.searchAsync({
             workspaceRoot: this.resolveReadScope(
               validated.scope,
               validated.workspaceRoot,

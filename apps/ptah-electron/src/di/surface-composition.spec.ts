@@ -516,3 +516,15 @@ describe('Electron review composition', () => {
     );
   });
 });
+
+describe('Electron SQLite search worker composition', () => {
+  it('binds the worker before resolving memory services and packages its entry', () => {
+    const phase = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    const project = JSON.parse(readFileSync(join(__dirname, '../../project.json'), 'utf8')) as {
+      targets: Record<string, { dependsOn?: string[] }>;
+    };
+    expect(phase).toContain('container.register(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, {');
+    expect(project.targets['build-search-worker']).toBeDefined();
+    expect(project.targets['build']?.dependsOn).toContain('build-search-worker');
+  });
+});

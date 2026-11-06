@@ -9,7 +9,12 @@
 import { LRUCache } from 'lru-cache';
 import { SearchFlight } from './search-flight';
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, NoopTracer } from '@ptah-extension/vscode-core';
+import type {
+  CuratorLogger,
+  SqliteDbProvider,
+  VecAvailability,
+} from './sqlite-reader-deps.types';
 import { PLATFORM_TOKENS, type ITracer } from '@ptah-extension/platform-core';
 import {
   type IMemoryReader,
@@ -17,8 +22,6 @@ import {
 } from '@ptah-extension/memory-contracts';
 import {
   PERSISTENCE_TOKENS,
-  SqliteConnectionService,
-  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_TOKENS } from './di/tokens';
@@ -31,9 +34,12 @@ import {
   type MemoryType,
 } from './memory.types';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
+import { HostBridgeEmbedder } from './search-worker-host-embedder';
 import { ObservationQueueStore } from './observation-queue.store';
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { salienceRankOrderBy } from './salience-ranking';
+import { scopedVectorCandidates } from './scoped-vector-search';
+import type { ISqliteSearchWorker } from './search-worker.port';
 
 export interface MemSearchIndexFilter {
   readonly query?: string;
@@ -229,17 +235,19 @@ export class MemorySearchService implements IMemoryReader {
   });
 
   constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.LOGGER) private readonly logger: CuratorLogger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    private readonly connection: SqliteDbProvider,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
     private readonly observationQueue: ObservationQueueStore,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
-    private readonly vecStatus: VecStatusService,
+    private readonly vecStatus: VecAvailability,
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
+    @inject(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, { isOptional: true })
+    private readonly searchWorker: ISqliteSearchWorker | null = null,
   ) {}
 
   /**
@@ -328,6 +336,7 @@ export class MemorySearchService implements IMemoryReader {
     topK = 10,
     workspaceRoot?: string | null,
   ): Promise<MemorySearchResponse> {
+    if (this.searchWorker) return this.searchWorker.searchMemory(query, topK, workspaceRoot);
     const key = this.makeCacheKey(query.trim(), workspaceRoot, Math.max(1, Math.min(50, topK)));
     return this.searchFlight.run(key, () => this.searchRichTracked(query, topK, workspaceRoot, key));
   }
@@ -381,8 +390,8 @@ export class MemorySearchService implements IMemoryReader {
     const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
     let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
     if (fused.length >= 5) {
-      const workerClient = this.workerClient;
-      if (workerClient !== null) {
+      const reranker = this.reranker;
+      if (reranker !== null) {
         try {
           const MAX_CANDIDATE_CHARS = 512;
           const rerankInput = fused.slice(0, limit * 4).map((e) => ({
@@ -392,7 +401,7 @@ export class MemorySearchService implements IMemoryReader {
                 ? e.row.text.slice(0, MAX_CANDIDATE_CHARS)
                 : e.row.text,
           }));
-          const ranked = await workerClient.rerank(trimmed, rerankInput, limit);
+          const ranked = await reranker.rerank(trimmed, rerankInput, limit);
           const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
           const reranked = ranked
             .map((r) => byId.get(r.id))
@@ -438,13 +447,17 @@ export class MemorySearchService implements IMemoryReader {
   }
 
   /**
-   * Returns the concrete EmbedderWorkerClient when the injected embedder is
-   * one, or null in environments (VS Code extension, unit tests) where a
-   * non-worker embedder is used. Keeps IEmbedder narrow — rerank/warmup are
-   * EmbedderWorkerClient-specific capabilities.
+   * Returns the injected embedder when it can rerank: the concrete
+   * EmbedderWorkerClient in the host, or the search utility process bridge
+   * when its host embedder can. Null in environments (VS Code extension, unit
+   * tests) where a non-worker embedder is used. Keeps IEmbedder narrow.
    */
-  private get workerClient(): EmbedderWorkerClient | null {
-    return this.embedder instanceof EmbedderWorkerClient ? this.embedder : null;
+  private get reranker(): EmbedderWorkerClient | HostBridgeEmbedder | null {
+    if (this.embedder instanceof EmbedderWorkerClient) return this.embedder;
+    if (this.embedder instanceof HostBridgeEmbedder && this.embedder.canRerank) {
+      return this.embedder;
+    }
+    return null;
   }
 
   private bm25Search(
@@ -512,14 +525,11 @@ export class MemorySearchService implements IMemoryReader {
     const startedAt = performance.now();
     const scope = searchScopePredicate(workspaceRoot);
     const distRows = scope.sql
-      ? this.connection.db.prepare(`
-          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
-          FROM memory_chunks_vec v
-          JOIN memory_chunks mc ON mc.rowid = v.rowid
-          JOIN memories m ON m.id = mc.memory_id
-          WHERE ${ACTIVE_MEMORY} ${scope.sql}
-          ORDER BY distance ASC LIMIT ?
-        `).all(buf, ...scope.params, Math.min(limit, 100)) as VecRow[]
+      ? scopedVectorCandidates(
+          this.connection, 'memory_chunks_vec', buf, limit,
+          'JOIN memory_chunks mc ON mc.rowid = candidates.rowid JOIN memories m ON m.id = mc.memory_id',
+          `${ACTIVE_MEMORY} ${scope.sql}`, scope.params, this.logger,
+        )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
           WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
@@ -1017,14 +1027,11 @@ export class MemorySearchService implements IMemoryReader {
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const distRows = workspaceRoot
-      ? this.connection.db.prepare(`
-          SELECT v.rowid AS rowid, vec_distance_l2(v.embedding, ?) AS distance
-          FROM memory_chunks_vec v
-          JOIN memory_chunks mc ON mc.rowid = v.rowid
-          JOIN memories m ON m.id = mc.memory_id
-          WHERE ${ACTIVE_MEMORY} AND m.workspace_root IS ?
-          ORDER BY distance ASC LIMIT ?
-        `).all(buf, workspaceRoot, Math.min(limit, 100)) as VecRow[]
+      ? scopedVectorCandidates(
+          this.connection, 'memory_chunks_vec', buf, limit,
+          'JOIN memory_chunks mc ON mc.rowid = candidates.rowid JOIN memories m ON m.id = mc.memory_id',
+          `${ACTIVE_MEMORY} AND m.workspace_root IS ?`, [workspaceRoot], this.logger,
+        )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
           WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?

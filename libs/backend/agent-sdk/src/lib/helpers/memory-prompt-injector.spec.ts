@@ -563,6 +563,21 @@ describe('MemoryPromptInjector.buildSessionStartBlock — guard conditions', () 
 });
 
 describe('MemoryPromptInjector.buildSessionStartBlock — populated case', () => {
+  it('shares concurrent snapshot reads and invalidates after a write revision', async () => {
+    let revision = 0;
+    const lister: IMemoryLister = {
+      getRevision: () => revision,
+      listAll: jest.fn().mockReturnValue({ memories: [makeRecord()], total: 1 }),
+    };
+    const injector = makeInjector(makeReader({ hits: [], bm25Only: true }), lister);
+    const first = injector.buildSessionStartBlock('D:/ws');
+    const second = injector.buildSessionStartBlock('D:/ws');
+    expect(await first).toBe(await second);
+    expect(lister.listAll).toHaveBeenCalledTimes(1);
+    revision++;
+    await injector.buildSessionStartBlock('D:/ws');
+    expect(lister.listAll).toHaveBeenCalledTimes(2);
+  });
   it('returns block with workspace memory snapshot heading and subjects', async () => {
     const lister = makeLister({
       memories: [

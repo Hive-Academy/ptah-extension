@@ -257,6 +257,10 @@ function disposeBeforePersistence(deps: DisposalDeps): {
   // the connection `disposeAfterPersistence` is about to close. The abort is
   // synchronous (it kills the worker), so nothing here has to be awaited.
   nonFatal('Integrity check abort', () => refs.integrityService?.dispose());
+  // The search worker holds a second, read-only connection to the database.
+  // Killing it before `SQLite close` lets the close checkpoint the WAL without
+  // a reader pinning it, and stops a respawn during teardown. Writes nothing.
+  nonFatal('Search worker dispose', () => refs.searchWorker?.dispose());
   // A live run_check owns an Nx process group that outlives the app unless
   // killed. `killRunningChecks` never rejects; the kill is started here and
   // awaited by the caller.

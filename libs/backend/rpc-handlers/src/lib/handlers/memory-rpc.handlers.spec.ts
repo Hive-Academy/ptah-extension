@@ -76,7 +76,7 @@ function makeMemoryStore() {
   return {
     list: jest.fn(),
     getActiveById: jest.fn(),
-    getChunks: jest.fn(),
+    getChunksAsync: jest.fn().mockResolvedValue([]),
     recordUse: jest.fn(),
     setPinned: jest.fn().mockReturnValue(true),
     forget: jest.fn(),
@@ -123,7 +123,7 @@ function makeCodeSymbolStore() {
     deleteByFile: jest.fn().mockReturnValue(0),
     insertBatch: jest.fn().mockResolvedValue(undefined),
     purgeWorkspace: jest.fn().mockReturnValue(0),
-    search: jest.fn().mockReturnValue({ items: [], total: 0 }),
+    searchAsync: jest.fn().mockResolvedValue({ items: [], total: 0 }),
   };
 }
 
@@ -413,7 +413,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
   it('records a found memory:get result', async () => {
     const { rpcHandler, store } = buildHandlers();
     store.getActiveById.mockReturnValue(makeMemory());
-    store.getChunks.mockReturnValue([]);
+    store.getChunksAsync.mockResolvedValue([]);
 
     const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
 
@@ -438,7 +438,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
     const result = await rpcHandler.call('memory:get', { id: 'quarantined' });
 
     expect(store.getActiveById).toHaveBeenCalledWith('quarantined');
-    expect(store.getChunks).not.toHaveBeenCalled();
+    expect(store.getChunksAsync).not.toHaveBeenCalled();
     expect(store.recordUse).not.toHaveBeenCalled();
     expect(result).toEqual({ memory: null, chunks: [] });
   });
@@ -457,7 +457,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
   it('returns a found memory unchanged when recording fails', async () => {
     const { rpcHandler, store, logger } = buildHandlers();
     store.getActiveById.mockReturnValue(makeMemory());
-    store.getChunks.mockReturnValue([]);
+    store.getChunksAsync.mockResolvedValue([]);
     store.recordUse.mockImplementation(() => {
       throw new Error('usage ledger unavailable');
     });
@@ -1434,7 +1434,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
 
     await rpcHandler.call('memory:searchSymbols', { query: 'login' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: '/workspace/project' }),
     );
   });
@@ -1444,7 +1444,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
 
     await rpcHandler.call('memory:searchSymbols', { query: 'login' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: null }),
     );
   });
@@ -1460,7 +1460,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
       scope: 'all',
     });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: undefined }),
     );
   });
@@ -1470,7 +1470,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
 
     await rpcHandler.call('memory:searchSymbols', { scope: 'all' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: undefined }),
     );
   });
@@ -1481,7 +1481,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
     await expect(
       rpcHandler.call('memory:searchSymbols', { scope: 'everything' }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(codeSymbols.search).not.toHaveBeenCalled();
+    expect(codeSymbols.searchAsync).not.toHaveBeenCalled();
   });
 });
 

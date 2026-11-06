@@ -12,6 +12,7 @@
  * avoiding hand-maintained per-runtime stubs.
  */
 import { injectable, inject } from 'tsyringe';
+import { PromptReadCache } from './prompt-read-cache';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
@@ -30,6 +31,7 @@ const MAX_SNIPPET_CHARS = 240;
 
 @injectable()
 export class CodeSymbolPromptInjector {
+  private readonly cache = new PromptReadCache();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -43,6 +45,22 @@ export class CodeSymbolPromptInjector {
    * Returns '' when disabled, no reader, query too short, no hits, or any error.
    */
   async buildBlock(query: string, workspaceRoot?: string): Promise<string> {
+    if (!this.reader || query.trim().length < MIN_QUERY_LENGTH) return '';
+    let revision: number | undefined;
+    try {
+      revision = this.reader.getRevision?.();
+    } catch (err: unknown) {
+      // degradation-audit: reported - logged at warn; the prompt gets no
+      // symbol block, as for every other read failure in this injector.
+      this.logger.warn('[CodeSymbolPromptInjector] Symbol revision read failed',
+        { error: err instanceof Error ? err.message : String(err) });
+      return '';
+    }
+    const key = JSON.stringify([query.trim(), workspaceRoot, revision]);
+    return this.cache.run(key, () => this.buildBlockUncached(query, workspaceRoot));
+  }
+
+  private async buildBlockUncached(query: string, workspaceRoot?: string): Promise<string> {
     if (!this.reader) return '';
     if (query.trim().length < MIN_QUERY_LENGTH) return '';
     const enabled =
