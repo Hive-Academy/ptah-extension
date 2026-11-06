@@ -92,7 +92,7 @@ function assertFiniteNow(nowMs: number): void {
  * One row per `runId`. Equal `endedAt` breaks the tie on a key that ignores
  * input order, so a shuffled list cannot change the kept row.
  */
-function dedupeByRun(
+export function dedupeByRun(
   summaries: readonly LaneOutcomeSummary[],
 ): LaneOutcomeSummary[] {
   const byId = new Map<string, LaneOutcomeSummary>();

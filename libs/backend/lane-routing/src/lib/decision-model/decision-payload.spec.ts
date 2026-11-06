@@ -115,6 +115,13 @@ describe('decision payload', () => {
     expect(Object.keys(payload.state.pastOutcomes)).toEqual([
       'codex/implement',
     ]);
+    expect(Object.keys(payload.state.pastOutcomes['codex/implement']).sort()).toEqual([
+      'delivered',
+      'failed',
+    ]);
+    expect(JSON.stringify(payload.state.pastOutcomes)).toBe(
+      '{"codex/implement":{"delivered":12,"failed":1}}',
+    );
   });
 
   it('passes fixed criteria through unchanged (pre-flight task type and depth)', () => {

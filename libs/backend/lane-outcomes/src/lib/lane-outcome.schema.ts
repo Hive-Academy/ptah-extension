@@ -16,7 +16,12 @@ export const OutcomeReportArgsSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('deliverables'),
       target: OutcomeTargetSchema,
-      paths: z.array(z.string().min(1).max(1024)).max(20),
+      paths: z
+        .array(z.string().min(1).max(1024))
+        .max(20)
+        .describe(
+          'Deliverable files: absolute paths inside the workspace, or workspace-relative paths. At most 20.',
+        ),
       taskKind: z.enum(OUTCOME_TASK_KINDS).optional(),
       taskId: z.string().min(1).max(200).optional(),
       routingSource: z.enum(OUTCOME_ROUTING_SOURCES).optional(),
