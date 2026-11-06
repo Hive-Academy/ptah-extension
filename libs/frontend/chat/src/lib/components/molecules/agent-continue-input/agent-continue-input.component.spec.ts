@@ -24,14 +24,14 @@ describe('AgentContinueInputComponent', () => {
   function setup(agent = makeAgent(), variant: 'panel' | 'composer' = 'composer'): void {
     state = { queue: { mode: 'queue-next-turn', usesResume: agent.status !== 'running' && !!agent.cliSessionId }, now: { mode: 'steer' } };
     receipts.set(new Map());
-    sendMessage = jest.fn().mockResolvedValue({ mode: 'queue-next-turn', receipt: { state: 'accepted' } });
-    cancelMessage = jest.fn().mockResolvedValue(undefined);
+    sendMessage = jest.fn().mockResolvedValue({ mode: 'queue-next-turn', receipt: { id: 'm-1', state: 'accepted' } });
+    cancelMessage = jest.fn().mockResolvedValue({ id: 'm-1', reason: 'cancelled-by-user' });
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [AgentContinueInputComponent],
       providers: [{ provide: AgentMonitorStore, useValue: {
-        receipts, composerState: () => state, previewMessage: jest.fn().mockResolvedValue(undefined),
-        sendMessage, cancelMessage, receiptLabel: () => 'Received',
+        receipts, agentsById: signal(new Map([[agentId, agent]])), composerState: () => state, previewMessage: jest.fn().mockResolvedValue(undefined),
+        sendMessage, cancelMessage, receiptLabel: () => 'Received', receipt: () => undefined,
       } }],
     });
     fixture = TestBed.createComponent(AgentContinueInputComponent);
@@ -76,7 +76,8 @@ describe('AgentContinueInputComponent', () => {
     draft('urgent');
     (fixture.nativeElement.querySelector('[aria-label="Send options"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('[role="menuitem"]') as HTMLButtonElement).click();
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send now') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Partial work in this turn will be discarded.');
     expect(sendMessage).not.toHaveBeenCalled();
@@ -106,27 +107,27 @@ describe('AgentContinueInputComponent', () => {
     draft('urgent');
     (fixture.nativeElement.querySelector('[aria-label="Send options"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Send options"]')?.getAttribute('aria-expanded')).toBe('true');
     fixture.nativeElement.querySelector('input, textarea').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     );
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Send options"]')?.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('offers Resume with message and no Send now when stopped', () => {
     setup(makeAgent({ status: 'stopped', supportsContinuation: false, cliSessionId: 'cli-session-123' }));
-    expect(fixture.nativeElement.textContent).toContain('resume cli session cli-sess');
+    expect(fixture.nativeElement.textContent).toContain('Resume CLI session cli-sess');
     expect(fixture.nativeElement.textContent).toContain('Resume with message');
     expect(fixture.nativeElement.textContent).not.toContain('Send now:');
   });
 
   it('cancels an accepted queued message', async () => {
     setup();
-    receipts.set(new Map([[agentId, [{ id: 'm-1', state: 'accepted', delivery: 'queue' }]]]));
+    receipts.set(new Map([[agentId, [{ id: 'm-1', state: 'accepted', delivery: 'queue', sender: 'user', preview: 'Queued text' }]]]));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('1 queued');
-    (fixture.nativeElement.querySelector('[aria-label="Cancel queued message m-1"]') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('[aria-label="Edit queued message: Queued text"]') as HTMLButtonElement).click();
     await fixture.whenStable();
     expect(cancelMessage).toHaveBeenCalledWith(agentId, 'm-1');
   });

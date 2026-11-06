@@ -24,7 +24,11 @@ export function planAgentDelivery(input: AgentDeliveryPlanInput): AgentMessagePr
     return { ...base, mode: 'start-turn', supported: true, usesResume: true };
   }
   if (delivery === 'queue') {
-    if (!has('continuation')) return refuse('The live handle cannot start another turn.');
+    if (!has('continuation')) {
+      if (!running && info.cliSessionId && has('resume'))
+        return { ...base, mode: 'start-turn', supported: true, usesResume: true };
+      return refuse('The live handle cannot start another turn.');
+    }
     return { ...base, mode: running ? 'queue-next-turn' : 'start-turn', supported: true, usesResume: false };
   }
   if (!running) return refuse('There is no active turn to steer.');

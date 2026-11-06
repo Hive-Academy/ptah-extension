@@ -38,7 +38,7 @@ describe('AgentMessageRpcHandlers', () => {
     await call('agent:getMessageReceipt', { agentId: AGENT_ID, messageId: MESSAGE_ID });
     await call('agent:cancelMessage', { agentId: AGENT_ID, messageId: MESSAGE_ID });
     expect(coordinator.preview).toHaveBeenCalledWith({ agentId: AGENT_ID, delivery: 'now' });
-    expect(coordinator.send).toHaveBeenCalledWith({ agentId: AGENT_ID, message: 'hello', delivery: 'steer' });
+    expect(coordinator.send).toHaveBeenCalledWith({ agentId: AGENT_ID, message: 'hello', delivery: 'steer' }, 'user');
     expect(coordinator.getReceipt).toHaveBeenCalledWith(AGENT_ID, MESSAGE_ID);
     expect(coordinator.cancel).toHaveBeenCalledWith(AGENT_ID, MESSAGE_ID);
   });
@@ -55,5 +55,14 @@ describe('AgentMessageRpcHandlers', () => {
     expect(extraField.error).toBeDefined();
     expect(coordinator.send).not.toHaveBeenCalled();
     expect(coordinator.preview).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized messages with a coded error and preserves message whitespace', async () => {
+    const { coordinator, call } = setup();
+    const oversized = await call('agent:sendMessage', { agentId: AGENT_ID, message: 'x'.repeat(32769) });
+    expect(oversized.error).toBeDefined();
+    expect(coordinator.send).not.toHaveBeenCalled();
+    await call('agent:sendMessage', { agentId: AGENT_ID, message: '  hello  ' });
+    expect(coordinator.send).toHaveBeenCalledWith({ agentId: AGENT_ID, message: '  hello  ' }, 'user');
   });
 });

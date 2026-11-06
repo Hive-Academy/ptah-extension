@@ -305,7 +305,7 @@ export class AgentReportRouter {
     // uuid arrives and `resolveParentSessionId` backfills it, so a value that
     // is not a session id means the parent never resolved one — there is no
     // session to deliver into, and saying so is the honest answer.
-    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
+    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim()) ?? info.parentSessionId?.trim();
     if (!parentSessionId) {
       return this.refuse('no-parent-recorded', agentId, {
         detail: info.parentSessionId
@@ -322,7 +322,10 @@ export class AgentReportRouter {
       });
     }
 
-    if (!this.parentDelivery && !this.agentAdapter.isSessionActive(parentSessionId)) {
+    if (!SessionId.safeParse(parentSessionId) && !this.parentDelivery) {
+      return this.refuse('no-parent-recorded', agentId);
+    }
+    if (!this.parentDelivery && !this.agentAdapter.isSessionActive(SessionId.from(parentSessionId))) {
       return this.refuse('parent-session-not-active', agentId, {
         parentSessionId,
       });
@@ -336,6 +339,7 @@ export class AgentReportRouter {
       delivered: previous.state === 'delivered', recorded: true,
       pending: previous.state === 'pending', deliveryId: previous.id,
       parentSessionId,
+      ...(previous.state === 'expired' ? { reason: 'delivery-failed' as const } : {}),
     };
     if (this.recentDeliveryCount(agentId, now) >= AGENT_REPORT_BURST_LIMIT) {
       return this.refuse('rate-limited', agentId, {
@@ -358,7 +362,6 @@ export class AgentReportRouter {
         parentSessionId, kind: 'report', body: envelope, createdAt: now,
         originName: `${info.cli} · ${agentLabel(info)}`,
       }, () => {
-        this.remember(agentId, { at: now, message });
         this.agents.markReportDelivered(agentId);
         this.agents.recordAgentNote(agentId, {
           type: 'info',
@@ -368,24 +371,26 @@ export class AgentReportRouter {
       if (!saved) return this.refuse('delivery-failed', agentId, {
         parentSessionId, detail: 'pending-capacity-exceeded',
       });
+      this.remember(agentId, { at: now, message });
       await this.parentDelivery.drain(parentSessionId);
       const delivered = this.parentDelivery.find(key)?.state === 'delivered';
-      return { delivered, recorded: true, pending: !delivered,
-        deliveryId: saved.id, parentSessionId };
+      const state = this.parentDelivery.find(key)?.state;
+      return { delivered, recorded: true, pending: state === 'pending',
+        deliveryId: saved.id, parentSessionId,
+        ...(state === 'expired' ? { reason: 'delivery-failed' as const } : {}) };
     }
     try {
-      await this.agentAdapter.sendMessageToSession(parentSessionId, envelope, {
+      await this.agentAdapter.sendMessageToSession(SessionId.from(parentSessionId), envelope, {
         origin: {
           kind: 'peer',
           from: `ptah-agent:${agentId}`,
           name: `${info.cli} · ${agentLabel(info)}`,
         },
       });
-    } catch (error: unknown) {
-      const detail = error instanceof Error ? error.message : String(error);
+    } catch (_error: unknown) {
       return this.refuse('delivery-failed', agentId, {
         parentSessionId,
-        detail,
+        detail: 'parent-send-failed',
       });
     }
 

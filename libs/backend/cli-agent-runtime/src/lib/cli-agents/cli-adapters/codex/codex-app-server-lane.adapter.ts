@@ -168,7 +168,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       },
       roleChannel: this.roleChannel,
       permissionModes: {
-        plan: { state: 'supported', nativeMode: 'read-only', networkModes: ['allow', 'deny'] },
+        plan: { state: 'supported', nativeMode: 'read-only', networkModes: ['deny'] },
         ask: { state: 'unsupported', reason: 'Codex lanes force approvalPolicy never; no Ptah approval route exists.', networkModes: [] },
         'auto-edit': { state: 'supported', nativeMode: 'workspace-write', networkModes: ['allow', 'deny'] },
         yolo: { state: 'supported', nativeMode: 'danger-full-access', networkModes: ['allow'] },

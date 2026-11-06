@@ -144,7 +144,7 @@ export function laneAccountText(
       @if (agent().status === 'running') {
         <button
           type="button"
-          class="btn btn-primary btn-xs ml-auto flex-shrink-0"
+          class="btn btn-error btn-outline btn-xs ml-auto flex-shrink-0"
           [disabled]="isStopping()"
           title="Stop agent"
           (click)="stopAgent.emit($event)"
@@ -153,7 +153,7 @@ export function laneAccountText(
           @if (isStopping()) {
             <span class="loading loading-spinner loading-xs"></span>
           } @else {
-            <lucide-angular [img]="SquareIcon" class="w-3 h-3 text-error" />
+            <lucide-angular [img]="SquareIcon" class="w-3 h-3" />
           }
         </button>
       }
@@ -162,7 +162,7 @@ export function laneAccountText(
       @if (agent().status !== 'running' && agent().cliSessionId) {
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
+          class="btn btn-ghost btn-xs ml-auto flex-shrink-0"
           [disabled]="isResuming()"
           title="Resume session"
           (click)="resumeAgent.emit($event)"

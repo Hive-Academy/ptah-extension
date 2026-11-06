@@ -14,6 +14,7 @@ export interface ParentDeliveryEventSink {
 @injectable()
 export class ParentDeliveryDrainerService {
   private readonly draining = new Map<string, Promise<void>>();
+  private readonly dirty = new Set<string>();
   private readonly accepted = new Map<string, () => void>();
   private readonly unregisterActivity?: () => void;
 
@@ -26,7 +27,10 @@ export class ParentDeliveryDrainerService {
     @inject(CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK, { isOptional: true })
     private readonly sink: ParentDeliveryEventSink | null,
   ) {
-    this.unregisterActivity = activity?.register(({ sessionId }) => { void this.drain(sessionId); });
+    this.store.setExpirationSink((envelope) => this.emitSafely(envelope));
+    this.unregisterActivity = activity?.register(({ sessionId }) => {
+      void this.drain(sessionId).catch((error: unknown) => this.logCallbackError(error));
+    });
   }
 
   dispose(): void {
@@ -47,16 +51,27 @@ export class ParentDeliveryDrainerService {
       if (this.store.find(key)?.state !== 'pending') this.accepted.delete(key);
     }
     if (onAccepted && saved.state === 'pending') this.accepted.set(saved.dedupeKey, onAccepted);
-    if (saved.state === 'pending') this.sink?.emit(saved);
-    void this.drain(saved.parentSessionId);
+    if (saved.state === 'pending') this.emitSafely(saved);
+    void this.drain(saved.parentSessionId).catch((error: unknown) => this.logCallbackError(error));
     return saved;
   }
 
   drain(parentSessionId: string): Promise<void> {
     const existing = this.draining.get(parentSessionId);
-    if (existing) return existing;
-    const task = Promise.resolve().then(() => this.drainOnce(parentSessionId)).finally(() => {
-      this.draining.delete(parentSessionId);
+    if (existing) {
+      this.dirty.add(parentSessionId);
+      return existing;
+    }
+    const task = Promise.resolve().then(async () => {
+      try {
+        do {
+          this.dirty.delete(parentSessionId);
+          await this.drainOnce(parentSessionId);
+        } while (this.dirty.has(parentSessionId));
+      } finally {
+        this.draining.delete(parentSessionId);
+        if (this.dirty.delete(parentSessionId)) await this.drain(parentSessionId);
+      }
     });
     this.draining.set(parentSessionId, task);
     return task;
@@ -80,18 +95,32 @@ export class ParentDeliveryDrainerService {
           },
         });
         this.store.markDelivered(envelope.dedupeKey);
-        this.accepted.get(envelope.dedupeKey)?.();
-        this.accepted.delete(envelope.dedupeKey);
-        const delivered = this.store.find(envelope.dedupeKey);
-        if (delivered) this.sink?.emit(delivered);
-      } catch (error: unknown) {
-        this.store.markFailed(envelope.dedupeKey,
-          error instanceof Error ? error.message : String(error));
+      } catch (_error: unknown) {
+        this.store.markFailed(envelope.dedupeKey, 'delivery-failed');
         this.logger.warn('[ParentDeliveryDrainer] Parent send failed', {
           parentSessionId, kind: envelope.kind,
         });
         break;
       }
+      try {
+        this.accepted.get(envelope.dedupeKey)?.();
+      } catch (error: unknown) {
+        this.logCallbackError(error);
+      } finally {
+        this.accepted.delete(envelope.dedupeKey);
+      }
+      const delivered = this.store.find(envelope.dedupeKey);
+      if (delivered) this.emitSafely(delivered);
     }
+  }
+
+  private emitSafely(envelope: ParentDeliveryEnvelope): void {
+    try { this.sink?.emit(envelope); }
+    catch (error: unknown) { this.logCallbackError(error); }
+  }
+
+  private logCallbackError(error: unknown): void {
+    this.logger.error('[ParentDeliveryDrainer] Delivery callback failed',
+      error instanceof Error ? error : new Error('Delivery callback failed'));
   }
 }

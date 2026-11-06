@@ -1,5 +1,6 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import type { LaneCompletionVerdict, LaneStopReason } from '@ptah-extension/shared';
 
 export interface ParentDeliveryEnvelope {
   readonly id: `lane-delivery:${string}`;
@@ -8,6 +9,8 @@ export interface ParentDeliveryEnvelope {
   readonly kind: 'report' | 'completion';
   readonly dedupeKey: string;
   readonly body: string;
+  readonly verdict?: LaneCompletionVerdict;
+  readonly stopReason?: LaneStopReason;
   readonly originName?: string;
   readonly createdAt: number;
   readonly state: 'pending' | 'delivered' | 'expired';
@@ -29,10 +32,28 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
   private readonly entries = new Map<string, ParentDeliveryEnvelope>();
   private static readonly maxPerParent = 32;
   private static readonly maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  private onExpired?: (envelope: ParentDeliveryEnvelope) => void;
+
+  setExpirationSink(sink: (envelope: ParentDeliveryEnvelope) => void): void {
+    this.onExpired = sink;
+  }
 
   resolveParentSessionId(tabId: string, sessionId: string): void {
     for (const [key, envelope] of this.entries) {
       if (envelope.parentSessionId === tabId && envelope.state === 'pending') {
+        const siblings = this.pending(sessionId);
+        if (siblings.length >= ParentEnvelopeStoreService.maxPerParent) {
+          const oldest = siblings.find((item) => item.kind === 'report')
+            ?? (envelope.kind === 'completion' ? siblings[0] : undefined);
+          if (!oldest) {
+            this.markExpired(envelope);
+            continue;
+          }
+          this.markExpired(oldest);
+          this.logger.warn('[ParentEnvelopeStore] Pending envelope evicted on re-key', {
+            parentSessionId: sessionId, kind: oldest.kind,
+          });
+        }
         this.entries.set(key, { ...envelope, parentSessionId: sessionId });
       }
     }
@@ -56,7 +77,7 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
       const oldest = siblings.find((item) => item.kind === 'report')
         ?? (input.kind === 'completion' ? siblings[0] : undefined);
       if (!oldest) return null;
-      this.entries.set(oldest.dedupeKey, { ...oldest, state: 'expired' });
+      this.markExpired(oldest);
       this.logger.warn('[ParentEnvelopeStore] Pending envelope evicted', {
         parentSessionId: input.parentSessionId, kind: oldest.kind,
       });
@@ -88,7 +109,19 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
   private expire(): void {
     const cutoff = Date.now() - ParentEnvelopeStoreService.maxAgeMs;
     for (const [key, item] of this.entries) {
-      if (item.createdAt < cutoff) this.entries.delete(key);
+      if (item.createdAt < cutoff && item.state === 'pending') this.markExpired(item);
+      if (item.createdAt < cutoff && item.state === 'delivered') this.entries.delete(key);
+      if (item.createdAt < cutoff - ParentEnvelopeStoreService.maxAgeMs && item.state === 'expired')
+        this.entries.delete(key);
     }
+  }
+
+  private markExpired(item: ParentDeliveryEnvelope): void {
+    const expired = { ...item, state: 'expired' as const, lastError: 'delivery-expired' };
+    this.entries.set(item.dedupeKey, expired);
+    this.logger.warn('[ParentEnvelopeStore] Pending envelope expired', {
+      parentSessionId: item.parentSessionId, kind: item.kind,
+    });
+    this.onExpired?.(expired);
   }
 }

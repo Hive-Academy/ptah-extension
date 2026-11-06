@@ -32,4 +32,13 @@ describe('planAgentDelivery', () => {
     const preview = planAgentDelivery({ agentId, info: { ...info, status: 'completed' }, delivery: 'queue', effectiveCapabilities: caps, hasLiveHandle: false });
     expect(preview).toMatchObject({ mode: 'start-turn', usesResume: true });
   });
+
+  it('releases an idle live handle without continuation before cold resume', () => {
+    const preview = planAgentDelivery({ agentId, info: { ...info, status: 'completed' },
+      delivery: 'queue', hasLiveHandle: true,
+      effectiveCapabilities: { ...caps, messaging: { ...caps.messaging, continuation: no } },
+    });
+    expect(preview).toMatchObject({ mode: 'start-turn', usesResume: true, supported: true });
+  });
+
 });

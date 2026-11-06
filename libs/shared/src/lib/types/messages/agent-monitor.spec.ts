@@ -138,4 +138,12 @@ describe('agent monitor lane contracts', () => {
       ).toBe(false);
     },
   );
+  it.each(['delivered', 'no-deliverable', 'failed', 'unverified'] as const)(
+    'accepts the %s completion verdict',
+    (verdict) => {
+      expect(AgentMonitorParentDeliveryPayloadSchema.safeParse({
+        agentId, kind: 'completion', state: 'pending', verdict, stopReason: 'usage-limit',
+      }).success).toBe(true);
+    },
+  );
 });

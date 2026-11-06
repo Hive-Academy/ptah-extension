@@ -3,10 +3,11 @@ import type { AgentProcessManager } from '../agent-process-manager.service';
 
 /** Explicit resume and cold message sends share the manager's resume gate. */
 export class AgentLaneResumeService {
-  constructor(private readonly manager: Pick<AgentProcessManager, 'spawn' | 'prepareSdkHandleSpawn'>) {}
+  constructor(private readonly manager: Pick<AgentProcessManager, 'spawn' | 'prepareSdkHandleSpawn' | 'releaseIdleForResume'>) {}
 
-  resume(info: AgentProcessInfo, task: string): Promise<SpawnAgentResult> {
+  async resume(info: AgentProcessInfo, task: string): Promise<SpawnAgentResult> {
     if (!info.cliSessionId) throw new Error('No CLI session is available for resume.');
+    await this.manager.releaseIdleForResume(info.agentId);
     return this.resumeRequest({
       cli: info.cli,
       task,
@@ -14,6 +15,8 @@ export class AgentLaneResumeService {
       resumeSessionId: info.cliSessionId,
       parentSessionId: info.parentSessionId,
       ptahCliId: info.ptahCliId,
+      permission: info.effectivePolicy?.permission,
+      network: info.effectivePolicy?.network,
     });
   }
 

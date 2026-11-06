@@ -46,6 +46,17 @@ describe('AgentFollowUpQueueService', () => {
     expect(sendMessage).toHaveBeenLastCalledWith('agent-1', 'first\nsecond', 'queue');
   });
 
+  it('clears the queued projection when an accepted message has already started', async () => {
+    service.enqueue('agent-1', 'first');
+    await settle();
+    cancelMessage.mockResolvedValueOnce({ ...receipt, state: 'started', reason: 'already-started' });
+    service.enqueue('agent-1', 'second');
+    await settle();
+    expect(service.queued('agent-1')).toBe('first');
+    expect(service.error('agent-1')).toContain('already started');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('takes queued text back for editing and cancels its receipt', async () => {
     service.enqueue('agent-1', 'draft');
     await settle();
@@ -54,13 +65,22 @@ describe('AgentFollowUpQueueService', () => {
     expect(cancelMessage).toHaveBeenCalledWith('agent-1', 'message-1');
   });
 
+  it('shows a friendly edit error when unqueue cancellation is refused', async () => {
+    service.enqueue('agent-1', 'draft');
+    await settle();
+    cancelMessage.mockResolvedValueOnce({ ...receipt, state: 'started', reason: 'already-started' });
+    expect(service.unqueue('agent-1')).toBe('draft');
+    await settle();
+    expect(service.error('agent-1')).toBe('Message already started and could not be edited.');
+  });
+
   it('restores failed delivery text from a receipt', async () => {
     service.enqueue('agent-1', 'draft');
     await settle();
     receipts.set(new Map([['agent-1', [{ ...receipt, state: 'failed' as const, reason: 'lost' }]]]));
     await settle();
     expect(service.takeUndelivered('agent-1')).toBe('draft');
-    expect(service.error('agent-1')).toBe('lost');
+    expect(service.error('agent-1')).toBe('Could not send the follow-up. Try again.');
   });
 
   it('restores text when the backend refuses or RPC fails', async () => {

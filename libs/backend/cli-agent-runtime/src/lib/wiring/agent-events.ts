@@ -139,11 +139,12 @@ export function registerAgentDeliveryPushSinks(
   if (!container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK, true)) {
     container.registerInstance(CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK, {
       emit: (envelope: ParentDeliveryEnvelope) => {
-        if (envelope.state === 'expired') return;
         const payload = AgentMonitorParentDeliveryPayloadSchema.safeParse({
           agentId: envelope.agentId, kind: envelope.kind, state: envelope.state,
           deliveryId: envelope.id,
           createdAt: envelope.createdAt,
+          verdict: envelope.verdict,
+          stopReason: envelope.stopReason,
           preview: envelope.kind === 'report' ? envelope.body.replace(/\s+/g, ' ').trim().slice(0, 160) : undefined,
         });
         if (!payload.success) {

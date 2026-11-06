@@ -6,6 +6,12 @@ import {
 
 const GENERIC_FAILURE = 'Could not send the follow-up. Try again.';
 
+function deliveryFailureReason(reason: string): string {
+  if (reason === 'agent_stopped') return 'The lane stopped before receiving this message.';
+  if (reason === 'host-restarted') return 'The host restarted before delivery.';
+  return GENERIC_FAILURE;
+}
+
 type AgentTextMap = ReadonlyMap<string, string>;
 
 function withEntry(map: AgentTextMap, key: string, value: string): AgentTextMap {
@@ -104,7 +110,12 @@ export class AgentFollowUpQueueService {
       if (accepted) {
         this.cancelled.add(accepted.id);
         const cancelled = await this.store.cancelMessage(agentId, accepted.id);
-        if (cancelled.reason !== 'cancelled-by-user') return;
+        if (cancelled.reason !== 'cancelled-by-user') {
+          this.cancelled.delete(accepted.id);
+          this._queued.update((map) => withoutEntry(map, agentId));
+          this._errors.update((map) => withEntry(map, agentId, 'Message already started and could not be edited.'));
+          return;
+        }
         this.accepted.delete(agentId);
       }
       if (this.revisions.get(agentId) !== revision) return;
@@ -136,7 +147,10 @@ export class AgentFollowUpQueueService {
         this.cancelled.add(pending.id);
         const receipt = await this.store.cancelMessage(agentId, pending.id);
         if (receipt.reason === 'cancelled-by-user') this.accepted.delete(agentId);
-        else this._errors.update((map) => withEntry(map, agentId, receipt.reason ?? 'Message already started.'));
+        else {
+          this.cancelled.delete(pending.id);
+          this._errors.update((map) => withEntry(map, agentId, 'Message already started and could not be edited.'));
+        }
       }, text);
     }
     return text;
@@ -176,7 +190,7 @@ export class AgentFollowUpQueueService {
   private fail(agentId: string, message: string, reason: string): void {
     const prior = this.undelivered(agentId);
     this._undelivered.update((map) => withEntry(map, agentId, prior ? `${prior}\n${message}` : message));
-    this._errors.update((map) => withEntry(map, agentId, reason));
+    this._errors.update((map) => withEntry(map, agentId, deliveryFailureReason(reason)));
   }
 }
 

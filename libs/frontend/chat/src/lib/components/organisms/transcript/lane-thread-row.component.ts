@@ -18,13 +18,13 @@ import type { LaneThreadEntry } from './lane-thread';
         <span class="min-w-0 truncate font-semibold">{{ entry().sender }}</span>
         <time class="shrink-0 text-xs text-base-content-muted" [attr.datetime]="iso()" [title]="absoluteTime()">{{ shortTime() }}</time>
         @if (receiptLabel()) {
-          <span class="ml-auto inline-block w-40 shrink-0 text-right text-xs text-base-content-muted" role="status">{{ receiptLabel() }}</span>
+          <span class="ml-auto inline-block w-40 shrink-0 text-right text-xs text-base-content-muted">{{ receiptLabel() }}</span>
         }
       </div>
       <p class="mt-1 whitespace-pre-wrap break-words text-base-content">{{ entry().body }}</p>
       @if (entry().verdict) { <p class="mt-1 text-xs font-medium">{{ entry().verdict }}</p> }
       @if (entry().parentSignal) {
-        <p class="mt-1 text-xs" [class.text-warning]="entry().parentSignal === 'Waiting for parent'">{{ entry().parentSignal }}</p>
+        <p class="mt-1 text-xs" [class.text-warning]="entry().parentSignal === 'Waiting for parent' || entry().parentSignal?.startsWith('Expired')">{{ entry().parentSignal }}</p>
       }
     </div>
   `,

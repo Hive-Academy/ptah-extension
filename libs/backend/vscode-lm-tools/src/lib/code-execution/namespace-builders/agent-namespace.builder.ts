@@ -23,6 +23,7 @@ import {
 } from '../mcp-core/mcp-request-context';
 import {
   MAX_AGENT_WAIT_MS,
+  AgentMessageError,
   PTAH_CLI_ROLE_DELIVERY,
   renderLaneCompletionContract,
   type AgentProcessManager,
@@ -516,6 +517,7 @@ export function buildAgentNamespace(
     },
 
     message: async (agentId, message, delivery, allowPartialTurnLoss) => {
+      if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
       if (coordinator) return coordinator.send({ agentId: AgentId.from(agentId), message, delivery, allowPartialTurnLoss });
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
@@ -524,6 +526,7 @@ export function buildAgentNamespace(
       return agentProcessManager.sendToAgent(agentId, message, delivery);
     },
     messageStatus: async (agentId, messageId) => {
+      if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
       return coordinator ? coordinator.getReceipt(AgentId.from(agentId), messageId)
         : agentProcessManager.getAgentMessageStatus(agentId, messageId);

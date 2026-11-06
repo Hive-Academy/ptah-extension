@@ -826,8 +826,20 @@ export class OpencodeCliAdapter implements CliAdapter {
     let sessionMismatch = false;
     const parseLine = (line: string): void =>
       this.handleLine(line, emitOutput, emitSegment, state, (event) => {
-        if (!event.sessionID) return true;
+        if (event.type === 'error') {
+          if (!boundSessionId || !event.sessionID || event.sessionID === boundSessionId) return true;
+          emitSegment({ type: 'info', content: 'Ignored OpenCode event from another session' });
+          return false;
+        }
+        if (!event.sessionID) {
+          emitSegment({ type: 'info', content: 'Ignored OpenCode event without session identity' });
+          return false;
+        }
         if (firstSessionEvent) {
+          if (!launch.expectedSessionId && event.type !== 'step_start') {
+            emitSegment({ type: 'info', content: 'Ignored OpenCode event before lane session start' });
+            return false;
+          }
           firstSessionEvent = false;
           if (launch.expectedSessionId && event.sessionID !== launch.expectedSessionId) {
             sessionMismatch = true;

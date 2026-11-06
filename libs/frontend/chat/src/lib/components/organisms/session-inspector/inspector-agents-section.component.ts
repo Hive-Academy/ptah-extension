@@ -196,7 +196,7 @@ let nextSectionId = 0;
                 />
               }
               @if (steerOpenKey() === row.key && row.tray) {
-                @if (row.tray.agentId || parseLaneKey(row.key)?.id; as agentId) {
+                @if (cliLaneId(row.key); as agentId) {
                   <ptah-lane-composer class="mb-2 ml-[52px] mr-3 block"
                     [agentId]="agentId" [laneLabel]="row.name" [cli]="row.agent.cliId || row.secondary"
                     variant="compact" [stopped]="row.agent.status !== 'running'" />
@@ -245,6 +245,10 @@ let nextSectionId = 0;
 })
 export class InspectorAgentsSectionComponent {
   protected readonly parseLaneKey = parseLaneKey;
+  protected cliLaneId(key: string): string | null {
+    const lane = parseLaneKey(key);
+    return lane?.kind === 'cli' && this.monitor.agents().some(agent => agent.agentId === lane.id) ? lane.id : null;
+  }
   private readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly roster = inject(SessionAgentRosterService);

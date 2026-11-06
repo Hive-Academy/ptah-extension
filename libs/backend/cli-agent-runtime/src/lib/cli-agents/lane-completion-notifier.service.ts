@@ -286,6 +286,7 @@ export function buildSessionChildCompletionEnvelope(
 export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
+  readonly reportClaimsCompletion?: boolean;
   /** Provider-reported usage for this lane turn, when available. */
   readonly usage?: CliOutputSegment['usage'];
   readonly authMatched?: boolean;
@@ -366,18 +367,20 @@ export class LaneCompletionNotifier {
       recorded: true,
       pending: existing.state === 'pending',
       deliveryId: existing.id,
+      ...(existing.state === 'expired' ? { reason: 'delivery-failed' as const } : {}),
     };
     if (this.signalledKeys.includes(key) &&
-      (!this.parentDelivery || !SessionId.safeParse(info.parentSessionId?.trim()))) {
+      (!this.parentDelivery || !info.parentSessionId?.trim())) {
       return { delivered: false, reason: 'already-signalled' };
     }
     const firstSignal = !this.signalledKeys.includes(key);
     if (firstSignal) this.remember(key);
 
     const signal = await this.buildSignal(info, completedAt, context);
-    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
+    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim()) ?? info.parentSessionId?.trim();
     const activeParentSessionId =
-      parentSessionId && this.agentAdapter?.isSessionActive(parentSessionId)
+      parentSessionId && SessionId.safeParse(parentSessionId) &&
+      this.agentAdapter?.isSessionActive(SessionId.from(parentSessionId))
         ? parentSessionId
         : null;
     if (firstSignal) enqueueLaneCompletionOutcome(
@@ -394,14 +397,15 @@ export class LaneCompletionNotifier {
 
     const queueReviewCapture = (): void => {
       if (LaneCompletionNotifier.capturesReview(info, signal))
-        void this.captureReview(info, key, signal.deliverables);
+        void this.captureReview(info, key, signal.deliverables).catch((error: unknown) => {
+          this.logger.error('[LaneCompletionNotifier] Review capture failed',
+            error instanceof Error ? error : new Error('Review capture failed'));
+        });
     };
 
-    // `safeParse`, not `from`: `parentSessionId` holds the frontend tab id
-    // until the real SDK uuid arrives, so a value that is not a session id
-    // means the parent never resolved one. That is a modelled state, not an
-    // exception — the same rule `AgentReportRouter` follows.
-    if (!parentSessionId) {
+    // A parent tab id stays pending until the SDK resolves its session id.
+    // Direct delivery requires a session id because it cannot re-key a tab.
+    if (!parentSessionId || (!this.parentDelivery && !SessionId.safeParse(parentSessionId))) {
       queueReviewCapture();
       return this.refuse('no-parent-recorded', signal, {
         detail: info.parentSessionId
@@ -427,6 +431,8 @@ export class LaneCompletionNotifier {
         parentSessionId,
         kind: 'completion',
         body: this.completionEnvelope(signal, info),
+        verdict: signal.verdict,
+        stopReason: signal.stopReason,
         originName: `${signal.cli} · ${signal.agentLabel}`,
         createdAt: Date.now(),
       });
@@ -434,24 +440,26 @@ export class LaneCompletionNotifier {
         parentSessionId, detail: 'pending-capacity-exceeded',
       });
       await this.parentDelivery.drain(parentSessionId);
-      const delivered = this.parentDelivery.find(key)?.state === 'delivered';
+      const state = this.parentDelivery.find(key)?.state;
+      const delivered = state === 'delivered';
       queueReviewCapture();
       return {
-        delivered, recorded: true, pending: !delivered,
+        delivered, recorded: true, pending: state === 'pending',
         deliveryId: saved.id, parentSessionId, signal,
+        ...(state === 'expired' ? { reason: 'delivery-failed' as const } : {}),
       };
     }
 
     if (!activeParentSessionId) {
       queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
-        parentSessionId,
+        parentSessionId: SessionId.from(parentSessionId),
       });
     }
 
     try {
       await this.agentAdapter.sendMessageToSession(
-        parentSessionId,
+        SessionId.from(parentSessionId),
         this.completionEnvelope(signal, info),
         {
           origin: {
@@ -461,11 +469,11 @@ export class LaneCompletionNotifier {
           },
         },
       );
-    } catch (error: unknown) {
+    } catch (_error: unknown) {
       queueReviewCapture();
       return this.refuse('delivery-failed', signal, {
         parentSessionId,
-        detail: error instanceof Error ? error.message : String(error),
+        detail: 'parent-send-failed',
       });
     }
 
@@ -739,9 +747,9 @@ export class LaneCompletionNotifier {
     stopReason: AgentProcessInfo['stopReason'],
     deliverables: readonly LaneDeliverableCheck[],
     rateLimited: boolean,
-    reportsDelivered = 0,
+    _reportsDelivered = 0,
   ): LaneCompletionVerdict {
-    if ((stopReason === 'usage-limit' || stopReason === 'auth') && reportsDelivered === 0)
+    if (stopReason === 'usage-limit' || stopReason === 'auth')
       return 'failed';
     const hostStopped = status === 'stopped' && stopReason !== undefined;
     if (status !== 'completed' && !hostStopped) return 'failed';

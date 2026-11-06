@@ -57,7 +57,7 @@
     @if (expanded()) {
       @for (event of row().events; track event.messageId; let first = $first) {
         <section role="listitem" [attr.aria-label]="row().agent + ' · ' + row().cli + ', ' + time(event.timestamp) + ', ' + (event.kind === 'report' ? 'report' : 'completion')"
-          [class.border-t]="!first" class="mt-2 border-l-2 border-base-content/10 border-l-success px-2 pt-2">
+          [class.border-t]="!first" [class.border-l-error]="event.kind === 'completed' && event.verdict === 'failed'" [class.border-l-success]="event.kind !== 'completed' || event.verdict !== 'failed'" class="mt-2 border-l-2 border-base-content/10 px-2 pt-2">
           <h4 class="flex items-center gap-1 text-[11px] font-semibold text-base-content-muted">
             <lucide-angular [img]="event.kind === 'report' ? ReportIcon : (event.verdict === 'failed' ? FailedIcon : CompletionIcon)" class="h-3.5 w-3.5" aria-hidden="true" />
             {{ row().agent }} · {{ row().cli }} · {{ event.kind === 'report' ? 'Report' : 'Completion' }}

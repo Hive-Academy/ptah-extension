@@ -110,6 +110,7 @@ describe('agent delivery push sinks', () => {
       id: 'lane-delivery:completion-1', parentSessionId: PARENT_SESSION,
       agentId: 'agent-1', kind: 'completion', dedupeKey: 'completion-1',
       body: 'Done', createdAt: 1, state: 'delivered', attempts: 1,
+      verdict: 'no-deliverable', stopReason: 'auth',
     };
     container.resolve<{ changed(receipt: AgentDeliveryReceipt): void }>(
       CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK,
@@ -122,7 +123,15 @@ describe('agent delivery push sinks', () => {
     );
     expect(broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
-      { agentId: 'agent-1', kind: 'completion', state: 'delivered', deliveryId: envelope.id },
+      expect.objectContaining({ agentId: 'agent-1', kind: 'completion', state: 'delivered',
+        deliveryId: envelope.id, verdict: 'no-deliverable', stopReason: 'auth' }),
+    );
+    container.resolve<{ emit(envelope: ParentDeliveryEnvelope): void }>(
+      CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK,
+    ).emit({ ...envelope, state: 'expired', lastError: 'delivery-expired' });
+    expect(broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
+      expect.objectContaining({ deliveryId: envelope.id, state: 'expired' }),
     );
   });
 });

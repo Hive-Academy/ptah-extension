@@ -27,4 +27,12 @@ describe('ParentEnvelopeStoreService', () => {
     expect(store.find('0')?.state).toBe('expired');
     expect(store.pending('parent')).toHaveLength(32);
   });
+  it('keeps the resolved parent at 32 pending envelopes after tab re-key', () => {
+    const store = new ParentEnvelopeStoreService(logger);
+    for (let n = 0; n < 32; n++) store.enqueue(envelope(n));
+    store.enqueue({ ...envelope(33), parentSessionId: 'tab-1' });
+    store.resolveParentSessionId('tab-1', 'parent');
+    expect(store.pending('parent')).toHaveLength(32);
+    expect(store.find('0')?.state).toBe('expired');
+  });
 });

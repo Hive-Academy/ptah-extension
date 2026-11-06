@@ -367,6 +367,7 @@ export function registerCliAgentRuntimeServices(
       c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK, true)
         ? c.resolve<AgentDeliveryReceiptEventSink>(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK)
         : undefined,
+      c.resolve<Logger>(TOKENS.LOGGER),
     )),
   });
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME, {
@@ -380,6 +381,7 @@ export function registerCliAgentRuntimeServices(
       c.resolve<CliDetectionService>(TOKENS.CLI_DETECTION_SERVICE),
       c.resolve<AgentDeliveryReceiptStore>(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_STORE),
       c.resolve<AgentLaneResumeService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME),
+      c.resolve<Logger>(TOKENS.LOGGER),
     )),
   });
   // The parent → child session link (TASK_2026_584). Registered by class,

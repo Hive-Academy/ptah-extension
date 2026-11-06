@@ -2252,6 +2252,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'usage-limit');
     });
 
+    it('recognizes the recorded Kimi Code provider error wording on exit 0', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'API Error: Request rejected (429) · Kimi Code API rate limit exceeded.' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'usage-limit');
+    });
+
     it('does not read stdout on exit 0', async () => {
       await spawnCodex();
 
@@ -2261,6 +2271,63 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(contextOf(0)).not.toHaveProperty('rateLimited');
+    });
+
+    it('does not classify a successful turn mentioning 429.md or quota', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'Read docs/429.md; the quota field is documented there.' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toMatchObject({ status: 'completed' });
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
+    });
+
+    it('does not classify a successful turn discussing rate limit guidance', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'Review the rate limit guidance in docs before updating it.' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toMatchObject({ status: 'completed' });
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+    });
+
+    it('ignores a tool error line about rate limit tests on exit 0', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'rate limit exceeded in the test fixture' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+    });
+
+    it('classifies a structured authentication error on exit 0', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'HTTP 401 Unauthorized' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'auth');
+    });
+
+    it('surfaces an OpenCode session mismatch as a typed stop reason', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+      emit({ type: 'error', content: 'session-mismatch: OpenCode resumed a different session' });
+      sdkControls.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(manager.getStatus(agentId)).toMatchObject({
+        status: 'failed', stopReason: 'session-mismatch',
+      });
     });
 
     it('flags a failed exit with a 429 rate wording in its tail', async () => {
@@ -3063,7 +3130,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const outcome = await manager.sendToAgent(agentId, 'change direction', 'now', undefined, true);
 
       expect(outcome.mode).toBe('unsupported');
-      expect(outcome.detail).toContain('cancel failed');
+      expect(outcome.detail).toContain('operation failed');
+      expect(outcome.detail).not.toContain('cancel failed');
       expect(controls.continueCallCount()).toBe(0);
 
       controls.resolve(0);

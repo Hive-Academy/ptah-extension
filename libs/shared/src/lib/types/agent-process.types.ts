@@ -305,7 +305,7 @@ export interface AgentProcessInfo {
  * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
  * tool-call budget; a repeat loop is the only host stop.
  */
-export type LaneStopReason = 'repeat-call' | 'usage-limit' | 'auth';
+export type LaneStopReason = 'repeat-call' | 'usage-limit' | 'auth' | 'session-mismatch';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -558,6 +558,10 @@ export interface AgentDeliveryReceipt {
 export interface AgentMessageOutcome {
   readonly mode: AgentMessagingMode;
   readonly detail?: string;
+  /** Stable refusal reason; safe to persist or send across host boundaries. */
+  readonly reasonCode?: 'queue-full' | 'no-session' | 'steer-rejected' | 'steer-unavailable'
+    | 'interrupt-failed' | 'confirmation-required' | 'immediate-unavailable'
+    | 'continuation-unavailable' | 'start-turn-failed';
   readonly messageId?: string;
   /** Optional until the legacy router migrates to receipt-producing sends. */
   readonly receipt?: AgentDeliveryReceipt;

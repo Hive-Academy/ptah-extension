@@ -17,6 +17,9 @@
 // reflect-metadata polyfill. The builder needs only PTAH_CLI_ROLE_DELIVERY at
 // runtime, overridden with non-default values so a hand-typed literal fails.
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  AgentMessageError: class extends Error {
+    constructor(readonly code: string, message: string) { super(message); }
+  },
   MAX_AGENT_WAIT_MS: 900_000,
   PTAH_CLI_ROLE_DELIVERY: {
     roleDelivery: 'native',
@@ -180,6 +183,12 @@ describe('buildAgentNamespace — shape', () => {
     expect(typeof ns.listRoles).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
     expect(typeof ns.waitForAgents).toBe('function');
+  });
+  it('returns a coded not-found error for invalid message agent ids', async () => {
+    const { deps } = makeDeps();
+    const ns = buildAgentNamespace(deps);
+    await expect(ns.message('invalid', 'hello')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(ns.messageStatus('invalid', 'receipt')).rejects.toMatchObject({ code: 'not_found' });
   });
 });
 
@@ -1025,9 +1034,9 @@ describe('buildAgentNamespace — thin delegates', () => {
       mode: 'interrupt-resume',
       detail: 'turn aborted',
     });
-    const outcome = await buildAgentNamespace(deps).message('x', 'go left');
+    const outcome = await buildAgentNamespace(deps).message('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left');
     expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
-      'x',
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       'go left',
       undefined,
     );

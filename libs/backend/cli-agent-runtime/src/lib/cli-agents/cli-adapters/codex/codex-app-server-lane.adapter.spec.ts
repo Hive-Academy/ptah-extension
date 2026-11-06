@@ -201,6 +201,12 @@ async function terminal(context: FakeContext, turnId = 'turn-1', status: 'comple
 }
 
 describe('CodexAppServerLaneAdapter', () => {
+  it('advertises only denied network for the native read-only plan mode', () => {
+    const manifest = harness().adapter.capabilities();
+    expect(manifest.permissionModes.plan).toMatchObject({
+      state: 'supported', nativeMode: 'read-only', networkModes: ['deny'],
+    });
+  });
   it('starts the WRITE_DAC check with the runtime and waits for it before persisting', async () => {
     const h = harness();
     let release: (() => void) | undefined;

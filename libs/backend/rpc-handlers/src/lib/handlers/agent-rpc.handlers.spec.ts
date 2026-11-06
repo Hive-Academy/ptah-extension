@@ -131,6 +131,7 @@ interface Harness {
   setConfiguration: jest.Mock;
   /** `ProviderAccountService.lookupBySdkSession`, when the service is registered. */
   accountLookup: jest.Mock | undefined;
+  messageCoordinator: { send: jest.Mock };
 }
 
 interface HarnessOptions {
@@ -214,10 +215,10 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     prepareSdkResume: (request: Parameters<typeof processManager.prepareSdkHandleSpawn>[0]) => processManager.prepareSdkHandleSpawn(request),
   };
   const messageCoordinator = {
-    send: async (request: { agentId: string; message: string }) => {
+    send: jest.fn(async (request: { agentId: string; message: string }) => {
       await processManager.continueConversation(request.agentId, request.message);
       return { mode: 'queued' as const };
-    },
+    }),
   };
 
   // Each write yields to the event loop before it lands, the way the file
@@ -318,6 +319,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     settings,
     setConfiguration,
     accountLookup,
+    messageCoordinator,
   };
 }
 
@@ -515,6 +517,26 @@ type ContinueResult = { success: boolean; error?: string; code?: string };
 const CONTINUE_AGENT_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
+  it('marks a renderer continue message as user sent', async () => {
+    const h = makeHarness();
+    await call<ContinueResult>(h, 'agent:continue', { agentId: CONTINUE_AGENT_ID, message: 'next step' });
+    expect(h.messageCoordinator.send).toHaveBeenCalledWith(
+      { agentId: CONTINUE_AGENT_ID, message: 'next step', delivery: 'queue' }, 'user',
+    );
+  });
+  it('preserves message whitespace and caps continue input at the RPC boundary', async () => {
+    const h = makeHarness();
+    await call<ContinueResult>(h, 'agent:continue', {
+      agentId: CONTINUE_AGENT_ID, message: '  next step\n',
+    });
+    expect(h.messageCoordinator.send).toHaveBeenCalledWith(
+      { agentId: CONTINUE_AGENT_ID, message: '  next step\n', delivery: 'queue' }, 'user',
+    );
+    await expect(call<ContinueResult>(h, 'agent:continue', {
+      agentId: CONTINUE_AGENT_ID, message: 'x'.repeat(32769),
+    })).resolves.toEqual({ success: false, code: 'invalid_params', error: 'Invalid agent message parameters.' });
+    expect(h.messageCoordinator.send).toHaveBeenCalledTimes(1);
+  });
   it('maps LaneAccountResumeError to account_refused with fixed text', async () => {
     const h = makeHarness();
     h.processManager.continueConversation.mockRejectedValueOnce(

@@ -11,7 +11,7 @@ export interface LaneThreadEntry {
   readonly parentSignal?: string;
 }
 
-/** Receipt ids are independent of transcript ids, so only an exact id joins them. */
+/** Receipt ids are independent of transcript ids; match user text before adding preview rows. */
 export function laneThreadEntries(
   messages: readonly ExecutionChatMessage[],
   receipts: readonly AgentDeliveryReceipt[],
@@ -22,29 +22,37 @@ export function laneThreadEntries(
   completion?: { readonly status: string; readonly timestamp: number },
 ): LaneThreadEntry[] {
   const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
-  const entries: LaneThreadEntry[] = messages.filter(message => message.rawContent && message.timestamp > 0).map(message => {
-    const receipt = byId.get(message.id) ?? byId.get(message.id.split(':').at(-1) ?? '');
+  const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const matched = new Set<string>();
+  const entries: LaneThreadEntry[] = messages.filter(message => message.role === 'user' && message.rawContent && message.timestamp > 0).map(message => {
+    const receipt = byId.get(message.id) ?? byId.get(message.id.split(':').at(-1) ?? '') ??
+      (message.role === 'user' ? receipts.find(item => item.preview && !matched.has(item.id) && normalize(message.rawContent ?? '').startsWith(normalize(item.preview))) : undefined);
+    if (receipt) matched.add(receipt.id);
     const sender = message.role === 'user'
-      ? receipt ? 'You' : `Parent agent · ${parentFamily}`
+      ? receipt?.sender === 'user' ? 'You' : (parentFamily ? `Parent agent · ${parentFamily}` : 'Parent agent')
       : `${laneLabel} · ${cli}`;
     return { id: message.id, sender, kind: 'message' as const, timestamp: message.timestamp,
       body: message.rawContent ?? '', receipt };
   });
   for (const receipt of receipts) {
-    if (!receipt.preview || entries.some(entry => entry.receipt?.id === receipt.id)) continue;
-    entries.push({ id: `receipt:${receipt.id}`, sender: receipt.sender === 'user' ? 'You' : `Parent agent · ${parentFamily}`,
+    if (!receipt.preview || matched.has(receipt.id)) continue;
+    entries.push({ id: `receipt:${receipt.id}`, sender: receipt.sender === 'user' ? 'You' : (parentFamily ? `Parent agent · ${parentFamily}` : 'Parent agent'),
       kind: 'message', timestamp: receipt.createdAt, body: receipt.preview, receipt });
   }
   for (const event of parentDelivery.filter(event => event.kind === 'report')) {
     entries.push({ id: `report:${event.deliveryId ?? event.agentId}`, sender: `${laneLabel} · ${cli}`,
       kind: 'report', timestamp: event.createdAt ?? completion?.timestamp ?? 0, body: event.preview ?? 'Report to parent',
-      parentSignal: event.state === 'delivered' ? 'Sent to parent' : 'Waiting for parent' });
+      parentSignal: event.state === 'delivered' ? 'Sent to parent' : String(event.state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent' });
   }
   if (completion) {
-    const verdict = completion.status === 'failed' ? 'Failed' : completion.status === 'completed' ? 'Deliverables written' : 'Unverified';
     const delivery = parentDelivery.find(event => event.kind === 'completion');
+    const verdict = delivery?.verdict === 'delivered' ? 'Deliverables written'
+      : delivery?.verdict === 'no-deliverable' ? 'No deliverable'
+      : delivery?.verdict === 'failed' ? 'Failed'
+      : delivery?.verdict === 'unverified' ? 'Unverified'
+      : completion.status === 'failed' ? 'Failed' : 'Unverified';
     entries.push({ id: 'completion', sender: `${laneLabel} · ${cli}`, kind: 'completion', timestamp: completion.timestamp,
-      body: verdict, verdict, parentSignal: delivery?.state === 'delivered' ? 'Sent to parent' : 'Waiting for parent' });
+      body: verdict, verdict, parentSignal: delivery?.state === 'delivered' ? 'Sent to parent' : String(delivery?.state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent' });
   }
   return entries.sort((a, b) => a.timestamp - b.timestamp);
 }

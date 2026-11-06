@@ -100,7 +100,7 @@ export class LaneTranscriptComponent {
     const receipts = this.monitor?.receipts?.().get(this.laneId()) ?? [];
     const parentDelivery = this.monitor?.parentDelivery?.().get(this.laneId()) ?? [];
     const completion = agent.completedAt ? { status: agent.status, timestamp: agent.completedAt } : undefined;
-    return laneThreadEntries(this.messages(), receipts, 'Claude', agent.task ?? 'Lane', agent.cli ?? 'CLI', parentDelivery, completion);
+    return laneThreadEntries(this.messages(), receipts, '', agent.displayName ?? agent.cli ?? 'Lane', agent.cli ?? 'CLI', parentDelivery, completion);
   });
   protected readonly contexts = computed(() =>
     this.turnContexts.compute(this.messages()),

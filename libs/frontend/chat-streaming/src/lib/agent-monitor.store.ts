@@ -816,11 +816,18 @@ export class AgentMonitorStore implements OnDestroy {
     this._receipts.update((current) => {
       const next = new Map(current);
       const prior = next.get(receipt.agentId) ?? [];
+      const existing = prior.find((item) => item.id === receipt.id);
+      const rank = (state: AgentDeliveryReceipt['state']) =>
+        ({ accepted: 0, started: 1, settled: 2, failed: 2, expired: 2, 'interrupted-undelivered': 2 })[state];
+      if (existing && (receipt.updatedAt < existing.updatedAt || rank(receipt.state) < rank(existing.state) ||
+        (rank(existing.state) === 2 && receipt.state !== existing.state))) return current;
+      next.delete(receipt.agentId);
       next.set(receipt.agentId, [...prior.filter((item) => item.id !== receipt.id), receipt].slice(-32));
       while (next.size > 64) {
         const oldest = next.keys().next().value;
         if (oldest === undefined) break;
         next.delete(oldest);
+        this._previews.update(previews => { const copy = new Map(previews); copy.delete(oldest); return copy; });
       }
       return next;
     });
@@ -830,6 +837,7 @@ export class AgentMonitorStore implements OnDestroy {
     this._parentDelivery.update((current) => {
       const next = new Map(current);
       const prior = next.get(payload.agentId) ?? [];
+      next.delete(payload.agentId);
       next.set(payload.agentId, [...prior.filter((item) => item.kind !== payload.kind || item.deliveryId !== payload.deliveryId), payload].slice(-16));
       while (next.size > 64) {
         const oldest = next.keys().next().value;
@@ -851,8 +859,10 @@ export class AgentMonitorStore implements OnDestroy {
 
   parentDeliveryState(agentId: string): { readonly completion: string; readonly report: string } {
     const events = this._parentDelivery().get(agentId) ?? [];
-    const label = (kind: 'completion' | 'report') =>
-      [...events].reverse().find((event) => event.kind === kind)?.state === 'delivered' ? 'Sent to parent' : 'Waiting for parent';
+    const label = (kind: 'completion' | 'report') => {
+      const state = [...events].reverse().find((event) => event.kind === kind)?.state;
+      return state === 'delivered' ? 'Sent to parent' : String(state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent';
+    };
     return { completion: label('completion'), report: label('report') };
   }
 
@@ -863,7 +873,7 @@ export class AgentMonitorStore implements OnDestroy {
       case 'settled': return receipt.turnOutcome ? 'Done' : 'Received';
       case 'failed': return 'Failed';
       case 'expired': return 'Expired';
-      case 'interrupted-undelivered': return 'Interrupted ? not sent';
+      case 'interrupted-undelivered': return 'Interrupted — not sent';
     }
   }
 
@@ -1866,6 +1876,14 @@ export class AgentMonitorStore implements OnDestroy {
   ): void {
     this.flushPendingOutput();
     this._agents.update(fn);
+    const activeIds = new Set(this._agents().map(agent => agent.agentId));
+    this._previews.update(current => {
+      const staleIds = [...current.keys()].filter(id => !activeIds.has(id));
+      if (!staleIds.length) return current;
+      const next = new Map(current);
+      for (const id of staleIds) next.delete(id);
+      return next;
+    });
   }
 
   onAgentExited(info: AgentProcessInfo): void {

@@ -1557,13 +1557,21 @@ export class AgentRpcHandlers {
 
         const input = z.object({
           agentId: z.string().refine(AgentId.validate).transform(AgentId.from),
-          message: z.string().trim().min(1),
+          message: z.string().min(1).max(32768).refine((value) => value.trim().length > 0),
         }).strict().parse(params);
         const outcome = await this.runtimeContainer.resolve<AgentMessageCoordinator>(
           CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR,
-        ).send({ ...input, delivery: 'queue' });
+        ).send({ ...input, delivery: 'queue' }, 'user');
         if (outcome.mode === 'unsupported') {
-          return { success: false, code: 'unknown', error: outcome.detail ?? 'Message delivery unavailable' };
+          if (outcome.receipt?.reason === 'account_refused')
+            return { success: false, code: 'account_refused', error: LANE_ACCOUNT_REFUSED_ERROR };
+          if (outcome.receipt?.reason === 'not_found')
+            return { success: false, code: 'not_found', error: 'Agent was not found.' };
+          if (outcome.receipt?.reason === 'busy')
+            return { success: false, code: 'busy', error: 'Agent is busy.' };
+          if (outcome.receipt?.reason === 'released')
+            return { success: false, code: 'released', error: 'Agent handle was released.' };
+          return { success: false, code: 'unknown', error: 'Message delivery unavailable' };
         }
 
         this.logger.info('RPC: agent:continue success', {
@@ -1572,12 +1580,19 @@ export class AgentRpcHandlers {
 
         return { success: true };
       } catch (error) {
+        if (error instanceof z.ZodError)
+          return { success: false, code: 'invalid_params', error: 'Invalid agent message parameters.' };
         if (error instanceof AgentContinueError) {
           this.logger.warn('RPC: agent:continue rejected', {
             agentId: params.agentId,
             code: error.code,
           });
-          return { success: false, code: error.code, error: error.message };
+          const safeError = error.code === 'account_refused' ? LANE_ACCOUNT_REFUSED_ERROR
+            : error.code === 'not_found' ? 'Agent was not found.'
+            : error.code === 'busy' ? 'Agent is busy.'
+            : error.code === 'released' ? 'Agent handle was released.'
+            : 'Message delivery unavailable.';
+          return { success: false, code: error.code, error: safeError };
         }
         const accountRefusal = laneAccountRefusalCode(error);
         if (accountRefusal) {

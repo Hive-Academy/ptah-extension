@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AgentId, type AgentDeliveryReceipt, type AgentMessageDelivery, type AgentMessagePreviewMode } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 
 const receiptSchema = z.object({
   id: z.string().uuid(),
@@ -22,6 +23,7 @@ const receiptSchema = z.object({
 const KEY = 'ptah:agent-delivery-receipts:v1';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_TERMINAL_PER_AGENT = 64;
+const MAX_TERMINAL_GLOBAL = 256;
 const terminal = new Set<AgentDeliveryReceipt['state']>(['settled', 'failed', 'expired', 'interrupted-undelivered']);
 
 /** Storage port is host neutral; persisted values contain receipt metadata only. */
@@ -42,27 +44,39 @@ export class AgentDeliveryReceiptStore {
     private readonly storage: AgentDeliveryReceiptPersistence,
     private readonly sink?: AgentDeliveryReceiptEventSink,
     private readonly clock: () => number = Date.now,
+    private readonly logger?: Logger,
   ) {
-    this.ready = this.restore();
+    this.ready = this.restore().catch((error: unknown) => {
+      // Degradation: corrupt or unavailable storage must not disable live messaging.
+      this.logger?.error('[AgentDeliveryReceiptStore] Restore failed',
+        error instanceof Error ? error : new Error('Receipt restore failed'));
+      this.receipts.clear();
+    });
   }
 
-  static fromStateStorage(storage: IStateStorage, sink?: AgentDeliveryReceiptEventSink): AgentDeliveryReceiptStore {
-    return new AgentDeliveryReceiptStore(storage, sink);
+  static fromStateStorage(storage: IStateStorage, sink?: AgentDeliveryReceiptEventSink, logger?: Logger): AgentDeliveryReceiptStore {
+    return new AgentDeliveryReceiptStore(storage, sink, Date.now, logger);
   }
 
   private async restore(): Promise<void> {
     const stored = this.storage.get<unknown>(KEY);
-    const parsed = z.array(receiptSchema).safeParse(stored);
-    if (!parsed.success) return;
+    if (!Array.isArray(stored)) return;
     let changed = false;
-    for (const receipt of parsed.data) {
-      if (this.clock() - receipt.createdAt >= TTL_MS) { changed = true; continue; }
+    let malformed = 0;
+    let expired = 0;
+    for (const entry of stored) {
+      const parsed = receiptSchema.safeParse(entry);
+      if (!parsed.success) { changed = true; malformed++; continue; }
+      const receipt = parsed.data;
+      if (this.clock() - receipt.createdAt >= TTL_MS) { changed = true; expired++; continue; }
       const restored: AgentDeliveryReceipt = terminal.has(receipt.state)
         ? receipt
         : { ...receipt, state: 'failed', reason: 'host-restarted', updatedAt: this.clock() };
       if (restored !== receipt) changed = true;
       this.receipts.set(receipt.id, restored);
     }
+    if (malformed || expired) this.logger?.warn('[AgentDeliveryReceiptStore] Dropped stored receipts',
+      { malformed, expired, restored: this.receipts.size });
     this.prune();
     if (changed) await this.persist();
   }
@@ -74,11 +88,15 @@ export class AgentDeliveryReceiptStore {
     const receipt: AgentDeliveryReceipt = { id: randomUUID(), agentId, mode, delivery, sender, preview, state: 'accepted', createdAt: now, updatedAt: now, cliSessionId };
     this.receipts.set(receipt.id, receipt);
     await this.persist();
-    this.sink?.changed(receipt);
+    try { this.sink?.changed(receipt); } catch (error: unknown) {
+      // Degradation: notification sinks cannot reverse an accepted message.
+      this.logger?.error('[AgentDeliveryReceiptStore] Receipt sink failed',
+        error instanceof Error ? error : new Error('Receipt sink failed'));
+    }
     return receipt;
   }
 
-  async transition(id: string, patch: Partial<Pick<AgentDeliveryReceipt, 'state' | 'turnSeq' | 'reason' | 'partialTurnLost' | 'turnOutcome' | 'cliSessionId'>>): Promise<AgentDeliveryReceipt | undefined> {
+  async transition(id: string, patch: Partial<Pick<AgentDeliveryReceipt, 'state' | 'mode' | 'turnSeq' | 'reason' | 'partialTurnLost' | 'turnOutcome' | 'cliSessionId'>>): Promise<AgentDeliveryReceipt | undefined> {
     await this.ready;
     const existing = this.receipts.get(id);
     if (!existing) return undefined;
@@ -91,7 +109,11 @@ export class AgentDeliveryReceiptStore {
     this.receipts.set(id, next);
     this.prune();
     await this.persist();
-    this.sink?.changed(next);
+    try { this.sink?.changed(next); } catch (error: unknown) {
+      // Degradation: notification sinks cannot reverse a committed receipt transition.
+      this.logger?.error('[AgentDeliveryReceiptStore] Receipt sink failed',
+        error instanceof Error ? error : new Error('Receipt sink failed'));
+    }
     return next;
   }
 
@@ -101,6 +123,11 @@ export class AgentDeliveryReceiptStore {
     if (found && found.agentId === agentId && this.clock() - found.createdAt < TTL_MS) return found;
     const now = this.clock();
     return { id, agentId, state: 'expired', mode: 'unsupported', delivery: 'queue', createdAt: now, updatedAt: now, reason: 'receipt-expired' };
+  }
+
+  async getById(id: string): Promise<AgentDeliveryReceipt | undefined> {
+    await this.ready;
+    return this.receipts.get(id);
   }
 
   private prune(): void {
@@ -116,9 +143,18 @@ export class AgentDeliveryReceiptStore {
       group.sort((a, b) => b.updatedAt - a.updatedAt);
       for (const receipt of group.slice(MAX_TERMINAL_PER_AGENT)) this.receipts.delete(receipt.id);
     }
+    const terminals = [...this.receipts.values()].filter((receipt) => terminal.has(receipt.state))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const receipt of terminals.slice(MAX_TERMINAL_GLOBAL)) this.receipts.delete(receipt.id);
   }
 
   private async persist(): Promise<void> {
-    await this.storage.update(KEY, [...this.receipts.values()].map(({ preview: _preview, ...receipt }) => receipt));
+    try {
+      await this.storage.update(KEY, [...this.receipts.values()].map(({ preview: _preview, ...receipt }) => receipt));
+    } catch (error: unknown) {
+      // Degradation: persistence is best effort; the in-memory delivery receipt remains authoritative.
+      this.logger?.error('[AgentDeliveryReceiptStore] Persist failed',
+        error instanceof Error ? error : new Error('Receipt persist failed'));
+    }
   }
 }

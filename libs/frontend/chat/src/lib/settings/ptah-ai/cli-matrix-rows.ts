@@ -122,6 +122,8 @@ export interface CliKeyStatus {
 
 export interface InstanceCliMatrixRow extends CliMatrixRowBase {
   readonly kind: 'instance';
+  readonly runtimeStatus: 'Error' | 'Initializing' | null;
+  readonly manifest?: CliAdapterManifest;
   readonly providerId: string;
   readonly provider: string;
   readonly keyStatus: CliKeyStatus;
@@ -269,14 +271,6 @@ const SYSTEM_CLIS: Readonly<Record<SystemCliSpecKey, SystemCliSpec>> = {
   },
 };
 
-const INSTANCE_STATUS: Readonly<
-  Record<PtahCliSummary['status'], CliMatrixStatus>
-> = {
-  available: { kind: 'ready', label: 'Ready', tone: 'success' },
-  error: { kind: 'error', label: 'Error', tone: 'error' },
-  initializing: { kind: 'initializing', label: 'Initializing', tone: 'info' },
-  unconfigured: { kind: 'needs-key', label: 'Needs API key', tone: 'warning' },
-};
 const READY: CliMatrixStatus = {
   kind: 'ready',
   label: 'Installed',
@@ -293,9 +287,9 @@ const NOT_INSTALLED: CliMatrixStatus = {
   tone: 'neutral',
 };
 const CURSOR_NEEDS_KEY: CliMatrixStatus = {
-  kind: 'not-installed',
-  label: 'Not installed',
-  tone: 'neutral',
+  kind: 'needs-key',
+  label: 'Needs API key',
+  tone: 'warning',
 };
 
 /** Ollama Cloud runs on `ollama signin` when no key is stored (`PtahCliSummary.hasApiKey`). */
@@ -424,14 +418,17 @@ function instanceRow(
   agent: PtahCliSummary,
   models: ProvidersCliModels | null,
   test: ProvidersCliTest | null,
+  manifest?: CliAdapterManifest,
 ): InstanceCliMatrixRow {
   const saved = models?.[agent.id];
   const mappings = saved?.tierMappings;
   return {
     kind: 'instance',
+    manifest,
     id: agent.id,
     name: agent.name,
-    status: agent.enabled ? INSTANCE_STATUS[agent.status] : DISABLED,
+    status: agent.enabled ? READY : DISABLED,
+    runtimeStatus: agent.status === 'error' ? 'Error' : agent.status === 'initializing' ? 'Initializing' : null,
     enabled: agent.enabled,
     interactive: agent.enabled,
     providerId: agent.providerId,
@@ -480,7 +477,8 @@ function byPreferredOrder<T extends { readonly id: string }>(
 export function cliMatrixRows(sources: CliMatrixSources): CliMatrixRows {
   const system = sources.orchestration ? systemRows(sources.orchestration) : [];
   const instances = (sources.cliAgents ?? []).map((agent) =>
-    instanceRow(agent, sources.cliModels, sources.cliTest),
+    instanceRow(agent, sources.cliModels, sources.cliTest,
+      sources.orchestration?.detectedClis.find(detected => detected.ptahCliId === agent.id)?.manifest),
   );
   return {
     installed: byPreferredOrder<CliMatrixRow>(
