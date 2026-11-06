@@ -1,9 +1,6 @@
 import type { DependencyContainer } from 'tsyringe';
 
-import {
-  MESSAGE_TYPES,
-  type IndexingProgressEvent,
-} from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceWatcher } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -47,6 +44,7 @@ import {
 import {
   WorkspaceIndexLifecycleService,
   workspaceSymbolIndexFrom,
+  type WorkspaceSymbolIndex,
 } from './workspace-index-lifecycle';
 
 interface PushBridgeDisposable {
@@ -89,6 +87,29 @@ function readSymbolDatabasePath(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The lifecycle's indexer. With an `IndexingControlService`, every background
+ * full run joins the control's census registry, so the UI sees it running and
+ * it settles with one `lastRun` and one complete/failed push. The control
+ * joins synchronously before calling the indexer (no `await` in between).
+ * `reindexFile` and `deleteFileSymbols` pass through unchanged.
+ */
+function trackedSymbolIndex(
+  symbolIndexer: CodeSymbolIndexer,
+  indexingControl: IndexingControlService | null,
+): WorkspaceSymbolIndex {
+  const adapter = workspaceSymbolIndexFrom(symbolIndexer);
+  if (indexingControl === null) return adapter;
+  return {
+    indexWorkspace: (workspaceRoot, options) =>
+      indexingControl.trackBackgroundRun(workspaceRoot, (onProgress) =>
+        symbolIndexer.indexWorkspace(workspaceRoot, { ...options, onProgress }),
+      ),
+    reindexFile: adapter.reindexFile,
+    deleteFileSymbols: adapter.deleteFileSymbols,
+  };
 }
 
 function replacePushBridge(
@@ -461,54 +482,19 @@ export async function bootThothRuntime(
         container.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
       const runDeps: IndexingRunDeps = {
-        runSymbols: async (
-          wsRoot: string,
-          options?: { signal?: AbortSignal },
-        ): Promise<void> => {
-          try {
-            const startedAt = Date.now();
-            await symbolIndexer.indexWorkspace(wsRoot, {
-              ...(options?.signal ? { signal: options.signal } : {}),
-              // These deps are handed ONLY to `IndexingRpcHandlers`, whose
-              // `indexing:start` / `indexing:resume` are user clicks. A click
-              // is never held behind the background-work governor
-              // (TASK_2026_437 C14 b, Batch 16b rule).
-              userInitiated: true,
-              onProgress: (p) => {
-                const percent =
-                  p.totalFiles > 0
-                    ? Math.min(
-                        100,
-                        Math.round((p.filesScanned / p.totalFiles) * 100),
-                      )
-                    : 0;
-                const webviewManager = container.resolve<WebviewManager>(
-                  TOKENS.WEBVIEW_MANAGER,
-                );
-                void webviewManager.broadcastMessage(
-                  MESSAGE_TYPES.INDEXING_PROGRESS,
-                  {
-                    pipeline: 'symbols',
-                    percent,
-                    currentLabel: `${p.filesScanned}/${p.totalFiles} files`,
-                    elapsedMs: Date.now() - startedAt,
-                    totalKnown: true,
-                    processed: p.filesScanned,
-                    total: p.totalFiles,
-                  } satisfies IndexingProgressEvent,
-                );
-              },
-            });
-          } catch (err: unknown) {
-            if (
-              err instanceof DOMException ||
-              (err instanceof Error && err.name === 'AbortError')
-            ) {
-              return;
-            }
-            throw err;
-          }
-        },
+        // The control service owns progress (one handler per census record)
+        // and abort classification, so this resolves the indexer's stats and
+        // lets an AbortError through unchanged.
+        runSymbols: (wsRoot, options) =>
+          symbolIndexer.indexWorkspace(wsRoot, {
+            ...(options?.signal ? { signal: options.signal } : {}),
+            ...(options?.onProgress ? { onProgress: options.onProgress } : {}),
+            // These deps are handed ONLY to `IndexingRpcHandlers`, whose
+            // `indexing:start` / `indexing:resume` are user clicks. A click
+            // is never held behind the background-work governor
+            // (TASK_2026_437 C14 b, Batch 16b rule).
+            userInitiated: true,
+          }),
       };
 
       if (container.isRegistered(IndexingRpcHandlers)) {
@@ -530,7 +516,7 @@ export async function bootThothRuntime(
             )
           : undefined;
         const lifecycle = new WorkspaceIndexLifecycleService({
-          indexer: workspaceSymbolIndexFrom(symbolIndexer),
+          indexer: trackedSymbolIndex(symbolIndexer, indexingControl),
           watcher,
           workspaceRoot,
           databasePath: readSymbolDatabasePath(container),
