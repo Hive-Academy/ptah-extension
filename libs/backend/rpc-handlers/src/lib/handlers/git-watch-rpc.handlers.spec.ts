@@ -244,6 +244,71 @@ describe('GitWatchRpcHandlers', () => {
       jest.useRealTimers();
     }
   });
+  it('settles the RPC when renewing the previous roots at the deadline throws', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpc, registry, gitInfo, logger } = buildSuite();
+      gitInfo.probeWorktreeList.mockImplementation(
+        () => new Promise<WorktreeListRead>(() => undefined),
+      );
+      registry.setLease.mockImplementation(() => {
+        throw new Error('registry down');
+      });
+      const pending = watchRoots(rpc)({
+        leaseId: 'lease-1',
+        roots: [WORKTREE],
+      });
+      // Would be an uncaught exception from the timer before the fix.
+      expect(() => jest.advanceTimersByTime(25_000)).not.toThrow();
+      await expect(pending).rejects.toMatchObject({
+        errorCode: 'GIT_ROOT_PROBE_FAILED',
+      });
+      expect(logger.error).toHaveBeenCalledWith(
+        '[GitWatchRpc] git:watchRoots lease renewal failed',
+        expect.any(Error),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('never lets a call that outlived its deadline overwrite a newer lease', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpc, registry, gitInfo } = buildSuite();
+      const send = watchRoots(rpc);
+      let finishSlowProbe: (read: WorktreeListRead) => void = () => undefined;
+      // A stage that ignores the abort signal (e.g. a stat on a dead share).
+      gitInfo.probeWorktreeList.mockImplementationOnce(
+        () =>
+          new Promise<WorktreeListRead>((resolve) => {
+            finishSlowProbe = resolve;
+          }),
+      );
+      const stale = send({ leaseId: 'lease-1', roots: [WORKTREE] });
+      jest.advanceTimersByTime(25_000);
+      await expect(stale).rejects.toMatchObject({
+        errorCode: 'GIT_ROOT_PROBE_FAILED',
+      });
+
+      jest.useRealTimers();
+      await expect(
+        send({ leaseId: 'lease-1', roots: [FOLDER] }),
+      ).resolves.toMatchObject({ watched: [FOLDER] });
+      expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [FOLDER]);
+      const writes = registry.setLease.mock.calls.length;
+
+      finishSlowProbe(LISTED);
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(registry.setLease).toHaveBeenCalledTimes(writes);
+      expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [FOLDER]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('owns exactly git:watchRoots', () => {
     const { rpc } = buildSuite();
 

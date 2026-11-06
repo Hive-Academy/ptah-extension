@@ -17,6 +17,7 @@ import { MemoryStore } from './memory.store';
 import { memoryId } from './memory.types';
 import { ObservationQueueStore } from './observation-queue.store';
 import { HostBridgeEmbedder } from './search-worker-host-embedder';
+import { serializeWorkerError } from './search-worker-error';
 import {
   searchWorkerInboundSchema,
   toTransferableLogContext,
@@ -241,7 +242,11 @@ export class SearchWorkerRuntime {
     }
   }
 
-  private log(level: SearchWorkerLogLevel, message: string, context: unknown): void {
-    this.options.post({ kind: 'log', level, message, context: toTransferableLogContext(context) });
+  private log(level: SearchWorkerLogLevel, message: string, detail: unknown): void {
+    if (detail instanceof Error) {
+      this.options.post({ kind: 'log', level, message, error: serializeWorkerError(detail) });
+      return;
+    }
+    this.options.post({ kind: 'log', level, message, context: toTransferableLogContext(detail) });
   }
 }

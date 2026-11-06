@@ -185,10 +185,11 @@ export interface BootRefs extends ThothRuntimeRefs {
   workspaceWatcher: { dispose: () => void } | null;
   /**
    * `MEMORY_TOKENS.SQLITE_SEARCH_WORKER` — `SearchWorkerClient`, which owns the
-   * read-only SQLite search `utilityProcess`. `dispose()` kills it and stops
-   * respawns; it writes nothing. Captured pre-window; resolving forks nothing.
+   * read-only SQLite search `utilityProcess`. `dispose()` kills it, stops
+   * respawns and settles once the process has exited (bounded at 2 s); it
+   * writes nothing. Captured pre-window; resolving forks nothing.
    */
-  searchWorker: { dispose: () => void } | null;
+  searchWorker: { dispose: () => Promise<void> } | null;
   /**
    * Window-bounds persistence storage. Not a disposable — `app.on('activate')`
    * needs it to recreate the window on macOS.

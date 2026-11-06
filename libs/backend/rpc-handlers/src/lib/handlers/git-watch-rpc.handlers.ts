@@ -56,6 +56,17 @@ interface WatchFlight {
   /** {@link rootsKey} of the roots this flight resolves. */
   readonly key: string;
   readonly promise: Promise<GitWatchRootsResult>;
+  /**
+   * Identity of this call. Only the flight still registered for its lease
+   * may write the lease, so a call that outlived its deadline cannot
+   * overwrite the roots a newer call committed.
+   */
+  readonly token: symbol;
+}
+
+/** A fresh empty answer; callers may own and mutate the arrays they get. */
+function emptyResult(): GitWatchRootsResult {
+  return { watched: [], rejected: [], evicted: [] };
 }
 
 type RootResolution =
@@ -160,6 +171,7 @@ export class GitWatchRpcHandlers {
   ): Promise<GitWatchRootsResult> {
     const { leaseId } = params;
     this.registry.beginRenewal?.(leaseId);
+    const token = Symbol(leaseId);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<GitWatchRootsResult>((_resolve, reject) => {
@@ -168,7 +180,9 @@ export class GitWatchRpcHandlers {
         this.logger.warn(`${LOG_TAG} git:watchRoots resolve deadline`, {
           leaseId,
         });
-        this.keepPrevious(leaseId);
+        // Guarded inside keepPrevious: a throw here would escape the timer
+        // as an uncaught exception and leave the RPC unsettled.
+        this.keepPrevious(leaseId, token);
         reject(
           new RpcUserError(
             GIT_ROOT_PROBE_FAILED_MESSAGE,
@@ -179,7 +193,7 @@ export class GitWatchRpcHandlers {
       timer.unref?.();
     });
     const promise: Promise<GitWatchRootsResult> = Promise.race([
-      this.resolveRoots(leaseId, params.roots, controller.signal),
+      this.resolveRoots(leaseId, token, params.roots, controller.signal),
       deadline,
     ]).finally(() => {
       if (timer) clearTimeout(timer);
@@ -188,32 +202,51 @@ export class GitWatchRpcHandlers {
         this.flights.delete(leaseId);
       }
     });
-    this.flights.set(leaseId, { key, promise });
+    // Every `setLease` runs after an await in `resolveRoots` or from the
+    // deadline timer, so the flight is registered before any write checks it.
+    this.flights.set(leaseId, { key, promise, token });
     return promise;
   }
 
-  /** Renew the lease with the roots it last accepted. */
-  private keepPrevious(leaseId: string): GitWatchRootsResult {
-    const outcome = this.registry.setLease(
-      leaseId,
-      this.previousRoots.get(leaseId) ?? [],
-    );
-    return {
-      watched: [...outcome.watched],
-      rejected: [],
-      evicted: [...outcome.evicted],
-    };
+  /** Whether `token` is the call currently registered for `leaseId`. */
+  private isCurrent(leaseId: string, token: symbol): boolean {
+    return this.flights.get(leaseId)?.token === token;
+  }
+
+  /** Renew the lease with the roots it last accepted. Never throws. */
+  private keepPrevious(leaseId: string, token: symbol): GitWatchRootsResult {
+    if (!this.isCurrent(leaseId, token)) return emptyResult();
+    try {
+      const outcome = this.registry.setLease(
+        leaseId,
+        this.previousRoots.get(leaseId) ?? [],
+      );
+      return {
+        watched: [...outcome.watched],
+        rejected: [],
+        evicted: [...outcome.evicted],
+      };
+    } catch (error: unknown) {
+      this.logger.error(
+        `${LOG_TAG} git:watchRoots lease renewal failed`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return emptyResult();
+    }
   }
 
   private async resolveRoots(
     leaseId: string,
+    token: symbol,
     requestedRoots: readonly string[],
     signal: AbortSignal,
   ): Promise<GitWatchRootsResult> {
     const results = await Promise.all(
       requestedRoots.map((requested) => this.resolveOne(requested, signal)),
     );
-    if (signal.aborted) return this.keepPrevious(leaseId);
+    // Aborted only by the deadline, which already renewed the previous roots
+    // and settled the RPC; a newer call may own the lease by now.
+    if (signal.aborted) return emptyResult();
 
     const held = new Map(
       (this.previousRoots.get(leaseId) ?? []).map((root) => [
@@ -250,7 +283,7 @@ export class GitWatchRpcHandlers {
         { leaseId, failed, requested: requestedRoots.length },
       );
     }
-    const result = this.commitLease(leaseId, accepted, rejected);
+    const result = this.commitLease(leaseId, token, accepted, rejected);
     if (failed > 0 && failed === requestedRoots.length) {
       throw new RpcUserError(
         GIT_ROOT_PROBE_FAILED_MESSAGE,
@@ -262,9 +295,11 @@ export class GitWatchRpcHandlers {
 
   private commitLease(
     leaseId: string,
+    token: symbol,
     accepted: readonly string[],
     rejected: string[],
   ): GitWatchRootsResult {
+    if (!this.isCurrent(leaseId, token)) return emptyResult();
     try {
       const outcome = this.registry.setLease(leaseId, accepted);
       this.previousRoots.delete(leaseId);
@@ -285,7 +320,7 @@ export class GitWatchRpcHandlers {
         `${LOG_TAG} git:watchRoots lease update failed`,
         error instanceof Error ? error : new Error(String(error)),
       );
-      return { watched: [], rejected: [], evicted: [] };
+      return emptyResult();
     }
   }
 }

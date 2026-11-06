@@ -9,6 +9,7 @@ function makeBridge(canRerank: boolean): { bridge: HostBridgeEmbedder; posted: S
     canRerank,
     post: (message) => posted.push(message),
     callTimeoutMs: 50,
+    coldCallTimeoutMs: 200,
   });
   return { bridge, posted };
 }
@@ -25,23 +26,38 @@ describe('HostBridgeEmbedder', () => {
     expect(bridge.pendingCalls).toBe(0);
   });
 
-  it('resolves an empty embedding when the host never answers, leaving nothing behind', async () => {
+  it('rejects when the host never answers, leaving nothing behind', async () => {
     jest.useFakeTimers();
     const { bridge } = makeBridge(false);
     const pending = bridge.embed(['needle']);
-    jest.advanceTimersByTime(50);
-    expect(await pending).toEqual([]);
+    jest.advanceTimersByTime(200);
+    await expect(pending).rejects.toThrow('host embed timed out after 200 ms');
     expect(bridge.pendingCalls).toBe(0);
     // A late reply for the expired call is ignored.
     bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
     expect(bridge.pendingCalls).toBe(0);
   });
 
-  it('resolves an empty embedding when the host embed fails', async () => {
+  it('rejects when the host embed fails, so the search reports bm25Only', async () => {
     const { bridge } = makeBridge(false);
     const pending = bridge.embed(['needle']);
     bridge.settle({ kind: 'host-call-failed', id: 1, message: 'model unavailable' });
-    expect(await pending).toEqual([]);
+    await expect(pending).rejects.toThrow('model unavailable');
+  });
+
+  it('gives a cold embedder the longer first-call budget, then the warm one', async () => {
+    jest.useFakeTimers();
+    const { bridge } = makeBridge(false);
+    // Model still loading: 50 ms passes, the call is still waiting.
+    const first = bridge.embed(['needle']);
+    jest.advanceTimersByTime(150);
+    expect(bridge.pendingCalls).toBe(1);
+    bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
+    expect(await first).toEqual([Float32Array.from([1, 2, 3])]);
+    // Warm now: the 50 ms budget applies.
+    const second = bridge.embed(['needle']);
+    jest.advanceTimersByTime(50);
+    await expect(second).rejects.toThrow('host embed timed out after 50 ms');
   });
 
   it('rejects rerank without a host reranker, so search keeps the RRF order', async () => {
@@ -67,7 +83,7 @@ describe('HostBridgeEmbedder', () => {
     const embed = bridge.embed(['a']);
     const rerank = bridge.rerank('q', [{ id: '1', text: 'a' }], 1);
     await bridge.dispose();
-    expect(await embed).toEqual([]);
+    await expect(embed).rejects.toThrow('shutting down');
     await expect(rerank).rejects.toThrow('shutting down');
   });
 });
