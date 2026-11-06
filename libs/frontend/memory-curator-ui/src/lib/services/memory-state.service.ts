@@ -10,6 +10,22 @@ import type {
 
 import { MemoryRpcService } from './memory-rpc.service';
 
+/** Outcome of the last successful memory search index rebuild. */
+export interface MemoryRebuildOutcome {
+  /** Epoch-ms when the rebuild finished. */
+  readonly at: number;
+  readonly rebuiltFts: boolean;
+  readonly rebuiltVec: boolean;
+}
+
+/**
+ * Fixed sentence for a failed rebuild. Matches the backend's user error; it is
+ * used for every failure (including transport timeouts) so no raw error text
+ * reaches the tab.
+ */
+export const MEMORY_REBUILD_FAILED_MESSAGE =
+  'Could not rebuild the memory search index. See the logs for details.';
+
 /** UI-side filter for the tier selector (adds an "all" sentinel). */
 export type MemoryTierFilter = 'all' | MemoryTierWire;
 
@@ -55,6 +71,8 @@ export class MemoryStateService {
   private readonly _stats = signal<MemoryStatsResult | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _rebuilding = signal<boolean>(false);
+  private readonly _rebuildResult = signal<MemoryRebuildOutcome | null>(null);
   private readonly _symbolQuery = signal<string>('');
   private readonly _symbolItems = signal<readonly CodeSymbolListItem[]>([]);
   private readonly _symbolTotal = signal<number>(0);
@@ -84,6 +102,10 @@ export class MemoryStateService {
   public readonly stats = this._stats.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  /** True while `memory:rebuildIndex` is in flight (separate from `loading`). */
+  public readonly rebuilding = this._rebuilding.asReadonly();
+  /** Result of the last successful rebuild (or `null`). */
+  public readonly rebuildResult = this._rebuildResult.asReadonly();
   public readonly symbolQuery = this._symbolQuery.asReadonly();
   public readonly symbolItems = this._symbolItems.asReadonly();
   public readonly symbolTotal = this._symbolTotal.asReadonly();
@@ -275,14 +297,21 @@ export class MemoryStateService {
   }
 
   public async rebuildIndex(): Promise<void> {
-    this._loading.set(true);
+    if (this._rebuilding()) return;
+    this._rebuilding.set(true);
+    this._rebuildResult.set(null);
     this._error.set(null);
     try {
-      await this.rpcService.rebuildIndex('both');
-    } catch (err) {
-      this._error.set(toErrorMessage(err));
+      const result = await this.rpcService.rebuildIndex('both');
+      this._rebuildResult.set({
+        at: Date.now(),
+        rebuiltFts: result.rebuiltFts,
+        rebuiltVec: result.rebuiltVec,
+      });
+    } catch {
+      this._error.set(MEMORY_REBUILD_FAILED_MESSAGE);
     } finally {
-      this._loading.set(false);
+      this._rebuilding.set(false);
     }
   }
 

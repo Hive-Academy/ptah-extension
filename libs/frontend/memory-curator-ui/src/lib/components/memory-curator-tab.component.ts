@@ -137,17 +137,44 @@ const SEARCH_DEBOUNCE_MS = 300;
               <button
                 type="button"
                 class="btn btn-sm btn-ghost"
-                [disabled]="loading()"
+                [disabled]="rebuilding()"
+                [attr.aria-busy]="rebuilding()"
                 (click)="onRebuildIndex()"
+                aria-label="Rebuild memory search index"
+                data-testid="memory-rebuild-index"
               >
-                @if (loading()) {
-                  <span class="loading loading-spinner loading-xs"></span>
+                @if (rebuilding()) {
+                  <span
+                    class="loading loading-spinner loading-xs"
+                    aria-hidden="true"
+                  ></span>
                 }
-                Rebuild index
+                Rebuild memory search index
               </button>
             </div>
           }
         </header>
+
+        @if (view() === 'code') {
+          @if (rebuildSummary(); as summary) {
+            <div
+              class="rounded-xl border border-success/40 bg-success/5 px-4 py-3 text-sm"
+              role="status"
+              data-testid="memory-rebuild-result"
+            >
+              {{ summary }}
+            </div>
+          }
+          @if (error()) {
+            <div
+              class="rounded-xl border border-error/40 bg-error/5 px-4 py-3"
+              role="alert"
+              data-testid="memory-code-error"
+            >
+              <span class="text-sm text-error">{{ error() }}</span>
+            </div>
+          }
+        }
 
         <ptah-memory-pause-switch (pausedChange)="pausedChange.emit($event)" />
 
@@ -242,6 +269,7 @@ const SEARCH_DEBOUNCE_MS = 300;
                 [state]="indexingUiState()"
                 [hasWorkspace]="hasWorkspace()"
                 [busy]="indexingBusy()"
+                [actionMessage]="indexingActionMessage()"
                 (indexNow)="onIndexNow()"
                 (resumeIndex)="onResumeIndex()"
                 (cancelIndex)="onCancelIndex()"
@@ -300,8 +328,11 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected readonly indexingUiState = this.indexingService.uiState;
   protected readonly indexingBusy = computed(() => {
     const kind = this.indexingUiState().kind;
-    return kind === 'indexing' || kind === 'loading';
+    return (
+      kind === 'indexing' || kind === 'loading' || this.indexingService.isBusy()
+    );
   });
+  protected readonly indexingActionMessage = this.indexingService.actionMessage;
   protected readonly purgingJunk = signal<boolean>(false);
 
   public readonly isElectron = computed(
@@ -335,6 +366,15 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected readonly filteredEntries = this.state.filteredEntries;
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
+  protected readonly rebuilding = this.state.rebuilding;
+  /** Result line of the last successful memory search index rebuild. */
+  protected readonly rebuildSummary = computed<string | null>(() => {
+    const result = this.state.rebuildResult();
+    if (!result) return null;
+    const fts = result.rebuiltFts ? 'yes' : 'no';
+    const vec = result.rebuiltVec ? 'yes' : 'unavailable';
+    return `Memory search index rebuilt (full-text: ${fts}, vectors: ${vec})`;
+  });
 
   protected readonly statCounts = computed(() => {
     const remote = this.state.stats();
@@ -473,19 +513,19 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected onIndexNow(): void {
     const root = this.appState.workspaceInfo()?.path;
     if (!root) return;
-    void this.indexingService.start(root, false).catch(() => undefined);
+    void this.indexingService.start(root, false);
   }
 
   protected onResumeIndex(): void {
     const root = this.appState.workspaceInfo()?.path;
     if (!root) return;
-    void this.indexingService.resume(root).catch(() => undefined);
+    void this.indexingService.resume(root);
   }
 
   protected onCancelIndex(): void {
     const root = this.appState.workspaceInfo()?.path;
     if (!root) return;
-    void this.indexingService.cancel(root).catch(() => undefined);
+    void this.indexingService.cancel(root);
   }
 
   protected onPurgeJunk(): void {
