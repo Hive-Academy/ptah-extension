@@ -379,6 +379,22 @@ import type {
 
 import type {
   AgentOrchestrationConfig,
+  AgentSendMessageParams,
+  AgentSendMessageResult,
+  AgentListMessageReceiptsParams,
+  AgentListMessageReceiptsResult,
+  AgentGetQueuedMessageBodyParams,
+  AgentGetQueuedMessageBodyResult,
+  AgentRetryMessageParams,
+  AgentRetryMessageResult,
+  AgentCancelMessageParams,
+  AgentCancelMessageResult,
+  AgentListParentDeliveriesParams,
+  AgentListParentDeliveriesResult,
+  AgentRetryParentDeliveryParams,
+  AgentRetryParentDeliveryResult,
+  AgentCancelParentDeliveryParams,
+  AgentCancelParentDeliveryResult,
   AgentSetConfigParams,
   AgentGetClaudeBuiltinsParams,
   AgentGetClaudeBuiltinsResult,
@@ -1737,8 +1753,12 @@ export interface RpcMethodRegistry
     result: import('./agent-process.types').AgentMessagePreview;
   };
   'agent:sendMessage': {
-    params: import('./agent-process.types').AgentMessageRequest;
-    result: import('./agent-process.types').AgentMessageOutcome;
+    params: AgentSendMessageParams;
+    result: AgentSendMessageResult;
+  };
+  'agent:listMessageReceipts': {
+    params: AgentListMessageReceiptsParams;
+    result: AgentListMessageReceiptsResult;
   };
   'agent:getMessageReceipt': {
     params: {
@@ -1747,12 +1767,29 @@ export interface RpcMethodRegistry
     };
     result: import('./agent-process.types').AgentDeliveryReceipt;
   };
+  'agent:getQueuedMessageBody': {
+    params: AgentGetQueuedMessageBodyParams;
+    result: AgentGetQueuedMessageBodyResult;
+  };
+  'agent:retryMessage': {
+    params: AgentRetryMessageParams;
+    result: AgentRetryMessageResult;
+  };
   'agent:cancelMessage': {
-    params: {
-      agentId: import('./agent-process.types').AgentId;
-      messageId: string;
-    };
-    result: import('./agent-process.types').AgentDeliveryReceipt;
+    params: AgentCancelMessageParams;
+    result: AgentCancelMessageResult;
+  };
+  'agent:listParentDeliveries': {
+    params: AgentListParentDeliveriesParams;
+    result: AgentListParentDeliveriesResult;
+  };
+  'agent:retryParentDelivery': {
+    params: AgentRetryParentDeliveryParams;
+    result: AgentRetryParentDeliveryResult;
+  };
+  'agent:cancelParentDelivery': {
+    params: AgentCancelParentDeliveryParams;
+    result: AgentCancelParentDeliveryResult;
   };
   'agent:listCliModels': {
     params: void;
@@ -3709,8 +3746,14 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:detectClis': true,
   'agent:previewMessage': true,
   'agent:sendMessage': true,
+  'agent:listMessageReceipts': true,
   'agent:getMessageReceipt': true,
+  'agent:getQueuedMessageBody': true,
+  'agent:retryMessage': true,
   'agent:cancelMessage': true,
+  'agent:listParentDeliveries': true,
+  'agent:retryParentDelivery': true,
+  'agent:cancelParentDelivery': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:e2eSeedPermission': true, // TEST-ONLY seam, PTAH_E2E-gated (TASK_2026_264)

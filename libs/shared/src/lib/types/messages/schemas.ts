@@ -4,6 +4,8 @@
 
 import { z } from 'zod';
 
+import { AgentId } from '../agent-process.types';
+
 import {
   SessionIdSchema,
   MessageIdSchema,
@@ -46,16 +48,27 @@ export const AttentionOpenTargetPayloadSchema = z.object({
   target: AttentionTargetSchema,
 }).strict();
 
+const AgentIdStringSchema = z
+  .string()
+  .refine((id): id is AgentId => AgentId.validate(id), {
+    message: 'Invalid AgentId format',
+  });
+
 export const AgentDeliveryReceiptSchema = z.object({
   id: z.string().min(1),
   agentId: z.string().min(1),
+  actualAgentId: AgentIdStringSchema.optional(),
   state: z.enum([
     'accepted',
+    'dispatching',
     'started',
     'settled',
     'failed',
     'expired',
     'interrupted-undelivered',
+    'blocked-retryable',
+    'outcome-unknown',
+    'cancelled',
   ]),
   mode: z.enum([
     'steer',
@@ -65,7 +78,11 @@ export const AgentDeliveryReceiptSchema = z.object({
     'unsupported',
   ]),
   delivery: z.enum(['queue', 'now']),
-  sender: z.enum(['user', 'parent']).optional(),
+  sender: z.enum(['user', 'parent', 'lane']).optional(),
+  senderAgentId: AgentIdStringSchema.optional(),
+  senderSessionId: z.string().min(1).optional(),
+  senderVerified: z.boolean().optional(),
+  parentSessionId: z.string().min(1).optional(),
   preview: z.string().max(160).optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
@@ -74,6 +91,18 @@ export const AgentDeliveryReceiptSchema = z.object({
   reason: z.string().min(1).optional(),
   partialTurnLost: z.boolean().optional(),
   turnOutcome: z.enum(['completed', 'failed', 'stopped']).optional(),
+  attemptCount: z.number().int().nonnegative().optional(),
+  everDispatched: z.boolean().optional(),
+  lastError: z.string().max(200).optional(),
+  nextRetryAt: z.number().int().nonnegative().optional(),
+  limit: z.object({
+    known: z.boolean(),
+    resetAt: z.number().int().nonnegative().optional(),
+  }).strict().optional(),
+  hasRecoverableBody: z.boolean().optional(),
+  ackState: z.enum(['pending', 'read', 'acted', 'rejected', 'unavailable']).optional(),
+  ackAt: z.number().int().nonnegative().optional(),
+  ackNote: z.string().max(500).optional(),
 }).strict();
 
 export const AgentMonitorMessageReceiptPayloadSchema = z.object({
@@ -83,12 +112,35 @@ export const AgentMonitorMessageReceiptPayloadSchema = z.object({
 export const AgentMonitorParentDeliveryPayloadSchema = z.object({
   agentId: z.string().min(1),
   kind: z.enum(['completion', 'report']),
-  state: z.enum(['pending', 'delivered', 'expired']),
-  deliveryId: z.string().min(1).optional(),
+  state: z.enum([
+    'pending',
+    'sending',
+    'delivered',
+    'blocked-retryable',
+    'outcome-unknown',
+    'cancelled',
+    'not-saved',
+    'expired',
+  ]),
+  deliveryId: z.string().regex(/^lane-delivery:\S{1,480}$/).optional(),
+  parentSessionId: z.string().min(1).max(200).optional(),
   createdAt: z.number().int().nonnegative().optional(),
+  updatedAt: z.number().int().nonnegative().optional(),
+  attempts: z.number().int().nonnegative().optional(),
+  lastError: z.string().max(200).optional(),
+  nextRetryAt: z.number().int().nonnegative().optional(),
+  waitingReason: z.enum(['parent-offline']).optional(),
+  everDispatched: z.boolean().optional(),
+  removed: z.literal(true).optional(),
   preview: z.string().max(160).optional(),
   verdict: z.enum(['delivered', 'no-deliverable', 'failed', 'unverified']).optional(),
-  stopReason: z.enum(['repeat-call', 'usage-limit', 'auth', 'session-mismatch']).optional(),
+  stopReason: z.enum([
+    'repeat-call',
+    'usage-limit',
+    'auth',
+    'session-mismatch',
+    'host-restart',
+  ]).optional(),
 }).strict();
 
 /**
