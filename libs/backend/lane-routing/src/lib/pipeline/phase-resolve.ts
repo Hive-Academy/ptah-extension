@@ -3,6 +3,7 @@
  * ranking pick when that pass did not send the phase.
  */
 import type { RoutingCandidate } from '../ranking/candidate.types';
+import { insideClosenessBand } from '../ranking/closeness-band';
 import type { FallbackCause } from '../reasons/compile-reasons';
 import { MIN_OPTIONS_PER_PHASE } from '../routing-constants';
 import { optionIndex } from './model-refine';
@@ -14,10 +15,11 @@ import type {
 } from './phase-plan';
 
 export function isSendable(plan: PhasePlan): boolean {
+  const top = Math.max(...plan.ranked.map((candidate) => candidate.scored.score));
   return (
     plan.constraint.status === 'eligible' &&
     !plan.constraint.pinAccepted &&
-    plan.ranked.length >= MIN_OPTIONS_PER_PHASE
+    plan.ranked.filter((row) => insideClosenessBand(top, row.scored.score)).length >= MIN_OPTIONS_PER_PHASE
   );
 }
 

@@ -17,6 +17,7 @@ import {
   buildDecisionPayload,
   formatDecisionOptionLabel,
   type DecisionOption,
+  type DecisionOutcomeFigures,
   type DecisionPayload,
 } from '../decision-model/decision-payload';
 import type { SystemOneTarget } from '../decision-model/decision-model.config';
@@ -110,6 +111,7 @@ export function openSystemOne(
 }
 
 export async function runLaneRequest(input: {
+  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly provider: DecisionOptionProvider;
   readonly request: string;
   readonly phases: readonly LaneQuestion[];
@@ -141,6 +143,7 @@ export async function runLaneRequest(input: {
 }
 
 export async function runFixedRequest(input: {
+  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly request: string;
   readonly questions: readonly FixedQuestion[];
   readonly maxRequestBytes: number;
@@ -155,7 +158,7 @@ export async function runFixedRequest(input: {
       instructions: question.instructions,
       criteria: question.criteria,
     })),
-    outcomeFigures: [],
+    outcomeFigures: input.outcomeFigures ?? [],
   });
   const prompt = renderPrompt(input.request, input.questions);
   const schema = fixedSchema(input.questions);
@@ -208,6 +211,7 @@ interface FittedLane {
 }
 
 function fitLane(input: {
+  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly provider: DecisionOptionProvider;
   readonly request: string;
   readonly phases: readonly LaneQuestion[];
@@ -228,7 +232,7 @@ function fitLane(input: {
         instructions: phase.instructions,
         options: offered.get(phase.phaseId) ?? [],
       })),
-      outcomeFigures: [],
+      outcomeFigures: input.outcomeFigures ?? [],
     });
     const questions = laneQuestions(input.phases, offered);
     const prompt = renderLanePrompt(input.request, questions);

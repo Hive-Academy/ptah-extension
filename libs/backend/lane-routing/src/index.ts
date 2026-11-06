@@ -41,6 +41,16 @@ export type {
   StructuredDecisionRequest,
 } from './lib/decision-model/structured-decision.port';
 export { registerLaneRoutingServices } from './lib/di/register';
+export type {
+  CapabilityMatrixView,
+  CapabilityMatrixViewReader,
+  MatrixViewCell,
+  MatrixViewProfile,
+  MatrixViewUnknown,
+  MatrixViewValue,
+} from './lib/matrix/capability-matrix.store';
+export type { RotationPick } from './lib/ranking/rotation.store';
+export type { RotationStateReader } from './lib/route-decide.service';
 export {
   RouteDecideService,
   type RouteDecideDependencies,

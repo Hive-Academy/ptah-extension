@@ -3,6 +3,21 @@ import { InMemoryLaneOutcomeStore } from './in-memory-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 
 describe('InMemoryLaneOutcomeStore', () => {
+  it('matches normalized workspace and child paths, including worktrees', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const roots = ['D:\\Repo\\', 'd:/repo/src', 'D:/REPO/.claude-worktrees/task', 'd:/repository'];
+    for (const [index, root] of roots.entries()) await store.insertIfAbsent({ ...outcomeRow(String(index)), laneId: 'lane', workspaceRoot: root });
+    expect((await store.listByLane('lane', 0, 'd:/repo/')).map((row) => row.runId).sort()).toEqual(['0', '1', '2']);
+    expect((await store.listRecent(0, 'D:\\REPO')).map((row) => row.runId).sort()).toEqual(['0', '1', '2']);
+  });
+  it('scopes lane and role reads while retaining null-root history', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    for (const [id, root] of [['same', '/ws'], ['other', '/other'], ['legacy', null]] as const) {
+      await store.insertIfAbsent({ ...outcomeRow(id), laneId: 'lane', role: 'backend-developer', workspaceRoot: root });
+    }
+    expect((await store.listByLane('lane', 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+    expect((await store.listByRoles(['backend-developer'], 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+  });
   it('classifies only a kindless unclassified row', async () => {
     const store = new InMemoryLaneOutcomeStore();
     await store.insertIfAbsent({

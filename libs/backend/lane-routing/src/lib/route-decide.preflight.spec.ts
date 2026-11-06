@@ -261,7 +261,7 @@ describe('route decide preflight', () => {
     const rows = source();
     const { service, calls, seen } = harness({ selection: OLLAMA });
     const result = await service.decide(preflight, rows);
-    expect(rows.rows).not.toHaveBeenCalled();
+    expect(rows.rows).toHaveBeenCalledTimes(1);
     expect(calls).toHaveLength(1);
     expect(Object.keys(calls[0]?.questions ?? {}).sort()).toEqual([
       'depth',

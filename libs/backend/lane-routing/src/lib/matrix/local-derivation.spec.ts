@@ -11,7 +11,23 @@ import {
   type MatrixCell,
   type ValueMatrixCell,
 } from './matrix.types';
-import { AUTOMATIC_MATRIX_MODEL, deriveLocalMatrix } from './local-derivation';
+import { AUTOMATIC_MATRIX_MODEL, deriveLocalMatrix, isCapacityFailure } from './local-derivation';
+
+describe('capacity and open reviews', () => {
+  const base = { family: 'test-family', model: 'test-model', taskKind: 'implement' as const, endedAt: Date.parse('2026-10-14T23:59:59.000Z') };
+  it.each(['usage-limit', 'auth', 'timeout'] as const)('excludes %s from capability', (failureClass) => {
+    const failed = summary({ ...base, runId: failureClass, verdict: 'failed', failureClass });
+    expect(isCapacityFailure(failureClass)).toBe(true);
+    expect(deriveLocalMatrix([failed], NOW).profiles).toEqual([]);
+  });
+  it('counts one open revise and leaves later approval successful', () => {
+    const open = summary({ ...base, runId: 'open', verdict: 'unverified', reviseRounds: 3 });
+    const approved = summary({ ...base, runId: 'approved', verdict: 'unverified', reviseRounds: 3, finalReview: 'approved' });
+    const openCell = valueAt(deriveLocalMatrix([open], NOW), base.family, base.model);
+    const approvedCell = valueAt(deriveLocalMatrix([approved], NOW), base.family, base.model);
+    expect(openCell?.score).toBeLessThan(approvedCell?.score ?? 0);
+  });
+});
 
 const NOW = Date.parse('2026-10-15T00:00:00.000Z');
 const SINCE = NOW - OUTCOME_WINDOW_MS;

@@ -196,6 +196,7 @@ function harness(options: {
     index: number,
   ) => SystemOneCallResult;
   readonly rotation?: ReturnType<typeof memoryRotation>;
+  readonly rotate?: boolean;
 }) {
   const calls: DecisionPayload[] = [];
   const seen: SystemOneClientOptions[] = [];
@@ -208,6 +209,7 @@ function harness(options: {
     roles: async () => [],
   };
   const service = new RouteDecideService({
+    rotationSetting: { isEnabled: () => options.rotate ?? true },
     config: configFor(
       options.selection === undefined ? OLLAMA : options.selection,
       options.fetchImpl ??
@@ -423,6 +425,17 @@ describe('route decide gate', () => {
       ids.push(entry.executor.id);
     }
     expect(ids).toEqual(['codex', 'grok', 'opencode']);
+  });
+
+  it('keeps the first ranking choice and cursor when rotation is off', async () => {
+    const built = harness({ rotate: false, selection: { kind: 'unset' } });
+    for (let index = 0; index < 2; index += 1) {
+      const result = await built.service.decide(implement(), built.source);
+      const entry = result.stage === 'gate-0.1' ? result.roster[0] : undefined;
+      expect(entry?.status).toBe('chosen');
+      if (entry?.status === 'chosen') expect(entry.executor.id).toBe('codex');
+    }
+    expect(built.rotation.load().state.entries).toMatchObject([{ candidateId: 'codex' }]);
   });
 
   it('keeps a review off the implementer family, including after request 1 fails', async () => {

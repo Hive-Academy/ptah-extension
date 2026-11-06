@@ -9,6 +9,8 @@ import {
 } from '@ptah-extension/shared';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import { NEUTRAL_SCORE, OUTCOME_WINDOW_MS } from '../routing-constants';
+import type { DecisionOutcomeFigures } from '../decision-model/decision-payload';
+import { outcomeFigures } from './outcome-figures';
 import type {
   LaneRoutingLogMeta,
   LaneRoutingLogger,
@@ -106,6 +108,7 @@ export interface ResolvedMatrixCell {
 }
 
 export interface CapabilityMatrixSnapshot {
+  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   /** `matrix-invalid:` entries, then an outcome-reader reason when one applies. */
   readonly reasons: readonly string[];
   resolve(
@@ -144,7 +147,13 @@ export interface CapabilityMatrixView {
   readonly profiles: readonly MatrixViewProfile[];
 }
 
+/** Read-only merged matrix for host RPC surfaces. */
+export interface CapabilityMatrixViewReader {
+  readMergedView(): Promise<CapabilityMatrixView>;
+}
+
 interface LayerLoad {
+  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly matrix: CapabilityMatrix;
   readonly reasons: readonly string[];
 }
@@ -170,6 +179,18 @@ export class CapabilityMatrixStore {
     this.viewPath = capabilityMatrixViewPath(deps.ptahHomeDir);
   }
 
+  async readMergedView(): Promise<CapabilityMatrixView> {
+    const nowMs = Date.now();
+    const user = await this.readUserMatrix(false);
+    const local = await this.readWorkspaceLocalMatrix(nowMs);
+    const layers = [
+      indexMatrix(user.matrix),
+      indexMatrix(local.matrix),
+      indexMatrix(buildSeedMatrix(nowMs)),
+    ];
+    return viewDocument(layers, nowMs);
+  }
+
   /**
    * Merge seed, the user file and local cells for one routing call.
    * Reads the user file at most once. Writes the view only on change.
@@ -190,13 +211,14 @@ export class CapabilityMatrixStore {
     ];
     await this.writeViewIfChanged(layers, input.nowMs);
     return {
+      outcomeFigures: localLoad.outcomeFigures ?? [],
       reasons: [...userLoad.reasons, ...localLoad.reasons],
       resolve: (family, model, taskKind) =>
         resolveIndexed(layers, family, model, taskKind, input.nowMs),
     };
   }
 
-  private async readUserMatrix(): Promise<LayerLoad> {
+  private async readUserMatrix(createTemplate = true): Promise<LayerLoad> {
     let text: string;
     try {
       text = await this.deps.fileSystem.readFile(this.userFilePath);
@@ -204,7 +226,7 @@ export class CapabilityMatrixStore {
       // degradation-audit: reported - a missing user file is created once; any other read failure keeps the last valid matrix
       if (isMissingFile(error)) {
         this.lastValidUser = emptyMatrix();
-        await this.writeEmptyTemplate();
+        if (createTemplate) await this.writeEmptyTemplate();
         return { matrix: this.lastValidUser, reasons: [] };
       }
       this.warn('capability matrix user file could not be read', error);
@@ -293,7 +315,23 @@ export class CapabilityMatrixStore {
         reasons: [OUTCOMES_UNAVAILABLE_REASON],
       };
     }
-    return { matrix: deriveLocalMatrix(summaries, nowMs), reasons: [] };
+    return { matrix: deriveLocalMatrix(summaries, nowMs), outcomeFigures: outcomeFigures(summaries), reasons: [] };
+  }
+
+  private async readWorkspaceLocalMatrix(nowMs: number): Promise<LayerLoad> {
+    const reader = this.deps.outcomeReader;
+    if (reader === undefined || reader.recentWorkspaceOutcomes === undefined) {
+      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+    }
+    const persistent = this.readPersistent(reader);
+    if (persistent !== 'yes') return { matrix: emptyMatrix(), reasons: [persistent === 'no' ? NO_OUTCOME_HISTORY_REASON : OUTCOMES_UNAVAILABLE_REASON] };
+    try {
+      const summaries = await reader.recentWorkspaceOutcomes({ sinceMs: nowMs - OUTCOME_WINDOW_MS });
+      return { matrix: deriveLocalMatrix(summaries, nowMs), outcomeFigures: outcomeFigures(summaries), reasons: [] };
+    } catch (error: unknown) {
+      this.warn('lane outcome workspace read failed', error);
+      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+    }
   }
 
   private readPersistent(reader: LaneOutcomeReader): Persistence {

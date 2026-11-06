@@ -150,6 +150,29 @@ describe('SqliteLaneOutcomeStore', () => {
     }
   });
 
+  it('scopes lane and role reads while retaining null-root history', async () => {
+    const { db, store } = fixture();
+    try {
+      for (const [id, root] of [['same', '/ws'], ['other', '/other'], ['legacy', null]] as const) {
+        await store.insertIfAbsent({ ...outcomeRow(id), laneId: 'lane', role: 'backend-developer', workspaceRoot: root });
+      }
+      expect((await store.listByLane('lane', 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+      expect((await store.listByRoles(['backend-developer'], 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+    } finally {
+      db.close();
+    }
+  });
+  it('matches normalized worktree paths without crossing a workspace prefix', async () => {
+    const { db, store } = fixture();
+    try {
+      for (const [id, root] of [['root', 'D:\\Repo\\'], ['worktree', 'd:/repo/.claude-worktrees/task'], ['other', 'd:/repository'], ['wildcard', 'd:/repX']] as const) {
+        await store.insertIfAbsent({ ...outcomeRow(id), laneId: 'lane', workspaceRoot: root });
+      }
+      expect((await store.listByLane('lane', 0, 'D:/REPO/')).map((row) => row.runId).sort()).toEqual(['root', 'worktree']);
+      expect((await store.listRecent(0, 'd:/repo')).map((row) => row.runId).sort()).toEqual(['root', 'worktree']);
+    } finally { db.close(); }
+  });
+
   it('skips invalid rows in lane and role reads with one warning per read', async () => {
     const { db, store, logger } = fixture();
     try {

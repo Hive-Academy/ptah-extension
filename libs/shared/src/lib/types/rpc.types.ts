@@ -61,6 +61,8 @@ export * from './rpc/rpc-lane-plan-limits.types';
 
 export * from './rpc/rpc-lane-outcome.types';
 
+export * from './rpc/rpc-capability-matrix.types';
+
 export * from './rpc/rpc-decision-model-catalog.types';
 
 // Remote machines (`machines:*`, TASK_2026_858 W11). Merged into
@@ -90,6 +92,11 @@ import type {
   AgentOutcomeSignalsParams,
   AgentOutcomeSignalsResult,
 } from './rpc/rpc-lane-outcome.types';
+
+import type {
+  AgentGetCapabilityMatrixParams,
+  AgentGetCapabilityMatrixResult,
+} from './rpc/rpc-capability-matrix.types';
 
 import type {
   AgentListDecisionModelsParams,
@@ -1824,6 +1831,14 @@ export interface RpcMethodRegistry
   'agent:outcomeSignals': {
     params: AgentOutcomeSignalsParams;
     result: AgentOutcomeSignalsResult;
+  };
+  /**
+   * Merged capability matrix for the Electron orchestration settings.
+   * Read-only. Unknown cells stay `kind: 'unknown'` ("unrated").
+   */
+  'agent:getCapabilityMatrix': {
+    params: AgentGetCapabilityMatrixParams;
+    result: AgentGetCapabilityMatrixResult;
   };
   /**
    * Decision-capable models of one host, for the decision-model picker
@@ -3678,6 +3693,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
   'agent:getLanePlanLimits': true,
   'agent:outcomeSignals': true,
+  // Routing-learning item 7. `agent:` is already in ALLOWED_METHOD_PREFIXES.
+  'agent:getCapabilityMatrix': true,
   'agent:listDecisionModels': true,
   'ptahCli:list': true,
   'ptahCli:create': true,

@@ -19,6 +19,7 @@ import {
 } from './contracts/route-decide-args.schema';
 import {
   loggableErrorName,
+  SUBAGENT_LANE_ID,
   type LoggableErrorName,
 } from '@ptah-extension/shared';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
@@ -28,6 +29,8 @@ import type { SystemOneClientOptions } from './decision-model/system-one.client'
 import type { LaneModelListing } from './lane-model-listing.port';
 import type { LaneRoutingLogger } from './lane-routing-logger';
 import type { RouteCandidateSource } from './route-candidate-source.port';
+import { laneCandidateId } from './ranking/candidate.types';
+import type { RotationPick } from './ranking/rotation.store';
 import { assembleGateResult } from './pipeline/assemble-gate';
 import {
   emptyTally,
@@ -87,6 +90,7 @@ export interface RouteDecideSeams {
 }
 
 export interface RouteDecideDependencies {
+  readonly rotationSetting?: { isEnabled(): boolean };
   readonly config: DecisionModelConfig;
   readonly matrix: RouteMatrix;
   readonly rotation: RouteRotation;
@@ -104,7 +108,11 @@ type PreflightArgs = Extract<RouteDecideArgs, { stage: 'pre-flight' }>;
  * the listing and structured ports are optional and the seams are not
  * constructor tokens.
  */
-export class RouteDecideService {
+export interface RotationStateReader {
+  getLastPicks(): { readonly entries: readonly RotationPick[]; readonly reason: string | null };
+}
+
+export class RouteDecideService implements RotationStateReader {
   private readonly decisionCaller: DecisionCaller;
 
   constructor(private readonly deps: RouteDecideDependencies) {
@@ -144,17 +152,35 @@ export class RouteDecideService {
           return reused.data;
         }
       }
-      return this.decidePreflight(parsed.data);
+      return this.decidePreflight(parsed.data, source);
     }
     return this.decideGate(parsed.data, source);
   }
 
-  private async decidePreflight(args: PreflightArgs): Promise<PreflightResult> {
+  getLastPicks(): { readonly entries: readonly RotationPick[]; readonly reason: string | null } {
+    const loaded = this.deps.rotation.load();
+    return { entries: loaded.state.entries, reason: loaded.reason };
+  }
+
+  private async preflightFigures(source: RouteCandidateSource) {
+    try {
+      const rows = await source.rows();
+      const outcomeQueries = rows.map((row) => ({ laneId: laneCandidateId(row), subagent: false }));
+      outcomeQueries.push({ laneId: SUBAGENT_LANE_ID, subagent: true });
+      return (await this.deps.matrix.load({ nowMs: this.nowMs, outcomeQueries })).outcomeFigures ?? [];
+    } catch (error: unknown) {
+      this.deps.logger.warn('[lane-routing] preflight outcomes could not be loaded', errorFacts(error));
+      return [];
+    }
+  }
+
+  private async decidePreflight(args: PreflightArgs, source: RouteCandidateSource): Promise<PreflightResult> {
     const caller = await this.decisionCaller.openCaller();
     const tally = emptyTally();
     let outcome: ModelRequestOutcome | null = null;
     if (caller.kind === 'system-one' || caller.kind === 'structured') {
       outcome = await runFixedRequest({
+        outcomeFigures: await this.preflightFigures(source),
         request: args.request,
         questions: preflightQuestions(),
         maxRequestBytes: this.maxBytes,
@@ -198,6 +224,7 @@ export class RouteDecideService {
     source: RouteCandidateSource,
   ): Promise<GateResult> {
     const caller = await this.decisionCaller.openCaller();
+    const rotate = this.deps.rotationSetting?.isEnabled() ?? true;
     const mode = dispatchMode(caller);
     const gathered = await gatherRouteCall({
       source,
@@ -225,9 +252,10 @@ export class RouteDecideService {
       true,
       [],
       remember,
+      rotate,
     );
     cursor = pass1.cursor;
-    const pass1Run = await this.runPass(pass1.plans, args, caller, mode);
+    const pass1Run = await this.runPass(pass1.plans, args, caller, mode, gathered);
     const resolutions = new Map<string, PhaseResolution>();
     const plans = new Map<string, PhasePlan>();
     storePass(pass1.plans, pass1Run.context, plans, resolutions);
@@ -241,8 +269,9 @@ export class RouteDecideService {
       false,
       implementersOf(pass1.plans, resolutions),
       remember,
+      rotate,
     );
-    const pass2Run = await this.runPass(pass2.plans, args, caller, mode);
+    const pass2Run = await this.runPass(pass2.plans, args, caller, mode, gathered);
     storePass(pass2.plans, pass2Run.context, plans, resolutions);
 
     const tally = emptyTally();
@@ -270,6 +299,7 @@ export class RouteDecideService {
     args: GateArgs,
     caller: OpenedCaller,
     mode: DispatchMode,
+    gathered: GatheredCall,
   ): Promise<{
     readonly outcome: ModelRequestOutcome | null;
     readonly context: PassContext;
@@ -290,6 +320,7 @@ export class RouteDecideService {
           caller.kind === 'structured' ? 'structuredOutput' : caller.provider,
         request: args.request,
         phases: send.map(laneQuestion),
+        outcomeFigures: gathered.matrix.outcomeFigures ?? [],
         maxRequestBytes: this.maxBytes,
         dispatch: this.decisionCaller.dispatchFor(caller),
         logger: this.deps.logger,

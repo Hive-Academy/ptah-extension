@@ -2,6 +2,7 @@ import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   type IStateStorage,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
@@ -104,6 +105,7 @@ export function registerLaneOutcomeServices(
                 LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM,
               )
             : undefined,
+          c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         ),
     ),
   });
