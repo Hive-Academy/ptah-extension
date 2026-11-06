@@ -191,7 +191,18 @@ export class MessageFinalizationService {
 
     if (!streamingState || !messageId) {
       if (isInterrupted && targetTab) {
-        this.recordInterruptedTurn(targetTabId, targetTab.messages);
+        const stats = streamingState?.pendingStats;
+        this.recordInterruptedTurn(
+          targetTabId,
+          targetTab.messages,
+          stats
+            ? {
+                tokens: { ...stats.tokens },
+                cost: stats.cost,
+                duration: stats.duration,
+              }
+            : undefined,
+        );
       }
       return;
     }
@@ -240,7 +251,13 @@ export class MessageFinalizationService {
 
     if (finalTree.length === 0) {
       if (isInterrupted) {
-        this.recordInterruptedTurn(targetTabId, existingMessages);
+        this.recordInterruptedTurn(
+          targetTabId,
+          existingMessages,
+          pendingStats
+            ? { tokens: finalTokens, cost: finalCost, duration: finalDuration }
+            : undefined,
+        );
         return;
       }
       // Nothing renderable reached a root message. This used to mint an
@@ -313,7 +330,13 @@ export class MessageFinalizationService {
 
     if (newMessages.length === 0) {
       if (isInterrupted) {
-        this.recordInterruptedTurn(targetTabId, existingMessages);
+        this.recordInterruptedTurn(
+          targetTabId,
+          existingMessages,
+          pendingStats
+            ? { tokens: finalTokens, cost: finalCost, duration: finalDuration }
+            : undefined,
+        );
         return;
       }
       this.tabManager.clearStreamingForLoaded(targetTabId);
@@ -338,9 +361,15 @@ export class MessageFinalizationService {
     }
   }
 
+  /**
+   * Mark the interrupted turn on the preceding assistant message, or add a
+   * placeholder row when the turn produced none. The turn's stats ride on the
+   * marked message, like the empty-tree fold in `finalizeCurrentMessage`.
+   */
   private recordInterruptedTurn(
     tabId: string,
     messages: readonly ExecutionChatMessage[],
+    stats?: Pick<ExecutionChatMessage, 'tokens' | 'cost' | 'duration'>,
   ): void {
     const queued = this.queuedPrompts.queuedAtTail(tabId, messages);
     let insertAt = messages.length;
@@ -348,14 +377,15 @@ export class MessageFinalizationService {
       insertAt--;
     }
     const previous = messages[insertAt - 1];
-    if (previous?.role === 'assistant' && previous.isInterrupted) return;
+    if (previous?.role === 'assistant' && previous.isInterrupted && !stats) return;
     const marker =
       previous?.role === 'assistant'
-        ? { ...previous, isInterrupted: true }
+        ? { ...previous, isInterrupted: true, ...(stats ?? {}) }
         : createExecutionChatMessage({
             id: `interrupted-${tabId}-${previous?.id ?? 'empty'}`,
             role: 'assistant',
             isInterrupted: true,
+            ...(stats ?? {}),
           });
     this.tabManager.applyFinalizedTurn(tabId, [
       ...messages.slice(

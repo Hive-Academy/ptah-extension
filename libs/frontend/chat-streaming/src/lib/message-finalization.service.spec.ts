@@ -303,6 +303,43 @@ describe('MessageFinalizationService', () => {
       expect(finalized[1].streamingState).toBeNull();
     });
 
+    it('keeps the interrupted turn stats when the turn built no tree', () => {
+      const prompt = { id: 'prompt', role: 'user' } as ExecutionChatMessage;
+      tabsSignal.set([makeTab({
+        messages: [prompt],
+        streamingState: makeStreamingState({
+          pendingStats: { tokens: { input: 7, output: 3 }, cost: 0.02, duration: 900 },
+        }),
+      })]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage(undefined, true, true);
+
+      const marker = tabManager.applyFinalizedTurn.mock.calls[0][1][1];
+      expect(marker.isInterrupted).toBe(true);
+      expect(marker.tokens).toEqual({ input: 7, output: 3 });
+      expect(marker.cost).toBe(0.02);
+      expect(marker.duration).toBe(900);
+    });
+
+    it('folds the interrupted turn stats onto the preceding assistant message', () => {
+      const prompt = { id: 'prompt', role: 'user' } as ExecutionChatMessage;
+      const reply = { id: 'reply', role: 'assistant' } as ExecutionChatMessage;
+      tabsSignal.set([makeTab({
+        messages: [prompt, reply],
+        streamingState: makeStreamingState({
+          pendingStats: { tokens: { input: 4, output: 5 }, cost: 0.01, duration: 300 },
+        }),
+      })]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage(undefined, true, true);
+
+      const finalized = tabManager.applyFinalizedTurn.mock.calls[0][1];
+      expect(finalized).toHaveLength(2);
+      expect(finalized[1]).toMatchObject({ id: 'reply', isInterrupted: true, cost: 0.01, duration: 300 });
+    });
+
     it('does not add an interruption marker on normal completion', () => {
       treeBuilder.buildTree.mockReturnValue([makeNode({ id: 'root', content: 'Done' })]);
       tabsSignal.set([makeTab({ streamingState: makeStreamingState({ currentMessageId: 'msg-1' }) })]);
