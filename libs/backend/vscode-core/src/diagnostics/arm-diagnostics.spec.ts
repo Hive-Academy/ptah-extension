@@ -3,7 +3,7 @@ import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import { armDiagnostics } from './arm-diagnostics';
-import { HANG_PROFILE_ENV, HangProfiler } from './hang-profiler';
+import { HANG_PROFILE_ENV, HANG_PROFILE_THRESHOLD_ENV, HangProfiler } from './hang-profiler';
 import { createFakeInspectorSession } from '../testing/inspector-session.mock';
 import type {
   EventLoopLagListener,
@@ -224,10 +224,13 @@ describe('armDiagnostics — background-work governor (TASK_2026_437 C14)', () =
 
 describe('armDiagnostics — opt-in hang profiler (PTAH_HANG_PROFILE)', () => {
   const original = process.env[HANG_PROFILE_ENV];
+  const originalThreshold = process.env[HANG_PROFILE_THRESHOLD_ENV];
 
   afterEach(() => {
     if (original === undefined) delete process.env[HANG_PROFILE_ENV];
     else process.env[HANG_PROFILE_ENV] = original;
+    if (originalThreshold === undefined) delete process.env[HANG_PROFILE_THRESHOLD_ENV];
+    else process.env[HANG_PROFILE_THRESHOLD_ENV] = originalThreshold;
   });
 
   function armWithFakeSession(fakes: ReturnType<typeof createFakes>) {
@@ -270,6 +273,24 @@ describe('armDiagnostics — opt-in hang profiler (PTAH_HANG_PROFILE)', () => {
     await waitForCalls(session, 4);
     expect(session.calls[3]).toBe('Profiler.stop');
     expect(session.disconnected).toBe(true);
+  });
+
+  it('captures measured lag only above the configured threshold', async () => {
+    process.env[HANG_PROFILE_ENV] = '1';
+    process.env[HANG_PROFILE_THRESHOLD_ENV] = '400';
+    const capture = jest.spyOn(HangProfiler.prototype, 'captureHang').mockResolvedValue({
+      hangProfile: '/logs/test.cpuprofile', topSelfTime: [], profiledMs: 0,
+      profileWindowed: false,
+    });
+    const fakes = createFakes();
+    const { session, handle } = armWithFakeSession(fakes);
+    await waitForCalls(session, 3);
+    fakes.emitLag({ ...SAMPLE, maxMs: 400 });
+    expect(capture).not.toHaveBeenCalled();
+    fakes.emitLag({ ...SAMPLE, maxMs: 401 });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ blockedForMs: 401 }));
+    handle.dispose();
+    capture.mockRestore();
   });
 
   it('disposes the profiler when the watchdog fails to start, leaving no debugger attached', async () => {

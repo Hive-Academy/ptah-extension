@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { app, BrowserWindow, crashReporter, session } from 'electron';
+import { app, BrowserWindow, crashReporter, powerMonitor, session } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { readFile } from 'node:fs/promises';
@@ -36,6 +36,7 @@ import { createBootReadinessBroadcaster } from './activation/boot-readiness-broa
 import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import { handleWillQuit } from './activation/shutdown';
+import { installCloseInitiatorLogger } from './services/diagnostics/close-initiator-logger';
 import { CODEX_SIGN_IN_QUIT_HANDLE, type CodexSignInQuitHandle } from './di/codex-login-composition';
 import {
   ProcessLifecycleRecorder,
@@ -102,6 +103,18 @@ if (!gotLock) {
   // a container exists and must see the real one the moment boot produces it.
   let bootContainer: DependencyContainer | null = null;
   let motionLogger: Logger | null = null;
+  installCloseInitiatorLogger(
+    app,
+    powerMonitor,
+    () => motionLogger,
+    () => ({
+      singleInstanceLock: gotLock,
+      quitSequenceStarted,
+      sentryFlushed,
+      mainWindowId: mainWindow?.id ?? -1,
+      mainWindowDestroyed: mainWindow?.isDestroyed() ?? true,
+    }),
+  );
   let motionBootFailed = false;
   const pendingMotionErrors: Error[] = [];
   const reportMotionError = (error: Error): void => {

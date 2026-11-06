@@ -9,6 +9,7 @@ import {
   HangProfiler,
   MAX_HANG_PROFILES,
   isHangProfileEnabled,
+  readHangProfileThreshold,
 } from './hang-profiler';
 import {
   createFakeInspectorSession,
@@ -234,6 +235,18 @@ describe('HangProfiler', () => {
     expect(session.calls.filter((c) => c === 'Profiler.stop')).toHaveLength(1);
     expect(session.disconnected).toBe(true);
   });
+
+  it('limits threshold captures to one per 30 seconds', async () => {
+    await profiler.dispose();
+    profiler = new HangProfiler({ logger, logsPath: logsDir,
+      createSession: () => session, now: () => now, thresholdMs: 400 });
+    await profiler.start();
+    const details = { hangStartedAt: now - 500, blockedForMs: 500 };
+    await profiler.captureHang(details);
+    await expect(profiler.captureHang(details)).rejects.toThrow('rate limit');
+    now += 30_000;
+    await expect(profiler.captureHang(details)).resolves.toBeDefined();
+  });
 });
 
 describe('isHangProfileEnabled', () => {
@@ -243,5 +256,18 @@ describe('isHangProfileEnabled', () => {
     expect(isHangProfileEnabled({ PTAH_HANG_PROFILE: '0' })).toBe(false);
     expect(isHangProfileEnabled({ PTAH_HANG_PROFILE: 'true' })).toBe(false);
     expect(isHangProfileEnabled({})).toBe(false);
+  });
+});
+
+describe('readHangProfileThreshold', () => {
+  it('preserves the default and clamps valid integer values', () => {
+    expect(readHangProfileThreshold({})).toBeUndefined();
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '100' })).toBe(250);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '-100' })).toBe(250);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '+400' })).toBe(400);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '400' })).toBe(400);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '9999' })).toBe(5000);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '99999999999999999999' })).toBe(5000);
+    expect(readHangProfileThreshold({ PTAH_HANG_PROFILE_THRESHOLD_MS: '1.5' })).toBeUndefined();
   });
 });

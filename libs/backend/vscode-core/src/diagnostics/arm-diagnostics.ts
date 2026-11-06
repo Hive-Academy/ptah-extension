@@ -28,6 +28,7 @@ import type { BackgroundWorkGovernor } from './background-work-governor';
 import {
   HangProfiler,
   isHangProfileEnabled,
+  readHangProfileThreshold,
   type HangProfilerOptions,
 } from './hang-profiler';
 
@@ -96,6 +97,7 @@ export function armDiagnostics(
   let logger: Logger | undefined;
   try {
     logger = container.resolve<Logger>(TOKENS.LOGGER);
+    const diagnosticLogger = logger;
 
     const monitor = container.resolve<EventLoopMonitor>(
       TOKENS.EVENT_LOOP_MONITOR,
@@ -123,7 +125,24 @@ export function armDiagnostics(
         ? armWatchdog(container, logsPath, logger, createHangProfiler)
         : null;
     if (armed !== null) {
-      const { watchdog } = armed;
+      const { watchdog, profiler } = armed;
+      const profileThreshold = isHangProfileEnabled()
+        ? readHangProfileThreshold()
+        : undefined;
+      if (profiler !== null && profileThreshold !== undefined) {
+        unsubscribers.push(monitor.onLag((sample) => {
+          if (sample.maxMs <= profileThreshold) return;
+          const blockedForMs = sample.maxMs;
+          void profiler.captureHang({
+            hangStartedAt: Date.now() - blockedForMs,
+            blockedForMs,
+          }).catch((error: unknown) => {
+            diagnosticLogger.debug('[diagnostics] lag profile capture skipped', {
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }));
+      }
       // The last lag sample rides every heartbeat, so a hang line names the
       // most recent measured stall that preceded it.
       unsubscribers.push(
@@ -222,7 +241,9 @@ function armWatchdog(
       TOKENS.MAIN_LOOP_WATCHDOG,
     );
     profiler = isHangProfileEnabled()
-      ? armHangProfiler(createHangProfiler({ logger, logsPath }), logger)
+      ? armHangProfiler(createHangProfiler({
+          logger, logsPath, thresholdMs: readHangProfileThreshold(),
+        }), logger)
       : null;
     const armedProfiler = profiler;
     watchdog.start(

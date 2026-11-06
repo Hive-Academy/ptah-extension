@@ -44,6 +44,18 @@ import type { HangRecoveryDetails } from './main-loop-watchdog-protocol';
 
 /** Set to `1` to arm the hang profiler. */
 export const HANG_PROFILE_ENV = 'PTAH_HANG_PROFILE';
+export const HANG_PROFILE_THRESHOLD_ENV = 'PTAH_HANG_PROFILE_THRESHOLD_MS';
+export const HANG_PROFILE_MIN_INTERVAL_MS = 30_000;
+export const MAX_THRESHOLD_PROFILES = 20;
+export const MAX_THRESHOLD_PROFILE_BYTES = 8 * 1024 * 1024;
+
+/** Invalid values leave the existing watchdog-only behavior in place. */
+export function readHangProfileThreshold(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const raw = env[HANG_PROFILE_THRESHOLD_ENV];
+  if (raw === undefined || !/^[+-]?\d+$/.test(raw.trim())) return undefined;
+  const value = Number(raw);
+  return Math.max(250, Math.min(5_000, value));
+}
 
 /** Directory under the logs path that receives hang profiles. */
 export const HANG_PROFILE_DIR_NAME = 'hang-profiles';
@@ -103,6 +115,7 @@ export interface HangProfilerOptions {
   /** Epoch-ms clock. Test seam. */
   readonly now?: () => number;
   readonly rotateMs?: number;
+  readonly thresholdMs?: number;
 }
 
 /** Fields merged into the recovery line. */
@@ -127,6 +140,8 @@ export class HangProfiler {
   /** Serialises start/stop so a rotation and a capture never interleave. */
   private chain: Promise<void> = Promise.resolve();
   private disposed = false;
+  private lastCaptureAt = -Infinity;
+  private captureCount = 0;
   private readonly now: () => number;
   private readonly rotateMs: number;
   private readonly createSession: InspectorSessionFactory;
@@ -178,6 +193,15 @@ export class HangProfiler {
    * taken or written; the watchdog then writes the line without them.
    */
   captureHang(details: HangRecoveryDetails): Promise<HangProfileFields> {
+    if (this.options.thresholdMs !== undefined) {
+      const now = this.now();
+      if (this.captureCount >= MAX_THRESHOLD_PROFILES ||
+          now - this.lastCaptureAt < HANG_PROFILE_MIN_INTERVAL_MS) {
+        return Promise.reject(new Error('hang profile rate limit reached'));
+      }
+      this.lastCaptureAt = now;
+      this.captureCount++;
+    }
     return this.enqueue(() => this.capture(details));
   }
 
@@ -297,7 +321,12 @@ export class HangProfiler {
       this.profileDir,
       `${new Date(stoppedAt).toISOString().replace(/[:.]/g, '-')}.cpuprofile`,
     );
-    await writeFile(file, JSON.stringify(profileValue), 'utf8');
+    const serialized = JSON.stringify(profileValue);
+    if (this.options.thresholdMs !== undefined &&
+        Buffer.byteLength(serialized, 'utf8') > MAX_THRESHOLD_PROFILE_BYTES) {
+      throw new Error('hang profile exceeds size limit');
+    }
+    await writeFile(file, serialized, 'utf8');
     await this.prune();
 
     this.options.logger.warn('[hang-profile] captured', {
