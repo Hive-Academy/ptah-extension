@@ -1,5 +1,11 @@
 import { REDACTED, redactSecrets } from './redact-secrets';
 
+/** Base64url JSON segment, so no token-shaped literal sits in the source. */
+const segment = (value: object): string =>
+  Buffer.from(JSON.stringify(value)).toString('base64url');
+/** A fake three-part JWT built at run time (secret scanners flag literals). */
+const FAKE_JWT = [segment({ alg: 'HS256' }), segment({ sub: 'x' }), 'SENTINELsig'].join('.');
+
 describe('redactSecrets', () => {
   it.each([
     ['an OpenAI/Anthropic key', 'call failed with sk-ant-api03-SENTINELabcdefghijklmnop', 'SENTINEL'],
@@ -17,7 +23,7 @@ describe('redactSecrets', () => {
     ['a URL token user', 'fetch https://SENTINEL@github.com/x', 'SENTINEL'],
     ['a long hex run', `digest ${'ab12'.repeat(10)} rejected`, 'ab12ab12'],
     ['a long base64 run', 'blob QmFzZTY0U0VOVElORUwxMjM0NTY3ODkwYWJjZGVm end', 'QmFzZTY0'],
-    ['a JWT', 'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.SENTINELsig', 'SENTINEL'],
+    ['a JWT', `jwt ${FAKE_JWT}`, 'SENTINEL'],
   ])('redacts %s', (_label, input, secret) => {
     const out = redactSecrets(input);
     expect(out).not.toContain(secret);

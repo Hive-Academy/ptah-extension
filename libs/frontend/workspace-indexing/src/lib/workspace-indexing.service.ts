@@ -411,6 +411,8 @@ export class WorkspaceIndexingService implements MessageHandler {
     try {
       return await this.loadStatus(workspaceRoot);
     } catch (error: unknown) {
+      // degradation-audit: reported — both callers turn `false` into a fixed
+      // action message (start/resume and the failed-push fallback).
       console.warn('[workspace-indexing] getStatus failed', error);
       return false;
     }
