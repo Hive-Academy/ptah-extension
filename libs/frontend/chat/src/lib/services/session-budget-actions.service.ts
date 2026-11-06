@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import type { SessionStatus } from '@ptah-extension/chat-types';
+import { QueuedFollowUpStore } from '@ptah-extension/chat-state';
 import type {
   SessionBudgetStage,
   SessionBudgetState,
@@ -7,6 +8,7 @@ import type {
 import { displayBudgetStage } from '../components/molecules/notifications/session-budget-format';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
+import { FollowUpQueueService } from './chat-store/follow-up-queue.service';
 import { SessionAutoHandoffService } from './session-auto-handoff.service';
 import { SessionHandoffSkillService } from './session-handoff-skill.service';
 import {
@@ -22,8 +24,6 @@ export interface SessionBudgetView {
     readonly status?: SessionStatus;
     /** Display-only stage from the live feed (TASK_2026_627 D25). */
     readonly liveBudgetStage?: 'handoff' | 'limit' | null;
-    /** The tab's queued message, to tell a queued automatic hand-off. */
-    readonly queuedContent?: string | null;
   } | null>;
   readonly tabId: Signal<string | null>;
   readonly sessionId: Signal<string | null>;
@@ -67,6 +67,8 @@ export class SessionBudgetActionsService {
   private readonly chatStore = inject(ChatStore);
   private readonly autoHandoff = inject(SessionAutoHandoffService);
   private readonly handoffSkill = inject(SessionHandoffSkillService);
+  private readonly followUpStore = inject(QueuedFollowUpStore);
+  private readonly followUps = inject(FollowUpQueueService);
 
   private readonly view = signal<SessionBudgetView>(NO_VIEW);
 
@@ -115,17 +117,13 @@ export class SessionBudgetActionsService {
 
   /**
    * True while the shown session's automatic hand-off is queued and not yet
-   * sent: held behind other queued text, or the start of the tab's queued
-   * message.
+   * sent (held by the renderer or by the backend queue), matched by identity.
    */
   readonly autoHandoffQueued = computed(() => {
     const sessionId = this.budget()?.sessionId;
     const entry = sessionId ? this.autoHandoff.entry(sessionId) : null;
     if (entry?.state !== 'fired' || !entry.queued) return false;
-    if (entry.held) return true;
-    // Read here so a queue change re-evaluates; matched by identity below.
-    if (!this.view().activeTab()?.queuedContent) return false;
-    return this.chatStore.isQueuedCommand(entry.queued);
+    return this.followUpStore.isPending(entry.queued.clientMessageId);
   });
 
   /** True once the wrap-up prompt was sent (or auto-queued) for the shown session. */
@@ -144,17 +142,23 @@ export class SessionBudgetActionsService {
   }
 
   /**
-   * Cancel the shown session's queued automatic hand-off: withdraw the
-   * command from the tab's queue (the rest of the queue stays) and never fire
-   * it again for the session. The button becomes available again.
+   * Cancel the shown session's queued automatic hand-off: withdraw exactly
+   * that command (the rest of the queue stays) and never fire it again for
+   * the session. The button becomes available again. Nothing changes when a
+   * turn already took it.
    */
-  cancelAutoHandoff(): void {
+  async cancelAutoHandoff(): Promise<void> {
     const sessionId = this.budget()?.sessionId;
     if (!sessionId || !this.autoHandoffQueued()) return;
     const queued = this.autoHandoff.entry(sessionId)?.queued;
-    if (!queued || !this.chatStore.withdrawQueuedCommand(queued)) return;
-    // A held entry's drop settles after this; `cancelled` keeps it silent.
+    if (!queued) return;
+    // Marked first: the withdrawn outcome must not schedule a retry.
     this.autoHandoff.cancel(sessionId);
+    if (!(await this.followUps.withdraw(queued, { restore: false }))) {
+      // Already claimed by a turn (or mid-submission): it fired after all.
+      this.autoHandoff.revertCancel(sessionId);
+      return;
+    }
     this.setWrapUpSent(sessionId, false);
   }
 
@@ -183,9 +187,10 @@ export class SessionBudgetActionsService {
    * adds a second hand-off to it. A send that fails or never reaches the
    * captured tab clears the mark again.
    *
-   * When the tab already has queued text, the slash command waits behind it
-   * as its own turn. The button stays disabled meanwhile; if the command is
-   * dropped (Stop, failed turn), it is enabled again with a notice.
+   * During a turn the slash command waits as its own queued item, sent when
+   * the turn and everything queued before it are done. The button stays
+   * disabled meanwhile; if the command is withdrawn or fails, it is enabled
+   * again with a notice.
    */
   sendWrapUp(): Promise<void> {
     return this.requestWrapUp();
@@ -222,14 +227,16 @@ export class SessionBudgetActionsService {
         this.setWrapUpSent(sessionId, false);
         return;
       }
-      if (!outcome.heldCommand) return;
-      const queued = await outcome.heldCommand;
-      if (queued) return;
-      this.setWrapUpSent(sessionId, false);
-      this.actionBanner.showError(
-        'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
-        tabId,
-      );
+      const queued = outcome.queued;
+      if (!queued) return;
+      this.followUpStore.onSettled(queued.clientMessageId, (result) => {
+        if (result === 'delivered' || result === 'steered') return;
+        this.setWrapUpSent(sessionId, false);
+        this.actionBanner.showError(
+          'The wrap-up request was not sent: it was stopped or failed before it ran.',
+          tabId,
+        );
+      });
     } catch (error: unknown) {
       this.setWrapUpSent(sessionId, false);
       this.actionBanner.showError(

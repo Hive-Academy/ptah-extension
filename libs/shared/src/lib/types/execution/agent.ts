@@ -99,6 +99,9 @@ export interface ExecutionChatMessage {
    */
   readonly streamingState: ExecutionNode | null;
 
+  /** The assistant turn ended because the user interrupted it. */
+  readonly isInterrupted?: boolean;
+
   /** Raw text content (for user messages) */
   readonly rawContent?: string;
 

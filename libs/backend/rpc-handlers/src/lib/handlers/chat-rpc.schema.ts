@@ -83,6 +83,15 @@ export const ChatStartParamsSchema = z
  * (the SDK needs a real session UUID to resume; the tab UUID drives webview
  * event routing).
  */
+const QueuedPayloadSchema = z.object({
+  prompt: z.string({ error: 'prompt must be a string' }).min(1).max(1024 * 1024),
+  files: z.array(z.string().min(1).max(4096)).max(64).optional(),
+  images: z.array(z.object({
+    data: z.string().min(1).max(20 * 1024 * 1024),
+    mediaType: z.string().min(1).max(128),
+  }).strict()).max(16).optional(),
+});
+
 export const ChatContinueParamsSchema = z
   .object({
     clientMessageId: z
@@ -98,8 +107,50 @@ export const ChatContinueParamsSchema = z
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
     ptahUiFence: z.boolean().optional(),
     accountSelection: ProviderAccountSelectionSchema.optional(),
+    /** Backend-owned follow-up (TASK_2026_884). */
+    queueIntent: z.literal('next-turn').optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => {
+    if (value.queueIntent !== undefined) {
+      const parsed = QueuedPayloadSchema.safeParse(value);
+      if (!parsed.success) for (const issue of parsed.error.issues)
+        ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+    }
+    // A held follow-up is addressed by its id for its whole life (state
+    // events, withdraw, steer), so a queued send must carry a real UUID.
+    if (
+      value.queueIntent !== undefined &&
+      (value.clientMessageId === undefined ||
+        !UUID_REGEX.test(value.clientMessageId))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['clientMessageId'],
+        message: 'clientMessageId must be a UUID v4 when queueIntent is set',
+      });
+    }
+  });
+
+/** `chat:queued-list` params (TASK_2026_884). Unknown fields are rejected. */
+export const ChatQueuedListParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+    tabId: uuidString('tabId'),
+  })
+  .strict();
+
+/**
+ * `chat:queued-withdraw` / `chat:queued-steer` params (TASK_2026_884). Only a
+ * UUID follow-up can be held, so the id is validated as one.
+ */
+export const ChatQueuedItemParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+    tabId: uuidString('tabId'),
+    clientMessageId: uuidString('clientMessageId'),
+  })
+  .strict();
 
 /**
  * `chat:resume` params — both `tabId` and `sessionId` are required.

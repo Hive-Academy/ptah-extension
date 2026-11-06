@@ -9,11 +9,9 @@
  *   - sendOrQueueMessage: streaming auto-denies permissions with deny_with_message
  *   - sendOrQueueMessage: not streaming dispatches via MessageSender.send
  *   - sendOrQueueMessage: explicit-tabId override beats activeTab
- *   - sendQueuedMessage: clears queue + queuedOptions before dispatch
- *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to the dedicated queue-flush method
- *   - sendQueuedMessage: on error, restores content to queue
- *   - sendQueuedMessage: calls continueExistingSessionForQueueFlush (not send / continueConversation)
- *   - sendQueuedMessage: warns and re-queues (no new conversation) when the tab has no claudeSessionId
+ *   - sendOrQueueMessage: a busy tab, a send-lock-held tab or one with
+ *     follow-ups waiting hands the message to FollowUpQueueService.enqueue
+ *     for its own tab (TASK_2026_884), resolving at once with `queued`
  *   - isTabBusyGenerating: the bounded exit — a tree with no currentMessageId
  *     is debris nothing can finalize, so it is NOT busy
  *   - Integration: the REAL StreamingHandler + MessageFinalization pair driven
@@ -26,14 +24,11 @@ import { computed, signal } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
-import {
-  MessageDispatchService,
-  isTabBusyGenerating,
-} from './message-dispatch.service';
+import { MessageDispatchService } from './message-dispatch.service';
+import { isTabBusyGenerating } from './tab-busy';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
-import { ConversationService } from './conversation.service';
-import type { QueuedCommand } from './conversation.service';
+import { FollowUpQueueService } from './follow-up-queue.service';
 import {
   AgentMonitorStore,
   MessageFinalizationService,
@@ -74,11 +69,10 @@ describe('MessageDispatchService', () => {
   /** Router-resolved target tabs per prompt id (`targetTabsFor`). */
   let promptTargets: Map<string, string[]>;
   let sendMock: jest.Mock;
+  /** `FollowUpQueueService.enqueue(tabId, content, options)`, as `(content, options)`. */
   let queueOrAppendMock: jest.Mock;
-  let releaseHeldCommandMock: jest.Mock;
-  let queuedCommandForFlushMock: jest.Mock;
-  let continueConversationMock: jest.Mock;
-  let continueExistingSessionForQueueFlushMock: jest.Mock;
+  let enqueueMock: jest.Mock;
+  let hasPendingMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
   let isTabStreamingMock: jest.Mock;
 
@@ -104,13 +98,14 @@ describe('MessageDispatchService', () => {
     isLoadingAuth = signal<boolean>(false);
     permissionRequests = signal<unknown[]>([]);
     sendMock = jest.fn().mockResolvedValue(undefined);
-    queueOrAppendMock = jest.fn(() => null);
-    releaseHeldCommandMock = jest.fn();
-    queuedCommandForFlushMock = jest.fn(() => null);
-    continueConversationMock = jest.fn().mockResolvedValue(undefined);
-    continueExistingSessionForQueueFlushMock = jest
-      .fn()
-      .mockResolvedValue({ success: true });
+    queueOrAppendMock = jest.fn();
+    enqueueMock = jest.fn(
+      (tabId: string, content: string, options?: unknown) => {
+        queueOrAppendMock(content, options);
+        return { clientMessageId: 'cm-1', tabId, sessionId: 'sess-1' };
+      },
+    );
+    hasPendingMock = jest.fn(() => false);
     handlePermissionResponseMock = jest.fn();
     isTabStreamingMock = jest.fn(() => false);
 
@@ -163,16 +158,11 @@ describe('MessageDispatchService', () => {
 
     const messageSenderMock = {
       send: sendMock,
-      continueExistingSessionForQueueFlush:
-        continueExistingSessionForQueueFlushMock,
     } as unknown as MessageSenderService;
-    const conversationMock = {
-      queueOrAppendMessage: queueOrAppendMock,
-      continueConversation: continueConversationMock,
-      releaseHeldCommand: releaseHeldCommandMock,
-      queuedCommandForFlush: queuedCommandForFlushMock,
-      isQueuedCommand: jest.fn(() => false),
-    } as unknown as ConversationService;
+    const followUpsMock = {
+      enqueue: enqueueMock,
+      hasPending: hasPendingMock,
+    } as unknown as FollowUpQueueService;
     promptTargets = new Map<string, string[]>();
     const permissionHandlerMock = {
       permissionRequests: () => permissionRequests(),
@@ -187,7 +177,7 @@ describe('MessageDispatchService', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: AuthStateService, useValue: authStateMock },
         { provide: MessageSenderService, useValue: messageSenderMock },
-        { provide: ConversationService, useValue: conversationMock },
+        { provide: FollowUpQueueService, useValue: followUpsMock },
         { provide: PermissionHandlerService, useValue: permissionHandlerMock },
       ],
     });
@@ -233,79 +223,6 @@ describe('MessageDispatchService', () => {
     ]);
   });
 
-  it('typing during a successful flush leaves only the new draft', async () => {
-    tabs = [makeTab({ queuedContent: 'original' })];
-    let resolveFlush!: (outcome: { success: boolean }) => void;
-    continueExistingSessionForQueueFlushMock.mockImplementation(
-      () =>
-        new Promise<{ success: boolean }>((resolve) => {
-          resolveFlush = resolve;
-        }),
-    );
-
-    const flushing = service.sendQueuedMessage('tab-1', 'original');
-    expect(tabs[0].queuedContent).toBeNull();
-
-    tabs = [makeTab({ queuedContent: 'new draft' })];
-    resolveFlush({ success: true });
-    await flushing;
-
-    expect(tabs[0].queuedContent).toBe('new draft');
-    expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('settles only the queue head captured before a flush', async () => {
-    const first: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
-    const later: QueuedCommand = { tabId: 'tab-1', content: '/handoff', held: null };
-    const firstListener = jest.fn();
-    const laterListener = jest.fn();
-    tabs = [makeTab({ queuedContent: '/handoff' })];
-    queuedCommandForFlushMock.mockReturnValue(first);
-    service.onQueuedCommandOutcome(first, firstListener);
-    service.onQueuedCommandOutcome(later, laterListener);
-    await service.sendQueuedMessage('tab-1', '/handoff');
-    expect(firstListener).toHaveBeenCalledWith(true);
-    expect(laterListener).not.toHaveBeenCalled();
-  });
-
-  it('a failed flush with no new draft restores the original once', async () => {
-    tabs = [makeTab({ queuedContent: 'queued' })];
-    continueExistingSessionForQueueFlushMock.mockResolvedValue({
-      success: false,
-      error: 'not sent',
-    });
-
-    await service.sendQueuedMessage('tab-1', 'queued');
-
-    expect(tabs[0].queuedContent).toBe('queued');
-    expect(setQueuedContentMock).toHaveBeenCalledTimes(1);
-    expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
-    expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(tabs[0].messages)).toContain('not sent');
-    expect(releaseHeldCommandMock).not.toHaveBeenCalled();
-  });
-
-  it('a failed flush with a new draft restores original and new exactly once', async () => {
-    tabs = [
-      makeTab({
-        queuedContent: 'old',
-        queuedOptions: { files: ['old.ts'], effort: 'high' },
-      }),
-    ];
-    continueExistingSessionForQueueFlushMock.mockImplementation(async () => {
-      tabs = [
-        makeTab({ queuedContent: 'new', queuedOptions: { files: ['new.ts'] } }),
-      ];
-      return { success: false, error: 'not sent' };
-    });
-    await service.sendQueuedMessage('tab-1', 'old');
-    expect(tabs[0].queuedContent).toBe('old\nnew');
-    expect(tabs[0].queuedOptions?.files).toEqual(['old.ts', 'new.ts']);
-    expect(tabs[0].queuedOptions?.effort).toBe('high');
-    expect(JSON.stringify(tabs[0].messages)).toContain('not sent');
-    expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
-  });
-
   describe('sendOrQueueMessage', () => {
     it('restores a cancelled send quietly without claiming success', async () => {
       tabs = [makeTab({ claudeSessionId: null, lastTerminalReason: null })];
@@ -341,7 +258,6 @@ describe('MessageDispatchService', () => {
       expect(TestBed.inject(TabManagerService).markLoaded).not.toHaveBeenCalled();
       expect(TestBed.inject(TabManagerService).markTabIdle).not.toHaveBeenCalled();
       expect(TestBed.inject(TabManagerService).setLastTerminalReason).not.toHaveBeenCalled();
-      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
     });
 
     it('blocks /context slash command for non-Anthropic providers', async () => {
@@ -460,6 +376,7 @@ describe('MessageDispatchService', () => {
       activeTabStatus.set('streaming');
       await expect(service.sendOrQueueMessage('queued')).resolves.toEqual({
         success: true,
+        queued: { clientMessageId: 'cm-1', tabId: 'tab-1', sessionId: 'sess-1' },
       });
 
       activeTabStatus.set('loaded');
@@ -713,143 +630,38 @@ describe('MessageDispatchService', () => {
     });
   });
 
-  describe('sendQueuedMessage', () => {
-    it('restores a cancelled queued send without error UI or releasing held commands', async () => {
-      tabs = [makeTab({ queuedContent: 'queued', queuedOptions: { files: ['a.ts'] }, lastTerminalReason: 'completed' })];
-      continueExistingSessionForQueueFlushMock.mockImplementation(async () => {
-        tabs = tabs.map((tab) => ({ ...tab, status: 'streaming', lastTerminalReason: 'api_error' }));
-        return { success: false, cancelled: true };
+  describe('queue routing (TASK_2026_884)', () => {
+    it('hands a busy tab follow-up to the backend queue for its own tab, resolving at once', async () => {
+      tabs = [makeTab({ status: 'streaming' }), makeTab({ id: 'tab-2' })];
+      activeTabId.set('tab-2');
+
+      const outcome = await service.sendOrQueueMessage('later', {
+        tabId: 'tab-1',
+        files: ['a.ts'],
       });
-      const log = jest.spyOn(console, 'error').mockImplementation();
-      try {
-        await service.sendQueuedMessage('tab-1', 'queued');
-        expect(tabs[0].queuedContent).toBe('queued');
-        expect(tabs[0].queuedOptions).toEqual({ files: ['a.ts'] });
-        expect(tabs[0].status).toBe('loaded');
-        expect(tabs[0].lastTerminalReason).toBe('completed');
-        expect(TestBed.inject(TabManagerService).markTabIdle).toHaveBeenCalledWith('tab-1');
-        expect(setMessagesMock).not.toHaveBeenCalled();
-        expect(releaseHeldCommandMock).not.toHaveBeenCalled();
-        expect(log).not.toHaveBeenCalled();
-      } finally {
-        log.mockRestore();
-      }
-    });
 
-    it('does not duplicate or retry an already settled compact failure', async () => {
-      tabs = [makeTab({ queuedContent: '/compact', lastTerminalReason: 'api_error' })];
-      continueExistingSessionForQueueFlushMock.mockResolvedValue({
-        success: false, errorAlreadyShown: true,
+      expect(enqueueMock).toHaveBeenCalledWith('tab-1', 'later', {
+        tabId: 'tab-1',
+        files: ['a.ts'],
       });
-      await service.sendQueuedMessage('tab-1', '/compact');
-      expect(setMessagesMock).not.toHaveBeenCalled();
-      expect(tabs[0].lastTerminalReason).toBe('api_error');
-      expect(tabs[0].queuedContent).toBeNull();
-      expect(setQueuedContentMock).not.toHaveBeenCalled();
-      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
-      expect(TestBed.inject(TabManagerService).markLoaded).not.toHaveBeenCalled();
-      expect(TestBed.inject(TabManagerService).markTabIdle).not.toHaveBeenCalled();
-      expect(TestBed.inject(TabManagerService).setLastTerminalReason).not.toHaveBeenCalled();
+      expect(outcome.queued?.tabId).toBe('tab-1');
+      expect(sendMock).not.toHaveBeenCalled();
     });
 
-    beforeEach(() => {
-      tabs = [
-        makeTab({
-          queuedContent: 'queued',
-          queuedOptions: {
-            files: ['a.ts'],
-            images: [{ data: 'base64', mediaType: 'image/png' }],
-          } as unknown as TabState['queuedOptions'],
-        }),
-      ];
+    it('queues behind waiting follow-ups even when the tab is idle, so nothing overtakes them', async () => {
+      hasPendingMock.mockReturnValue(true);
+      await service.sendOrQueueMessage('third');
+      expect(enqueueMock).toHaveBeenCalledWith('tab-1', 'third', undefined);
+      expect(sendMock).not.toHaveBeenCalled();
     });
 
-    it('clears queue + queuedOptions before dispatch', async () => {
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
-    });
-
-    it('releases a held slash command after the text was sent (TASK_2026_655)', async () => {
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(releaseHeldCommandMock).toHaveBeenCalledWith('tab-1', 'queued');
-    });
-
-    it('keeps a held slash command waiting when the flush is refused', async () => {
-      continueExistingSessionForQueueFlushMock.mockResolvedValueOnce({
-        success: false,
-        error: 'offline',
-      });
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
-    });
-
-    it('streaming: returns the held-command promise with the queued outcome', async () => {
-      const held = Promise.resolve(true);
-      const queued = { held };
-      queueOrAppendMock.mockReturnValueOnce(queued);
+    it('refuses invalid queued text', async () => {
       activeTabStatus.set('streaming');
-
-      const outcome = await service.sendOrQueueMessage('/session-handoff x');
-
-      expect(outcome).toEqual({
-        success: true,
-        queuedCommand: queued,
-        heldCommand: held,
+      enqueueMock.mockReturnValueOnce(null);
+      await expect(service.sendOrQueueMessage('   ')).resolves.toEqual({
+        success: false,
+        error: 'Invalid message content',
       });
-    });
-
-    it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledWith(
-        'queued',
-        'sess-1',
-        {
-          files: ['a.ts'],
-          images: [{ data: 'base64', mediaType: 'image/png' }],
-          tabId: 'tab-1',
-        },
-      );
-    });
-
-    it('calls the dedicated queue-flush method, NOT messageSender.send or conversation.continueConversation', async () => {
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalled();
-      expect(sendMock).not.toHaveBeenCalled();
-      expect(continueConversationMock).not.toHaveBeenCalled();
-    });
-
-    it('warns and re-queues (does not start a new conversation) when the tab has no claudeSessionId', async () => {
-      tabs = [
-        makeTab({
-          id: 'tab-1',
-          claudeSessionId: null,
-          queuedContent: 'queued',
-          queuedOptions: {
-            files: ['a.ts'],
-          } as unknown as TabState['queuedOptions'],
-        }),
-      ];
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(sendMock).not.toHaveBeenCalled();
-      expect(continueExistingSessionForQueueFlushMock).not.toHaveBeenCalled();
-      expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
-      expect(warnSpy).toHaveBeenCalled();
-      warnSpy.mockRestore();
-    });
-
-    it('on error, restores the cleared content to the queue', async () => {
-      const err = new Error('boom');
-      continueExistingSessionForQueueFlushMock.mockRejectedValueOnce(err);
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
-      await service.sendQueuedMessage('tab-1', 'queued');
-      expect(tabs[0].queuedContent).toBe('queued');
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[ChatStore] sendQueuedMessage failed:',
-        err,
-      );
-      errorSpy.mockRestore();
     });
   });
 });
@@ -990,14 +802,14 @@ describe('MessageDispatchService with the real StreamingHandler + MessageFinaliz
         },
         {
           provide: MessageSenderService,
-          useValue: {
-            send: sendMock,
-            continueExistingSessionForQueueFlush: jest.fn(),
-          },
+          useValue: { send: sendMock },
         },
         {
-          provide: ConversationService,
-          useValue: { queueOrAppendMessage: queueOrAppendMock },
+          provide: FollowUpQueueService,
+          useValue: {
+            enqueue: queueOrAppendMock,
+            hasPending: () => false,
+          },
         },
         {
           provide: AuthStateService,

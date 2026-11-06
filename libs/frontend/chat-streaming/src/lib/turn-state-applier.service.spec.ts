@@ -263,7 +263,7 @@ describe('TurnStateApplier', () => {
         consumedClientMessageId: 'P',
       }), 'tab-1');
 
-      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', true);
+      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', true, true);
       expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
     });
 
@@ -304,7 +304,11 @@ describe('TurnStateApplier', () => {
           turnState({ phase: 'awaiting-background', terminalReason }),
           'tab-1',
         );
-        expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', isAborted);
+        if (terminalReason === 'aborted_streaming' || terminalReason === 'aborted_tools') {
+          expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', true, true);
+        } else {
+          expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', isAborted);
+        }
       },
     );
 

@@ -11,7 +11,7 @@
  *   - contextPercent rounding to 1 decimal place
  *   - installs the backend session snapshot (never adds footer fields)
  *   - clears compaction state via CompactionLifecycleService
- *   - calls streamingHandler.handleSessionStats and triggers auto-send
+ *   - calls streamingHandler.handleSessionStats (no queued send: TASK_2026_884)
  *   - refreshes sidebar via SessionLoader.loadSessions
  *   - `session:stats-live` (TASK_2026_626), against the real TabManagerService:
  *     header-only install, no result-path side effect, revision ordering
@@ -794,13 +794,10 @@ describe('SessionStatsAggregatorService', () => {
     });
   });
 
-  it('triggers auto-send via MessageDispatchService when queuedContent returned', () => {
-    streamHandleStatsMock.mockReturnValue({
-      tabId: 'tab-1',
-      queuedContent: 'queued message',
-    });
+  it('sends nothing queued after a turn result (TASK_2026_884)', () => {
     service.handleSessionStats(baseStats);
-    expect(sendQueuedMock).toHaveBeenCalledWith('tab-1', 'queued message');
+    expect(streamHandleStatsMock).toHaveBeenCalled();
+    expect(sendQueuedMock).not.toHaveBeenCalled();
   });
 
   it('refreshes sidebar via SessionLoader.loadSessions', () => {

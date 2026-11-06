@@ -1,5 +1,5 @@
 /**
- * ConversationService specs — queue/abort for chat conversations.
+ * ConversationService specs — abort for chat conversations.
  *
  * Full integration of abortCurrentMessage (preserving partial messages) and
  * abortWithConfirmation (agent-count dialog) is exercised by the chat flow
@@ -7,11 +7,8 @@
  * covered by pointed unit tests without wiring in the entire streaming handler
  * + session loader chain:
  *
- *   - queueOrAppendMessage: first write vs append with existing queue, options
- *     stored only on first write, invalid content is warned + skipped
- *   - clearQueuedContent: resets queue fields on active or explicit tab
- *   - clearQueueRestoreSignal: resets queue-restore signal
- *   - abortCurrentMessage: re-entry guard, chat:abort RPC, queue restore signal,
+ *   - abortCurrentMessage: re-entry guard, chat:abort RPC, follow-up restore
+ *     (held items taken before the RPC, withdrawn ones returned after it),
  *     no finalize / markTabIdle on success (TASK_2026_360 review F3)
  */
 
@@ -24,7 +21,7 @@ import {
   type ClosedTabEvent,
   type WorkspaceRemovalEvent,
 } from '@ptah-extension/chat-state';
-import { MessageValidationService } from '../message-validation.service';
+import { FollowUpQueueService } from './follow-up-queue.service';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
@@ -80,9 +77,7 @@ describe('ConversationService', () => {
     findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
-  let validator: jest.Mocked<
-    Pick<MessageValidationService, 'validate' | 'sanitize'>
-  >;
+  let followUps: { takeHeldForStop: jest.Mock; restoreAfterStop: jest.Mock; beginStop: jest.Mock; endStop: jest.Mock };
   let messageFinalization: {
     finalizeCurrentMessage: jest.Mock;
     clearPendingPrompts: jest.Mock;
@@ -177,12 +172,12 @@ describe('ConversationService', () => {
     };
     closedTabListeners = new Set();
 
-    validator = {
-      validate: jest.fn(() => ({ valid: true })),
-      sanitize: jest.fn((s: string) => s.trim()),
-    } as unknown as jest.Mocked<
-      Pick<MessageValidationService, 'validate' | 'sanitize'>
-    >;
+    followUps = {
+      takeHeldForStop: jest.fn(() => []),
+      restoreAfterStop: jest.fn(),
+      beginStop: jest.fn(),
+      endStop: jest.fn(() => []),
+    };
 
     rpcCall = jest.fn();
     claudeRpcService = { call: rpcCall };
@@ -204,7 +199,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         { provide: TabManagerService, useValue: tabManager },
-        { provide: MessageValidationService, useValue: validator },
+        { provide: FollowUpQueueService, useValue: followUps },
         { provide: ClaudeRpcService, useValue: claudeRpcService },
         { provide: ConfirmationDialogService, useValue: { confirm } },
         { provide: MessageFinalizationService, useValue: messageFinalization },
@@ -222,78 +217,6 @@ describe('ConversationService', () => {
     consoleError.mockRestore();
     consoleLog.mockRestore();
     TestBed.resetTestingModule();
-  });
-
-  describe('queueOrAppendMessage', () => {
-    it('writes first queue entry and preserves options', () => {
-      service.queueOrAppendMessage('  hello  ', {
-        tabId: 'tab-1',
-        files: ['a.ts'],
-      });
-
-      expect(validator.validate).toHaveBeenCalledWith('  hello  ');
-      expect(validator.sanitize).toHaveBeenCalledWith('  hello  ');
-      expect(tabManager.setQueuedContentAndOptions).toHaveBeenCalledWith(
-        'tab-1',
-        'hello',
-        { tabId: 'tab-1', files: ['a.ts'] },
-      );
-    });
-
-    it('appends new content with a newline when queue already has content', () => {
-      tabsSignal.set([makeTab({ id: 'tab-1', queuedContent: 'first' })]);
-      service.queueOrAppendMessage('second');
-      expect(tabManager.setQueuedContent).toHaveBeenCalledWith(
-        'tab-1',
-        'first\nsecond',
-      );
-    });
-
-    it('silently returns when no active tab', () => {
-      activeTabIdSignal.set(null);
-      service.queueOrAppendMessage('hello');
-      expect(tabManager.setQueuedContent).not.toHaveBeenCalled();
-      expect(tabManager.setQueuedContentAndOptions).not.toHaveBeenCalled();
-    });
-
-    it('warns and returns when content fails validation', () => {
-      validator.validate.mockReturnValue({ valid: false, reason: 'empty' });
-      service.queueOrAppendMessage('');
-      expect(consoleWarn).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid queue content'),
-      );
-      expect(tabManager.setQueuedContent).not.toHaveBeenCalled();
-      expect(tabManager.setQueuedContentAndOptions).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('clearQueuedContent', () => {
-    it('resets queuedContent and queuedOptions for the active tab', () => {
-      service.clearQueuedContent();
-      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
-        'tab-1',
-      );
-    });
-
-    it('accepts an explicit tabId', () => {
-      service.clearQueuedContent('other-tab');
-      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
-        'other-tab',
-      );
-    });
-
-    it('no-ops when there is no tab to target', () => {
-      activeTabIdSignal.set(null);
-      service.clearQueuedContent();
-      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('clearQueueRestoreSignal', () => {
-    it('resets the queue restore signal to null', () => {
-      service.clearQueueRestoreSignal();
-      expect(service.queueRestoreSignal()).toBeNull();
-    });
   });
 
   describe('abortCurrentMessage', () => {
@@ -352,27 +275,63 @@ describe('ConversationService', () => {
       expect(messageFinalization.clearPendingPromptsForSession).toHaveBeenCalledWith('tab-1', 'sess-1');
     });
 
-    it('preserves a queued message into the restore signal and clears the queue', async () => {
+    it('takes held follow-ups before the RPC and restores the withdrawn ones after it (TASK_2026_884)', async () => {
       tabsSignal.set([
-        makeTab({
-          id: 'tab-1',
-          claudeSessionId: 'sess-1',
-          status: 'streaming',
-          queuedContent: 'queued-text',
-        }),
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' }),
       ]);
-      rpcCall.mockResolvedValue({ success: true });
+      followUps.takeHeldForStop.mockReturnValue(['/compact', 'later']);
+      const withdrawn = [{ clientMessageId: 'w-1', content: 'queued-text' }];
+      rpcCall.mockImplementation(async () => {
+        // Taken synchronously, before the interrupt can end the turn.
+        expect(followUps.takeHeldForStop).toHaveBeenCalledWith('tab-1', 'sess-1');
+        return { success: true, data: { withdrawn } };
+      });
 
       await service.abortCurrentMessage();
 
-      expect(service.queueRestoreSignal()).toEqual({
-        tabId: 'tab-1',
-        content: 'queued-text',
-      });
-      // Queue cleared after restoration via the dedicated reset intent.
-      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith(
         'tab-1',
+        withdrawn,
+        ['/compact', 'later'],
       );
+    });
+
+    it('still restores the held follow-ups when chat:abort throws', async () => {
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' }),
+      ]);
+      followUps.takeHeldForStop.mockReturnValue(['later']);
+      rpcCall.mockRejectedValue(new Error('transport down'));
+
+      await service.abortCurrentMessage();
+
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith(
+        'tab-1',
+        [],
+        ['later'],
+      );
+    });
+
+    it('recovers withdrawals observed before an abort transport failure', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      const withdrawn = [{ clientMessageId: 'w-1', content: 'queued', tabId: 'tab-1' }];
+      followUps.endStop.mockReturnValueOnce(withdrawn);
+      rpcCall.mockRejectedValueOnce(new Error('timeout'));
+
+      await service.abortCurrentMessage();
+
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith('tab-1', withdrawn, []);
+    });
+
+    it('recovers withdrawals when abort returns failure without data', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      const withdrawn = [{ clientMessageId: 'w-2', content: 'queued', tabId: 'tab-1' }];
+      followUps.endStop.mockReturnValueOnce(withdrawn);
+      rpcCall.mockResolvedValueOnce({ success: false, error: 'interrupted' });
+
+      await service.abortCurrentMessage();
+
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith('tab-1', withdrawn, []);
     });
 
     // TASK_2026_360 review F3: the backend emits the ordered abort
@@ -601,9 +560,9 @@ describe('ConversationService', () => {
       expect(rpcCall).toHaveBeenCalledWith('chat:abort', { sessionId: 'session-inspector' });
       expect(rpcCall.mock.calls.filter(([method]) => method === 'chat:abort')).toHaveLength(1);
       expect(tabManager.setLastTerminalReason).toHaveBeenCalledWith('inspector', 'aborted_streaming');
-      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith('inspector');
-      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalledWith('active');
-      expect(service.queueRestoreSignal()).toEqual({ tabId: 'inspector', content: 'keep this draft' });
+      expect(followUps.takeHeldForStop).toHaveBeenCalledWith('inspector', 'session-inspector');
+      expect(followUps.takeHeldForStop).not.toHaveBeenCalledWith('active', expect.anything());
+      expect(followUps.restoreAfterStop).toHaveBeenCalledWith('inspector', undefined, []);
       expect(messageFinalization.markAgentsAsInterruptedByToolCallIds).toHaveBeenCalledWith('inspector', new Set(['tool-1']));
       expect(setResumableSubagents).toHaveBeenCalledWith([{ toolCallId: 'tool-1' }], 'session-inspector');
     });
@@ -629,7 +588,7 @@ describe('ConversationService', () => {
       expect(rpcCall).toHaveBeenCalledWith('chat:abort', { sessionId: 'session-inspector' });
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('inspector');
       expect(tabManager.markTabIdle).not.toHaveBeenCalledWith('active');
-      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalledWith('active');
+      expect(followUps.restoreAfterStop).not.toHaveBeenCalledWith('active', expect.anything(), expect.anything());
       expect(messageFinalization.clearPendingPromptsForSession).not.toHaveBeenCalledWith('active', 'session-active');
     });
 
@@ -691,7 +650,7 @@ describe('ConversationService', () => {
     });
   });
 
-  describe('held commands on tab close', () => {
+  describe('tab close', () => {
     const closeTab = (kind: ClosedTabEvent['kind'], tabId = 'tab-1') => {
       for (const listener of Array.from(closedTabListeners)) {
         listener({ tabId, sessionId: null, kind });
@@ -703,75 +662,6 @@ describe('ConversationService', () => {
       closeTab('reset', 'tab-2');
       expect(messageFinalization.clearPendingPrompts).toHaveBeenCalledWith('tab-1');
       expect(messageFinalization.clearPendingPrompts).toHaveBeenCalledWith('tab-2');
-    });
-
-    /** Hold `/session-handoff` behind queued text and track its outcome. */
-    const holdHandoff = () => {
-      tabsSignal.set([makeTab({ id: 'tab-1', queuedContent: 'first' })]);
-      const held = service.queueOrAppendMessage('/session-handoff wrap up', {
-        tabId: 'tab-1',
-      })?.held;
-      expect(held).toBeInstanceOf(Promise);
-      const outcome: { value: boolean | undefined } = { value: undefined };
-      void held?.then((queued) => (outcome.value = queued));
-      return { held: held as Promise<boolean>, outcome };
-    };
-
-    it.each(['close', 'forceClose'] as const)(
-      'settles a held /session-handoff as dropped on %s',
-      async (kind) => {
-        const { held } = holdHandoff();
-
-        closeTab(kind);
-
-        await expect(held).resolves.toBe(false);
-        // The dropped command is never queued for a later flush.
-        expect(tabManager.setQueuedContent).not.toHaveBeenCalledWith(
-          'tab-1',
-          '/session-handoff wrap up',
-        );
-      },
-    );
-
-    it('settles a held command as dropped on a reset, which discards the queue', async () => {
-      const { held } = holdHandoff();
-
-      closeTab('reset');
-
-      await expect(held).resolves.toBe(false);
-      // A later release (the reset's own flush answering) has nothing to queue.
-      service.releaseHeldCommand('tab-1', 'first');
-      expect(tabManager.setQueuedContent).not.toHaveBeenCalledWith(
-        'tab-1',
-        '/session-handoff wrap up',
-      );
-    });
-
-    it('keeps the held command when another tab closes', async () => {
-      const { outcome } = holdHandoff();
-
-      closeTab('close', 'tab-2');
-      closeTab('reset', 'tab-2');
-      await Promise.resolve();
-
-      expect(outcome.value).toBeUndefined();
-    });
-
-    it('settles a held command as dropped when its workspace is removed', async () => {
-      const { held, outcome } = holdHandoff();
-
-      // A removal that leaves the tab in place does not touch it.
-      tabManager.removedWorkspace$.set({ path: '/ws/other', seq: 1 });
-      TestBed.tick();
-      await Promise.resolve();
-      expect(outcome.value).toBeUndefined();
-
-      // TabManagerService.removeWorkspaceState: the tabs go, no close event.
-      tabsSignal.set([]);
-      tabManager.removedWorkspace$.set({ path: '/ws', seq: 2 });
-      TestBed.tick();
-
-      await expect(held).resolves.toBe(false);
     });
 
     it('stops listening for tab closes when the service is destroyed', () => {

@@ -332,7 +332,8 @@ export class MessageBubbleComponent {
 
   /** Action row: last message of a settled turn (§3.6). */
   protected readonly showActions = computed(
-    () => this.isLastOfTurn() && !this.turnLive() && !this.isStreaming(),
+    () => this.isLastOfTurn() && !this.turnLive() && !this.isStreaming() &&
+      !(this.message().isInterrupted && !this.message().streamingState && !this.message().rawContent),
   );
 
   /** `Show activity` is hidden when every panel item is unknown (§3.11). */

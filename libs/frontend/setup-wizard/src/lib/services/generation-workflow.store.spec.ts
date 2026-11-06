@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import { QueuedFollowUpStore, TabManagerService } from '@ptah-extension/chat-state';
 import { WizardRpcService } from './wizard-rpc.service';
 import { GenerationWorkflowStore } from './generation-workflow.store';
 
@@ -554,12 +554,14 @@ describe('GenerationWorkflowStore', () => {
     expect(store.state()).toBe('timed-out');
   });
 
-  it('rejects a generation start while chat is busy or has queued content', async () => {
-    const tab = { ...idleTab, status: 'streaming', queuedContent: 'later' };
+  it('rejects a generation start while chat is busy or has queued follow-ups', async () => {
+    const tab = { ...idleTab, id: 'tab', status: 'streaming' };
+    const queued = [{ content: 'later' }];
     const startBoundAgents = jest.fn();
     TestBed.configureTestingModule({
       providers: [
         GenerationWorkflowStore,
+        { provide: QueuedFollowUpStore, useValue: { forTab: () => queued } },
         {
           provide: TabManagerService,
           useValue: {
@@ -584,7 +586,7 @@ describe('GenerationWorkflowStore', () => {
     tab.status = 'loaded';
     await store.startAgents(['agent']);
     expect(startBoundAgents).not.toHaveBeenCalled();
-    tab.queuedContent = '';
+    queued.length = 0;
     startBoundAgents.mockResolvedValue({
       rejection: { reason: 'preview-required' },
     });

@@ -12,6 +12,7 @@ import type {
   EffortLevel,
 } from './ai-provider.types';
 import type { SessionId } from './branded.types';
+import type { FollowUpQueueOperations } from './follow-up-queue.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 import type {
@@ -315,7 +316,7 @@ export interface AgentModelInfo {
  * Defines the public methods of SdkAgentAdapter. Methods that fail at
  * runtime MUST throw an Error rather than silently no-op.
  */
-export interface IAgentAdapter extends IAIProvider {
+export interface IAgentAdapter extends IAIProvider, FollowUpQueueOperations {
   /** Pre-warm any heavy SDK modules (no-op if nothing to pre-load). */
   preloadSdk(): Promise<void>;
 

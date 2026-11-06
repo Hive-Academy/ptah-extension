@@ -75,6 +75,33 @@ const nativeIdentity: SessionRuntimeIdentity = {
 };
 
 describe('RoutingAgentAdapter', () => {
+  it('delegates queue operations by owner and fans in state listeners', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    native.owns.mockReturnValue(true);
+    native.withdrawQueuedFollowUp = jest.fn().mockResolvedValue(true);
+    native.listQueuedFollowUps = jest.fn().mockReturnValue([{ clientMessageId: 'a', content: 'draft' }]);
+    native.steerQueuedFollowUp = jest.fn().mockResolvedValue({ ok: true });
+    let legacyListener: ((change: { sessionId: SessionId; clientMessageId: string; state: 'queued' }) => void) | undefined;
+    let nativeListener: typeof legacyListener;
+    const legacyOff = jest.fn();
+    const nativeOff = jest.fn();
+    legacy.onQueuedFollowUpState = jest.fn((listener) => { legacyListener = listener; return legacyOff; });
+    native.onQueuedFollowUpState = jest.fn((listener) => { nativeListener = listener; return nativeOff; });
+    const router = new RoutingAgentAdapter({ lookup: jest.fn() }, legacy, native,
+      { servingProviderId: jest.fn() }, { nativeCodex: true });
+    const listener = jest.fn();
+    const off = router.onQueuedFollowUpState(listener);
+    legacyListener?.({ sessionId: id, clientMessageId: 'a', state: 'queued' });
+    nativeListener?.({ sessionId: id, clientMessageId: 'b', state: 'queued' });
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(await router.withdrawQueuedFollowUp(id, 'a')).toBe(true);
+    expect(router.listQueuedFollowUps(id)).toEqual([{ clientMessageId: 'a', content: 'draft' }]);
+    expect(await router.steerQueuedFollowUp(id, 'a')).toEqual({ ok: true });
+    off();
+    expect(legacyOff).toHaveBeenCalledTimes(1);
+    expect(nativeOff).toHaveBeenCalledTimes(1);
+  });
   it('close the tab during a native open', async () => {
     const legacy = adapter();
     const native = adapter();

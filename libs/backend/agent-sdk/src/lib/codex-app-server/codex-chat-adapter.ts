@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  CodexRequestRejectedError,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -27,6 +28,9 @@ import {
   type AgentSessionResumeConfig,
   type FlatStreamEventUnion,
   type ProviderInfo,
+  type QueuedFollowUpStateChange,
+  type QueuedFollowUpSnapshot,
+  type SteerQueuedFollowUpResult,
 } from '@ptah-extension/shared';
 import type {
   CodexChatEventCallbacks,
@@ -181,6 +185,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
   private readonly controls: CodexChatSessionControls;
   private readonly peerQueue: CodexChatPeerQueue;
+  private readonly followUpListeners = new Set<(change: QueuedFollowUpStateChange) => void>();
   private missingUsageStoreReported = false;
   private readonly usagePersistenceDisabled =
     new WeakSet<CodexSessionUsageOwner>();
@@ -792,6 +797,34 @@ export class CodexChatAdapter implements NativeChatAdapter {
         throw new SessionAdmissionRefusedError('busy', id);
     }
     const session = this.session(id);
+    if (options?.queueIntent === 'next-turn' && !inboundPeer && !requireIdle) {
+      if (!clientMessageId) throw this.failure(new Error('clientMessageId required'), 'messageOptions');
+      const snapshot: QueuedFollowUpSnapshot = {
+        clientMessageId, content: text,
+        files: options.files, images: options.images,
+      };
+      const threadId = session.context.identity.threadId;
+      const { accepted, admitted } = this.peerQueue.enqueueFollowUp(
+        session, threadId, snapshot,
+        () => {
+          if (this.sessions.get(id) !== session ||
+              session.context.identity.threadId !== threadId ||
+              session.closing || session.abort.signal.aborted)
+            throw new CodexChatAdapterError('unavailable', 'followUp');
+          return publishUntilAdmitted(
+            (admission) => this.publish(session, { text, attachments }, clientMessageId, admission),
+            this.ports.logger,
+          );
+        },
+        (state, reason) => this.emitFollowUp({ sessionId: id, clientMessageId, state, reason }),
+      );
+      if (accepted) {
+        if (this.peerQueue.listFollowUps(session).some((item) => item.clientMessageId === clientMessageId))
+          this.emitFollowUp({ sessionId: id, clientMessageId, state: 'queued' });
+        else await admitted;
+      }
+      return;
+    }
     if (inboundPeer) {
       await this.peerQueue.send(
         session,
@@ -844,6 +877,65 @@ export class CodexChatAdapter implements NativeChatAdapter {
       }
       throw error;
     }
+  }
+  onQueuedFollowUpState(listener: (change: QueuedFollowUpStateChange) => void): () => void {
+    this.followUpListeners.add(listener);
+    return () => this.followUpListeners.delete(listener);
+  }
+  private emitFollowUp(change: QueuedFollowUpStateChange): void {
+    for (const listener of this.followUpListeners) {
+      try {
+        listener(change);
+      } catch (error: unknown) {
+        // degradation-audit: reported - one subscriber must not block queue settlement or other subscribers.
+        this.ports.logger.warn(
+          '[CodexChatAdapter] Follow-up listener failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
+  }
+  withdrawQueuedFollowUp(id: SessionId, clientMessageId: string): Promise<boolean> {
+    const session = this.sessions.get(id);
+    return Promise.resolve(session ? this.peerQueue.withdrawFollowUp(session, clientMessageId) : false);
+  }
+  listQueuedFollowUps(id: SessionId): readonly QueuedFollowUpSnapshot[] {
+    const session = this.sessions.get(id);
+    return session ? this.peerQueue.listFollowUps(session) : [];
+  }
+  steerQueuedFollowUp(id: SessionId, clientMessageId: string): Promise<SteerQueuedFollowUpResult> {
+    const session = this.sessions.get(id);
+    if (!session) return Promise.resolve({ ok: false, code: 'SESSION_ENDED' });
+    return this.peerQueue.steerFollowUp(session, clientMessageId, async (snapshot) => {
+      const expectedTurnId = session.turnId;
+      if (!session.busy || !expectedTurnId) return { ok: false, code: 'TURN_CHANGED' };
+      try {
+        const receipt = await session.context.steer({
+          text: snapshot.content,
+          attachments: [
+            ...(snapshot.files ?? []).map((path) => ({ type: 'file' as const, path })),
+            ...(snapshot.images ?? []).map((image) => ({ type: 'image' as const, ...image })),
+          ],
+        }, expectedTurnId);
+        if (receipt.turnId !== expectedTurnId || session.turnId !== expectedTurnId) {
+          this.ports.logger.warn('[CodexChatAdapter] Steer turn ID mismatch after successful delivery.', {
+            sessionId: id,
+            expectedTurnId,
+            receiptTurnId: receipt.turnId,
+            currentTurnId: session.turnId,
+          });
+        }
+        return { ok: true };
+      } catch (error: unknown) {
+        if (error instanceof CodexRequestRejectedError)
+          return { ok: false, code: 'TURN_CHANGED' };
+        this.ports.logger.warn(
+          '[CodexChatAdapter] Steer outcome uncertain; consuming follow-up to prevent duplicate delivery.',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        return { ok: false, code: 'DELIVERY_UNCERTAIN' };
+      }
+    });
   }
   owns(id: SessionId): boolean {
     return this.controls.owns(id);

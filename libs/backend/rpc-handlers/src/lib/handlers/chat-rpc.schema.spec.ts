@@ -32,6 +32,19 @@ const VALID_SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 const LEGACY_TAB_ID = 'tab_1778939573732_w43e75q'; // the original Sentry crash payload
 
 describe('chat-rpc.schema', () => {
+  it.each([
+    { prompt: 3 },
+    { prompt: '' },
+    { prompt: 'x', files: 'path' },
+    { prompt: 'x', files: [4] },
+    { prompt: 'x', images: [{}] },
+    { prompt: 'x', images: 'data' },
+  ])('rejects malformed queued content before dispatch: %p', (payload) => {
+    expect(ChatContinueParamsSchema.safeParse({
+      tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID,
+      clientMessageId: VALID_TAB_UUID, queueIntent: 'next-turn', ...payload,
+    }).success).toBe(false);
+  });
   describe('ChatCarryOverParamsSchema requestId (TASK_2026_865 R1)', () => {
     const base = {
       sessionId: VALID_SESSION_UUID,
@@ -430,6 +443,8 @@ describe.each([
       'mcpToolProfile',
       'ptahUiFence',
       'accountSelection',
+      // Backend-owned follow-up queue (TASK_2026_884).
+      'queueIntent',
     ],
   ],
 ] as const)(

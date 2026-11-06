@@ -167,6 +167,15 @@ import type {
   ChatCarryOverParams,
   ChatCarryOverResult,
 } from './rpc/rpc-chat.types';
+// Backend-owned follow-up queue (TASK_2026_884)
+import type {
+  ChatQueuedListParams,
+  ChatQueuedListResult,
+  ChatQueuedWithdrawParams,
+  ChatQueuedWithdrawResult,
+  ChatQueuedSteerParams,
+  ChatQueuedSteerResult,
+} from './rpc/rpc-chat.types';
 
 import type {
   SessionListParams,
@@ -1100,6 +1109,19 @@ export interface RpcMethodRegistry
     result: ChatHistoryPageResult;
   };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
+  // Backend-owned follow-up queue (TASK_2026_884)
+  'chat:queued-list': {
+    params: ChatQueuedListParams;
+    result: ChatQueuedListResult;
+  };
+  'chat:queued-withdraw': {
+    params: ChatQueuedWithdrawParams;
+    result: ChatQueuedWithdrawResult;
+  };
+  'chat:queued-steer': {
+    params: ChatQueuedSteerParams;
+    result: ChatQueuedSteerResult;
+  };
   'chat:pending-questions': {
     params: ChatPendingQuestionsParams;
     result: ChatPendingQuestionsResult;
@@ -3481,6 +3503,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:carry-over': true,
   'chat:setStreamViewport': true,
   'chat:abort': true,
+  // Backend-owned follow-up queue (TASK_2026_884)
+  'chat:queued-list': true,
+  'chat:queued-withdraw': true,
+  'chat:queued-steer': true,
   'chat:pending-questions': true,
   'chat:running-agents': true,
   'chat:agent-sessions': true,

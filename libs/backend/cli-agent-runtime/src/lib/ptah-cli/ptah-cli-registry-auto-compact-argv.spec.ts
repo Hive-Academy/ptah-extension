@@ -80,7 +80,7 @@ import { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { renderRoleBlock } from '../cli-agents/cli-adapters/cli-adapter.utils';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 
-const PINNED_SDK_VERSION = '0.3.278';
+const PINNED_SDK_VERSION = '0.3.318';
 
 // The probe payload (system prompts across 7 cases routinely exceed 100 KB
 // combined) is read from stdin, never argv or env — both are capped by the

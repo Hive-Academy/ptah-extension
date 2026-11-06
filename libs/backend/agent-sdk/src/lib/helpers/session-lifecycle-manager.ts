@@ -24,6 +24,9 @@ import {
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AIMessageOptions,
+  type QueuedFollowUpSnapshot,
+  type QueuedFollowUpStateChange,
+  type SteerQueuedFollowUpResult,
   type AuthEnv,
   type ContextCapacityRoute,
   type EffortLevel,
@@ -872,6 +875,7 @@ export class SessionLifecycleManager {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
       clientMessageId?: string;
+      queueIntent?: AIMessageOptions['queueIntent'];
     },
   ): Promise<void> {
     const record = this._registry.find(sessionId as string);
@@ -882,6 +886,36 @@ export class SessionLifecycleManager {
       files,
       images,
       options,
+    );
+  }
+
+  onQueuedFollowUpState(
+    listener: (change: QueuedFollowUpStateChange) => void,
+  ): () => void {
+    return this._streamPump.onQueuedFollowUpState(listener);
+  }
+
+  withdrawQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): Promise<boolean> {
+    return Promise.resolve(
+      this._streamPump.withdrawQueuedFollowUp(sessionId, clientMessageId),
+    );
+  }
+
+  listQueuedFollowUps(sessionId: SessionId): readonly QueuedFollowUpSnapshot[] {
+    return this._streamPump.listQueuedFollowUps(sessionId);
+  }
+
+  steerQueuedFollowUp(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): Promise<SteerQueuedFollowUpResult> {
+    return this._streamPump.steerQueuedFollowUp(
+      sessionId,
+      clientMessageId,
+      () => this._control.interruptForQueuedFollowUp(sessionId),
     );
   }
 

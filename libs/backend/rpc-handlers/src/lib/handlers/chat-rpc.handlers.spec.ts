@@ -51,8 +51,14 @@ import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadc
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 import type { ChatCarryOverService } from '../chat/session/chat-carry-over.service';
+import type { ChatFollowUpQueueService } from '../chat/follow-up/chat-follow-up-queue.service';
 
 type Mocked<T> = jest.Mocked<T>;
+
+/** The coordinator surface `ChatRpcHandlers` delegates `chat:queued-*` to. */
+type FollowUpQueueStub = Mocked<
+  Pick<ChatFollowUpQueueService, 'list' | 'withdraw' | 'steer'>
+>;
 
 interface Suite {
   handlers: ChatRpcHandlers;
@@ -76,7 +82,11 @@ interface Suite {
  * spawner; by default none is registered (the optional injection is null).
  */
 function buildSuite(
-  opts: { attached?: boolean; spawner?: ISessionSpawner } = {},
+  opts: {
+    attached?: boolean;
+    spawner?: ISessionSpawner;
+    followUpQueue?: FollowUpQueueStub;
+  } = {},
 ): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
@@ -136,6 +146,8 @@ function buildSuite(
     permissionHandler,
     carryOver,
     opts.spawner ?? null,
+    null,
+    opts.followUpQueue ?? null,
   );
 
   return {
@@ -255,6 +267,9 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       'agent:backgroundList',
       'chat:carry-over-check',
       'chat:carry-over',
+      'chat:queued-list',
+      'chat:queued-withdraw',
+      'chat:queued-steer',
     ]);
   });
 
@@ -846,6 +861,107 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         });
       },
     );
+  });
+
+  describe('backend-owned follow-up queue (TASK_2026_884)', () => {
+    const ITEM_UUID = '33333333-4444-4555-8666-777777777777';
+    const item = { sessionId: SESSION_UUID, tabId: TAB_UUID, clientMessageId: ITEM_UUID };
+
+    function queueStub(): FollowUpQueueStub {
+      return {
+        list: jest.fn().mockReturnValue([{ clientMessageId: ITEM_UUID, content: 'next' }]),
+        withdraw: jest.fn().mockResolvedValue(true),
+        steer: jest.fn().mockResolvedValue({ ok: true }),
+      } as FollowUpQueueStub;
+    }
+
+    it('chat:continue rejects queueIntent without a UUID clientMessageId', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+      const handler = getHandler(suite.rpc, 'chat:continue');
+      const base = { sessionId: SESSION_UUID, tabId: TAB_UUID, prompt: 'next' };
+
+      await expect(handler({ ...base, queueIntent: 'next-turn' })).rejects.toBeInstanceOf(ZodError);
+      await expect(
+        handler({ ...base, queueIntent: 'next-turn', clientMessageId: 'bubble-1' }),
+      ).rejects.toBeInstanceOf(ZodError);
+      await expect(
+        handler({ ...base, queueIntent: 'later', clientMessageId: ITEM_UUID }),
+      ).rejects.toBeInstanceOf(ZodError);
+      expect(suite.session.continueSession).not.toHaveBeenCalled();
+    });
+
+    it('chat:continue passes a valid queued follow-up to the session service', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+      const params = {
+        sessionId: SESSION_UUID,
+        tabId: TAB_UUID,
+        prompt: 'next',
+        queueIntent: 'next-turn',
+        clientMessageId: ITEM_UUID,
+      };
+      await getHandler(suite.rpc, 'chat:continue')(params);
+      expect(suite.session.continueSession).toHaveBeenCalledWith(params);
+    });
+
+    it.each([
+      ['chat:queued-list', { sessionId: SESSION_UUID, tabId: 'tab-1' }],
+      ['chat:queued-list', { sessionId: SESSION_UUID, tabId: TAB_UUID, extra: 1 }],
+      ['chat:queued-withdraw', { ...item, clientMessageId: 'bubble-1' }],
+      ['chat:queued-steer', { sessionId: SESSION_UUID, clientMessageId: ITEM_UUID }],
+    ])('%s rejects malformed params %#', async (method, params) => {
+      const followUpQueue = queueStub();
+      const suite = buildSuite({ followUpQueue });
+      suite.handlers.register();
+      await expect(getHandler(suite.rpc, method)(params)).rejects.toBeInstanceOf(ZodError);
+      expect(followUpQueue.list).not.toHaveBeenCalled();
+      expect(followUpQueue.withdraw).not.toHaveBeenCalled();
+      expect(followUpQueue.steer).not.toHaveBeenCalled();
+    });
+
+    it('delegates list, withdraw and steer to the coordinator', async () => {
+      const followUpQueue = queueStub();
+      const suite = buildSuite({ followUpQueue });
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:queued-list')({ sessionId: SESSION_UUID, tabId: TAB_UUID }),
+      ).resolves.toEqual({ items: [{ clientMessageId: ITEM_UUID, content: 'next' }] });
+      await expect(getHandler(suite.rpc, 'chat:queued-withdraw')(item)).resolves.toEqual({
+        withdrawn: true,
+      });
+      await expect(getHandler(suite.rpc, 'chat:queued-steer')(item)).resolves.toEqual({ ok: true });
+      expect(followUpQueue.list).toHaveBeenCalledWith(SESSION_UUID, TAB_UUID);
+      expect(followUpQueue.withdraw).toHaveBeenCalledWith(SESSION_UUID, TAB_UUID, ITEM_UUID);
+      expect(followUpQueue.steer).toHaveBeenCalledWith(SESSION_UUID, TAB_UUID, ITEM_UUID);
+    });
+
+    it('answers empty / false / UNSUPPORTED without a coordinator', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+      await expect(
+        getHandler(suite.rpc, 'chat:queued-list')({ sessionId: SESSION_UUID, tabId: TAB_UUID }),
+      ).resolves.toEqual({ items: [] });
+      await expect(getHandler(suite.rpc, 'chat:queued-withdraw')(item)).resolves.toEqual({
+        withdrawn: false,
+      });
+      await expect(getHandler(suite.rpc, 'chat:queued-steer')(item)).resolves.toEqual({
+        ok: false,
+        code: 'UNSUPPORTED',
+      });
+    });
+
+    it('surfaces an ownership refusal as a user error without Sentry', async () => {
+      const followUpQueue = queueStub();
+      const refusal = new RpcUserError('This conversation is not open in this tab.', 'SESSION_NOT_FOUND');
+      followUpQueue.withdraw.mockRejectedValueOnce(refusal);
+      const suite = buildSuite({ followUpQueue });
+      suite.handlers.register();
+
+      await expect(getHandler(suite.rpc, 'chat:queued-withdraw')(item)).rejects.toBe(refusal);
+      expect(suite.sentry.captureException).not.toHaveBeenCalled();
+    });
   });
 
   describe('public pass-throughs', () => {

@@ -1,12 +1,10 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
   PermissionRequest,
   PermissionResponse,
   SessionId,
-  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
@@ -35,10 +33,7 @@ import {
   SessionHistoryReplayer,
   type ReplayLiveSeed,
 } from './chat-store/session-history-replayer.service';
-import {
-  ConversationService,
-  type QueuedCommand,
-} from './chat-store/conversation.service';
+import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import type { SendOutcome } from './message-sender.service';
@@ -75,7 +70,6 @@ import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
  */
 @Injectable({ providedIn: 'root' })
 export class ChatStore {
-  private readonly _vscodeService = inject(VSCodeService);
   private readonly sessionManager = inject(SessionManager);
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
@@ -127,7 +121,6 @@ export class ChatStore {
   readonly listQuery = this.sessionLoader.listQuery;
   readonly organizationAvailable = this.sessionLoader.organizationAvailable;
   readonly isStopping = this.conversation.isStopping;
-  readonly queueRestoreContent = this.conversation.queueRestoreSignal;
   readonly permissionRequests = this.permissionHandler.permissionRequests;
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
   readonly questionRequests = this.permissionHandler.questionRequests;
@@ -184,7 +177,6 @@ export class ChatStore {
   readonly sessionStats = this.tabManager.activeTabSessionStats;
   readonly liveModelStats = this.tabManager.activeTabLiveModelStats;
   readonly compactionCount = this.tabManager.activeTabCompactionCount;
-  readonly queuedContent = this.tabManager.activeTabQueuedContent;
   readonly activeStreamingState = this.tabManager.activeTabStreamingState;
 
   readonly currentSession = computed(() => {
@@ -398,41 +390,12 @@ export class ChatStore {
   }
 
   /**
-   * Clear queued content for a specific tab or the active tab (the queue's
-   * cancel and edit actions). A slash command held behind the removed text
-   * becomes the queued message, so it is still sent, and shown.
-   */
-  clearQueuedContent(tabId?: string): void {
-    const targetTabId = tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
-    this.tabManager.setQueuedContent(targetTabId, null);
-    this.conversation.releaseHeldCommand(targetTabId);
-  }
-
-  /**
-   * Withdraw exactly this queued or held slash command and keep the rest of
-   * the tab's queue (the automatic hand-off's Cancel). False when it is no
-   * longer queued.
-   */
-  withdrawQueuedCommand(command: QueuedCommand): boolean {
-    return this.conversation.withdrawQueuedCommand(command);
-  }
-
-  /** Whether this queued slash command is still waiting on its tab. */
-  isQueuedCommand(command: QueuedCommand): boolean {
-    return this.conversation.isQueuedCommand(command);
-  }
-
-  clearQueueRestoreSignal(): void {
-    this.conversation.clearQueueRestoreSignal();
-  }
-
-  /**
-   * Process flat streaming event from SDK. Three-branch result dispatch
+   * Process flat streaming event from SDK. Two-branch result dispatch
    * delegates to specialized sub-services:
    * - compactionComplete → CompactionLifecycleService.handleCompactionComplete
    * - compactionSessionId (start) → CompactionLifecycleService.handleCompactionStart
-   * - queuedContent → MessageDispatchService.sendQueuedMessage
+   *
+   * No queue flush: follow-ups are owned by the backend (TASK_2026_884).
    *
    * tabId routes the event; sessionId stores the real SDK UUID.
    */
@@ -464,21 +427,6 @@ export class ChatStore {
     }
     if (result && result.compactionSessionId) {
       this.handleCompactionStart(result.compactionSessionId);
-      return;
-    }
-    const queueFlushes =
-      result?.queueFlushes ??
-      (result?.queuedContent
-        ? [{ tabId: result.tabId, content: result.queuedContent }]
-        : []);
-    // A terminal turn_state reaches this point only after it was applied by
-    // StreamingHandlerService. Start each send now, before signal rendering
-    // observes the newly-idle tab and may reveal its budget banner.
-    for (const queueFlush of queueFlushes) {
-      this.messageDispatch.sendQueuedMessage(
-        queueFlush.tabId,
-        queueFlush.content,
-      );
     }
   }
 
@@ -570,24 +518,6 @@ export class ChatStore {
    */
   dropQuestionRequest(questionId: string): void {
     this.permissionHandler.dropQuestionRequest(questionId);
-  }
-
-  public queueOrAppendMessage(
-    content: string,
-    options?: SendMessageOptions,
-  ): void {
-    this.conversation.queueOrAppendMessage(content, options);
-  }
-
-  /** Move queued content to input field. Posts CHAT_RESTORE_INPUT to webview. */
-  public moveQueueToInput(): void {
-    const queuedContent = this.conversation.queueRestoreSignal();
-    if (queuedContent) {
-      this._vscodeService.postMessage({
-        type: MESSAGE_TYPES.CHAT_RESTORE_INPUT,
-        content: queuedContent,
-      });
-    }
   }
 
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */

@@ -1,58 +1,89 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import {
   CommandCenterSendLockService,
+  QueuedFollowUpStore,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import { AuthStateService } from '@ptah-extension/core';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { ConversationService } from './conversation.service';
+import {
+  AuthStateService,
+  ClaudeRpcService,
+  LoggingService,
+} from '@ptah-extension/core';
+import {
+  PermissionHandlerService,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
+import type { TabState } from '@ptah-extension/chat-types';
+import { ActionBannerService } from '../action-banner.service';
 import { MessageSenderService } from '../message-sender.service';
+import { StreamViewportController } from '../stream-viewport-controller.service';
 import { MessageDispatchService } from './message-dispatch.service';
 
+const SDK_1 = '11111111-1111-4111-8111-111111111111';
+const SDK_2 = '22222222-2222-4222-8222-222222222222';
+
+/**
+ * The Command Center send lock holds every non-owner send of its root tab as
+ * a renderer-held follow-up (TASK_2026_884). Release hands the held items to
+ * the backend queue of the captured session, once, in order.
+ */
 describe('Command Center dispatch lock', () => {
-  const root = {
-    id: 'root',
-    status: 'loaded',
-    claudeSessionId: 'sdk-1',
-    streamingState: null,
-    queuedContent: 'saved',
-    queuedOptions: null,
-    messages: [],
-  };
-  const other = {
-    ...root,
-    id: 'other',
-    claudeSessionId: 'sdk-2',
-    queuedContent: null,
-  };
-  const tabs = [root, other];
-  const send = jest.fn().mockResolvedValue({ success: true });
-  const flush = jest.fn().mockResolvedValue({ success: true });
-  const queue = jest.fn();
-  const clear = jest.fn();
+  let tabs: ReturnType<typeof signal<TabState[]>>;
+  let send: jest.Mock;
+  let submit: jest.Mock;
   let lock: CommandCenterSendLockService;
   let dispatch: MessageDispatchService;
+  let store: QueuedFollowUpStore;
+
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    TestBed.tick();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+  };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    root.status = 'loaded';
-    Object.assign(root, { queuedContent: 'saved' });
+    tabs = signal<TabState[]>([
+      {
+        id: 'root',
+        status: 'loaded',
+        claudeSessionId: SDK_1,
+        streamingState: null,
+        messages: [],
+      } as unknown as TabState,
+      {
+        id: 'other',
+        status: 'loaded',
+        claudeSessionId: SDK_2,
+        streamingState: null,
+        messages: [],
+      } as unknown as TabState,
+    ]);
+    send = jest.fn().mockResolvedValue({ success: true });
+    submit = jest.fn().mockResolvedValue({
+      success: true,
+      data: { success: true, queueState: 'queued' },
+    });
     TestBed.configureTestingModule({
       providers: [
-        MessageDispatchService,
-        CommandCenterSendLockService,
         {
           provide: TabManagerService,
           useValue: {
-            tabs: () => tabs,
+            tabs,
+            backgroundTabsRevision: signal(0),
+            streamingTabIds: signal(new Set()),
+            removedWorkspace$: signal(null),
             activeTabId: () => 'root',
-            activeTab: () => root,
-            activeTabStatus: () => 'loaded',
+            activeTab: () => tabs()[0],
+            activeTabStatus: () => tabs()[0].status,
             isTabStreaming: () => false,
-            findTabByIdAcrossWorkspaces: (id: string) => ({
-              tab: tabs.find((t) => t.id === id),
-            }),
-            clearQueuedContentAndOptions: clear,
+            onTabClosed: () => () => undefined,
+            findTabByIdAcrossWorkspaces: (id: string) => {
+              const tab = tabs().find((t) => t.id === id);
+              return tab ? { tab, workspacePath: '/ws' } : null;
+            },
+            setMessages: jest.fn(),
+            markStreaming: jest.fn(),
           },
         },
         {
@@ -60,43 +91,53 @@ describe('Command Center dispatch lock', () => {
           useValue: {
             persistedAuthMethod: () => 'apiKey',
             isLoading: () => false,
+            activeProviderId: () => 'anthropic',
           },
         },
         {
           provide: MessageSenderService,
-          useValue: { send, continueExistingSessionForQueueFlush: flush },
-        },
-        {
-          provide: ConversationService,
-          useValue: {
-            queueOrAppendMessage: queue,
-            releaseHeldCommand: jest.fn(),
-            queuedCommandForFlush: () => null,
-            isQueuedCommand: () => false,
-          },
+          useValue: { send, submitQueuedFollowUp: submit },
         },
         {
           provide: PermissionHandlerService,
           useValue: { permissionRequests: () => [] },
         },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        {
+          provide: StreamingHandlerService,
+          useValue: { recordUserPromptBoundary: jest.fn() },
+        },
+        {
+          provide: StreamViewportController,
+          useValue: { tierFor: () => 'focused' },
+        },
+        { provide: ActionBannerService, useValue: { showError: jest.fn() } },
+        {
+          provide: LoggingService,
+          useValue: { warn: jest.fn(), error: jest.fn(), info: jest.fn() },
+        },
       ],
     });
     lock = TestBed.inject(CommandCenterSendLockService);
     dispatch = TestBed.inject(MessageDispatchService);
-    lock.engage('root', 'sdk-1', 'owner');
+    store = TestBed.inject(QueuedFollowUpStore);
+    lock.engage('root', SDK_1, 'owner');
     TestBed.tick();
   });
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('queues regular and slash sends, preserving an existing queued prompt', async () => {
+  it('holds regular and slash sends of the root while the lock is held', async () => {
     await dispatch.sendOrQueueMessage('next', { tabId: 'root' });
     await dispatch.sendOrQueueMessage('/review', { tabId: 'root' });
-    expect(queue).toHaveBeenCalledTimes(2);
+    await flush();
+
     expect(send).not.toHaveBeenCalled();
-    await dispatch.sendQueuedMessage('root', 'saved');
-    expect(clear).not.toHaveBeenCalled();
-    expect(flush).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+    expect(store.forTab('root').map((e) => [e.content, e.phase])).toEqual([
+      ['next', 'held'],
+      ['/review', 'held'],
+    ]);
   });
 
   it('passes owner sends and leaves other tabs available after a rekey', async () => {
@@ -107,71 +148,48 @@ describe('Command Center dispatch lock', () => {
     });
     await dispatch.sendOrQueueMessage('other text', { tabId: 'other' });
     expect(send).toHaveBeenCalledTimes(2);
-    await dispatch.sendQueuedMessage('root', 'saved');
-    expect(flush).not.toHaveBeenCalled();
+    expect(store.entries()).toEqual([]);
   });
 
-  it('flushes a queued prompt when the lock is released while the root is idle', async () => {
+  it('hands a held prompt to the captured session once the lock is released', async () => {
+    await dispatch.sendOrQueueMessage('saved', { tabId: 'root' });
     lock.release('owner');
-    await Promise.resolve();
+    await flush();
 
-    expect(clear).toHaveBeenCalledWith('root');
-    expect(flush).toHaveBeenCalledWith('saved', 'sdk-1', {
-      tabId: 'root',
-      ownerToken: undefined,
-    });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'saved',
+        sessionId: SDK_1,
+        tabId: 'root',
+      }),
+    );
+    expect(store.forTab('root')[0].phase).toBe('queued');
   });
 
-  it('leaves the queued prompt for turn-end when the root is still streaming', async () => {
-    root.status = 'streaming';
+  it('keeps a held slash command until the root is idle after release', async () => {
+    tabs.update((list) =>
+      list.map((t) => (t.id === 'root' ? { ...t, status: 'streaming' } : t)),
+    );
+    await dispatch.sendOrQueueMessage('/review', { tabId: 'root' });
     lock.release('owner');
-    await Promise.resolve();
+    await flush();
+    expect(send).not.toHaveBeenCalled();
 
-    expect(clear).not.toHaveBeenCalled();
-    expect(flush).not.toHaveBeenCalled();
+    tabs.update((list) =>
+      list.map((t) => (t.id === 'root' ? { ...t, status: 'loaded' } : t)),
+    );
+    await flush();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('/review', { tabId: 'root' });
   });
 
-  it('flushes exactly once after a same-tick queue and release', async () => {
-    const queued = dispatch.sendOrQueueMessage('saved', { tabId: 'root' });
+  it('sends nothing when the released root is re-engaged in the same tick', async () => {
+    await dispatch.sendOrQueueMessage('saved', { tabId: 'root' });
     lock.release('owner');
+    lock.engage('root', SDK_1, 'new-owner');
+    await flush();
 
-    expect(flush).not.toHaveBeenCalled();
-    await Promise.resolve();
-    await queued;
-
-    expect(queue).toHaveBeenCalledTimes(1);
-    expect(clear).toHaveBeenCalledTimes(1);
-    expect(flush).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
   });
-
-  it('does not flush when the released root is re-engaged in the same tick', async () => {
-    lock.release('owner');
-    lock.engage('root', 'sdk-1', 'new-owner');
-
-    await Promise.resolve();
-
-    expect(clear).not.toHaveBeenCalled();
-    expect(flush).not.toHaveBeenCalled();
-  });
-
-  it.each(['release first', 'turn end first'])(
-    'flushes once when release and turn end interleave: %s',
-    async (order) => {
-      clear.mockImplementation(() =>
-        Object.assign(root, { queuedContent: null }),
-      );
-      const turnEnd = () => dispatch.sendQueuedMessage('root', 'saved');
-      if (order === 'release first') {
-        lock.release('owner');
-        await turnEnd();
-      } else {
-        await turnEnd();
-        lock.release('owner');
-      }
-      await Promise.resolve();
-
-      expect(clear).toHaveBeenCalledTimes(1);
-      expect(flush).toHaveBeenCalledTimes(1);
-    },
-  );
 });

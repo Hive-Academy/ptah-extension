@@ -111,8 +111,7 @@ export class AgentFollowUpQueueService {
 
   /**
    * Hold a follow-up for the end of the current run, coalescing repeats into
-   * one message the same way `ConversationService.queueOrAppendMessage` does —
-   * a second thought should not become a second turn.
+   * one message — a second thought should not become a second turn.
    */
   enqueue(agentId: string, message: string): void {
     this._errors.update((map) => withoutEntry(map, agentId));

@@ -19,6 +19,11 @@ import type { SessionStatsEntry } from './rpc-session.types';
 import type { SessionBudgetState } from '../session-budget.types';
 import type { AgentSessionOpenedPayload } from '../messages/agent-session';
 import type { ProviderAccountSelection } from '../provider-account.types';
+import type {
+  QueuedFollowUpSnapshot,
+  QueuedFollowUpState,
+  SteerQueuedFollowUpResult,
+} from '../follow-up-queue.types';
 
 /**
  * Host deadline for a whole renderer-awaited RPC that may run a named Claude
@@ -203,6 +208,13 @@ export interface ChatContinueParams {
   ptahUiFence?: boolean;
   /** Account route for this turn; same contract as `ChatStartParams.accountSelection`. */
   accountSelection?: ProviderAccountSelection;
+  /**
+   * Backend-owned follow-up (TASK_2026_884). Sent at once while a turn runs:
+   * the provider holds it for this session and admits it as the next turn,
+   * whether or not the tab is visible. Requires `clientMessageId` as a UUID
+   * (Zod-enforced at the handler). Slash commands cannot be queued.
+   */
+  readonly queueIntent?: 'next-turn';
 }
 
 /** Response from chat:continue RPC method */
@@ -220,6 +232,65 @@ export interface ChatContinueResult {
   errorCode?: RpcUserErrorCode;
   /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
+  /**
+   * Only for a `queueIntent` request. `queued`: accepted and held for the next
+   * turn (not delivered yet; follow `CHAT_QUEUED_MESSAGE_STATE`). `admitted`:
+   * the session was idle, so the message started a turn at once.
+   */
+  readonly queueState?: 'queued' | 'admitted';
+  /** The held item's `clientMessageId`; present when `queueState` is `queued`. */
+  readonly queuedMessageId?: string;
+}
+
+/** Parameters for chat:queued-list RPC method (TASK_2026_884). */
+export interface ChatQueuedListParams {
+  readonly sessionId: SessionId;
+  /** The tab that queued the items; another tab's items are never listed. */
+  readonly tabId: string;
+}
+
+/** Response from chat:queued-list: held follow-ups of this tab, FIFO order. */
+export interface ChatQueuedListResult {
+  readonly items: QueuedFollowUpSnapshot[];
+}
+
+/** Parameters for chat:queued-withdraw RPC method (TASK_2026_884). */
+export interface ChatQueuedWithdrawParams {
+  readonly sessionId: SessionId;
+  readonly tabId: string;
+  readonly clientMessageId: string;
+}
+
+/** Response from chat:queued-withdraw: true only when removed before claim. */
+export interface ChatQueuedWithdrawResult {
+  readonly withdrawn: boolean;
+}
+
+/** Parameters for chat:queued-steer RPC method (TASK_2026_884, Codex only). */
+export interface ChatQueuedSteerParams {
+  readonly sessionId: SessionId;
+  readonly tabId: string;
+  readonly clientMessageId: string;
+}
+
+/** Response from chat:queued-steer. `UNSUPPORTED` when the provider cannot steer. */
+export type ChatQueuedSteerResult = SteerQueuedFollowUpResult;
+
+/**
+ * Push payload of `MESSAGE_TYPES.CHAT_QUEUED_MESSAGE_STATE` (TASK_2026_884).
+ *
+ * Sent for every tab regardless of the stream viewport, hidden tabs included.
+ * It reports a held follow-up's state; it never releases or flushes anything
+ * in the renderer.
+ */
+export interface ChatQueuedMessageStateEvent {
+  readonly sessionId: SessionId;
+  /** The tab the follow-up was queued from (never the active tab). */
+  readonly tabId: string;
+  readonly clientMessageId: string;
+  readonly state: QueuedFollowUpState;
+  /** Safe, user-presentable reason for `failed`. */
+  readonly reason?: string;
 }
 
 /** Parameters for chat:abort RPC method */
@@ -238,6 +309,11 @@ export interface ChatAbortResult {
    * frontend can surface the resume banner without reloading the session.
    */
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
+  /**
+   * Follow-ups this Stop withdrew BEFORE it interrupted the turn, FIFO order
+   * (TASK_2026_884). An item a turn had already claimed is not in it.
+   */
+  withdrawn?: (QueuedFollowUpSnapshot & { readonly tabId: string })[];
 }
 
 /**
