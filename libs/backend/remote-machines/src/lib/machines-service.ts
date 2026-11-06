@@ -89,9 +89,9 @@ export class MachinesService {
       if (stored !== undefined && typeof stored !== 'string')
         throw new Error('Credential store returned a non-string token');
       token = stored as string | undefined;
-    } catch (error) {
+    } catch {
       this.options.logger?.error(
-        `Could not read credential for machine ${machineId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Could not read credential for machine ${machineId}.`,
       );
     }
     if (this.disposed)
@@ -379,6 +379,27 @@ export class MachinesService {
   }
   async retry(machineId: string): Promise<{ machine: MachineSummary }> {
     const connection = this.connection(machineId);
+    if (connection.state === 'unpaired' && !connection.hasToken()) {
+      const data = await this.options.registry.read();
+      const entry = data.machines.find(
+        (machine) => machine.machineId === machineId,
+      );
+      if (entry?.workerMachineId) {
+        try {
+          const stored: unknown = await this.options.tokens.get(machineId);
+          if (stored !== undefined && typeof stored !== 'string')
+            throw new Error('Credential store returned a non-string token');
+          if (stored) {
+            connection.setWorkerMachineId(entry.workerMachineId);
+            connection.setToken(stored);
+          }
+        } catch {
+          this.options.logger?.error(
+            `Could not read credential for machine ${machineId}.`,
+          );
+        }
+      }
+    }
     await connection.retry();
     return { machine: this.summary(connection) };
   }

@@ -372,6 +372,16 @@ export class MachineConnection {
           await client.call('token.revokeSelf', {});
         });
         return paired;
+      } catch (error) {
+        if (
+          !this.disposed &&
+          this.token &&
+          this.workerMachineId &&
+          this.state !== 'version-mismatch' &&
+          this.state !== 'unpaired'
+        )
+          this.schedule();
+        throw error;
       } finally {
         this.closing = true;
         client.close();
@@ -410,6 +420,9 @@ export class MachineConnection {
     this.state = 'offline';
     this.attempts = 0;
     this.emit();
+  }
+  hasToken(): boolean {
+    return this.token !== undefined;
   }
   retry(): Promise<void> {
     if (this.connecting) return this.connecting;

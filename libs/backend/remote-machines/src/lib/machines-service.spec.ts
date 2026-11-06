@@ -7,6 +7,45 @@ import {
 } from './machine-connection';
 
 describe('MachinesService', () => {
+  it('reloads a recovered credential on startup retry of a cached unpaired connection', async () => {
+    let stored: string | undefined;
+    const connection = {
+      machineId: 'local',
+      alias: 'host',
+      state: 'unpaired',
+      hasToken: jest.fn(() => stored === 'loaded'),
+      setWorkerMachineId: jest.fn(),
+      setToken: jest.fn((token: string) => {
+        expect(token).toBe('recovered-secret');
+        connection.state = 'offline';
+        stored = 'loaded';
+      }),
+      retry: jest.fn(async () => {
+        if (connection.state === 'offline') connection.state = 'connected';
+      }),
+    };
+    const tokens = { get: jest.fn(async () => stored ?? undefined) };
+    const service = new MachinesService({
+      registry: {
+        read: async () => ({
+          machines: [
+            { machineId: 'local', alias: 'host', workerMachineId: 'worker' },
+          ],
+        }),
+      } as unknown as MachineRegistry,
+      tokens: tokens as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      createConnection: () => connection as unknown as MachineConnection,
+    });
+    expect((await service.list()).machines[0].state).toBe('unpaired');
+    stored = 'recovered-secret';
+    expect((await service.retry('local')).machine.state).toBe('connected');
+    expect(tokens.get).toHaveBeenCalledTimes(2);
+    expect(connection.setWorkerMachineId).toHaveBeenCalledWith('worker');
+    expect(connection.setToken).toHaveBeenCalledTimes(1);
+    expect(connection.retry).toHaveBeenCalledTimes(1);
+  });
   it('serializes add and offline removal while deleting local credentials', async () => {
     let machines: { machineId: string; alias: string }[] = [];
     const registry = {

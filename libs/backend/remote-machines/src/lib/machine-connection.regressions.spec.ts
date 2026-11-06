@@ -129,6 +129,20 @@ it('L2 advances backoff once when failed open closes its own client', async () =
   h.connection.dispose();
 });
 
+it('restores the next backoff retry when pairing fails on an offline paired machine', async () => {
+  const h = harness({}, async (method) => {
+    if (method === 'hello') return hello;
+    throw new Error('offline');
+  });
+  await expect(h.connection.connect()).rejects.toThrow('offline');
+  expect(h.delays).toEqual([1000]);
+  await expect(h.connection.exchange('code')).rejects.toThrow('offline');
+  expect(h.cancelled).toHaveLength(1);
+  expect(h.delays).toEqual([1000, 2000]);
+  expect(h.connection.nextRetryAt).toBeDefined();
+  h.connection.dispose();
+});
+
 it('L6 counts early replay and suppresses duplicate frames before reconnect', async () => {
   const delivered = jest.fn();
   const h = harness(

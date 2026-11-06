@@ -62,8 +62,11 @@ it('times out after 15 seconds and kills the child', async () => {
     );
     jest.advanceTimersByTime(15_000);
     expect(child.kill).toHaveBeenCalledTimes(1);
-    child.emit('close', null);
     await expect(result).rejects.toMatchObject({ code: 'unreachable' });
+    expect(child.stdout.listenerCount('data')).toBe(0);
+    expect(child.stderr.listenerCount('data')).toBe(0);
+    child.emit('error', new Error('late child error'));
+    child.emit('close', null);
   } finally {
     jest.useRealTimers();
   }
@@ -146,11 +149,13 @@ it('maps thrown spawn and oversized stdout', async () => {
     (() => child) as never,
   );
   child.stdout.write('x'.repeat(1_000_001));
-  child.emit('close', null);
   await expect(result).rejects.toMatchObject({
     code: 'invalid-output',
     message: expect.stringMatching(/output too large/),
   });
+  expect(child.kill).toHaveBeenCalledTimes(1);
+  child.emit('error', new Error('late child error'));
+  child.emit('close', null);
 });
 
 it('uses display name for version mismatch copy', async () => {

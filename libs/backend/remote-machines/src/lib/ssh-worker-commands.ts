@@ -79,45 +79,62 @@ export async function runSshWorkerCommand(
     }
     let stdout = '';
     let stderr = '';
-    let timedOut = false;
-    let outputTooLarge = false;
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.removeListener('data', onStdout);
+      child.stderr.removeListener('data', onStderr);
+      child.removeListener('close', onClose);
+      child.stdout.destroy();
+      child.stderr.destroy();
+    };
+    const fail = (error: SshWorkerCommandError, kill = false) => {
+      if (settled) return;
+      settled = true;
+      if (kill) child.kill();
+      cleanup();
+      reject(error);
+    };
     const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
+      fail(
+        new SshWorkerCommandError(
+          'unreachable',
+          `SSH timed out for ${machineLabel}.`,
+        ),
+        true,
+      );
     }, 15_000);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      if (outputTooLarge) return;
+    const onStdout = (chunk: string) => {
+      if (settled) return;
       stdout += chunk;
       if (stdout.length > 1_000_000) {
-        outputTooLarge = true;
-        child.kill();
+        fail(
+          new SshWorkerCommandError(
+            'invalid-output',
+            `Worker output too large from ${machineLabel}.`,
+          ),
+          true,
+        );
       }
-    });
-    child.stderr.on('data', (chunk: string) => {
+    };
+    const onStderr = (chunk: string) => {
+      if (settled) return;
       stderr = (stderr + chunk).slice(-4096);
-    });
-    child.once('error', () => {
-      clearTimeout(timer);
-      reject(
+    };
+    const onError = () => {
+      fail(
         new SshWorkerCommandError(
           'unreachable',
           `SSH failed for ${machineLabel}.`,
         ),
       );
-    });
-    child.once('close', (code) => {
-      clearTimeout(timer);
-      if (outputTooLarge) {
-        reject(
-          new SshWorkerCommandError(
-            'invalid-output',
-            `Worker output too large from ${machineLabel}.`,
-          ),
-        );
-        return;
-      }
+    };
+    const onClose = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (code === 127 || /not found/i.test(stderr)) {
         reject(
           new SshWorkerCommandError(
@@ -127,13 +144,11 @@ export async function runSshWorkerCommand(
         );
         return;
       }
-      if (timedOut || code !== 0) {
+      if (code !== 0) {
         reject(
           new SshWorkerCommandError(
             'unreachable',
-            timedOut
-              ? `SSH timed out for ${machineLabel}.`
-              : `SSH command failed for ${machineLabel}.`,
+            `SSH command failed for ${machineLabel}.`,
           ),
         );
         return;
@@ -152,6 +167,11 @@ export async function runSshWorkerCommand(
           ),
         );
       }
-    });
+    };
+    child.stdout.on('data', onStdout);
+    child.stderr.on('data', onStderr);
+    // Keep an inert error listener after settlement: a late child error must not throw.
+    child.on('error', onError);
+    child.once('close', onClose);
   });
 }
