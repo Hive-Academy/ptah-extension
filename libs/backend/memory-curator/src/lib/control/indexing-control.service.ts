@@ -297,6 +297,18 @@ export class IndexingControlService {
   private readonly openCensuses = new Map<string, CensusRecord>();
   /** Every record with a live participant, open or closed. */
   private readonly liveCensuses = new Set<CensusRecord>();
+  /**
+   * A manual start between its synchronous controller claim and its census
+   * join (the setup reads run in between). Status reports it as a live
+   * manual run, so a status read right after `indexing:start` sees the run.
+   * Valid only while `controller` is still the active one.
+   */
+  private pendingManual: {
+    readonly controller: AbortController;
+    readonly rootKey: string;
+    readonly startedAt: number;
+    readonly force: boolean;
+  } | null = null;
   /** Source of `CensusRecord.seq` and of background setup-failure attempts. */
   private censusSeq = 0;
   /**
@@ -513,6 +525,12 @@ export class IndexingControlService {
     }
     const controller = new AbortController();
     this.activeAbortController = controller;
+    this.pendingManual = {
+      controller,
+      rootKey: normalizeWorkspaceRoot(workspaceRoot),
+      startedAt: Date.now(),
+      force: options?.force === true,
+    };
     const { signal } = controller;
     // Set once this run has joined (or opened) its census record; the
     // `finally` releases it exactly once with `outcome`.
@@ -558,6 +576,7 @@ export class IndexingControlService {
         force,
         symbolsPhase,
       );
+      this.clearPendingManual(controller);
 
       let stats: IndexingRunStats | null = null;
       if (symbolsPhase) {
@@ -615,6 +634,7 @@ export class IndexingControlService {
       // The census settle logs the warn and pushes INDEXING_FAILED once.
       outcome = { kind: 'failed', error };
     } finally {
+      this.clearPendingManual(controller);
       if (this.activeAbortController?.signal === signal) {
         this.activeAbortController = null;
         this.activeWorkspaceFp = null;
@@ -626,6 +646,23 @@ export class IndexingControlService {
         );
       }
     }
+  }
+
+  private clearPendingManual(controller: AbortController): void {
+    if (this.pendingManual?.controller === controller) {
+      this.pendingManual = null;
+    }
+  }
+
+  /** The pending manual start for `rootKey`, while its controller is active. */
+  private pendingManualFor(rootKey: string): {
+    readonly startedAt: number;
+    readonly force: boolean;
+  } | null {
+    const pending = this.pendingManual;
+    if (pending === null || pending.rootKey !== rootKey) return null;
+    if (this.activeAbortController !== pending.controller) return null;
+    return pending;
   }
 
   /** True while a manual (user-started) run is active. */
@@ -904,7 +941,28 @@ export class IndexingControlService {
           }
         : {}),
     };
-    const persisted = this.persistLastRun(record.fp, record.seq, lastRun);
+    const write = this.persistLastRun(record.fp, record.seq, lastRun);
+    // A newer census already persisted its own run and sent its own push:
+    // this older outcome must not report a recovery (or a failure) over it.
+    // The newer push may have arrived while this census was still live, so
+    // the panel can still show it running: a status-only refresh tells it to
+    // re-read the persisted (newer) state.
+    if (write === 'stale-skipped') {
+      const refreshEvent: IndexingCompleteEvent = {
+        workspaceRoot: record.workspaceRoot,
+        workspaceFingerprint: record.fp,
+        completedAt: finishedAt,
+        gitHeadSha: record.gitHeadSha,
+        elapsedMs: durationMs,
+        refreshOnly: true,
+      };
+      void this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.INDEXING_COMPLETE,
+        refreshEvent,
+      );
+      return;
+    }
+    const persisted = write === 'written';
     if (!persisted && decided.kind !== 'failed') {
       this.logger.warn('[indexing-control] last run could not be saved', {
         origin: record.origin,
@@ -959,14 +1017,14 @@ export class IndexingControlService {
    * process that writes the row between the read and the write makes the
    * write miss; the row is then read again and the order decided again.
    * A failed read never writes: the order cannot be decided without it.
-   * Returns false when the read or the write failed, or the row kept
-   * changing for every attempt; a stale skip is not a failure.
+   * Returns 'failed' when the read or the write failed, or the row kept
+   * changing for every attempt; 'stale-skipped' when a newer run is kept.
    */
   private persistLastRun(
     fp: string,
     seq: number,
     lastRun: IndexingLastRunWire,
-  ): boolean {
+  ): 'written' | 'stale-skipped' | 'failed' {
     const json = JSON.stringify(lastRun);
     for (let attempt = 0; attempt < LAST_RUN_WRITE_ATTEMPTS; attempt++) {
       const read = this.readRowResult(fp);
@@ -975,7 +1033,7 @@ export class IndexingControlService {
           '[indexing-control] indexing_state read failed; last run not written',
           { error: describeError(read.error) },
         );
-        return false;
+        return 'failed';
       }
       const storedJson = read.row?.last_run_json ?? null;
       const ours = this.newestPersisted.get(fp);
@@ -990,13 +1048,13 @@ export class IndexingControlService {
         this.logger.debug(
           '[indexing-control] older census settled after a newer one; last run kept',
         );
-        return true;
+        return 'stale-skipped';
       }
       const outcome = this.compareAndSetLastRun(fp, storedJson, json);
-      if (outcome === 'failed') return false;
+      if (outcome === 'failed') return 'failed';
       if (outcome === 'written') {
         this.newestPersisted.set(fp, { seq, json });
-        return true;
+        return 'written';
       }
       // 'conflict': another writer replaced the row after the read.
     }
@@ -1004,7 +1062,7 @@ export class IndexingControlService {
       '[indexing-control] indexing_state last run kept changing; last run not written',
       { attempts: LAST_RUN_WRITE_ATTEMPTS },
     );
-    return false;
+    return 'failed';
   }
 
   /**
@@ -1064,8 +1122,16 @@ export class IndexingControlService {
         chosen = record;
       }
     }
-    if (chosen === null) return null;
-    const manualLive = this.hasLiveManual(chosen);
+    const pending = this.pendingManualFor(rootKey);
+    if (chosen === null) {
+      // A manual start still in its setup reads: report it as running.
+      return pending
+        ? { origin: 'manual', startedAt: pending.startedAt, force: pending.force }
+        : null;
+    }
+    // A pending manual start joins the open record once its setup ends.
+    const manualLive =
+      this.hasLiveManual(chosen) || (pending !== null && chosen.open);
     return {
       origin: chosen.origin,
       startedAt: chosen.startedAt,

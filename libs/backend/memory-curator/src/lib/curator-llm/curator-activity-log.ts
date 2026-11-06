@@ -20,6 +20,7 @@ import type {
   CuratorStallReason,
 } from './curator-llm.interface';
 import type { MemoryCuratorEvent } from '../diagnostics.types';
+import { redactSecrets } from '../triggers/redact-secrets';
 
 /**
  * Whether the pass reached the model at all — TASK_2026_306 Batch 10 (F1).
@@ -471,7 +472,9 @@ export class CuratorActivityLog {
     extractedCount = 0,
   ): CuratorRunStats {
     const chain = causeChain(error);
-    const detail = errorText(error);
+    // The host logger inlines `warn` arguments without redacting them, so
+    // credential-shaped text is stripped here; the rest of the text stays.
+    const detail = redactSecrets(errorText(error));
     // The cause chain is what tells a sign-in failure apart from any other:
     // the adapter wraps the provider's `AuthRequiredError` in a
     // `CuratorLlmQueryError`. Matched by name so this library does not import
@@ -517,7 +520,7 @@ export class CuratorActivityLog {
       extracted: extractedCount,
       reason,
       error: detail,
-      causes: chain.slice(1).map(errorText),
+      causes: chain.slice(1).map((link) => redactSecrets(errorText(link))),
     });
     return zeroedStats;
   }

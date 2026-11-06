@@ -31,3 +31,6 @@
 | 27 | User: keep parseReviewVerdict strict; a bare bold `**APPROVED — 8/10**` line is not a verdict | spec-extractor.ts | user |
 | 28 | User: marks GitGuardian incident 39753787 false positive in the dashboard; no code change | fake JWT in 4029d354f, built at run time since 6c934072a | user |
 | 29 | Fix review: grok lane failed (HTTP 402 usage exhausted); kimi lane reviews instead (reviewer family kimi, implementer claude) | agent-lanes §5 fallback | orchestrator |
+| 30 | CodeRabbit fix review: antigravity failed (quota, ~116 h); codex reviews instead (reviewer codex, implementer claude) | agent-lanes §5 | orchestrator |
+| 31 | CodeRabbit fix: codex round 1 REVISE 6/10 (stale skip leaves panel 'indexing'). Fix round 2 of 2 (last): refreshOnly flag on INDEXING_COMPLETE; fixed now because round 1 caused it | code-logic-review-coderabbit-fix.md | orchestrator |
+| 32 | CodeRabbit fix round 2: codex Round 2 APPROVED 8/10, no findings; verify passed (tests 6/6, typecheck incl. Electron + renderer); persistence-sqlite lint fails only on 10 pre-existing 0057/0058 errors | code-logic-review-coderabbit-fix.md ## Round 2 | orchestrator |

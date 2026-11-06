@@ -128,6 +128,14 @@ export interface IndexingCompleteEvent {
   readonly completedAt: number;
   readonly gitHeadSha: string | null;
   readonly elapsedMs: number;
+  /**
+   * `true` when no run completed: an older census settled after a newer one
+   * had already persisted its own result, so the stored status did not
+   * change. The panel must drop its live progress and re-read the status;
+   * it must not count this push as a completion or a recovery. Absent on a
+   * real completion.
+   */
+  readonly refreshOnly?: true;
 }
 
 export interface IndexingFailedEvent {

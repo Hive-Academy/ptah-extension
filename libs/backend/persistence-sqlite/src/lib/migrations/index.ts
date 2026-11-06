@@ -96,6 +96,7 @@ import { sql as sql0067ReviewFailureRecords } from './0067_review_failure_record
 import { sql as sql0068ReviewHeadBackoff } from './0068_review_head_backoff';
 import { sql as sql0069ReviewAttemptDryRun } from './0069_review_attempt_dry_run';
 import { sql as sql0070IndexingLastRun } from './0070_indexing_last_run';
+import { sql as sql0071SkillInvEventsTaskUnreconciled } from './0071_skill_inv_events_task_unreconciled';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -487,5 +488,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 70,
     name: '0070_indexing_last_run',
     sql: sql0070IndexingLastRun,
+  },
+  {
+    version: 71,
+    name: '0071_skill_inv_events_task_unreconciled',
+    sql: sql0071SkillInvEventsTaskUnreconciled,
   },
 ];

@@ -597,6 +597,49 @@ describe('WorkspaceIndexingComponent — busy state, last run, messages', () => 
     expect(fixture.nativeElement.textContent).not.toContain('SQLITE_BUSY');
   });
 
+  it('renders a background scan summary in the never-indexed block', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'never-indexed',
+        lastIndexedAt: null,
+        lastRun: {
+          origin: 'background',
+          outcome: 'succeeded',
+          startedAt: NOW - 5_000,
+          finishedAt: NOW - 1_000,
+          durationMs: 4_000,
+          filesScanned: 12,
+        },
+      }),
+    );
+    expect(query(fixture, '[data-testid="state-never-indexed"]')).not.toBeNull();
+    expect(
+      query(fixture, '[data-testid="last-run-summary"]')?.textContent?.trim(),
+    ).toBe('Last background scan just now: 12 files, 4s');
+  });
+
+  it('labels a kept manual error apart from a later successful background scan', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'error',
+        errorMessage: 'boom',
+        lastRun: {
+          origin: 'background',
+          outcome: 'succeeded',
+          startedAt: NOW - 5_000,
+          finishedAt: NOW - 1_000,
+          durationMs: 4_000,
+        },
+      }),
+    );
+    const block = query(fixture, '[data-testid="state-error"]')?.textContent;
+    expect(block).toContain('A manual index run did not finish.');
+    expect(block).not.toContain('The last index run did not finish');
+    expect(
+      query(fixture, '[data-testid="last-run-summary"]')?.textContent?.trim(),
+    ).toBe('Last background scan just now: 4s');
+  });
+
   it('renders the last run line in the stale block', async () => {
     const { fixture } = await render(
       baseStatus({

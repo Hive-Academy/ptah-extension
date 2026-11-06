@@ -914,9 +914,18 @@ export class MemoryTriggerService {
     return Math.max(0, limit - used);
   }
 
-  /** Give back the hourly slot of a pass the network back-off deferred at dispatch. */
-  private refundIfNetworkDeferred(stats: CuratorRunStats): void {
-    if (stats.deferral === 'network-backoff') {
+  /**
+   * Give back the hourly slot of a pass that sent no query: the network
+   * back-off deferred it at dispatch, or the configured curator provider can
+   * never run it (`provider-unsupported`). Charging the unsupported passes
+   * would leave no slots for real curation once the user picks a provider
+   * that works.
+   */
+  private refundUndispatched(stats: CuratorRunStats): void {
+    if (
+      stats.deferral === 'network-backoff' ||
+      stats.reason === 'provider-unsupported'
+    ) {
       this.rateLimiter.refund(RATE_LIMIT_KEY);
     }
   }
@@ -993,7 +1002,7 @@ export class MemoryTriggerService {
         salienceBoost,
       });
       if (stats.outcome === 'stalled') {
-        this.refundIfNetworkDeferred(stats);
+        this.refundUndispatched(stats);
         if (detachedEpisode && source !== 'session-end') {
           this.episodes.reattach(sessionId, detachedEpisode);
         }
@@ -1192,7 +1201,7 @@ export class MemoryTriggerService {
           // curated nothing from it, so recording it as scanned would lose it
           // the moment the next boot filters on `mtime > watermark`.
           if (stats.outcome === 'stalled') {
-            this.refundIfNetworkDeferred(stats);
+            this.refundUndispatched(stats);
             return 'stalled';
           }
           // A failed pass curated nothing either; the runner records it in

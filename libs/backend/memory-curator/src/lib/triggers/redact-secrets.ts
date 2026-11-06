@@ -25,6 +25,14 @@ const KEY_NAMES = [
   'private[_-]?key',
 ].join('|');
 
+/**
+ * A credential name inside a longer identifier: `GITHUB_TOKEN`,
+ * `OPENAI_API_KEY`, `client_secret_value`. Extra segments are allowed only
+ * when `_` or `-` separates them, so `author` and `tokens` stay ordinary
+ * words. The look-around keeps the match linear, and the suffix is bounded.
+ */
+const KEY_PATTERN = `(?<![A-Za-z0-9])(?:${KEY_NAMES})(?:[_-][A-Za-z0-9_-]{0,64})?(?![A-Za-z0-9])`;
+
 /** Ordered: the structural rules run before the token-shape rules. */
 const RULES: ReadonlyArray<{
   readonly pattern: RegExp;
@@ -53,7 +61,7 @@ const RULES: ReadonlyArray<{
   // the repetition is linear.
   {
     pattern: new RegExp(
-      `(\\b(?:${KEY_NAMES})\\b["']?\\s*[:=]\\s*)(["'])(?:(?!\\2)[^\\\\]|\\\\[\\s\\S])*\\2?`,
+      `(${KEY_PATTERN}["']?\\s*[:=]\\s*)(["'])(?:(?!\\2)[^\\\\]|\\\\[\\s\\S])*\\2?`,
       'gi',
     ),
     replace: `$1$2${REDACTED}$2`,
@@ -61,7 +69,7 @@ const RULES: ReadonlyArray<{
   // An unquoted value: `api_key=abc`, `token: abc`.
   {
     pattern: new RegExp(
-      `(\\b(?:${KEY_NAMES})\\b["']?\\s*[:=]\\s*)(?!["'])[^\\s&,;'"]+`,
+      `(${KEY_PATTERN}["']?\\s*[:=]\\s*)(?!["'])[^\\s&,;'"]+`,
       'gi',
     ),
     replace: `$1${REDACTED}`,

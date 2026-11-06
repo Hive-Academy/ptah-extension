@@ -1279,6 +1279,64 @@ describe('IndexingControlService census join (F5)', () => {
     ).toHaveLength(1);
   });
 
+  it('a manual start is running in status before its setup reads finish', async () => {
+    const { service, indexer } = buildCensusService();
+    const real = fingerprintModule.deriveWorkspaceFingerprint;
+    let releaseSetup!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockImplementationOnce(async (...args) => {
+        await gate;
+        return real(...args);
+      });
+
+    const manual = service.start('symbols', ROOT, manualDeps(indexer), {
+      force: true,
+    });
+    const during = await service.getStatus(ROOT);
+    expect(during.state).toBe('indexing');
+    expect(during.running).toEqual(
+      expect.objectContaining({ origin: 'manual', force: true }),
+    );
+
+    releaseSetup();
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed(STATS);
+    await manual;
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+  });
+
+  it('a pending manual start reports joinedBackground on an open background census', async () => {
+    const { service, indexer } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const real = fingerprintModule.deriveWorkspaceFingerprint;
+    let releaseSetup!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockImplementationOnce(async (...args) => {
+        await gate;
+        return real(...args);
+      });
+
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    expect((await service.getStatus(ROOT)).running).toEqual(
+      expect.objectContaining({ origin: 'background', joinedBackground: true }),
+    );
+
+    releaseSetup();
+    await waitFor(() => indexer.calls() === 2);
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+    await manual;
+  });
+
   it('A-F7: background first, manual second, census fails', async () => {
     const { service, indexer, webviewManager, fakeDb } = buildCensusService();
     const error = new Error('census broke');
@@ -1339,9 +1397,12 @@ describe('IndexingControlService census join (F5)', () => {
       expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
     );
     expect(status.running).toBeNull();
-    expect(
-      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
-    ).toHaveLength(2);
+    // The stale-skipped older census sends no second real completion, only
+    // a status-only refresh.
+    const completes = pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE);
+    expect(completes).toHaveLength(2);
+    expect(completes[0]['refreshOnly']).toBeUndefined();
+    expect(completes[1]['refreshOnly']).toBe(true);
   });
 
   it('joiner cancel: background first, manual joins, cancel → the census continues', async () => {
@@ -1369,6 +1430,49 @@ describe('IndexingControlService census join (F5)', () => {
     expect(
       pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
     ).toHaveLength(1);
+  });
+
+  it('an older background success that settles after a newer failed census sends only a status refresh', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const joiner = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 2);
+    service.cancel();
+    await joiner; // the aborted manual participant leaves the older census
+
+    // A memory-only run opens a newer census of its own, which fails.
+    await service.start(
+      'memory',
+      ROOT,
+      manualDeps(indexer, () => Promise.reject(new Error('memory broke'))),
+      { force: true },
+    );
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    ]);
+    const status = await service.getStatus(ROOT);
+    expect(status.lastRun).toEqual(
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    );
+    expect(status.running).toBeNull();
+    // The failure push arrived while the older census was still live, so
+    // the panel needs one status-only refresh, never a real completion.
+    const completes = pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE);
+    expect(completes).toHaveLength(1);
+    expect(completes[0]).toEqual(
+      expect.objectContaining({ workspaceRoot: ROOT, refreshOnly: true }),
+    );
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
   });
 
   it('manual first, watcher joined, cancel → one cancelled lastRun, no push', async () => {

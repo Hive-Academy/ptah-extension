@@ -232,9 +232,20 @@ export class BackOfficeActivityService implements MessageHandler {
       case MESSAGE_TYPES.INDEXING_PROGRESS:
         return mapIndexingProgress(payload);
       case MESSAGE_TYPES.INDEXING_COMPLETE:
-        return mapIndexingComplete(payload);
       case MESSAGE_TYPES.INDEXING_FAILED:
-        return mapIndexingFailed(payload);
+        // The failure notice is keyed to the active workspace: a failure or a
+        // completion for another root must not raise or resolve it there.
+        if (
+          !isForActiveWorkspace(
+            payload,
+            this.workspaceScope.activeWorkspacePath(),
+          )
+        ) {
+          return null;
+        }
+        return type === MESSAGE_TYPES.INDEXING_COMPLETE
+          ? mapIndexingComplete(payload)
+          : mapIndexingFailed(payload);
       case MESSAGE_TYPES.VEC_STATUS_CHANGED:
         return this.mapVecStatus(payload);
       case MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED:
@@ -484,8 +495,11 @@ function mapIndexingProgress(payload: unknown): ActivityItem | null {
 
 function mapIndexingComplete(payload: unknown): ActivityItem | null {
   const body = payload as IndexingCompleteEvent | undefined;
+  // A status-only refresh reports no finished run: it must neither narrate a
+  // completion nor resolve the failure notice of the newer failed run.
   if (
     !body ||
+    body.refreshOnly === true ||
     typeof body.elapsedMs !== 'number' ||
     !Number.isFinite(body.elapsedMs)
   ) {

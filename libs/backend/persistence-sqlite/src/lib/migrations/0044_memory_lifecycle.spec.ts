@@ -82,8 +82,9 @@ describe('migration 0044_memory_lifecycle — registry and static SQL', () => {
     // 68 since TASK_2026_873 appended the failed-head backoff migration.
     // 69 since TASK_2026_873 appended 0069_review_attempt_dry_run.
     // 70 since TASK_2026_878 appended 0070_indexing_last_run.
+    // 71 since TASK_2026_878 appended 0071_skill_inv_events_task_unreconciled.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      70,
+      71,
     );
     expect(entry?.vecSql).toBeUndefined();
     expect(entry?.requiresVec).toBeUndefined();

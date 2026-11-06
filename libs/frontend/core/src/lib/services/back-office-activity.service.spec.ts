@@ -235,6 +235,7 @@ describe('BackOfficeActivityService', () => {
   });
 
   it('is busy right after a push and idle once the clock passes IDLE_AFTER_MS', () => {
+    workspaceScope.switchTo('/ws');
     send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {
       workspaceRoot: '/ws',
       workspaceFingerprint: 'fp',
@@ -252,6 +253,7 @@ describe('BackOfficeActivityService', () => {
   });
 
   it('shows a fixed indexing failure without exposing workspace details', () => {
+    workspaceScope.switchTo('/private/sentinel');
     send(service, MESSAGE_TYPES.INDEXING_FAILED, {
       workspaceRoot: '/private/sentinel',
       workspaceFingerprint: 'fingerprint',
@@ -266,6 +268,92 @@ describe('BackOfficeActivityService', () => {
       summary: 'Workspace index failed',
     });
     expect(JSON.stringify(service.latest())).not.toContain('/private/sentinel');
+  });
+
+  it('ignores an indexing failure for another workspace', () => {
+    workspaceScope.switchTo('/ws-a');
+    send(service, MESSAGE_TYPES.INDEXING_FAILED, {
+      workspaceRoot: '/ws-b',
+      workspaceFingerprint: 'fingerprint',
+      failedAt: 100,
+      elapsedMs: 20,
+      origin: 'background',
+    });
+
+    expect(service.recent()).toEqual([]);
+    expect(notifications.recentNotices()).toHaveLength(0);
+
+    send(service, MESSAGE_TYPES.INDEXING_FAILED, {
+      workspaceRoot: '/ws-a',
+      workspaceFingerprint: 'fingerprint',
+      failedAt: 101,
+      elapsedMs: 20,
+      origin: 'background',
+    });
+    expect(service.latest()?.summary).toBe('Workspace index failed');
+    expect(notifications.recentNotices().map((item) => item.title)).toEqual([
+      'Workspace indexing failed',
+    ]);
+  });
+
+  it('resolves the failure notice only on a completion for the same workspace', () => {
+    workspaceScope.switchTo('/ws-a');
+    send(service, MESSAGE_TYPES.INDEXING_FAILED, {
+      workspaceRoot: '/ws-a',
+      workspaceFingerprint: 'fingerprint',
+      failedAt: 100,
+      elapsedMs: 20,
+      origin: 'background',
+    });
+    expect(notifications.recentNotices()).toHaveLength(1);
+
+    send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {
+      workspaceRoot: '/ws-b',
+      workspaceFingerprint: 'fp-b',
+      completedAt: 101,
+      gitHeadSha: null,
+      elapsedMs: 1000,
+    });
+    expect(notifications.recentNotices().map((item) => item.title)).toEqual([
+      'Workspace indexing failed',
+    ]);
+    expect(service.latest()?.kind).toBe('failed');
+
+    send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {
+      workspaceRoot: '/ws-a',
+      workspaceFingerprint: 'fingerprint',
+      completedAt: 102,
+      gitHeadSha: null,
+      elapsedMs: 1000,
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+  });
+
+  it('keeps the failure notice on a refreshOnly completion for the same workspace', () => {
+    workspaceScope.switchTo('/ws-a');
+    send(service, MESSAGE_TYPES.INDEXING_FAILED, {
+      workspaceRoot: '/ws-a',
+      workspaceFingerprint: 'fingerprint',
+      failedAt: 100,
+      elapsedMs: 20,
+      origin: 'manual',
+    });
+    expect(notifications.recentNotices()).toHaveLength(1);
+
+    // An older census settled after the newer failure: status refresh only.
+    send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {
+      workspaceRoot: '/ws-a',
+      workspaceFingerprint: 'fingerprint',
+      completedAt: 101,
+      gitHeadSha: null,
+      elapsedMs: 1000,
+      refreshOnly: true,
+    });
+    expect(notifications.recentNotices().map((item) => item.title)).toEqual([
+      'Workspace indexing failed',
+    ]);
+    expect(service.latest()?.kind).toBe('failed');
+    expect(service.recent()).toHaveLength(1);
   });
 
   it('narrates a boot phase but not the settled one', () => {
@@ -470,6 +558,7 @@ describe('BackOfficeActivityService', () => {
   });
 
   it('substitutes now() for a non-finite completedAt', () => {
+    workspaceScope.switchTo('/ws');
     const now = Date.now();
     send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {
       workspaceRoot: '/ws',

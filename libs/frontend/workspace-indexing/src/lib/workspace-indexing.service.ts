@@ -18,6 +18,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
+  normalizeWorkspaceRoot,
   type IndexingCompleteEvent,
   type IndexingFailedEvent,
   type IndexingLastRunWire,
@@ -154,6 +155,11 @@ export class WorkspaceIndexingService implements MessageHandler {
    * fallback writes its sentence only when no newer action owns the message.
    */
   private actionGeneration = 0;
+  /**
+   * Root of the last status read (`loadStatus`), i.e. the panel's workspace.
+   * Complete/failed pushes for another root are ignored. `null` = unknown.
+   */
+  private activeRoot: string | null = null;
   private readonly _progress = signal<IndexingProgressEvent | null>(null);
   private readonly _completedAt = signal<number | null>(null);
   private readonly _hasWorkspace = signal<boolean>(true);
@@ -288,7 +294,10 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
     if (message.type === INDEXING_COMPLETE_MESSAGE_TYPE) {
       const payload = message.payload as IndexingCompleteEvent | undefined;
-      if (!payload) return;
+      if (!payload || !this.isActiveRoot(payload.workspaceRoot)) return;
+      // A `refreshOnly` push (an older run settled after a newer one) takes
+      // the same path: drop the live progress and re-read the persisted
+      // status. `completedAt` is a refresh trigger for its readers.
       this._progress.set(null);
       this._completedAt.set(payload.completedAt);
       void this.loadStatus(payload.workspaceRoot).catch(() => undefined);
@@ -296,10 +305,22 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
     if (message.type === INDEXING_FAILED_MESSAGE_TYPE) {
       const payload = message.payload as IndexingFailedEvent | undefined;
-      if (!payload) return;
+      if (!payload || !this.isActiveRoot(payload.workspaceRoot)) return;
       this._progress.set(null);
       void this.refreshAfterFailure(payload.workspaceRoot);
     }
+  }
+
+  /**
+   * A run can finish after a workspace switch: its push must not replace the
+   * active panel's status. With no known root yet the push is accepted.
+   */
+  private isActiveRoot(workspaceRoot: string): boolean {
+    if (this.activeRoot === null) return true;
+    return (
+      normalizeWorkspaceRoot(workspaceRoot) ===
+      normalizeWorkspaceRoot(this.activeRoot)
+    );
   }
 
   /**
@@ -396,6 +417,7 @@ export class WorkspaceIndexingService implements MessageHandler {
    */
   async loadStatus(workspaceRoot: string): Promise<boolean> {
     this._hasWorkspace.set(true);
+    this.activeRoot = workspaceRoot;
     const result = await this.rpc.call('indexing:getStatus', { workspaceRoot });
     if (!result.isSuccess()) {
       console.warn('[workspace-indexing] getStatus failed', result.error);

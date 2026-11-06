@@ -500,6 +500,109 @@ describe('WorkspaceIndexingService — running state, action messages, failed pu
     expect(service.handledMessageTypes).toContain('indexing:failed');
   });
 
+  it('ignores complete and failed pushes for another workspace', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    await service.loadStatus('/ws-a');
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 30 }),
+    });
+    rpcCall.mockClear();
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws-b',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws-b',
+        workspaceFingerprint: 'fp',
+        completedAt: 6,
+        gitHeadSha: null,
+        elapsedMs: 4,
+      },
+    });
+    await Promise.resolve();
+
+    expect(rpcCall).not.toHaveBeenCalled();
+    expect(service.progress()).not.toBeNull();
+    expect(service.completedAt()).toBeNull();
+    expect(service.actionMessage()).toBeNull();
+
+    // The same root in another spelling still counts as the active one.
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws-a/',
+        workspaceFingerprint: 'fp',
+        completedAt: 7,
+        gitHeadSha: null,
+        elapsedMs: 4,
+      },
+    });
+    expect(service.completedAt()).toBe(7);
+    expect(rpcCall).toHaveBeenCalledWith('indexing:getStatus', {
+      workspaceRoot: '/ws-a/',
+    });
+  });
+
+  it('a refreshOnly completion after a newer failed push moves the panel to the persisted error', async () => {
+    // The older census is still live when the newer census fails: the
+    // failure push re-reads a status that still shows it running.
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'manual',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 40 }),
+    });
+    expect(service.uiState().kind).toBe('indexing');
+
+    // The older census settles, is stale-skipped and sends a refresh only.
+    routeRpc(baseStatus({ state: 'error', errorMessage: 'memory broke' }));
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        completedAt: 9,
+        gitHeadSha: null,
+        elapsedMs: 8,
+        refreshOnly: true,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.progress()).toBeNull();
+    expect(service.isBusy()).toBe(false);
+    expect(service.uiState()).toEqual({
+      kind: 'error',
+      message: 'memory broke',
+    });
+  });
+
   it('loadStatus resolves false on a failed read and keeps the last status', async () => {
     routeRpc(baseStatus({ state: 'indexed' }));
     await expect(service.loadStatus('/ws')).resolves.toBe(true);

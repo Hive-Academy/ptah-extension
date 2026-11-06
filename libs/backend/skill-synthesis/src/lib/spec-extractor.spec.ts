@@ -89,11 +89,12 @@ describe('spec-extractor pure parsers', () => {
   });
   it('classifies planning-document reviews apart from work reviews', () => {
     for (const file of ['implementation-plan-review.md', 'plan-review.md', 'architecture-review.md',
-      'design-spec-review.md', 'task-description-review.md']) {
+      'design-spec-review.md', 'task-description-review.md', 'implementation-plan-review-r2.md']) {
       expect(isDocumentReview(file)).toBe(true);
     }
     for (const file of ['code-logic-review.md', 'code-logic-review-phase-a.md', 'visual-review-home.md',
-      'test-report.md', 'judge-round-1.json', 'code-style-review-planner.md']) {
+      'test-report.md', 'judge-round-1.json', 'code-style-review-planner.md',
+      'code-style-review-architecture-compliance.md', 'code-logic-review-plan-a.md']) {
       expect(isDocumentReview(file)).toBe(false);
     }
   });
@@ -122,6 +123,15 @@ describe('spec-extractor pure parsers', () => {
       expect(taskVerdict({ taskStatus: 'done', reviews: [review('implementation-plan-review.md', 'pass', 9)] })).toBeNull();
       expect(taskVerdict({ taskStatus: 'done', reviews: [
         review('code-logic-review.md', 'fail', 1), review('implementation-plan-review.md', 'pass', 9),
+      ] })).toBe('failed');
+    });
+    it('lets a work review with a document word in its suffix decide', () => {
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-style-review-architecture-compliance.md', 'pass', 1),
+      ] })).toBe('succeeded');
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-logic-review.md', 'pass', 1),
+        review('code-style-review-architecture-compliance.md', 'fail', 9),
       ] })).toBe('failed');
     });
     it('leaves ambiguous ties and unfinished tasks unreconciled', () => {

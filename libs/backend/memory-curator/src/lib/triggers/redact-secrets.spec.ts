@@ -43,6 +43,25 @@ describe('redactSecrets', () => {
     expect(out).toContain(REDACTED);
   });
 
+  it.each([
+    ['GITHUB_TOKEN', 'env GITHUB_TOKEN=SENTINEL set', 'env GITHUB_TOKEN=[REDACTED] set'],
+    ['OPENAI_API_KEY', 'OPENAI_API_KEY: SENTINEL', 'OPENAI_API_KEY: [REDACTED]'],
+    ['DB_PASSWORD', 'DB_PASSWORD=SENTINEL', 'DB_PASSWORD=[REDACTED]'],
+    ['client_secret_value', 'client_secret_value=SENTINEL', 'client_secret_value=[REDACTED]'],
+    ['a quoted prefixed name', '{"MY-API-KEY": "SENTINEL x"}', '{"MY-API-KEY": "[REDACTED]"}'],
+  ])('redacts a credential name with a delimited prefix or suffix: %s', (_label, input, expected) => {
+    expect(redactSecrets(input)).toBe(expected);
+  });
+
+  it.each([
+    ['author', 'author=alice'],
+    ['tokens', 'tokens=1200'],
+    ['secretary', 'secretary: bob'],
+    ['mytoken', 'mytoken=value'],
+  ])('keeps an ordinary word that contains a credential name: %s', (_label, input) => {
+    expect(redactSecrets(input)).toBe(input);
+  });
+
   it('keeps text after a closed quoted value', () => {
     expect(redactSecrets('{"password":"a b","user":"ann"}')).toBe(
       `{"password":"${REDACTED}","user":"ann"}`,
@@ -56,6 +75,8 @@ describe('redactSecrets', () => {
     ['a long URL-like run without @', `https://${'a'.repeat(100_000)}`],
     ['an unterminated quoted secret', `password="${'x '.repeat(50_000)}`],
     ['repeated key names', 'token '.repeat(17_000)],
+    ['repeated delimited key names', 'token_'.repeat(17_000)],
+    ['a long delimited identifier', `GITHUB_${'a_'.repeat(50_000)}TOKEN`],
     ['a long bearer run', `Bearer ${' '.repeat(100_000)}`],
   ])('finishes fast on ~100 KB of %s', (_label, input) => {
     const startedAt = performance.now();

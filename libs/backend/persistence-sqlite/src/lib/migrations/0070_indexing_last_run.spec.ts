@@ -21,7 +21,7 @@ describe('migration 0070_indexing_last_run', () => {
     try {
       const previous = MIGRATIONS.findIndex((migration) => migration.version === 69);
       expect(MIGRATIONS[previous + 1]).toEqual({ version: 70, name: '0070_indexing_last_run', sql });
-      expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(70);
+      expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(71);
       db.exec(indexingStateSql);
       db.prepare(`INSERT INTO indexing_state
         (workspace_fingerprint, git_head_sha, last_indexed_at, last_error)

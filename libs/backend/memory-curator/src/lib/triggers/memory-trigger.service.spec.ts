@@ -3045,6 +3045,30 @@ describe('MemoryTriggerService — the network back-off spends no hourly slot (C
     expect(rateLimiter.snapshot('memory.curate')?.count ?? 0).toBe(0);
   });
 
+  it('refunds the slot of a pass the curator provider cannot run', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const curator = heldCurator({ value: 0 });
+    (curator.curate as jest.Mock).mockResolvedValue({
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+      reason: 'provider-unsupported',
+    });
+    const { service, userPromptSubmit } = buildService({
+      curator,
+      rateLimiter,
+    });
+    service.start();
+
+    userPromptSubmit.fire(userPromptPayload());
+    for (let i = 0; i < 16; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(rateLimiter.snapshot('memory.curate')?.count ?? 0).toBe(0);
+  });
+
   it('keeps the slot of a pass that dispatched and found the provider unreachable', async () => {
     const rateLimiter = new CuratorRateLimitService(makeLogger());
     const curator = heldCurator({ value: 0 });

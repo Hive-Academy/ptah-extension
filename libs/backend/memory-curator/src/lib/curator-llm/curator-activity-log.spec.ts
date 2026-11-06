@@ -242,6 +242,24 @@ describe('CuratorActivityLog.recordError', () => {
     );
   });
 
+  it('redacts credentials in the logged error and its causes', () => {
+    const { log, logger } = setup();
+    const error = new CuratorLlmQueryError(
+      'query failed api_key=TOPLEVELSECRET',
+      {
+        cause: new Error('upstream said Authorization: Bearer CAUSESECRET123'),
+      },
+    );
+
+    log.recordError('s1', error, 'extract');
+
+    const warnCalls = JSON.stringify(logger.warn.mock.calls);
+    expect(warnCalls).not.toContain('TOPLEVELSECRET');
+    expect(warnCalls).not.toContain('CAUSESECRET123');
+    expect(warnCalls).toContain('query failed api_key=[REDACTED]');
+    expect(warnCalls).toContain('upstream said Authorization: [REDACTED]');
+  });
+
   it('keeps the sentinel in the warn log and out of everything the renderer reads', () => {
     const { log, events, logger } = setup();
     const error = new CuratorLlmQueryError('curator query failed', {

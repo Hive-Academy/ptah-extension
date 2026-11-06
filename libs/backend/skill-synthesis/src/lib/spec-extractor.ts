@@ -80,10 +80,12 @@ const REVIEW_FILE_PATTERN =
 
 /**
  * Reviews of planning documents rather than of the delivered work. They never
- * decide a task verdict (P3).
+ * decide a task verdict (P3). Tested against the name before its first
+ * `-review` only, so a work review's suffix (`code-style-review-architecture-
+ * compliance.md`) does not make it a document review.
  */
 const DOCUMENT_REVIEW_PATTERN =
-  /(?:^|-)(?:plan|architecture|design-spec|task-description)(?=[-.])/i;
+  /(?:^|-)(?:plan|architecture|design-spec|task-description)(?=-|$)/i;
 
 const REVIEW_FILES = [
   'code-logic-review.md',
@@ -158,7 +160,8 @@ export function parseReviewVerdict(
  * architecture, design spec, task description) rather than the delivered work.
  */
 export function isDocumentReview(file: string): boolean {
-  return DOCUMENT_REVIEW_PATTERN.test(file);
+  const subjectEnd = file.toLowerCase().indexOf('-review');
+  return subjectEnd > 0 && DOCUMENT_REVIEW_PATTERN.test(file.slice(0, subjectEnd));
 }
 
 /**
