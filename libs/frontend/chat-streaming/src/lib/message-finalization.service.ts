@@ -172,7 +172,11 @@ export class MessageFinalizationService {
    * `streamingState`, which the reload sanitize then nulled — a silent data loss
    * (TASK_2026_154 Wave 2 revision).
    */
-  finalizeCurrentMessage(tabId?: string, isAborted = false): void {
+  finalizeCurrentMessage(
+    tabId?: string,
+    isAborted = false,
+    isInterrupted = false,
+  ): void {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
@@ -185,7 +189,12 @@ export class MessageFinalizationService {
     const streamingState = targetTab?.streamingState;
     const messageId = streamingState?.currentMessageId;
 
-    if (!streamingState || !messageId) return;
+    if (!streamingState || !messageId) {
+      if (isInterrupted && targetTab) {
+        this.recordInterruptedTurn(targetTabId, targetTab.messages);
+      }
+      return;
+    }
     const stateCopy = this.deepCopyStreamingState(streamingState);
     const cacheKey = `tab-${targetTabId}`;
     let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
@@ -230,6 +239,10 @@ export class MessageFinalizationService {
     const newMessages: ExecutionChatMessage[] = [];
 
     if (finalTree.length === 0) {
+      if (isInterrupted) {
+        this.recordInterruptedTurn(targetTabId, existingMessages);
+        return;
+      }
       // Nothing renderable reached a root message. This used to mint an
       // assistant message with `streamingState: null` anyway, and that is
       // exactly the empty "Assistant response" bubble: a background subagent
@@ -281,6 +294,7 @@ export class MessageFinalizationService {
             id: tree.id,
             role: 'assistant',
             streamingState: tree,
+            ...(isLast && isInterrupted ? { isInterrupted: true } : {}),
             sessionId: targetTab?.claudeSessionId ?? undefined,
             ...(startTimestamp !== undefined
               ? { timestamp: startTimestamp }
@@ -298,6 +312,10 @@ export class MessageFinalizationService {
     }
 
     if (newMessages.length === 0) {
+      if (isInterrupted) {
+        this.recordInterruptedTurn(targetTabId, existingMessages);
+        return;
+      }
       this.tabManager.clearStreamingForLoaded(targetTabId);
       return;
     }
@@ -316,6 +334,38 @@ export class MessageFinalizationService {
     // conversation. Only reflect 'loaded' when finalizing the ACTIVE tab —
     // finalizing a background tab must not flip the foreground UI's status.
     if (this.tabManager.activeTabId() === targetTabId) {
+      this.sessionManager.setStatus('loaded');
+    }
+  }
+
+  private recordInterruptedTurn(
+    tabId: string,
+    messages: readonly ExecutionChatMessage[],
+  ): void {
+    const queued = this.queuedPrompts.queuedAtTail(tabId, messages);
+    let insertAt = messages.length;
+    while (insertAt > 0 && queued.has(messages[insertAt - 1].id)) {
+      insertAt--;
+    }
+    const previous = messages[insertAt - 1];
+    if (previous?.role === 'assistant' && previous.isInterrupted) return;
+    const marker =
+      previous?.role === 'assistant'
+        ? { ...previous, isInterrupted: true }
+        : createExecutionChatMessage({
+            id: `interrupted-${tabId}-${previous?.id ?? 'empty'}`,
+            role: 'assistant',
+            isInterrupted: true,
+          });
+    this.tabManager.applyFinalizedTurn(tabId, [
+      ...messages.slice(
+        0,
+        Math.max(0, insertAt - (previous?.role === 'assistant' ? 1 : 0)),
+      ),
+      marker,
+      ...messages.slice(insertAt),
+    ]);
+    if (this.tabManager.activeTabId() === tabId) {
       this.sessionManager.setStatus('loaded');
     }
   }

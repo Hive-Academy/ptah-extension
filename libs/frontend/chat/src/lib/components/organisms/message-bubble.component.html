@@ -138,6 +138,10 @@
       </div>
     }
 
+    @if (message().isInterrupted) {
+      <div class="mt-2 text-[11px] text-base-content-muted" data-testid="chat-turn-interrupted">Interrupted</div>
+    }
+
     @if (showActions()) {
       <div class="mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
         <ptah-copy-button [message]="message()" [turnActionSize]="true" />

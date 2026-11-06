@@ -26,7 +26,9 @@ const USER = '[data-testid="chat-user-message"]';
 const ASSISTANT = '[data-testid="chat-tool-output"]';
 const transcriptLine = z.object({ type: z.string() }).passthrough();
 const responseSchema = z.object({ success: z.boolean(), data: z.unknown().optional(), error: z.string().optional() });
-const modelsSchema = z.object({ models: z.array(z.object({ id: z.string(), name: z.string() })) });
+const modelsSchema = z.object({ models: z.array(z.object({
+  id: z.string(), name: z.string(), providerModelId: z.string().nullish(),
+})) });
 const sessionsSchema = z.object({ sessions: z.array(z.object({ id: z.string() })) });
 
 async function rpc(bridge: RpcBridge, method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -189,6 +191,7 @@ test('@live backend follow-up queue delivers to a hidden tab and restores on Sto
     await expect(page.locator(COMPOSER).first()).toHaveValue(TWO);
     await expect(page.locator(QUEUE)).toHaveCount(0);
     await expect(page.locator(`${ASSISTANT}:visible`).first()).toBeVisible();
+    await expect.soft(page.locator('[data-testid="chat-turn-interrupted"]:visible'), 'Stop marks the turn interrupted').toHaveCount(1, { timeout: 15_000 });
     await shot(page, '08-stop-restored-composer');
     await page.waitForTimeout(20_000);
     expect(await assistantHas(bridge, liveSecondSession, secondTab, scratch, 'FOLLOWUP-TWO')).toBe(false);
@@ -230,9 +233,88 @@ test('@live backend follow-up queue delivers to a hidden tab and restores on Sto
     expect(entries.filter((entry) => entry.role === 'assistant' && entry.text.includes('PROMOTED-B')), 'promoted item delivered once')
       .toHaveLength(1);
     await expect(items).toHaveCount(0);
+    await expect.soft(page.locator('[data-testid="chat-turn-interrupted"]:visible'), 'Interrupt & send marks the turn interrupted').toHaveCount(1);
     await shot(page, '13-interrupt-and-send-history');
   } finally {
     await app?.close();
     fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test('@live Codex Send now steers into the running turn (Luna)', async () => {
+  test.setTimeout(360_000);
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-live-codex-steer-'));
+  const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-home-'));
+  const codexHome = process.env['CODEX_HOME'] || path.join(os.homedir(), '.codex');
+  const claudeHome = process.env['CLAUDE_CONFIG_DIR'] || path.join(os.homedir(), '.claude');
+  const firstPrompt = 'Run the shell command `sleep 20`, then reply with exactly: FIRST-DONE';
+  const steerPrompt = 'Change of plan: when the command finishes, reply with exactly: STEERED-C and nothing else.';
+  let app: ElectronApplication | undefined;
+  try {
+    // Provider selection writes Ptah settings; isolate both Node home aliases.
+    app = await launchPtah({
+      args: [scratch],
+      env: { HOME: isolatedHome, USERPROFILE: isolatedHome, CODEX_HOME: codexHome, CLAUDE_CONFIG_DIR: claudeHome },
+      timeout: 120_000,
+    });
+    const page = await app.firstWindow({ timeout: 120_000 });
+    const bridge = new RpcBridge(app);
+    const ui = new UiDriver(app, page);
+    const selection = z.object({ success: z.boolean(), error: z.string().optional() }).parse(
+      await rpc(bridge, 'auth:saveSettings', {
+        authMethod: 'thirdParty', anthropicProviderId: 'openai-codex', applyTo: 'workspace',
+      }),
+    );
+    if (!selection.success) throw new Error(`Could not select Codex provider: ${selection.error ?? 'unknown error'}`);
+    const listed = modelsSchema.parse(await rpc(bridge, 'config:models-list', { workspacePath: scratch }));
+    // Codex lists tier aliases; the provider model id carries the real name (haiku -> gpt-6-luna).
+    const isLuna = (model: { id: string; name: string; providerModelId?: string | null }): boolean =>
+      [model.id, model.name, model.providerModelId ?? ''].some((v) => v.toLowerCase().includes('luna'));
+    const luna = listed.models.find(isLuna);
+    if (!luna) throw new Error(`No Luna Codex model offered by config:models-list; offered: ${JSON.stringify(listed.models)}`);
+    await rpc(bridge, 'config:model-switch', { model: luna.id, applyTo: 'workspace' });
+    // The isolated home starts in Manual; without auto-approval Codex waits on the shell permission.
+    await rpc(bridge, 'config:autopilot-toggle', { enabled: true, permissionLevel: 'yolo', sessionId: null });
+    await page.reload();
+    await ui.goto('chat');
+    await page.locator('button[aria-label="Select model"]:visible').first().click();
+    const option = page.locator('ptah-native-option:visible', { hasText: /luna/i }).first();
+    await expect(option, `Luna ${luna.id} must appear in the model picker`).toBeVisible();
+    await option.click();
+    await expect(page.locator('button[aria-label="Select model"]:visible').first()).toContainText(/luna/i);
+
+    await send(page, firstPrompt);
+    await expect(page.locator(STOP).first()).toBeVisible();
+    await send(page, steerPrompt);
+    const item = page.locator('[data-testid="queued-follow-up-item"]:visible', { hasText: 'STEERED-C' });
+    await expect(item).toContainText('Queued for the next turn', { timeout: 60_000 });
+    const sendNow = item.locator('[data-testid="queued-follow-up-send-now"]');
+    await expect(sendNow).toHaveText('Send now');
+    await shot(page, '20-codex-queued');
+    await sendNow.click();
+    await shot(page, '21-codex-send-now-clicked');
+    await expect(page.locator(QUEUE)).toHaveCount(0);
+    await expect.poll(async () => (await history(page, '22')).some(
+      (entry) => entry.role === 'assistant' && entry.text.includes('STEERED-C'),
+    ), { timeout: 180_000, intervals: [2_000, 3_000] }).toBe(true);
+    await expect(page.locator(STOP)).toHaveCount(0, { timeout: 60_000 });
+    await page.waitForTimeout(20_000);
+    const entries = await history(page, '22');
+    expect(entries.some((entry) => entry.role === 'user' && entry.text.includes(steerPrompt.slice(0, 35))),
+      'steered user bubble appears in history').toBe(true);
+    const steeredReplies = entries.filter((entry) => entry.role === 'assistant' && entry.text.includes('STEERED-C'));
+    expect(steeredReplies, 'exactly one assistant entry contains STEERED-C').toHaveLength(1);
+    expect(entries.filter((entry) => entry.role === 'assistant' && entry.text.includes('FIRST-DONE')),
+      'the original turn did not finish before a separate queued turn').toHaveLength(0);
+    const steeredIndex = entries.indexOf(steeredReplies[0]);
+    expect(entries.slice(steeredIndex + 1).filter((entry) => entry.role === 'assistant'),
+      'no second assistant turn starts after the steered reply').toHaveLength(0);
+    await expect.soft(page.locator('[data-testid="chat-turn-interrupted"]:visible'), 'a Codex steer is not an interruption').toHaveCount(0);
+    await shot(page, '22-codex-steer-history');
+  } finally {
+    await app?.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+    fs.rmSync(isolatedHome, { recursive: true, force: true });
   }
 });

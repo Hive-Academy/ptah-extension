@@ -276,6 +276,42 @@ describe('MessageFinalizationService', () => {
   });
 
   describe('finalizeCurrentMessage', () => {
+    it('marks the finalized assistant message when the turn is interrupted', () => {
+      treeBuilder.buildTree.mockReturnValue([makeNode({ id: 'root', content: 'Partial' })]);
+      tabsSignal.set([makeTab({ streamingState: makeStreamingState({ currentMessageId: 'msg-1' }) })]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage(undefined, true, true);
+
+      const messages = tabManager.applyFinalizedTurn.mock.calls[0][1];
+      expect(messages[0].isInterrupted).toBe(true);
+    });
+
+    it('inserts a placeholder before a queued follow-up when no assistant content arrived', () => {
+      const prompt = { id: 'prompt', role: 'user' } as ExecutionChatMessage;
+      const queued = { id: 'queued', role: 'user' } as ExecutionChatMessage;
+      const messages = [prompt, queued];
+      TestBed.inject(QueuedPromptRecord).add('tab-1', queued.id, messages);
+      tabsSignal.set([makeTab({ messages, streamingState: makeStreamingState() })]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage(undefined, true, true);
+
+      const finalized = tabManager.applyFinalizedTurn.mock.calls[0][1];
+      expect(finalized.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
+      expect(finalized[1].isInterrupted).toBe(true);
+      expect(finalized[1].streamingState).toBeNull();
+    });
+
+    it('does not add an interruption marker on normal completion', () => {
+      treeBuilder.buildTree.mockReturnValue([makeNode({ id: 'root', content: 'Done' })]);
+      tabsSignal.set([makeTab({ streamingState: makeStreamingState({ currentMessageId: 'msg-1' }) })]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(tabManager.applyFinalizedTurn.mock.calls[0][1][0].isInterrupted).toBeUndefined();
+    });
     it('is a no-op when there is no active tab', () => {
       service.finalizeCurrentMessage();
       expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();

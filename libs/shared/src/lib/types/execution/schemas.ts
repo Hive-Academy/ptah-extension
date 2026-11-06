@@ -98,6 +98,7 @@ export const ExecutionChatMessageSchema = z.object({
   role: MessageRoleSchema,
   timestamp: z.number(),
   streamingState: ExecutionNodeSchema.nullable(),
+  isInterrupted: z.boolean().optional(),
   rawContent: z.string().optional(),
   nativeUuid: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),

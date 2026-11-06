@@ -138,11 +138,18 @@ export class TurnStateApplier {
       const isAborted =
         event.phase === 'failed' ||
         (event.terminalReason !== null && event.terminalReason !== 'completed');
+      const isInterrupted =
+        event.terminalReason === 'aborted_streaming' ||
+        event.terminalReason === 'aborted_tools';
       // Hard-deny ids are bucketed per session; a bucket is drained once per
       // event even when the session fans out to several tabs.
       const consumed = new Map<string, ReadonlySet<string>>();
       for (const { tab } of targets) {
-        this.finalization.finalizeCurrentMessage(tab.id, isAborted);
+        if (isInterrupted) {
+          this.finalization.finalizeCurrentMessage(tab.id, true, true);
+        } else {
+          this.finalization.finalizeCurrentMessage(tab.id, isAborted);
+        }
         const bucket = event.sessionId ?? tab.claudeSessionId ?? tab.id;
         let ids = consumed.get(bucket);
         if (!ids) {

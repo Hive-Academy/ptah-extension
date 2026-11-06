@@ -1,19 +1,19 @@
 [
   {
     "role": "user",
-    "text": "12:50 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
+    "text": "1:58 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:50 AMWorked2 toolsCommand succeededBashSleep for 25 secondsThe harness blocked the foreground sleep 25. I'll run the same command in the background, whic"
+    "text": "Ptah1:59 AMWorked2 toolsCommand succeededBashSleep for 25 secondsThe sleep was blocked as a standalone foreground command. The block message suggests running it"
   },
   {
     "role": "user",
-    "text": "12:51 AM You Reply with exactly: FOLLOWUP-ONE"
+    "text": "1:59 AM You Reply with exactly: FOLLOWUP-ONE"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:51 AMThe 25-second sleep is running in the background. I'll reply with FIRST-DONE once it completes."
+    "text": "Ptah1:59 AMThe 25-second sleep is running in the background (ID b5jocqrrn). I'll reply once it finishes."
   },
   {
     "role": "assistant",

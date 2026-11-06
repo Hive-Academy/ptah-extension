@@ -1,18 +1,18 @@
 [
   {
     "role": "user",
-    "text": "12:51 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
+    "text": "1:59 AM You Use the Bash tool to run the command: sleep 25. Then reply with exactly: FIRST-DONE"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:51 AMWorked for 18s1 toolCommand succeededBashSleep for 25 seconds"
+    "text": "Ptah1:59 AMWorked1 toolInterruptedBashsleep 25Interrupted"
   },
   {
     "role": "user",
-    "text": "12:51 AM You Reply with exactly: FOLLOWUP-TWO"
+    "text": "2:00 AM You Reply with exactly: FOLLOWUP-TWO"
   },
   {
     "role": "assistant",
-    "text": "Ptah12:52 AMFOLLOWUP-TWO"
+    "text": "Ptah2:00 AMFOLLOWUP-TWO"
   }
 ]

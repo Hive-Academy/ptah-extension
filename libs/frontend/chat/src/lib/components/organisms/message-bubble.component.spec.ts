@@ -87,6 +87,31 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
   }
 
+  it('shows Interrupted after a partial assistant reply', () => {
+    setMessage(createExecutionChatMessage({
+      id: 'partial', role: 'assistant', rawContent: 'Partial reply', isInterrupted: true,
+    }));
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).toContain('Partial reply');
+    expect(root.querySelector('[data-testid="chat-turn-interrupted"]')?.textContent).toContain('Interrupted');
+  });
+
+  it('shows only the interruption label for an empty assistant placeholder', () => {
+    setMessage(createExecutionChatMessage({
+      id: 'empty-interrupted', role: 'assistant', isInterrupted: true,
+    }));
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="chat-turn-interrupted"]')?.textContent).toContain('Interrupted');
+    expect(root.querySelector('[data-testid="streaming-empty-cursor"]')).toBeNull();
+  });
+
+  it('does not mark a normally completed reply', () => {
+    setMessage(createExecutionChatMessage({
+      id: 'complete', role: 'assistant', rawContent: 'Done',
+    }));
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="chat-turn-interrupted"]')).toBeNull();
+  });
+
   it('shows only the typing cursor for a streaming message with no rows yet', () => {
     fixture = TestBed.createComponent(MessageBubbleComponent);
     fixture.componentRef.setInput(
