@@ -183,8 +183,10 @@ function countSummary(bucket: RateBucket, summary: LaneOutcomeSummary): void {
       bucket.delivery.push(summary);
       break;
     case 'no-deliverable':
-      bucket.noDeliverable += 1;
-      bucket.delivery.push(summary);
+      if (!isCapacityFailure(summary.failureClass)) {
+        bucket.noDeliverable += 1;
+        bucket.delivery.push(summary);
+      }
       break;
     case 'failed':
       if (!isCapacityFailure(summary.failureClass)) {

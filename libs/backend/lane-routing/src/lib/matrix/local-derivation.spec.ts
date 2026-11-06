@@ -20,6 +20,10 @@ describe('capacity and open reviews', () => {
     expect(isCapacityFailure(failureClass)).toBe(true);
     expect(deriveLocalMatrix([failed], NOW).profiles).toEqual([]);
   });
+  it.each(['usage-limit', 'auth', 'timeout'] as const)('excludes a %s no-deliverable from capability', (failureClass) => {
+    const missing = summary({ ...base, runId: `nd-${failureClass}`, verdict: 'no-deliverable', failureClass });
+    expect(deriveLocalMatrix([missing], NOW).profiles).toEqual([]);
+  });
   it('counts one open revise and leaves later approval successful', () => {
     const open = summary({ ...base, runId: 'open', verdict: 'unverified', reviseRounds: 3 });
     const approved = summary({ ...base, runId: 'approved', verdict: 'unverified', reviseRounds: 3, finalReview: 'approved' });

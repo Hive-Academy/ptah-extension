@@ -105,7 +105,9 @@ export function registerLaneOutcomeServices(
                 LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM,
               )
             : undefined,
-          c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+            ? c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+            : undefined,
         ),
     ),
   });
