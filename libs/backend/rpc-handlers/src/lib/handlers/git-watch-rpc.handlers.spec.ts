@@ -38,8 +38,35 @@ const FOLDER = '/workspace';
 const WORKTREE = '/workspace/.claude-worktrees/feature';
 
 type MockGitInfo = jest.Mocked<
-  Pick<GitInfoService, 'getWorktrees' | 'getCommonDir'>
+  Pick<
+    GitInfoService,
+    | 'probeWorktreeList'
+    | 'probeCommonDir'
+    | 'probeEpoch'
+    | 'invalidateProbeReadCache'
+  >
 >;
+type WorktreeListRead = Awaited<
+  ReturnType<GitInfoService['probeWorktreeList']>
+>;
+
+const LISTED: WorktreeListRead = {
+  kind: 'listed',
+  worktrees: [
+    { path: FOLDER, branch: 'main', head: 'a', isMain: true, isBare: false },
+    {
+      path: WORKTREE,
+      branch: 'feature',
+      head: 'b',
+      isMain: false,
+      isBare: false,
+    },
+  ],
+};
+const FAILED: WorktreeListRead = {
+  kind: 'failed',
+  cause: new Error('git timed out'),
+};
 type MockRegistry = jest.Mocked<IGitRootWatchRegistry>;
 
 interface Suite {
@@ -54,17 +81,12 @@ function buildSuite(): Suite {
   const rpc = createMockRpcHandler();
   const workspace = createMockWorkspaceProvider({ folders: [FOLDER] });
   const gitInfo: MockGitInfo = {
-    getWorktrees: jest.fn().mockResolvedValue([
-      { path: FOLDER, branch: 'main', head: 'a', isMain: true, isBare: false },
-      {
-        path: WORKTREE,
-        branch: 'feature',
-        head: 'b',
-        isMain: false,
-        isBare: false,
-      },
-    ]),
-    getCommonDir: jest.fn().mockResolvedValue('/workspace/.git'),
+    probeWorktreeList: jest.fn().mockResolvedValue(LISTED),
+    probeCommonDir: jest
+      .fn()
+      .mockResolvedValue({ kind: 'dir', path: '/workspace/.git' }),
+    probeEpoch: jest.fn(() => 0),
+    invalidateProbeReadCache: jest.fn(),
   };
   const fileSystem = createMockFileSystemProvider();
   fileSystem.stat.mockResolvedValue({
@@ -106,21 +128,22 @@ describe('GitWatchRpcHandlers', () => {
     const { rpc, registry, gitInfo } = buildSuite();
     let release: (() => void) | undefined;
     let notifyStarted: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
-    gitInfo.getWorktrees.mockImplementation(async () => {
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    gitInfo.probeWorktreeList.mockImplementation(async () => {
       notifyStarted?.();
       await gate;
-      return [
-        { path: FOLDER, branch: 'main', head: 'a', isMain: true, isBare: false },
-        { path: WORKTREE, branch: 'feature', head: 'b', isMain: false, isBare: false },
-      ];
+      return LISTED;
     });
     const send = watchRoots(rpc);
     const first = send({ leaseId: 'lease-1', roots: [WORKTREE] });
     const second = send({ leaseId: 'lease-1', roots: [WORKTREE] });
     await started;
-    expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+    expect(gitInfo.probeWorktreeList).toHaveBeenCalledTimes(1);
     release?.();
     await expect(Promise.all([first, second])).resolves.toEqual([
       { watched: [WORKTREE], rejected: [], evicted: [] },
@@ -129,12 +152,76 @@ describe('GitWatchRpcHandlers', () => {
     expect(registry.setLease).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the previous lease when a later root probe fails', async () => {
+  // Review #8: a renewal with other roots must not be answered by the
+  // running call for the old set.
+  it('runs a call with different roots after the running one, not inside it', async () => {
     const { rpc, registry, gitInfo } = buildSuite();
-    await watchRoots(rpc)({ leaseId: 'lease-1', roots: [WORKTREE] });
-    gitInfo.getWorktrees.mockRejectedValue(new Error('git timed out'));
-    await expect(watchRoots(rpc)({ leaseId: 'lease-1', roots: ['/workspace/another'] }))
-      .rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gitInfo.probeWorktreeList.mockImplementationOnce(async () => {
+      await gate;
+      return LISTED;
+    });
+    const send = watchRoots(rpc);
+    const first = send({ leaseId: 'lease-1', roots: [WORKTREE] });
+    const second = send({ leaseId: 'lease-1', roots: [FOLDER] });
+    await Promise.resolve();
+    expect(registry.setLease).not.toHaveBeenCalled();
+    release?.();
+
+    await expect(first).resolves.toMatchObject({ watched: [WORKTREE] });
+    await expect(second).resolves.toMatchObject({ watched: [FOLDER] });
+    expect(registry.setLease.mock.calls).toEqual([
+      ['lease-1', [WORKTREE]],
+      ['lease-1', [FOLDER]],
+    ]);
+  });
+
+  // Review #5: one root whose probe fails must not hold back the others.
+  it('applies the roots that resolved and keeps a failed root only if the lease held it', async () => {
+    const { rpc, registry, gitInfo, logger } = buildSuite();
+    const send = watchRoots(rpc);
+    await send({ leaseId: 'lease-1', roots: [WORKTREE] });
+    gitInfo.probeWorktreeList.mockResolvedValue(FAILED);
+    // A watcher event drops the cached confirmation.
+    gitInfo.probeEpoch.mockReturnValue(1);
+
+    await expect(
+      send({ leaseId: 'lease-1', roots: [FOLDER, WORKTREE] }),
+    ).resolves.toEqual({
+      watched: [FOLDER, WORKTREE],
+      rejected: [],
+      evicted: [],
+    });
+    expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [
+      FOLDER,
+      WORKTREE,
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[GitWatchRpc] git:watchRoots probe failed; keeping those roots from the previous lease',
+      expect.objectContaining({ leaseId: 'lease-1', failed: 1 }),
+    );
+
+    const other = '/workspace/.claude-worktrees/other';
+    await expect(
+      send({ leaseId: 'lease-1', roots: [FOLDER, other] }),
+    ).resolves.toEqual({ watched: [FOLDER], rejected: [], evicted: [] });
+    expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [FOLDER]);
+  });
+
+  it('answers the retryable error, keeping the held roots, when every root fails', async () => {
+    const { rpc, registry, gitInfo } = buildSuite();
+    const send = watchRoots(rpc);
+    await send({ leaseId: 'lease-1', roots: [WORKTREE] });
+    gitInfo.probeWorktreeList.mockResolvedValue(FAILED);
+    // A watcher event drops the cached confirmation.
+    gitInfo.probeEpoch.mockReturnValue(1);
+
+    await expect(
+      send({ leaseId: 'lease-1', roots: [WORKTREE] }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
     expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [WORKTREE]);
   });
 
@@ -142,10 +229,17 @@ describe('GitWatchRpcHandlers', () => {
     jest.useFakeTimers();
     try {
       const { rpc, gitInfo } = buildSuite();
-      gitInfo.getWorktrees.mockImplementation(() => new Promise(() => undefined));
-      const pending = watchRoots(rpc)({ leaseId: 'lease-1', roots: [WORKTREE] });
+      gitInfo.probeWorktreeList.mockImplementation(
+        () => new Promise<WorktreeListRead>(() => undefined),
+      );
+      const pending = watchRoots(rpc)({
+        leaseId: 'lease-1',
+        roots: [WORKTREE],
+      });
       jest.advanceTimersByTime(25_000);
-      await expect(pending).rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+      await expect(pending).rejects.toMatchObject({
+        errorCode: 'GIT_ROOT_PROBE_FAILED',
+      });
     } finally {
       jest.useRealTimers();
     }

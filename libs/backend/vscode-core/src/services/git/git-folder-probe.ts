@@ -1,26 +1,20 @@
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
 import type { CommonDirRead, WorktreeListRead } from './git-probe-outcome';
+import type { GitProbeReads } from './git-probe-reader';
 
-/** How long a confirmed list or common-dir answer is reused. */
-export const WORKTREE_LIST_CONFIRMED_TTL_MS = 60_000;
+/** How long a confirmed common directory is reused. */
+export const COMMON_DIR_CONFIRMED_TTL_MS = 60_000;
 /**
- * How long a failed probe is reused as a failure. It is not a negative
- * "not a worktree" entry: callers still see `failed` and retry after this.
+ * How long every other answer is reused: a worktree list (it is also a
+ * negative answer for every path it does not name), a `not-a-repo`, and a
+ * failure. A failure is not a negative entry: callers still see `failed`
+ * and retry after this.
  */
-export const WORKTREE_PROBE_FAILURE_BACKOFF_MS = 2_000;
+export const WORKTREE_PROBE_SHORT_TTL_MS = 2_000;
 
 export interface GitFolderProbeDeps {
-  /** Uncached `git worktree list`. */
-  readonly list: (
-    folder: string,
-    signal?: AbortSignal,
-  ) => Promise<WorktreeListRead>;
-  /** Uncached `rev-parse --git-common-dir`. */
-  readonly commonDir: (
-    dir: string,
-    signal?: AbortSignal,
-  ) => Promise<CommonDirRead>;
+  readonly reader: GitProbeReads;
   readonly now?: () => number;
 }
 
@@ -29,26 +23,36 @@ interface Cached<T> {
   readonly until: number;
 }
 
-interface Flight<T> {
-  promise: Promise<T>;
+/** The mutable bookkeeping of one in-flight read, without its promise. */
+interface FlightState {
   readonly controller: AbortController;
   stale: boolean;
   /** A waiter with no signal: the child must not be aborted. */
   unsigned: boolean;
-  readonly signals: AbortSignal[];
-  readonly detach: Array<() => void>;
+  /** Signalled waiters that have not aborted yet. */
+  liveWaiters: number;
+  /** Listener removals of the live signalled waiters. */
+  readonly detach: Set<() => void>;
+}
+
+interface Flight<T> {
+  readonly state: FlightState;
+  readonly promise: Promise<T>;
 }
 
 /**
  * One in-flight and one cached `git worktree list` and common-dir per
  * folder. The RPC root resolver and `git:watchRoots` share it through
- * `GitInfoService`. Confirmed answers last until watcher/mutation invalidation or
- * {@link WORKTREE_LIST_CONFIRMED_TTL_MS}. A failure is
- * remembered only for {@link WORKTREE_PROBE_FAILURE_BACKOFF_MS}.
+ * `GitInfoService`. A confirmed common dir lasts until watcher/mutation
+ * invalidation or {@link COMMON_DIR_CONFIRMED_TTL_MS}; everything else for
+ * {@link WORKTREE_PROBE_SHORT_TTL_MS}, so a worktree created outside Ptah is
+ * listed within seconds even when no watcher event reaches us.
  *
  * A caller's `AbortSignal` aborts the child only when every waiter has
  * aborted. A waiter without a signal keeps the child alive, so one
  * `git:watchRoots` deadline cannot cancel a `git:info` read that joined it.
+ * An aborted flight is never joined and its answer is never stored: it
+ * describes the abort, not the folder.
  */
 export class GitFolderProbe {
   private epochValue = 0;
@@ -69,7 +73,8 @@ export class GitFolderProbe {
       this.lists,
       this.listFlights,
       signal,
-      (child) => this.deps.list(folder, child),
+      () => WORKTREE_PROBE_SHORT_TTL_MS,
+      (child) => this.deps.reader.readWorktreeList(folder, child),
     );
   }
 
@@ -79,7 +84,11 @@ export class GitFolderProbe {
       this.commons,
       this.commonFlights,
       signal,
-      (child) => this.deps.commonDir(dir, child),
+      (value) =>
+        value.kind === 'dir'
+          ? COMMON_DIR_CONFIRMED_TTL_MS
+          : WORKTREE_PROBE_SHORT_TTL_MS,
+      (child) => this.deps.reader.readCommonDir(dir, child),
     );
   }
 
@@ -91,8 +100,10 @@ export class GitFolderProbe {
   invalidate(root?: string): void {
     this.epochValue += 1;
     if (!root) {
-      for (const flight of this.listFlights.values()) flight.stale = true;
-      for (const flight of this.commonFlights.values()) flight.stale = true;
+      for (const flight of this.listFlights.values()) flight.state.stale = true;
+      for (const flight of this.commonFlights.values()) {
+        flight.state.stale = true;
+      }
       this.lists.clear();
       this.commons.clear();
       return;
@@ -107,71 +118,71 @@ export class GitFolderProbe {
     cache: Map<string, Cached<T>>,
     flights: Map<string, Flight<T>>,
     signal: AbortSignal | undefined,
+    ttlFor: (value: T) => number,
     load: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
-    const now = this.now();
     const cached = cache.get(key);
-    if (cached && cached.until > now) return Promise.resolve(cached.value);
+    if (cached && cached.until > this.now()) {
+      return Promise.resolve(cached.value);
+    }
     cache.delete(key);
 
     const running = flights.get(key);
-    if (running && !running.stale) {
-      this.attachSignal(running, signal);
+    if (
+      running &&
+      !running.state.stale &&
+      !running.state.controller.signal.aborted
+    ) {
+      this.attachSignal(running.state, signal);
       return running.promise;
     }
 
-    const controller = new AbortController();
-    const flight: Flight<T> = {
-      promise: Promise.resolve(undefined as T),
-      controller,
+    const state: FlightState = {
+      controller: new AbortController(),
       stale: false,
       unsigned: false,
-      signals: [],
-      detach: [],
+      liveWaiters: 0,
+      detach: new Set(),
     };
-    this.attachSignal(flight, signal);
-    flight.promise = load(controller.signal)
+    this.attachSignal(state, signal);
+    const promise = load(state.controller.signal)
       .then((value) => {
-        if (!flight.stale) this.remember(cache, key, value);
+        if (!state.stale && !state.controller.signal.aborted) {
+          cache.set(key, { value, until: this.now() + ttlFor(value) });
+        }
         return value;
       })
       .finally(() => {
-        for (const release of flight.detach) release();
-        if (flights.get(key) === flight) flights.delete(key);
+        for (const release of state.detach) release();
+        state.detach.clear();
+        if (flights.get(key)?.state === state) flights.delete(key);
       });
-    flights.set(key, flight);
-    return flight.promise;
+    flights.set(key, { state, promise });
+    return promise;
   }
 
-  private remember<T>(
-    cache: Map<string, Cached<T>>,
-    key: string,
-    value: T,
-  ): void {
-    const failed = isFailed(value);
-    const ttl = failed
-      ? WORKTREE_PROBE_FAILURE_BACKOFF_MS
-      : WORKTREE_LIST_CONFIRMED_TTL_MS;
-    cache.set(key, { value, until: this.now() + ttl });
-  }
-
-  private attachSignal<T>(flight: Flight<T>, signal?: AbortSignal): void {
+  /**
+   * Count `signal` as a live waiter of `state`. An aborted waiter leaves the
+   * count and its listener, so neither grows with waiters that gave up.
+   */
+  private attachSignal(state: FlightState, signal?: AbortSignal): void {
     if (!signal) {
-      flight.unsigned = true;
+      state.unsigned = true;
       return;
     }
-    flight.signals.push(signal);
     const onAbort = (): void => {
-      if (flight.unsigned) return;
-      if (flight.signals.every((waiter) => waiter.aborted)) {
-        flight.controller.abort();
-      }
+      state.detach.delete(release);
+      state.liveWaiters -= 1;
+      if (!state.unsigned && state.liveWaiters === 0) state.controller.abort();
     };
-    if (signal.aborted) onAbort();
-    else {
-      signal.addEventListener('abort', onAbort, { once: true });
-      flight.detach.push(() => signal.removeEventListener('abort', onAbort));
+    const release = (): void => signal.removeEventListener('abort', onAbort);
+    state.liveWaiters += 1;
+    if (signal.aborted) {
+      onAbort();
+      return;
     }
+    signal.addEventListener('abort', onAbort, { once: true });
+    state.detach.add(release);
   }
 
   private dropCovered<T>(
@@ -180,7 +191,7 @@ export class GitFolderProbe {
     flights: Map<string, Flight<T>>,
   ): void {
     for (const [entryKey, flight] of flights) {
-      if (covers(entryKey, key)) flight.stale = true;
+      if (covers(entryKey, key)) flight.state.stale = true;
     }
     for (const entryKey of [...cache.keys()]) {
       if (covers(entryKey, key)) cache.delete(entryKey);
@@ -190,15 +201,6 @@ export class GitFolderProbe {
   private now(): number {
     return (this.deps.now ?? Date.now)();
   }
-}
-
-function isFailed(value: unknown): boolean {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'kind' in value &&
-    value.kind === 'failed'
-  );
 }
 
 /** Same folder, or either path lies inside the other. */

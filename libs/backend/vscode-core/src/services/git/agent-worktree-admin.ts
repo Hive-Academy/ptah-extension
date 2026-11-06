@@ -6,10 +6,14 @@ import {
   type GitWorktreeInfo,
 } from '@ptah-extension/shared';
 import type { Logger } from '../../logging';
-import { DEFAULT_GIT_TIMEOUT_MS, WORKTREE_GIT_TIMEOUT_MS } from '../../utils/exec-git';
+import {
+  DEFAULT_GIT_TIMEOUT_MS,
+  WORKTREE_GIT_TIMEOUT_MS,
+} from '../../utils/exec-git';
 import { resolveWorktreePath } from '../../utils/worktree-path';
 import type { GitRepoWriteLock, GitWriteRunner } from './git-write-lock';
 import { assertSafeRef } from './git-ref-guard';
+import { isNotAGitRepository } from './git-probe-outcome';
 import {
   thrownOutcome,
   writeOutcome,
@@ -74,22 +78,21 @@ function comparablePath(p: string): string {
 export class AgentWorktreeAdmin {
   constructor(private readonly deps: AgentWorktreeAdminDeps) {}
 
+  /**
+   * `git worktree list` for `workspacePath`. A folder git reports as "not a
+   * git repository" has no worktrees (`[]`). Every other failure — timeout,
+   * queue deadline, spawn error, any other non-zero exit — rejects, so no
+   * caller can mistake a stalled or broken listing for "no worktrees".
+   */
   async list(workspacePath: string): Promise<GitWorktreeInfo[]> {
-    try {
-      const { stdout, exitCode } = await this.deps.exec(
-        ['worktree', 'list', '--porcelain', '-z'],
-        workspacePath,
-        { timeoutMs: DEFAULT_GIT_TIMEOUT_MS },
-      );
-      if (exitCode !== 0) {
-        this.deps.logger.warn('[GitInfoService] getWorktrees git exited non-zero', { workspacePath, exitCode });
-        return [];
-      }
-      return parseWorktreeList(stdout);
-    } catch (error: unknown) {
-      this.deps.logger.error('[GitInfoService] getWorktrees failed', error instanceof Error ? error : new Error(String(error)));
-      return [];
-    }
+    const { stdout, stderr, exitCode } = await this.deps.exec(
+      ['worktree', 'list', '--porcelain', '-z'],
+      workspacePath,
+      { timeoutMs: DEFAULT_GIT_TIMEOUT_MS },
+    );
+    if (exitCode === 0) return parseWorktreeList(stdout);
+    if (isNotAGitRepository(exitCode, stderr)) return [];
+    throw new Error(`git worktree list exited ${exitCode}: ${stderr.trim()}`);
   }
 
   async add(

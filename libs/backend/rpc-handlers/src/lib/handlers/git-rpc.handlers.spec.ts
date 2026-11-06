@@ -58,6 +58,7 @@ import {
   type MockWorkspaceProvider,
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
+import type { GitWorktreeInfo } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -93,13 +94,17 @@ type MockGitInfo = jest.Mocked<
     | 'diffFile'
     | 'applyHunks'
     | 'getWorktrees'
-    | 'getCommonDir'
+    | 'probeWorktreeList'
+    | 'probeCommonDir'
+    | 'probeEpoch'
+    | 'invalidateProbeReadCache'
     | 'addWorktree'
     | 'removeWorktree'
   >
 >;
 
 function createMockGitInfo(): MockGitInfo {
+  const getWorktrees = jest.fn().mockResolvedValue([]);
   return {
     getGitInfo: jest.fn().mockResolvedValue({
       isGitRepo: true,
@@ -168,8 +173,22 @@ function createMockGitInfo(): MockGitInfo {
     applyHunks: jest
       .fn()
       .mockResolvedValue({ success: true, snapshotToken: 'token-2' }),
-    getWorktrees: jest.fn().mockResolvedValue([]),
-    getCommonDir: jest.fn().mockResolvedValue('/workspace/.git'),
+    getWorktrees,
+    // The root probe reads the same `git worktree list` as getWorktrees.
+    probeWorktreeList: jest.fn((folder: string) =>
+      getWorktrees(folder).then(
+        (worktrees: GitWorktreeInfo[]) => ({ kind: 'listed', worktrees }),
+        (cause: unknown) => ({
+          kind: 'failed',
+          cause: cause instanceof Error ? cause : new Error(String(cause)),
+        }),
+      ),
+    ),
+    probeCommonDir: jest
+      .fn()
+      .mockResolvedValue({ kind: 'dir', path: '/workspace/.git' }),
+    probeEpoch: jest.fn(() => 0),
+    invalidateProbeReadCache: jest.fn(),
     addWorktree: jest
       .fn()
       .mockResolvedValue({ success: true, worktreePath: '/wt/feature' }),
@@ -374,9 +393,9 @@ describe('git:info handler', () => {
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
 
-    await expect(handler({ workspaceRoot: '/elsewhere' })).rejects.toMatchObject(
-      { errorCode: 'GIT_ROOT_UNAVAILABLE' },
-    );
+    await expect(
+      handler({ workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -419,7 +438,9 @@ describe('worktree roots', () => {
       },
     ]);
     suite.fileSystem.stat.mockImplementation(async (dir: string) => {
-      if (dir.replace(/\/$/, '') !== WORKTREE) throw new Error(`ENOENT: ${dir}`);
+      if (dir.replace(/\/$/, '') !== WORKTREE) {
+        throw Object.assign(new Error(`ENOENT: ${dir}`), { code: 'ENOENT' });
+      }
       return { type: FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     });
     suite.handlers.register();
@@ -449,22 +470,30 @@ describe('worktree roots', () => {
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
-  it('git:info refuses every root when the worktree list cannot be read', async () => {
-    const { handlers, rpc, gitInfo } = buildSuite();
+  it('git:info answers the retryable error when the worktree list cannot be read', async () => {
+    const { handlers, rpc, gitInfo, fileSystem } = buildSuite();
+    fileSystem.stat.mockResolvedValue({
+      type: FileType.Directory,
+      ctime: 0,
+      mtime: 0,
+      size: 0,
+    });
     gitInfo.getWorktrees.mockRejectedValue(new Error('git failed'));
     handlers.register();
 
     await expect(
       getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
-    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+    expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/workspace');
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
   it('git:info refuses a listed worktree whose common dir is another repository', async () => {
     const { rpc, gitInfo } = suiteWithWorktree();
-    gitInfo.getCommonDir.mockImplementation(async (dir: string) =>
-      dir === WORKTREE ? '/elsewhere/.git' : '/workspace/.git',
-    );
+    gitInfo.probeCommonDir.mockImplementation(async (dir: string) => ({
+      kind: 'dir',
+      path: dir === WORKTREE ? '/elsewhere/.git' : '/workspace/.git',
+    }));
 
     await expect(
       getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
@@ -493,12 +522,14 @@ describe('worktree roots', () => {
 
   it('git:info refuses a listed worktree whose directory is gone', async () => {
     const { rpc, gitInfo, fileSystem } = suiteWithWorktree();
-    fileSystem.stat.mockRejectedValue(new Error('ENOENT'));
+    fileSystem.stat.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
 
     await expect(
       getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
     ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
-    expect(gitInfo.getCommonDir).not.toHaveBeenCalled();
+    expect(gitInfo.probeCommonDir).not.toHaveBeenCalled();
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -1110,6 +1141,19 @@ describe('worktree handlers workspace scoping', () => {
     await getHandler(rpc, 'git:worktrees')({ workspaceRoot: '/other' });
 
     expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/other');
+  });
+
+  // Review #7: a stalled host must never publish "no worktrees".
+  it('git:worktrees fails, rather than answering an empty list, when the listing fails', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    gitInfo.getWorktrees.mockRejectedValue(
+      new Error('git worktree list timed out after 10000ms'),
+    );
+    handlers.register();
+
+    await expect(getHandler(rpc, 'git:worktrees')(undefined)).rejects.toThrow(
+      'timed out',
+    );
   });
 
   it('git:worktrees rejects an unregistered workspaceRoot', async () => {
@@ -1857,5 +1901,3 @@ describe('git:commit live output (TASK_2026_576 Component 30)', () => {
     expect(failureLogs).toHaveLength(1);
   });
 });
-
-

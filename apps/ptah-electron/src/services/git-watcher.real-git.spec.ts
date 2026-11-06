@@ -103,6 +103,7 @@ class WatchedWorkspace {
         ({ isGitRepo: true, files: [] }) as unknown as GitInfoResult,
       statusBackoffRemainingMs: (): number => 0,
       getWorktrees: this.getWorktrees,
+      invalidateProbeReadCache: noop,
     } as unknown as GitInfoService;
     this.svc = new GitWatcherService(gitInfo, logger, watcher);
   }
