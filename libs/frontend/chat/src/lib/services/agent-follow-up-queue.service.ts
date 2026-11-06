@@ -109,8 +109,13 @@ export class AgentFollowUpQueueService {
       const accepted = this.accepted.get(agentId);
       if (accepted) {
         this.cancelled.add(accepted.id);
-        const cancelled = await this.store.cancelMessage(agentId, accepted.id);
-        if (cancelled.reason !== 'cancelled-by-user') {
+        // A cancel that throws leaves the earlier message in an unknown state:
+        // treat it as started, so only the new text is sent or recorded and a
+        // retry cannot duplicate the earlier one. Its own receipt still reports
+        // a later failure.
+        const cancelledByUser = await this.store.cancelMessage(agentId, accepted.id)
+          .then((receipt) => receipt.reason === 'cancelled-by-user', () => false);
+        if (!cancelledByUser) {
           this.cancelled.delete(accepted.id);
           text = message;
           this._queued.update((map) => withEntry(map, agentId, text));
@@ -133,7 +138,7 @@ export class AgentFollowUpQueueService {
         if (cancelled.reason === 'cancelled-by-user') this.accepted.delete(agentId);
       }
       if (this.revisions.get(agentId) === revision) this._queued.update((map) => withoutEntry(map, agentId));
-    }, text);
+    }, () => text);
   }
 
   /** Take text back into the composer; cancel an accepted message if possible. */
@@ -152,7 +157,7 @@ export class AgentFollowUpQueueService {
           this.cancelled.delete(pending.id);
           this._errors.update((map) => withEntry(map, agentId, 'Message already started and could not be edited.'));
         }
-      }, text);
+      }, () => text);
     }
     return text;
   }
@@ -178,11 +183,12 @@ export class AgentFollowUpQueueService {
     }
   }
 
-  private schedule(agentId: string, operation: () => Promise<void>, text: string): void {
+  /** `text` is read on failure, so an operation that narrowed it records only what it still owns. */
+  private schedule(agentId: string, operation: () => Promise<void>, text: () => string): void {
     const previous = this.operations.get(agentId) ?? Promise.resolve();
     const next = previous.then(operation).catch((error: unknown) => {
       this._queued.update((map) => withoutEntry(map, agentId));
-      this.fail(agentId, text, error instanceof Error ? error.message : GENERIC_FAILURE);
+      this.fail(agentId, text(), error instanceof Error ? error.message : GENERIC_FAILURE);
     });
     this.operations.set(agentId, next);
     void next.then(() => { if (this.operations.get(agentId) === next) this.operations.delete(agentId); });

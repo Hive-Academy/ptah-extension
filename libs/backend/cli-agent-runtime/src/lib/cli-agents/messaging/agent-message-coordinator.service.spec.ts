@@ -7,7 +7,7 @@ import { AgentInterruptedDeliveryError } from '../agent-message-router.service';
 import type { SdkHandle } from '../cli-adapters/cli-adapter.interface';
 import { AgentDeliveryReceiptStore } from './agent-delivery-receipt-store.service';
 import { AgentLaneResumeService } from './agent-lane-resume.service';
-import { AgentMessageCoordinator } from './agent-message-coordinator.service';
+import { AgentMessageCoordinator, CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-coordinator.service';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { LaneAccountResumeError } from '../lane-resume-gate';
 
@@ -69,6 +69,20 @@ describe('AgentMessageCoordinator', () => {
     expect(outcome.receipt).toMatchObject({ state: 'failed', reason: 'delivery-failed' });
     expect(JSON.stringify(outcome)).not.toContain('secret-123');
     expect(JSON.stringify(outcome)).not.toContain('private/path');
+  });
+
+  it('refuses an existing record without a capability manifest as metadata-unavailable, not not_found', () => {
+    const h = setup();
+    h.setInfo({ potentialCapabilities: undefined });
+    (h.detection.getAdapter as jest.Mock).mockReturnValue(undefined);
+    expect(h.coordinator.preview({ agentId: h.agentId })).toMatchObject({
+      mode: 'unsupported', supported: false, reason: CAPABILITY_METADATA_UNAVAILABLE,
+    });
+  });
+  it('refuses a missing agent record with not_found', () => {
+    const h = setup();
+    h.manager.findAgentInfo = () => undefined;
+    expect(h.coordinator.preview({ agentId: h.agentId })).toMatchObject({ supported: false, reason: 'not_found' });
   });
 
   it('preserves the account refusal code through cold resume', async () => {

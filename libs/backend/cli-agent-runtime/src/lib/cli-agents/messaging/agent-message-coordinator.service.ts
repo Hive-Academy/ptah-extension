@@ -17,6 +17,9 @@ import { planAgentDelivery } from './agent-delivery-planner';
 import { AgentLaneResumeService } from './agent-lane-resume.service';
 import type { Logger } from '@ptah-extension/vscode-core';
 
+/** Stable refusal code: the agent record exists but has no capability manifest. */
+export const CAPABILITY_METADATA_UNAVAILABLE = 'capability_metadata_unavailable';
+
 interface QueueUpdate {
   readonly agentId: string;
   readonly failures?: readonly { messageId: string; reason: string }[];
@@ -70,13 +73,15 @@ export class AgentMessageCoordinator {
     const tracked = this.manager.getMessageRoutableAgent(request.agentId);
     const manifest = info?.potentialCapabilities ?? (info && this.detection.getAdapter(info.cli)?.capabilities());
     if (!manifest || !info) {
-      const unavailable = { state: 'unsupported' as const, reason: 'not_found' };
-      return planAgentDelivery({
-        agentId: request.agentId, delivery: request.delivery ?? 'queue', info,
-        hasLiveHandle: false,
-        effectiveCapabilities: { agentId: request.agentId, resolvedAt: Date.now(), source: 'restored-record',
-          messaging: { steer: unavailable, interrupt: unavailable, continuation: unavailable, resume: unavailable }, mcp: unavailable },
-      });
+      // No record → `not_found`. A record without a capability manifest (e.g. a
+      // restored lane whose adapter is not registered) exists, so say so.
+      const reason = info ? CAPABILITY_METADATA_UNAVAILABLE : 'not_found';
+      const unavailable = { state: 'unsupported' as const, reason };
+      const delivery = request.delivery ?? 'queue';
+      const effectiveCapabilities = { agentId: request.agentId, resolvedAt: Date.now(), source: 'restored-record' as const,
+        messaging: { steer: unavailable, interrupt: unavailable, continuation: unavailable, resume: unavailable }, mcp: unavailable };
+      if (info) return { agentId: request.agentId, delivery, effectiveCapabilities, mode: 'unsupported', supported: false, usesResume: false, reason };
+      return planAgentDelivery({ agentId: request.agentId, delivery, info, hasLiveHandle: false, effectiveCapabilities });
     }
     const live = Boolean(tracked?.sdkHandle && !tracked.subprocessReleased && !tracked.restored);
     return planAgentDelivery({

@@ -57,6 +57,26 @@ describe('AgentFollowUpQueueService', () => {
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
+  it('sends only the new text when cancelling the started message throws', async () => {
+    service.enqueue('agent-1', 'first');
+    await settle();
+    cancelMessage.mockRejectedValueOnce(new Error('offline'));
+    service.enqueue('agent-1', 'second');
+    await settle();
+    expect(sendMessage).toHaveBeenLastCalledWith('agent-1', 'second', 'queue');
+    expect(service.undelivered('agent-1')).toBeNull();
+  });
+
+  it('records only the new text when the separate send then fails', async () => {
+    service.enqueue('agent-1', 'first');
+    await settle();
+    cancelMessage.mockRejectedValueOnce(new Error('offline'));
+    sendMessage.mockRejectedValueOnce(new Error('offline'));
+    service.enqueue('agent-1', 'second');
+    await settle();
+    expect(service.takeUndelivered('agent-1')).toBe('second');
+  });
+
   it('takes queued text back for editing and cancels its receipt', async () => {
     service.enqueue('agent-1', 'draft');
     await settle();
