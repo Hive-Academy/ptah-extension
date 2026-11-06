@@ -40,6 +40,7 @@ import { SkillTaskGradeStore, type GradeAttribution, type SkillTaskGrade } from 
 import {
   extractSpec,
   HARVEST_MARKER_FILE,
+  isDocumentReview,
   taskVerdict,
   type HarvestedSpec,
   type SpecReviewVerdict,
@@ -206,10 +207,11 @@ export class SpecHarvesterService implements SpecFindingsPort {
         const siblings = attributions.filter((candidate) => candidate.kind === attribution.kind && candidate.slug === attribution.slug);
         const batch = attribution.kind === 'agent' && siblings.length === 1
           ? spec.batches.find((item) => item.slug === attribution.slug) : undefined;
-        const matching = spec.reviews.filter((review) =>
+        // Planning-document reviews never grade work on any branch (as in taskVerdict).
+        const matching = spec.reviews.filter((review) => !isDocumentReview(review.file) && (
           (review.runId !== null && review.runId === attribution.runId) ||
           (review.runId === null && review.sessionId !== null && review.sessionId === attribution.sessionId && siblings.length === 1) ||
-          (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent' && !/plan|architecture/i.test(review.file)));
+          (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent')));
         const final = matching.filter((review) => !review.file.startsWith('judge-round-'));
         const selected = final.length > 0 ? final : matching;
         const latest = latestReviews(selected);

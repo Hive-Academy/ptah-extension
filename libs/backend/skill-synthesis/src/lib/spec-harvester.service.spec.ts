@@ -181,6 +181,39 @@ describe('SpecHarvesterService', () => {
     expect(store.reconcileTaskEvents).toHaveBeenNthCalledWith(2, expect.objectContaining({ succeeded: true }));
   });
 
+  it('never turns a planning-document review into a work grade', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
+      }]),
+      upsert: jest.fn().mockReturnValue(true), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_099', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+    });
+    for (const file of ['task-description-review.md', 'design-spec-review.md', 'implementation-plan-review.md', 'architecture-review.md']) {
+      await writeFile(join(dir, file), 'Verdict: FAIL', 'utf8');
+    }
+    await svc.harvest();
+    expect(grades.upsert).not.toHaveBeenCalled();
+
+    // Run ID and session branches exclude document reviews too.
+    await writeFile(join(dir, 'task-description-review.md'), 'Verdict: FAIL\nRun ID: run-1', 'utf8');
+    await writeFile(join(dir, 'design-spec-review.md'), 'Verdict: FAIL\nSession ID: session-1', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).not.toHaveBeenCalled();
+
+    // A work review in the same folder still grades the lone agent.
+    await writeFile(join(dir, 'code-logic-review.md'), 'Verdict: PASS', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledTimes(1);
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'TASK_2026_099', verdict: 'pass', sourceFile: 'code-logic-review.md',
+    }));
+  });
+
   it('lets batch and lane verdicts outrank conflicting reviews', async () => {
     const grades = {
       findAttributions: jest.fn().mockReturnValue([{
