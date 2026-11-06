@@ -24,7 +24,10 @@ export const MachineRegistrySchema = z
   .strict();
 export type MachineRegistryData = z.infer<typeof MachineRegistrySchema>;
 
-type Fs = Pick<typeof fs, 'readFile' | 'mkdir' | 'open' | 'rename' | 'unlink'>;
+type Fs = Pick<
+  typeof fs,
+  'stat' | 'readFile' | 'mkdir' | 'open' | 'rename' | 'unlink'
+>;
 
 export class MachineRegistry {
   constructor(
@@ -35,6 +38,9 @@ export class MachineRegistry {
   async read(): Promise<MachineRegistryData> {
     let source: string;
     try {
+      const metadata = await this.io.stat(this.path);
+      if (metadata.size > 256 * 1024)
+        throw new Error('Machine registry exceeds 256 KiB');
       const bytes = await this.io.readFile(this.path);
       if (bytes.byteLength > 256 * 1024)
         throw new Error('Machine registry exceeds 256 KiB');

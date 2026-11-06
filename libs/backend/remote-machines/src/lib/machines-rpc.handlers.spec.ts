@@ -152,3 +152,20 @@ it('uses fixed text for worker errors and maps SSH failures', () => {
   expect(ssh).toMatchObject({ errorCode: 'MACHINE_VERSION_MISMATCH' });
   expect(ssh.message).not.toContain(secret);
 });
+
+it('logs an unknown machine error while returning fixed user text', () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const mapped = mapMachineError(new Error('Invalid workspace option'));
+    expect(log).toHaveBeenCalledWith(
+      'Unexpected machines RPC error:',
+      'Invalid workspace option',
+    );
+    expect(mapped).toMatchObject({ errorCode: 'MACHINE_UNREACHABLE' });
+    expect(mapped.message).not.toContain('Invalid workspace option');
+    mapMachineError(new Error('token=private-value'));
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private-value');
+  } finally {
+    log.mockRestore();
+  }
+});

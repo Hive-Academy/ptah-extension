@@ -29,6 +29,7 @@ describe('MachineConnection', () => {
       machineId: 'm',
       alias: 'host',
       token: 'token',
+      workerMachineId: 'm',
       ptahVersion: '1',
       random: () => 0,
       createClient: () => fake,
@@ -51,17 +52,19 @@ describe('MachineConnection', () => {
   });
 });
 
-it('reattaches open sessions after reconnect using the last delivered epoch and seq', async () => {
+it('reattaches after reconnect and replays from an explicit lower cursor', async () => {
   const attached: Array<{
     sessionId: string;
     afterSeq?: number;
     epoch?: string;
   }> = [];
   let socket: WebSocketLike | undefined;
+  const events: number[] = [];
   const connection = new MachineConnection({
     machineId: 'm',
     alias: 'host',
     token: 'token',
+    workerMachineId: 'm',
     ptahVersion: 'test',
     createClient: (callbacks) =>
       new WorkerClient({
@@ -134,6 +137,7 @@ it('reattaches open sessions after reconnect using the last delivered epoch and 
       }),
     setTimer: () => ({}) as ReturnType<typeof setTimeout>,
     clearTimer: () => undefined,
+    onEvent: (event) => events.push(event.seq),
   });
   await connection.connect();
   await connection.attach('s1');
@@ -169,5 +173,77 @@ it('reattaches open sessions after reconnect using the last delivered epoch and 
     { sessionId: 's1', afterSeq: 7, epoch: 'epoch-1' },
     { sessionId: 's2', afterSeq: 4, epoch: 'epoch-1' },
   ]);
+  await connection.attach('s1', 0);
+  expect(attached.at(-1)?.afterSeq).toBe(0);
+  if (!socket) throw new Error('socket missing');
+  for (const seq of [1, 2, 3])
+    socket.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        kind: 'evt',
+        sessionId: 's1',
+        epoch: 'epoch-1',
+        seq,
+        type: 'chat:chunk',
+        ts: Date.now(),
+        payload: {},
+      }),
+    });
+  expect(events).toEqual([7, 4, 1, 2, 3]);
   connection.dispose();
+});
+
+it('does not send a token without a stored worker identity', async () => {
+  const createClient = jest.fn();
+  const setTimer = jest.fn();
+  const connection = new MachineConnection({
+    machineId: 'm',
+    alias: 'host',
+    token: 'secret',
+    ptahVersion: '1',
+    createClient,
+    setTimer,
+  });
+  await connection.connect();
+  expect(connection.state).toBe('unpaired');
+  expect(connection.reason).toMatch(/re-pair this machine/i);
+  expect(createClient).not.toHaveBeenCalled();
+  expect(setTimer).not.toHaveBeenCalled();
+});
+
+it('rejects pairing while connect is in flight without replacing its client', async () => {
+  let firstSocket: WebSocketLike | undefined;
+  const createClient = jest.fn(
+    () =>
+      new WorkerClient({
+        createSocket: () => {
+          const socket: WebSocketLike = {
+            onopen: null,
+            onmessage: null,
+            onclose: null,
+            onerror: null,
+            send: jest.fn(),
+            close: jest.fn(),
+          };
+          firstSocket = socket;
+          return socket;
+        },
+      }),
+  );
+  const connection = new MachineConnection({
+    machineId: 'm',
+    alias: 'host',
+    token: 'secret',
+    workerMachineId: 'm',
+    ptahVersion: '1',
+    createClient,
+  });
+  const connecting = connection.connect();
+  await expect(connection.exchange('code')).rejects.toThrow(
+    /connection is in progress/i,
+  );
+  expect(createClient).toHaveBeenCalledTimes(1);
+  connection.dispose();
+  firstSocket?.onclose?.({ code: 1000, reason: '' });
+  await connecting.catch(() => undefined);
 });

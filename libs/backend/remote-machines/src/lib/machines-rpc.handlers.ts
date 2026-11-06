@@ -11,8 +11,7 @@ import {
 } from '@ptah-extension/shared';
 import { WorkerClientError } from '@ptah-extension/worker-protocol';
 import { SshWorkerCommandError } from './ssh-worker-commands';
-import { MachineServiceError } from './machines-service';
-import { MachinesService } from './machines-service';
+import { MachineServiceError, MachinesService } from './machines-service';
 
 const USER_TEXT = {
   MACHINE_VERSION_MISMATCH: 'The worker version is incompatible.',
@@ -51,6 +50,15 @@ export function mapMachineError(error: unknown): Error {
                 : 'MACHINE_UNREACHABLE';
     return userError(code);
   }
+  // Keep provider messages out of the RPC response and redact credential-like values in logs.
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    'Unexpected machines RPC error:',
+    message.replace(
+      /(token|bearer|secret)(\s*[:=]\s*|\s+)[^\s,;]+/gi,
+      '$1=[redacted]',
+    ),
+  );
   return userError('MACHINE_UNREACHABLE');
 }
 

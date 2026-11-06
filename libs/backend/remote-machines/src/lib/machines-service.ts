@@ -267,12 +267,26 @@ export class MachinesService {
         }
       }
       try {
-        await this.options.registry.write({
-          machines: data.machines.filter(
-            (entry) => entry.machineId !== machineId,
-          ),
-        });
-        await this.options.tokens.delete(machineId);
+        try {
+          await this.options.tokens.delete(machineId);
+        } catch {
+          throw new MachineServiceError(
+            'MACHINE_UNREACHABLE',
+            'Could not delete the machine credential. Retry removal.',
+          );
+        }
+        try {
+          await this.options.registry.write({
+            machines: data.machines.filter(
+              (entry) => entry.machineId !== machineId,
+            ),
+          });
+        } catch {
+          throw new MachineServiceError(
+            'MACHINE_UNREACHABLE',
+            'Could not update the machine registry. Retry removal.',
+          );
+        }
       } finally {
         connection?.dispose();
         this.connections.delete(machineId);

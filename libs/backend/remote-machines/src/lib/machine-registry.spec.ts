@@ -2,6 +2,7 @@ import { MachineRegistry } from './machine-registry';
 
 it('rejects corrupt registry before writing', async () => {
   const io = {
+    stat: jest.fn(async () => ({ size: 0 })),
     readFile: jest.fn(async () => '{bad json'),
     mkdir: jest.fn(),
     open: jest.fn(),
@@ -23,6 +24,7 @@ it('writes a mode 0600 temp file, syncs and renames', async () => {
     close: jest.fn(async () => undefined),
   };
   const io = {
+    stat: jest.fn(async () => ({ size: 0 })),
     readFile: jest.fn(async () => '{"machines":[]}'),
     mkdir: jest.fn(async () => undefined),
     open: jest.fn(async () => handle),
@@ -43,6 +45,7 @@ it('writes a mode 0600 temp file, syncs and renames', async () => {
 
 it('returns an empty registry when the file does not exist', async () => {
   const io = {
+    stat: jest.fn(async () => ({ size: 0 })),
     readFile: jest.fn(async () => {
       throw Object.assign(new Error('missing'), { code: 'ENOENT' });
     }),
@@ -54,6 +57,7 @@ it('returns an empty registry when the file does not exist', async () => {
 
 it('reports a schema-invalid registry as corrupt', async () => {
   const io = {
+    stat: jest.fn(async () => ({ size: 0 })),
     readFile: jest.fn(
       async () => '{"machines":[{"machineId":"m","alias":"-bad"}]}',
     ),
@@ -70,6 +74,7 @@ it('removes the temp file when rename fails', async () => {
     close: jest.fn(async () => undefined),
   };
   const io = {
+    stat: jest.fn(async () => ({ size: 0 })),
     readFile: jest.fn(async () => '{"machines":[]}'),
     mkdir: jest.fn(async () => undefined),
     open: jest.fn(async () => handle),
@@ -87,17 +92,24 @@ it('removes the temp file when rename fails', async () => {
 });
 
 it('caps registry input and machine count', async () => {
-  const io = { readFile: async () => Buffer.alloc(256 * 1024 + 1) };
+  const io = {
+    stat: jest.fn(async () => ({ size: 256 * 1024 + 1 })),
+    readFile: jest.fn(async () => Buffer.alloc(256 * 1024 + 1)),
+  };
   await expect(
     new MachineRegistry('/tmp/remote-machines.json', io as never).read(),
   ).rejects.toThrow('256 KiB');
+  expect(io.readFile).not.toHaveBeenCalled();
   const many = {
     machines: Array.from({ length: 257 }, (_, n) => ({
       machineId: String(n),
       alias: 'host',
     })),
   };
-  const io2 = { readFile: async () => JSON.stringify(many) };
+  const io2 = {
+    stat: async () => ({ size: 0 }),
+    readFile: async () => JSON.stringify(many),
+  };
   await expect(
     new MachineRegistry('/tmp/remote-machines.json', io2 as never).read(),
   ).rejects.toThrow('corrupt');

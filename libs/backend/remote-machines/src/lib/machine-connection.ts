@@ -73,7 +73,10 @@ export class MachineConnection {
     this.machineId = options.machineId;
     this.alias = options.alias;
     this.token = options.token;
-    this.state = options.token ? 'offline' : 'unpaired';
+    this.state =
+      options.token && options.workerMachineId ? 'offline' : 'unpaired';
+    if (options.token && !options.workerMachineId)
+      this.reason = 'Re-pair this machine to verify its worker identity.';
     this.workerMachineId = options.workerMachineId;
   }
 
@@ -218,6 +221,13 @@ export class MachineConnection {
   connect(): Promise<void> {
     if (this.connecting) return this.connecting;
     if (this.disposed || !this.token) return Promise.resolve();
+    if (!this.workerMachineId) {
+      this.cancelTimer();
+      this.reason = 'Re-pair this machine to verify its worker identity.';
+      this.state = 'unpaired';
+      this.emit();
+      return Promise.resolve();
+    }
     this.cancelTimer();
     this.state = 'reconnecting';
     this.emit();
@@ -314,6 +324,10 @@ export class MachineConnection {
     }
   }
   async exchange(code: string) {
+    if (this.connecting || this.state === 'reconnecting')
+      throw new Error(
+        'Pairing cannot start while a connection is in progress.',
+      );
     const generation = ++this.generation;
     const client = this.makeClient(generation);
     this.client = client;
@@ -374,7 +388,7 @@ export class MachineConnection {
     const previous = this.sessions.get(sessionId);
     this.sessions.set(sessionId, {
       epoch: previous?.epoch,
-      seq: Math.max(afterSeq, previous?.seq ?? 0),
+      seq: afterSeq,
     });
     try {
       const result = await this.call('session.attach', { sessionId, afterSeq });

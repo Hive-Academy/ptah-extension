@@ -112,12 +112,39 @@ describe('MachinesService removal and pairing', () => {
     });
     expect(f.order).toEqual([
       'token.revokeSelf',
-      'registry',
       'token.delete',
+      'registry',
       'dispose',
     ]);
     expect(f.machines()).toEqual([]);
     expect(f.connection.dispose).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the registry entry if token deletion fails', async () => {
+    const f = fixture('unpaired', async () => ({}));
+    await f.service.list();
+    jest.spyOn(f.tokens, 'delete').mockImplementationOnce(async () => {
+      f.order.push('token.delete');
+      throw new Error('keyring failed');
+    });
+    await expect(f.service.remove('m')).rejects.toMatchObject({
+      code: 'MACHINE_UNREACHABLE',
+    });
+    expect(f.machines()).toHaveLength(1);
+    expect(f.order).toEqual(['token.delete', 'dispose']);
+  });
+  it('leaves an unpaired entry if registry writing fails after token deletion', async () => {
+    const f = fixture('unpaired', async () => ({}));
+    await f.service.list();
+    jest
+      .spyOn(f.registry, 'write')
+      .mockRejectedValueOnce(new Error('disk failed'));
+    await expect(f.service.remove('m')).rejects.toMatchObject({
+      code: 'MACHINE_UNREACHABLE',
+    });
+    expect(f.machines()).toHaveLength(1);
+    expect(f.order).toEqual(['token.delete', 'dispose']);
+    const listed = await f.service.list();
+    expect(listed.machines[0].state).toBe('unpaired');
   });
   it('finishes local removal after a five-second revoke timeout', async () => {
     jest.useFakeTimers();
@@ -211,8 +238,9 @@ describe('MachinesService lifecycle regressions', () => {
       createConnection: () => connection,
     });
     await service.list();
-    await expect(service.remove('m')).rejects.toThrow('keyring');
+    await expect(service.remove('m')).rejects.toThrow(/credential/);
     expect(connection.dispose).toHaveBeenCalledTimes(1);
+    expect((await registry.read()).machines).toHaveLength(1);
   });
   it('rejects a grant whose worker identity differs from hello without storing a token', async () => {
     const connection = {
