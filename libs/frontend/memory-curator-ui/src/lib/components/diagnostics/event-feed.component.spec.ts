@@ -225,4 +225,75 @@ describe('EventFeedComponent', () => {
     expect(text).toContain('Limit 60/hour reached');
     expect(text).toMatch(/resets at \d{1,2}:\d{2}/);
   });
+
+  function renderOne(ev: MemoryCuratorEventWire): HTMLElement {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [ev]);
+    fixture.componentRef.setInput('now', ev.timestamp + 1000);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it.each([
+    ['failed', 'badge-error'],
+    ['stalled', 'badge-warning'],
+    ['ran', 'badge-success'],
+  ])('gives a %s manual run the %s tone', (outcome, badgeClass) => {
+    const root = renderOne({
+      kind: 'manual-run',
+      timestamp: 5_000,
+      stats: { outcome, extracted: 0, merged: 0, created: 0, skipped: 0 },
+    });
+    expect(root.querySelector('.badge')?.classList.contains(badgeClass)).toBe(
+      true,
+    );
+  });
+
+  it('renders reason-based gate text for a curator stall without a limit', () => {
+    const root = renderOne({
+      kind: 'rate-limited',
+      timestamp: 5_000,
+      stats: {
+        source: 'curator-llm',
+        reason: 'provider-cooling-down',
+        providerId: 'p',
+      },
+    });
+    const text = root.querySelector('li')?.textContent ?? '';
+    expect(text).toContain('Skipped: the provider is rate-limited');
+    expect(text).not.toContain('Rate limit reached');
+  });
+
+  it('renders no-output stalls as finished without a result', () => {
+    const root = renderOne({
+      kind: 'rate-limited',
+      timestamp: 5_000,
+      stats: { source: 'curator-llm', reason: 'no-output' },
+    });
+    expect(root.querySelector('li')?.textContent ?? '').toContain(
+      'Finished without a result',
+    );
+  });
+
+  it('falls back to generic gate text for an unknown reason', () => {
+    const root = renderOne({
+      kind: 'rate-limited',
+      timestamp: 5_000,
+      stats: { source: 'x', reason: 'something-new' },
+    });
+    expect(root.querySelector('li')?.textContent ?? '').toContain(
+      'Skipped by a gate',
+    );
+  });
+
+  it('keeps the hourly-limit wording when a limit is present', () => {
+    const root = renderOne({
+      kind: 'rate-limited',
+      timestamp: 5_000,
+      stats: { source: 'boot', limit: 6, usedThisWindow: 6 },
+    });
+    expect(root.querySelector('li')?.textContent ?? '').toContain(
+      'Limit 6/hour reached',
+    );
+  });
 });

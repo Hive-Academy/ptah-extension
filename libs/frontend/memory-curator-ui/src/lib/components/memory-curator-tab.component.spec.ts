@@ -28,6 +28,7 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
     setMemoryEnabled: jest.fn(() => Promise.resolve()),
     triggers: signal(null).asReadonly(),
     lastRun: signal(null).asReadonly(),
+    lastManualRun: signal(null).asReadonly(),
     recentEvents: signal([]).asReadonly(),
     dbHealth: signal(null).asReadonly(),
     storage: signal(null).asReadonly(),
