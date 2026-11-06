@@ -44,6 +44,7 @@ import {
   type BootReadinessChangedPayload,
   type EmbedderStatusChangedPayload,
   type IndexingCompleteEvent,
+  type IndexingFailedEvent,
   type IndexingProgressEvent,
   type MemoryCorpusChangedPayload,
   type MemoryExtractedPayload,
@@ -117,6 +118,7 @@ export class BackOfficeActivityService implements MessageHandler {
     MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
     MESSAGE_TYPES.INDEXING_PROGRESS,
     MESSAGE_TYPES.INDEXING_COMPLETE,
+    MESSAGE_TYPES.INDEXING_FAILED,
     MESSAGE_TYPES.VEC_STATUS_CHANGED,
     MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED,
   ] as const;
@@ -231,6 +233,8 @@ export class BackOfficeActivityService implements MessageHandler {
         return mapIndexingProgress(payload);
       case MESSAGE_TYPES.INDEXING_COMPLETE:
         return mapIndexingComplete(payload);
+      case MESSAGE_TYPES.INDEXING_FAILED:
+        return mapIndexingFailed(payload);
       case MESSAGE_TYPES.VEC_STATUS_CHANGED:
         return this.mapVecStatus(payload);
       case MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED:
@@ -492,5 +496,19 @@ function mapIndexingComplete(payload: unknown): ActivityItem | null {
     kind: 'complete',
     summary: `Workspace index finished in ${Math.round(body.elapsedMs / 1000)}s`,
     timestamp: body.completedAt,
+  });
+}
+
+function mapIndexingFailed(payload: unknown): ActivityItem | null {
+  const body = payload as IndexingFailedEvent | undefined;
+  if (!body || typeof body.failedAt !== 'number' || !Number.isFinite(body.failedAt)) {
+    return null;
+  }
+  return makeItem({
+    source: 'indexing',
+    kind: 'failed',
+    summary: 'Workspace index failed',
+    level: 'warn',
+    timestamp: body.failedAt,
   });
 }

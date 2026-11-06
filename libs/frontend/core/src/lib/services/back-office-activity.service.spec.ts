@@ -251,6 +251,23 @@ describe('BackOfficeActivityService', () => {
     expect(service.isIdle()).toBe(true);
   });
 
+  it('shows a fixed indexing failure without exposing workspace details', () => {
+    send(service, MESSAGE_TYPES.INDEXING_FAILED, {
+      workspaceRoot: '/private/sentinel',
+      workspaceFingerprint: 'fingerprint',
+      failedAt: 100,
+      elapsedMs: 20,
+      origin: 'background',
+    });
+
+    expect(service.latest()).toMatchObject({
+      source: 'indexing',
+      kind: 'failed',
+      summary: 'Workspace index failed',
+    });
+    expect(JSON.stringify(service.latest())).not.toContain('/private/sentinel');
+  });
+
   it('narrates a boot phase but not the settled one', () => {
     send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
       readiness: 'warming',
@@ -572,7 +589,7 @@ describe('BackOfficeActivityService', () => {
     expect(service.recent()).toEqual([]);
   });
 
-  it('declares the eight user-meaningful handled wire strings', () => {
+  it('declares the nine user-meaningful handled wire strings', () => {
     expect(service.handledMessageTypes).toEqual([
       'activity:event',
       'boot:readinessChanged',
@@ -580,6 +597,7 @@ describe('BackOfficeActivityService', () => {
       'memory:corpusChanged',
       'indexing:progress',
       'indexing:complete',
+      'indexing:failed',
       'db:vecStatusChanged',
       'embedder:statusChanged',
     ]);
