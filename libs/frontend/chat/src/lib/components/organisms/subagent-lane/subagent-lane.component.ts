@@ -60,6 +60,7 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
     '[class.!min-h-fit]': "presentation() === 'flat'",
   },
   template: `
+    @if (presentation() === 'card') {
     <ptah-execution-header
       class="shrink-0"
       kind="subagent"
@@ -111,6 +112,7 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
         </div>
       }
     </ptah-execution-header>
+    }
     @if (commandError(); as err) {
       <p
         role="alert"
@@ -209,6 +211,10 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
       [record]="record()"
       [context]="context()"
       [sessionId]="sessionId()"
+      [stopPending]="stopPending()"
+      [backgroundPending]="backgroundPending()"
+      (stopRequested)="onStop($event)"
+      (backgroundRequested)="onBackground($event)"
     />
   `,
 })

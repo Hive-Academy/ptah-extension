@@ -199,6 +199,7 @@ const LANE_PANEL_CLASS =
                     }
                     <ptah-agent-card
                       [showStats]="false"
+                      #laneCard
                       class="block flex-1 min-h-fit"
                       [agent]="agent"
                       presentation="flat"
@@ -212,6 +213,10 @@ const LANE_PANEL_CLASS =
                       [class]="laneColumnClass + ' block flex-shrink-0 sticky bottom-0 z-10 bg-base-100 pt-2'"
                       variant="composer"
                       [agent]="agent"
+                      [stopPending]="laneCard.isStopping()"
+                      [resumePending]="laneCard.isResuming()"
+                      (stopRequested)="laneCard.stopAgent($event)"
+                      (resumeRequested)="laneCard.resumeAgent($event)"
                     />
                   </ptah-chat-session-layout>
                 </div>

@@ -12,29 +12,23 @@ import {
   computed,
   signal,
   inject,
-  Injector,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
-import { LucideAngularModule, Play, Square, X } from 'lucide-angular';
+import { LucideAngularModule } from 'lucide-angular';
 import { ClaudeRpcService, injectWallClock } from '@ptah-extension/core';
 import { type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import {
   AgentCardHeaderComponent,
-  laneAccountText,
-  laneGuardStopText,
 } from './agent-card-header.component';
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
-import { ExecutionHeaderComponent } from '../execution-header/execution-header.component';
-import { cliActivity } from '../../../services/session-agents/session-agent-roster';
-import { cliLaneStats, resolveCliLaneUsage } from '../../../utils/lane-stats.adapters';
+import { resolveCliLaneUsage } from '../../../utils/lane-stats.adapters';
 import {
   createAgentOutputParser,
   createStderrParser,
 } from './agent-card.utils';
 import {
-  AgentLaneStatsComponent,
   agentRunDurationMs,
   formatAgentDuration,
   type RenderSegment,
@@ -48,10 +42,8 @@ import {
     SlicePipe,
     LucideAngularModule,
     AgentCardHeaderComponent,
-    ExecutionHeaderComponent,
     CliLaneUsageSummaryComponent,
-    AgentLaneStatsComponent,
-    CliAgentOutputComponent,
+      CliAgentOutputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -65,89 +57,7 @@ import {
       [class.text-[13px]]="presentation() === 'flat'"
       [class.leading-[1.6]]="presentation() === 'flat'"
     >
-      @if (presentation() === 'flat') {
-        <ptah-execution-header
-          class="block flex-shrink-0"
-          kind="cli"
-          [showStats]="showStats()"
-          [live]="agent().status === 'running'"
-          [peek]="lanePeek()"
-          [extraMeta]="laneMeta()"
-          [account]="laneAccount()"
-          [metaTone]="
-            agent().status === 'failed' ||
-            agent().status === 'timeout' ||
-            agent().status === 'stopped' ||
-            laneStopReason()
-              ? 'warning'
-              : 'muted'
-          "
-        >
-          @if (showStats()) {
-            <ptah-agent-lane-stats
-              executionHeaderStats
-              class="block min-w-0"
-              [stats]="laneStats()"
-            />
-          }
-          <div
-            executionHeaderActions
-            class="flex shrink-0 items-center gap-0.5"
-          >
-            @if (agent().status === 'running') {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square"
-                [disabled]="isStopping()"
-                [attr.aria-label]="'Stop ' + laneName()"
-                (click)="stopAgent($event)"
-              >
-                @if (isStopping()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                } @else {
-                  <lucide-angular
-                    [img]="SquareIcon"
-                    class="h-3 w-3 text-error"
-                    aria-hidden="true"
-                  />
-                }
-              </button>
-            } @else if (agent().cliSessionId) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square"
-                [disabled]="isResuming()"
-                [attr.aria-label]="'Resume ' + laneName() + ' session'"
-                (click)="resumeAgent($event)"
-              >
-                @if (isResuming()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                } @else {
-                  <lucide-angular
-                    [img]="PlayIcon"
-                    class="h-3 w-3 text-success"
-                    aria-hidden="true"
-                  />
-                }
-              </button>
-            }
-            @if (closable()) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square"
-                [attr.aria-label]="'Remove ' + laneName() + ' column'"
-                (click)="closeLane.emit(agent().agentId)"
-              >
-                <lucide-angular
-                  [img]="XIcon"
-                  class="h-3 w-3"
-                  aria-hidden="true"
-                />
-              </button>
-            }
-          </div>
-        </ptah-execution-header>
-      } @else {
+      @if (presentation() === 'card') {
         <!-- Card header -->
         <ptah-agent-card-header
           class="block flex-shrink-0"
@@ -235,13 +145,6 @@ export class AgentCardComponent {
 
   private readonly now = injectWallClock('second', () => this.agent().status === 'running');
   private readonly rpcService = inject(ClaudeRpcService);
-  protected readonly SquareIcon = Square;
-  protected readonly PlayIcon = Play;
-  protected readonly XIcon = X;
-  protected readonly laneName = computed(
-    () => this.agent().displayName || this.agent().cli,
-  );
-
   readonly isStopping = signal(false);
   readonly isResuming = signal(false);
 
@@ -262,52 +165,7 @@ export class AgentCardComponent {
     return duration === null ? '' : (formatAgentDuration(duration) ?? '');
   });
 
-  protected readonly laneStatus = computed(() => {
-    switch (this.agent().status) {
-      case 'failed':
-        return 'Failed';
-      case 'timeout':
-        return 'Timed out';
-      case 'stopped':
-        return 'Stopped';
-      case 'running':
-        return 'Running';
-      default:
-        return 'Completed';
-    }
-  });
-  protected readonly lanePeek = computed(() => cliActivity(this.agent()));
-  protected readonly laneStopReason = computed(() =>
-    this.agent().status === 'running'
-      ? null
-      : laneGuardStopText(this.agent().stopReason),
-  );
-  /**
-   * Tokens, model and cost live in the lane stats bar, and the transcript's
-   * message bubbles carry the tool and file counts, so the header meta keeps
-   * only the end status and a guard stop reason.
-   */
-  protected readonly laneStats = computed(() => cliLaneStats(this.agent()));
   protected readonly laneUsage = computed(() => resolveCliLaneUsage(this.agent()));
-  /** Same account text as the card header's badge (label only, never an ID). */
-  protected readonly laneAccount = computed(() =>
-    laneAccountText(this.agent().accountProfileId, this.injector),
-  );
-  private readonly injector = inject(Injector);
-  protected readonly laneMeta = computed(() => {
-    const a = this.agent();
-    const meta: string[] = [];
-    if (
-      a.status === 'failed' ||
-      a.status === 'timeout' ||
-      a.status === 'stopped'
-    )
-      meta.push(this.laneStatus());
-    const stopReason = this.laneStopReason();
-    if (stopReason) meta.push(stopReason);
-    return meta;
-  });
-
   /**
    * Per-card parsers. Output only grows by appending between trims, so each
    * update re-parses the tail instead of the whole 50-100 KB buffer.

@@ -267,6 +267,7 @@ describe('SubagentLaneComponent', () => {
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
     const body = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="lane-scroll"]');
+    expect((fixture.nativeElement as HTMLElement).querySelector('ptah-execution-header')).toBeNull();
     expect(body?.classList).not.toContain('overflow-y-auto');
     expect(body?.classList).toContain('flex-none');
     const composer = (fixture.nativeElement as HTMLElement).querySelector('ptah-subagent-lane-composer');

@@ -173,7 +173,7 @@ describe('unified CLI agent output', () => {
     }
   });
 
-  it('shows the lane stats bar in flat presentation', () => {
+  it('omits the lane stats bar in flat presentation', () => {
     const fixture = renderCard(
       agent({
         expanded: false,
@@ -193,7 +193,7 @@ describe('unified CLI agent output', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[data-test="execution-header-details"]')).toBeNull();
     expect(el.querySelector('[aria-label="Lane usage"]')).toBeNull();
-    expect(el.querySelector('[aria-label="Agent usage"]')).not.toBeNull();
+    expect(el.querySelector('[aria-label="Agent usage"]')).toBeNull();
     expect(el.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
     expect(el.textContent).not.toContain('Worker Alpha');
     expect(el.textContent).not.toContain('Reported total:');

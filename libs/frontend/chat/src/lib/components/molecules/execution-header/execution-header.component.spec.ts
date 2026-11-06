@@ -144,29 +144,26 @@ describe('ExecutionHeaderComponent — lane account in the flat agent card (U5)'
 
   beforeEach(() => view.set({ status: 'idle', snapshot: null }));
 
-  it('shows the named account label with the 10rem cap and title, never the profile ID', () => {
+  it('omits the named account from a flat lane', () => {
     const label = 'A very long account label for the work subscription';
     ready({ profileId: PROFILE, label });
     const el = render(lane({ accountProfileId: PROFILE }));
     const b = badge(el);
     expect(el.querySelector('ptah-agent-card-header')).toBeNull();
-    expect(b?.textContent?.trim()).toBe(`Account: ${label}`);
-    expect(b?.getAttribute('title')).toBe(`Account: ${label}`);
-    expect(b?.classList).toContain('max-w-[10rem]');
-    expect(b?.classList).toContain('badge');
-    expect(b?.querySelector('.truncate')).not.toBeNull();
+    expect(b).toBeNull();
+    expect(el.querySelector('ptah-execution-header')).toBeNull();
     expect(el.textContent).not.toContain(PROFILE);
   });
 
-  it('shows "Default" for an ambient Claude lane', () => {
+  it('omits the ambient account from a flat lane', () => {
     const el = render(lane({ accountProfileId: null }));
-    expect(badge(el)?.textContent?.trim()).toBe('Default');
+    expect(badge(el)).toBeNull();
   });
 
-  it('shows "Removed account" when the loaded list no longer has the profile', () => {
+  it('omits a removed account from a flat lane', () => {
     ready({ profileId: 'profile_other_0002', label: 'Personal' });
     const el = render(lane({ accountProfileId: PROFILE }));
-    expect(badge(el)?.textContent?.trim()).toBe('Removed account');
+    expect(badge(el)).toBeNull();
     expect(el.textContent).not.toContain(PROFILE);
   });
 

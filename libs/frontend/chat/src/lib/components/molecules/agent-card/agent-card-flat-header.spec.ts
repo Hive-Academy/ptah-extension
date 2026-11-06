@@ -41,13 +41,6 @@ function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   };
 }
 
-/** The lane control row's meta text (end status, guard reason). */
-function metaText(root: HTMLElement): string {
-  return (
-    root.querySelector('[data-test="execution-header-meta"]')?.textContent ?? ''
-  );
-}
-
 describe('AgentCardComponent flat execution header', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -73,180 +66,24 @@ describe('AgentCardComponent flat execution header', () => {
     });
   });
 
-  it('puts stats and Resume in one control row without a turn label', () => {
+  it('renders no execution header in flat mode', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput('agent', lane());
+    fixture.componentRef.setInput('agent', lane({ status: 'running' }));
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
-    const row = root.querySelector<HTMLElement>(
-      '[data-test="execution-header-row"]',
-    )!;
-    // The transcript bubble owns "Worked for …" and the tool counts.
-    expect(root.querySelector('ptah-turn-disclosure-row')).toBeNull();
-    // Tokens live in the stats chips, a completed run has no status meta.
-    expect(metaText(root)).not.toContain('tokens');
-    expect(metaText(root)).not.toContain('Completed');
-    const stats = root.querySelector<HTMLElement>('ptah-agent-lane-stats')!;
-    expect(row.contains(stats)).toBe(true);
-    expect(
-      stats.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
-    ).toContain('≥ 1.3k');
-    expect(
-      stats.querySelector('[data-testid="lane-stats-context"]')?.textContent,
-    ).toContain('2.0k');
-    expect(
-      stats.querySelector('[data-testid="lane-stats-model"]')?.textContent,
-    ).toBeTruthy();
+    expect(root.querySelector('ptah-execution-header')).toBeNull();
     expect(root.querySelector('ptah-agent-card-header')).toBeNull();
-    expect(root.querySelector('.badge-success')).toBeNull();
-    const resume = root.querySelector<HTMLButtonElement>(
-      '[aria-label="Resume codex session"]',
-    )!;
-    expect(row.contains(resume)).toBe(true);
-    expect(root.querySelector('ptah-cli-lane-usage-summary')).toBeNull();
-    expect(root.querySelector('[data-test="execution-header-details"]')).toBeNull();
+    expect(root.querySelector('[aria-label^="Stop"]')).toBeNull();
   });
 
-  it('shows Stop while running and omits unknown token totals', () => {
+  it('keeps card mode header and its actions', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput(
-      'agent',
-      lane({ status: 'running', usageTotals: null, completedAt: undefined }),
-    );
-    fixture.componentRef.setInput('presentation', 'flat');
+    fixture.componentRef.setInput('agent', lane({ status: 'running' }));
+    fixture.componentRef.setInput('presentation', 'card');
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
-    expect(root.querySelector('[aria-label="Stop codex"]')).not.toBeNull();
-    expect(
-      root.querySelector('[aria-label="Resume codex session"]'),
-    ).toBeNull();
-    expect(metaText(root)).not.toContain('tokens');
-  });
-
-  it.each([
-    ['failed', 'Failed'],
-    ['timeout', 'Timed out'],
-    ['stopped', 'Stopped'],
-  ] as const)(
-    'shows %s as warning metadata ',
-    (status, label) => {
-      const fixture = TestBed.createComponent(AgentCardComponent);
-      fixture.componentRef.setInput('agent', lane({ status }));
-      fixture.componentRef.setInput('presentation', 'flat');
-      fixture.detectChanges();
-      const root: HTMLElement = fixture.nativeElement;
-      expect(metaText(root)).toContain(label);
-      expect(
-        root.querySelector('[data-test="execution-header-meta"]')?.className,
-      ).toContain('!text-warning');
-
-    },
-  );
-
-  it('keeps a guard reason beside a stopped status', () => {
-    const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput(
-      'agent',
-      lane({ status: 'stopped', stopReason: 'repeat-call' }),
-    );
-    fixture.componentRef.setInput('presentation', 'flat');
-    fixture.detectChanges();
-    const label = metaText(fixture.nativeElement);
-    expect(label).toContain('Stopped');
-    expect(label).toContain('Stopped: repeated the same tool call');
-  });
-
-  it.each([{ totalTokens: 0 }, { inputTokens: 0, outputTokens: 0 }])(
-    'omits zero token metadata',
-    (usageTotals) => {
-      const fixture = TestBed.createComponent(AgentCardComponent);
-      fixture.componentRef.setInput('agent', lane({ usageTotals }));
-      fixture.componentRef.setInput('presentation', 'flat');
-      fixture.detectChanges();
-      expect(metaText(fixture.nativeElement)).not.toContain('tokens');
-    },
-  );
-
-  it('shows an exact reported total without the partial prefix', () => {
-    const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput(
-      'agent',
-      lane({
-        usageTotals: { inputTokens: 1200, outputTokens: 80, totalTokens: 1280 },
-      }),
-    );
-    fixture.componentRef.setInput('presentation', 'flat');
-    fixture.detectChanges();
-    expect(
-      fixture.nativeElement
-        .querySelector('[data-testid="lane-stats-tokens"]')
-        ?.textContent?.trim(),
-    ).toBe('1.3k');
-  });
-
-  it('builds no lane tree of its own in either presentation', () => {
-    const treeBuilderFactory = jest.fn(() => ({
-      buildTreeFromSegments: jest.fn(() => []),
-    }));
-    TestBed.overrideProvider(AgentMonitorTreeBuilderService, {
-      useFactory: treeBuilderFactory,
-    });
-    const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput('agent', lane());
-    fixture.detectChanges();
-    expect(treeBuilderFactory).not.toHaveBeenCalled();
-    fixture.componentRef.setInput('presentation', 'flat');
-    fixture.detectChanges();
-    // The header no longer counts tools, so only the output builds a tree.
-    expect(treeBuilderFactory).not.toHaveBeenCalled();
-  });
-
-  it('marks segment totals as partial and displays a guard stop reason', () => {
-    const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput(
-      'agent',
-      lane({
-        usageTotals: null,
-        stopReason: 'repeat-call',
-        segments: [
-          {
-            type: 'info',
-            content: '',
-            usage: { inputTokens: 1200, outputTokens: 80 },
-          },
-        ],
-      }),
-    );
-    fixture.componentRef.setInput('presentation', 'flat');
-    fixture.detectChanges();
-    const meta = metaText(fixture.nativeElement);
-    expect(meta).not.toContain('tokens');
-    expect(
-      fixture.nativeElement.querySelector('[data-testid="lane-stats-tokens"]')
-        ?.textContent,
-    ).toContain('≥ 1.3k');
-    expect(meta).toContain('Stopped: repeated the same tool call');
-    expect(
-      fixture.nativeElement.querySelector('[data-test="execution-header-meta"]')
-        ?.className,
-    ).toContain('!text-warning');
-  });
-  it('hides passive stats on request and keeps Resume and Close column', () => {
-    const fixture = TestBed.createComponent(AgentCardComponent);
-    fixture.componentRef.setInput('agent', lane());
-    fixture.componentRef.setInput('presentation', 'flat');
-    fixture.componentRef.setInput('showStats', false);
-    fixture.componentRef.setInput('closable', true);
-    fixture.detectChanges();
-    const root: HTMLElement = fixture.nativeElement;
-    expect(root.querySelector('ptah-agent-lane-stats')).toBeNull();
-    expect(
-      root.querySelector('[aria-label="Resume codex session"]'),
-    ).not.toBeNull();
-    expect(
-      root.querySelector('[aria-label="Remove codex column"]'),
-    ).not.toBeNull();
-    expect(root.querySelector('#cli-lane-details-lane-1')).toBeNull();
+    expect(root.querySelector('ptah-agent-card-header')).not.toBeNull();
+    expect(root.querySelector('[aria-label^="Stop"]')).not.toBeNull();
   });
 });

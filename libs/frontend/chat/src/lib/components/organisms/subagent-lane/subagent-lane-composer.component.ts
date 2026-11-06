@@ -5,10 +5,12 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
 } from '@angular/core';
 import type { SubagentRecord } from '@ptah-extension/chat-streaming';
+import { LucideAngularModule, Moon, Square } from 'lucide-angular';
 import { AgentSteerInputComponent } from '@ptah-extension/chat-ui';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
@@ -33,13 +35,31 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
 @Component({
   selector: 'ptah-subagent-lane-composer',
   standalone: true,
-  imports: [AgentSteerInputComponent],
+  imports: [AgentSteerInputComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // The lane places it below its scroller, in the chat column; the input
   // sits in the main chat composer's card.
   host: { class: 'block' },
   template: `
     @if (mode() === 'unavailable') {
+      @if (context(); as ctx) {
+        <div class="flex items-center justify-end gap-1 py-1">
+          @if (ctx.entry.canBackground) {
+            <button type="button" class="btn btn-ghost btn-xs btn-square"
+              aria-label="Send to background" title="Send to background"
+              [disabled]="backgroundPending()" (click)="backgroundRequested.emit(ctx)">
+              <lucide-angular [img]="MoonIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          }
+          @if (ctx.entry.stoppable) {
+            <button type="button" [class]="stopButtonClass"
+              aria-label="Stop generating" title="Stop generating"
+              [disabled]="stopPending()" (click)="stopRequested.emit(ctx)">
+              <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          }
+        </div>
+      }
       <p
         class="px-1 py-1.5 text-xs text-base-content-muted"
         data-testid="subagent-composer-unavailable"
@@ -60,7 +80,26 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
         [draft]="draft()"
         (draftChange)="onDraft($event)"
         (steer)="onSubmit($event)"
-      />
+      >
+        @if (context(); as ctx) {
+          <ng-container composerActions>
+            @if (ctx.entry.canBackground) {
+              <button type="button" class="btn btn-ghost btn-xs btn-square"
+                aria-label="Send to background" title="Send to background"
+                [disabled]="backgroundPending()" (click)="backgroundRequested.emit(ctx)">
+                <lucide-angular [img]="MoonIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            }
+            @if (ctx.entry.stoppable) {
+              <button type="button" [class]="stopButtonClass"
+                aria-label="Stop generating" title="Stop generating"
+                [disabled]="stopPending()" (click)="stopRequested.emit(ctx)">
+                <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            }
+          </ng-container>
+        }
+      </ptah-agent-steer-input>
       @if (mode() === 'follow-up') {
         <p
           class="px-1 pt-1 text-[11px] text-base-content-muted"
@@ -92,6 +131,13 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
 })
 export class SubagentLaneComposerComponent {
   readonly record = input.required<SubagentRecord>();
+  readonly stopPending = input(false);
+  readonly backgroundPending = input(false);
+  readonly stopRequested = output<TrayAgentContext>();
+  readonly backgroundRequested = output<TrayAgentContext>();
+  protected readonly MoonIcon = Moon;
+  protected readonly SquareIcon = Square;
+  protected readonly stopButtonClass = 'inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
   readonly context = input<TrayAgentContext | null>(null);
   /** The lane's fallback session, used when neither record nor tray knows it. */
   readonly sessionId = input<string | null>(null);
