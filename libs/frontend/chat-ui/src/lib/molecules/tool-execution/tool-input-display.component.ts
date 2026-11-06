@@ -32,6 +32,7 @@ import {
   type ExecutionNode,
   isBashToolInput,
   isWriteToolInput,
+  isFileChangeToolInput,
 } from '@ptah-extension/shared';
 
 /** Argument values longer than this are cut, with "more" to show the rest. */
@@ -91,6 +92,14 @@ interface InputArg {
   template: `
     @if (hasInput()) {
       <div class="space-y-1.5">
+        @if (rawInput(); as raw) {
+          <div class="text-[11px] font-medium text-base-content-muted">
+            Input
+          </div>
+          <pre
+            class="m-0 rounded bg-base-300/50 p-2 font-mono text-[11px] whitespace-pre-wrap break-words"
+            >{{ raw }}</pre>
+        }
         @if (preview(); as preview) {
           <div
             data-testid="input-preview"
@@ -158,6 +167,7 @@ interface InputArg {
                   />
                 }
                 @default {
+                  <!-- prettier-ignore -->
                   <p
                     class="m-0 leading-[1.4] text-base-content-muted whitespace-pre-wrap break-words"
                     data-testid="input-prompt"
@@ -182,9 +192,13 @@ interface InputArg {
               data-testid="tool-input-args"
             >
               @for (arg of args(); track arg.key) {
-                <dt class="text-base-content-muted" data-testid="tool-input-arg-key">
+                <dt
+                  class="text-base-content-muted"
+                  data-testid="tool-input-arg-key"
+                >
                   {{ arg.key }}
                 </dt>
+                <!-- prettier-ignore -->
                 <dd
                   class="m-0 min-w-0 text-base-content whitespace-pre-wrap break-words"
                   data-testid="tool-input-arg-value"
@@ -333,15 +347,26 @@ export class ToolInputDisplayComponent {
     if (previewKey) shown.add(previewKey);
 
     return Object.entries(toolInput)
-      .filter(([key, value]) => !shown.has(key) && value !== undefined)
+      .filter(
+        ([key, value]) =>
+          !shown.has(key) && !key.startsWith('__') && value !== undefined,
+      )
       .map(([key, value]) => {
-        const text = typeof value === 'string' ? value : JSON.stringify(value);
+        const text = formatToolValue(value);
         return { key, value: text, long: text.length > ARG_PREVIEW_CHARS };
       });
   });
 
+  protected readonly rawInput = computed(() => {
+    const raw = this.node().toolInput?.['__raw'];
+    return typeof raw === 'string' ? raw : null;
+  });
+
   protected readonly hasInput = computed(
-    () => this.preview() !== null || this.args().length > 0,
+    () =>
+      this.preview() !== null ||
+      this.args().length > 0 ||
+      this.rawInput() !== null,
   );
 
   /** Lines in the preview (CRLF, CR or LF; a trailing one adds none). */
@@ -440,6 +465,27 @@ export class ToolInputDisplayComponent {
   /** TodoWrite and Edit render their input as the output. */
   private rendersInputAsOutput(): boolean {
     const toolName = this.node().toolName;
-    return toolName === 'TodoWrite' || toolName === 'Edit';
+    return (
+      toolName === 'TodoWrite' ||
+      toolName === 'Edit' ||
+      (toolName === 'FileChange' &&
+        isFileChangeToolInput(this.node().toolInput))
+    );
   }
+}
+
+/** Readable generic value for tools without a dedicated input preview. */
+function formatToolValue(value: unknown): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.stringify(JSON.parse(trimmed), null, 2);
+      } catch {
+        /* Ordinary text. */
+      }
+    }
+    return value;
+  }
+  return JSON.stringify(value, null, 2) ?? String(value);
 }

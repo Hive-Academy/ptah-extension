@@ -510,7 +510,15 @@ export {
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './lib/prompt-harness';
-export { PTAH_UI_HINT, PTAH_UI_HINT_CODEX } from './lib/prompt-harness';
+export {
+  PTAH_UI_HINT,
+  PTAH_UI_HINT_CODEX,
+  routeSurfaceRequest,
+  surfaceHookGuidance,
+  type SurfaceRequestKind,
+  type SurfaceRoute,
+  type SurfaceRouteOptions,
+} from './lib/prompt-harness';
 export { PluginLoaderService } from './lib/helpers';
 export {
   discoverPluginSkills,

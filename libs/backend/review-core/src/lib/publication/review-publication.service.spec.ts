@@ -55,6 +55,12 @@ describe('ReviewPublicationService regression', () => {
   afterEach(() => { jest.restoreAllMocks(); db.close(); });
   const service = () => new ReviewPublicationService({ db }, outbox, new ReviewPolicyService());
 
+  it('keeps an attempt queued in dry-run after the repository switches to live', async () => {
+    const dryRunClaim = { ...claim, dryRun: true };
+    await service().publish(dryRunClaim, 'Walkthrough', diff, [verdict('candidate', 'accepted')], settings, null, []);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('sends a still-open root for marker reconciliation', async () => {
     await service().publish(claim, 'Walkthrough', diff, [verdict('candidate', 'accepted')], settings, null, [], scope);
     expect(publish.mock.calls[0][0].candidates).toHaveLength(1);

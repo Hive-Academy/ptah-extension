@@ -1,0 +1,14 @@
+[
+  {
+    "role": "user",
+    "text": "2:01 AM You Run the shell command sleep 20, then reply with exactly: FIRST-DONE"
+  },
+  {
+    "role": "user",
+    "text": "2:01 AM You Change of plan: when the command finishes, reply with exactly: STEERED-C and nothing else."
+  },
+  {
+    "role": "assistant",
+    "text": "Ptah2:01 AMWorked for 1m 01s1 toolCommand succeededBashsleep 20STEERED-C"
+  }
+]

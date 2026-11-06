@@ -403,6 +403,12 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       api.agent = { read: async () => output };
     },
   },
+  ptah_agent_message_status: {
+    args: { agentId: 'agent-1', messageId: '11111111-1111-4111-8111-111111111111' },
+    mock: (api, marker) => {
+      api.agent = { messageStatus: async () => ({ status: 'failed', reason: `${marker}-${filler(280000, 's')}` }) };
+    },
+  },
   ptah_agent_message: {
     args: { agentId: 'agent-1', message: 'hi' },
     mock: (api, marker) => {
@@ -1124,6 +1130,12 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       };
     },
   },
+  ptah_agent_message_status: {
+    args: { agentId: 'agent-1', messageId: '11111111-1111-4111-8111-111111111111' },
+    mock: (api, marker) => {
+      api.agent = { messageStatus: async () => ({ status: 'failed', reason: proseParagraph(marker) }) };
+    },
+  },
   ptah_agent_message: {
     args: { agentId: 'agent-1', message: 'hi' },
     mock: (api, marker) => {
@@ -1520,6 +1532,7 @@ const PINNED_PREFORMATTED_TOOLS: ReadonlySet<string> = new Set([
   'ptah_agent_status',
   'ptah_agent_read',
   'ptah_agent_message',
+  'ptah_agent_message_status',
   'ptah_agent_report',
   'ptah_agent_stop',
   'ptah_agent_list',
@@ -1927,7 +1940,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
     // run_check and HTTP-only run_check_wait. +1: ptah_session_handoff,
     // always-on (TASK_2026_655).
-    expect(namesPerCaller[0]).toHaveLength(66);
+    expect(namesPerCaller[0]).toHaveLength(67);
     expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
   });
 
@@ -1954,7 +1967,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
     // 63 in total minus the 3 IDE-gated tools; see the note above
     // (TASK_2026_655: +1, ptah_session_handoff).
-    expect(namesPerCaller[0]).toHaveLength(63);
+    expect(namesPerCaller[0]).toHaveLength(64);
     expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
     for (const ideOnly of [
       'ptah_lsp_references',
@@ -1994,7 +2007,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
           ),
         );
         // TASK_2026_655: +1, ptah_session_handoff (always-on).
-        expect(apps).toHaveLength(hasIDECapabilities ? 69 : 66);
+        expect(apps).toHaveLength(hasIDECapabilities ? 70 : 67);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2031,12 +2044,13 @@ describe('coverage matrix — served tools across host, caller and transport (de
     },
   );
 
-  it('the stdio MCP server advertises exactly its 12 documented tool names', () => {
+  it('the stdio MCP server advertises exactly its 13 documented tool names', () => {
     expect([...MCP_MVP_TOOL_NAMES]).toEqual([
       'agent_spawn',
       'agent_status',
       'agent_read',
       'agent_message',
+      'agent_message_status',
       'agent_report',
       'agent_stop',
       'agent_list',
@@ -2046,10 +2060,10 @@ describe('coverage matrix — served tools across host, caller and transport (de
       'outcome_report',
       'session_submit',
     ]);
-    // `AgentToolDispatcher` owns 11 of the 12; `session_submit` is dispatched
+    // `AgentToolDispatcher` owns 12 of the 13; `session_submit` is dispatched
     // elsewhere (a composite harness trigger, not this contract's concern —
     // see the stdio describe block below).
-    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(11);
+    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(12);
     expect(AgentToolDispatcher.TOOL_NAMES).not.toContain('session_submit');
   });
 });
@@ -2260,12 +2274,38 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
     30_000,
   );
 
+  /**
+   * Sweep with the system temp directory pointed at this test's spool root.
+   * A declared caller root that names no host folder spools under the system
+   * temp directory, never under the host's first open folder (another
+   * project for a lane in a different checkout, TASK_2026_882_01ef). The spy
+   * keeps those spool files inside the per-test fixture.
+   */
+  async function sweepWithTempAtSpoolRoot(
+    host: Parameters<typeof sweepAllTools>[0],
+    extra: Partial<MCPRequest>,
+  ): ReturnType<typeof sweepAllTools> {
+    if (extra._callerWorkspaceRoot === undefined) {
+      return sweepAllTools(host, extra);
+    }
+    // Spy on the core module itself: the `import * as os` namespace only
+    // exposes non-configurable getters onto it.
+    const tmp = jest
+      .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+      .mockReturnValue(spoolRoot);
+    try {
+      return await sweepAllTools(host, extra);
+    } finally {
+      tmp.mockRestore();
+    }
+  }
+
   it(
     'HTTP, IDE capabilities, WORKSPACE caller: every tool passes the same full contract under ' +
       'a declared caller workspace root (the one caller-kind field the generic dispatch path ' +
       'itself reads — `resolveSpoolRoot`)',
     async () => {
-      const failures = await sweepAllTools(
+      const failures = await sweepWithTempAtSpoolRoot(
         { hasIDECapabilities: true, hasSqliteLayer: true },
         { _callerWorkspaceRoot: 'not-a-known-workspace-folder' },
       );
@@ -2342,7 +2382,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
   it.each(REMAINING_MATRIX_CELLS)(
     'HTTP matrix cell %s: every listed tool is executed under that identity and passes the full contract',
     async (_label, ide, sqlite, extra) => {
-      const failures = await sweepAllTools(
+      const failures = await sweepWithTempAtSpoolRoot(
         { hasIDECapabilities: ide, hasSqliteLayer: sqlite },
         extra,
       );
@@ -2388,6 +2428,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_lsp_definitions: 639,
       ptah_task_update: 635,
       ptah_agent_message: 591,
+      ptah_agent_message_status: 100,
       execute_code: 567,
       ptah_agent_read: 553,
       // TASK_2026_580: measured 522 chars (2026-10-01).
@@ -3056,7 +3097,7 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
     };
   }
 
-  it('the real served catalog is exactly the 12 documented tool names', () => {
+  it('the real served catalog is exactly the 13 documented tool names', () => {
     const service = buildService({});
     const res = service.handleToolsList(callRequest('list'));
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map(
@@ -3067,6 +3108,7 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
       'agent_status',
       'agent_read',
       'agent_message',
+      'agent_message_status',
       'agent_report',
       'agent_stop',
       'agent_list',

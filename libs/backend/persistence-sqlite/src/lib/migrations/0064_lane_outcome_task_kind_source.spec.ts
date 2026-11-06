@@ -33,7 +33,7 @@ describe('migration 0064_lane_outcome_task_kind_source', () => {
       name: '0064_lane_outcome_task_kind_source',
       sql,
     });
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(67);
+    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(70);
   });
 
   it('keeps an existing outcome row without reconstructed provenance', () => {

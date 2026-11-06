@@ -19,6 +19,11 @@
 
 import { Injectable, computed, effect, inject } from '@angular/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  parseStreamingToolInputCached,
+  parseToolInputCached,
+  streamingToolInputHead,
+} from '@ptah-extension/chat-types';
 import { fenceCodeBlock } from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
@@ -104,7 +109,11 @@ interface TreeAccumulators {
    */
   toolInputCache: Map<
     string,
-    { raw: string; value: Record<string, unknown> | undefined }
+    {
+      raw: string;
+      hasResult: boolean;
+      value: Record<string, unknown> | undefined;
+    }
   >;
 }
 
@@ -297,6 +306,7 @@ export class AgentMonitorTreeBuilderService {
     // Provider message of the buffered text; a different one starts a new node.
     let textMessageId: string | undefined;
     let thinkingBuffer = '';
+    let thinkingMessageId: string | undefined;
     let thinkingBufferStart = -1;
 
     const flushText = (): void => {
@@ -328,6 +338,7 @@ export class AgentMonitorTreeBuilderService {
       }
       thinkingBuffer = '';
       thinkingBufferStart = -1;
+      thinkingMessageId = undefined;
     };
 
     for (let i = 0; i < segments.length; i++) {
@@ -351,7 +362,15 @@ export class AgentMonitorTreeBuilderService {
 
         case 'thinking': {
           if (textBuffer) flushText();
+          if (
+            thinkingBuffer &&
+            thinkingMessageId !== undefined &&
+            segment.messageId !== undefined &&
+            segment.messageId !== thinkingMessageId
+          )
+            flushThinking();
           if (thinkingBufferStart === -1) thinkingBufferStart = i;
+          thinkingMessageId = segment.messageId ?? thinkingMessageId;
           thinkingBuffer += segment.content;
           break;
         }
@@ -405,11 +424,24 @@ export class AgentMonitorTreeBuilderService {
 
           if (matchedIndex >= 0) {
             const original = nodes[matchedIndex];
+            const previousPaths =
+              typeof original.toolOutput === 'string'
+                ? original.toolOutput.split('\n')
+                : [];
+            const toolOutput =
+              segment.type === 'file-change'
+                ? [...previousPaths, segment.content]
+                    .filter(
+                      (path, index, paths) =>
+                        path && paths.indexOf(path) === index,
+                    )
+                    .join('\n')
+                : segment.content;
             nodes[matchedIndex] = createExecutionNode({
               ...original,
               status:
                 segment.type === 'tool-result-error' ? 'error' : 'complete',
-              toolOutput: segment.content,
+              toolOutput,
               toolName: original.toolName || segment.toolName,
             });
           } else {
@@ -628,8 +660,7 @@ export class AgentMonitorTreeBuilderService {
         }),
       );
     }
-    for (const blockIndex of acc.thinkingBlocksByMessage.get(messageId) ??
-      []) {
+    for (const blockIndex of acc.thinkingBlocksByMessage.get(messageId) ?? []) {
       children.push(
         createExecutionNode({
           id: `${messageId}-thinking-${blockIndex}`,
@@ -662,40 +693,40 @@ export class AgentMonitorTreeBuilderService {
   ): Record<string, unknown> | undefined {
     const inputString =
       acc.toolInputAccumulators.get(`${toolStart.toolCallId}-input`) ?? '';
-    if (inputString && hasResult) {
+    if (inputString) {
       const cached = acc.toolInputCache.get(toolStart.toolCallId);
-      if (cached && cached.raw === inputString) return cached.value;
+      if (
+        cached &&
+        cached.raw === inputString &&
+        cached.hasResult === hasResult
+      )
+        return cached.value;
+      const fallback =
+        toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0
+          ? toolStart.toolInput
+          : undefined;
       let toolInput: Record<string, unknown> | undefined;
-      try {
-        const parsed = JSON.parse(inputString);
-        if (typeof parsed === 'object' && parsed !== null) {
-          toolInput = parsed;
-        }
-      } catch {
-        if (
-          toolStart.toolInput &&
-          Object.keys(toolStart.toolInput).length > 0
-        ) {
-          toolInput = toolStart.toolInput;
-        } else {
-          toolInput = {
-            __parseError: true,
-            __raw: inputString.substring(0, 100),
-          };
-        }
+      if (!hasResult) {
+        toolInput = parseStreamingToolInputCached(
+          toolStart.toolCallId,
+          inputString,
+        ) ??
+          fallback ?? { __raw: streamingToolInputHead(inputString) };
+      } else {
+        const parsed = parseToolInputCached(toolStart.toolCallId, inputString);
+        toolInput = parsed.success
+          ? parsed.data
+          : (fallback ?? {
+              __parseError: true,
+              __raw: inputString.substring(0, 100),
+            });
       }
       acc.toolInputCache.set(toolStart.toolCallId, {
         raw: inputString,
+        hasResult,
         value: toolInput,
       });
       return toolInput;
-    }
-    if (inputString) {
-      return {
-        __streaming: true,
-        __rawSnippet:
-          inputString.substring(0, 50) + (inputString.length > 50 ? '...' : ''),
-      };
     }
     if (toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0) {
       return toolStart.toolInput;

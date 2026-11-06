@@ -253,7 +253,7 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: {
       getWorkspaceFolders: jest.fn(() => []),
-      getConfiguration: jest.fn(() => ({ get: jest.fn() })),
+      getConfiguration: jest.fn((_section: string, _key: string, fallback: unknown) => fallback),
       onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
@@ -780,6 +780,8 @@ describe('Electron DI — lane outcomes', () => {
     expect(source).toMatch(
       /container\.register\(CLI_AGENT_RUNTIME_TOKENS\.MCP_ATTACHMENT_PROBE,\s*\{\s*useValue: mcpAttachmentObserver,\s*\}\);/,
     );
+    expect(source).toMatch(/container\.register<IAgentSpawnTrustedRoots>\(CLI_AGENT_RUNTIME_TOKENS\.AGENT_SPAWN_TRUSTED_ROOTS/);
+    expect(source).toContain("resolve(app.getPath('userData'), 'review', 'attempts')");
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
       'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
@@ -1016,6 +1018,42 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * The backend-owned follow-up queue (TASK_2026_884) is registered by the REAL
+ * `registerPhase4Handlers` (through `registerChatServices`) and resolves to one
+ * singleton that subscribes to the agent adapter's queued follow-up states.
+ */
+describe('Electron DI — chat follow-up queue (TASK_2026_884)', () => {
+  it('registers FOLLOW_UP_QUEUE in phase 4 and resolves one subscribed singleton', () => {
+    const { c, logger } = buildPhase4Container();
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: { broadcastMessage: jest.fn(async () => undefined) },
+    });
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+    const onQueuedFollowUpState = jest.fn(() => () => undefined);
+    c.register(TOKENS.AGENT_ADAPTER, { useValue: { onQueuedFollowUpState } });
+
+    registerPhase4Handlers(c, logger);
+    const entry = EXPECTED_RESOLVABLE_TOKENS.find(
+      ([name]) => name === 'FOLLOW_UP_QUEUE',
+    );
+    expect(entry).toBeDefined();
+    const token = entry?.[1] as InjectionToken<unknown>;
+    expect(c.isRegistered(token)).toBe(true);
+
+    const first = c.resolve(token);
+    expect(c.resolve(token)).toBe(first);
+    expect(onQueuedFollowUpState).toHaveBeenCalledTimes(1);
   });
 });
 

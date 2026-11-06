@@ -1,5 +1,6 @@
 export * from './lib/cli-agents';
 export { AgentSpawnEnvironment } from './lib/cli-agents/agent-spawn-environment.service';
+export type { IAgentSpawnTrustedRoots } from './lib/cli-agents/agent-spawn-environment.service';
 export {
   classifyLaneFailureClass,
   type LaneFailureClassInput,
@@ -49,6 +50,10 @@ export {
   CodexAppServerLaneAdapter,
   CodexLaneResumeIdentityError,
 } from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter';
+export {
+  CodexLaneWriteDacDeniedError,
+  CodexLaneWriteDacPreflight,
+} from './lib/cli-agents/cli-adapters/codex/codex-lane-write-dac-preflight';
 export type {
   CodexLaneRuntimeProvider,
   CodexLaneProfileResolver,

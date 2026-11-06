@@ -70,6 +70,20 @@ import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 import { StreamBatchBuffer } from './stream-batch-buffer';
 import type { ChatStreamDeliveryCoordinator } from './chat-stream-delivery-coordinator.service';
 
+/**
+ * Same symbol as `CLI_AGENT_RUNTIME_TOKENS.HANDOFF_TURN_FLUSH`. Inlined so
+ * this class does not value-import the cli-agent-runtime barrel: several
+ * rpc-handlers specs replace that barrel with a partial `jest.mock`.
+ */
+const HANDOFF_TURN_FLUSH = Symbol.for('HandoffTurnFlush');
+
+interface HandoffTurnFlushHook {
+  onCallerTurnFlushed(notice: {
+    readonly tabId: string;
+    readonly sessionId: string;
+  }): void;
+}
+
 export interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
   broadcastMessage(type: string, payload: unknown): Promise<void>;
@@ -101,6 +115,8 @@ export class ChatStreamBroadcaster {
     private readonly turnState: SessionTurnStateRegistry,
     @inject(CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR, { isOptional: true })
     private readonly deliveryCoordinator: ChatStreamDeliveryCoordinator | null = null,
+    @inject(HANDOFF_TURN_FLUSH, { isOptional: true })
+    private readonly handoffTurnFlush: HandoffTurnFlushHook | null = null,
   ) {}
 
   private readonly streamingSessionIds = new Set<string>();
@@ -198,6 +214,21 @@ export class ChatStreamBroadcaster {
       this.deliveryCoordinator
         ? this.deliveryCoordinator.publishTerminal(tabId, type, payload)
         : this.webviewManager.broadcastMessage(type, payload);
+    const notifyHandoffFlushed = (): void => {
+      const hook = this.handoffTurnFlush;
+      if (!hook) return;
+      try {
+        hook.onCallerTurnFlushed({
+          tabId,
+          sessionId: String(sessionId),
+        });
+      } catch (error: unknown) {
+        this.logger.error(
+          '[RPC] Handoff turn flush hook failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    };
     const pushTurnState = (
       state: ReturnType<SessionTurnStateRegistry['forceIdle']>,
     ): void => {
@@ -299,6 +330,7 @@ export class ChatStreamBroadcaster {
             code: 0,
             ...(surfaceMode ? { surfaceMode: true } : {}),
           });
+          notifyHandoffFlushed();
         }
       }
 
@@ -310,6 +342,7 @@ export class ChatStreamBroadcaster {
           code: 0,
           ...(surfaceMode ? { surfaceMode: true } : {}),
         });
+        notifyHandoffFlushed();
       }
       streamExitedNormally = true;
     } catch (error) {
@@ -350,6 +383,7 @@ export class ChatStreamBroadcaster {
           ),
         );
       await flush();
+      notifyHandoffFlushed();
       const isZeroEventFailure = eventCount === 0 && !isUserAbort;
       const isFailedStart = isZeroEventFailure && sessionId === tabId;
       if (isZeroEventFailure) {

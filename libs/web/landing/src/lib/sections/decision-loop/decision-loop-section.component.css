@@ -1,0 +1,442 @@
+:host {
+  display: block;
+  overflow-x: clip;
+  overflow-y: visible;
+  color: #e9ebef;
+  background: #08090c;
+}
+
+.decision-loop-section {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  overflow-y: visible;
+  padding: clamp(4.5rem, 8vw, 7.5rem) 1.5rem clamp(5rem, 9vw, 8rem);
+  background: #08090c;
+  border-top: 1px solid #262a33;
+}
+
+.loop-atmosphere {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 64% 44% at 50% 56%, rgb(245 165 36 / 9%), transparent 74%),
+    radial-gradient(ellipse 36% 32% at 78% 36%, rgb(255 187 77 / 7%), transparent 70%);
+}
+
+.loop-grain {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.14;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 2px,
+    rgb(255 255 255 / 10%) 3px,
+    transparent 4px
+  );
+}
+
+
+
+.loop-shell {
+  width: min(100%, 68rem);
+  margin: 0 auto;
+}
+
+.loop-header {
+  width: min(100%, 54rem);
+  margin: 0 auto clamp(2.5rem, 4.5vw, 3.75rem);
+  text-align: center;
+}
+
+.loop-eyebrow,
+.stage-number,
+.rail-tick {
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+}
+
+.loop-eyebrow {
+  margin: 0 0 clamp(0.75rem, 1.4vw, 1.15rem);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: #ffbb4d;
+  font-size: clamp(0.8rem, 1.05vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.cue-line {
+  display: inline-block;
+  width: 2.25rem;
+  height: 1px;
+  background: #f5a524;
+  opacity: 0.85;
+}
+
+.loop-title {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2rem, 3.8vw, 3.25rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.loop-subline {
+  width: min(100%, 56ch);
+  margin: clamp(1.1rem, 2.2vw, 1.6rem) auto 0;
+  color: #e9ebef;
+  font-size: clamp(0.98rem, 1.15vw, 1.125rem);
+  line-height: 1.6;
+  text-wrap: balance;
+}
+
+/* Stage window — direct visual sibling to hero .story-window */
+.loop-window {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  border: 1px solid #262a33;
+  background:
+    radial-gradient(ellipse 58% 48% at 50% 50%, rgb(245 165 36 / 7%), transparent 76%),
+    #0e1015;
+  box-shadow:
+    0 2rem 6rem rgb(0 0 0 / 65%),
+    0 0 4rem rgb(245 165 36 / 10%);
+}
+
+.loop-window::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  background: linear-gradient(
+    90deg,
+    transparent 8%,
+    rgb(255 187 77 / 45%) 50%,
+    transparent 92%
+  );
+  pointer-events: none;
+}
+
+.loop-canvas-wrap {
+  position: relative;
+  z-index: 1;
+  padding: 2.25rem 1.25rem 2rem;
+}
+
+.loop-svg-desktop {
+  display: none;
+}
+
+.loop-svg-mobile {
+  position: absolute;
+  top: 1.75rem;
+  bottom: 1.75rem;
+  left: 1.1rem;
+  width: 3.25rem;
+  height: calc(100% - 3.5rem);
+  pointer-events: none;
+}
+
+.loop-stages {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0 0 0 3.1rem;
+  list-style: none;
+}
+
+.loop-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 3.6rem;
+  padding: 0.85rem 1.05rem;
+  border-radius: 0.45rem;
+  border: 1px solid #262a33;
+  background: rgb(8 9 12 / 86%);
+  backdrop-filter: blur(8px);
+  transition:
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    transform 0.28s ease;
+}
+
+.stage-node-dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #3a3f4b;
+  box-shadow: 0 0 0 3px rgb(58 63 75 / 25%);
+  transition:
+    background-color 0.28s ease,
+    box-shadow 0.28s ease,
+    transform 0.28s ease;
+}
+
+.stage-number {
+  flex: none;
+  color: #ffbb4d;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.stage-label {
+  color: #c5cad3;
+  font-size: 0.94rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  transition: color 0.28s ease;
+}
+
+.loop-stage.is-reached {
+  border-color: rgb(245 165 36 / 42%);
+  background: rgb(14 16 21 / 92%);
+}
+
+.loop-stage.is-reached .stage-node-dot {
+  background: #f5a524;
+  box-shadow: 0 0 0 4px rgb(245 165 36 / 18%);
+}
+
+.loop-stage.is-reached .stage-label {
+  color: #e9ebef;
+}
+
+.loop-stage.is-active {
+  border-color: #ffbb4d;
+  background: rgb(18 20 26 / 96%);
+  box-shadow:
+    0 12px 32px rgb(0 0 0 / 50%),
+    0 0 24px rgb(245 165 36 / 22%);
+  transform: translateY(-2px);
+}
+
+.loop-stage.is-active .stage-node-dot {
+  background: #fff9eb;
+  box-shadow:
+    0 0 0 4px rgb(255 187 77 / 32%),
+    0 0 14px #f5a524;
+  transform: scale(1.15);
+}
+
+.loop-stage.is-active .stage-label {
+  color: #fff;
+}
+
+.loop-stage.is-convergence.is-feedback-lit {
+  border-color: #ffbb4d;
+  box-shadow:
+    0 12px 34px rgb(0 0 0 / 52%),
+    0 0 28px rgb(255 187 77 / 26%);
+}
+
+/* Bottom chapter-style progress bar inside the stage window */
+.loop-rail {
+  position: relative;
+  z-index: 2;
+  padding: 0 1.25rem 1.15rem;
+}
+
+.loop-rail-bar {
+  height: 2px;
+  overflow: hidden;
+  background: rgb(233 235 239 / 24%);
+}
+
+.loop-rail-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #f5a524, #ffbb4d);
+  transform: scaleX(var(--loop-progress, 1));
+  transform-origin: left center;
+}
+
+.loop-rail-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 0.65rem;
+}
+
+.rail-tick {
+  color: #5b616f;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  transition: color 0.25s ease;
+}
+
+.rail-tick.is-lit {
+  color: #ffbb4d;
+}
+
+@media (min-width: 768px) {
+  .loop-canvas-wrap {
+    position: relative;
+    aspect-ratio: 1080 / 470;
+    min-height: 23.5rem;
+    padding: 0;
+  }
+
+  .loop-svg-mobile {
+    display: none;
+  }
+
+  .loop-svg-desktop {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .loop-stages {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    display: block;
+  }
+
+  .loop-stage {
+    position: absolute;
+    width: clamp(11.5rem, 21vw, 15.25rem);
+    min-height: 4.1rem;
+    padding: 0.8rem 1rem;
+    transform: translate(-50%, -50%);
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.35rem;
+  }
+
+  .loop-stage.is-active {
+    transform: translate(-50%, calc(-50% - 2px));
+  }
+
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  /* Clockwise 6-node stadium positions matching SVG coordinates in 1080x470 */
+  .loop-stage[data-stage-index='0'] {
+    left: 19.5%;
+    top: 24.5%;
+  }
+
+  .loop-stage[data-stage-index='1'] {
+    left: 50%;
+    top: 24.5%;
+  }
+
+  .loop-stage[data-stage-index='2'] {
+    left: 80.5%;
+    top: 24.5%;
+  }
+
+  .loop-stage[data-stage-index='3'] {
+    left: 80.5%;
+    top: 75.5%;
+  }
+
+  .loop-stage[data-stage-index='4'] {
+    left: 50%;
+    top: 75.5%;
+  }
+
+  .loop-stage[data-stage-index='5'] {
+    left: 19.5%;
+    top: 75.5%;
+  }
+
+  .loop-rail {
+    padding: 0 2.25rem 1.35rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  .loop-stage {
+    width: 15.5rem;
+    padding: 0.95rem 1.15rem;
+  }
+
+  .stage-label {
+    font-size: 0.98rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-stage,
+  .stage-node-dot,
+  .stage-label,
+  .rail-tick {
+    transition: none;
+  }
+
+  .loop-stage.is-active {
+    transform: none;
+  }
+
+  @media (min-width: 768px) {
+    .loop-stage,
+    .loop-stage.is-active {
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* Top-down reveal driven by the section's vertical scroll progress. */
+.rise {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s ease;
+}
+
+.rise.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* The stage the loop reaches is struck once. */
+.loop-stage.is-active {
+  animation: stage-strike 0.5s ease-out 1;
+}
+
+@keyframes stage-strike {
+  0% { border-color: #fff9eb; box-shadow: 0 0 0 1px #fff9eb, 0 0 30px rgb(255 187 77 / 55%); }
+  100% { border-color: #ffbb4d; box-shadow: 0 12px 32px rgb(0 0 0 / 50%), 0 0 24px rgb(245 165 36 / 22%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-stage.is-active {
+    animation: none;
+  }
+
+  .rise {
+    transition: none;
+  }
+}

@@ -22,7 +22,6 @@ import {
 } from './session-live-stats.util';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import { MessageDispatchService } from './message-dispatch.service';
 
 /**
  * A `session:stats` broadcast for one SDK result, as the webview receives it.
@@ -97,7 +96,7 @@ function isSnapshotOnly(
  * A snapshot-only broadcast installs its snapshot and stops there: it is not a
  * turn result, so compaction clearing, footer forwarding (which would overwrite
  * a finalized message's cost/tokens/duration with `undefined`), the sidebar
- * refresh and queued-message handling do not run.
+ * refresh do not run.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionStatsAggregatorService {
@@ -108,7 +107,6 @@ export class SessionStatsAggregatorService {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
-  private readonly messageDispatch = inject(MessageDispatchService);
 
   /**
    * Handle session stats update from backend
@@ -171,16 +169,10 @@ export class SessionStatsAggregatorService {
         }
       }
     }
-    const result = this.streamingHandler.handleSessionStats(stats);
+    this.streamingHandler.handleSessionStats(stats);
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn('[ChatStore] Failed to refresh sessions after stats:', err);
     });
-    if (result && result.queuedContent && result.queuedContent.trim()) {
-      this.messageDispatch.sendQueuedMessage(
-        result.tabId,
-        result.queuedContent,
-      );
-    }
   }
 
   /**
@@ -191,7 +183,7 @@ export class SessionStatsAggregatorService {
    * marker. This is never a turn result, so none of the `session:stats`
    * result-path effects run here — no compaction clearing, no footer or
    * `pendingStats` write (`streamingHandler.handleSessionStats`), no sidebar
-   * refresh, no queued send and no `setLiveModelStats`.
+   * refresh and no `setLiveModelStats`.
    * Turn finalization stays with `turn_state`.
    *
    * Every bound tab, in any workspace, installs through `installSessionStats`

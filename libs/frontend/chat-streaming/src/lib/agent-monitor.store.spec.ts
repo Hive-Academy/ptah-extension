@@ -823,6 +823,80 @@ describe('AgentMonitorStore', () => {
     });
   });
 
+  describe('reparentAgents (TASK_2026_876 kept handoff lanes)', () => {
+    it('moves only the listed agents to the successor tab, then to its SDK id', () => {
+      spawnAgent('lane-1', 'caller-session');
+      spawnAgent('lane-2', 'caller-session');
+      spawnAgent('lane-other', 'caller-session');
+
+      store.reparentAgents(['lane-1', 'lane-2'], 'successor-tab');
+
+      const parentOf = (id: string) =>
+        store.agents().find((a) => a.agentId === id)?.parentSessionId;
+      expect(parentOf('lane-1')).toBe('successor-tab');
+      expect(parentOf('lane-2')).toBe('successor-tab');
+      expect(parentOf('lane-other')).toBe('caller-session');
+      expect(store.agentsForSession('caller-session').map((a) => a.agentId)).toEqual([
+        'lane-other',
+      ]);
+
+      // The existing resolve hop follows the successor's real id.
+      store.resolveParentSessionId('successor-tab', 'successor-real');
+      expect(parentOf('lane-1')).toBe('successor-real');
+      expect(parentOf('lane-2')).toBe('successor-real');
+      expect(
+        store.agents().filter((a) => a.status === 'running').map((a) => a.agentId),
+      ).toEqual(expect.arrayContaining(['lane-1', 'lane-2']));
+    });
+
+    it('uses the resolved SDK id when resolution arrives before reparenting', () => {
+      spawnAgent('lane-1', 'caller-session');
+      store.resolveParentSessionId('successor-tab', 'successor-real');
+      store.reparentAgents(['lane-1'], 'successor-tab');
+      expect(store.agentsForSession('successor-real').map((a) => a.agentId)).toContain('lane-1');
+    });
+
+    it('does not claim ownerless agents or unknown ids', () => {
+      spawnAgent('ownerless', undefined);
+      const before = store.agents();
+
+      store.reparentAgents(['missing'], 'successor-tab');
+
+      expect(store.agents()).toBe(before);
+      expect(store.agents()[0].parentSessionId).toBeUndefined();
+    });
+
+    it('moves a subagent record whose agentId is listed, and only that one', () => {
+      for (const [toolUseId, agentId] of [
+        ['toolu_kept', 'lane-1'],
+        ['toolu_left', 'lane-9'],
+      ] as const) {
+        store.onAgentProgress({
+          eventType: 'agent_progress',
+          id: `p-${toolUseId}`,
+          timestamp: 1,
+          sessionId: 'caller-session',
+          parentToolUseId: toolUseId,
+          taskId: `t-${toolUseId}`,
+          description: 'Investigate',
+          totalTokens: 1,
+          toolUses: 0,
+          durationMs: 1,
+          agentId,
+        } as AgentProgressEvent);
+      }
+
+      store.reparentAgents(['lane-1'], 'successor-tab');
+
+      expect(store.getSubagent('toolu_kept')?.parentSessionId).toBe(
+        'successor-tab',
+      );
+      expect(store.getSubagent('toolu_left')?.parentSessionId).toBe(
+        'caller-session',
+      );
+    });
+  });
+
   describe('requestPanelOpen', () => {
     it('publishes a monotonic request stamped with the requesting tab', () => {
       expect(store.panelOpenRequest()).toEqual({ seq: 0, tabId: null });

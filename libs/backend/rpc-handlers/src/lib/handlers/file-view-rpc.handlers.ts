@@ -1,28 +1,29 @@
 /**
- * FileViewRpcHandlers — `file:viewContent`, the contained read behind Ptah's
- * own read-only file viewer.
+ * FileViewRpcHandlers — contained reads behind Ptah's read-only viewers.
  *
- * This is the ONLY path by which agent-authored link bytes reach the renderer,
- * and it is deliberately narrow. It is not a general file reader: it refuses
- * anything outside the folders the user has open, anything that is not a
- * regular file, anything over {@link FILE_VIEW_MAX_BYTES}, and anything that
- * is not decodable text.
+ * `file:viewContent` is the text preview. It refuses anything outside the
+ * folders the user has open, anything that is not a regular file, anything
+ * over {@link FILE_VIEW_MAX_BYTES}, and anything that is not decodable text.
+ *
+ * `file:viewBinary` is the display-panel image and PDF read. It uses the same
+ * root policy with the PDF ceiling, then sniffs magic bytes. SVG is refused.
+ * The extension and any caller MIME are ignored.
  *
  * Two rules govern what leaves this class:
  *
- *  1. **Every failure message is a fixed sentence from {@link FAILURE_MESSAGE}.**
- *     No `error.message`, no `errno`, no realpath, no stderr. A caller that was
- *     refused a file must not learn from the refusal whether it exists, where
- *     it resolved to, or why the filesystem said no.
+ *  1. **Every failure message is a fixed sentence.** No `error.message`, no
+ *     `errno`, no realpath, no stderr. A caller that was refused a file must
+ *     not learn from the refusal where a symlink resolved.
  *  2. **The handler never rejects to the transport.** Every outcome is a
- *     `FileViewContentResult`, because a rejection would surface in the
- *     renderer as an opaque RPC error with no reason to branch on.
+ *     result object, because a rejection would surface in the renderer as an
+ *     opaque RPC error with no reason to branch on.
  *
  * Logging follows the same rule: `logger.warn` receives the reason only —
  * never a path and never content.
  */
 
 import { createHash } from 'node:crypto';
+import type { BigIntStats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
@@ -33,13 +34,24 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   FILE_VIEW_MAX_BYTES,
+  type FileViewBinaryFailureReason,
+  type FileViewBinaryResult,
   type FileViewContentResult,
   type FileViewFailureReason,
   type RpcMethodName,
 } from '@ptah-extension/shared';
 
+import {
+  BINARY_SNIFF_BYTES,
+  binaryPayloadWithinCap,
+  fileViewBinaryCap,
+  sniffFileViewBinary,
+} from './file-view-binary';
 import { FileLinkRootPolicy } from './file-link-root-policy';
-import { FileViewContentParamsSchema } from './file-view-rpc.schema';
+import {
+  FileViewBinaryParamsSchema,
+  FileViewContentParamsSchema,
+} from './file-view-rpc.schema';
 
 /** One fixed, sanitized sentence per reason. */
 const FAILURE_MESSAGE: Record<FileViewFailureReason, string> = {
@@ -56,13 +68,19 @@ const FAILURE_MESSAGE: Record<FileViewFailureReason, string> = {
   unreadable: 'That file could not be read.',
 };
 
-/** Bytes inspected for a NUL before declaring a file binary. */
-const BINARY_SNIFF_BYTES = 8000;
+/** Bytes inspected for a NUL before declaring a text file binary. */
+const TEXT_BINARY_SNIFF_BYTES = 8000;
+
+const BINARY_FAILURE_MESSAGE: Record<FileViewBinaryFailureReason, string> = {
+  ...FAILURE_MESSAGE,
+  'unsupported-type': 'This file type cannot be previewed.',
+};
 
 @injectable()
 export class FileViewRpcHandlers {
   static readonly METHODS = [
     'file:viewContent',
+    'file:viewBinary',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -75,6 +93,9 @@ export class FileViewRpcHandlers {
   register(): void {
     this.rpcHandler.registerMethod('file:viewContent', (params) =>
       this.viewContent(params),
+    );
+    this.rpcHandler.registerMethod('file:viewBinary', (params) =>
+      this.viewBinary(params),
     );
   }
 
@@ -107,7 +128,21 @@ export class FileViewRpcHandlers {
 
     let bytes: Buffer;
     try {
-      bytes = await readBounded(resolution.realPath, FILE_VIEW_MAX_BYTES);
+      const handle = await fs.open(resolution.realPath, 'r');
+      try {
+        const verification = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (!verification.ok) {
+          this.logger.warn('[file:viewContent] verification refused', { reason: verification.code });
+          return this.refuse(verification.reason);
+        }
+        const stat = verification.stat;
+        if (!stat.isFile()) return this.refuse('not-a-file');
+        if (verification.size > FILE_VIEW_MAX_BYTES)
+          return this.refuse('too-large', resolution.lexicalPath, verification.size);
+        bytes = await readBounded(handle, FILE_VIEW_MAX_BYTES);
+      } finally {
+        await handle.close();
+      }
     } catch (error: unknown) {
       this.logger.warn('[file:viewContent] read failed', {
         error: error instanceof Error ? error.name : 'unknown',
@@ -146,6 +181,96 @@ export class FileViewRpcHandlers {
     };
   }
 
+  private async viewBinary(raw: unknown): Promise<FileViewBinaryResult> {
+    const parsed = FileViewBinaryParamsSchema.safeParse(raw);
+    if (!parsed.success) return this.refuseBinary('invalid-request');
+
+    let resolution;
+    try {
+      resolution = await this.policy.resolveForView(parsed.data, {
+        maxBytes: fileViewBinaryCap('application/pdf'),
+      });
+    } catch (error: unknown) {
+      this.logger.warn('[file:viewBinary] policy failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return this.refuseBinary('unreadable');
+    }
+
+    if (resolution.kind === 'rejected') {
+      return this.refuseBinary(
+        resolution.reason,
+        resolution.lexicalPath,
+        resolution.sizeBytes,
+      );
+    }
+    if (resolution.kind === 'directory') return this.refuseBinary('not-a-file');
+
+    let bytes: Buffer;
+    let mime: ReturnType<typeof sniffFileViewBinary>;
+    try {
+      const handle = await fs.open(resolution.realPath, 'r');
+      try {
+        const verification = await verifyOpenedFile(handle, resolution.realPath, resolution.root);
+        if (!verification.ok) {
+          this.logger.warn('[file:viewBinary] verification refused', { reason: verification.code });
+          return this.refuseBinary(verification.reason);
+        }
+        const stat = verification.stat;
+        if (!stat.isFile()) return this.refuseBinary('not-a-file');
+        // The larger of the checked size and the open handle's size: a file
+        // that was over the cap when it was checked stays refused.
+        const size = Math.max(verification.size, resolution.sizeBytes);
+        if (size > fileViewBinaryCap('application/pdf'))
+          return this.refuseBinary('too-large', resolution.lexicalPath, size);
+        const header = await readPrefix(handle, BINARY_SNIFF_BYTES);
+        mime = sniffFileViewBinary(header);
+        if (mime === null)
+          return this.refuseBinary('unsupported-type', resolution.lexicalPath, size);
+        if (!binaryPayloadWithinCap(size, mime))
+          return this.refuseBinary('too-large', resolution.lexicalPath, size);
+        bytes = await readBounded(handle, fileViewBinaryCap(mime));
+      } finally {
+        await handle.close();
+      }
+    } catch (error: unknown) {
+      this.logger.warn('[file:viewBinary] read failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return this.refuseBinary('unreadable');
+    }
+
+    if (!binaryPayloadWithinCap(bytes.byteLength, mime)) {
+      return this.refuseBinary(
+        'too-large',
+        resolution.lexicalPath,
+        bytes.byteLength,
+      );
+    }
+
+    // The signature and payload came from the same verified handle.
+    if (sniffFileViewBinary(bytes) !== mime) {
+      return this.refuseBinary(
+        'unsupported-type',
+        resolution.lexicalPath,
+        bytes.byteLength,
+      );
+    }
+
+    return {
+      success: true,
+      absolutePath: resolution.lexicalPath,
+      workspaceRoot: resolution.root,
+      relativePath: path
+        .relative(resolution.root, resolution.lexicalPath)
+        .replace(/\\/g, '/'),
+      mime,
+      kind: mime === 'application/pdf' ? 'pdf' : 'image',
+      sizeBytes: bytes.byteLength,
+      dataBase64: bytes.toString('base64'),
+    };
+  }
+
   /**
    * Build a refusal, and decide whether the path may be offered to an external
    * editor instead.
@@ -162,31 +287,55 @@ export class FileViewRpcHandlers {
     sizeBytes?: number,
   ): Promise<FileViewContentResult> {
     this.logger.warn('[file:viewContent] rejected', { reason });
-
-    let externalOpenAllowed = false;
-    if (lexicalPath !== undefined) {
-      try {
-        const external = await this.policy.resolveForExternalOpen({
-          path: lexicalPath,
-        });
-        externalOpenAllowed = external.kind === 'file';
-      } catch {
-        // degradation-audit: optional-capability - offering an external open is
-        // an affordance on top of an already-failed read; false hides the
-        // button, which is the safe answer.
-        externalOpenAllowed = false;
-      }
-    }
-
     return {
       success: false,
       reason,
       error: FAILURE_MESSAGE[reason],
       ...(lexicalPath !== undefined ? { absolutePath: lexicalPath } : {}),
       ...(sizeBytes !== undefined ? { sizeBytes } : {}),
-      externalOpenAllowed,
+      externalOpenAllowed: await this.externalOpenAllowedFor(lexicalPath),
     };
   }
+
+  private async refuseBinary(
+    reason: FileViewBinaryFailureReason,
+    lexicalPath?: string,
+    sizeBytes?: number,
+  ): Promise<FileViewBinaryResult> {
+    this.logger.warn('[file:viewBinary] rejected', { reason });
+    return {
+      success: false,
+      reason,
+      error: BINARY_FAILURE_MESSAGE[reason],
+      ...(lexicalPath !== undefined ? { absolutePath: lexicalPath } : {}),
+      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      externalOpenAllowed: await this.externalOpenAllowedFor(lexicalPath),
+    };
+  }
+
+  private async externalOpenAllowedFor(
+    lexicalPath: string | undefined,
+  ): Promise<boolean> {
+    if (lexicalPath === undefined) return false;
+    try {
+      const external = await this.policy.resolveForExternalOpen({
+        path: lexicalPath,
+      });
+      return external.kind === 'file';
+    } catch {
+      // degradation-audit: optional-capability - offering an external open is
+      // an affordance on top of an already-failed read; false hides the
+      // button, which is the safe answer.
+      return false;
+    }
+  }
+}
+
+/** Read at most `count` bytes from the start of `target`. */
+async function readPrefix(handle: fs.FileHandle, count: number): Promise<Buffer> {
+    const buffer = Buffer.alloc(count);
+    const { bytesRead } = await handle.read(buffer, 0, count, 0);
+    return buffer.subarray(0, bytesRead);
 }
 
 /**
@@ -195,15 +344,34 @@ export class FileViewRpcHandlers {
  * The extra byte is the point: it is how the caller can tell "exactly at the
  * cap" from "grew past the cap since `stat`" without reading the whole file.
  */
-async function readBounded(target: string, maxBytes: number): Promise<Buffer> {
-  const handle = await fs.open(target, 'r');
-  try {
+async function readBounded(handle: fs.FileHandle, maxBytes: number): Promise<Buffer> {
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, maxBytes + 1, 0);
     return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
+}
+
+type OpenedFileVerification =
+  | { ok: true; stat: BigIntStats; size: number }
+  | { ok: false; reason: 'outside-roots' | 'unreadable'; code: string };
+
+/** Bind the opened inode to a currently contained pathname before reading. */
+async function verifyOpenedFile(
+  handle: fs.FileHandle,
+  target: string,
+  root: string,
+): Promise<OpenedFileVerification> {
+  const opened = await handle.stat({ bigint: true });
+  const [realTarget, realRoot] = await Promise.all([fs.realpath(target), fs.realpath(root)]);
+  const relative = path.relative(realRoot, realTarget);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    return { ok: false, reason: 'outside-roots', code: 'escaped-root' };
+  const current = await fs.stat(realTarget, { bigint: true });
+  const hasIdentity = (stat: BigIntStats): boolean => stat.dev >= 0n && stat.ino > 0n;
+  if (!hasIdentity(opened) || !hasIdentity(current))
+    return { ok: false, reason: 'unreadable', code: 'identity-unavailable' };
+  if (opened.dev !== current.dev || opened.ino !== current.ino)
+    return { ok: false, reason: 'outside-roots', code: 'identity-mismatch' };
+  return { ok: true, stat: opened, size: Number(opened.size) };
 }
 
 type DecodeResult =
@@ -237,7 +405,7 @@ function decodeText(bytes: Buffer): DecodeResult {
     return decodeWith(bytes.subarray(2), 'utf-16be', true);
   }
 
-  const sniffLength = Math.min(bytes.length, BINARY_SNIFF_BYTES);
+  const sniffLength = Math.min(bytes.length, TEXT_BINARY_SNIFF_BYTES);
   for (let i = 0; i < sniffLength; i += 1) {
     if (bytes[i] === 0x00) return { ok: false, reason: 'binary' };
   }

@@ -1,5 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  QueuedFollowUpStore,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import type {
   SetupGenerationAccepted,
   SetupGenerationRejection,
@@ -31,6 +34,8 @@ export type GenerationViewState =
 export class GenerationWorkflowStore {
   private readonly rpc = inject(WizardRpcService);
   private readonly tabs = inject(TabManagerService);
+  /** Follow-ups waiting for the bound tab (TASK_2026_884). */
+  private readonly followUps = inject(QueuedFollowUpStore);
   private readonly bindingValue = signal<SetupGenerationTabBinding | null>(
     null,
   );
@@ -261,8 +266,7 @@ export class GenerationWorkflowStore {
       (tab.streamingState?.currentMessageId != null &&
         tab.status !== 'awaiting-background' &&
         tab.status !== 'sleeping') ||
-      Boolean(tab.queuedContent?.trim()) ||
-      Boolean(tab.queuedOptions);
+      this.followUps.forTab(tab.id).length > 0;
     this.chatTurnRejection.set(busy ? 'Finish this chat reply first' : null);
     return !busy;
   }

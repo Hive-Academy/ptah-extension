@@ -11,12 +11,13 @@ import { ReviewPolicyService } from '../review-policy.service';
 import { ReviewOrchestratorService } from '../review-orchestrator.service';
 import type { IReviewSettingsStore } from '../persistence/review-settings.store';
 import { ReviewArtifactWriter } from '../lanes/review-artifact.writer';
-import { DiscoveryStageRunner, REVIEW_REPO } from '../stages/discovery-stage.runner';
+import { DiscoveryStageRunner } from '../stages/discovery-stage.runner';
 import { ContextStageRunner, type ContextStageResult } from '../stages/context-stage.runner';
 import { TriageStageRunner } from '../stages/triage-stage.runner';
 import { LensStageRunner, type LensStageResult } from '../stages/lens-stage.runner';
 import { VerificationStageRunner, type VerificationResult } from '../stages/verification-stage.runner';
 import { PublicationStageRunner } from '../stages/publication-stage.runner';
+const REVIEW_REPO = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
 
 const sha = 'a'.repeat(40);
 const canary = 'ptah-review-canary-873';
@@ -50,6 +51,11 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
       const migration = MIGRATIONS.find((entry) => entry.version === 65);
       if (!migration?.sql) throw new Error('Review migration missing');
       first.db.exec(migration.sql);
+      for (const version of [67, 68, 69]) {
+        const addition = MIGRATIONS.find((entry) => entry.version === version);
+        if (!addition?.sql) throw new Error('Review migration missing: ' + version);
+        first.db.exec(addition.sql);
+      }
       const clock = { now: () => new Date() };
       const queue = new ReviewQueueService(first.repository, clock, logger);
       const policy = new ReviewPolicyService();
@@ -89,7 +95,9 @@ describe('dry-run fixture without UI or GitHub mutation', () => {
         context, triage, lens, verification, publication, queue, policy, first.repository, github, environment, logger,
         { getSettings: jest.fn().mockResolvedValue(settings), updateSettings: jest.fn(), listRepositories: jest.fn(),
           setPublicationPause: jest.fn(), getLiveGate: jest.fn(), setLiveGate: jest.fn() } as IReviewSettingsStore);
-      expect((await coordinator.discoveryHandler()).summary).toContain('Enqueued 1');
+      const discoverySummary = (await coordinator.discoveryHandler()).summary;
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(discoverySummary).toContain('Enqueued 1');
       const discovered = await first.repository.enqueueDiscovered({ repo: REVIEW_REPO, prNumber: 1, headSha: sha }, new Date().toISOString());
       expect(await coordinator.drain('worker', Date.now() + 60_000)).toBe(1);
       expect(mutations.upsertWalkthrough).not.toHaveBeenCalled();

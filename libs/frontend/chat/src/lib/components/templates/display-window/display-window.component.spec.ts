@@ -6,10 +6,10 @@ import {
   type DisplayPanelViewStateChange,
   type DisplaySurface,
 } from '@ptah-extension/chat-ui/display-panel';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ArtifactRecord } from '@ptah-extension/shared';
+import type { DisplayFileItem } from '@ptah-extension/chat-ui';
 import {
   toWire,
   type DisplayWindowView,
@@ -30,20 +30,16 @@ const artifact: ArtifactRecord = {
 class StubPanel {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly artifacts = input<readonly ArtifactRecord[]>([]);
+  readonly files = input<readonly DisplayFileItem[]>([]);
   readonly open = input(true);
   readonly fullscreenArtifactId = input<string | null>(null);
   readonly fullscreenChange = output<boolean>();
-  readonly summary = input<TurnSummaryModel | null>(null);
-  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<ReadonlyMap<string, SurfaceViewState>>(new Map());
-  readonly actionError = input<string | null>(null);
   readonly selectedKeyChange = output<string>();
   readonly viewStateChange = output<DisplayPanelViewStateChange>();
-  readonly openFile = output<string>();
-  readonly review = output<void>();
   readonly openExternal = output<string>();
   readonly retryArtifacts = output<void>();
 }
@@ -57,12 +53,10 @@ function view(partial: Partial<DisplayWindowView> = {}): DisplayWindowView {
     selectedKey: `artifact:${artifact.id}`,
     scrollToSelectedOnMount: true,
     fullscreenArtifactId: null,
-    summary: null,
-    summaryTurnKey: '',
     surfaces: [],
     viewStates: new Map(),
     artifacts: [artifact],
-    actionError: null,
+    files: [],
     notice: null,
     ...partial,
   };
@@ -142,6 +136,17 @@ describe('DisplayWindowComponent', () => {
     expect(title?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Display · 1');
   });
 
+  it('passes file metadata and the active selection to the shared viewer without reading inactive files', async () => {
+    const active: DisplayFileItem = { kind: 'markdown-file', key: 'file:active', path: '/root/active.md', workspaceRoot: '/root', title: 'active.md', readStatus: 'unread' };
+    const inactive: DisplayFileItem = { kind: 'pdf-file', key: 'file:inactive', path: '/root/inactive.pdf', workspaceRoot: '/root', title: 'inactive.pdf', readStatus: 'unread' };
+    replies['displayWindow:getState'] = { success: true, data: { state: { tabId: 'tab-1', revision: 3, state: toWire(view({ files: [active, inactive], artifacts: [], selectedKey: active.key, count: 2 })) } } };
+    const fixture = await render();
+    expect(panel(fixture).files()).toEqual([active, inactive]);
+    expect(panel(fixture).selectedKey()).toBe(active.key);
+    expect(call).not.toHaveBeenCalledWith('file:viewContent', expect.anything());
+    expect(call).not.toHaveBeenCalledWith('file:viewBinary', expect.anything());
+  });
+
   it('applies the snapshot theme to the document root', async () => {
     await render();
     expect(document.documentElement.getAttribute('data-theme')).toBe(
@@ -159,11 +164,11 @@ describe('DisplayWindowComponent', () => {
       payload: {
         tabId: 'tab-1',
         revision: 4,
-        state: toWire(view({ selectedKey: 'summary', artifacts: [] })),
+        state: toWire(view({ selectedKey: null, artifacts: [] })),
       },
     });
     await settle(fixture);
-    expect(panel(fixture).selectedKey()).toBe('summary');
+    expect(panel(fixture).selectedKey()).toBeNull();
     expect(panel(fixture).artifacts()).toEqual([]);
   });
 
@@ -194,9 +199,7 @@ describe('DisplayWindowComponent', () => {
   it('turns panel outputs into displayWindow:action for the snapshot tab', async () => {
     const fixture = await render();
     const stub = panel(fixture);
-    stub.selectedKeyChange.emit('summary');
-    stub.openFile.emit('src/a.ts');
-    stub.review.emit();
+    stub.selectedKeyChange.emit('id:stats');
     stub.fullscreenChange.emit(true);
     stub.fullscreenChange.emit(false);
     const viewState: SurfaceViewState = {
@@ -209,9 +212,7 @@ describe('DisplayWindowComponent', () => {
       .filter(([method]) => method === 'displayWindow:action')
       .map(([, params]) => params);
     expect(actions).toEqual([
-      { tabId: 'tab-1', action: { type: 'select', key: 'summary' } },
-      { tabId: 'tab-1', action: { type: 'open-file', path: 'src/a.ts' } },
-      { tabId: 'tab-1', action: { type: 'review' } },
+      { tabId: 'tab-1', action: { type: 'select', key: 'id:stats' } },
       { tabId: 'tab-1', action: { type: 'fullscreen-closed' } },
       {
         tabId: 'tab-1',

@@ -575,9 +575,15 @@ describe('StreamTransformer — live session stats', () => {
     ['duplicate', true],
   ])('flushes cache after a %s result skips its callback', async (_name, duplicate) => {
     let changeOnTurnEnd = false;
+    const heldFollowUps = ['follow-up'];
+    const releasedFollowUps: string[] = [];
     const h = start({
       onTurnEnd: (owner) => {
-        if (changeOnTurnEnd) owner.setIdleCompactAt(SESSION, RUN, 2000);
+        if (changeOnTurnEnd) {
+          owner.setIdleCompactAt(SESSION, RUN, 2000);
+          const next = heldFollowUps.shift();
+          if (next) releasedFollowUps.push(next);
+        }
       },
     });
     await h.feed(init());
@@ -600,6 +606,8 @@ describe('StreamTransformer — live session stats', () => {
     expect(h.results).toHaveLength(resultsBefore);
     expect(h.live).toHaveLength(liveBefore + 1);
     expect(last(h.live).sessionStats.cache?.idleCompactAt).toBe(2000);
+    expect(heldFollowUps).toEqual([]);
+    expect(releasedFollowUps).toEqual(['follow-up']);
     await h.end();
   });
 

@@ -9,10 +9,10 @@ function inside(root: string, candidate: string): boolean {
 
 /** Restricts review file operations to the configured attempt tree. */
 export class ReviewFiles implements IReviewContextFiles, ReviewArtifactFileSystem {
-  constructor(private readonly roots: () => Promise<ReviewRoots>) {}
+  constructor(private readonly roots: (path: string) => Promise<ReviewRoots>) {}
 
   private async checked(path: string, existing: boolean): Promise<string> {
-    const root = await realpath((await this.roots()).attemptsRoot);
+    const root = await realpath((await this.roots(path)).attemptsRoot);
     const target = resolve(path);
     const rel = relative(root, target);
     const [attemptId] = rel.split(sep);
@@ -50,7 +50,7 @@ export class ReviewFiles implements IReviewContextFiles, ReviewArtifactFileSyste
 
   async remove(path: string): Promise<void> {
     const target = await this.checked(path, true);
-    const root = await realpath((await this.roots()).attemptsRoot);
+    const root = await realpath((await this.roots(path)).attemptsRoot);
     if (dirname(target) !== root || (await lstat(target)).isSymbolicLink())
       throw new Error('Review removal requires an attempt directory');
     await rm(target, { recursive: true });

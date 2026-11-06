@@ -8,14 +8,15 @@ import {
 } from '@angular/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
+  QueuedFollowUpStore,
   TabManagerService,
   TabWorkspacePartitionService,
+  type QueuedFollowUpRef,
 } from '@ptah-extension/chat-state';
 import type { TabState } from '@ptah-extension/chat-types';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { displayBudgetStage } from '../components/molecules/notifications/session-budget-format';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
-import type { QueuedCommand } from './chat-store/conversation.service';
 import { SessionAutoHandoffService } from './session-auto-handoff.service';
 import { SessionHandoffSkillService } from './session-handoff-skill.service';
 import { buildHandoffCommand } from './session-handoff-prompts';
@@ -71,13 +72,13 @@ export class SessionAutoHandoffCoordinatorService {
   private readonly tabManager = inject(TabManagerService);
   private readonly partition = inject(TabWorkspacePartitionService);
   private readonly messageDispatch = inject(MessageDispatchService);
+  private readonly followUpStore = inject(QueuedFollowUpStore);
   private readonly autoHandoff = inject(SessionAutoHandoffService);
   private readonly skill = inject(SessionHandoffSkillService);
   private readonly logger = inject(LoggingService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly retryRevision = signal(0);
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly failedQueueHeads = new Map<string, QueuedCommand>();
 
   /** Sessions with a probe or send in flight; guarded synchronously, so a re-run cannot double-fire. */
   private readonly inFlight = new Set<string>();
@@ -128,10 +129,6 @@ export class SessionAutoHandoffCoordinatorService {
       if (sessions.has(sessionId)) continue; // the first tab per session sends
       sessions.add(sessionId);
       if (this.autoHandoff.entry(sessionId) !== null) continue;
-      const failedHead = this.failedQueueHeads.get(sessionId);
-      if (failedHead && this.messageDispatch.isQueuedCommandPending(failedHead))
-        continue;
-      if (failedHead) this.failedQueueHeads.delete(sessionId);
       if (this.autoHandoff.isManuallyWrappedUp(sessionId)) continue;
       if (this.skillMissing.has(sessionId)) continue;
       if (this.givenUp.has(sessionId)) continue;
@@ -196,34 +193,10 @@ export class SessionAutoHandoffCoordinatorService {
         this.deferAttempt(sessionId, 'the hand-off send failed');
         return;
       }
-      this.autoHandoff.recordQueued(
-        sessionId,
-        outcome.queuedCommand ?? null,
-        outcome.heldCommand !== undefined,
-      );
-      if (outcome.queuedCommand && outcome.heldCommand === undefined) {
-        this.watchQueuedCommand(sessionId, outcome.queuedCommand);
-      }
-      if (outcome.heldCommand === undefined) return;
-      const delivered = await outcome.heldCommand;
-      this.autoHandoff.recordQueued(
-        sessionId,
-        outcome.queuedCommand ?? null,
-        false,
-      );
-      if (delivered && outcome.queuedCommand) {
-        this.watchQueuedCommand(sessionId, outcome.queuedCommand);
-      }
-      if (delivered) return;
-      if (this.autoHandoff.entry(sessionId)?.state === 'cancelled') {
-        return; // the user withdrew it; the claim store keeps the cancel
-      }
-      // Held behind text that was stopped or failed before it ran: retry later.
-      this.autoHandoff.release(sessionId);
-      this.deferAttempt(
-        sessionId,
-        'the queued messages before the hand-off were stopped or failed',
-      );
+      // Queued (the turn runs): delivery is reported by the follow-up store.
+      const queued = outcome.queued ?? null;
+      this.autoHandoff.recordQueued(sessionId, queued);
+      if (queued) this.watchQueued(sessionId, queued);
     } catch (error: unknown) {
       this.autoHandoff.release(sessionId);
       this.deferAttempt(sessionId, 'the hand-off attempt threw');
@@ -237,19 +210,27 @@ export class SessionAutoHandoffCoordinatorService {
     }
   }
 
-  private watchQueuedCommand(sessionId: string, head: QueuedCommand): void {
-    this.messageDispatch.onQueuedCommandOutcome(head, (delivered) => {
-      if (delivered) {
-        this.failedQueueHeads.delete(sessionId);
+  /**
+   * Follow the queued command to its outcome. Delivered: the hand-off ran.
+   * Withdrawn (Stop, tab closed) or failed: release the claim and retry later,
+   * unless the user cancelled it.
+   */
+  private watchQueued(sessionId: string, queued: QueuedFollowUpRef): void {
+    this.followUpStore.onSettled(queued.clientMessageId, (outcome) => {
+      if (outcome === 'delivered' || outcome === 'steered') {
         if (this.autoHandoff.entry(sessionId) === null) {
           this.autoHandoff.claim(sessionId);
         }
         return;
       }
       if (this.autoHandoff.entry(sessionId)?.state === 'cancelled') return;
-      this.failedQueueHeads.set(sessionId, head);
       this.autoHandoff.release(sessionId);
-      this.deferAttempt(sessionId, 'the queued hand-off send failed');
+      this.deferAttempt(
+        sessionId,
+        outcome === 'failed'
+          ? 'the queued hand-off send failed'
+          : 'the queued hand-off was withdrawn before it ran',
+      );
     });
   }
 

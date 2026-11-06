@@ -8,7 +8,7 @@ import { LicenseGetStatusResponse, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import { ConversationService } from './conversation.service';
+import { FollowUpQueueService } from './follow-up-queue.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { TabState } from '@ptah-extension/chat-types';
 import {
@@ -39,7 +39,7 @@ export class ChatLifecycleService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
-  private readonly conversation = inject(ConversationService);
+  private readonly followUps = inject(FollowUpQueueService);
   private readonly livenessReconciler = inject(
     SessionLivenessReconcilerService,
   );
@@ -303,10 +303,13 @@ export class ChatLifecycleService {
     this.refreshSessionsAfterError();
   }
 
-  /** Nothing queued may auto-send after a failed turn, held commands included. */
+  /**
+   * Nothing the renderer holds may start a turn on its own after a failed
+   * turn: those follow-ups become a composer draft. Items already in the
+   * backend queue are failed (or kept) by the backend itself.
+   */
   private dropQueue(tabId: string): void {
-    this.tabManager.clearQueuedContentAndOptions(tabId);
-    this.conversation.dropHeldCommands(tabId);
+    this.followUps.draftHeld(tabId);
   }
 
   /**

@@ -14,6 +14,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
+  QueuedFollowUpStore,
   TabManagerService,
   TabWorkspacePartitionService,
 } from '@ptah-extension/chat-state';
@@ -54,6 +55,7 @@ describe('AutoHandoffSourceCloserService', () => {
   let info: jest.Mock;
   let warn: jest.Mock;
   let autoHandoff: SessionAutoHandoffService;
+  let followUps: QueuedFollowUpStore;
   let closer: AutoHandoffSourceCloserService;
 
   function makeTab(
@@ -69,8 +71,6 @@ describe('AutoHandoffSourceCloserService', () => {
       streamingState: null,
       currentMessageId: null,
       claudeSessionId: SESSION,
-      queuedContent: null,
-      queuedOptions: null,
       isDirty: false,
       pendingBackgroundTasks: [],
       commandCenterOrigin: null,
@@ -150,6 +150,7 @@ describe('AutoHandoffSourceCloserService', () => {
     TestBed.configureTestingModule({
       providers: [
         AutoHandoffSourceCloserService,
+        QueuedFollowUpStore,
         {
           provide: TabManagerService,
           useValue: {
@@ -185,6 +186,7 @@ describe('AutoHandoffSourceCloserService', () => {
       ],
     });
     autoHandoff = TestBed.inject(SessionAutoHandoffService);
+    followUps = TestBed.inject(QueuedFollowUpStore);
     closer = TestBed.inject(AutoHandoffSourceCloserService);
   });
 
@@ -361,7 +363,14 @@ describe('AutoHandoffSourceCloserService', () => {
       ['unsent input', () => patch(TAB, { isDirty: true }), 'unsent input'],
       [
         'a queued message',
-        () => patch(TAB, { queuedContent: '/next turn' }),
+        () => followUps.add({
+          clientMessageId: 'queued-1',
+          tabId: TAB,
+          sessionId: SESSION,
+          content: '/next turn',
+          isCommand: true,
+          phase: 'queued',
+        }),
         'queued message',
       ],
       [
@@ -427,11 +436,11 @@ describe('AutoHandoffSourceCloserService', () => {
       patch(TAB, {
         status: 'loaded',
         isDirty: false,
-        queuedContent: null,
         pendingBackgroundTasks: [],
         commandCenterOrigin: null,
         sessionBudget: { ...CLOSE_BUDGET },
       });
+      followUps.settle('queued-1', 'delivered');
       hasPendingPermission.mockReturnValue(false);
       autoHandoff.release(SESSION);
       autoHandoff.claim(SESSION);

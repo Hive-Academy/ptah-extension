@@ -25,6 +25,8 @@ import type {
 } from '@ptah-extension/platform-core';
 import {
   type McpHttpServerOverride,
+  codexSandboxModeSchema,
+  DEFAULT_CODEX_SANDBOX_MODE,
   type PermissionResponse,
   type PermissionLevel,
   type RuntimeHostCapabilities,
@@ -464,7 +466,9 @@ export function createCodexChatHostPorts(
       }
       const profile = buildCodexExecutionProfile({
         ...profileInput,
-        session: { ...profileInput.session, developerPrompt },
+        session: { ...profileInput.session, developerPrompt,
+          codexSandboxMode: codexSandboxModeSchema.parse(deps.workspaceProvider.getConfiguration('ptah', 'agentOrchestration.codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE)),
+        },
       });
       if (
         resume &&

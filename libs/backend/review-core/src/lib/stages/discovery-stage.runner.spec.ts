@@ -1,7 +1,9 @@
 import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
 import { ReviewPolicyService } from '../review-policy.service';
 import { ReviewQueueService, type IReviewQueueRepository } from '../review-queue.service';
-import { DiscoveryStageRunner, REVIEW_REPO } from './discovery-stage.runner';
+import { DiscoveryStageRunner } from './discovery-stage.runner';
+
+const REVIEW_REPO = { owner: 'Hive-Academy', name: 'PtahCode' } as const;
 
 const sha = 'a'.repeat(40);
 const pull = { number: 7, headSha: sha, baseSha: 'b'.repeat(40), state: 'open' as const,
@@ -26,8 +28,8 @@ describe('DiscoveryStageRunner', () => {
         maintainerLogins: ['maintainer'], pollMinutes: 10, globalPublicationPaused: false, fallbackFamilies: [] }),
       baseConfig: async () => null,
     });
-    expect(await runner.run()).toBe(1);
-    expect(enqueueDiscovered).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 7, headSha: sha }, '2026-11-03T00:00:00.000Z');
+    expect(await runner.run(REVIEW_REPO)).toBe(1);
+    expect(enqueueDiscovered).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 7, headSha: sha }, '2026-11-03T00:00:00.000Z', true);
     expect(recordDraft).toHaveBeenCalledWith({ repo: REVIEW_REPO, prNumber: 8, headSha: sha }, '2026-11-03T00:00:00.000Z');
     expect(claimNext).not.toHaveBeenCalled();
   });

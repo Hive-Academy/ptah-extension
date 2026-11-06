@@ -1299,6 +1299,7 @@ export class SdkQueryOptionsBuilder {
       onWorktreeCreated,
       onWorktreeRemoved,
       activityHold,
+      this.ptahUiHintEnabled(sessionConfig),
     );
     const compactionConfig = this.compactionConfigProvider.getConfig();
     // The class follows the same first-party test as the 1M beta and the
@@ -2035,10 +2036,7 @@ export class SdkQueryOptionsBuilder {
       // Set only on the `inject` branch of ActivationDecision; the `flag`
       // branch travels on options.settings instead (see buildFlagSettings).
       outputStyleBody: sessionConfig?.outputStyleBody,
-      ptahUiHint:
-        this.hostKind === 'electron' &&
-        (sessionConfig?.mcpToolProfile ?? 'coding') === 'coding' &&
-        sessionConfig?.ptahUiFence === true,
+      ptahUiHint: this.ptahUiHintEnabled(sessionConfig),
     });
     let sessionStartBlock = '';
     if (cwd) {
@@ -2213,6 +2211,14 @@ export class SdkQueryOptionsBuilder {
     return 200;
   }
 
+  private ptahUiHintEnabled(sessionConfig?: AISessionConfig): boolean {
+    return (
+      this.hostKind === 'electron' &&
+      (sessionConfig?.mcpToolProfile ?? 'coding') === 'coding' &&
+      sessionConfig?.ptahUiFence === true
+    );
+  }
+
   /** Create merged lifecycle hooks (subagent + compaction + worktree) for SDK query options. */
   private createHooks(
     cwd: string,
@@ -2221,6 +2227,7 @@ export class SdkQueryOptionsBuilder {
     onWorktreeCreated?: WorktreeCreatedCallback,
     onWorktreeRemoved?: WorktreeRemovedCallback,
     activityHold?: ActivityHold,
+    ptahUiHint = false,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Root tool lifetime, not child registration, owns watchdog protection.
     const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
@@ -2241,6 +2248,7 @@ export class SdkQueryOptionsBuilder {
     const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
       sessionId,
       cwd,
+      ptahUiHint,
     );
     const userPromptExpansionHooks =
       this.userPromptExpansionHookHandler.createHooks(sessionId, cwd);

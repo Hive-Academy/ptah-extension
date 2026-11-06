@@ -9,9 +9,8 @@ import {
   type PtahUiDisplayDockSync,
   type PtahUiDisplayFenceStatus,
 } from '@ptah-extension/chat-ui';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
-import { DisplayDockState, type DisplayDockSummary } from './display-dock.state';
+import { DisplayDockState } from './display-dock.state';
 
 const TAB_A = 'tab-a';
 const TAB_B = 'tab-b';
@@ -43,11 +42,22 @@ function viewState(ids: readonly string[]): SurfaceViewState {
   };
 }
 
-function summary(label: string): DisplayDockSummary {
-  return { model: { label } as unknown as TurnSummaryModel, changeSet: null };
-}
-
 describe('DisplayDockState', () => {
+  it('reuses a clicked file and selects it even while pinned', () => {
+    const dock = new DisplayDockState();
+    const file = { kind: 'markdown-file' as const, path: 'notes.md', workspaceRoot: '/workspace', title: 'notes.md' };
+    dock.openFile(TAB_A, file);
+    const first = dock.tab(TAB_A).files[0];
+    dock.setPinned(TAB_A, true);
+    dock.select(TAB_A, null);
+    dock.openFile(TAB_A, file);
+    expect(dock.tab(TAB_A).files).toHaveLength(1);
+    expect(dock.tab(TAB_A).selection).toEqual({ kind: 'file', fileKey: first.key });
+    expect(dock.tab(TAB_A).open).toBe(true);
+    expect(dock.tab(TAB_A).pinned).toBe(true);
+    dock.forgetTab(TAB_A);
+    expect(dock.tab(TAB_A).files).toEqual([]);
+  });
   let store: DisplayDockState;
 
   beforeEach(() => {
@@ -140,22 +150,13 @@ describe('DisplayDockState', () => {
       });
     });
 
-    it('opens on a surface or a turn summary from a chip', () => {
+    it('opens on a surface from a chip', () => {
       store.selectTab(TAB_A, 'agents');
       store.openSurface(TAB_A, 'id:stats');
       expect(store.tab(TAB_A)).toMatchObject({
         open: true,
         activeTab: 'displays',
         selection: { kind: 'surface', surfaceKey: 'id:stats' },
-      });
-
-      store.close(TAB_A);
-      store.openSummary(TAB_A, 'u1');
-      expect(store.tab(TAB_A)).toMatchObject({
-        open: true,
-        activeTab: 'displays',
-        summaryTurnKey: 'u1',
-        selection: { kind: 'summary' },
       });
     });
   });
@@ -457,42 +458,6 @@ describe('DisplayDockState', () => {
       store.openSurface(TAB_A, 'id:stats');
       store.requestAgentsOpen(TAB_A);
       expect(store.tab(TAB_A).activeTab).toBe('displays');
-    });
-  });
-
-  describe('summaries', () => {
-    it('does not open the dock when summaries arrive (R1.10)', () => {
-      store.setSummaries(TAB_A, new Map([['u1', summary('first')]]));
-      expect(store.tab(TAB_A).open).toBe(false);
-    });
-
-    it('shows the selected turn, else the latest, and drops a stale turn key', () => {
-      const first = summary('first');
-      const second = summary('second');
-      store.setSummaries(
-        TAB_A,
-        new Map([
-          ['u1', first],
-          ['u2', second],
-        ]),
-      );
-      expect(store.summaryFor(TAB_A)).toBe(second);
-      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
-
-      store.openSummary(TAB_A, 'u1');
-      expect(store.summaryFor(TAB_A)).toBe(first);
-      expect(store.summaryKeyFor(TAB_A)).toBe('u1');
-
-      store.setSummaries(TAB_A, new Map([['u2', second]]));
-      expect(store.tab(TAB_A).summaryTurnKey).toBeNull();
-      expect(store.summaryFor(TAB_A)).toBe(second);
-      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
-
-      store.setSummaries(TAB_A, new Map());
-      expect(store.summaryFor(TAB_A)).toBeNull();
-      expect(store.summaryKeyFor(TAB_A)).toBeNull();
-      expect(store.tab(TAB_A).selection).toBeNull();
-      expect(store.summaryFor(TAB_B)).toBeNull();
     });
   });
 });

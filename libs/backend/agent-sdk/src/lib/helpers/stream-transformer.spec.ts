@@ -2035,7 +2035,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
   it.each([
     ['Q', 'Q'],
     [null, undefined],
-  ])('case 17/18: captures P before delayed pricing and release, next id %s', async (nextId, expectedNextId) => {
+  ])('case 17/18: captures P before delayed pricing and releases after terminal delivery, next id %s', async (nextId, expectedNextId) => {
     const { transformer, messageTransformer, pricingProvider } = makeHarness();
     const calls: string[] = [];
     let resolvePricing: ((value: null) => void) | undefined;
@@ -2069,12 +2069,14 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     const first = iterator.next();
     for (let attempt = 0; attempt < 10 && !resolvePricing; attempt++) await Promise.resolve();
     expect(resolvePricing).toBeDefined();
-    expect(calls.slice(0, 2)).toEqual(['take', 'release']);
-    expect(current).toBe(nextId);
+    expect(calls).toEqual(['take']);
+    expect(current).toBeNull();
     resolvePricing?.(null);
     const firstEvent = await first;
     expect(firstEvent.value).toMatchObject({ eventType: 'turn_state', consumedClientMessageId: 'P' });
+    expect(calls).toEqual(['take']);
     const secondEvent = await iterator.next();
+    expect(calls.slice(0, 3)).toEqual(['take', 'release', 'take']);
     expect(secondEvent.value).toMatchObject({ eventType: 'turn_state' });
     expect((secondEvent.value as { consumedClientMessageId?: string }).consumedClientMessageId).toBe(expectedNextId);
     await iterator.return?.();
@@ -2326,7 +2328,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     expect(events[2]).not.toHaveProperty('consumedClientMessageId');
     expect(events[3]).toMatchObject({ consumedClientMessageId: 'Q' });
   });
-  it('forwards the result to the transformer AFTER onTurnEnd, and yields its turn_state after the preceding message_complete', async () => {
+  it('releases the held next turn only after the result turn_state reaches the consumer', async () => {
     const { transformer, messageTransformer } = makeHarness();
     const calls: string[] = [];
     const onTurnEnd = jest.fn(() => {
@@ -2352,6 +2354,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
       onTurnEnd,
     })) {
       yielded.push((event as { eventType: string }).eventType);
+      calls.push(`received:${(event as { eventType: string }).eventType}`);
     }
 
     expect(messageTransformer.transform).toHaveBeenCalledWith(
@@ -2360,10 +2363,35 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     );
     expect(calls).toEqual([
       'transform:stream_event',
-      'onTurnEnd',
+      'received:message_complete',
       'transform:result',
+      'received:turn_state',
+      'onTurnEnd',
     ]);
     expect(yielded).toEqual(['message_complete', 'turn_state']);
+  });
+
+  it('releases a held follow-up when the consumer closes after the result turn_state', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const heldFollowUps = ['follow-up'];
+    const releasedFollowUps: string[] = [];
+    messageTransformer.transform.mockImplementation((msg: SDKMessage) =>
+      msg.type === 'result' ? [{ eventType: 'turn_state', phase: 'idle' } as never] : [],
+    );
+    const iterator = transformer.transform({
+      sdkQuery: asAsyncIterable([resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 })]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      onTurnEnd: () => {
+        const next = heldFollowUps.shift();
+        if (next) releasedFollowUps.push(next);
+      },
+    })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ eventType: 'turn_state' });
+    expect(heldFollowUps).toEqual(['follow-up']);
+    await iterator.return?.();
+    expect(releasedFollowUps).toEqual(['follow-up']);
   });
 });
 

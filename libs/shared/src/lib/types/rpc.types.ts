@@ -25,6 +25,7 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-setup-decisions.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
+export * from './rpc/rpc-file-binary.types';
 export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-change-set.types';
 export * from './rpc/rpc-editor.types';
@@ -166,6 +167,15 @@ import type {
   ChatCarryOverParams,
   ChatCarryOverResult,
 } from './rpc/rpc-chat.types';
+// Backend-owned follow-up queue (TASK_2026_884)
+import type {
+  ChatQueuedListParams,
+  ChatQueuedListResult,
+  ChatQueuedWithdrawParams,
+  ChatQueuedWithdrawResult,
+  ChatQueuedSteerParams,
+  ChatQueuedSteerResult,
+} from './rpc/rpc-chat.types';
 
 import type {
   SessionListParams,
@@ -194,6 +204,8 @@ import type {
   SessionSetOrganizationResult,
   SessionGetOrganizationParams,
   SessionGetOrganizationResult,
+  SessionHandoffChainParams,
+  SessionHandoffChainResult,
   SessionLinkTaskParams,
   SessionLinkTaskResult,
   SessionUnlinkTaskParams,
@@ -716,6 +728,10 @@ import type {
   PluginsResolveConfigHomeResult,
 } from './rpc/rpc-misc.types';
 import type {
+  FileViewBinaryParams,
+  FileViewBinaryResult,
+} from './rpc/rpc-file-binary.types';
+import type {
   EditorDetectTargetsParams,
   EditorDetectTargetsResult,
   EditorOpenFileParams,
@@ -1093,6 +1109,19 @@ export interface RpcMethodRegistry
     result: ChatHistoryPageResult;
   };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
+  // Backend-owned follow-up queue (TASK_2026_884)
+  'chat:queued-list': {
+    params: ChatQueuedListParams;
+    result: ChatQueuedListResult;
+  };
+  'chat:queued-withdraw': {
+    params: ChatQueuedWithdrawParams;
+    result: ChatQueuedWithdrawResult;
+  };
+  'chat:queued-steer': {
+    params: ChatQueuedSteerParams;
+    result: ChatQueuedSteerResult;
+  };
   'chat:pending-questions': {
     params: ChatPendingQuestionsParams;
     result: ChatPendingQuestionsResult;
@@ -1153,6 +1182,12 @@ export interface RpcMethodRegistry
     params: SessionGetOrganizationParams;
     result: SessionGetOrganizationResult;
   };
+  // Durable handoff chain (TASK_2026_876). Served on every host; no chain
+  // or no store answers `{ sessions: [] }`.
+  'session:handoffChain': {
+    params: SessionHandoffChainParams;
+    result: SessionHandoffChainResult;
+  };
   'session:linkTask': {
     params: SessionLinkTaskParams;
     result: SessionLinkTaskResult;
@@ -1193,6 +1228,10 @@ export interface RpcMethodRegistry
   'file:viewContent': {
     params: FileViewContentParams;
     result: FileViewContentResult;
+  };
+  'file:viewBinary': {
+    params: FileViewBinaryParams;
+    result: FileViewBinaryResult;
   };
   'file:saveContent': {
     params: FileSaveContentParams;
@@ -3464,6 +3503,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:carry-over': true,
   'chat:setStreamViewport': true,
   'chat:abort': true,
+  // Backend-owned follow-up queue (TASK_2026_884)
+  'chat:queued-list': true,
+  'chat:queued-withdraw': true,
+  'chat:queued-steer': true,
   'chat:pending-questions': true,
   'chat:running-agents': true,
   'chat:agent-sessions': true,
@@ -3482,6 +3525,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:status': true,
   'session:setOrganization': true,
   'session:getOrganization': true,
+  'session:handoffChain': true,
   'session:linkTask': true,
   'session:unlinkTask': true,
   'session:addPrLink': true,
@@ -3493,6 +3537,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:commands': true,
   'file:open': true,
   'file:viewContent': true,
+  'file:viewBinary': true,
   'file:saveContent': true,
   'editor:detectTargets': true,
   'editor:openFile': true,

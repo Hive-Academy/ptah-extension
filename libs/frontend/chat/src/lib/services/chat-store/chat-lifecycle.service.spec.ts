@@ -37,7 +37,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import { ConversationService } from './conversation.service';
+import { FollowUpQueueService } from './follow-up-queue.service';
 import {
   ProviderCarryOverService,
   type CarryOverClaim,
@@ -255,8 +255,8 @@ describe('ChatLifecycleService', () => {
         { provide: StreamingHandlerService, useValue: streamingHandlerMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
         {
-          provide: ConversationService,
-          useValue: { dropHeldCommands: dropHeldCommandsMock },
+          provide: FollowUpQueueService,
+          useValue: { draftHeld: dropHeldCommandsMock },
         },
         { provide: ClaudeRpcService, useValue: claudeRpcMock },
         { provide: AuthStateService, useValue: authStateMock },
@@ -542,14 +542,14 @@ describe('ChatLifecycleService', () => {
 
     it('routes by tabId when present (primary)', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
+      expect(dropHeldCommandsMock).toHaveBeenCalledWith('tab-1');
     });
 
     it('falls back to sessionId lookup when tabId absent', () => {
       tabs = [makeTab({ id: 'tab-2', claudeSessionId: SESS_2 })];
       service.handleChatError({ sessionId: SESS_2, error: 'boom' });
       expect(findTabsBySessionIdMock).toHaveBeenCalledWith(SESS_2);
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-2');
+      expect(dropHeldCommandsMock).toHaveBeenCalledWith('tab-2');
     });
 
     it('warns and returns when sessionId mismatches active tab', () => {
@@ -562,7 +562,7 @@ describe('ChatLifecycleService', () => {
           activeTabSessionId: SESS_ACTUAL,
         },
       );
-      expect(clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
+      expect(dropHeldCommandsMock).not.toHaveBeenCalled();
     });
 
     // TASK_2026_360 review F3: SESSION_TURN_FAILED is an unordered hook push
@@ -585,14 +585,13 @@ describe('ChatLifecycleService', () => {
         '[ChatStore] Chat error:',
         expect.objectContaining({ tabId: 'tab-1', error: 'boom' }),
       );
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
+      expect(dropHeldCommandsMock).toHaveBeenCalledWith('tab-1');
       expect(finalizeCurrentMessageMock).not.toHaveBeenCalled();
       expect(applyErrorResetMock).not.toHaveBeenCalled();
       expect(markTabIdleMock).not.toHaveBeenCalled();
       expect(setStatusMock).not.toHaveBeenCalled();
       expect(tabs[0].status).toBe('streaming');
       expect(tabs[0].streamingState?.currentMessageId).toBe('msg-1');
-      expect(tabs[0].queuedContent).toBeNull();
     });
 
     it('refreshes sidebar after error reset', () => {
@@ -600,7 +599,7 @@ describe('ChatLifecycleService', () => {
       expect(loadSessionsMock).toHaveBeenCalled();
     });
 
-    it('drops slash commands held behind the queue with it (TASK_2026_655)', () => {
+    it('turns what the renderer holds into a composer draft (TASK_2026_884)', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
       expect(dropHeldCommandsMock).toHaveBeenCalledWith('tab-1');
     });
@@ -642,9 +641,6 @@ describe('ChatLifecycleService', () => {
         expect(tab?.status).toBe('loaded');
         expect(tab?.hasLiveSession).toBe(false);
         expect(tab?.messages.at(-1)?.rawContent).toBe(REASON);
-        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
-          HANDOFF_TAB,
-        );
         expect(dropHeldCommandsMock).toHaveBeenCalledWith(HANDOFF_TAB);
         expect(loadSessionsMock).toHaveBeenCalled();
       });
@@ -668,8 +664,8 @@ describe('ChatLifecycleService', () => {
           HANDOFF_TAB,
           REASON,
         );
-        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
-        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
+        expect(dropHeldCommandsMock).toHaveBeenCalledTimes(1);
+        expect(dropHeldCommandsMock).toHaveBeenCalledWith(
           HANDOFF_TAB,
         );
       });
@@ -686,7 +682,7 @@ describe('ChatLifecycleService', () => {
         const tab = tabs.find((t) => t.id === HANDOFF_TAB);
         expect(tab?.status).toBe('streaming');
         expect(tab?.hasLiveSession).toBe(true);
-        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
+        expect(dropHeldCommandsMock).toHaveBeenCalledWith(
           HANDOFF_TAB,
         );
       });

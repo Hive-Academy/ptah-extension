@@ -105,6 +105,9 @@ import {
   resolveSubagentPromptCacheTtl,
   DECISION_MODEL_INVALID_BASE_URL,
   DECISION_MODEL_INVALID_MODEL,
+  codexSandboxModeSchema,
+  DEFAULT_CODEX_SANDBOX_MODE,
+  type CodexSandboxMode,
 } from '@ptah-extension/shared';
 import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
 import {
@@ -493,6 +496,7 @@ export class AgentRpcHandlers {
               5,
             ),
             codexModel: this.getAgentCfg<string>('codexModel', ''),
+            codexSandboxMode: this.getCodexSandboxMode(),
             copilotModel: this.getAgentCfg<string>('copilotModel', ''),
             cursorModel: this.getAgentCfg<string>('cursorModel', ''),
             antigravityModel: this.getAgentCfg<string>('antigravityModel', ''),
@@ -979,6 +983,9 @@ export class AgentRpcHandlers {
         };
       }
       const invalidBudget = invalidCodexBudget(params);
+      if (params.codexSandboxMode !== undefined && !codexSandboxModeSchema.safeParse(params.codexSandboxMode).success) {
+        return { success: false, error: 'Unsupported codexSandboxMode value' };
+      }
       if (invalidBudget) {
         return {
           success: false,
@@ -1075,6 +1082,9 @@ export class AgentRpcHandlers {
       }
       if (params.codexWebSearch !== undefined) {
         await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
+      }
+      if (params.codexSandboxMode !== undefined) {
+        await this.setAgentCfg('codexSandboxMode', params.codexSandboxMode);
       }
       if (params.subagentPromptCacheTtl !== undefined) {
         await this.setAgentCfg(
@@ -1983,7 +1993,20 @@ export class AgentRpcHandlers {
     return isLaneRepeatCallStopAt(value) ? value : fallback;
   }
 
-  /** Read the Codex lane web-search switch; a non-boolean reads as the default. */
+  /** Read the Codex sandbox mode; only an absent key reads as the default, null is invalid. */
+  private getCodexSandboxMode(): CodexSandboxMode {
+    const absent = Symbol('codexSandboxMode absent');
+    const stored: unknown = this.workspace.getConfiguration<unknown>(
+      'ptah',
+      'agentOrchestration.codexSandboxMode',
+      absent,
+    );
+    const value = stored === absent ? DEFAULT_CODEX_SANDBOX_MODE : stored;
+    const parsed = codexSandboxModeSchema.safeParse(value);
+    if (!parsed.success) throw new Error('Invalid agentOrchestration.codexSandboxMode setting');
+    return parsed.data;
+  }
+
   private getCodexWebSearch(): boolean {
     const fallback = CODEX_BUDGET_DEFAULTS.codexWebSearch;
     const value = this.getAgentCfg<unknown>('codexWebSearch', fallback);

@@ -1,6 +1,6 @@
 @if (message().role === 'assistant') {
   <!-- Assistant turn (design-spec §3): disclosure row, work log, answer,
-       agent chips, action row, activity panel, live line. Every log and
+       agent chips, action row, activity panel. Every log and
        answer row renders through the unchanged ptah-execution-node with the
        inputs of its root 'message' case (decisions row 32). -->
   <article
@@ -70,8 +70,13 @@
         </div>
       }
 
-      @if (showStreamingQuotes()) {
-        <ptah-streaming-quotes />
+      <!-- A streaming message with no log row and no answer yet shows only
+           the typing cursor, so the bubble is never empty. -->
+      @if (isStreaming() && !hasLog() && parts.answer.length === 0) {
+        <ptah-typing-cursor
+          colorClass="text-base-content-muted"
+          data-testid="streaming-empty-cursor"
+        />
       }
 
       @if (parts.answer.length > 0) {
@@ -133,6 +138,10 @@
       </div>
     }
 
+    @if (message().isInterrupted) {
+      <div class="mt-2 text-[11px] text-base-content-muted" data-testid="chat-turn-interrupted">Interrupted</div>
+    }
+
     @if (showActions()) {
       <div class="mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
         <ptah-copy-button [message]="message()" [turnActionSize]="true" />
@@ -175,12 +184,17 @@
       }
     }
 
-    @if (showLiveLine()) {
-      <ptah-turn-live-line
-        [startTs]="turn()!.startTs"
-        [now]="now()"
-        [needsYouCount]="needsYouCount()"
-      />
+    <!-- Screen reader turn status. It has no visual part: the Working
+         label, the typing cursor and the elapsed label show this state.
+         The region stays in the DOM so that its text change is announced. -->
+    @if (turn() !== null && isLastOfTurn()) {
+      <span
+        class="sr-only"
+        role="status"
+        aria-live="polite"
+        data-testid="turn-live-status"
+        >{{ turnLive() ? 'Working' : '' }}</span
+      >
     }
   </article>
 } @else {

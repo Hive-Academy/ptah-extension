@@ -10,6 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { FileLinkRouterService } from './file-link-router.service';
+import { DisplayDockRegistry, DisplayDockState } from './display-dock/display-dock.state';
 
 /**
  * `git-ui` is mocked at the module boundary: the real one drags in the whole
@@ -83,7 +84,7 @@ describe('FileLinkRouterService', () => {
         },
         {
           provide: TabManagerService,
-          useValue: { findTabByIdAcrossWorkspaces },
+          useValue: { findTabByIdAcrossWorkspaces, activeTabId: () => 'tab-1' },
         },
       ],
     });
@@ -98,6 +99,34 @@ describe('FileLinkRouterService', () => {
     editorPanelVisible = jest.fn(() => false);
     findTabByIdAcrossWorkspaces = jest.fn(() => null);
     mockRpcCall.mockResolvedValue({ success: true, data: { success: true } });
+  });
+
+  it.each(['notes.md', 'photo.png', 'report.pdf'])(
+    'routes %s to the display dock when available', async (path) => {
+      const router = configure();
+      const dock = new DisplayDockState();
+      TestBed.inject(DisplayDockRegistry).register('tab-1', dock);
+      await router.open({ path });
+      expect(dock.tab('tab-1').files).toHaveLength(1);
+      expect(dock.tab('tab-1').selection?.kind).toBe('file');
+      expect(mockOpenFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps code files in git review with a display dock', async () => {
+    const router = configure();
+    TestBed.inject(DisplayDockRegistry).register('tab-1', new DisplayDockState());
+    await router.open({ path: 'source.ts' });
+    expect(mockOpenFile).toHaveBeenCalled();
+  });
+
+  it('uses git review for a relative display file without a root or document base', async () => {
+    const router = configure('');
+    const dock = new DisplayDockState();
+    TestBed.inject(DisplayDockRegistry).register('tab-1', dock);
+    await router.open({ path: 'notes.md' });
+    expect(dock.tab('tab-1').files).toHaveLength(0);
+    expect(mockOpenFile).toHaveBeenCalledWith('notes.md', undefined, expect.any(Object));
   });
 
   afterEach(() => {

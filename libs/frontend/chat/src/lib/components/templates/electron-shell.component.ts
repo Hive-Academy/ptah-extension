@@ -37,6 +37,7 @@ import {
   ArrowLeft,
   LayoutGrid,
   ClipboardList,
+  GitPullRequest,
   AppWindow,
   Wrench,
   Mic,
@@ -287,6 +288,18 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             <button
               role="tab"
               class="tab gap-1.5 no-drag whitespace-nowrap"
+              [class.tab-active]="appState.currentView() === 'review-runs'"
+              [attr.aria-selected]="appState.currentView() === 'review-runs'"
+              title="Reviews"
+              aria-label="Reviews"
+              (click)="openReviews()"
+            >
+              <lucide-angular [img]="GitPullRequestIcon" class="w-3.5 h-3.5" />
+              <span class="tab-label whitespace-nowrap">Reviews</span>
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'analytics'"
               [attr.aria-selected]="appState.currentView() === 'analytics'"
               title="Analytics"
@@ -379,7 +392,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
            welcome, pre-workspace configuration, or workspace layout. -->
       @if (!layout.workspaceResolved()) {
         <ptah-workspace-loading-state
-          class="flex-1 min-h-0" data-shell-surface
+          class="flex-1 min-h-0"
+          data-shell-surface
           [workspaceName]="layout.pendingWorkspaceName()"
         />
       } @else if (
@@ -397,7 +411,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           <ptah-electron-welcome class="flex-1" data-shell-surface />
         } @placeholder {
           <div
-            class="flex-1" data-shell-surface
+            class="flex-1"
+            data-shell-surface
             data-testid="electron-welcome-placeholder"
             aria-hidden="true"
           ></div>
@@ -406,7 +421,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
                loader, so a remount would fail again: Reload restarts the
                renderer instead. -->
           <div
-            class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center" data-shell-surface
+            class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center"
+            data-shell-surface
             data-testid="electron-welcome-error"
             role="alert"
           >
@@ -429,7 +445,9 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           </div>
         }
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="flex-1 min-h-0 overflow-hidden" data-shell-surface><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden" data-shell-surface>
+          <router-outlet />
+        </div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="electron-shell-body flex flex-1 min-h-0 overflow-hidden">
@@ -457,7 +475,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             data-test="configuration-surface-host"
             data-glass-surface="chrome"
             tabindex="-1"
-            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none" data-shell-surface
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none"
+            data-shell-surface
           >
             <ptah-app-shell class="h-full w-full" />
           </div>
@@ -638,6 +657,7 @@ export class ElectronShellComponent {
   readonly ArrowLeftIcon = ArrowLeft;
   readonly LayoutGridIcon = LayoutGrid;
   readonly ClipboardListIcon = ClipboardList;
+  readonly GitPullRequestIcon = GitPullRequest;
   readonly AppWindowIcon = AppWindow;
   readonly WrenchIcon = Wrench;
   readonly MicIcon = Mic;
@@ -662,6 +682,10 @@ export class ElectronShellComponent {
 
   openTasks(): void {
     this.appState.setCurrentView('tasks');
+  }
+
+  openReviews(): void {
+    this.appState.setCurrentView('review-runs');
   }
 
   openApps(): void {

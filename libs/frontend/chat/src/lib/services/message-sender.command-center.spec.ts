@@ -21,7 +21,6 @@ import {
 import { MessageValidationService } from './message-validation.service';
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
-import { SessionId } from '@ptah-extension/shared';
 
 describe('Command Center sender', () => {
   const marked = {
@@ -137,20 +136,11 @@ describe('Command Center sender', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('rejects direct and queued flush sends during a lock, then permits the owner', async () => {
+  it('rejects direct sends during a lock, then permits the owner', async () => {
     lock.engage('root', 'sdk', 'owner');
     expect((await sender.send('blocked', { tabId: 'root' })).success).toBe(
       false,
     );
-    expect(
-      (
-        await sender.continueExistingSessionForQueueFlush(
-          'blocked',
-          SessionId.from('00000000-0000-4000-8000-000000000001'),
-          { tabId: 'root' },
-        )
-      ).success,
-    ).toBe(false);
     expect(call).not.toHaveBeenCalled();
     await sender.send('allowed', { tabId: 'root', ownerToken: 'owner' });
     expect(call).toHaveBeenCalledWith(

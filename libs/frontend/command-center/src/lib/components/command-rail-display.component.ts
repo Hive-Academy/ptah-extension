@@ -16,52 +16,48 @@ import {
 } from '@ptah-extension/chat-ui/display-panel';
 import {
   ArtifactStore,
-  ChangeSetActionsService,
+  DisplayWindowSync,
   type DisplayDockSelection,
   type DisplayDockState,
   type DisplayDockTabState,
 } from '@ptah-extension/chat';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { ArtifactRecord, TurnChangeSet } from '@ptah-extension/shared';
+import type { ArtifactRecord } from '@ptah-extension/shared';
 
 const NO_ARTIFACTS: readonly ArtifactRecord[] = Object.freeze([]);
 const NO_SURFACES: DisplayDockTabState['surfaces'] = Object.freeze([]);
 const NO_VIEW_STATES: DisplayDockTabState['viewStates'] = new Map();
 /**
- * The display panel's strip keys (`summary`, `artifact:<id>`), duplicated as
- * in chat's display sheet so this component does not value-import the lazy
- * entry.
+ * The display panel's artifact strip key prefix, duplicated as in chat's
+ * display sheet so this component does not value-import the lazy entry.
  */
-const SUMMARY_KEY = 'summary';
 const ARTIFACT_KEY_PREFIX = 'artifact:';
-const NO_CHANGE_SET_TEXT = 'This turn has no recorded file changes to open.';
-const ACTION_FAILED_TEXT = 'The review action failed.';
 
 /** Maps a panel strip key back to the dock selection it denotes. */
 function selectionForKey(key: string): DisplayDockSelection {
-  if (key === SUMMARY_KEY) return { kind: 'summary' };
   if (key.startsWith(ARTIFACT_KEY_PREFIX)) {
     return { kind: 'artifact', artifactId: key.slice(ARTIFACT_KEY_PREFIX.length) };
   }
+  if (key.startsWith('file:')) return { kind: 'file', fileKey: key };
   return { kind: 'surface', surfaceKey: key };
 }
 
 /** Maps a dock selection to the panel strip key. */
 function keyForSelection(selection: DisplayDockSelection): string | null {
   if (selection === null) return null;
-  if (selection.kind === 'summary') return SUMMARY_KEY;
   if (selection.kind === 'artifact') {
     return `${ARTIFACT_KEY_PREFIX}${selection.artifactId}`;
   }
-  return selection.surfaceKey;
+  if (selection.kind === 'file') return selection.fileKey;
+  if (selection.kind === 'surface') return selection.surfaceKey;
+  return null;
 }
 
 /**
  * The rail's Display tab: what the chat display sheet shows for the Live
- * tab — the agent's surfaces, the turn summary and the published artifacts —
- * in the shared `ptah-display-panel`. Surfaces and summaries come from the
- * page's display dock, which the Live embed's chat view feeds (Electron);
- * without a dock only artifacts show.
+ * tab — the agent's surfaces and the published artifacts — in the shared
+ * `ptah-display-panel`. Surfaces come from the page's display dock, which the
+ * Live embed's chat view feeds (Electron); without a dock only artifacts show.
  */
 @Component({
   selector: 'ptah-command-rail-display',
@@ -70,13 +66,23 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex h-full min-h-0 flex-col' },
   template: `
+    @if (window && tabId()) {
+      <div class="flex shrink-0 items-center justify-end gap-1 px-2 py-1">
+        @if (window.error(); as error) { <p role="alert" class="mr-auto text-xs text-error">{{ error }}</p> }
+        <button type="button" class="btn btn-ghost btn-xs" (click)="toggleWindow()">
+          {{ window.detached() ? 'Dock' : 'Detach' }}
+        </button>
+      </div>
+    }
     @if (linkError()) {
       <p role="alert" class="px-1 pb-1 text-xs text-error">{{ linkError() }}</p>
     }
     @if (artifactStore.lastError(); as error) {
       <p role="status" class="px-1 pb-1 text-xs text-error">{{ error }}</p>
     }
-    @if (!hasContent()) {
+    @if (window?.detached()) {
+      <p class="p-2 text-xs text-base-content-muted" role="status">Display is in a separate window.</p>
+    } @else if (!hasContent()) {
       <p
         class="p-2 text-xs text-base-content-muted"
         data-testid="rail-display-empty"
@@ -90,20 +96,16 @@ function keyForSelection(selection: DisplayDockSelection): string | null {
             class="min-h-0 flex-1"
             [surfaces]="surfaces()"
             [artifacts]="artifacts()"
+            [files]="files()"
             [open]="true"
             [fullscreenArtifactId]="fullscreenArtifactId()"
-            [summary]="summary()?.model ?? null"
-            [summaryTurnKey]="summaryTurnKey() ?? ''"
             [selectedKey]="selectedKey()"
-            [scrollToSelectedOnMount]="selectedKey() !== null && selectedKey() !== summaryKey"
+            [scrollToSelectedOnMount]="selectedKey() !== null"
             [pinned]="tabState()?.pinned ?? false"
             [viewStates]="viewStates()"
-            [actionError]="actionError()"
             (selectedKeyChange)="select($event)"
             (viewStateChange)="saveViewState($event)"
             (fullscreenChange)="onFullscreenChange($event)"
-            (openFile)="openFile($event)"
-            (review)="review()"
             (openExternal)="openExternal($event)"
             (retryArtifacts)="reloadArtifacts()"
           />
@@ -131,9 +133,8 @@ export class CommandRailDisplayComponent {
   public readonly dock = input<DisplayDockState | null>(null);
 
   protected readonly artifactStore = inject(ArtifactStore);
+  protected readonly window = inject(DisplayWindowSync, { optional: true });
   private readonly rpc = inject(ClaudeRpcService);
-  private readonly actions = inject(ChangeSetActionsService);
-  protected readonly summaryKey = SUMMARY_KEY;
 
   /** The Live tab's dock state, when there is a dock and a tab. */
   protected readonly tabState = computed(() => {
@@ -142,19 +143,10 @@ export class CommandRailDisplayComponent {
     return dock && id ? dock.tab(id) : null;
   });
   protected readonly surfaces = computed(() => this.tabState()?.surfaces ?? NO_SURFACES);
+  protected readonly files = computed(() => this.tabState()?.files ?? []);
   protected readonly viewStates = computed(
     () => this.tabState()?.viewStates ?? NO_VIEW_STATES,
   );
-  protected readonly summary = computed(() => {
-    const dock = this.dock();
-    const id = this.tabId();
-    return dock && id ? dock.summaryFor(id) : null;
-  });
-  protected readonly summaryTurnKey = computed(() => {
-    const dock = this.dock();
-    const id = this.tabId();
-    return dock && id ? dock.summaryKeyFor(id) : null;
-  });
   protected readonly fullscreenArtifactId = computed(() => {
     const dock = this.dock();
     const id = this.tabId();
@@ -177,10 +169,7 @@ export class CommandRailDisplayComponent {
       : NO_ARTIFACTS;
   });
   protected readonly hasContent = computed(
-    () =>
-      this.surfaces().length > 0 ||
-      this.summary() !== null ||
-      this.artifacts().length > 0,
+    () => this.surfaces().length > 0 || this.artifacts().length > 0 || this.files().length > 0,
   );
 
   /** Without a dock the selection is local; a new tab starts with none. */
@@ -194,15 +183,6 @@ export class CommandRailDisplayComponent {
     return state ? keyForSelection(state.selection) : this.localSelectedKey();
   });
 
-  private readonly failure = signal<{ tabId: string; message: string } | null>(
-    null,
-  );
-  protected readonly actionError = computed(() => {
-    const failure = this.failure();
-    return failure !== null && failure.tabId === this.tabId()
-      ? failure.message
-      : null;
-  });
   protected readonly linkError = signal<string | null>(null);
   /** Rising key that remounts the deferred block for Retry. */
   protected readonly attempt = signal(1);
@@ -216,6 +196,12 @@ export class CommandRailDisplayComponent {
 
   protected retry(): void {
     this.attempt.update((value) => value + 1);
+  }
+
+  protected toggleWindow(): void {
+    const displayWindow = this.window;
+    if (!displayWindow) return;
+    void (displayWindow.detached() ? displayWindow.attach() : displayWindow.detach());
   }
 
   /** The panel's Retry on a missing artifact: list the tab's artifacts again. */
@@ -241,14 +227,6 @@ export class CommandRailDisplayComponent {
     if (!active && id) this.dock()?.clearFullscreenArtifact(id);
   }
 
-  protected openFile(path: string): void {
-    void this.runAction((changeSet) => this.actions.openFile(changeSet, path));
-  }
-
-  protected review(): void {
-    void this.runAction((changeSet) => this.actions.review(changeSet));
-  }
-
   /** Only the main-process allowlist opens a link, through the typed RPC. */
   protected openExternal(url: string): void {
     void this.rpc
@@ -258,30 +236,6 @@ export class CommandRailDisplayComponent {
           this.showLinkError();
       })
       .catch(() => this.showLinkError());
-  }
-
-  private async runAction(
-    action: (changeSet: TurnChangeSet) => Promise<void>,
-  ): Promise<void> {
-    const id = this.tabId();
-    if (!id) return;
-    const changeSet = this.summary()?.changeSet ?? null;
-    this.failure.set(null);
-    if (changeSet === null) {
-      this.failure.set({ tabId: id, message: NO_CHANGE_SET_TEXT });
-      return;
-    }
-    try {
-      await action(changeSet);
-    } catch (error) {
-      this.failure.set({
-        tabId: id,
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : ACTION_FAILED_TEXT,
-      });
-    }
   }
 
   private showLinkError(): void {

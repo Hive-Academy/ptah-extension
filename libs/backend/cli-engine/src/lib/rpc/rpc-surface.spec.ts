@@ -46,6 +46,7 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'file:read',
   'file:save-dialog',
   'file:saveContent',
+  'file:viewBinary',
   'file:viewContent',
   // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
   // is Electron-only, see expected-absent.ts.
@@ -111,6 +112,12 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] =
 
 describe('CLI RPC surface', () => {
   const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
+
+  it('serves the session handoff chain (TASK_2026_876)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['session:handoffChain']),
+    );
+  });
 
   it('serves artifact methods with the optional store absent', () => {
     expect(surface.registered).toEqual(

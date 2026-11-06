@@ -10,6 +10,8 @@ import { buildSecurityPrivacyPrompt } from '../lanes/prompts/security-privacy.pr
 import { buildHostDiConfigPrompt } from '../lanes/prompts/host-di-config.prompt';
 import type { ReviewQueueClaim } from '../review-queue.service';
 import type { ContextStageResult } from './context-stage.runner';
+import { sanitizeReviewFailureMessage } from '../review-failure-sanitizer';
+import { recordPromptTruncation } from '../lanes/prompts/prompt-fence';
 
 const lenses = [
   ['correctness-lifecycle', buildCorrectnessLifecyclePrompt], ['contracts-callers', buildContractsCallersPrompt],
@@ -17,8 +19,8 @@ const lenses = [
 ] as const;
 export type LensStageResult = { lens: typeof lenses[number][0]; result: ReviewLaneResult }[];
 const ResultSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('partial'), reason: z.string() }),
-  z.object({ status: z.literal('completed'), family: z.string(), output: LensOutputSchema }),
+  z.object({ status: z.literal('partial'), reason: z.string(), limitCheck: z.literal('unavailable').optional() }),
+  z.object({ status: z.literal('completed'), family: z.string(), output: LensOutputSchema, limitCheck: z.literal('unavailable').optional() }),
 ]);
 
 @injectable()
@@ -39,18 +41,22 @@ export class LensStageRunner {
         startedAt: new Date().toISOString(), endedAt: null, outcome: null, errorSummary: null, artifactHash: null, artifactPath: null };
       await this.repository.saveStage(row);
       try {
+        const builtPrompt = prompt(context.promptInput);
+        recordPromptTruncation(builtPrompt, context.coverage);
         const result = await this.lanes.run({ repo: claim.repo, prKey: `${claim.repo.owner}/${claim.repo.name}#${claim.prNumber}`,
           attemptId: claim.attemptId, attemptRoot: context.attemptRoot, headSha: claim.headSha,
-          kind: lens, prompt: prompt(context.promptInput), runDeadlineMs: deadline, signal });
+          kind: lens, prompt: builtPrompt, runDeadlineMs: deadline, signal });
         if (signal?.aborted) break;
         await this.repository.saveCheckpoint(claim.attemptId, name, 0, result);
         await this.repository.saveStage({ ...row, state: result.status === 'completed' ? 'completed' : 'interrupted',
           endedAt: new Date().toISOString(), outcome: result.status,
-          errorSummary: result.status === 'partial' ? result.reason : null });
+          errorSummary: result.status === 'partial' ? sanitizeReviewFailureMessage(
+            `${result.limitCheck === 'unavailable' ? 'Ran without a limit check; ' : ''}${result.reason}`) :
+            result.limitCheck === 'unavailable' ? 'Ran without a limit check' : null });
         results.push({ lens, result });
       } catch (error: unknown) {
         await this.repository.saveStage({ ...row, state: 'failed', endedAt: new Date().toISOString(),
-          errorSummary: error instanceof Error ? error.message : 'Lens failed' });
+          errorSummary: sanitizeReviewFailureMessage(error instanceof Error ? error.message : 'Lens failed') });
         throw error;
       }
     }

@@ -2960,6 +2960,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   describe('sendToAgent() — one row per capability shape', () => {
     /** Spawn an agent whose handle is exactly the one under test. */
     const spawnWithHandle = async (handle: SdkHandle): Promise<string> => {
+      Object.assign(handle, { getSessionId: () => 'thread-message-test' });
       (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(handle);
       const result = await manager.spawn({
         task: 'Task',
@@ -2984,7 +2985,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         steerSpy;
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'also handle errors');
+      const outcome = await manager.sendToAgent(agentId, 'also handle errors', 'steer');
 
       expect(outcome.mode).toBe('steer');
       expect(steerSpy).toHaveBeenCalledWith('also handle errors');
@@ -4175,6 +4176,41 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(infoOf(lane.agentId).parentSessionId).toBe(OLD_SDK);
       expect(signalsFor(lane.agentId)).toHaveLength(1);
       expect(signalsFor(lane.agentId)[0][0].parentSessionId).toBe(OLD_SDK);
+    });
+
+    it('emits agent:reparented once when the adoption is kept and leaves the lane running', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+      const other = await spawnWithParent(OLD_SDK);
+      const events: Array<{ agentIds: string[]; parentSessionId: string }> = [];
+      manager.events.on(
+        'agent:reparented',
+        (payload: { agentIds: string[]; parentSessionId: string }) => {
+          events.push(payload);
+        },
+      );
+
+      const adopted = manager.adoptLanes([OLD_TAB, OLD_SDK], NEW_TAB);
+      manager.settleLaneAdoption(adopted, 'kept');
+
+      expect(events).toEqual([
+        { agentIds: adopted, parentSessionId: NEW_TAB },
+      ]);
+      expect(infoOf(lane.agentId).status).toBe('running');
+      expect(infoOf(other.agentId).status).toBe('running');
+      expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_TAB);
+    });
+
+    it('does not emit agent:reparented when the adoption is reverted', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+      const events: unknown[] = [];
+      manager.events.on('agent:reparented', (payload: unknown) => {
+        events.push(payload);
+      });
+      manager.adoptLanes([OLD_TAB], NEW_TAB);
+      manager.settleLaneAdoption([lane.agentId], 'reverted');
+      expect(events).toEqual([]);
+      expect(infoOf(lane.agentId).status).toBe('running');
+      expect(infoOf(lane.agentId).parentSessionId).toBe(OLD_TAB);
     });
 
     it('signals normally once settled; a second settle is a no-op', async () => {

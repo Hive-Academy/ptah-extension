@@ -73,6 +73,7 @@ import {
   isUnsafeWorkspacePath,
   type IPlatformInfo,
   type IWorkspaceProvider,
+  type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import type { ChatSessionDriverLock } from './session-driver-lock-coordinator.interface';
 import type {
@@ -93,6 +94,7 @@ import type {
   CliSessionReference,
   McpHttpServerOverride,
   PermissionLevel,
+  QueuedFollowUpSnapshot,
 } from '@ptah-extension/shared';
 import {
   MESSAGE_TYPES,
@@ -125,6 +127,7 @@ import {
   type ChatSlashCommandRouterService,
 } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
+import type { ChatFollowUpQueueService } from '../follow-up/chat-follow-up-queue.service';
 import { validateSessionPolicyRoot } from './session-folder';
 import {
   selectDeliveredBlockOwners,
@@ -311,6 +314,17 @@ type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
 /** What `chat:start` and `chat:continue` need from host routing (TASK_2026_857). */
 type ChatHostRouting = Pick<HostRoutingCoordinator, 'admitUserTurn'>;
+type ChatFollowUpQueue = Pick<
+  ChatFollowUpQueueService,
+  | 'assertTabOwnsSession'
+  | 'bind'
+  | 'unbind'
+  | 'settleAccepted'
+  | 'stopGeneration'
+  | 'advanceStopGeneration'
+  | 'trackSubmission'
+  | 'withdrawAllForStop'
+>;
 
 @injectable()
 export class ChatSessionService {
@@ -423,6 +437,15 @@ export class ChatSessionService {
       SessionIdResolvedCallbackRegistry | undefined = undefined,
     @inject(CHAT_TOKENS.SESSION_DRIVER_LOCK_COORDINATOR)
     private readonly driverLock: ChatSessionDriverLock,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { isOptional: true })
+    private readonly fileSystemProvider: IFileSystemProvider | undefined = undefined,
+    /**
+     * Backend-owned follow-up queue (TASK_2026_884). Registered by
+     * `registerChatServices` on every host; optional so a host or spec
+     * without it keeps the pre-queue `chat:continue` / `chat:abort`.
+     */
+    @inject(CHAT_TOKENS.FOLLOW_UP_QUEUE, { isOptional: true })
+    private readonly followUpQueue: ChatFollowUpQueue | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -1682,6 +1705,8 @@ export class ChatSessionService {
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
     const admissionDeadline = namedAdmissionDeadline();
+    const stopGeneration = params.queueIntent === 'next-turn'
+      ? this.followUpQueue?.stopGeneration(params.sessionId) : undefined;
     let driveAttempt: string | undefined;
     try {
       const { prompt, sessionId, tabId, name } = params;
@@ -1693,6 +1718,27 @@ export class ChatSessionService {
       const ptahCliResult = await this.ptahCli.handleContinue(params);
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
+      }
+      // Backend-owned follow-up (TASK_2026_884): sent while a turn may run, so
+      // it is never refused as busy and never interrupts that turn.
+      const followUp =
+        params.queueIntent === 'next-turn' &&
+        params.clientMessageId !== undefined &&
+        this.followUpQueue
+          ? { queue: this.followUpQueue, clientMessageId: params.clientMessageId }
+          : undefined;
+      if (followUp) {
+        // A slash command may end or replace the session, so it is never held
+        // behind a turn; the renderer keeps it as its own ordered item.
+        if (SlashCommandInterceptor.isSlashCommand(prompt)) {
+          return {
+            success: false,
+            sessionId,
+            error: 'A slash command cannot be queued. Send it after this turn.',
+            errorCode: 'INVALID_PARAMS',
+          };
+        }
+        followUp.queue.assertTabOwnsSession(sessionId, tabId);
       }
       driveAttempt = await this.driverLock.beginDrive(sessionId, tabId);
       await this.gateAccount({
@@ -1828,17 +1874,24 @@ export class ChatSessionService {
         // The resumed native turn may have finished while slash routing and
         // prompt context were prepared. A running resume has no clientMessageId,
         // so omit enqueued to retire the pending prompt when the UI re-arms.
+        // A queued follow-up that resumed an idle thread started its turn.
+        const resumedQueueState = followUp
+          ? { queueState: 'admitted' as const }
+          : {};
         return this.streamBroadcaster.isStreaming(sessionId as string)
-          ? { success: true, sessionId }
-          : { success: true, sessionId, settled: true };
+          ? { success: true, sessionId, ...resumedQueueState }
+          : { success: true, sessionId, settled: true, ...resumedQueueState };
       }
       const enhancedPrompt = injection.prompt;
       // Injected agents are retired only once the prompt was accepted. Any
       // early return or throw below hands them back, still resumable.
       let sent = false;
       let nativeFollowUp = false;
+      let queueState: 'queued' | 'admitted' | undefined;
       try {
-        if (!justResumed && hasStopIntent(prompt)) {
+        // A queued follow-up never interrupts the running turn, even when its
+        // text reads like a stop request: Stop is the explicit control.
+        if (!justResumed && !followUp && hasStopIntent(prompt)) {
           const autopilotEnabled = this.configManager.getWithDefault<boolean>(
             'autopilot.enabled',
             false,
@@ -1872,14 +1925,31 @@ export class ChatSessionService {
           !this.streamBroadcaster.isStreaming(tabId) &&
           this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) ===
             true;
-        await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
+        // Bound before the send: the adapter may report `queued` from inside
+        // `sendMessageToSession`, and that push must already find its tab.
+        if (followUp && stopGeneration !== followUp.queue.stopGeneration(sessionId)) {
+          return { success: false, sessionId, cancelled: true, error: 'Follow-up withdrawn by Stop.' };
+        }
+        followUp?.queue.bind(sessionId, tabId, followUp.clientMessageId);
+        const submission = this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
           files,
           images,
           clientMessageId: params.clientMessageId,
+          ...(followUp ? { queueIntent: 'next-turn' as const } : {}),
         });
+        if (followUp) followUp.queue.trackSubmission(sessionId, submission);
+        await submission;
         sent = true;
+        // Read at once: a turn ending during the awaits below could claim it.
+        queueState = followUp?.queue.settleAccepted(
+          sessionId,
+          followUp.clientMessageId,
+        );
       } finally {
-        if (!sent) injection.release();
+        if (!sent) {
+          injection.release();
+          followUp?.queue.unbind(sessionId, followUp.clientMessageId);
+        }
       }
       // A slash command the router passed through is still not a turn to route.
       if (!isSlashCommand) {
@@ -1888,6 +1958,17 @@ export class ChatSessionService {
       // Only now has the model actually been told about them.
       await injection.commit();
 
+      // Accepted and held: the running turn keeps streaming, nothing re-arms.
+      if (followUp && queueState === 'queued') {
+        return {
+          success: true,
+          sessionId,
+          queueState,
+          queuedMessageId: followUp.clientMessageId,
+        };
+      }
+      const admittedQueueState = queueState ? { queueState } : {};
+
       // The native send now resolves at turn/start admission. A fast terminal
       // can still arrive before this reply, so do not re-arm an ended stream.
       if (
@@ -1895,11 +1976,13 @@ export class ChatSessionService {
         !this.streamBroadcaster.isStreaming(sessionId as string) &&
         !this.streamBroadcaster.isStreaming(tabId)
       ) {
-        return { success: true, sessionId, settled: true };
+        return { success: true, sessionId, settled: true, ...admittedQueueState };
       }
-      return { success: true, sessionId, enqueued: true };
+      return { success: true, sessionId, enqueued: true, ...admittedQueueState };
     } catch (error) {
       await this.driverLock.abandonDrive(params.sessionId, driveAttempt);
+      if (error instanceof Error && error.message.includes('FOLLOW_UP_ID_CONFLICT'))
+        return { success: false, error: 'clientMessageId conflicts with an earlier follow-up.', errorCode: 'FOLLOW_UP_ID_CONFLICT' };
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
@@ -1950,6 +2033,36 @@ export class ChatSessionService {
         });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
+      const savedFolder = metadata?.workingDirectory;
+      if (savedFolder && this.fileSystemProvider) {
+        let present = false;
+        let unreadable = false;
+        try {
+          await this.fileSystemProvider.stat(savedFolder);
+          present = true;
+        } catch (error: unknown) {
+          // degradation-audit: reported - logged here; an unreadable folder is
+          // refused like a missing one, but marked retryable (it may recover).
+          const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+          unreadable = code !== 'ENOENT' && code !== 'ENOTDIR' &&
+            code !== 'FileNotFound' && code !== 'NotADirectory';
+          this.logger.warn('[ChatSessionService] could not check the saved working directory', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (!present) {
+          return {
+            success: false,
+            errorCode: 'SESSION_FOLDER_UNAVAILABLE',
+            // A missing folder is terminal; a failed check may recover.
+            ...(unreadable ? {} : { retryable: false as const }),
+            error: unreadable
+              ? 'The saved working directory could not be read'
+              : 'The saved working directory no longer exists',
+          };
+        }
+      }
       const result = await this.historyRead.readForResume(sessionId, {
         includeBlockOwners: params.historyBlockOwners === true,
       });
@@ -2183,9 +2296,13 @@ export class ChatSessionService {
 
   /** chat:abort - Interrupt session. */
   async abortSession(params: ChatAbortParams): Promise<ChatAbortResult> {
+    // Outside the try: a withdrawn item is out of the queue even when the
+    // interrupt below throws, so the failure reply must still return its text.
+    let withdrawn: (QueuedFollowUpSnapshot & { readonly tabId: string })[] = [];
     try {
       const { sessionId } = params;
       this.logger.debug('RPC: chat:abort called', { sessionId });
+      this.followUpQueue?.advanceStopGeneration(sessionId);
       const customAbortResult = await this.ptahCli.handleAbort(params);
       if (customAbortResult.error !== '__NOT_PTAH_CLI__') {
         return customAbortResult;
@@ -2195,6 +2312,11 @@ export class ChatSessionService {
       // `SessionControl.endSession`, so false means the interrupt below is a
       // no-op ('already-ended').
       const hadLiveRecord = this.sdkAdapter.isSessionActive(sessionId);
+      // Held follow-ups leave the queue BEFORE the interrupt (TASK_2026_884),
+      // so the ending turn cannot hand one to a next turn; their text goes back
+      // to the composer, FIFO.
+      withdrawn =
+        (await this.followUpQueue?.withdrawAllForStop(sessionId)) ?? [];
       await this.sdkAdapter.interruptSession(sessionId);
       // A user interrupt skips the Stop hook, so end the turn here (D9).
       this.turnAttribution?.onTurnAborted(sessionId);
@@ -2233,6 +2355,7 @@ export class ChatSessionService {
       return {
         success: true,
         ...(resumableSubagents.length > 0 && { resumableSubagents }),
+        ...(withdrawn.length > 0 && { withdrawn }),
       };
     } catch (error) {
       this.logger.error(
@@ -2243,6 +2366,7 @@ export class ChatSessionService {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(withdrawn.length > 0 && { withdrawn }),
       };
     }
   }

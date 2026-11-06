@@ -19,6 +19,7 @@
  *   the facade before routing starts.
  */
 import { inject, injectable } from 'tsyringe';
+import { randomUUID } from 'node:crypto';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type {
   AgentMessageOutcome,
@@ -74,8 +75,21 @@ export interface MessageRoutableAgent {
    */
   currentTurnDone?: Promise<number>;
   /** Messages waiting for the current turn to end. Capped at {@link MAX_PENDING_MESSAGES}. */
-  pendingMessages: string[];
+  pendingMessages: PendingAgentMessage[];
 }
+
+export interface PendingAgentMessage {
+  readonly messageId: string;
+  readonly cliSessionId: string;
+  readonly text: string;
+}
+
+export type AgentMessageStatus =
+  | { status: 'pending' | 'delivered' }
+  | { status: 'failed'; reason: string }
+  | { status: 'unknown' };
+
+const MAX_TERMINAL_MESSAGES = 64;
 
 /**
  * The one manager operation the router invokes. Keeps the dependency an
@@ -91,6 +105,9 @@ const TURN_SETTLE_TICKS = 20;
 
 @injectable()
 export class AgentMessageRouter {
+  private readonly terminal = new Map<string, AgentMessageStatus>();
+  private readonly flushing = new Set<string>();
+  private readonly inFlight = new Map<string, string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
@@ -108,8 +125,9 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     message: string,
     dispatcher: ContinuationDispatcher,
+    delivery: 'queue' | 'steer' = 'queue',
   ): Promise<AgentMessageOutcome> {
-    const outcome = await this.select(agentId, tracked, message, dispatcher);
+    const outcome = await this.select(agentId, tracked, message, dispatcher, delivery);
     this.logger.info('[AgentMessageRouter] Message routed', {
       agentId,
       cli: tracked.info.cli,
@@ -124,13 +142,20 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     message: string,
     dispatcher: ContinuationDispatcher,
+    delivery: 'queue' | 'steer',
   ): Promise<AgentMessageOutcome> {
     const handle = tracked.sdkHandle;
     const caps = this.resolveCapabilities(tracked);
     const turnInFlight = tracked.info.status === 'running';
 
-    if (turnInFlight && caps.steer && handle?.steer) {
-      handle.steer(message);
+    if (delivery === 'steer') {
+      if (tracked.info.cli !== 'codex' || !turnInFlight || !caps.steer || !handle?.steer)
+        return { mode: 'unsupported', detail: 'Explicit steer is unavailable for this active Codex turn.' };
+      try {
+        await handle.steer(message);
+      } catch {
+        return { mode: 'unsupported', detail: 'Codex rejected the steer request.' };
+      }
       return {
         mode: 'steer',
         detail:
@@ -225,14 +250,15 @@ export class AgentMessageRouter {
       };
     }
 
-    tracked.pendingMessages.push(message);
+    const cliSessionId = tracked.info.cliSessionId;
+    if (!cliSessionId) return { mode: 'unsupported', detail: 'The agent session is unavailable; nothing was queued.' };
+    const messageId = randomUUID();
+    tracked.pendingMessages.push({ messageId, cliSessionId, text: message });
     return {
       mode: 'queue-next-turn',
+      messageId,
       detail:
-        `The agent is mid-turn and ${tracked.info.cli} cannot be interrupted ` +
-        `or steered, so the message is queued at position ` +
-        `${tracked.pendingMessages.length} and will be delivered as a new ` +
-        `turn when the current one ends.`,
+        `Message ${messageId} is pending at position ${tracked.pendingMessages.length}. Check its status for delivery.`,
     };
   }
 
@@ -273,11 +299,11 @@ export class AgentMessageRouter {
     tracked: MessageRoutableAgent,
     dispatcher: ContinuationDispatcher,
   ): Promise<void> {
-    if (tracked.pendingMessages.length === 0) return;
+    if (tracked.pendingMessages.length === 0 || this.flushing.has(agentId)) return;
 
     if (tracked.subprocessReleased) {
       const dropped = tracked.pendingMessages.length;
-      tracked.pendingMessages.length = 0;
+      this.failPending(agentId, tracked, 'subprocess_released');
       this.logger.error(
         '[AgentMessageRouter] Queued messages dropped — subprocess released',
         {
@@ -293,14 +319,31 @@ export class AgentMessageRouter {
     const next = tracked.pendingMessages.shift();
     if (next === undefined) return;
 
+    if (!tracked.info.cliSessionId || tracked.info.cliSessionId !== next.cliSessionId) {
+      this.setTerminal(agentId, next.messageId, { status: 'failed', reason: 'session_changed' });
+      for (let index = tracked.pendingMessages.length - 1; index >= 0; index -= 1) {
+        const entry = tracked.pendingMessages[index];
+        if (entry.cliSessionId !== next.cliSessionId) continue;
+        this.setTerminal(agentId, entry.messageId, { status: 'failed', reason: 'session_changed' });
+        tracked.pendingMessages.splice(index, 1);
+      }
+      return;
+    }
+
+    this.flushing.add(agentId);
+    this.inFlight.set(agentId, next.messageId);
     try {
-      await dispatcher.continueConversation(agentId, next);
+      await dispatcher.continueConversation(agentId, next.text);
+      if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
+        this.setTerminal(agentId, next.messageId, { status: 'delivered' });
       this.logger.info('[AgentMessageRouter] Delivered queued message', {
         agentId,
         cli: tracked.info.cli,
         remaining: tracked.pendingMessages.length,
       });
     } catch (error: unknown) {
+      this.setTerminal(agentId, next.messageId, { status: 'failed', reason: 'continuation_rejected' });
+      this.failPending(agentId, tracked, 'continuation_rejected');
       // Losing it visibly beats re-queuing it forever against a handle that has
       // just refused: the next settle would retry the same failing delivery.
       this.logger.error(
@@ -308,23 +351,46 @@ export class AgentMessageRouter {
         {
           agentId,
           cli: tracked.info.cli,
-          error: describeError(error),
+          error: error instanceof Error ? error.name : 'unknown',
           remaining: tracked.pendingMessages.length,
         },
       );
+    } finally {
+      this.inFlight.delete(agentId);
+      this.flushing.delete(agentId);
     }
   }
 
   /** Forget anything still queued for a record that can no longer receive it. */
   discardPending(agentId: string, tracked: MessageRoutableAgent): number {
+    const activeId = this.inFlight.get(agentId);
+    if (activeId) this.setTerminal(agentId, activeId, { status: 'failed', reason: 'agent_stopped' });
     if (tracked.pendingMessages.length === 0) return 0;
     const dropped = tracked.pendingMessages.length;
-    tracked.pendingMessages.length = 0;
+    this.failPending(agentId, tracked, 'agent_stopped');
     this.logger.warn(
       '[AgentMessageRouter] Discarded queued messages for a torn-down agent',
       { agentId, cli: tracked.info.cli, dropped },
     );
     return dropped;
+  }
+
+  messageStatus(agentId: string, tracked: MessageRoutableAgent | undefined, messageId: string): AgentMessageStatus {
+    if (this.terminal.has(`${agentId}:${messageId}`)) return this.terminal.get(`${agentId}:${messageId}`)!;
+    if (this.inFlight.get(agentId) === messageId) return { status: 'pending' };
+    if (tracked?.pendingMessages.some((entry) => entry.messageId === messageId)) return { status: 'pending' };
+    return { status: 'unknown' };
+  }
+
+  private failPending(agentId: string, tracked: MessageRoutableAgent, reason: string): void {
+    for (const entry of tracked.pendingMessages)
+      this.setTerminal(agentId, entry.messageId, { status: 'failed', reason });
+    tracked.pendingMessages.length = 0;
+  }
+
+  private setTerminal(agentId: string, messageId: string, status: AgentMessageStatus): void {
+    this.terminal.set(`${agentId}:${messageId}`, status);
+    if (this.terminal.size > MAX_TERMINAL_MESSAGES) this.terminal.delete(this.terminal.keys().next().value!);
   }
 
   /**

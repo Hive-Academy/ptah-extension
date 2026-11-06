@@ -495,7 +495,7 @@ export class AgentProcessManager {
     // workspace root, which is where every CLI-discoverable directory lives.
     await this.spawnEnvironment.runHarnessPreflight(workingDirectory);
     const mcpPort =
-      adapter.supportsMcp !== false
+      request.attachMcp !== false && adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
     const gated = request.resumeSessionId
@@ -525,7 +525,7 @@ export class AgentProcessManager {
       roleChannel: adapter.roleChannel,
       binaryPath: detection.path,
       mcpPort,
-      expectsMcp: adapter.supportsMcp !== false,
+      expectsMcp: request.attachMcp !== false && adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
   }
@@ -2129,6 +2129,7 @@ export class AgentProcessManager {
     agentIds: readonly string[],
     outcome: 'kept' | 'reverted',
   ): void {
+    const kept = new Map<string, string[]>();
     for (const agentId of agentIds) {
       const pending = this.pendingAdoptions.get(agentId);
       if (!pending) continue;
@@ -2137,8 +2138,22 @@ export class AgentProcessManager {
       if (!tracked) continue;
       if (outcome === 'reverted') {
         tracked.info.parentSessionId = pending.previousParent;
+      } else {
+        const parentSessionId = tracked.info.parentSessionId?.trim();
+        if (parentSessionId) {
+          const ids = kept.get(parentSessionId) ?? [];
+          ids.push(agentId);
+          kept.set(parentSessionId, ids);
+        }
       }
       if (pending.signalHeld) this.signalLaneCompletion(tracked);
+    }
+    if (outcome !== 'kept') return;
+    for (const [parentSessionId, keptIds] of kept) {
+      this.events.emit('agent:reparented', {
+        agentIds: keptIds,
+        parentSessionId,
+      });
     }
   }
 
@@ -2206,6 +2221,7 @@ export class AgentProcessManager {
   async sendToAgent(
     agentId: string,
     message: string,
+    delivery: 'queue' | 'steer' = 'queue',
   ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
@@ -2238,7 +2254,11 @@ export class AgentProcessManager {
       );
     }
 
-    return this.messageRouter.route(agentId, tracked, message, this);
+    return this.messageRouter.route(agentId, tracked, message, this, delivery);
+  }
+
+  getAgentMessageStatus(agentId: string, messageId: string) {
+    return this.messageRouter.messageStatus(agentId, this.agents.get(agentId), messageId);
   }
 
   /**

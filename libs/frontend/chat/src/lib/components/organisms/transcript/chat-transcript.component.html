@@ -83,7 +83,6 @@
             [logOpen]="logOpenFor(turn)"
             [turnLive]="turnLive"
             [now]="turnLive ? liveNow() : 0"
-            [needsYouCount]="turnLive ? needsYouCount() : 0"
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"
             (logToggled)="onLogToggled($event)"
@@ -132,12 +131,11 @@
              lazy. -->
         @if (display.summaries.chips().get(slot.id); as summary) {
           @defer (when summary) {
-            <div class="pl-11 pr-2 pb-3" data-testid="chat-turn-summary">
-              <ptah-turn-summary-chip
-                [summary]="summary.model"
-                [openable]="display.summaries.openable"
-                (open)="display.summaries.open(summary.turnKey)"
-              />
+            <div
+              class="mx-auto w-full max-w-3xl px-2 pb-3"
+              data-testid="chat-turn-summary"
+            >
+              <ptah-turn-summary-chip [summary]="summary.model" (openFile)="onTurnSummaryOpenFile(summary.model, $event)" (review)="onTurnSummaryReview(summary.model)" />
             </div>
           }
         }

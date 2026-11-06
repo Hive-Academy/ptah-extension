@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { ArtifactStore, DisplayDockState } from '@ptah-extension/chat';
+import { ArtifactStore, DisplayDockState, DisplayWindowSync } from '@ptah-extension/chat';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   sessionContextCue,
@@ -65,6 +65,8 @@ const CAPTION_RESERVE_PX = 72;
   standalone: true,
   host: {
     class: 'flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto',
+    '(focusin)': 'activateDisplaySource()',
+    '(pointerdown)': 'activateDisplaySource()',
   },
   imports: [
     CommandSceneComponent,
@@ -93,6 +95,11 @@ const CAPTION_RESERVE_PX = 72;
   styleUrl: './command-center-page.component.css',
 })
 export class CommandCenterPageComponent {
+  private readonly displayFocusVersion = signal(0);
+
+  activateDisplaySource(): void {
+    this.displayFocusVersion.update(value => value + 1);
+  }
   public readonly page = inject(CommandCenterPageController);
   private tabById(id: string | null) {
     this.page.tabs.backgroundTabsRevision();
@@ -192,6 +199,9 @@ export class CommandCenterPageComponent {
    */
   protected readonly displayDock: DisplayDockState | null = this.isElectron
     ? new DisplayDockState()
+    : null;
+  private readonly displayWindow = this.isElectron
+    ? inject(DisplayWindowSync)
     : null;
 
   /**
@@ -405,7 +415,15 @@ export class CommandCenterPageComponent {
       this.measureOverlay();
       this.scrollToNewPendingCard();
     });
-    if (this.displayDock) this.wireDisplayDock(this.displayDock);
+    if (this.displayDock) {
+      this.wireDisplayDock(this.displayDock);
+      const unbind = this.displayWindow?.bindSource({
+        tabId: computed(() => this.liveTarget().tabId),
+        dock: this.displayDock,
+        focusVersion: this.displayFocusVersion,
+      });
+      if (unbind) this.destroyRef.onDestroy(unbind);
+    }
   }
 
   /**

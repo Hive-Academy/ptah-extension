@@ -12,6 +12,114 @@ function setup() {
 }
 
 describe('CodexChatPeerQueue', () => {
+  it('settles an immediately started follow-up only after admission', async () => {
+    const { queue, session } = setup();
+    let admit!: () => void;
+    const run = jest.fn(() => new Promise<void>((resolve) => { admit = resolve; }));
+    const states: string[] = [];
+    const receipt = queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'now', content: 'text' }, run, (state) => states.push(state));
+    expect(receipt.accepted).toBe(true);
+    expect(queue.listFollowUps(session)).toEqual([]);
+    await Promise.resolve();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(states).toEqual([]);
+    admit();
+    await expect(receipt.admitted).resolves.toBeUndefined();
+    expect(states).toEqual(['delivered']);
+  });
+
+  it('rejects an immediately started follow-up when admission fails', async () => {
+    const { queue, session } = setup();
+    const receipt = queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'now', content: 'text' },
+      async () => { throw new CodexChatAdapterError('unavailable', 'followUp'); },
+      () => undefined);
+    await expect(receipt.admitted).rejects.toMatchObject({ code: 'unavailable' });
+  });
+  it('rejects an ID reused with changed content or after withdrawal', () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const add = (content: string) => queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: 'same', content }, async () => undefined, () => undefined);
+    expect(add('first').accepted).toBe(true);
+    expect(add('first').accepted).toBe(false);
+    expect(() => add('changed')).toThrow('FOLLOW_UP_ID_CONFLICT');
+    expect(queue.withdrawFollowUp(session, 'same')).toBe(true);
+    expect(() => add('first')).toThrow('FOLLOW_UP_ID_CONFLICT');
+  });
+
+  it('consumes an uncertain steer and never starts it as a later turn', async () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const run = jest.fn(async () => undefined);
+    const states: string[] = [];
+    queue.enqueueFollowUp(session, 'thread', { clientMessageId: 'one', content: 'text' },
+      run, (state) => states.push(state));
+    expect(await queue.steerFollowUp(session, 'one', async () => ({ ok: false, code: 'DELIVERY_UNCERTAIN' })))
+      .toEqual({ ok: false, code: 'DELIVERY_UNCERTAIN' });
+    session.busy = false;
+    queue.onIdle(session);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(run).not.toHaveBeenCalled();
+    expect(states).toEqual(['delivered']);
+  });
+  it('holds busy follow-ups in FIFO order and reports delivery on admission', async () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const states: string[] = [];
+    const started: string[] = [];
+    const add = (id: string) => queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: id, content: id },
+      async () => { started.push(id); session.busy = true; },
+      (state) => states.push(`${id}:${state}`));
+    expect(add('one').accepted).toBe(true);
+    expect(add('two').accepted).toBe(true);
+    expect(add('one').accepted).toBe(false);
+    expect(queue.listFollowUps(session).map((item) => item.clientMessageId)).toEqual(['one', 'two']);
+    expect(started).toEqual([]);
+    session.busy = false;
+    queue.onIdle(session);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(started).toEqual(['one']);
+    expect(states).toEqual(['one:delivered']);
+    session.busy = false;
+    queue.onIdle(session);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(started).toEqual(['one', 'two']);
+    expect(states).toEqual(['one:delivered', 'two:delivered']);
+  });
+
+  it('withdraws only held items and fails them on close', async () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const states: string[] = [];
+    const add = (id: string) => queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: id, content: id }, async () => { session.busy = true; },
+      (state) => states.push(`${id}:${state}`));
+    add('one'); add('two'); add('three');
+    expect(queue.withdrawFollowUp(session, 'two')).toBe(true);
+    session.busy = false; queue.onIdle(session);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(queue.withdrawFollowUp(session, 'one')).toBe(false);
+    queue.rejectPending(session);
+    expect(states).toEqual(['two:withdrawn', 'one:delivered', 'three:failed']);
+  });
+
+  it('keeps a steered item in position when the turn changes', async () => {
+    const { queue, session } = setup();
+    session.busy = true;
+    const states: string[] = [];
+    for (const id of ['one', 'two']) queue.enqueueFollowUp(session, 'thread',
+      { clientMessageId: id, content: id }, async () => undefined,
+      (state) => states.push(`${id}:${state}`));
+    expect(await queue.steerFollowUp(session, 'one', async () => ({ ok: false, code: 'TURN_CHANGED' })))
+      .toEqual({ ok: false, code: 'TURN_CHANGED' });
+    expect(queue.listFollowUps(session).map((item) => item.clientMessageId)).toEqual(['one', 'two']);
+    expect(await queue.steerFollowUp(session, 'one', async () => ({ ok: true }))).toEqual({ ok: true });
+    expect(queue.listFollowUps(session).map((item) => item.clientMessageId)).toEqual(['two']);
+    expect(states).toEqual(['one:steered']);
+  });
   it('refuses a reserved require-idle peer when the session ends before admission', async () => {
     const { queue, session } = setup();
     const run = jest.fn(async () => undefined);

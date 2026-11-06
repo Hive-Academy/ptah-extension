@@ -14,7 +14,7 @@ export * from './lib/components';
 export * from './lib/settings';
 export * from './lib/services';
 export { CodexSignInBlockComponent } from './lib/settings/providers/connection-drawer/codex-sign-in-block.component';
-export { isTabBusyGenerating } from './lib/services/chat-store/message-dispatch.service';
+export { isTabBusyGenerating } from './lib/services/chat-store/tab-busy';
 export * from './lib/directives';
 export { ComposerAttachmentsService, type ComposerImage } from './lib/services/composer-attachments.service';
 export { AttachmentTrayComponent } from './lib/components/molecules/attachment-tray/attachment-tray.component';
@@ -57,7 +57,6 @@ export { SESSION_DISPLAY_DOCK } from './lib/tokens/session-context.token';
 export { DisplayDockState } from './lib/services/display-dock/display-dock.state';
 export type {
   DisplayDockSelection,
-  DisplayDockSummary,
   DisplayDockTabState,
 } from './lib/services/display-dock/display-dock.state';
 // Detached Display window (TASK_2026_853_3401): the main renderer's sync, and

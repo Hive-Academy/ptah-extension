@@ -9,6 +9,7 @@ import type {
 import type { FlatStreamEventUnion } from '../execution';
 import type { PermissionPromptCancelledPayload } from '../session-runtime.types';
 import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
+import type { ChatQueuedMessageStateEvent } from '../rpc/rpc-chat.types';
 import type { CodexLoginState, KimiCodeLoginState } from '../rpc/rpc-auth.types';
 
 import type {
@@ -114,7 +115,11 @@ import type {
 import type { SessionMcpStatusPayload } from './session-mcp-status';
 import type { PlanLimitsSnapshot } from '../plan-limit.types';
 import type { AgentSessionOpenedPayload } from './agent-session';
-import type { SessionHandoffOpenedPayload } from './session-handoff';
+import type { AgentMonitorReparentedPayload } from './agent-monitor';
+import type {
+  SessionHandoffLinkedPayload,
+  SessionHandoffOpenedPayload,
+} from './session-handoff';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -350,6 +355,7 @@ export interface MessagePayloadMap {
   'attention:changed': AttentionChangedPayload;
   'attention:openTarget': AttentionOpenTargetPayload;
   'chat:streamSnapshot': ChatStreamSnapshotPayload;
+  'chat:queued-message-state': ChatQueuedMessageStateEvent;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;
   'chat:sessionStart': ChatSessionStartPayload;
@@ -454,6 +460,8 @@ export interface MessagePayloadMap {
   'session:organizationChanged': SessionOrganizationChangedPayload;
   'agentSession:opened': AgentSessionOpenedPayload;
   'sessionHandoff:opened': SessionHandoffOpenedPayload;
+  'sessionHandoff:linked': SessionHandoffLinkedPayload;
+  'agent-monitor:reparented': AgentMonitorReparentedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'indexing:failed': IndexingFailedEvent;

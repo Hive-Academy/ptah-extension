@@ -43,9 +43,12 @@ describe('migration 0046_memory_merge_subject_index', () => {
     // 64 since TASK_2026_857 appended 0064_lane_outcome_task_kind_source.
     // 65 since TASK_2026_873 appended 0065_ptah_review.
     // 66 since TASK_2026_873 P2 appended 0066_review_publication.
-    // 67 since TASK_2026_878 appended 0067_indexing_last_run.
+    // 67 since TASK_2026_873 appended 0067_review_failure_records.
+    // 68 since TASK_2026_873 appended the failed-head backoff migration.
+    // 69 since TASK_2026_873 appended 0069_review_attempt_dry_run.
+    // 70 since TASK_2026_878 appended 0070_indexing_last_run.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      67,
+      70,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

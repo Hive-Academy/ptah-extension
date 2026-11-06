@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { codexSandboxModeSchema, DEFAULT_CODEX_SANDBOX_MODE, type SessionId } from '@ptah-extension/shared';
 import {
   AUTH_PROVIDERS_TOKENS,
   CodexAccountUsageService,
@@ -459,6 +461,7 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
             return buildCodexExecutionProfile({
               session: {
                 contextId: randomUUID(),
+                codexSandboxMode: codexSandboxModeSchema.parse(container.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER).getConfiguration('ptah', 'agentOrchestration.codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE)),
                 consumer: 'usage',
                 normalizedHome: canonical,
                 providerId: prepared.profile.providerId,
@@ -638,6 +641,7 @@ export function createElectronCodexHistoryPort(
       const profile = buildCodexExecutionProfile({
         session: {
           contextId: session.codexThread?.contextId ?? randomUUID(),
+          codexSandboxMode: live?.codexSandboxMode ?? DEFAULT_CODEX_SANDBOX_MODE,
           consumer: 'chat',
           normalizedHome: savedHome,
           providerId: execution.providerId,
@@ -902,6 +906,9 @@ function registerElectronCodexBinding(
   });
   container.register<CodexChatHostPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
     useValue: adapterPorts,
+  });
+  container.register<(sessionId: string) => string | undefined>(CHAT_TOKENS.CODEX_SESSION_OWNER, {
+    useValue: (sessionId) => context.state.tabs.get(sessionId as SessionId),
   });
   container.register(SDK_TOKENS.RUNTIME_ADMISSION_PORT, {
     useValue: admission,

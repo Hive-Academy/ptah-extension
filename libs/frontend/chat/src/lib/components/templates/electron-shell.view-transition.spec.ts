@@ -189,6 +189,24 @@ describe('ElectronShellComponent view-transition surface', () => {
     expectOnlySurface('[data-test="configuration-surface-host"]');
   });
 
+  it('opens Reviews from the workspace top bar and marks it active', () => {
+    layoutStub.hasWorkspaceFolders.set(true);
+    fixture.detectChanges();
+    const button = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLButtonElement>('[role="tab"][aria-label="Reviews"]');
+    expect(button?.title).toBe('Reviews');
+    expect(button?.getAttribute('aria-selected')).toBe('false');
+
+    button?.click();
+    expect(appStateStub.setCurrentView).toHaveBeenCalledWith('review-runs');
+
+    appStateStub.currentView.set('review-runs');
+    fixture.detectChanges();
+    expect(button?.getAttribute('aria-selected')).toBe('true');
+    expect(button?.classList.contains('tab-active')).toBe(true);
+  });
+
   it('shows only the L1 loading state until the workspace resolves', () => {
     layoutStub.workspaceResolved.set(false);
     layoutStub.pendingWorkspaceName.set('ptah-extension');

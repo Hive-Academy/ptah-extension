@@ -68,6 +68,13 @@ export {
   type SessionMcpStatus,
 } from './lib/session-mcp-status.registry';
 export {
+  QueuedFollowUpStore,
+  type QueuedFollowUpEntry,
+  type QueuedFollowUpOutcome,
+  type QueuedFollowUpPhase,
+  type QueuedFollowUpRef,
+} from './lib/queued-follow-up.store';
+export {
   AUTO_SESSION_TITLE_MAX_LENGTH,
   DEFAULT_SESSION_NAME_PATTERN,
   deriveSessionTitle,

@@ -2003,7 +2003,10 @@ export class TabManagerService {
   ): void {
     if ((state.phase !== 'idle' && state.phase !== 'failed') ||
         !this.canApplyTurnState(tabId, sessionId, state.revision, state.phase, false)) return;
-    this.updateTabInternal(tabId, { status: 'loaded' });
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      lastTerminalReason: state.terminalReason,
+    });
   }
 
   takeTerminalTurnPulses(): readonly TerminalTurnPulse[] {

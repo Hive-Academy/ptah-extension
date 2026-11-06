@@ -68,6 +68,7 @@ export type CodexMcpSecrets = ReadonlyMap<string, string>;
  * Full access is an explicit, evidence-gated choice, never inferred from a consumer.
  */
 export interface CodexExecutionProfile {
+  readonly codexSandboxMode?: import('@ptah-extension/shared').CodexSandboxMode;
   readonly contextId: string;
   readonly consumer: 'chat' | 'gateway' | 'lane' | 'usage';
   readonly normalizedHome: string;
@@ -404,7 +405,8 @@ export interface CodexContext {
   listModels(): Promise<readonly CodexModelInfo[]>;
   events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent>;
   startTurn(input: CodexTurnInput): Promise<CodexTurnReceipt>;
-  steer(input: CodexTurnInput): Promise<CodexTurnReceipt>;
+  /** When supplied, admit steer only while this exact turn is active. */
+  steer(input: CodexTurnInput, expectedTurnId?: string): Promise<CodexTurnReceipt>;
   interrupt(turnId: string): Promise<boolean>;
   updateNextTurn(patch: CodexTurnSettings): Promise<AppliedSettings>;
   compact(): Promise<void>;

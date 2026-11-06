@@ -34,7 +34,8 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
-import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
+import { isTabBusyGenerating } from '../../../services/chat-store/tab-busy';
+import { ComposerRestoreService } from '../../../services/composer-restore.service';
 import {
   CommandCenterSendLockService,
   TabManagerService,
@@ -596,6 +597,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
   private readonly appState = inject(AppStateManager);
   private readonly draftStore = inject(ComposerDraftStore);
+  private readonly composerRestore = inject(ComposerRestoreService);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -1751,8 +1753,10 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         untracked(() => {
           this.saveDraft();
           this.draftTabId = tabId;
-          if (tabId) this.restoreDraft(tabId);
-          else this.clearLocalDraft();
+          if (tabId) {
+            this.restoreDraft(tabId);
+            this.applyComposerRestore(tabId);
+          } else this.clearLocalDraft();
         });
       }
       this._currentMessage();
@@ -1760,15 +1764,14 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       this._pastedImages();
       untracked(() => this.saveDraft());
     });
+    // Follow-ups a Stop withdrew, a withdrawn queued item, a failed one
+    // (TASK_2026_884): waiting per tab until this composer shows that tab.
     effect(() => {
-      const restoreData = this.chatStore.queueRestoreContent();
-      if (restoreData) {
-        const activeTabId = this.tabManager.activeTabId();
-        if (activeTabId && activeTabId === restoreData.tabId) {
-          this.restoreContentToInput(restoreData.content);
-        }
-        this.chatStore.clearQueueRestoreSignal();
-      }
+      const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+      if (!tabId || this.composerRestore.pendingFor(tabId) === null) return;
+      untracked(() => {
+        if (tabId === this.draftTabId) this.applyComposerRestore(tabId);
+      });
     });
     effect(() => {
       const currentTabId = this.tabManager.activeTabId();
@@ -1803,6 +1806,21 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       files,
       images,
     });
+  }
+
+  /**
+   * Put the tab's restored follow-up text in front of what the composer holds
+   * (it was typed earlier), so neither is lost.
+   */
+  private applyComposerRestore(tabId: string): void {
+    const restored = this.composerRestore.consume(tabId);
+    if (restored === null) return;
+    const current = this._currentMessage();
+    this.restoreContentToInput(
+      current.trim() ? `${restored}
+${current}` : restored,
+      { replace: true },
+    );
   }
 
   private restoreDraft(tabId: string): void {

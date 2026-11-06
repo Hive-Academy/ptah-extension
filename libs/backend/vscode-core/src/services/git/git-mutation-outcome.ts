@@ -1,5 +1,9 @@
 import type { GitMutationFailureCode } from '@ptah-extension/shared';
-import { GitCancelledError, GitTimeoutError } from '../../utils/exec-git';
+import {
+  GitCancelledError,
+  GitQueueDeadlineError,
+  GitTimeoutError,
+} from '../../utils/exec-git';
 import type { GitWriteResult } from './git-write-lock';
 
 /** The shape every `GitInfoService` mutation result shares. */
@@ -31,7 +35,7 @@ export function writeOutcome(
 /** A mutation that threw; a timeout or a cancellation keeps its code. */
 export function thrownOutcome(error: unknown): MutationOutcome {
   const message = error instanceof Error ? error.message : String(error);
-  if (error instanceof GitTimeoutError) {
+  if (error instanceof GitTimeoutError || error instanceof GitQueueDeadlineError) {
     return { success: false, code: 'TIMEOUT', error: message };
   }
   if (error instanceof GitCancelledError) {

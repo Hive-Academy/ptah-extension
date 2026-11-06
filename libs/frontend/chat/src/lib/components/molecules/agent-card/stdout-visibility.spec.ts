@@ -48,6 +48,18 @@ async function render(agent: MonitoredAgent) {
   return fixture;
 }
 
+/** Wait (bounded) until the streamed output shows `text`; CI load can delay the reveal. */
+async function waitForText(
+  fixture: { nativeElement: HTMLElement; detectChanges(): void },
+  text: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    fixture.detectChanges();
+    if (outputOf(fixture).textContent?.includes(text)) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 function outputOf(fixture: { nativeElement: HTMLElement }): HTMLElement {
   const output = fixture.nativeElement.querySelector('ptah-cli-agent-output');
   expect(output).not.toBeNull();
@@ -197,6 +209,7 @@ describe('raw stdout fallback', () => {
       ],
     }));
 
+    await waitForText(fixture, 'Please check this.');
     const output = outputOf(fixture);
     expect(output.textContent).toContain('Message from unverified peer');
     expect(output.textContent).toContain('Please check this.');

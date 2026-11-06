@@ -13,6 +13,7 @@ import { SessionBudgetSettingsComponent } from './session-budget-settings.compon
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { HostRoutingSettingComponent } from './host-routing-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
+import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.component';
 
 /**
  * Context Management tab (internal tab id `'orchestration'`, kept so the `PendingSettingsTab` and app-state contracts
@@ -21,7 +22,8 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
  *
  * Order: the subagent prompt-cache TTL, the session budget, Lane guards, Routing suggestions (Electron only: only the
  * Electron host runs the routing coordinator; TASK_2026_857), then the advanced groups (context budgets,
- * Codex agents, background query limits; TASK_2026_658) in one viewport-deferred chunk. The CLI matrix and the
+ * Codex agents and the Codex sandbox mode (TASK_2026_885), background query limits; TASK_2026_658) in one
+ * viewport-deferred chunk. The CLI matrix and the
  * background model roles moved to the Providers tab (`AgentsRoutingSettingsComponent`), with their deep links.
  *
  * No inline commit panel: the TTL, this tab's only `commit()` writer, reports through the page toast
@@ -37,6 +39,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
     LaneGuardsSettingsComponent,
     HostRoutingSettingComponent,
     AdvancedSettingsGroupComponent,
+    CodexSandboxSettingComponent,
   ],
   template: `
     <!-- Same box and rhythm as the Providers page: the Settings shell sets the width, centring and side padding. -->
@@ -76,6 +79,8 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
       @defer (on viewport) {
         <ptah-advanced-settings-group groupId="context-budgets" />
         <ptah-advanced-settings-group groupId="codex-agents" />
+        <!-- Codex sandbox mode (TASK_2026_885): with the Codex agents values, in the same deferred chunk. -->
+        <ptah-codex-sandbox-setting />
         <ptah-advanced-settings-group groupId="background-queries" />
       } @placeholder {
         <div

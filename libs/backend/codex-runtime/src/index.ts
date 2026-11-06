@@ -106,7 +106,10 @@ export {
 
 export {
   CodexProcessFailureError,
+  CodexRequestRejectedError,
   CodexUnsupportedMethodError,
   CODEX_INITIALIZE_TIMEOUT_MS,
 } from './lib/codex-app-server-process';
 export { CodexPreTurnConfigRejectedError } from './lib/codex-runtime';
+
+export { presentCodexApproval, presentCodexTool, presentCodexToolResult, CODEX_DENIED_TOOL_RESULT_TEXT, type CodexCompletedTool } from './lib/codex-tool-presentation';

@@ -275,6 +275,8 @@ export class GitStatusService implements MessageHandler {
     equal: operationEqual,
   });
   private fetchGeneration = 0;
+  static readonly UNAVAILABLE_ROOT_BACKOFF_MS = 60_000;
+  private readonly unavailableRoots = new Map<string, number>();
 
   /** Current branch info for the active workspace. */
   readonly branch = this._branch.asReadonly();
@@ -376,7 +378,7 @@ export class GitStatusService implements MessageHandler {
     const isFresh =
       fetchedAt !== undefined &&
       Date.now() - fetchedAt < GitStatusService.CACHE_TTL_MS;
-    if (!isFresh) {
+    if (!isFresh && (this.unavailableRoots.get(normalizeWorkspaceRoot(workspacePath)) ?? 0) <= Date.now()) {
       this.fetchGitInfo();
       return;
     }
@@ -394,6 +396,7 @@ export class GitStatusService implements MessageHandler {
    */
   removeWorkspaceState(workspacePath: string): void {
     this._workspaceGitState.delete(normalizeWorkspaceRoot(workspacePath));
+    this.unavailableRoots.delete(normalizeWorkspaceRoot(workspacePath));
     if (this.isActive(workspacePath)) {
       this._activeWorkspacePath.set(null);
       this.setSignals(EMPTY_SNAPSHOT);
@@ -560,6 +563,7 @@ export class GitStatusService implements MessageHandler {
   private async fetchGitInfo(): Promise<void> {
     const workspaceAtFetchTime = this._activeWorkspacePath();
     if (!workspaceAtFetchTime) return;
+    if ((this.unavailableRoots.get(normalizeWorkspaceRoot(workspaceAtFetchTime)) ?? 0) > Date.now()) return;
 
     const generation = ++this.fetchGeneration;
     // A response may only publish while it is BOTH the newest fetch and for
@@ -575,6 +579,7 @@ export class GitStatusService implements MessageHandler {
         this.vscodeService,
         'git:info',
         { workspaceRoot: workspaceAtFetchTime },
+        75_000,
       );
       if (!isCurrent()) return;
 
@@ -589,8 +594,12 @@ export class GitStatusService implements MessageHandler {
         result.data.files !== undefined &&
         result.data.files !== null
       ) {
+        this.unavailableRoots.delete(normalizeWorkspaceRoot(workspaceAtFetchTime));
         this.applyGitInfo(result.data, workspaceAtFetchTime);
       } else {
+        if (result.error === GIT_ROOT_UNAVAILABLE_MESSAGE) {
+          this.unavailableRoots.set(normalizeWorkspaceRoot(workspaceAtFetchTime), Date.now() + GitStatusService.UNAVAILABLE_ROOT_BACKOFF_MS);
+        }
         this.markReadFailed(readFailureReason(result.success, result.error));
       }
     } catch {

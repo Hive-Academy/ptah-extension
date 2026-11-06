@@ -12,6 +12,7 @@ import {
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   CodexAppServerLaneAdapter,
+  CodexLaneWriteDacPreflight,
   type CodexAdapterFactory,
   type CodexLaneBinaryProbe,
   type CodexLaneIdentityStore,
@@ -36,6 +37,8 @@ import {
   type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS, type IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { codexSandboxModeSchema, DEFAULT_CODEX_SANDBOX_MODE } from '@ptah-extension/shared';
 
 export interface CliCodexLaneInput {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -145,6 +148,7 @@ export function registerCliCodexLaneFactory(
       };
       return {
         lane: {
+          codexSandboxMode: codexSandboxModeSchema.parse(container.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER).getConfiguration('ptah', 'agentOrchestration.codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE)),
           permissionLevel: 'ask',
           identity: {
             contextId: prior?.contextId ?? randomUUID(), normalizedHome: selectedHome,
@@ -181,6 +185,7 @@ export function registerCliCodexLaneFactory(
       const cwd = canonical(tmpdir());
       const profile = buildCodexExecutionProfile({
         session: {
+          codexSandboxMode: codexSandboxModeSchema.parse(container.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER).getConfiguration('ptah', 'agentOrchestration.codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE)),
           contextId: randomUUID(), consumer: 'lane', normalizedHome: accountHome,
           providerId: 'codex', workspaceId: cwd, cwd,
           model: undefined, permissionLevel: 'ask',
@@ -286,9 +291,11 @@ export function registerCliCodexLaneFactory(
     }
   }
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
+  // One preflight per host, so its WRITE_DAC cache outlives each per-spawn adapter.
+  const writeDac = new CodexLaneWriteDacPreflight(logger);
   const factory: CodexAdapterFactory = {
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
-      binary, undefined, home, writers),
+      binary, undefined, home, writers, writeDac),
   };
   container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
 }

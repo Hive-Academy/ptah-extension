@@ -38,6 +38,7 @@ import { ChatCarryOverService } from './session/chat-carry-over.service';
 import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
+import { ChatFollowUpQueueService } from './follow-up/chat-follow-up-queue.service';
 
 describe('registerChatServices — output-style precondition', () => {
   it('throws when registerOutputStyleServices has not run', () => {
@@ -261,6 +262,32 @@ describe('registerChatServices — ChildChatSessionHostAdapter', () => {
     expect(c.resolve(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST)).toBe(
       first,
     );
+  });
+});
+
+/**
+ * TASK_2026_884 — the follow-up queue coordinator is one singleton, so the
+ * session service and the `chat:queued-*` handlers share its item bindings,
+ * and it subscribes to the adapter's queued follow-up states once.
+ */
+describe('registerChatServices — ChatFollowUpQueueService', () => {
+  it('resolves FOLLOW_UP_QUEUE to one shared instance subscribed once', () => {
+    const c = rootContainer.createChildContainer();
+    c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} });
+    registerChatServices(c);
+    const onQueuedFollowUpState = jest.fn(() => () => undefined);
+    c.register(TOKENS.LOGGER, {
+      useValue: { debug: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    });
+    c.register(TOKENS.WEBVIEW_MANAGER, { useValue: {} });
+    c.register(TOKENS.AGENT_ADAPTER, { useValue: { onQueuedFollowUpState } });
+
+    expect(c.isRegistered(CHAT_TOKENS.FOLLOW_UP_QUEUE)).toBe(true);
+    const first = c.resolve(CHAT_TOKENS.FOLLOW_UP_QUEUE);
+
+    expect(first).toBeInstanceOf(ChatFollowUpQueueService);
+    expect(c.resolve(CHAT_TOKENS.FOLLOW_UP_QUEUE)).toBe(first);
+    expect(onQueuedFollowUpState).toHaveBeenCalledTimes(1);
   });
 });
 

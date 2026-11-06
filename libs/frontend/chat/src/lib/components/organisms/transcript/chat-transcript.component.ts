@@ -52,7 +52,7 @@ import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card'
 // Same lazy-entry contract as the change-set card above (see
 // `libs/frontend/chat-ui/src/turn-recap.ts`); the model builder is loaded
 // through `TRANSCRIPT_TURN_RECAP_LOADER`, never imported as a value here.
-import { TurnSummaryChipComponent } from '@ptah-extension/chat-ui/turn-recap';
+import { TurnSummaryChipComponent, type TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 // Same contract (see `libs/frontend/chat-ui/src/display-panel.ts`).
 import { DisplaySurfaceSyncComponent } from '@ptah-extension/chat-ui/display-panel';
 import {
@@ -90,7 +90,6 @@ import {
 } from '../../../services/stream-presentation-store.service';
 import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
-import { SessionInspectorStore } from '../../../services/session-inspector/session-inspector.store';
 import type { TurnContext } from '../../../utils/turn-facts.utils';
 import {
   liveTurnIdsOf,
@@ -855,17 +854,6 @@ export class ChatTranscriptComponent {
   );
 
   /**
-   * The session's needs-you aggregate for the live turn's line (§3.7, B2),
-   * the same source as the header chip; `0` without a live turn or a tab.
-   * The inspector store is resolved only when a turn is live.
-   */
-  protected readonly needsYouCount = computed(() => {
-    if (!this.hasLiveTurn() || !this._tab()) return 0;
-    return this.injector.get(SessionInspectorStore).modelFor(this.tabId())()
-      .needsYouCount;
-  });
-
-  /**
    * The display-panel feed (TASK_2026_623, component 7): host sources,
    * display candidates, turn summaries and the live turn. Electron only, but
    * the host sources serve any `ptah-ui` block. See `TranscriptDisplayFeed`.
@@ -1116,6 +1104,14 @@ export class ChatTranscriptComponent {
 
   protected changeSetError(changeSet: TurnChangeSet): string | null {
     return this.changeSetErrors().get(this.changeSetKey(changeSet)) ?? null;
+  }
+
+  protected onTurnSummaryReview(summary: TurnSummaryModel): void {
+    if (summary.files !== null) this.onChangeSetReview(summary.files.changeSet);
+  }
+
+  protected onTurnSummaryOpenFile(summary: TurnSummaryModel, path: string): void {
+    if (summary.files !== null) this.onChangeSetOpenFile(summary.files.changeSet, path);
   }
 
   protected onChangeSetReview(changeSet: TurnChangeSet): void {

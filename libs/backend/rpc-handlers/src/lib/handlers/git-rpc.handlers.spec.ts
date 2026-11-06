@@ -419,7 +419,7 @@ describe('worktree roots', () => {
       },
     ]);
     suite.fileSystem.stat.mockImplementation(async (dir: string) => {
-      if (dir !== WORKTREE) throw new Error(`ENOENT: ${dir}`);
+      if (dir.replace(/\/$/, '') !== WORKTREE) throw new Error(`ENOENT: ${dir}`);
       return { type: FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     });
     suite.handlers.register();
@@ -1857,3 +1857,5 @@ describe('git:commit live output (TASK_2026_576 Component 30)', () => {
     expect(failureLogs).toHaveLength(1);
   });
 });
+
+

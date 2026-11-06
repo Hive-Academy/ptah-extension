@@ -928,7 +928,7 @@ describe('StreamingHandlerService', () => {
       expect(turnStateApplier.apply).toHaveBeenCalledWith(event, TAB_ID);
     });
 
-    it('returns the trimmed queue once after an accepted terminal turn_state', () => {
+    it('releases no queued prompt at an accepted terminal turn_state (TASK_2026_884)', () => {
       tabsSignal.update((tabs) => [
         {
           ...tabs[0],
@@ -936,30 +936,9 @@ describe('StreamingHandlerService', () => {
           lastTurnStateRevision: 1,
         } as TabState,
       ]);
-      turnStateApplier.apply.mockImplementation((event) => {
-        tabsSignal.update((tabs) =>
-          tabs.map(
-            (tab) =>
-              ({
-                ...tab,
-                status: 'loaded',
-                lastTurnStateRevision: (event as TurnStateEvent).revision,
-              }) as TabState,
-          ),
-        );
-      });
-
       const event = turnState();
-      expect(service.processStreamEvent(event, TAB_ID)).toEqual({
-        tabId: TAB_ID,
-        queuedContent: 'next please',
-        queueFlushes: [{ tabId: TAB_ID, content: 'next please' }],
-      });
-
-      // The queue remains in tab state until MessageDispatch receives a
-      // successful response, but a repeated terminal event cannot start a
-      // second concurrent flush.
       expect(service.processStreamEvent(event, TAB_ID)).toBeNull();
+      expect(turnStateApplier.apply).toHaveBeenCalledWith(event, TAB_ID);
     });
 
     it('never stores the event in StreamingState nor schedules a UI update', () => {
@@ -975,10 +954,9 @@ describe('StreamingHandlerService', () => {
       service.processStreamEvent(turnState());
 
       expect(turnStateApplier.apply).toHaveBeenCalledTimes(1);
-      // Terminal states resolve their targets only to expose queued content
-      // after the applier accepts the revision; they never enter the normal
-      // stream accumulator or warning path.
-      expect(tabManager.findTabsBySessionId).toHaveBeenCalledWith(SESSION_ID);
+      // The applier owns status updates. Terminal states never enter the
+      // normal stream accumulator or try to release a renderer queue.
+      expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
       expect(consoleWarn).not.toHaveBeenCalled();
     });
   });
@@ -1078,7 +1056,7 @@ describe('StreamingHandlerService', () => {
         duration: 100,
       });
 
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
       const expectedStats = {
         cost: 0.1,
         tokens: { input: 5, output: 5 },
@@ -1133,7 +1111,7 @@ describe('StreamingHandlerService', () => {
         duration: 200,
       });
 
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
       expect(tab.streamingState?.pendingStats).toEqual({
         cost: 0.25,
         tokens: { input: 5, output: 5 },
@@ -1216,7 +1194,7 @@ describe('StreamingHandlerService', () => {
       );
     });
 
-    it('reports the queued follow-up only when the tab is already finalized', () => {
+    it('releases nothing from stats once the tab is finalized (TASK_2026_884)', () => {
       const tab = makeTab({
         id: TAB_ID,
         claudeSessionId: SESSION_ID,
@@ -1235,7 +1213,7 @@ describe('StreamingHandlerService', () => {
         duration: 10,
       });
 
-      expect(result).toEqual({ tabId: TAB_ID, queuedContent: 'next please' });
+      expect(result).toBeUndefined();
     });
 
     it('stashes onto a background-partition tab while it streams, patches once finalized', () => {

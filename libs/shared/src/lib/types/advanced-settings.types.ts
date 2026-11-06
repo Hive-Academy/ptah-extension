@@ -18,6 +18,13 @@
  * shared barrel.
  */
 
+import { z } from 'zod';
+
+export const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write-no-network', 'workspace-write-network', 'danger-full-access'] as const;
+export type CodexSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
+export const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = 'danger-full-access';
+export const codexSandboxModeSchema = z.enum(CODEX_SANDBOX_MODES);
+
 /** The Settings group a descriptor is rendered in. */
 export type AdvancedSettingGroupId =
   | 'context-budgets'

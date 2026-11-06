@@ -13,26 +13,50 @@ import type {
   PtahUiDisplayDockSync,
   PtahUiDisplayFenceStatus,
   PtahUiDisplaySurfacesPublication,
+  DisplayFileItem,
+  DisplayFileKind,
 } from '@ptah-extension/chat-ui';
-import type { TurnSummaryModel } from '@ptah-extension/chat-ui/turn-recap';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
-import type { TurnChangeSet } from '@ptah-extension/shared';
 
 /** The dock's two tabs (design section 2). */
 export type DisplayDockTab = 'displays' | 'agents';
 
 /** What the Displays tab's strip has selected; `null` lets the panel pick. */
 export type DisplayDockSelection =
-  | { readonly kind: 'summary' }
   | { readonly kind: 'surface'; readonly surfaceKey: string }
   | { readonly kind: 'artifact'; readonly artifactId: string }
+  | { readonly kind: 'file'; readonly fileKey: string }
   | null;
 
-/** One turn's host-built summary and the change set its actions act on. */
-export interface DisplayDockSummary {
-  readonly model: TurnSummaryModel;
-  /** `null` when the turn has no recorded change set (no file actions). */
-  readonly changeSet: TurnChangeSet | null;
+export type { DisplayFileItem, DisplayFileKind } from '@ptah-extension/chat-ui';
+
+export function displayFileKey(kind: DisplayFileKind, root: string, path: string): string {
+  return `file:${encodeURIComponent(kind)}:${encodeURIComponent(root)}:${encodeURIComponent(path)}`;
+}
+
+function normalizeFilePath(path: string, root: string, documentPath?: string): string {
+  const slashed = path.replace(/\\/g, '/');
+  const absolute = slashed.startsWith('/') || /^[A-Za-z]:\//.test(slashed);
+  const base = documentPath?.replace(/\\/g, '/').replace(/\/[^/]*$/, '') ?? root;
+  const combined = absolute ? slashed : `${base}/${slashed}`;
+  const parts: string[] = [];
+  for (const part of combined.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  return `${combined.startsWith('/') ? '/' : ''}${parts.join('/')}`;
+}
+
+/** Connects root-level link routing to the component-owned dock of each tab. */
+@Injectable({ providedIn: 'root' })
+export class DisplayDockRegistry {
+  private readonly docks = new Map<string, DisplayDockState>();
+  register(tabId: string, dock: DisplayDockState): void { this.docks.set(tabId, dock); }
+  unregister(tabId: string, dock: DisplayDockState): void {
+    if (this.docks.get(tabId) === dock) this.docks.delete(tabId);
+  }
+  get(tabId: string): DisplayDockState | undefined { return this.docks.get(tabId); }
 }
 
 /** The dock state of one chat tab (D4). */
@@ -54,16 +78,13 @@ export interface DisplayDockTabState {
   /** The user closed the dock; agent activity does not reopen it until released. */
   readonly agentsUserClosed: boolean;
   readonly selection: DisplayDockSelection;
-  /** The turn whose summary the panel shows; `null` shows the latest turn. */
-  readonly summaryTurnKey: string | null;
   /** The agent surfaces the sync last published, in creation order. */
   readonly surfaces: readonly DisplaySurface[];
+  readonly files: readonly DisplayFileItem[];
   /** Per-fence statuses keyed by `displayFenceKey`. */
   readonly statuses: ReadonlyMap<string, PtahUiDisplayFenceStatus>;
   /** Renderer view state per surface key (D10). */
   readonly viewStates: ReadonlyMap<string, SurfaceViewState>;
-  /** Host-built summaries keyed by turn key, in turn order. */
-  readonly summaries: ReadonlyMap<string, DisplayDockSummary>;
 }
 
 const EMPTY_TAB_STATE: DisplayDockTabState = Object.freeze({
@@ -77,11 +98,10 @@ const EMPTY_TAB_STATE: DisplayDockTabState = Object.freeze({
   surfaceRevision: 0,
   agentsUserClosed: false,
   selection: null,
-  summaryTurnKey: null,
   surfaces: Object.freeze([]) as readonly DisplaySurface[],
+  files: Object.freeze([]) as readonly DisplayFileItem[],
   statuses: new Map<string, PtahUiDisplayFenceStatus>(),
   viewStates: new Map<string, SurfaceViewState>(),
-  summaries: new Map<string, DisplayDockSummary>(),
 });
 
 /**
@@ -126,26 +146,6 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     return this.tabs().get(tabId)?.() ?? EMPTY_TAB_STATE;
   }
 
-  /** The summary the panel shows: the selected turn's, else the latest turn's. */
-  summaryFor(tabId: string): DisplayDockSummary | null {
-    const key = this.summaryKeyFor(tabId);
-    return key === null ? null : (this.tab(tabId).summaries.get(key) ?? null);
-  }
-
-  /** The turn key of the summary the panel shows (see {@link summaryFor}). */
-  summaryKeyFor(tabId: string): string | null {
-    const state = this.tab(tabId);
-    if (
-      state.summaryTurnKey !== null &&
-      state.summaries.has(state.summaryTurnKey)
-    ) {
-      return state.summaryTurnKey;
-    }
-    let latest: string | null = null;
-    for (const key of state.summaries.keys()) latest = key;
-    return latest;
-  }
-
   // --- Read port (PtahUiDisplayDock) --------------------------------------
 
   fenceStatus(tabId: string, fenceKey: string): PtahUiDisplayFenceStatus | null {
@@ -177,6 +177,19 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     this.update(tabId, (state) => ({
       ...openedState(state, 'displays'),
       selection: { kind: 'artifact', artifactId },
+    }));
+  }
+
+  openFile(tabId: string, file: Omit<DisplayFileItem, 'key' | 'readStatus'>): void {
+    const workspaceRoot = file.workspaceRoot?.replace(/\\/g, '/').replace(/\/$/, '');
+    const path = normalizeFilePath(file.path, workspaceRoot ?? '', file.documentPath);
+    const key = displayFileKey(file.kind, workspaceRoot ?? '', path);
+    this.update(tabId, (state) => ({
+      ...openedState(state, 'displays'),
+      files: state.files.some((item) => item.key === key)
+        ? state.files
+        : [...state.files, { ...file, path, workspaceRoot, key, readStatus: 'unread' }],
+      selection: { kind: 'file', fileKey: key },
     }));
   }
 
@@ -232,15 +245,6 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     );
   }
 
-  /** The chip of a turn: opens the dock on that turn's summary. */
-  openSummary(tabId: string, turnKey: string): void {
-    this.update(tabId, (state) => ({
-      ...openedState(state, 'displays'),
-      summaryTurnKey: turnKey,
-      selection: { kind: 'summary' },
-    }));
-  }
-
   /** The width the separator set, already clamped by `PanelResizeService`. */
   setWidth(tabId: string, widthPx: number | null): void {
     this.update(tabId, (state) =>
@@ -273,25 +277,6 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     this.update(tabId, (state) =>
       state.liveTurnKey === turnKey ? state : { ...state, liveTurnKey: turnKey },
     );
-  }
-
-  /** Host-built summaries of the tab's turns, keyed by turn key in turn order. */
-  setSummaries(
-    tabId: string,
-    summaries: ReadonlyMap<string, DisplayDockSummary>,
-  ): void {
-    this.update(tabId, (state) => {
-      if (state.summaries === summaries) return state;
-      const summaryTurnKey =
-        state.summaryTurnKey !== null && summaries.has(state.summaryTurnKey)
-          ? state.summaryTurnKey
-          : null;
-      const selection =
-        state.selection?.kind === 'summary' && summaries.size === 0
-          ? null
-          : state.selection;
-      return { ...state, summaries, summaryTurnKey, selection };
-    });
   }
 
   /**
@@ -449,8 +434,8 @@ function openedState(
 function sameSelection(a: DisplayDockSelection, b: DisplayDockSelection): boolean {
   if (a === null || b === null) return a === b;
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'summary') return true;
   if (a.kind === 'artifact') return b.kind === 'artifact' && a.artifactId === b.artifactId;
+  if (a.kind === 'file') return b.kind === 'file' && a.fileKey === b.fileKey;
   return b.kind === 'surface' && a.surfaceKey === b.surfaceKey;
 }
 

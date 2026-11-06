@@ -52,7 +52,7 @@ describe('migration 0059_provider_account_session_links', () => {
       name: '0059_provider_account_session_links',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(67);
+    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(70);
   });
 
   it('applies after 0058 without changing existing run bindings', () => {

@@ -28,6 +28,7 @@ import type {
   AuthEnv,
   ContextCapacityRoute,
   PermissionLevel,
+  QueuedFollowUpSnapshot,
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
 
@@ -53,6 +54,9 @@ export type SessionAccountBinding = Readonly<
 export interface QueuedUserTurn {
   readonly message: SDKUserMessage;
   readonly clientMessageId?: string;
+  readonly followUp?: QueuedFollowUpSnapshot;
+  readonly sessionId?: SessionId;
+  readonly recordToken?: string;
 }
 
 export interface SessionRecord {
@@ -115,6 +119,7 @@ export interface SessionRecord {
    * model never sees it. Measured: 180 removed queue items, 0 delivered.
    */
   turnInFlight: boolean;
+  promotingFollowUpId?: string | null;
   /** Current model ID (may differ from config.model after setModel calls). */
   currentModel: string;
   /**

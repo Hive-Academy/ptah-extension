@@ -94,6 +94,7 @@ const RESERVED_READ_MS = SLOW_LIMIT_LOOKUP_DEADLINE_MS;
 
 @injectable()
 export class PlanLimitsSnapshotService {
+  private readonly pendingSnapshots = new Map<string, Promise<PlanLimitsSnapshot>>();
   /** Scope of the most recent RPC request; the push repeats it. */
   private lastRequest: PlanOwnerDiscoveryRequest = {};
 
@@ -120,7 +121,26 @@ export class PlanLimitsSnapshotService {
   ): Promise<PlanLimitsSnapshot> {
     const scope = discoveryRequest(request);
     this.lastRequest = scope;
-    return this.assemble(scope, request.refresh === true);
+    const key = JSON.stringify({
+      providerId: scope.selectedProviderId,
+      sessionIds: [...new Set(scope.sessionIds ?? [])].sort(),
+      ownerKeys: [...new Set(scope.ownerKeys ?? [])].sort(),
+      refresh: request.refresh === true,
+    });
+    const existing = this.pendingSnapshots.get(key);
+    if (existing) return existing;
+    const pending = this.assemble(scope, request.refresh === true);
+    // Bound retained keys even when callers submit many distinct scopes.
+    if (this.pendingSnapshots.size >= 32) {
+      const oldest = this.pendingSnapshots.keys().next().value;
+      if (oldest !== undefined) this.pendingSnapshots.delete(oldest);
+    }
+    this.pendingSnapshots.set(key, pending);
+    void pending.then(
+      () => { if (this.pendingSnapshots.get(key) === pending) this.pendingSnapshots.delete(key); },
+      () => { if (this.pendingSnapshots.get(key) === pending) this.pendingSnapshots.delete(key); },
+    );
+    return pending;
   }
 
   /** The snapshot for a push: the last request's scope, cached reads. */

@@ -22,9 +22,7 @@ import {
   MessageStartEvent,
   type ResultStatsPayload,
   SessionId,
-  isTerminalTurnPhase,
   isTurnStateEvent,
-  type TurnStateEvent,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { findMessageStartEvent } from '@ptah-extension/chat-execution-tree';
@@ -236,12 +234,6 @@ export class StreamingHandlerService {
     options?: { isReplay?: boolean; fanOut?: boolean },
   ): {
     tabId: string;
-    queuedContent?: string;
-    /** Queue flushes unlocked by an accepted terminal turn_state. */
-    queueFlushes?: ReadonlyArray<{
-      readonly tabId: string;
-      readonly content: string;
-    }>;
     compactionSessionId?: string;
     compactionComplete?: boolean;
     boundaryId?: string;
@@ -257,55 +249,17 @@ export class StreamingHandlerService {
       // The backend turn state is intercepted BEFORE dedup and before the
       // accumulator: it drives status / spinner / liveness and is never stored
       // in `StreamingState` (TASK_2026_360).
+      // Follow-ups are owned by the backend queue (TASK_2026_884): a
+      // terminal turn_state releases nothing here.
       if (isTurnStateEvent(event)) {
-        const terminalTargets = isTerminalTurnPhase(event.phase)
-          ? this.terminalTurnTargets(event, tabId)
-          : [];
         this.turnStateApplier.apply(event, tabId);
-        // The applier has synchronously installed the terminal state before
-        // this returns to ChatStore. Returning the queue here lets ChatStore
-        // start chat:continue in the same event delivery stack, before Angular
-        // can render an idle-only budget banner.
-        const queueFlushes = terminalTargets.flatMap(
-          ({ tabId: targetTabId, revision, sessionId }) => {
-            const tab =
-              this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
-            // A healed terminal (a lower revision of the same session) is a
-            // backend revision regression, so a newer turn may still run.
-            const healed =
-              revision !== undefined &&
-              sessionId === event.sessionId &&
-              event.revision < revision;
-            // Not `isTabBusy`: the finalized tree clears only in a later
-            // microtask, so `streamingState` would read as busy and hold the
-            // prompt forever (D2). Status and the streaming set are already
-            // final here.
-            if (
-              !tab ||
-              tab.lastTurnStateRevision !== event.revision ||
-              revision === event.revision ||
-              healed ||
-              !this.isTabSettled(tab)
-            ) {
-              return [];
-            }
-            const content = tab.queuedContent?.trim();
-            return content ? [{ tabId: targetTabId, content }] : [];
-          },
-        );
-        return queueFlushes.length > 0
-          ? {
-              tabId: queueFlushes[0].tabId,
-              queuedContent: queueFlushes[0].content,
-              queueFlushes,
-            }
-          : null;
+        return null;
       }
       // `SessionId.from` THROWS on a non-UUID, and an event can arrive with no
       // session at all while the SDK session is still resolving. The fan-out
       // lookup below runs unconditionally — AFTER `processEventForTab` has
       // already mutated state — so a throw there was swallowed by the catch and
-      // turned into `null`, silently dropping the compaction / queue-flush
+      // turned into `null`, silently dropping the compaction
       // dispatch that `chat.store.processStreamEvent` reads from the return
       // value. Never reach for `from` here. `safeParse` takes the absent case
       // itself (`undefined` → `null`), so every session lookup below is already
@@ -404,38 +358,6 @@ export class StreamingHandlerService {
       );
       return null;
     }
-  }
-
-  /**
-   * Snapshot terminal-turn targets before the applier mutates their revision.
-   * A repeated or stale terminal event therefore cannot initiate another
-   * queued send while the first send is still in flight.
-   */
-  private terminalTurnTargets(
-    event: TurnStateEvent,
-    tabId?: string,
-  ): ReadonlyArray<{
-    readonly tabId: string;
-    readonly revision: number | undefined;
-    readonly sessionId: string | undefined;
-  }> {
-    const target = (tab: TabState) => ({
-      tabId: tab.id,
-      revision: tab.lastTurnStateRevision,
-      sessionId: tab.lastTurnStateSessionId,
-    });
-    if (tabId) {
-      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      return tab ? [target(tab)] : [];
-    }
-
-    const sessionId = SessionId.safeParse(event.sessionId);
-    if (!sessionId) return [];
-    const tabs = this.tabManager.findTabsBySessionId(sessionId);
-    if (tabs.length > 0) return tabs.map(target);
-    const background =
-      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
-    return background ? [target(background)] : [];
   }
 
   /**
@@ -714,7 +636,7 @@ export class StreamingHandlerService {
    *   - the tab is still streaming (`streamingState` present) → stash them as
    *     `pendingStats`; finalization consumes them onto the final message;
    *   - the tab is already finalized → merge them onto the last assistant
-   *     message and report queued content only if no newer turn is busy.
+   *     message. Nothing is released here (TASK_2026_884).
    *
    * `turnCost` is that turn's own spend (TASK_2026_575) and becomes the
    * message's `cost`. The backend publishes one payload per new turn, so it
@@ -722,9 +644,7 @@ export class StreamingHandlerService {
    * is stored as `null` (the footer renders "cost unavailable"), never 0 and
    * never a previous or session figure.
    */
-  handleSessionStats(
-    stats: SessionStatsFooter,
-  ): { tabId: string; queuedContent: string | null } | null {
+  handleSessionStats(stats: SessionStatsFooter): void {
     // Same non-throwing parse as `processStreamEvent`: this method has no
     // try/catch, so a `''` session id used to throw straight out of the
     // handler and abandon the whole turn-end stats merge.
@@ -753,10 +673,10 @@ export class StreamingHandlerService {
           this.tabManager.updateBackgroundTab(bgTab.id, {
             streamingState: { ...bgState },
           });
-          return null;
+          return;
         }
         this.mergeStatsOntoLastAssistant(bgTab, stats);
-        return null;
+        return;
       }
 
       const activeTab = this.tabManager.activeTab();
@@ -783,11 +703,10 @@ export class StreamingHandlerService {
         console.warn(
           '[StreamingHandlerService] No target tab found for session stats',
         );
-        return null;
+        return;
       }
     }
 
-    const targetTabId = primaryTab.id;
     if (primaryTab.streamingState) {
       // Still streaming (the `turn_state` that ends the turn is ordered after
       // the last chunk and usually lands after this push): stash for every
@@ -806,43 +725,14 @@ export class StreamingHandlerService {
         };
         this.batchedUpdate.scheduleUpdate(t.id, state);
       }
-      return null;
+      return;
     }
 
     // A late stats result can belong to an earlier turn after a new turn has
-    // started. Patch its footer, but keep the composer held until turn_state.
+    // started: it patches that turn's footer only.
     this.mergeStatsOntoLastAssistant(primaryTab, stats);
-    return {
-      tabId: targetTabId,
-      queuedContent: this.isTabBusy(primaryTab)
-        ? null
-        : (primaryTab.queuedContent ?? null),
-    };
   }
 
-  /** Match the dispatcher's busy signals before releasing a held composer. */
-  private isTabBusy(tab: TabState): boolean {
-    const hasUnsettledTree =
-      tab.streamingState?.currentMessageId != null &&
-      tab.status !== 'awaiting-background' &&
-      tab.status !== 'sleeping';
-    return (
-      tab.status === 'streaming' ||
-      tab.status === 'resuming' ||
-      hasUnsettledTree ||
-      this.tabManager.isTabStreaming(tab.id)
-    );
-  }
-
-  /** A terminal turn_state left the tab idle and no newer turn streams. */
-  private isTabSettled(tab: TabState): boolean {
-    return (
-      (tab.status === 'loaded' ||
-        tab.status === 'awaiting-background' ||
-        tab.status === 'sleeping') &&
-      !this.tabManager.isTabStreaming(tab.id)
-    );
-  }
 
   /**
    * Write a turn's stats onto the tab's last assistant message. Workspace-aware

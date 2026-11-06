@@ -19,6 +19,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -944,5 +945,85 @@ describe('persistCliSessionReference — child lineage capture (TASK_2026_580)',
       expect.any(Error),
     );
     expect(logger.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('wireAgentEventListeners handoff chain and reparent (TASK_2026_876)', () => {
+  const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF_CHAIN;
+
+  it('broadcasts agent-monitor:reparented and sessionHandoff:linked', async () => {
+    const events = new EventEmitter();
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    let listener: ((link: { fromSessionId: string; toSessionId: string }) => void) | undefined;
+    const chain = {
+      onLinkWritten: jest.fn(
+        (cb: (link: { fromSessionId: string; toSessionId: string }) => void) => {
+          listener = cb;
+          return () => undefined;
+        },
+      ),
+    };
+    const logger = Object.assign(Object.create(null) as Logger, createMockLogger());
+    wireAgentEventListeners(
+      buildContainer([
+        [TOKENS.AGENT_PROCESS_MANAGER, { events, findAgentInfo: () => undefined }],
+        [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+        [token, chain],
+      ]),
+      { logger, platform: 'electron' },
+    );
+
+    events.emit('agent:reparented', {
+      agentIds: ['lane-a'],
+      parentSessionId: 'tab-next',
+    });
+    listener?.({ fromSessionId: 'from-sdk', toSessionId: 'to-sdk' });
+    await Promise.resolve();
+
+    expect(broadcastMessage).toHaveBeenCalledWith('agent-monitor:reparented', {
+      agentIds: ['lane-a'],
+      parentSessionId: 'tab-next',
+    });
+    expect(broadcastMessage).toHaveBeenCalledWith('sessionHandoff:linked', {
+      fromSessionId: 'from-sdk',
+      toSessionId: 'to-sdk',
+    });
+  });
+
+  it('logs a rejected linked broadcast and skips a missing chain token', async () => {
+    const events = new EventEmitter();
+    const broadcastMessage = jest.fn().mockRejectedValue(new Error('no webview'));
+    let listener: (() => void) | undefined;
+    const chain = {
+      onLinkWritten: jest.fn((cb: () => void) => {
+        listener = cb;
+        return () => undefined;
+      }),
+    };
+    const logger = Object.assign(Object.create(null) as Logger, createMockLogger());
+    wireAgentEventListeners(
+      buildContainer([
+        [TOKENS.AGENT_PROCESS_MANAGER, { events, findAgentInfo: () => undefined }],
+        [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+        [token, chain],
+      ]),
+      { logger, platform: 'cli' },
+    );
+    listener?.();
+    await Promise.resolve();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('sessionHandoff:linked'),
+      expect.any(Error),
+    );
+
+    const quiet = Object.assign(Object.create(null) as Logger, createMockLogger());
+    wireAgentEventListeners(
+      buildContainer([
+        [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter(), findAgentInfo: () => undefined }],
+        [TOKENS.WEBVIEW_MANAGER, { broadcastMessage: jest.fn() }],
+      ]),
+      { logger: quiet, platform: 'cli' },
+    );
+    expect(quiet.error).not.toHaveBeenCalled();
   });
 });

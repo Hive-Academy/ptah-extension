@@ -5,6 +5,7 @@ import { container, type DependencyContainer } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
   CodexContextStateError,
+  CodexRequestRejectedError,
   CodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -192,6 +193,136 @@ function setup(resolveRuntime?: CodexChatAdapterPorts['resolveRuntime']) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('isolates a throwing follow-up listener from other listeners and queue settlement', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const,
+        itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    h.adapter.onQueuedFollowUpState(() => { throw new Error('listener failed'); });
+    const states: string[] = [];
+    h.adapter.onQueuedFollowUpState((change) => states.push(change.state));
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await h.adapter.sendMessageToSession(id, 'next', {
+      clientMessageId: 'listener-1', queueIntent: 'next-turn',
+    });
+    expect(states).toEqual(['queued']);
+    release.resolve();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(states).toContain('delivered');
+    expect(h.context.startTurn).toHaveBeenCalledTimes(2);
+    await h.adapter.dispose();
+  });
+  it('accepts a busy next-turn follow-up and admits it only after idle', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const,
+        itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const states: string[] = [];
+    h.adapter.onQueuedFollowUpState((change) => states.push(change.state));
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await h.adapter.sendMessageToSession(id, 'next', {
+      clientMessageId: 'next-1', queueIntent: 'next-turn',
+    });
+    expect(states).toEqual(['queued']);
+    expect(h.adapter.listQueuedFollowUps(id)).toEqual([
+      expect.objectContaining({ clientMessageId: 'next-1', content: 'next' }),
+    ]);
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    release.resolve();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.context.startTurn).toHaveBeenCalledTimes(2);
+    expect(states).toContain('delivered');
+    await h.adapter.dispose();
+  });
+
+  it('removes a steered item when the successful receipt has a different turn ID', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const,
+        itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const states: string[] = [];
+    h.adapter.onQueuedFollowUpState((change) => states.push(change.state));
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await h.adapter.sendMessageToSession(id, 'steer me', {
+      clientMessageId: 'steer-1', queueIntent: 'next-turn',
+    });
+    h.context.steer.mockResolvedValueOnce({ threadId: id, turnId: 'other', revision: 2 });
+    expect(await h.adapter.steerQueuedFollowUp(id, 'steer-1'))
+      .toEqual({ ok: true });
+    expect(h.adapter.listQueuedFollowUps(id)).toEqual([]);
+    expect(states).toEqual(['queued', 'steered']);
+    expect(h.ports.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Steer turn ID mismatch'),
+      expect.objectContaining({ expectedTurnId: 'turn', receiptTurnId: 'other' }),
+    );
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    release.resolve();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.context.steer).toHaveBeenCalledTimes(1);
+    await h.adapter.dispose();
+  });
+
+  it('logs a failed steer and keeps the follow-up queued for the next turn', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const,
+        itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await h.adapter.sendMessageToSession(id, 'steer me', {
+      clientMessageId: 'steer-throws', queueIntent: 'next-turn',
+    });
+    // A definite server refusal keeps the follow-up queued for the next turn.
+    h.context.steer.mockRejectedValueOnce(
+      new CodexRequestRejectedError('turn/steer', -32600, 'codexTurnNoLongerActive'),
+    );
+    expect(await h.adapter.steerQueuedFollowUp(id, 'steer-throws'))
+      .toEqual({ ok: false, code: 'TURN_CHANGED' });
+    expect(h.adapter.listQueuedFollowUps(id)).toEqual([
+      expect.objectContaining({ clientMessageId: 'steer-throws' }),
+    ]);
+    // An uncertain outcome (transport/timeout) consumes it: never sent twice.
+    const failure = new Error('steer transport lost');
+    h.context.steer.mockRejectedValueOnce(failure);
+    expect(await h.adapter.steerQueuedFollowUp(id, 'steer-throws'))
+      .toEqual({ ok: false, code: 'DELIVERY_UNCERTAIN' });
+    expect(h.ports.logger.warn).toHaveBeenCalledWith(
+      '[CodexChatAdapter] Steer outcome uncertain; consuming follow-up to prevent duplicate delivery.',
+      failure,
+    );
+    expect(h.adapter.listQueuedFollowUps(id)).toEqual([]);
+    release.resolve();
+    await iterator.return?.();
+    await h.adapter.dispose();
+  });
+
   it('admits a fresh thread before staging or persisting and releases on close', async () => {
     const h = setup();
     const order: string[] = [];

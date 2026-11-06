@@ -43,6 +43,7 @@ const profile: CodexExecutionProfile = {
   cwd: '/work',
   model: 'model',
   permissionLevel: 'ask',
+  codexSandboxMode: 'workspace-write-no-network',
   approvalPolicy: 'untrusted',
   sandboxPolicy: {
     mode: 'workspace-write',
@@ -69,7 +70,8 @@ function profileAtLevel(
   return {
     ...profile,
     permissionLevel,
-    ...resolveCodexLevelPolicy(profile.consumer, permissionLevel, profile.cwd),
+    codexSandboxMode: 'workspace-write-no-network',
+    ...resolveCodexLevelPolicy(profile.consumer, permissionLevel, profile.cwd, 'workspace-write-no-network'),
     profileFingerprint,
   };
 }
@@ -2198,6 +2200,7 @@ describe('CodexRuntime', () => {
         'chat',
         initialLevel,
         '/work',
+        'workspace-write-no-network',
       );
       const initialProfile: CodexExecutionProfile = {
         ...profile,
@@ -2205,12 +2208,13 @@ describe('CodexRuntime', () => {
         ...initialPolicy,
         profileFingerprint: codexProfileFingerprint({
           permissionLevel: initialLevel,
+          codexSandboxMode: 'workspace-write-no-network',
           ...initialPolicy,
         }),
       };
       const context = await runtime.open(initialProfile);
       const original = context.identity;
-      const nextPolicy = resolveCodexLevelPolicy('chat', level, '/work');
+      const nextPolicy = resolveCodexLevelPolicy('chat', level, '/work', 'workspace-write-no-network');
       await expect(
         context.updateNextTurn({ permissionLevel: level }),
       ).resolves.toEqual({ timing: 'nextTurn', revision: 1 });
@@ -2219,6 +2223,7 @@ describe('CodexRuntime', () => {
         ...original,
         profileFingerprint: codexProfileFingerprint({
           permissionLevel: level,
+          codexSandboxMode: 'workspace-write-no-network',
           ...nextPolicy,
         }),
       });
@@ -2243,6 +2248,32 @@ describe('CodexRuntime', () => {
     },
   );
 
+  it('uses full access by default for writable turns and read only for plan', async () => {
+    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work');
+    const context = await runtime.open({
+      ...profile,
+      codexSandboxMode: undefined,
+      permissionLevel: 'plan',
+      ...planPolicy,
+      profileFingerprint: codexProfileFingerprint({
+        permissionLevel: 'plan',
+        ...planPolicy,
+      }),
+    });
+
+    for (const level of ['ask', 'auto-edit', 'yolo', 'plan'] as const) {
+      await context.updateNextTurn({ permissionLevel: level });
+      await context.startTurn({ text: level });
+      const frame = children[0].frames.filter((entry) => entry['method'] === 'turn/start').at(-1);
+      expect(frame?.['params']).toMatchObject({
+        sandboxPolicy: level === 'plan'
+          ? { type: 'readOnly', networkAccess: false }
+          : { type: 'dangerFullAccess' },
+      });
+      children[0].complete();
+    }
+  });
+
   it('holds the active turn level for the bridge and restores the original policy on rollback', async () => {
     runtime = new CodexRuntime({
       ...options,
@@ -2250,6 +2281,7 @@ describe('CodexRuntime', () => {
     });
     const initialFingerprint = codexProfileFingerprint({
       permissionLevel: 'ask',
+      codexSandboxMode: profile.codexSandboxMode,
       approvalPolicy: profile.approvalPolicy,
       sandboxPolicy: profile.sandboxPolicy,
     });
@@ -2359,13 +2391,14 @@ describe('CodexRuntime', () => {
       ...options,
       sink: { request: jest.fn(async () => 'accept' as const) },
     });
-    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work');
+    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work', 'workspace-write-no-network');
     const context = await runtime.open({
       ...profile,
       permissionLevel: 'plan',
       ...planPolicy,
       profileFingerprint: codexProfileFingerprint({
         permissionLevel: 'plan',
+        codexSandboxMode: 'workspace-write-no-network',
         ...planPolicy,
       }),
     });
@@ -2407,13 +2440,14 @@ describe('CodexRuntime', () => {
   });
 
   it('snapshots the last sent level, not the opening level, for an idle notification after a level change', async () => {
-    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work');
+    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work', 'workspace-write-no-network');
     const context = await runtime.open({
       ...profile,
       permissionLevel: 'plan',
       ...planPolicy,
       profileFingerprint: codexProfileFingerprint({
         permissionLevel: 'plan',
+        codexSandboxMode: 'workspace-write-no-network',
         ...planPolicy,
       }),
     });
@@ -2632,7 +2666,6 @@ describe('CodexRuntime', () => {
     const cases: NonNullable<CodexExecutionProfile['lane']>[] = [
       { ...baseLane, maxTurns: 1 },
       { ...baseLane, maxBudgetUsd: 0.5 },
-      { ...baseLane, explicitFullAccess: true },
       { ...baseLane, suppressedTools: ['shell'] },
     ];
     for (const lane of cases) {

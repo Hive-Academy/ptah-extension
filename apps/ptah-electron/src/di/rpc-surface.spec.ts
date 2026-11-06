@@ -109,10 +109,33 @@ describe('Electron RPC surface', () => {
     expect(surface.excluded).not.toContain('git:watchRoots');
   });
 
+  it('serves the session handoff chain (TASK_2026_876)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['session:handoffChain']),
+    );
+  });
+
+  it('serves the backend-owned follow-up queue methods (TASK_2026_884)', () => {
+    const queueMethods = [
+      'chat:queued-list',
+      'chat:queued-withdraw',
+      'chat:queued-steer',
+    ];
+    expect(surface.registered).toEqual(expect.arrayContaining(queueMethods));
+    for (const method of queueMethods) {
+      expect(surface.excluded).not.toContain(method);
+    }
+  });
+
   it('serves artifact listing and external link opening', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
     );
+  });
+
+  it('serves file:viewBinary for the display panel (TASK_2026_879)', () => {
+    expect(surface.registered).toContain('file:viewBinary');
+    expect(surface.excluded).not.toContain('file:viewBinary');
   });
 
   it('serves the detached Display window methods (TASK_2026_853)', () => {

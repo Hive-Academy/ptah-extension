@@ -179,6 +179,32 @@ export class SessionControl {
     }
   }
 
+  /** Interrupt for Send now; the result callback releases the queued next turn. */
+  async interruptForQueuedFollowUp(sessionId: SessionId): Promise<boolean> {
+    const rec = this.registry.find(sessionId as string);
+    if (!rec?.query || !rec.turnInFlight) return false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const completed = await Promise.race([
+        rec.query.interrupt().then(() => true),
+        new Promise<false>((resolve) => {
+          timeout = setTimeout(() => resolve(false), 3000);
+        }),
+      ]);
+      return completed && this.registry.find(sessionId as string) === rec;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the queued item remains held
+      // and the caller reports a recoverable interrupt failure.
+      this.logger.warn(
+        `[SessionLifecycle] Follow-up interrupt failed for ${sessionId}`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return false;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
   /** Retire captured ownership without paying a second interrupt wait. */
   private retireInterruptedRecord(rec: SessionRecord): void {
     const current = this.registry.find(rec.tabId) === rec;

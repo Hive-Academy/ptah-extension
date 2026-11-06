@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { CLI_AGENT_RUNTIME_TOKENS, type CodexAdapterFactory } from '@ptah-extension/cli-agent-runtime';
 import { CODEX_RUNTIME_TOKENS, CodexSelectionSnapshot } from '@ptah-extension/codex-runtime';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { Logger } from '@ptah-extension/vscode-core';
 import {
   isElectronCodexLaneAdmitted,
@@ -52,6 +53,26 @@ describe('Electron Codex lanes', () => {
         await scope.dispose();
       }
     });
+
+  it.each([['win32', 1], ['linux', 0]])('prewarms WRITE_DAC for workspace folders on %s', async (platform, calls) => {
+    const scope = container.createChildContainer();
+    const workspace = {
+      getWorkspaceFolders: jest.fn((): string[] => []),
+      getConfiguration: jest.fn(() => 'workspace-write-no-network'),
+      onDidChangeWorkspaceFolders: jest.fn(),
+    };
+    scope.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: workspace });
+    try {
+      registerElectronCodexLaneFactory(scope, logger, {
+        isPackaged: true, platform: { platform, arch: 'x64' },
+        resourcesPath: '/fixture', appPath: '/fixture', env: {},
+      });
+      expect(workspace.getWorkspaceFolders).toHaveBeenCalledTimes(calls);
+      expect(workspace.onDidChangeWorkspaceFolders).toHaveBeenCalledTimes(calls);
+    } finally {
+      await scope.dispose();
+    }
+  });
 
   it.each([
     ['0.166.0', 'installed'],

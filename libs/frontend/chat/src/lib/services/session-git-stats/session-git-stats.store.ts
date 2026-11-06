@@ -14,6 +14,7 @@ import {
   type MessageHandler,
 } from '@ptah-extension/core';
 import {
+  GIT_ROOT_UNAVAILABLE_MESSAGE,
   MESSAGE_TYPES,
   resolveSessionWorkingRoot,
   type GitInfoResult,
@@ -24,7 +25,8 @@ const LOG_PREFIX = '[SessionGitStatsStore]';
 const MAX_CONCURRENT_READS = 2;
 const DEBOUNCE_MS = 1_000;
 const FRESHNESS_MS = 5_000;
-const RPC_TIMEOUT_MS = 15_000;
+const RPC_TIMEOUT_MS = 75_000;
+const TIMEOUT_BACKOFF_MS = 30_000;
 
 /**
  * The store's git state: the card-facing `CompactGitState` whose `known`
@@ -38,6 +40,7 @@ export type SessionGitState =
       readonly branch: string | null;
     });
 
+export const UNAVAILABLE_ROOT_BACKOFF_MS = 60_000;
 const NONE: SessionGitState = { kind: 'none' };
 
 /** `sameGitState` plus the branch, so a checkout alone publishes a new state. */
@@ -132,6 +135,7 @@ interface RootEntry {
   queued: boolean;
   inFlight: boolean;
   rerun: boolean;
+  backoffUntil?: number;
 }
 
 /**
@@ -275,6 +279,7 @@ export class SessionGitStatsStore implements MessageHandler {
   }
 
   private request(entry: RootEntry, forced: boolean): void {
+    if ((entry.backoffUntil ?? 0) > Date.now()) return;
     if (!forced && Date.now() - entry.readAt < FRESHNESS_MS) return;
     if (entry.inFlight) {
       entry.rerun = true;
@@ -332,9 +337,16 @@ export class SessionGitStatsStore implements MessageHandler {
         entry.generation === generation
       ) {
         if (result.success && isGitInfo(result.data)) {
+          entry.backoffUntil = undefined;
           this.setState(entry, toState(result.data));
         } else {
           console.warn(`${LOG_PREFIX} Git read failed.`, result.error);
+          if (result.error === GIT_ROOT_UNAVAILABLE_MESSAGE) {
+            entry.backoffUntil = Date.now() + UNAVAILABLE_ROOT_BACKOFF_MS;
+          }
+          if (typeof result.error === 'string' && result.error.includes('RPC timeout')) {
+            entry.backoffUntil = Date.now() + TIMEOUT_BACKOFF_MS;
+          }
           this.setState(entry, { kind: 'unknown', reason: 'failed' });
         }
         entry.readAt = Date.now();
@@ -345,6 +357,9 @@ export class SessionGitStatsStore implements MessageHandler {
         entry.generation === generation
       ) {
         console.warn(`${LOG_PREFIX} Git read failed.`, error);
+        if (error instanceof Error && error.message.includes('RPC timeout')) {
+          entry.backoffUntil = Date.now() + TIMEOUT_BACKOFF_MS;
+        }
         this.setState(entry, { kind: 'unknown', reason: 'failed' });
         entry.readAt = Date.now();
       }

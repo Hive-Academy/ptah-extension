@@ -60,7 +60,7 @@ const NO_CANDIDATES: readonly DisplayCandidate[] = [];
  *   display fence appear as it streams (R2.7, decision #94). The previous
  *   result is passed back, so a tick that touches no display text keeps the
  *   same array and the sync does not re-run (#95).
- * - `summaries`: the turn summary chips and the dock's summary map (R6).
+ * - `summaries`: the turn summary chips in the transcript (R6).
  * - The live turn (decision #99): the last user message's id while the tab
  *   streams, `null` otherwise, published to the dock so a user close records
  *   the turn (R1.8). Read from the tab, not the gated view, so a turn that
@@ -101,7 +101,6 @@ export class TranscriptDisplayFeed {
       return next;
     });
     this.summaries = new TranscriptTurnSummaries({
-      tabId: input.tabId,
       slots,
       snapshots: input.snapshots,
       marksFor: input.marksFor,

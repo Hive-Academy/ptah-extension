@@ -63,12 +63,9 @@ export interface DisplayWindowSnapshot {
  * A user action taken in the detached window. The main renderer applies it to
  * its own dock state, and only when `tabId` equals the tab it bound.
  *
- * - `select`: select the strip entry `key` (`summary`, `artifact:<id>`, a
- *   surface key).
+ * - `select`: select the strip entry `key` (`artifact:<id>` or a surface key).
  * - `fullscreen-closed`: the panel left its own full screen.
  * - `view-state`: a surface renderer changed its view state.
- * - `open-file`: open one file of the selected turn's change set.
- * - `review`: review the selected turn's whole change set.
  * - `attach`: close the detached window and show the panel in the main window.
  */
 export type DisplayWindowAction =
@@ -79,8 +76,6 @@ export type DisplayWindowAction =
       readonly surfaceKey: string;
       readonly viewState: DisplayWindowJsonObject;
     }
-  | { readonly type: 'open-file'; readonly path: string }
-  | { readonly type: 'review' }
   | { readonly type: 'attach' };
 
 /** Every `DisplayWindowAction['type']`, for schema enums and exhaustive specs. */
@@ -88,8 +83,6 @@ export const DISPLAY_WINDOW_ACTION_TYPES = [
   'select',
   'fullscreen-closed',
   'view-state',
-  'open-file',
-  'review',
   'attach',
 ] as const satisfies readonly DisplayWindowAction['type'][];
 

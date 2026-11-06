@@ -16,6 +16,11 @@ function setup() {
   const migration = MIGRATIONS.find((entry) => entry.version === 65);
   if (!migration?.sql) throw new Error('Review migration missing');
   db.exec(migration.sql);
+  for (const version of [66, 67, 68, 69]) {
+    const next = MIGRATIONS.find((entry) => entry.version === version);
+    if (!next?.sql) throw new Error(`Review migration ${version} missing`);
+    db.exec(next.sql);
+  }
   const logger = Object.create(Logger.prototype) as Logger;
   logger.info = jest.fn();
   const connection = new SqliteConnectionService(':memory:', logger);
@@ -24,6 +29,27 @@ function setup() {
 }
 
 describe('SqliteReviewRepository', () => {
+  it.each([[true, 1], [false, 0]])('persists automatic dry-run mode %s as %i', async (dryRun, stored) => {
+    const { db, repository } = setup();
+    try {
+      const queued = await repository.enqueueDiscovered(head(9, 'e'), at(0), dryRun);
+      expect(queued.dryRun).toBe(dryRun);
+      expect(db.prepare('SELECT dry_run FROM review_attempts WHERE attempt_id = ?').get(queued.attemptId))
+        .toEqual({ dry_run: stored });
+    } finally { db.close(); }
+  });
+  it('persists dry-run intent through a queue claim', async () => {
+    const { db, repository } = setup();
+    try {
+      const target = head(4, 'd');
+      const queued = await repository.enqueueManual(target, 'dry-run-4', at(0), true);
+      expect(queued.dryRun).toBe(true);
+      const claim = await repository.claimNext('worker', at(1), at(100));
+      expect(claim?.dryRun).toBe(true);
+      expect(db.prepare('SELECT dry_run FROM review_attempts WHERE attempt_id = ?').get('dry-run-4'))
+        .toEqual({ dry_run: 1 });
+    } finally { db.close(); }
+  });
   it('reads the last successful head and open failures from shipped review tables', async () => {
     const { db, repository } = setup();
     try {
@@ -128,15 +154,19 @@ describe('SqliteReviewRepository', () => {
     } finally { db.close(); }
   });
 
-  it('queues a new automatic attempt after a failed review of the current head', async () => {
+  it('backs off a failed head and permits a manual retry', async () => {
     const { db, repository } = setup();
     try {
       const first = await repository.enqueueDiscovered(head(1, 'a'), at(0));
       await repository.claimNext('owner', at(1), at(100));
       expect(await repository.release(first.attemptId, 'owner', 'failed', at(2))).toBe(true);
       const retried = await repository.enqueueDiscovered(head(1, 'a'), at(3));
-      expect(retried.attemptId).not.toBe(first.attemptId);
-      expect((await repository.claimNext('owner', at(4), at(100)))?.attemptId).toBe(retried.attemptId);
+      expect(retried.attemptId).toBe(first.attemptId);
+      expect(await repository.claimNext('owner', at(4), at(100))).toBeNull();
+      expect(db.prepare('SELECT failure_count, next_eligible_at FROM review_heads').get()).toEqual({ failure_count: 1, next_eligible_at: Date.parse(at(2)) + 600_000 });
+      const manual = await repository.enqueueManual(head(1, 'a'), 'manual-retry', at(5));
+      expect(manual.trigger).toBe('manual');
+      expect((await repository.claimNext('owner', at(6), at(100)))?.attemptId).toBe(manual.attemptId);
     } finally { db.close(); }
   });
 

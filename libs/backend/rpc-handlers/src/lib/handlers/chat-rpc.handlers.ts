@@ -72,6 +72,12 @@ import type {
   ChatCarryOverCheckResult,
   ChatCarryOverParams,
   ChatCarryOverResult,
+  ChatQueuedListParams,
+  ChatQueuedListResult,
+  ChatQueuedWithdrawParams,
+  ChatQueuedWithdrawResult,
+  ChatQueuedSteerParams,
+  ChatQueuedSteerResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
@@ -86,6 +92,7 @@ import type { ChatStreamDeliveryCoordinator } from '../chat/streaming/chat-strea
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 import type { ChatCarryOverService } from '../chat/session/chat-carry-over.service';
+import type { ChatFollowUpQueueService } from '../chat/follow-up/chat-follow-up-queue.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
 import {
   ChatStartParamsSchema,
@@ -97,6 +104,8 @@ import {
   ChatSetStreamViewportParamsSchema,
   ChatCarryOverCheckParamsSchema,
   ChatCarryOverParamsSchema,
+  ChatQueuedListParamsSchema,
+  ChatQueuedItemParamsSchema,
 } from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
@@ -135,6 +144,9 @@ export class ChatRpcHandlers {
     'agent:backgroundList',
     'chat:carry-over-check',
     'chat:carry-over',
+    'chat:queued-list',
+    'chat:queued-withdraw',
+    'chat:queued-steer',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -164,6 +176,15 @@ export class ChatRpcHandlers {
     private readonly sessionSpawner: ISessionSpawner | null = null,
     @inject(CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR, { isOptional: true })
     private readonly streamDelivery: ChatStreamDeliveryCoordinator | null = null,
+    /**
+     * Backend-owned follow-up queue (TASK_2026_884). Without it the
+     * `chat:queued-*` methods answer an empty list, `false` and `UNSUPPORTED`.
+     */
+    @inject(CHAT_TOKENS.FOLLOW_UP_QUEUE, { isOptional: true })
+    private readonly followUpQueue: Pick<
+      ChatFollowUpQueueService,
+      'list' | 'withdraw' | 'steer'
+    > | null = null,
   ) {}
 
   /**
@@ -438,6 +459,7 @@ export class ChatRpcHandlers {
         return this.carryOver.carryOver(params);
       },
     );
+    this.registerFollowUpQueue();
 
     this.logger.debug('Chat RPC handlers registered', {
       methods: [
@@ -454,7 +476,57 @@ export class ChatRpcHandlers {
         'agent:backgroundStop',
         'chat:carry-over-check',
         'chat:carry-over',
+        'chat:queued-list',
+        'chat:queued-withdraw',
+        'chat:queued-steer',
       ],
     });
+  }
+
+  /**
+   * `chat:queued-*` (TASK_2026_884): the held follow-ups of one tab's session.
+   * The coordinator refuses a tab that does not own the session; a provider
+   * without the optional queue operations answers empty / false / UNSUPPORTED.
+   */
+  private registerFollowUpQueue(): void {
+    this.wire<ChatQueuedListParams, ChatQueuedListResult>(
+      'chat:queued-list',
+      'registerChatQueuedList',
+      async (params) => {
+        ChatQueuedListParamsSchema.parse(params);
+        if (!this.followUpQueue) return { items: [] };
+        return {
+          items: this.followUpQueue.list(params.sessionId, params.tabId),
+        };
+      },
+    );
+    this.wire<ChatQueuedWithdrawParams, ChatQueuedWithdrawResult>(
+      'chat:queued-withdraw',
+      'registerChatQueuedWithdraw',
+      async (params) => {
+        ChatQueuedItemParamsSchema.parse(params);
+        if (!this.followUpQueue) return { withdrawn: false };
+        return {
+          withdrawn: await this.followUpQueue.withdraw(
+            params.sessionId,
+            params.tabId,
+            params.clientMessageId,
+          ),
+        };
+      },
+    );
+    this.wire<ChatQueuedSteerParams, ChatQueuedSteerResult>(
+      'chat:queued-steer',
+      'registerChatQueuedSteer',
+      async (params) => {
+        ChatQueuedItemParamsSchema.parse(params);
+        if (!this.followUpQueue) return { ok: false, code: 'UNSUPPORTED' };
+        return this.followUpQueue.steer(
+          params.sessionId,
+          params.tabId,
+          params.clientMessageId,
+        );
+      },
+    );
   }
 }

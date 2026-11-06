@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
+  QueuedFollowUpStore,
   TabManagerService,
   TabWorkspacePartitionService,
   type TabLookupResult,
@@ -67,6 +68,7 @@ export class AutoHandoffSourceCloserService {
   private readonly partition = inject(TabWorkspacePartitionService);
   private readonly messageDispatch = inject(MessageDispatchService);
   private readonly autoHandoff = inject(SessionAutoHandoffService);
+  private readonly followUpStore = inject(QueuedFollowUpStore);
   private readonly logger = inject(LoggingService);
 
   /** Armed source tabs: tab id → the session it must still hold. */
@@ -187,7 +189,9 @@ export class AutoHandoffSourceCloserService {
       return `its state is '${tab.status}' (background work or sleep)`;
     }
     if (tab.isDirty) return 'it has unsent input';
-    if (tab.queuedContent?.trim()) return 'it still has a queued message';
+    if (this.followUpStore.forTab(tab.id).length > 0) {
+      return 'it still has a queued message';
+    }
     if (tab.pendingBackgroundTasks && tab.pendingBackgroundTasks.length > 0) {
       return 'it has background work in flight';
     }

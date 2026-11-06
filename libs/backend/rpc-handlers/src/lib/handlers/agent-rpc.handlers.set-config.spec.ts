@@ -148,6 +148,18 @@ function makeHarness() {
 }
 
 describe('agent:setConfig reasoning-effort boundary', () => {
+  it('returns the default sandbox, persists an override, and rejects an invalid value before writes', async () => {
+    const h = makeHarness();
+    expect((await h.getConfig()).codexSandboxMode).toBe('danger-full-access');
+    expect(await h.setConfig({ codexSandboxMode: 'read-only' })).toEqual({ success: true });
+    expect((await h.getConfig()).codexSandboxMode).toBe('read-only');
+    h.workspace.setConfiguration.mockClear();
+    expect(await h.setConfig({ codexSandboxMode: 'invalid', codexModel: 'changed' })).toEqual({
+      success: false, error: 'Unsupported codexSandboxMode value',
+    });
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+    expect((await h.getConfig()).codexSandboxMode).toBe('read-only');
+  });
   it('refuses an unsupported Pi effort and writes nothing, even with other fields in the batch', async () => {
     const h = makeHarness();
     const result = await h.setConfig({

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { posix, win32 } from 'node:path';
 import { z } from 'zod';
+import { codexSandboxModeSchema, DEFAULT_CODEX_SANDBOX_MODE, type CodexSandboxMode } from '@ptah-extension/shared';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type {
   CodexApprovalPolicy,
@@ -27,6 +28,7 @@ const settings = z.strictObject({
   model: text.optional(),
   effort: text.optional(),
   permissionLevel: z.enum(['ask', 'plan', 'auto-edit', 'yolo']),
+  codexSandboxMode: codexSandboxModeSchema.default(DEFAULT_CODEX_SANDBOX_MODE),
   enhancedPrompt: z.string().optional(),
   systemPrompt: z.string().optional(),
   developerPrompt: z.string().optional(),
@@ -130,7 +132,7 @@ export interface CodexExecutionProfileInput {
 
 export interface BuiltCodexExecutionProfile extends CodexExecutionProfile {
   readonly approvalsReviewer: 'user';
-  readonly fullAccessStatus: 'unproved-disabled';
+  readonly fullAccessStatus: 'unproved-disabled' | 'explicit';
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -172,37 +174,32 @@ function resolveApprovalPolicy(
   return 'on-request';
 }
 
-/** Resolve the policy for a single level; lanes use the D26 restricted policy. */
+/** Resolve the sandbox chosen for every Codex consumer. */
 export function resolveCodexLevelPolicy(
   consumer: CodexExecutionProfile['consumer'],
   permissionLevel: CodexProfileSettings['permissionLevel'],
   cwd: string,
+  sandboxMode: CodexSandboxMode = DEFAULT_CODEX_SANDBOX_MODE,
 ): {
   approvalPolicy: CodexApprovalPolicy;
   sandboxPolicy: CodexSandboxPolicy;
 } {
-  if (consumer === 'lane') {
-    return {
-      approvalPolicy: 'never',
-      sandboxPolicy: {
-        mode: 'workspace-write',
-        networkAccess: false,
-        writableRoots: [cwd],
-      },
-    };
-  }
   const d14 = consumer === 'chat' || consumer === 'gateway';
-  const writable =
+  // A non-lane level that does not allow edits (plan, or ask outside chat/gateway)
+  // stays read-only whatever the sandbox setting; lanes follow the setting only.
+  const levelAllowsWrites =
+    consumer === 'lane' ||
     permissionLevel === 'auto-edit' ||
     permissionLevel === 'yolo' ||
     (d14 && permissionLevel === 'ask');
+  const sandboxPolicy: CodexSandboxPolicy = !levelAllowsWrites || sandboxMode === 'read-only'
+    ? { mode: 'read-only', networkAccess: false, writableRoots: [] }
+    : sandboxMode === 'danger-full-access'
+      ? { mode: 'danger-full-access', networkAccess: true, writableRoots: [] }
+      : { mode: 'workspace-write', networkAccess: sandboxMode === 'workspace-write-network', writableRoots: [cwd] };
   return {
-    approvalPolicy: resolveApprovalPolicy(d14, permissionLevel),
-    sandboxPolicy: {
-      mode: writable ? 'workspace-write' : 'read-only',
-      networkAccess: false,
-      writableRoots: writable ? [cwd] : [],
-    },
+    approvalPolicy: consumer === 'lane' ? 'never' : resolveApprovalPolicy(d14, permissionLevel),
+    sandboxPolicy,
   };
 }
 
@@ -220,7 +217,7 @@ function canonical(value: CodexJsonValue): string {
 /** Fingerprint only the validated execution policy, with the original canonical encoding. */
 export function codexProfileFingerprint(identity: Pick<
   CodexExecutionProfile,
-  'permissionLevel' | 'sandboxPolicy' | 'approvalPolicy'
+  'permissionLevel' | 'codexSandboxMode' | 'sandboxPolicy' | 'approvalPolicy'
 >): string {
   const fingerprint = createHash('sha256')
     .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
@@ -275,8 +272,6 @@ export function buildCodexExecutionProfile(
   });
   if (selected.lane && selected.consumer !== 'lane')
     throw new Error('Lane settings require a lane consumer');
-  if (selected.lane?.explicitFullAccess)
-    throw new Error('Explicit lane full access remains unproved and disabled');
   const names = selected.mcpServers.map((server) => server.name);
   if (new Set(names).size !== names.length)
     throw new Error('Duplicate MCP server names');
@@ -311,6 +306,7 @@ export function buildCodexExecutionProfile(
     selected.consumer,
     selected.permissionLevel,
     cwd,
+    selected.codexSandboxMode,
   );
   const profile: Omit<BuiltCodexExecutionProfile, 'profileFingerprint'> = {
     ...selected,
@@ -323,7 +319,7 @@ export function buildCodexExecutionProfile(
     ),
     ...levelPolicy,
     approvalsReviewer: 'user',
-    fullAccessStatus: 'unproved-disabled',
+    fullAccessStatus: levelPolicy.sandboxPolicy.mode === 'danger-full-access' ? 'explicit' : 'unproved-disabled',
   };
   // Resume fingerprint covers only the security-relevant execution policy.
   // RuntimeContext.open re-sends instructions on thread/resume; stable context,
@@ -333,6 +329,7 @@ export function buildCodexExecutionProfile(
   // resume) is the account boundary, because one Codex home is one login.
   const identity = {
     permissionLevel: profile.permissionLevel,
+    codexSandboxMode: profile.codexSandboxMode,
     sandboxPolicy: profile.sandboxPolicy,
     approvalPolicy: profile.approvalPolicy,
   };

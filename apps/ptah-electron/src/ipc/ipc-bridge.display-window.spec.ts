@@ -119,12 +119,14 @@ describe('IpcBridge — detached Display window sender role', () => {
     });
   }
 
-  it('lists exactly the four plan methods', () => {
+  it('lists exactly the display-window methods', () => {
     expect([...DISPLAY_WINDOW_ALLOWED_METHODS].sort()).toEqual([
       'artifacts:openLink',
       'displayWindow:action',
       'displayWindow:close',
       'displayWindow:getState',
+      'file:viewBinary',
+      'file:viewContent',
     ]);
   });
 

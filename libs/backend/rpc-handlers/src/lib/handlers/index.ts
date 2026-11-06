@@ -87,6 +87,7 @@ export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
 export { AnalyticsRpcHandlers } from './analytics-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
 export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handlers';
+export { SessionHandoffChainRpcHandlers } from './session-handoff-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileViewRpcHandlers } from './file-view-rpc.handlers';

@@ -1865,6 +1865,25 @@ describe('MemorySearchService — real SQLite scope and quarantine', () => {
     ).toBe(false);
   });
 
+  it('keeps omitted and zero topK in separate flights', async () => {
+    seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('b-1', '/ws/b')]);
+    const search = makeSearch();
+    const [defaultLimit, zeroLimit] = await Promise.all([
+      search.searchIndex({}),
+      search.searchIndex({ topK: 0 }),
+    ]);
+    expect(defaultLimit.rows).toHaveLength(2);
+    expect(zeroLimit.rows).toHaveLength(1);
+  });
+
+  it('ranks scoped vector candidates after the workspace predicate', async () => {
+    seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('b-1', '/ws/b')]);
+    await makeSearch({ vec: true }).searchIndex({ query: 'kiwi', workspaceRoot: '/ws/b' });
+    expect(t.issued.some((sql) =>
+      sql.includes('vec_distance_l2') && sql.includes('m.workspace_root IS ?')
+    )).toBe(true);
+  });
+
   // Cache invalidation through the real store (no mocked counters). The insert
   // and forget cases need every named-workspace write to also bump the global
   // '' generation (Batch 3, MemoryStore); restore already does through

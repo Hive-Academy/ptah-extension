@@ -31,6 +31,8 @@ import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
 import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
+import { HandoffChainClient } from './session-inspector/handoff-chain.client';
+import { FollowUpQueueService } from './chat-store/follow-up-queue.service';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -100,9 +102,11 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let agentSessionAdoption: { adopt: jest.Mock; adoptHandoff: jest.Mock };
   let organizer: { onOrganizationChanged: jest.Mock };
   let organizationCache: { onOrganizationChanged: jest.Mock };
+  let handoffChain: { onLinked: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
+  let handleQueuedState: jest.Mock;
 
   function registerSurfaceAdapter(surfaceId: SurfaceId): void {
     surfaceRegistry.register(
@@ -113,6 +117,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   }
 
   beforeEach(() => {
+    handleQueuedState = jest.fn();
     chatStore = {
       permissionRequests: jest.fn(() => []),
       handlePermissionAutoResolved: jest.fn(),
@@ -152,11 +157,13 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
     organizer = { onOrganizationChanged: jest.fn() };
     organizationCache = { onOrganizationChanged: jest.fn() };
+    handoffChain = { onLinked: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
         ChatMessageHandler,
         { provide: ChatStore, useValue: chatStore },
+        { provide: FollowUpQueueService, useValue: { handleStateEvent: handleQueuedState } },
         {
           provide: StreamFlushScheduler,
           useValue: {
@@ -178,6 +185,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         },
         { provide: SessionOrganizerService, useValue: organizer },
         { provide: SessionOrganizationCache, useValue: organizationCache },
+        { provide: HandoffChainClient, useValue: handoffChain },
       ],
     });
 
@@ -188,6 +196,17 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     consoleWarnSpy = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
+  });
+
+  it('forwards a queued state push for a hidden tab to the queue owner', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      tabId: 'hidden-tab',
+      clientMessageId: 'message-1',
+      state: 'delivered' as const,
+    };
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_QUEUED_MESSAGE_STATE, payload });
+    expect(handleQueuedState).toHaveBeenCalledWith(payload);
   });
 
   it('retires pending ids only on a confirmed session-ended message', () => {
@@ -599,6 +618,76 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(agentSessionAdoption.adoptHandoff).not.toHaveBeenCalled();
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining('sessionHandoff:opened payload rejected'),
+        expect.anything(),
+      );
+    },
+  );
+
+  // ----- Handoff caller end + SESSION_HANDOFF_LINKED (TASK_2026_876) --------
+
+  it('chat:sessionEnded leaves both the tab id and the SDK id idle', () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    liveness.markStreaming('tab-1');
+    liveness.markStreaming('old-session');
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_SESSION_ENDED,
+      payload: { tabId: 'tab-1', sessionId: 'old-session' },
+    });
+    expect(liveness.status('tab-1')()).toBe('idle');
+    expect(liveness.status('old-session')()).toBe('idle');
+  });
+
+  it('chat:sessionEnded clears awaiting-background on a rekeyed session', () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    liveness.rekey('tab-1', 'old-session');
+    liveness.markAwaitingBackground('old-session');
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_SESSION_ENDED,
+      payload: { tabId: 'tab-1', sessionId: 'old-session' },
+    });
+    expect(liveness.status('old-session')()).toBe('idle');
+    expect(liveness.status('tab-1')()).toBe('idle');
+  });
+
+  it('chat:sessionEnded without a string sessionId marks nothing', () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    liveness.markStreaming('tab-1');
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_SESSION_ENDED,
+      payload: { tabId: 'tab-1' },
+    });
+    expect(liveness.status('tab-1')()).toBe('streaming');
+  });
+
+  it('sessionHandoff:linked is a handled type and reloads the inspector chain', () => {
+    expect(handler.handledMessageTypes).toContain(
+      MESSAGE_TYPES.SESSION_HANDOFF_LINKED,
+    );
+    const link = { fromSessionId: 'session-a', toSessionId: 'session-b' };
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_HANDOFF_LINKED,
+      payload: link,
+    });
+    expect(handoffChain.onLinked).toHaveBeenCalledWith(link);
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['an array', ['a', 'b']],
+    ['an empty fromSessionId', { fromSessionId: '', toSessionId: 'b' }],
+    ['a numeric toSessionId', { fromSessionId: 'a', toSessionId: 7 }],
+  ])(
+    'sessionHandoff:linked drops %s without reloading',
+    (_label, payload) => {
+      expect(() =>
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_HANDOFF_LINKED,
+          payload,
+        }),
+      ).not.toThrow();
+      expect(handoffChain.onLinked).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('sessionHandoff:linked payload rejected'),
         expect.anything(),
       );
     },

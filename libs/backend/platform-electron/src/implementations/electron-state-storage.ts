@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
+import type { Logger } from '@ptah-extension/vscode-core';
 import {
   StateStorageNotReadyError,
   StateStorageRecoveryRequiredError,
@@ -52,6 +53,13 @@ export class ElectronStateStorage
   private data: Record<string, JsonValue> = {};
   private readonly filePath: string;
   private writePromise: Promise<void> = Promise.resolve();
+  private commitGeneration = 0;
+  private writeTimer: ReturnType<typeof setTimeout> | null = null;
+  private maxWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly changedKeys = new Set<string>();
+  private pendingWrite: Promise<void> | null = null;
+  private resolvePendingWrite: (() => void) | null = null;
+  private rejectPendingWrite: ((error: Error) => void) | null = null;
   private readonly workerHost: ElectronStateStorageWorkerHost | null;
   private readinessState: StateStorageReadinessState;
   private readonly readyPromise: Promise<void>;
@@ -60,6 +68,9 @@ export class ElectronStateStorage
     storageDirPath: string,
     filename: string,
     workerOptions?: ElectronStateStorageWorkerOptions,
+    private readonly logger?: Logger,
+    private readonly writeFile: (filePath: string, contents: string) => Promise<void> =
+      (filePath, contents) => fsPromises.writeFile(filePath, contents, 'utf8'),
   ) {
     this.filePath = path.join(storageDirPath, filename);
     if (!workerOptions) {
@@ -167,11 +178,31 @@ export class ElectronStateStorage
 
     if (value === undefined) delete this.data[key];
     else this.data[key] = value as JsonValue;
-    this.writePromise = this.writePromise.then(
-      () => this.persist(),
-      () => this.persist(),
-    );
-    await this.writePromise;
+    this.changedKeys.add(key);
+    if (!this.pendingWrite) {
+      this.pendingWrite = new Promise<void>((resolve, reject) => {
+        this.resolvePendingWrite = resolve;
+        this.rejectPendingWrite = reject;
+      });
+    }
+    if (this.writeTimer !== null) clearTimeout(this.writeTimer);
+    if (this.maxWriteTimer === null) {
+      this.maxWriteTimer = setTimeout(() => {
+        this.maxWriteTimer = null;
+        void this.flush().catch((error: unknown) => {
+          // degradation-audit: reported - update callers receive the rejection.
+          this.logger?.error('[platform-electron] global state write failed', error instanceof Error ? error : new Error(String(error)));
+        });
+      }, 1_000);
+    }
+    this.writeTimer = setTimeout(() => {
+      this.writeTimer = null;
+      void this.flush().catch(() => {
+        // degradation-audit: reported - flush() already rejected every
+        // caller awaiting this write with the failure.
+      });
+    }, 300);
+    await this.pendingWrite;
   }
 
   updateSync(key: string, value: unknown): void {
@@ -182,8 +213,28 @@ export class ElectronStateStorage
     }
     if (value === undefined) delete this.data[key];
     else this.data[key] = value as JsonValue;
-    this.persistSync();
-    this.writePromise = Promise.resolve();
+    if (this.writeTimer !== null) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = null;
+    }
+    if (this.maxWriteTimer !== null) {
+      clearTimeout(this.maxWriteTimer);
+      this.maxWriteTimer = null;
+    }
+    const resolve = this.resolvePendingWrite;
+    const reject = this.rejectPendingWrite;
+    const changedCount = this.changedKeys.size + (this.changedKeys.has(key) ? 0 : 1);
+    this.pendingWrite = null;
+    this.resolvePendingWrite = null;
+    this.rejectPendingWrite = null;
+    this.changedKeys.clear();
+    try {
+      this.persistSync(changedCount);
+      resolve?.();
+    } catch (error: unknown) {
+      reject?.(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   }
 
   keys(): readonly string[] {
@@ -259,7 +310,50 @@ export class ElectronStateStorage
   }
 
   async dispose(): Promise<void> {
+    await this.flush();
     await this.workerHost?.dispose();
+  }
+
+  /** Commit the latest global snapshot, including changes made during a write. */
+  async flush(): Promise<void> {
+    if (this.workerHost) return;
+    if (this.maxWriteTimer !== null) {
+      clearTimeout(this.maxWriteTimer);
+      this.maxWriteTimer = null;
+    }
+    if (this.writeTimer !== null) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = null;
+    }
+    if (this.changedKeys.size === 0) {
+      await this.writePromise.catch(() => {
+        // degradation-audit: reported - the failed write rejected its update callers.
+      });
+      return;
+    }
+    const pending = this.pendingWrite;
+    const resolve = this.resolvePendingWrite;
+    const reject = this.rejectPendingWrite;
+    this.pendingWrite = null;
+    this.resolvePendingWrite = null;
+    this.rejectPendingWrite = null;
+    const changedCount = this.changedKeys.size;
+    this.changedKeys.clear();
+    this.writePromise = this.writePromise
+      .catch(() => {
+        // degradation-audit: reported - the previous write's failure was
+        // delivered to its own callers; this write must still run after it.
+      })
+      .then(() => this.persist(changedCount));
+    try {
+      await this.writePromise;
+      resolve?.();
+    } catch (error: unknown) {
+      reject?.(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+    await pending;
+    if (this.changedKeys.size > 0) await this.flush();
   }
 
   private assertReady(): void {
@@ -300,23 +394,45 @@ export class ElectronStateStorage
     }
   }
 
-  private async persist(): Promise<void> {
+  private async persist(changedCount: number): Promise<void> {
+    const generation = this.commitGeneration;
+    const started = performance.now();
+    const serialized = JSON.stringify(this.data);
+    const bytes = Buffer.byteLength(serialized);
     const dir = path.dirname(this.filePath);
     await fsPromises.mkdir(dir, { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;
-    await fsPromises.writeFile(
-      tmpPath,
-      JSON.stringify(this.data, null, 2),
-      'utf8',
-    );
-    await fsPromises.rename(tmpPath, this.filePath);
+    await this.writeFile(tmpPath, serialized);
+    if (generation !== this.commitGeneration) {
+      await fsPromises.rm(tmpPath, { force: true });
+      return;
+    }
+    // The final commit is synchronous so updateSync cannot interleave with it.
+    fs.renameSync(tmpPath, this.filePath);
+    this.commitGeneration++;
+    const ms = performance.now() - started;
+    if (ms > 50) this.logger?.warn('[platform-electron] slow global state write', {
+      keysChanged: changedCount, bytes, ms,
+    });
   }
 
-  private persistSync(): void {
+  private persistSync(changedCount: number): void {
+    const started = performance.now();
+    const serialized = JSON.stringify(this.data);
+    const bytes = Buffer.byteLength(serialized);
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });
     const tmpPath = `${this.filePath}.sync-tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(this.data, null, 2), 'utf8');
+    fs.writeFileSync(tmpPath, serialized, 'utf8');
     fs.renameSync(tmpPath, this.filePath);
+    this.commitGeneration++;
+    const ms = performance.now() - started;
+    if (ms > 50) {
+      this.logger?.warn('[platform-electron] slow global state write', {
+        keysChanged: changedCount,
+        bytes,
+        ms,
+      });
+    }
   }
 }

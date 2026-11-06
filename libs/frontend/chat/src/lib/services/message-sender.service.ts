@@ -34,6 +34,7 @@ import {
   EffortLevel,
   normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
+import type { ChatContinueResult } from '@ptah-extension/shared';
 import {
   ABORT_REASON_SUPERSEDED,
   ConversationRegistry,
@@ -43,6 +44,7 @@ import {
   TabSessionBinding,
   CommandCenterSendLockService,
   commandCenterPersonaFor,
+  type QueuedFollowUpRef,
 } from '@ptah-extension/chat-state';
 import {
   SessionManager,
@@ -54,7 +56,6 @@ import type {
   SendMessageOptions,
   TabState,
 } from '@ptah-extension/chat-types';
-import type { QueuedCommand } from './chat-store/conversation.service';
 import {
   CARRY_OVER_BUSY_TEXT,
   ProviderCarryOverService,
@@ -106,16 +107,11 @@ export interface SendOutcome {
    */
   errorIsFullText?: boolean;
   /**
-   * Set when a slash command was queued behind earlier queued text and waits
-   * as its own turn (TASK_2026_655): resolves `true` when it becomes the
-   * tab's queued message, `false` when it is dropped (Stop, failed turn).
+   * Set when the message waits as a queued follow-up instead of starting a
+   * turn now (TASK_2026_884). Follow it with `QueuedFollowUpStore.onSettled`
+   * / `isPending`, or withdraw it with `FollowUpQueueService.withdraw`.
    */
-  heldCommand?: Promise<boolean>;
-  /**
-   * Set when a slash command was queued (held or as the queued message): its
-   * identity, for `ChatStore.withdrawQueuedCommand` / `isQueuedCommand`.
-   */
-  queuedCommand?: QueuedCommand;
+  queued?: QueuedFollowUpRef;
 }
 
 /**
@@ -776,64 +772,60 @@ export class MessageSenderService {
   }
 
   /**
-   * Continue an existing conversation for the post-stream queue flush.
+   * Hand a follow-up to the backend queue of its captured session
+   * (TASK_2026_884): `chat:continue` with `queueIntent: 'next-turn'`. The
+   * backend holds it and admits it as the next turn of exactly `sessionId`,
+   * whether or not any view shows the tab. Writes nothing to the tab: no
+   * bubble, no status, no abort controller. The caller (`FollowUpQueueService`)
+   * shows the item in the composer queue and appends the bubble on delivery.
    *
-   * Same semantics as `continueConversation` but does NOT install a fresh
-   * `AbortController` for the tab. The queue flush (`MessageDispatchService.
-   * sendQueuedMessage`) fires on turn-end while the previous stream's
-   * controller may still be tracked by `TabManagerService`. Calling
-   * `createAbortController` there would abort that controller, firing the
-   * previous `wireAbortDispatch` abort listener → a stray `chat:abort` RPC →
-   * the session is killed and the queued message degrades to a full resume.
-   *
-   * Instead, reuses the existing `AbortSignal` (still tracked by
-   * `TabManagerService`, so stop-button / tab-close keep working) or sends
-   * with no signal when the controller was already cleared by finalization.
-   *
-   * A failed flush also removes the optimistic bubble: the caller
-   * (`MessageDispatchService.sendQueuedMessage`) puts the text back in the
-   * queue, so a retry would otherwise show the same prompt twice.
-   *
-   * @param content - Message content
-   * @param sessionId - Existing session ID
-   * @param options - Optional send options (files, images, effort, tabId)
+   * Never resolves the active tab: `tabId` and `sessionId` are the ones the
+   * caller captured when the user typed the message.
    */
-  async continueExistingSessionForQueueFlush(
-    content: string,
-    sessionId: SessionId,
-    options?: SendMessageOptions & { ownerToken?: string },
-  ): Promise<SendOutcome> {
-    if (this.isHeld(options))
-      return { success: false, error: 'Message held by Command Center' };
-    if (this.isCarryOverPending(options))
-      return { success: false, error: CARRY_OVER_BUSY_TEXT };
-    const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
-    const abortSignal = activeTabId
-      ? this.tabManager.getAbortSignal(activeTabId)
-      : undefined;
-    return this.runContinueConversation(
-      content,
-      sessionId,
-      options,
-      abortSignal,
-      true,
+  async submitQueuedFollowUp(input: {
+    readonly content: string;
+    readonly sessionId: SessionId;
+    readonly tabId: string;
+    readonly clientMessageId: string;
+    readonly options?: SendMessageOptions;
+  }): Promise<RpcResult<ChatContinueResult>> {
+    const { content, sessionId, tabId, clientMessageId, options } = input;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const effectiveModel = this.resolveValidModel(
+      tab?.overrideModel ?? this.modelState.currentModel(),
     );
+    const effectiveEffort = this.resolveEffort(
+      options?.effort,
+      tab?.overrideEffort,
+    );
+    const systemPrompt = tab && commandCenterPersonaFor(tab);
+    const images = options?.images;
+    return this.claudeRpcService.call('chat:continue', {
+      prompt: content,
+      sessionId,
+      tabId,
+      clientMessageId,
+      queueIntent: 'next-turn',
+      name: tab?.name,
+      ...(systemPrompt ? { systemPrompt } : {}),
+      ...(this.vscodeService.isElectron ? { ptahUiFence: true } : {}),
+      ...(effectiveModel ? { model: effectiveModel } : {}),
+      files: options?.files ?? [],
+      ...(images && images.length > 0 ? { images } : {}),
+      ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+    });
   }
 
   /**
-   * Shared body for `continueConversation` and the queue-flush variant.
-   *
-   * The caller resolves the `AbortSignal` (or `undefined`) and passes it in,
-   * keeping the abort-wiring policy out of the continue-conversation logic so
-   * the user-initiated send and the post-stream queue flush can differ without
-   * branching inside this method.
+   * Body of `continueConversation`. The caller resolves the `AbortSignal`
+   * (or `undefined`) and passes it in, keeping the abort-wiring policy out of
+   * the continue-conversation logic.
    */
   private async runContinueConversation(
     content: string,
     sessionId: SessionId,
     options: (SendMessageOptions & { ownerToken?: string }) | undefined,
     abortSignal: AbortSignal | undefined,
-    dropBubbleOnFailure = false,
   ): Promise<SendOutcome> {
     const files = options?.files;
     const images = options?.images;
@@ -984,7 +976,7 @@ export class MessageSenderService {
       );
 
       if (result.data?.cancelled === true) {
-        this.rollBackUnsentPrompt(activeTabId, userMessage.id, dropBubbleOnFailure);
+        this.rollBackUnsentPrompt(activeTabId, userMessage.id);
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
@@ -1012,11 +1004,7 @@ export class MessageSenderService {
           '[MessageSender] Failed to continue chat:',
           result.data?.error ?? result.error,
         );
-        this.rollBackUnsentPrompt(
-          activeTabId,
-          userMessage.id,
-          dropBubbleOnFailure,
-        );
+        this.rollBackUnsentPrompt(activeTabId, userMessage.id);
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
@@ -1046,11 +1034,7 @@ export class MessageSenderService {
       console.error('[MessageSender] Failed to continue conversation:', error);
       if (activeTabId) {
         if (sentPromptId) {
-          this.rollBackUnsentPrompt(
-            activeTabId,
-            sentPromptId,
-            dropBubbleOnFailure,
-          );
+          this.rollBackUnsentPrompt(activeTabId, sentPromptId);
         }
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
@@ -1064,23 +1048,11 @@ export class MessageSenderService {
   }
 
   /**
-   * Undo what a continue wrote before `chat:continue` failed. The boundary
-   * always goes: the backend never received the prompt, so the live turn must
-   * not split at it. The optimistic bubble goes only when the caller puts the
-   * text back in the queue, where a retry would otherwise show it twice.
+   * Undo what a continue wrote before `chat:continue` failed: the backend
+   * never received the prompt, so the live turn must not split at it. The
+   * bubble stays, as the record of the failed send.
    */
-  private rollBackUnsentPrompt(
-    tabId: string,
-    messageId: string,
-    dropBubble: boolean,
-  ): void {
+  private rollBackUnsentPrompt(tabId: string, messageId: string): void {
     this.streamingHandler.removeUserPromptBoundary(tabId, messageId);
-    if (!dropBubble) return;
-    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab) return;
-    this.tabManager.setMessages(
-      tabId,
-      tab.messages.filter((m) => m.id !== messageId),
-    );
   }
 }

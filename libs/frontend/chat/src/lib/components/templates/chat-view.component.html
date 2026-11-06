@@ -193,65 +193,11 @@
         </div>
       }
 
-      <!-- Queued Content Indicator -->
-      @if (resolvedQueuedContent()) {
-        <div
-          class="px-4 pb-2 border-t border-primary/20 bg-primary/5"
-          data-glass-surface="plate"
-          animate.enter="banner-enter"
-          animate.leave="banner-leave"
-        >
-          <div class="flex items-center justify-between gap-2 py-2">
-            <!-- Left: Queue icon and text -->
-            <div class="flex items-center gap-2 text-sm">
-              <lucide-angular
-                [img]="BellIcon"
-                class="w-4 h-4 text-primary animate-pulse"
-                aria-hidden="true"
-              />
-              <span class="text-primary font-medium">Message queued</span>
-              <span class="text-base-content-muted"
-                >(will send when Claude finishes)</span
-              >
-            </div>
-
-            <!-- Right: Edit + Cancel buttons -->
-            <div class="flex items-center gap-1">
-              <button
-                class="btn btn-ghost btn-xs"
-                (click)="editQueue()"
-                type="button"
-                title="Edit queued message"
-              >
-                Edit
-              </button>
-              <button
-                class="btn btn-ghost btn-xs"
-                (click)="cancelQueue()"
-                type="button"
-                title="Cancel queued message"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <!-- Queued content preview (click to edit) -->
-          <button
-            class="w-full text-left text-xs text-base-content-muted bg-surface-1 hover:bg-surface-2 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
-            (click)="editQueue()"
-            type="button"
-            title="Edit queued message"
-          >
-            {{ resolvedQueuedContent()?.substring(0, 100) }}
-            @if (
-              resolvedQueuedContent() && resolvedQueuedContent()!.length > 100
-            ) {
-              <span>...</span>
-            }
-          </button>
-        </div>
-      }
+      <!-- Queued follow-ups of this tab's session (TASK_2026_884) -->
+      <ptah-queued-follow-ups
+        [tabId]="resolvedTabId()"
+        [sessionId]="resolvedSessionId()"
+      />
 
       </div>
       <!-- Input Area (in normal flow at the bottom). -->

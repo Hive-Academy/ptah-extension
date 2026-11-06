@@ -199,6 +199,7 @@ export {
 // Type only (erased): the dock store names the surfaces it holds. Never add a
 // value export from `organisms/display-panel/` here; that folder is lazy.
 export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces';
+export type { DisplayFileItem, DisplayFileKind } from './lib/organisms/display-panel/display-file-item';
 // Artifact surfaces (TASK_2026_710): the transcript card is metadata only, so
 // it is eager-safe as a value export. The sandboxed viewer and theme bridge
 // carry the ptah-artifact iframe and its postMessage channel and stay behind
@@ -263,6 +264,11 @@ export {
   knownSubtotalOf,
 } from './lib/molecules/session/session-stats-view';
 export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
+export {
+  InspectorLinkedSessionsComponent,
+  type InspectorLinkedSessionEntry,
+  type InspectorLinkedSessionRelation,
+} from './lib/molecules/session/inspector-stats/inspector-linked-sessions.component';
 export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
 export {
   sessionContextCue,

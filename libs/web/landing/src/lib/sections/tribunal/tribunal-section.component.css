@@ -1,0 +1,197 @@
+/* S4 "the bench": copy column left, clip right of centre, seats behind it. */
+.tb-atmosphere {
+  background:
+    radial-gradient(ellipse 46% 44% at 64% 62%, rgb(245 165 36 / 9%), transparent 72%),
+    radial-gradient(ellipse 26% 28% at 14% 30%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+.tb-stage {
+  position: relative;
+  display: grid;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.tb-text {
+  min-width: 0;
+}
+
+.tb-points {
+  display: grid;
+  gap: 0.75rem;
+  margin: clamp(1.5rem, 3vw, 2.25rem) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tb-point {
+  max-width: 40ch;
+  padding-left: 1rem;
+  border-left: 1px solid #3a3f4b;
+  color: #e9ebef;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+/* The verdict: the last point, set apart and landing last. */
+.tb-point.is-verdict {
+  margin-top: 0.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(255 187 77 / 55%);
+  border-left: 2px solid #f5a524;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #0e1015;
+}
+
+.tb-point.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.tb-clip {
+  position: relative;
+  /* Room above the clip for the seats to show. */
+  padding-top: clamp(3.5rem, 7vw, 5.5rem);
+}
+
+.tb-video {
+  position: relative;
+  z-index: 2;
+  display: block;
+  aspect-ratio: 8 / 5;
+  height: auto;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+/* Five empty seats fanned behind the clip's top edge. */
+.tb-bench {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 4%;
+  left: 4%;
+  height: calc(clamp(3.5rem, 7vw, 5.5rem) + 3rem);
+}
+
+.tb-seat {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--at) * 19%);
+  width: 20%;
+  height: 100%;
+  border: 1px solid #262a33;
+  border-radius: 0.4rem 0.4rem 0 0;
+  background: #0e1015;
+  opacity: 0;
+  transform: translateY(70%) rotate(var(--tilt, 0deg));
+  transform-origin: 50% 100%;
+  transition:
+    opacity 0.35s ease,
+    transform 0.45s ease;
+}
+
+.tb-seat.is-in {
+  opacity: 1;
+  transform: translateY(0) rotate(var(--tilt, 0deg));
+}
+
+.seat-bar {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #262a33;
+}
+
+.seat-bar i {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: #262a33;
+}
+
+.seat-bar i:first-child {
+  background: #f5a524;
+}
+
+.tb-bolt {
+  position: absolute;
+  z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  /*
+   * A big clip anchored right; the copy column overlaps its left edge (the
+   * sessions column) on an ink scrim, so the headline stays on screen while
+   * the stage is pinned. The copy is set larger than the other sections.
+   */
+  .tb-stage {
+    --section-title-size: clamp(2.4rem, 4.4vw, 4rem);
+    --section-subline-size: 1.15rem;
+    display: block;
+    width: min(100%, 100rem);
+    margin: 0 auto;
+    padding: 0 clamp(3rem, 5vw, 5rem) 0 0;
+  }
+
+  .tb-text {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    left: clamp(0rem, 3vw, 3rem);
+    width: min(34rem, 38vw);
+    isolation: isolate;
+    transform: translateY(-50%);
+  }
+
+  .tb-text::before {
+    position: absolute;
+    z-index: -1;
+    inset: -1.75rem -4rem -1.75rem -2rem;
+    content: '';
+    border-radius: 0.75rem;
+    background: linear-gradient(90deg, rgb(8 9 12 / 94%) calc(100% - 7rem), rgb(8 9 12 / 0%));
+  }
+
+  .tb-point {
+    max-width: none;
+    font-size: 1.15rem;
+  }
+
+  .tb-clip {
+    width: min(66vw, calc(76vh * 1.6));
+    margin-left: auto;
+  }
+
+  /* Floor bolt: under the clip's right part, clear of the copy column. */
+  .tb-bolt-floor {
+    display: block;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    left: 38%;
+    height: 2.75rem;
+  }
+
+  /* Outer bolt: along the clip's right edge, below the bench. */
+  .tb-bolt-outer {
+    display: block;
+    top: 18%;
+    left: calc(100% + 0.25rem);
+    width: clamp(2.25rem, 3.5vw, 4rem);
+    height: 88%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-point,
+  .tb-seat {
+    transition: none;
+  }
+}

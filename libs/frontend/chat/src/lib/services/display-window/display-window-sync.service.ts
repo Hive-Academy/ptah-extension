@@ -1,10 +1,10 @@
 import {
   DestroyRef,
   Injectable,
-  Injector,
   computed,
   effect,
   inject,
+  Injector,
   signal,
   untracked,
   type Signal,
@@ -20,16 +20,10 @@ import {
   DISPLAY_WINDOW_STATE_MAX_BYTES,
   type DisplayWindowJsonObject,
   type DisplayWindowUnavailableReason,
-  type TurnChangeSet,
 } from '@ptah-extension/shared';
 import { ArtifactStore } from '../artifact.store';
-import {
-  ChangeSetActionsService,
-  runDisplayChangeSetAction,
-} from '../change-set/change-set-actions.service';
 import type { DisplayDockState } from '../display-dock/display-dock.state';
 import {
-  DISPLAY_WINDOW_SUMMARY_KEY,
   parseActionPush,
   selectionForKey,
   selectionKey,
@@ -44,6 +38,8 @@ export interface DisplayWindowSource {
   /** The main view's active tab; `null` when no tab is open. */
   readonly tabId: Signal<string | null>;
   readonly dock: DisplayDockState;
+  /** Increments whenever this surface receives user interaction. */
+  readonly focusVersion: Signal<number>;
 }
 
 const UNAVAILABLE_TEXT: Readonly<
@@ -96,7 +92,6 @@ export class DisplayWindowSync implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly theme = inject(ThemeService);
   private readonly artifacts = inject(ArtifactStore);
-  // Resolved on the first change-set action from the window, not at boot.
   private readonly injector = inject(Injector);
 
   readonly handledMessageTypes = [
@@ -112,11 +107,8 @@ export class DisplayWindowSync implements MessageHandler {
   readonly error = this._error.asReadonly();
 
   private readonly source = signal<DisplayWindowSource | null>(null);
-  /** A failed open-file or review run from the window, shown in its panel. */
-  private readonly actionFailure = signal<{
-    tabId: string;
-    message: string;
-  } | null>(null);
+  private readonly sources: DisplayWindowSource[] = [];
+  private hasFocused = false;
 
   /** The bound tab's display view, or `null` with no source or no tab. */
   private readonly view = computed(
@@ -154,10 +146,47 @@ export class DisplayWindowSync implements MessageHandler {
    * clears the binding only if it is still this source.
    */
   bindSource(source: DisplayWindowSource): () => void {
-    this.source.set(source);
+    this.sources.push(source);
+    if (this.source() === null || !this.hasFocused) this.source.set(source);
+    let lastFocusVersion = source.focusVersion();
+    const focusEffect = effect(() => {
+      const focusVersion = source.focusVersion();
+      const tabId = source.tabId();
+      if (focusVersion !== lastFocusVersion && tabId !== null) {
+        this.hasFocused = true;
+        const index = this.sources.indexOf(source);
+        if (index >= 0) {
+          this.sources.splice(index, 1);
+          this.sources.push(source);
+          this.source.set(source);
+        }
+      }
+      lastFocusVersion = focusVersion;
+      if (this.source() === source && tabId === null)
+        this.source.set(this.lastBoundSource(source));
+    }, { injector: this.injector });
     return () => {
-      if (untracked(this.source) === source) this.source.set(null);
+      focusEffect.destroy();
+      const index = this.sources.lastIndexOf(source);
+      if (index < 0) return;
+      this.sources.splice(index, 1);
+      if (untracked(this.source) === source)
+        this.source.set(this.lastBoundSource(null));
     };
+  }
+
+  /**
+   * The most recently added source, other than `exclude`, that has a bound
+   * tab. A reverse loop, because the project `lib` predates `findLast`.
+   */
+  private lastBoundSource(
+    exclude: DisplayWindowSource | null,
+  ): DisplayWindowSource | null {
+    for (let index = this.sources.length - 1; index >= 0; index -= 1) {
+      const candidate = this.sources[index];
+      if (candidate !== exclude && candidate.tabId() !== null) return candidate;
+    }
+    return null;
   }
 
   /** Opens the separate window; on success the panel moves there. */
@@ -271,47 +300,19 @@ export class DisplayWindowSync implements MessageHandler {
       case 'view-state':
         dock.setViewState(tabId, action.surfaceKey, action.viewState);
         return;
-      case 'open-file':
-        void this.runChangeSetAction(dock, tabId, (changeSet) =>
-          this.injector
-            .get(ChangeSetActionsService)
-            .openFile(changeSet, action.path),
-        );
-        return;
-      case 'review':
-        void this.runChangeSetAction(dock, tabId, (changeSet) =>
-          this.injector.get(ChangeSetActionsService).review(changeSet),
-        );
-        return;
       case 'attach':
         // Handled before the tab check in `handleMessage`.
         return;
     }
   }
 
-  /** The display sheet's change-set rule: the shown summary's change set, or an error. */
-  private async runChangeSetAction(
-    dock: DisplayDockState,
-    tabId: string,
-    action: (changeSet: TurnChangeSet) => Promise<void>,
-  ): Promise<void> {
-    this.actionFailure.set(null);
-    await runDisplayChangeSetAction(
-      dock.summaryFor(tabId)?.changeSet ?? null,
-      action,
-      (message) => this.actionFailure.set({ tabId, message }),
-    );
-  }
-
   private buildView(dock: DisplayDockState, tabId: string): DisplayWindowView {
     const state = dock.tab(tabId);
     const selection = state.selection;
-    const summary = dock.summaryFor(tabId);
     const artifacts = this.artifacts.panelArtifacts(
       tabId,
       selection?.kind === 'artifact' ? selection.artifactId : null,
     );
-    const failure = this.actionFailure();
     const themeName = this.theme.currentTheme();
     return {
       theme: {
@@ -320,19 +321,14 @@ export class DisplayWindowSync implements MessageHandler {
       },
       open: true,
       pinned: state.pinned,
-      count:
-        (summary === null ? 0 : 1) + state.surfaces.length + artifacts.length,
+      count: state.surfaces.length + artifacts.length + state.files.length,
       selectedKey: selectionKey(selection),
-      scrollToSelectedOnMount:
-        (selection?.kind ?? DISPLAY_WINDOW_SUMMARY_KEY) !==
-        DISPLAY_WINDOW_SUMMARY_KEY,
+      scrollToSelectedOnMount: selection !== null,
       fullscreenArtifactId: dock.fullscreenArtifact(tabId),
-      summary: summary?.model ?? null,
-      summaryTurnKey: dock.summaryKeyFor(tabId) ?? '',
       surfaces: state.surfaces,
       viewStates: state.viewStates,
       artifacts,
-      actionError: failure?.tabId === tabId ? failure.message : null,
+      files: state.files,
       notice: null,
     };
   }
@@ -350,12 +346,10 @@ export class DisplayWindowSync implements MessageHandler {
       selectedKey: null,
       scrollToSelectedOnMount: false,
       fullscreenArtifactId: null,
-      summary: null,
-      summaryTurnKey: '',
       surfaces: [],
       viewStates: new Map(),
       artifacts: [],
-      actionError: null,
+      files: [],
       notice,
     };
   }

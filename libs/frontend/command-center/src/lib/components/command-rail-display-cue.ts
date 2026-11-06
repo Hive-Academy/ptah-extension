@@ -9,9 +9,8 @@ export interface DisplayDockView {
 
 /**
  * Whether the dock change from `previous` to `next` came from a user action
- * in the Live transcript (a chip's `openSurface`, `openArtifact` or
- * `openSummary`, or a fullscreen request), so the rail should show the
- * Display tab. The sync's auto-open is excluded: it always advances
+ * in the Live transcript (a chip's `openSurface` or `openArtifact`, or a
+ * fullscreen request), so the rail should show the Display tab. The sync's auto-open is excluded: it always advances
  * `surfaceRevision`, the user opens never do. So is the agent monitor's
  * open, which lands on the Agents tab, and a publication that only clears
  * the selection.

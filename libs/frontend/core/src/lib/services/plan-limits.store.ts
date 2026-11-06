@@ -106,6 +106,9 @@ export class PlanLimitsStore implements MessageHandler {
   });
 
   private loadGeneration = 0;
+  private inFlightLoad: Promise<void> | null = null;
+  private trailingLoad: Promise<void> | null = null;
+  private trailingRefresh = false;
   private incompleteRetryCount = 0;
   private incompleteRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private clockHandle: ReturnType<typeof setInterval> | null = null;
@@ -173,6 +176,29 @@ export class PlanLimitsStore implements MessageHandler {
    * replaces the remembered provider; omitting it keeps the last one.
    */
   async load(params: PlanLimitsLoadParams = {}, incompleteRetry = false): Promise<void> {
+    if (params.providerId !== undefined) this.providerId = params.providerId;
+    if (this.inFlightLoad) {
+      this.trailingRefresh ||= params.refresh === true;
+      if (!this.trailingLoad) {
+        this.trailingLoad = this.inFlightLoad.then(() => {
+          const refresh = this.trailingRefresh;
+          this.trailingRefresh = false;
+          this.trailingLoad = null;
+          return this.load({ refresh }, incompleteRetry);
+        });
+      }
+      return this.trailingLoad;
+    }
+    const pending = this.loadOnce(params, incompleteRetry);
+    this.inFlightLoad = pending;
+    void pending.then(
+      () => { if (this.inFlightLoad === pending) this.inFlightLoad = null; },
+      () => { if (this.inFlightLoad === pending) this.inFlightLoad = null; },
+    );
+    return pending;
+  }
+
+  private async loadOnce(params: PlanLimitsLoadParams, incompleteRetry: boolean): Promise<void> {
     if (this.incompleteRetryTimer) clearTimeout(this.incompleteRetryTimer);
     this.incompleteRetryTimer = null;
     if (!incompleteRetry) this.incompleteRetryCount = 0;

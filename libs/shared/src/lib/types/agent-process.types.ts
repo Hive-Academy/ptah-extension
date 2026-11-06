@@ -265,6 +265,8 @@ export interface SpawnAgentRequest {
   readonly cli?: CliType;
   /** Working directory (defaults to workspace root) */
   readonly workingDirectory?: string;
+  /** Omit the host MCP attachment for isolated, ephemeral work such as review attempts. */
+  readonly attachMcp?: boolean;
   /**
    * Inactivity window in milliseconds — how long the agent may produce NO
    * output before it is treated as hung (default: 3600000 = 1hr). The window is
@@ -413,6 +415,7 @@ export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
 export interface AgentMessageOutcome {
   readonly mode: AgentMessagingMode;
   readonly detail?: string;
+  readonly messageId?: string;
 }
 
 export interface CliDetectionResult {
