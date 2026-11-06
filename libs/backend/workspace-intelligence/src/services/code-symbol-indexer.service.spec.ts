@@ -12,6 +12,7 @@ import type { AstAnalysisService } from '../ast/ast-analysis.service';
 import type { BackgroundWorkAdmission } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import { CodeSymbolIndexer } from './code-symbol-indexer.service';
+import { Result } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Minimal mock helpers
@@ -103,6 +104,8 @@ function makeAst(): jest.Mocked<AstAnalysisService> {
       isErr: () => false,
       value: { functions: [], classes: [] },
     }),
+    isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+    runtimeRetryInMs: jest.fn().mockReturnValue(0),
   } as unknown as jest.Mocked<AstAnalysisService>;
 }
 
@@ -483,6 +486,32 @@ describe('CodeSymbolIndexer', () => {
   });
 
   describe('indexWorkspace — total failure surfaces an error', () => {
+    it('fails the run with one summary for runtime skips, recording and purging nothing', async () => {
+      const files = fakeTsFiles(4);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('const x = 1;');
+      let unavailable = false;
+      const ast = makeAst();
+      ast.isRuntimeUnavailable = jest.fn(() => unavailable);
+      ast.runtimeRetryInMs = jest.fn(() => 60_000);
+      ast.analyzeSource.mockImplementation(async () => {
+        unavailable = true;
+        return Result.err(new Error('runtime unavailable'));
+      });
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+      await expect(service.indexWorkspace('/workspace')).rejects.toThrow(
+        'tree-sitter runtime unavailable — skipped 3 files; next retry in 60000ms',
+      );
+      expect(ast.analyzeSource).toHaveBeenCalledTimes(1);
+      expect(sink.replaceFileSymbols).toHaveBeenCalledTimes(0);
+      // No per-file parse warning while the runtime is latched.
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('AST parse failed'),
+      );
+    });
     it('throws when every discovered file errors and 0 symbols are produced', async () => {
       const files = fakeTsFiles(5);
       const logger = makeLogger();
@@ -497,6 +526,8 @@ describe('CodeSymbolIndexer', () => {
           isErr: () => true,
           error: new Error('web-tree-sitter.wasm not found'),
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
 
       const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
@@ -531,6 +562,8 @@ describe('CodeSymbolIndexer', () => {
               }
             : { isErr: () => true, error: new Error('parse failed') };
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
 
       const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
@@ -604,6 +637,8 @@ describe('CodeSymbolIndexer', () => {
             parseStatus: 'ok',
           },
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
     }
 

@@ -27,6 +27,7 @@ import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import type { SentryService } from '../services/sentry.service';
 import { readMsEnv, roundMs } from '../diagnostics/env-thresholds';
+import { hangBreadcrumbs } from '../diagnostics/hang-breadcrumbs';
 import {
   RpcUserError,
   type RpcMessage,
@@ -219,6 +220,9 @@ export class RpcHandler {
     // throws after 40 seconds is the MOST interesting case, and an error return
     // gives no hint that the failure was preceded by a long block.
     const startedAt = performance.now();
+    // Before the handler's synchronous part runs: a block that starts in this
+    // very tick must already name its method in the hang log.
+    const breadcrumb = hangBreadcrumbs.begin('rpc', method);
     try {
       const data = await handler(params);
       this.logger.debug(`RpcHandler: Method "${method}" succeeded`, {
@@ -256,6 +260,7 @@ export class RpcHandler {
         correlationId,
       };
     } finally {
+      hangBreadcrumbs.end(breadcrumb);
       this.warnIfSlow(method, performance.now() - startedAt, correlationId);
     }
   }

@@ -462,6 +462,26 @@ describe('SdkQueryRunner', () => {
       ];
       expect(params.options.cwd).toBe(os.homedir());
     });
+
+    it('warns once per unsafe cwd while keeping every rewrite', async () => {
+      const h = makeRunner({
+        extensionPath: '/home/abdo/.local/programs/ptah/resources/app.asar',
+      });
+      for (const cwd of ['', '', '/home/abdo/.local/programs/ptah']) {
+        await h.runner.runOneShot({
+          mode: 'oneShot',
+          cwd,
+          model: 'claude-sonnet-4-20250514',
+          prompt: 'hi',
+          mcpServerRunning: false,
+        });
+      }
+      expect(
+        h.logger.warn.mock.calls.filter(([message]) =>
+          String(message).includes('Unsafe one-shot cwd rewritten'),
+        ),
+      ).toHaveLength(2);
+    });
   });
 
   /**
@@ -646,7 +666,12 @@ describe('SdkQueryRunner', () => {
     ): Promise<boolean> {
       const h = makeRunner({
         queryFnImpl: ({ options }) => {
-          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          options.spawnClaudeCodeProcess?.({
+            command: 'claude',
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          } as SpawnOptions);
           return createFakeQuery('fresh');
         },
       });
@@ -664,30 +689,47 @@ describe('SdkQueryRunner', () => {
     }
 
     it('settles on a numeric exit status', async () => {
-      await expect(terminatedAfter(new EventEmitter(), [1, null])).resolves.toBe(true);
+      await expect(
+        terminatedAfter(new EventEmitter(), [1, null]),
+      ).resolves.toBe(true);
     });
 
     it('settles on a signal death the spawner observed (the SDK close/abort path)', async () => {
       const child = Object.assign(new EventEmitter(), { exitObserved: true });
-      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(true);
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(
+        true,
+      );
     });
 
     it('reports the spawned child pid from the spawner', async () => {
-      const child = Object.assign(new EventEmitter(), { whenSpawned: Promise.resolve(4321) });
+      const child = Object.assign(new EventEmitter(), {
+        whenSpawned: Promise.resolve(4321),
+      });
       const h = makeRunner({
         queryFnImpl: ({ options }) => {
-          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          options.spawnClaudeCodeProcess?.({
+            command: 'claude',
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          } as SpawnOptions);
           return createFakeQuery('fresh');
         },
       });
       h.processSpawner.spawn.mockReturnValue(child);
-      const handle = h.runner.invokeNamedQuery(h.queryFn as unknown as QueryFunction, emptyPrompt(), {} as SdkQueryOptions);
+      const handle = h.runner.invokeNamedQuery(
+        h.queryFn as unknown as QueryFunction,
+        emptyPrompt(),
+        {} as SdkQueryOptions,
+      );
       await expect(handle.childPid).resolves.toBe(4321);
     });
 
     it('stays unsettled on a synthesized signal-only exit', async () => {
       const child = Object.assign(new EventEmitter(), { exitObserved: false });
-      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(false);
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(
+        false,
+      );
     });
   });
 
@@ -698,13 +740,9 @@ describe('SdkQueryRunner', () => {
         throw new Error('query should not run');
       };
       expect(() =>
-        h.runner.invokeWithLoadedQuery(
-          queryFn,
-          emptyPrompt(),
-          {
-            env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
-          } as SdkQueryOptions,
-        ),
+        h.runner.invokeWithLoadedQuery(queryFn, emptyPrompt(), {
+          env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
+        } as SdkQueryOptions),
       ).toThrow('Codex chat requires a host with the native Codex runtime.');
     });
 
@@ -1349,14 +1387,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
     }, authEnv);
 
     expect(providerOf(authEnv)).toBe('openai-codex');
-    await expect(h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'curate',
-      mcpServerRunning: false,
-      dispatch: ride('memory-curator', 'memory-curator'),
-    })).rejects.toMatchObject({
+    await expect(
+      h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'curate',
+        mcpServerRunning: false,
+        dispatch: ride('memory-curator', 'memory-curator'),
+      }),
+    ).rejects.toMatchObject({
       name: 'AuthRequiredError',
       providerId: 'openai-codex',
       message: 'Codex chat requires a host with the native Codex runtime.',
@@ -1389,14 +1429,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
 
     expect(providerOf({ ...authEnv })).toBe(ANTHROPIC_DIRECT_PROVIDER_ID);
 
-    await expect(h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'curate',
-      mcpServerRunning: false,
-      dispatch: ride('memory-curator', 'memory-curator'),
-    })).rejects.toMatchObject({
+    await expect(
+      h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'curate',
+        mcpServerRunning: false,
+        dispatch: ride('memory-curator', 'memory-curator'),
+      }),
+    ).rejects.toMatchObject({
       name: 'AuthRequiredError',
       providerId: 'openai-codex',
     });

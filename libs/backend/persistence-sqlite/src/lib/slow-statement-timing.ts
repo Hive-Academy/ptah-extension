@@ -27,7 +27,7 @@
  * see `forwardingProxy`.
  */
 import type { Logger } from '@ptah-extension/vscode-core';
-import { roundMs } from '@ptah-extension/vscode-core';
+import { hangBreadcrumbs, roundMs } from '@ptah-extension/vscode-core';
 import type {
   SqliteDatabase,
   SqliteStatement,
@@ -131,6 +131,8 @@ class SlowStatementReporter {
     rows?: number,
   ): void {
     if (durationMs < this.thresholdMs) return;
+    // Label only: `key` is the prepared SQL text, placeholders not values.
+    hangBreadcrumbs.noteSlowSql(`${op} ${key}`, durationMs);
     this.report(
       key,
       op,

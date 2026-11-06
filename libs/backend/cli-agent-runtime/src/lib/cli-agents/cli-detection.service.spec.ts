@@ -64,6 +64,13 @@ const mockGrokCtor = jest.fn((_spawner?: unknown, _logger?: unknown) =>
 jest.mock('./cli-adapters/grok-cli.adapter', () => ({
   GrokCliAdapter: mockGrokCtor,
 }));
+const currentPath = (): string => process.env['PATH'] ?? '';
+const mockFixPathReady = jest.fn<Promise<string>, []>(() =>
+  Promise.resolve(currentPath()),
+);
+jest.mock('./cli-adapters/fix-path', () => ({
+  fixPathReady: () => mockFixPathReady(),
+}));
 
 import { CliDetectionService } from './cli-detection.service';
 
@@ -137,6 +144,45 @@ function createService(codexAdapterFactory: CodexAdapterFactory | null = {
   );
   return { service, logger, sentry, authSecrets };
 }
+
+describe('CliDetectionService login-shell PATH refresh', () => {
+  const settle = (): Promise<void> =>
+    new Promise((resolve) => setImmediate(resolve));
+
+  beforeEach(() => {
+    mockAdapters.clear();
+    for (const [name, channel] of CHANNELS) {
+      mockAdapters.set(name, createAdapter(name, channel));
+    }
+  });
+
+  afterEach(() => {
+    mockFixPathReady.mockImplementation(() => Promise.resolve(currentPath()));
+  });
+
+  it('drops the cached scan once when the shell probe changes PATH', async () => {
+    let land: (path: string) => void = () => undefined;
+    mockFixPathReady.mockImplementation(
+      () => new Promise<string>((resolve) => { land = resolve; }),
+    );
+    const { service } = createService();
+    const invalidate = jest.spyOn(service, 'invalidateCache');
+
+    land(`/login-shell/bin:${currentPath()}`);
+    await settle();
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the cached scan when the shell probe leaves PATH unchanged', async () => {
+    const { service } = createService();
+    const invalidate = jest.spyOn(service, 'invalidateCache');
+
+    await settle();
+
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});
 
 describe('CliDetectionService role stamp', () => {
   beforeEach(() => {
@@ -364,5 +410,18 @@ describe('CliDetectionService role stamp', () => {
     for (const [name] of CHANNELS) {
       expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it('deduplicates model listing and recomputes after invalidation', async () => {
+    const { service } = createService();
+    await Promise.all([service.listModelsForAll(), service.listModelsForAll()]);
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).listModels).toHaveBeenCalledTimes(1);
+    }
+    await service.listModelsForAll();
+    expect(mockAdapterFor('codex').listModels).toHaveBeenCalledTimes(1);
+    service.invalidateCache();
+    await service.listModelsForAll();
+    expect(mockAdapterFor('codex').listModels).toHaveBeenCalledTimes(2);
   });
 });

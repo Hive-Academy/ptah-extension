@@ -120,6 +120,9 @@ function parseQuality(root: SyntaxNode): ParseQuality {
   };
 }
 
+export const TREE_SITTER_RETRY_INITIAL_MS = 60_000;
+export const TREE_SITTER_RETRY_MAX_MS = 1_800_000;
+
 @injectable()
 export class TreeSitterParserService {
   /**
@@ -144,11 +147,20 @@ export class TreeSitterParserService {
   private generation = 0;
   private isInitialized = false;
   private initPromise: Promise<Result<void, Error>> | null = null;
+  private runtimeFailure: Error | null = null;
+  private nextRetryAt = 0;
+  private retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
+  private now: () => number = Date.now;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.logger.info(
       'TreeSitterParserService created. Initialization required.',
     );
+  }
+
+  /** Clock seam for deterministic retry tests. */
+  setClock(now: () => number): void {
+    this.now = now;
   }
 
   /**
@@ -174,8 +186,27 @@ export class TreeSitterParserService {
       return this.initPromise;
     }
 
+    const failure = this.latchedFailure();
+    if (failure) return Result.err(failure);
+
     this.initPromise = this._doInitialize(this.generation);
     return this.initPromise;
+  }
+
+  isRuntimeUnavailable(): boolean {
+    return this.latchedFailure() !== null;
+  }
+
+  private latchedFailure(): Error | null {
+    return this.runtimeFailure !== null && this.now() < this.nextRetryAt
+      ? this.runtimeFailure
+      : null;
+  }
+
+  runtimeRetryInMs(): number {
+    return this.runtimeFailure === null
+      ? 0
+      : Math.max(0, this.nextRetryAt - this.now());
   }
 
   /**
@@ -201,24 +232,45 @@ export class TreeSitterParserService {
         return Result.err(this.disposedError('the WASM runtime'));
       }
       this.isInitialized = true;
-      this.logger.info('web-tree-sitter WASM runtime initialized.');
+      if (this.runtimeFailure !== null) {
+        this.runtimeFailure = null;
+        this.retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
+        this.logger.info('TreeSitterParserService WASM runtime recovered.');
+      } else {
+        this.logger.info('web-tree-sitter WASM runtime initialized.');
+      }
       return Result.ok(undefined);
     } catch (error: unknown) {
       if (generation === this.generation) {
         this.isInitialized = false;
-        this.initPromise = null; // Allow retry on failure
+        this.initPromise = null;
       }
       // Without the runtime no grammar can load: every language is unavailable.
-      return Result.err(
-        this._handleAndLogError(
-          `TreeSitterParserService WASM runtime initialization failed (located: ${
-            located.join(', ') || 'none'
-          })`,
-          new ParserRefusalError('grammar-unavailable', messageOf(error), {
-            cause: error,
-          }),
-        ),
+      const refusal = new ParserRefusalError(
+        'grammar-unavailable',
+        messageOf(error),
+        { cause: error },
       );
+      if (generation === this.generation) {
+        if (this.runtimeFailure === null) {
+          this.logger.error(
+            `TreeSitterParserService WASM runtime initialization failed (located: ${located.join(', ') || 'none'})`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        } else {
+          const nextDelayMs = Math.min(
+            this.retryDelayMs * 2,
+            TREE_SITTER_RETRY_MAX_MS,
+          );
+          this.logger.warn(
+            `TreeSitterParserService WASM runtime retry failed; next retry in ${nextDelayMs}ms`,
+          );
+          this.retryDelayMs = nextDelayMs;
+        }
+        this.runtimeFailure = refusal;
+        this.nextRetryAt = this.now() + this.retryDelayMs;
+      }
+      return Result.err(refusal);
     }
   }
 
@@ -893,6 +945,8 @@ export class TreeSitterParserService {
 
     this.isInitialized = false;
     this.initPromise = null;
+    this.runtimeFailure = null;
+    this.retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
 
     this.logger.info('TreeSitterParserService disposed.');
   }

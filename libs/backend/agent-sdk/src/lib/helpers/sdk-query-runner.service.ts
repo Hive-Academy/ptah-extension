@@ -90,7 +90,9 @@ import type { NamedAccountPersistencePort } from './session-lifecycle/session-qu
 import { isChildExitProved, spawnedChildPid } from './child-exit-proof';
 
 /** Host adapter over the account registry and SessionMetadataStore. */
-export const SDK_NAMED_ACCOUNT_PERSISTENCE = Symbol.for('SdkNamedAccountPersistence');
+export const SDK_NAMED_ACCOUNT_PERSISTENCE = Symbol.for(
+  'SdkNamedAccountPersistence',
+);
 
 export interface NamedAccountQueryHandle {
   readonly sdkQuery: ReturnType<QueryFunction>;
@@ -275,6 +277,7 @@ function logProvenanceTapFailure(logger: Logger, error: unknown): void {
 
 @injectable()
 export class SdkQueryRunner {
+  private readonly warnedUnsafeCwds = new Set<string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_RUNTIME_STATE)
@@ -308,7 +311,9 @@ export class SdkQueryRunner {
      */
     @inject(MODEL_DISPATCH_PROVENANCE_TAP, { isOptional: true })
     private readonly provenanceTap: ModelDispatchProvenanceTap | null = null,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, { isOptional: true })
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, {
+      isOptional: true,
+    })
     readonly accountAdmission: ProviderAccountAdmissionPort | null = null,
     @inject(SDK_NAMED_ACCOUNT_PERSISTENCE, { isOptional: true })
     readonly accountPersistence: NamedAccountPersistencePort | null = null,
@@ -377,10 +382,17 @@ export class SdkQueryRunner {
     const fallback = isUnsafeWorkspacePath(home, this.platformInfo).ok
       ? home
       : os.tmpdir();
-    this.logger.warn(
-      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
-      { requested, fallback },
-    );
+    if (!this.warnedUnsafeCwds.has(requested)) {
+      this.warnedUnsafeCwds.add(requested);
+      if (this.warnedUnsafeCwds.size > 128) {
+        const oldest = this.warnedUnsafeCwds.values().next().value;
+        if (oldest !== undefined) this.warnedUnsafeCwds.delete(oldest);
+      }
+      this.logger.warn(
+        `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
+        { requested, fallback },
+      );
+    }
     return fallback;
   }
 
@@ -501,12 +513,17 @@ export class SdkQueryRunner {
   ): NamedAccountQueryHandle {
     this.useOffThreadSpawner(options);
     const spawn = options.spawnClaudeCodeProcess;
-    if (!spawn) throw new SdkError('Named account process observer unavailable.');
+    if (!spawn)
+      throw new SdkError('Named account process observer unavailable.');
     let terminated!: () => void;
-    const termination = new Promise<void>((resolve) => { terminated = resolve; });
+    const termination = new Promise<void>((resolve) => {
+      terminated = resolve;
+    });
     observeTermination?.(termination);
     let spawned!: (pid: Promise<number | null>) => void;
-    const childPid = new Promise<number | null>((resolve) => { spawned = resolve; });
+    const childPid = new Promise<number | null>((resolve) => {
+      spawned = resolve;
+    });
     const observedOptions: SdkQueryOptions = {
       ...options,
       spawnClaudeCodeProcess: (input) => {
@@ -515,7 +532,9 @@ export class SdkQueryRunner {
         // and every abort end the child with kill()) is proof only when the
         // spawner observed the child's own exit; the exit the worker shim
         // synthesizes after losing its worker stays held.
-        child.once('exit', (code) => { if (isChildExitProved(child, code)) terminated(); });
+        child.once('exit', (code) => {
+          if (isChildExitProved(child, code)) terminated();
+        });
         spawned(spawnedChildPid(child));
         return child;
       },
@@ -703,7 +722,9 @@ export class SdkQueryRunner {
     this.useOffThreadSpawner(options);
 
     // A retired Codex proxy env is observable, but its query launch is refused.
-    if (options.env?.['ANTHROPIC_AUTH_TOKEN'] !== CODEX_PROXY_TOKEN_PLACEHOLDER) {
+    if (
+      options.env?.['ANTHROPIC_AUTH_TOKEN'] !== CODEX_PROXY_TOKEN_PLACEHOLDER
+    ) {
       this.scheduleProvenance(input.dispatch, resolvedModel, authEnv);
     }
 

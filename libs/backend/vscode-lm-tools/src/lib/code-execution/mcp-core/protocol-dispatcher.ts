@@ -12,7 +12,11 @@ import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
-import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
+import type {
+  HangBreadcrumbs,
+  Logger,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 import {
   compactCoverage,
   type CompactCoverage,
@@ -353,6 +357,13 @@ export interface ProtocolHandlerDependencies {
    * its arguments and answers `outcome store unavailable`.
    */
   resolveOutcomeReport?: () => OutcomeReportDependencies | undefined;
+  /**
+   * The host's hang breadcrumbs (`hangBreadcrumbs` from vscode-core), so a
+   * main-loop hang line names the MCP tools in flight. Passed in rather than
+   * imported: a value import of the vscode-core barrel breaks this file's
+   * suite (see `mcpSlowToolWarnMs`). Absent → no breadcrumbs.
+   */
+  hangBreadcrumbs?: Pick<HangBreadcrumbs, 'begin' | 'end'>;
 }
 
 /**
@@ -897,11 +908,13 @@ async function handleToolsCall(
 ): Promise<MCPResponse> {
   const toolName = telemetryToolName(toolNameOf(request));
   const startedAt = performance.now();
+  const breadcrumb = deps.hangBreadcrumbs?.begin('mcp', toolName);
   let response: MCPResponse | undefined;
   try {
     response = await dispatchToolsCall(request, deps);
     return response;
   } finally {
+    if (breadcrumb !== undefined) deps.hangBreadcrumbs?.end(breadcrumb);
     const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
     runObserver(() =>
       deps.logger.debug(
