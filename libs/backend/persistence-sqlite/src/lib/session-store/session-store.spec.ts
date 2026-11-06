@@ -332,6 +332,19 @@ describeDb('SqliteHostRunLeaseRepository', () => {
     expect(await cli.listStale(5_000)).toEqual([]);
   });
 
+  it('deletes conditionally: a renewed or re-owned lease survives', async () => {
+    await electron.beat('run-a', 4242, 1_000);
+    const observed = { hostRunId: 'run-a', pid: 4242, heartbeatAt: 1_000 };
+
+    await electron.beat('run-a', 4242, 31_000);
+    expect(await cli.withdrawIfUnchanged(observed)).toBe(false);
+    expect(await cli.withdrawIfUnchanged({ ...observed, pid: 7, heartbeatAt: 31_000 })).toBe(false);
+    expect((await cli.get('run-a'))?.heartbeatAt).toBe(31_000);
+
+    expect(await cli.withdrawIfUnchanged({ ...observed, heartbeatAt: 31_000 })).toBe(true);
+    expect(await electron.get('run-a')).toBeNull();
+  });
+
   it('reads a malformed row as no lease', async () => {
     const db = await electronStore.ready();
     db.prepare(

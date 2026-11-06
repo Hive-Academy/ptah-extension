@@ -2009,6 +2009,17 @@ describe('SessionMetadataStore', () => {
           get: async (hostRunId) => rows.get(hostRunId) ?? null,
           listStale: async (olderThan) =>
             [...rows.values()].filter((row) => row.heartbeatAt < olderThan),
+          withdrawIfUnchanged: async (observed) => {
+            const row = rows.get(observed.hostRunId);
+            if (
+              row?.pid !== observed.pid ||
+              row.heartbeatAt !== observed.heartbeatAt
+            ) {
+              return false;
+            }
+            rows.delete(observed.hostRunId);
+            return true;
+          },
         };
         return { rows, repository };
       }
@@ -2178,6 +2189,56 @@ describe('SessionMetadataStore', () => {
         expect(probe).toHaveBeenCalledWith(OTHER_PID);
       });
 
+      it('keeps a lease its owner renewed between the stale read and the delete', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(false);
+        const renewedAt = Date.now();
+        const racing: IHostRunLeaseRepository = {
+          ...repository,
+          listStale: async (olderThan) => {
+            const stale = await repository.listStale(olderThan);
+            // A resumes and beats after B's snapshot, before B's delete.
+            rows.set('host-run-a', {
+              hostRunId: 'host-run-a',
+              pid: OTHER_PID,
+              heartbeatAt: renewedAt,
+            });
+            return stale;
+          },
+        };
+
+        await beatAsHostB(racing);
+
+        expect(probe).toHaveBeenCalledWith(OTHER_PID);
+        expect(rows.get('host-run-a')?.heartbeatAt).toBe(renewedAt);
+        const hostB = storeWithLeases(repository);
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+      });
+
+      it('fallback removes a per-run key only while it holds the listed value', async () => {
+        const fallback = stateStorageLeaseStore({
+          read: async (key: string) => storage.get(key),
+          write: (key: string, value: number | undefined) =>
+            storage.update(key, value),
+          keys: () => storage.keys(),
+        });
+        const key = hostRunLeaseKey('host-run-a');
+        await storage.update(key, T0 + 1);
+        const listed = { hostRunId: 'host-run-a', pid: undefined };
+
+        expect(
+          await fallback.withdrawIfUnchanged({ ...listed, heartbeatAt: T0 }),
+        ).toBe(false);
+        expect(storage.__state.entries.get(key)).toBe(T0 + 1);
+        expect(
+          await fallback.withdrawIfUnchanged({ ...listed, heartbeatAt: T0 + 1 }),
+        ).toBe(true);
+        expect(storage.__state.entries.has(key)).toBe(false);
+      });
+
       it('never lets this process pid vouch for a foreign stale run', async () => {
         const { rows, repository } = createLeaseRepository();
         const hostA = await laneOfHostA(repository);
@@ -2231,6 +2292,7 @@ describe('SessionMetadataStore', () => {
             },
             read: async () => undefined,
             listStale: async () => [],
+            withdrawIfUnchanged: async () => false,
           },
           asLogger(logger),
         );

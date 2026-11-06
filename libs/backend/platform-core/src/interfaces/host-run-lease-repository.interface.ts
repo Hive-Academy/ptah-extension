@@ -22,6 +22,12 @@ export interface IHostRunLeaseRepository {
   beat(hostRunId: string, pid: number, at: number): Promise<void>;
   /** Remove a run's lease on a clean exit. Silent when absent. */
   withdraw(hostRunId: string): Promise<void>;
+  /**
+   * Prune only: delete the lease if it still matches `observed` (same pid and
+   * heartbeat) in one atomic step, so a beat that landed after the stale read
+   * survives. Resolves whether a row was deleted.
+   */
+  withdrawIfUnchanged(observed: HostRunLeaseRecord): Promise<boolean>;
   /** The run's lease, or null when absent or unreadable as a lease. */
   get(hostRunId: string): Promise<HostRunLeaseRecord | null>;
   /**

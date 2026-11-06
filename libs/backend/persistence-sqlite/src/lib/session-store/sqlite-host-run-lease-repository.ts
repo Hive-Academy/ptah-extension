@@ -38,6 +38,17 @@ export class SqliteHostRunLeaseRepository implements IHostRunLeaseRepository {
     );
   }
 
+  /** One statement: a beat between the stale read and this delete wins. */
+  async withdrawIfUnchanged(observed: HostRunLeaseRecord): Promise<boolean> {
+    const db = await this.store.ready();
+    const result = db
+      .prepare(
+        'DELETE FROM host_run_leases WHERE host_run_id = ? AND pid = ? AND heartbeat_at = ?',
+      )
+      .run(observed.hostRunId, observed.pid, observed.heartbeatAt);
+    return Number(result.changes) > 0;
+  }
+
   /** A row that fails validation is no lease. */
   async get(hostRunId: string): Promise<HostRunLeaseRecord | null> {
     const db = await this.store.ready();

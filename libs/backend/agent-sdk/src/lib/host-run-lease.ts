@@ -61,6 +61,8 @@ export interface HostRunLeaseStore {
   read(hostRunId: string): Promise<HostRunLeaseState | undefined>;
   /** Leases with no fresh heartbeat as of `olderThan`: prune candidates. */
   listStale(olderThan: number): Promise<readonly HostRunLeaseEntry[]>;
+  /** Prune only: remove the lease if it still equals the listed snapshot. */
+  withdrawIfUnchanged(observed: HostRunLeaseEntry): Promise<boolean>;
 }
 
 /**
@@ -199,8 +201,9 @@ export class HostRunLease {
       );
       for (const lease of candidates) {
         if (lease.hostRunId === this.hostRunId) continue;
+        // Conditional: a beat landing after the listing keeps the lease.
         if (!isHostRunAlive(lease, now)) {
-          await this.store.withdraw(lease.hostRunId);
+          await this.store.withdrawIfUnchanged(lease);
         }
       }
     } catch (error: unknown) {

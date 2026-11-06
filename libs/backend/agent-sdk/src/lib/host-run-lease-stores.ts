@@ -21,6 +21,11 @@ export function repositoryLeaseStore(
   return {
     beat: (hostRunId, at) => repository.beat(hostRunId, pid, at),
     withdraw: (hostRunId) => repository.withdraw(hostRunId),
+    withdrawIfUnchanged: async ({ hostRunId, pid, heartbeatAt }) => {
+      // Repository rows always carry both; a snapshot without them is no row.
+      if (pid === undefined || heartbeatAt === undefined) return false;
+      return repository.withdrawIfUnchanged({ hostRunId, pid, heartbeatAt });
+    },
     read: async (hostRunId) => {
       const lease = await repository.get(hostRunId);
       return lease === null
@@ -70,6 +75,16 @@ export function stateStorageLeaseStore(
     beat: (hostRunId, at) => storage.write(hostRunLeaseKey(hostRunId), at),
     withdraw: (hostRunId) =>
       storage.write(hostRunLeaseKey(hostRunId), undefined),
+    // Re-read, then remove only the listed value. Workspace state is one
+    // process's store (VS Code), so nothing writes between the two steps.
+    withdrawIfUnchanged: async ({ hostRunId, heartbeatAt }) => {
+      const key = hostRunLeaseKey(hostRunId);
+      if (parseHostRunHeartbeat(await storage.read(key)) !== heartbeatAt) {
+        return false;
+      }
+      await storage.write(key, undefined);
+      return true;
+    },
     read: async (hostRunId) => {
       const value = await storage.read(hostRunLeaseKey(hostRunId));
       const heartbeatAt = parseHostRunHeartbeat(value);
