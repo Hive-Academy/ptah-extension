@@ -8,7 +8,10 @@ import {
   type CodexLaneConfigInput,
 } from './codex-lane-config.builder';
 
+export const CODEX_LANE_PTAH_AUTH_REFERENCE = 'mcp.ptah.authorization';
+
 export interface CodexLaneProfileInput {
+  readonly mcpToken?: string;
   readonly codexSandboxMode?: CodexProfileSettings['codexSandboxMode'];
   readonly config: CodexLaneConfigInput;
   readonly identity: Pick<
@@ -75,8 +78,8 @@ const requirementHandlers = {
     return (
       actual !== undefined &&
       actual.length === requirements.disabledUserMcpServers.length &&
-      actual.every((name, index) =>
-        name === requirements.disabledUserMcpServers[index],
+      actual.every(
+        (name, index) => name === requirements.disabledUserMcpServers[index],
       )
     );
   },
@@ -123,9 +126,15 @@ export function buildCodexLaneProfileSettings(
     warnings,
   );
   const port = config.mcpPort;
-  const attach =
+  const validPort =
     port !== undefined && Number.isInteger(port) && port > 0 && port <= 65535;
-  if (port !== undefined && port !== 0 && !attach) {
+  const attach = validPort && input.mcpToken !== undefined;
+  if (validPort && input.mcpToken === undefined) {
+    warnings.push(
+      'Ptah MCP credential is unavailable; the lane starts without Ptah tools.',
+    );
+  }
+  if (port !== undefined && port !== 0 && !validPort) {
     warnings.push(
       'Ignored invalid Ptah MCP port; the lane starts without Ptah tools.',
     );
@@ -140,7 +149,9 @@ export function buildCodexLaneProfileSettings(
       : undefined;
   const settings: CodexProfileSettings = {
     ...input.identity,
-    ...(input.codexSandboxMode ? { codexSandboxMode: input.codexSandboxMode } : {}),
+    ...(input.codexSandboxMode
+      ? { codexSandboxMode: input.codexSandboxMode }
+      : {}),
     consumer: 'lane',
     cwd: config.workingDirectory,
     permissionLevel: input.permissionLevel,
@@ -158,6 +169,7 @@ export function buildCodexLaneProfileSettings(
               config.agentId,
             ),
             headerReferences: {},
+            authReference: CODEX_LANE_PTAH_AUTH_REFERENCE,
           },
         ]
       : [],
@@ -178,7 +190,9 @@ export function buildCodexLaneProfileSettings(
       ...(autoCompactTokens === undefined ? {} : { autoCompactTokens }),
       ...(toolOutputTokenLimit === undefined ? {} : { toolOutputTokenLimit }),
       webSearch: config.webSearch ? 'live' : 'disabled',
-      ...(attach ? { ptahToolTimeoutSeconds: CODEX_PTAH_TOOL_TIMEOUT_SEC } : {}),
+      ...(attach
+        ? { ptahToolTimeoutSeconds: CODEX_PTAH_TOOL_TIMEOUT_SEC }
+        : {}),
       explicitFullAccess: false,
     },
   };

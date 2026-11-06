@@ -21,6 +21,8 @@ const SECRET_TEXT_PATTERNS: ReadonlyArray<[RegExp, string]> = [
     `$1${REDACTED}`,
   ],
   [/\b((?:Bearer|Basic)\s+)[\w.~+/=-]+/gi, `$1${REDACTED}`],
+  // 32-byte base64url token carried in an MCP path (`/auth/{43}`).
+  [/\/auth\/[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, '/auth/[REDACTED]'],
   [
     /\b((?:x-api-key|api-key|authorization|cookie)\s*[:=]\s*)[^\r\n;"']+/gi,
     `$1${REDACTED}`,

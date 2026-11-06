@@ -65,6 +65,10 @@ function makeBuilder(): SdkQueryOptionsBuilder {
     undefined,
     undefined,
     'electron',
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 }
 

@@ -448,6 +448,7 @@ describe('GrokCliAdapter', () => {
         task: 'Summarise the repository',
         workingDirectory: process.cwd(),
         mcpPort: 51820,
+        mcpToken: 'lane-token',
         agentId: 'agent-9',
         model: 'grok-4.7',
         // Already mapped by the lane spawn policy (`max` → `xhigh`).
@@ -467,7 +468,7 @@ describe('GrokCliAdapter', () => {
           type: 'http',
           name: 'ptah',
           url: `http://localhost:51820/agent/agent-9/workspace/${encodeURIComponent(process.cwd())}`,
-          headers: [],
+          headers: [{ name: 'Authorization', value: 'Bearer lane-token' }],
         },
       ]);
       const config = received
@@ -482,7 +483,11 @@ describe('GrokCliAdapter', () => {
         },
       ]);
       expect(received.filter(byMethod('session/prompt'))).toHaveLength(1);
-      expect(JSON.stringify(paramsOf(received.find(byMethod('session/prompt')))).match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+      expect(
+        JSON.stringify(
+          paramsOf(received.find(byMethod('session/prompt'))),
+        ).match(/Lane policy id: ptah-lane-policy-v1/g),
+      ).toHaveLength(1);
       expect(handle.getSessionId?.()).toBe('grok-sess-2');
       expect(handle.supportsContinuation?.()).toBe(true);
       expect(output.join('')).toContain('Hello from Grok');

@@ -120,19 +120,26 @@ describe('grokAcpProfile', () => {
           ...BASE_OPTIONS,
           mcpPort: 51820,
           agentId: 'agent-7',
+          mcpToken: 'lane-token',
         }),
       ).toEqual([
         {
           type: 'http',
           name: 'ptah',
           url: `http://localhost:51820/agent/agent-7/workspace/${encodeURIComponent('D:\\work\\repo')}`,
-          headers: [],
+          headers: [{ name: 'Authorization', value: 'Bearer lane-token' }],
         },
       ]);
     });
 
     it('attaches nothing when mcpPort is unset', () => {
       expect(grokAcpProfile.buildMcpServers(BASE_OPTIONS)).toEqual([]);
+    });
+
+    it('omits ptah when the lane credential is unavailable', () => {
+      expect(
+        grokAcpProfile.buildMcpServers({ ...BASE_OPTIONS, mcpPort: 51820 }),
+      ).toEqual([]);
     });
   });
 

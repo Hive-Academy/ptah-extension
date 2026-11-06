@@ -127,6 +127,7 @@ jest.mock('@ptah-extension/harness-sync', () => {
 });
 
 import * as http from 'http';
+import * as crypto from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { container } from 'tsyringe';
@@ -157,8 +158,10 @@ import { handleMCPRequest as handleMCPRequestMock } from '../mcp-core';
 import { killRunningChecks } from '../mcp-core/run-check.tool';
 import {
   FileLockTimeoutError,
+  createMcpFacet,
   withMcpConfigLock as withMcpConfigLockMock,
 } from '@ptah-extension/harness-sync';
+import { McpCallerTokenRegistry } from './mcp-caller-token-registry';
 import {
   startHttpServer as startHttpServerMock,
   stopHttpServer as stopHttpServerMock,
@@ -243,6 +246,7 @@ interface BuildOptions {
   registerIdeCapabilities?: boolean;
   configOverrides?: Record<string, unknown>;
   folders?: string[];
+  globalState?: IStateStorage;
 }
 
 function build(opts: BuildOptions = {}): Fixture {
@@ -284,6 +288,8 @@ function build(opts: BuildOptions = {}): Fixture {
     undefined,
     opts.artifactStore,
     opts.notifyArtifactPublished,
+    undefined,
+    opts.globalState,
   );
 
   return {
@@ -339,7 +345,9 @@ describe('CodeExecutionMCP — construction / tool registration', () => {
       list: jest.fn(),
       readBytes: jest.fn(),
     };
-    const notifyArtifactPublished: ArtifactNotification = jest.fn(async () => undefined);
+    const notifyArtifactPublished: ArtifactNotification = jest.fn(
+      async () => undefined,
+    );
     const { service } = build({ artifactStore, notifyArtifactPublished });
     await service.start();
 
@@ -605,11 +613,14 @@ describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
     // its workspace on every call (TASK_2026_364).
     expect(parsed.mcpServers['ptah']).toEqual({
       type: 'http',
-      url: 'http://localhost:51820/workspace/%2Fws',
+      url: expect.stringMatching(
+        /^http:\/\/localhost:51820\/auth\/[A-Za-z0-9_-]{43}\/workspace\/%2Fws$/,
+      ),
     });
   });
 
   it('is idempotent — second call after registration writes nothing', async () => {
+    useVirtualDisk();
     const { service } = build({ folders: ['/ws'] });
     await service.start();
 
@@ -691,17 +702,16 @@ describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
     fsReadFileSyncMock.mockReturnValue(
       JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
     );
-    const { service } = build({ folders: ['/ws'] });
+    const { service, workspaceProvider } = build({ folders: ['/ws'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
-
-    // Count only the unregister's calls, not the registration's.
     (withMcpConfigLockMock as unknown as jest.Mock).mockClear();
     fsExistsSyncMock.mockClear();
     fsReadFileSyncMock.mockClear();
     fsWriteFileSyncMock.mockClear();
 
-    await service.stop();
+    workspaceProvider.__state.setFolders([]);
+    await settleMcpJsonWrites();
 
     expect(withMcpConfigLockMock).toHaveBeenCalledWith(
       expect.stringContaining('.mcp.json'),
@@ -784,6 +794,7 @@ describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
   });
 
   it('reports registered:true on the happy path and on the idempotent repeat', async () => {
+    useVirtualDisk();
     const { service } = build({ folders: ['/ws'] });
     await service.start();
 
@@ -825,7 +836,7 @@ describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
    * report `mcpServerRunning: false` for a session in the folder the user is
    * actually working in, whose entry is on disk and perfectly usable. So the
    * registration proceeds and the invariant that matters is asserted directly —
-   * A's record survives, and the retry at `stop()` removes it.
+   * A's record survives, and the next reconcile removes it.
    */
   it('keeps the record of an entry it could not remove, and still registers the open folder', async () => {
     const disk = useVirtualDisk();
@@ -854,13 +865,13 @@ describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
     // A's entry is still on disk because the lock refused the removal...
     expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
 
-    // ...and the record of it survived, so the retry cleans it up.
+    // ...and the record of it survived, so the next reconcile cleans it up.
     (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
       async (_configPath: string, task: () => Promise<unknown>) => task(),
     );
-    await service.stop();
+    await service.ensureRegisteredForSubagents();
     expect(serversIn(disk, ROOT_A)).toEqual({});
-    expect(serversIn(disk, ROOT_B)).toEqual({});
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
   });
 });
 
@@ -918,7 +929,8 @@ describe('CodeExecutionMCP — error propagation', () => {
     await expect(service.disposeAsync()).resolves.toBeUndefined();
 
     const warns = logger.warn.mock.calls.filter(
-      ([message]) => message === '[CodeExecutionMCP] Killing running checks failed',
+      ([message]) =>
+        message === '[CodeExecutionMCP] Killing running checks failed',
     );
     expect(warns).toEqual([
       [
@@ -954,7 +966,7 @@ describe('CodeExecutionMCP — error propagation', () => {
     );
   });
 
-  it('unregister step warns but does not throw when .mcp.json rewrite fails', async () => {
+  it('stop() leaves persistent entries without an unregister rewrite', async () => {
     fsExistsSyncMock.mockReturnValue(true);
     fsReadFileSyncMock.mockReturnValue(
       JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
@@ -962,17 +974,14 @@ describe('CodeExecutionMCP — error propagation', () => {
 
     const { service, logger } = build({ folders: ['/ws'] });
     await service.start();
-    // Must register first — unregisterFromMcpJson now early-returns when the
-    // service was never registered, guarding the on-shutdown disk read.
     await service.ensureRegisteredForSubagents();
-
-    // Fail the unregister rewrite (the registration write already succeeded).
-    fsWriteFileSyncMock.mockImplementationOnce(() => {
-      throw new Error('disk full');
-    });
+    fsWriteFileSyncMock.mockClear();
+    fsReadFileSyncMock.mockClear();
 
     await expect(service.stop()).resolves.toBeUndefined();
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalledWith(
       expect.stringContaining('Failed to unregister from'),
       'CodeExecutionMCP',
     );
@@ -999,27 +1008,23 @@ describe('CodeExecutionMCP — unregister idempotency', () => {
     expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
   });
 
-  it('stop() after ensureRegisteredForSubagents() does perform the unregister read+write', async () => {
-    fsExistsSyncMock.mockReturnValue(true);
-    fsReadFileSyncMock.mockReturnValue(
-      JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
-    );
-
+  it('stop() after ensureRegisteredForSubagents() preserves the persistent file', async () => {
+    const disk = useVirtualDisk();
     const { service } = build({ folders: ['/ws'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
+    const before = disk.get(path.join('/ws', '.mcp.json'));
 
-    // Reset write counter so we count only the unregister write, not register.
     fsWriteFileSyncMock.mockClear();
     fsReadFileSyncMock.mockClear();
-
     await service.stop();
 
-    expect(fsReadFileSyncMock).toHaveBeenCalledTimes(1);
-    expect(fsWriteFileSyncMock).toHaveBeenCalledTimes(1);
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    expect(disk.get(path.join('/ws', '.mcp.json'))).toBe(before);
   });
 
-  it('a second stop() is a no-op for the .mcp.json read after a successful unregister', async () => {
+  it('a second stop() leaves the persistent file untouched', async () => {
     fsExistsSyncMock.mockReturnValue(true);
     fsReadFileSyncMock.mockReturnValue(
       JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
@@ -1087,7 +1092,11 @@ function ptahEntryFor(
   return {
     ptah: {
       type: 'http',
-      url: `http://localhost:${port}/workspace/${encodeURIComponent(root)}`,
+      url: expect.stringMatching(
+        new RegExp(
+          `^http://localhost:${port}/auth/[A-Za-z0-9_-]{43}/workspace/${encodeURIComponent(root)}$`,
+        ),
+      ),
     },
   };
 }
@@ -1153,7 +1162,7 @@ function deferConfigLock(): () => void {
  * must survive both register and unregister untouched.
  */
 describe('CodeExecutionMCP — .mcp.json path symmetry across a workspace switch', () => {
-  it("stop() after a workspace switch removes ptah from the ORIGINAL root's .mcp.json", async () => {
+  it('a workspace switch removes ptah from the ORIGINAL root before stop()', async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
     await service.start();
@@ -1167,7 +1176,7 @@ describe('CodeExecutionMCP — .mcp.json path symmetry across a workspace switch
 
     await service.stop();
 
-    // The whole point: A must not keep a dead-port entry.
+    // A no longer belongs to the desired workspace set.
     expect(serversIn(disk, ROOT_A)).toEqual({});
     expect(JSON.stringify(serversIn(disk, ROOT_A))).not.toContain('ptah');
   });
@@ -1196,6 +1205,7 @@ describe('CodeExecutionMCP — .mcp.json path symmetry across a workspace switch
     });
 
     workspaceProvider.__state.setFolders(['/wsB']);
+    await settleMcpJsonWrites();
     await service.stop();
 
     const after = JSON.parse(disk.get(ROOT_A) as string) as Record<
@@ -1341,6 +1351,17 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
   });
 
   it('does not rewrite a .mcp.json that already holds the exact desired entry', async () => {
+    const memory = new CredentialMemory();
+    const seeding = new McpCallerTokenRegistry({
+      state: memory,
+      logger: asLogger(createMockLogger()),
+    });
+    const token = await seeding.issuePersistent({
+      configPath: ROOT_A,
+      kind: 'workspace',
+      workspaceRoot: '/wsA',
+      setting: 'read-only',
+    });
     const disk = useVirtualDisk({
       [ROOT_A]:
         JSON.stringify(
@@ -1349,7 +1370,7 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
               // Field order deliberately reversed: the comparison is
               // structural, so this must still count as "already correct".
               ptah: {
-                url: 'http://localhost:51820/workspace/%2FwsA',
+                url: `http://localhost:51820/auth/${token}/workspace/%2FwsA`,
                 type: 'http',
               },
             },
@@ -1360,7 +1381,10 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
     });
     const before = disk.get(ROOT_A);
 
-    const { service, logger } = build({ folders: ['/wsA'] });
+    const { service, logger } = build({
+      folders: ['/wsA'],
+      globalState: memory,
+    });
     await service.start();
 
     expect(await service.ensureRegisteredForSubagents()).toEqual({
@@ -1444,17 +1468,18 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
     expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
   });
 
-  it('stop() gives back the entry in EVERY open folder', async () => {
+  it('stop() preserves the persistent entry in EVERY open folder', async () => {
     const disk = useVirtualDisk();
     const { service } = build({ folders: ['/wsA', '/wsB', '/wsC'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
+    const before = [ROOT_A, ROOT_B, ROOT_C].map((file) => disk.get(file));
 
     await service.stop();
 
-    expect(serversIn(disk, ROOT_A)).toEqual({});
-    expect(serversIn(disk, ROOT_B)).toEqual({});
-    expect(serversIn(disk, ROOT_C)).toEqual({});
+    expect([ROOT_A, ROOT_B, ROOT_C].map((file) => disk.get(file))).toEqual(
+      before,
+    );
   });
 });
 
@@ -1516,14 +1541,14 @@ describe('CodeExecutionMCP — re-pointing queue', () => {
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 
-  it('stop() immediately after a switch cancels the re-point and leaves no entry anywhere', async () => {
+  it('stop() immediately after a switch cancels the re-point and preserves the previous entry', async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
 
-    // Scenario (b): the stop finishes unregistering A while the outstanding
-    // event writes B back — with a port that is about to die.
+    // Scenario (b): without the generation guard, the outstanding event writes
+    // B while stop closes the socket. A remains stable for the next start.
     const release = deferConfigLock();
     workspaceProvider.__state.setFolders(['/wsB']);
     const stopping = service.stop();
@@ -1531,7 +1556,7 @@ describe('CodeExecutionMCP — re-pointing queue', () => {
     await stopping;
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
     expect(serversIn(disk, ROOT_B)).toBeUndefined();
   });
 
@@ -1550,7 +1575,7 @@ describe('CodeExecutionMCP — re-pointing queue', () => {
     await stopping;
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
     expect(serversIn(disk, ROOT_B)).toBeUndefined();
   });
 
@@ -1744,14 +1769,15 @@ describe('CodeExecutionMCP — retained subagent roots', () => {
     expect(serversIn(disk, ROOT_WT)).toBeUndefined();
   });
 
-  it('stop() gives the retained entry back, and release after stop writes nothing', async () => {
+  it('stop() preserves the retained entry, and release after stop writes nothing', async () => {
     const disk = useVirtualDisk();
     const { service } = build({ folders: ['/wsA'] });
     await service.start();
     await service.retainRoot(WORKTREE);
+    const before = disk.get(ROOT_WT);
 
     await service.stop();
-    expect(serversIn(disk, ROOT_WT)).toEqual({});
+    expect(disk.get(ROOT_WT)).toBe(before);
 
     fsWriteFileSyncMock.mockClear();
     await service.releaseRoot(WORKTREE);
@@ -1765,5 +1791,339 @@ describe('CodeExecutionMCP — retained subagent roots', () => {
     await service.ensureRegisteredForSubagents();
 
     expect([...disk.keys()]).toEqual([ROOT_A]);
+  });
+});
+
+class CredentialMemory implements IStateStorage {
+  private readonly entries = new Map<string, unknown>();
+  failNextUpdate = false;
+  failAfterUpdates: number | undefined;
+
+  get<T>(key: string, defaultValue?: T): T | undefined {
+    if (!this.entries.has(key)) return defaultValue;
+    const value: unknown = this.entries.get(key);
+    if (value === undefined) return defaultValue;
+    return value as T;
+  }
+
+  async update(key: string, value: unknown): Promise<void> {
+    if (this.failAfterUpdates !== undefined) {
+      if (this.failAfterUpdates === 0) {
+        this.failAfterUpdates = undefined;
+        throw new Error('state write failed');
+      }
+      this.failAfterUpdates -= 1;
+    }
+    if (this.failNextUpdate) {
+      this.failNextUpdate = false;
+      throw new Error('state write failed');
+    }
+    if (value === undefined) {
+      this.entries.delete(key);
+      return;
+    }
+    this.entries.set(key, value);
+  }
+
+  keys(): readonly string[] {
+    return [...this.entries.keys()];
+  }
+
+  read(key: string): unknown {
+    return this.entries.get(key);
+  }
+}
+
+describe('CodeExecutionMCP — persistent credential files stay byte-identical', () => {
+  const quietLogger = {
+    debug(): void {
+      return undefined;
+    },
+    info(): void {
+      return undefined;
+    },
+    warn(): void {
+      return undefined;
+    },
+    error(): void {
+      return undefined;
+    },
+  };
+
+  it('serializes a deferred replacement and downgrade after a failed reconcile', async () => {
+    const memory = new CredentialMemory();
+    const configPath = path.join('/ws', '.mcp.json');
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({
+      folders: ['/ws'], globalState: memory,
+      configOverrides: { 'ptah.mcp.externalCallerAccess': 'full' },
+    });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    const authenticate = startHttpServer.mock.calls[0]?.[0].authenticate;
+    const original = disk.get(configPath);
+    expect(original).toBeDefined();
+    if (original === undefined) throw new Error('Missing MCP config');
+    disk.set(configPath, original.replace(/\/auth\/[A-Za-z0-9_-]{43}\//, `/auth/${'m'.repeat(43)}/`));
+    const release = deferConfigLock();
+    memory.failAfterUpdates = 1;
+    const registering = service.ensureRegisteredForSubagents();
+    await Promise.resolve();
+    workspaceProvider.__state.config.set('ptah.mcp.externalCallerAccess', 'read-only');
+    const downgrading = service.applyExternalCallerAccess('read-only');
+    release();
+    await expect(registering).resolves.toEqual({ registered: false, reason: 'write-failed' });
+    await downgrading;
+    const fileToken = /\/auth\/([A-Za-z0-9_-]{43})\//.exec(disk.get(configPath) ?? '')?.[1];
+    expect(fileToken).toBeDefined();
+    expect(fileToken).not.toBe('m'.repeat(43));
+    expect(authenticate?.({ token: fileToken, workspaceRoot: '/ws' }))
+      .toMatchObject({ ok: true, binding: { capability: 'read-only' } });
+    const restarted = new McpCallerTokenRegistry({ state: memory, logger: quietLogger, externalCallerAccess: 'read-only' });
+    expect(restarted.authorize({ token: fileToken, workspaceRoot: '/ws' }))
+      .toMatchObject({ ok: true, binding: { capability: 'read-only' } });
+  });
+
+  it('two registration passes do not rewrite a file whose token hash is stored', async () => {
+    const configPath = createMcpFacet('claude').configPath('/ws');
+    expect(configPath).not.toBeNull();
+    if (configPath === null) return;
+
+    const memory = new CredentialMemory();
+    const seeding = new McpCallerTokenRegistry({
+      state: memory,
+      logger: quietLogger,
+    });
+    const token = await seeding.issuePersistent({
+      configPath,
+      kind: 'workspace',
+      workspaceRoot: '/ws',
+      setting: 'read-only',
+    });
+    const hash = crypto
+      .createHash('sha256')
+      .update(token, 'utf8')
+      .digest('base64');
+    const original =
+      JSON.stringify(
+        {
+          mcpServers: {
+            other: { command: 'keep-me' },
+            ptah: {
+              type: 'http',
+              url: `http://localhost:51820/auth/${token}/workspace/%2Fws`,
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n';
+    fsExistsSyncMock.mockReturnValue(true);
+    fsReadFileSyncMock.mockReturnValue(original);
+
+    const { service } = build({ folders: ['/ws'], globalState: memory });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    await service.ensureRegisteredForSubagents();
+
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    const stored: unknown = memory.read('ptah.mcp.callerCredentialHashes');
+    expect(JSON.stringify(stored)).not.toContain(token);
+    expect(stored).toEqual({
+      records: [
+        {
+          configPath,
+          tokenHashB64: hash,
+          kind: 'workspace',
+          capability: 'read-only',
+          workspaceRoot: '/ws',
+        },
+      ],
+    });
+  });
+
+  it('keeps a persistent file and its token byte-identical across stop and start', async () => {
+    const memory = new CredentialMemory();
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/ws'], globalState: memory });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    const configPath = path.join('/ws', '.mcp.json');
+    const before = disk.get(configPath);
+    expect(before).toBeDefined();
+    const token = /\/auth\/([A-Za-z0-9_-]{43})\//.exec(before ?? '')?.[1];
+    expect(token).toBeDefined();
+    if (token === undefined) throw new Error('Missing test credential');
+    const authenticate = startHttpServer.mock.calls[0]?.[0].authenticate;
+    expect(authenticate?.({ token, workspaceRoot: '/ws' }).ok).toBe(true);
+
+    await service.stop();
+    expect(disk.get(configPath)).toBe(before);
+
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    expect(disk.get(configPath)).toBe(before);
+    expect(authenticate?.({ token, workspaceRoot: '/ws' }).ok).toBe(true);
+  });
+
+  it('keeps the previous token valid when the replacement config write fails', async () => {
+    const memory = new CredentialMemory();
+    const seeding = new McpCallerTokenRegistry({
+      state: memory,
+      logger: quietLogger,
+    });
+    const configPath = path.join('/ws', '.mcp.json');
+    const previousToken = await seeding.issuePersistent({
+      configPath,
+      kind: 'workspace',
+      workspaceRoot: '/ws',
+      setting: 'read-only',
+    });
+    const original =
+      JSON.stringify(
+        {
+          mcpServers: {
+            ptah: {
+              type: 'http',
+              url: `http://localhost:51820/auth/${previousToken}/workspace/%2Fws`,
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n';
+    const disk = useVirtualDisk({ [configPath]: original });
+    const { service } = build({ folders: ['/ws'], globalState: memory });
+    await service.start();
+    const authenticate = startHttpServer.mock.calls[0]?.[0].authenticate;
+    expect(
+      authenticate?.({ token: previousToken, workspaceRoot: '/ws' }).ok,
+    ).toBe(true);
+
+    // Make only the credential read fail. The writer still sees the old file,
+    // then fails before it can replace that file.
+    fsReadFileSyncMock.mockImplementationOnce(() => {
+      throw new Error('temporary credential read failure');
+    });
+    fsWriteFileSyncMock.mockImplementationOnce(() => {
+      throw new Error('config write failed');
+    });
+
+    await expect(service.ensureRegisteredForSubagents()).resolves.toEqual({
+      registered: false,
+      reason: 'write-failed',
+    });
+    expect(disk.get(configPath)).toBe(original);
+    expect(
+      authenticate?.({ token: previousToken, workspaceRoot: '/ws' }).ok,
+    ).toBe(true);
+  });
+
+  it('clamps both tokens and keeps the file token valid when a replacement commit fails', async () => {
+    const memory = new CredentialMemory();
+    const seeding = new McpCallerTokenRegistry({
+      state: memory,
+      logger: quietLogger,
+    });
+    const configPath = path.join('/ws', '.mcp.json');
+    const previousToken = await seeding.issuePersistent({
+      configPath,
+      kind: 'workspace',
+      workspaceRoot: '/ws',
+      setting: 'full',
+    });
+    const mismatchedToken = 'm'.repeat(43);
+    const original =
+      JSON.stringify(
+        {
+          mcpServers: {
+            ptah: {
+              type: 'http',
+              url: `http://localhost:51820/auth/${mismatchedToken}/workspace/%2Fws`,
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n';
+    const disk = useVirtualDisk({ [configPath]: original });
+    const { service, workspaceProvider } = build({
+      folders: ['/ws'],
+      globalState: memory,
+      configOverrides: { 'ptah.mcp.externalCallerAccess': 'full' },
+    });
+    await service.start();
+    const authenticate = startHttpServer.mock.calls[0]?.[0].authenticate;
+    expect(
+      authenticate?.({ token: previousToken, workspaceRoot: '/ws' }),
+    ).toMatchObject({
+      ok: true,
+      binding: { capability: 'privileged' },
+    });
+
+    workspaceProvider.__state.config.set(
+      'ptah.mcp.externalCallerAccess',
+      'read-only',
+    );
+    memory.failAfterUpdates = 1;
+    await expect(service.ensureRegisteredForSubagents()).resolves.toEqual({
+      registered: false,
+      reason: 'write-failed',
+    });
+
+    const afterFailure = disk.get(configPath);
+    const fileToken = /\/auth\/([A-Za-z0-9_-]{43})\//.exec(
+      afterFailure ?? '',
+    )?.[1];
+    expect(fileToken).toBeDefined();
+    if (fileToken === undefined) throw new Error('Missing test credential');
+    expect(fileToken).not.toBe(previousToken);
+    expect(fileToken).not.toBe(mismatchedToken);
+    for (const token of [previousToken, fileToken]) {
+      expect(authenticate?.({ token, workspaceRoot: '/ws' })).toMatchObject({
+        ok: true,
+        binding: { capability: 'read-only' },
+      });
+    }
+
+    await expect(service.ensureRegisteredForSubagents()).resolves.toEqual({
+      registered: true,
+    });
+    expect(disk.get(configPath)).toBe(afterFailure);
+    expect(
+      authenticate?.({ token: fileToken, workspaceRoot: '/ws' }),
+    ).toMatchObject({
+      ok: true,
+      binding: { capability: 'read-only' },
+    });
+    expect(
+      authenticate?.({ token: previousToken, workspaceRoot: '/ws' }),
+    ).toMatchObject({
+      ok: false,
+      failure: { httpStatus: 401 },
+    });
+  });
+
+  it('does not store a privileged binding while external access is read-only', async () => {
+    const configPath = createMcpFacet('claude').configPath('/ws');
+    expect(configPath).not.toBeNull();
+    if (configPath === null) return;
+
+    const memory = new CredentialMemory();
+    fsExistsSyncMock.mockReturnValue(false);
+    const { service } = build({ folders: ['/ws'], globalState: memory });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    const stored: unknown = memory.read('ptah.mcp.callerCredentialHashes');
+    const text = JSON.stringify(stored);
+    expect(text).not.toContain('privileged');
+    expect(text).toContain('"capability":"read-only"');
+    const written = fsWriteFileSyncMock.mock.calls.map((call) =>
+      String(call[1]),
+    );
+    expect(written.join('\n')).toMatch(/\/auth\/[A-Za-z0-9_-]{43}/);
   });
 });

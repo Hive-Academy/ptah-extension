@@ -72,7 +72,7 @@ afterEach(() => {
 function options(overrides: Partial<CliCommandOptions> = {}): CliCommandOptions {
   return {
     task: 'write the parity report', workingDirectory: cwd,
-    agentId: 'lane-parity', mcpPort: 51820, ...overrides,
+    agentId: 'lane-parity', mcpPort: 51820, mcpToken: 'a'.repeat(43), ...overrides,
   };
 }
 

@@ -65,6 +65,7 @@ import {
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { laneMcpAuthUrl } from './lane-mcp-credentials';
 import { classifyCliStderr } from './cli-stderr-severity';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
@@ -347,7 +348,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       if (options.reasoningEffort) {
         args.push('--effort', options.reasoningEffort);
       }
-      if (options.mcpPort) {
+      if (options.mcpPort && options.mcpToken) {
         const mcpConfig = JSON.stringify({
           mcpServers: {
             ptah: {
@@ -355,10 +356,13 @@ export class CopilotSdkAdapter implements CliAdapter {
               // Scoped to the spawn's working directory so the server
               // attributes this agent's calls to the right workspace
               // (TASK_2026_364).
-              url: ptahMcpServerUrl(
-                options.mcpPort,
-                options.workingDirectory,
-                options.agentId,
+              url: laneMcpAuthUrl(
+                ptahMcpServerUrl(
+                  options.mcpPort,
+                  options.workingDirectory,
+                  options.agentId,
+                ),
+                options.mcpToken,
               ),
             },
           },
@@ -366,7 +370,10 @@ export class CopilotSdkAdapter implements CliAdapter {
         args.push('--additional-mcp-config', mcpConfig);
       }
 
-      assertCommandLineWithinLimit(spawnDescriptor.command, [...spawnDescriptor.prefixArgs, ...args]);
+      assertCommandLineWithinLimit(spawnDescriptor.command, [
+        ...spawnDescriptor.prefixArgs,
+        ...args,
+      ]);
       const child = spawnCli(
         spawnDescriptor.command,
         [...spawnDescriptor.prefixArgs, ...args],

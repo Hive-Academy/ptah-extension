@@ -42,14 +42,19 @@ jest.mock('@ptah-extension/agent-sdk', () => {
   return {
     presentCodexApproval: jest.requireActual<
       typeof import('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation')
-    >('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation').presentCodexApproval,
+    >(
+      '../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation',
+    ).presentCodexApproval,
     PTAH_UI_HINT_CODEX: jest.requireActual<
       typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
-    >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT_CODEX,
+    >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
+      .PTAH_UI_HINT_CODEX,
     SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
     PTAH_MCP_PORT: 51820,
-    UNROUTABLE_PERMISSION_TIMEOUT_MS: systemAbort.UNROUTABLE_PERMISSION_TIMEOUT_MS,
-    buildSystemAbortPermissionMessage: systemAbort.buildSystemAbortPermissionMessage,
+    UNROUTABLE_PERMISSION_TIMEOUT_MS:
+      systemAbort.UNROUTABLE_PERMISSION_TIMEOUT_MS,
+    buildSystemAbortPermissionMessage:
+      systemAbort.buildSystemAbortPermissionMessage,
   };
 });
 jest.mock('@ptah-extension/auth-providers', () => ({
@@ -68,6 +73,7 @@ describe('Codex chat host ports', () => {
   });
   const id = SessionId.from('22222222-2222-4222-8222-222222222222');
   const chatTab = '33333333-3333-4333-8333-333333333333';
+  const mcpToken = 't'.repeat(43);
   function harness() {
     const execution: ResolvedExecutionProfile = {
       runtime: 'codex-app-server',
@@ -111,9 +117,16 @@ describe('Codex chat host ports', () => {
       .fn<Promise<CodexThreadIdentity | undefined>, [SessionId]>()
       .mockResolvedValue(undefined);
     const readSavedPermissionLevel = jest
-      .fn<ReturnType<CodexChatHostPortsDeps['readSavedPermissionLevel']>, [string]>()
+      .fn<
+        ReturnType<CodexChatHostPortsDeps['readSavedPermissionLevel']>,
+        [string]
+      >()
       .mockReturnValue('ask');
     const drained: FlatStreamEventUnion[] = [];
+    const mcpCredentials = {
+      issue: jest.fn(() => mcpToken),
+      revokeSubject: jest.fn(),
+    };
     const streamEventsToWebview = jest.fn(
       async (_id: SessionId, stream: AsyncIterable<FlatStreamEventUnion>) => {
         for await (const event of stream) drained.push(event);
@@ -163,6 +176,7 @@ describe('Codex chat host ports', () => {
       readSavedPermissionLevel,
       broadcaster: { streamEventsToWebview },
       tabId: () => chatTab,
+      mcpCredentials,
       promptLifecycle: { publish },
     };
     return {
@@ -178,6 +192,7 @@ describe('Codex chat host ports', () => {
       drained,
       streamEventsToWebview,
       publish,
+      mcpCredentials,
     };
   }
   const config = () => ({
@@ -194,13 +209,22 @@ describe('Codex chat host ports', () => {
 
   it('checks live resume options without logging values or repeating notices', () => {
     const h = harness();
-    expect(() => h.ports.checkOptions({
-      ...config(), prompt: 'private prompt', effort: 'high',
-      systemPrompt: 'private system prompt', enhancedPromptsContent: 'private instructions',
-      ptahUiFence: true, mcpToolProfile: 'coding', mcpServerRunning: true,
-      workflowsDisabled: false, includePartialMessages: true,
-      thinking: { type: 'adaptive' }, outputStyleName: 'private style',
-    })).not.toThrow();
+    expect(() =>
+      h.ports.checkOptions({
+        ...config(),
+        prompt: 'private prompt',
+        effort: 'high',
+        systemPrompt: 'private system prompt',
+        enhancedPromptsContent: 'private instructions',
+        ptahUiFence: true,
+        mcpToolProfile: 'coding',
+        mcpServerRunning: true,
+        workflowsDisabled: false,
+        includePartialMessages: true,
+        thinking: { type: 'adaptive' },
+        outputStyleName: 'private style',
+      }),
+    ).not.toThrow();
     expect(h.logger.info).not.toHaveBeenCalled();
     expect(h.logger.debug).not.toHaveBeenCalled();
     expect(h.logger.warn).not.toHaveBeenCalled();
@@ -211,17 +235,22 @@ describe('Codex chat host ports', () => {
   it.each([
     { key: 'temperature', options: { temperature: 0.5 } },
     { key: 'mcpToolProfile', options: { mcpToolProfile: 'apps' as const } },
-  ])('throws the host coded option error for live resume $key', ({ key, options }) => {
-    const h = harness();
-    const input = { ...config(), ...options };
-    expect(() => h.ports.checkOptions(input)).toThrow(new CodexChatOptionError(key));
-    expect(() => h.ports.checkOptions(input)).toThrow(CodexChatOptionError);
-    expect(h.logger.info).not.toHaveBeenCalled();
-    expect(h.logger.debug).not.toHaveBeenCalled();
-    expect(h.logger.warn).not.toHaveBeenCalled();
-    expect(h.logger.error).not.toHaveBeenCalled();
-    expect(h.broadcastMessage).not.toHaveBeenCalled();
-  });
+  ])(
+    'throws the host coded option error for live resume $key',
+    ({ key, options }) => {
+      const h = harness();
+      const input = { ...config(), ...options };
+      expect(() => h.ports.checkOptions(input)).toThrow(
+        new CodexChatOptionError(key),
+      );
+      expect(() => h.ports.checkOptions(input)).toThrow(CodexChatOptionError);
+      expect(h.logger.info).not.toHaveBeenCalled();
+      expect(h.logger.debug).not.toHaveBeenCalled();
+      expect(h.logger.warn).not.toHaveBeenCalled();
+      expect(h.logger.error).not.toHaveBeenCalled();
+      expect(h.broadcastMessage).not.toHaveBeenCalled();
+    },
+  );
   it('builds a frozen validated profile without publishing a substitution notice', async () => {
     const h = harness();
     const { profile } = await h.ports.profile(config());
@@ -249,7 +278,10 @@ describe('Codex chat host ports', () => {
   it('lets an explicit permission level win without reading the saved level', async () => {
     const h = harness();
     h.readSavedPermissionLevel.mockReturnValue('yolo');
-    const { profile } = await h.ports.profile({ ...config(), permissionLevel: 'plan' });
+    const { profile } = await h.ports.profile({
+      ...config(),
+      permissionLevel: 'plan',
+    });
     expect(profile.permissionLevel).toBe('plan');
     expect(h.readSavedPermissionLevel).not.toHaveBeenCalled();
   });
@@ -308,21 +340,34 @@ describe('Codex chat host ports', () => {
     const h = harness();
     const prepare = jest.spyOn(ChatRuntimeProfileService.prototype, 'prepare');
     const mcpServersOverride = {
-      smithery: { type: 'http' as const, url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+      smithery: {
+        type: 'http' as const,
+        url: 'https://example.invalid/mcp',
+        headers: { Authorization: 'Bearer secret-token-x' },
+      },
       oauth: { type: 'http' as const, url: 'https://example.invalid/oauth' },
     };
     try {
-      await expect(h.ports.profile({
+      await expect(
+        h.ports.profile({
+          ...config(),
+          mcpServersOverride,
+          thinking: { type: 'adaptive' },
+          outputStyleName: 'Explanatory',
+        }),
+      ).resolves.toHaveProperty('profile');
+      expect(prepare.mock.calls[0][0]).toEqual({
         ...config(),
         mcpServersOverride,
-        thinking: { type: 'adaptive' },
-        outputStyleName: 'Explanatory',
-      })).resolves.toHaveProperty('profile');
-      expect(prepare.mock.calls[0][0]).toEqual({ ...config(), mcpServersOverride });
+      });
       expect(h.logger.info).toHaveBeenCalledTimes(3);
       expect(h.logger.info).toHaveBeenCalledWith(
         'User MCP servers are configured for Codex chat.',
-        { code: 'codex-user-mcp-configured', serverNames: ['oauth', 'smithery'], transports: ['http'] },
+        {
+          code: 'codex-user-mcp-configured',
+          serverNames: ['oauth', 'smithery'],
+          transports: ['http'],
+        },
       );
       expect(h.logger.info).not.toHaveBeenCalledWith(
         'User MCP servers are attached to Codex chat.',
@@ -337,32 +382,58 @@ describe('Codex chat host ports', () => {
         { code: 'codex-output-style-not-applied' },
       );
       const logs = JSON.stringify(jest.mocked(h.logger.info).mock.calls);
-      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'adaptive', 'Explanatory']) {
+      for (const value of [
+        'https://example.invalid',
+        'Authorization',
+        'Bearer',
+        'secret-token-x',
+        'adaptive',
+        'Explanatory',
+      ]) {
         expect(logs).not.toContain(value);
       }
     } finally {
       prepare.mockRestore();
     }
   });
-  it.each([undefined, 'coding'] as const)('maps the UI fence for tool profile %s', async (mcpToolProfile) => {
-    const h = harness();
-    const { profile } = await h.ports.profile({
-      ...config(), ptahUiFence: true, mcpToolProfile,
-      systemPrompt: 'system', enhancedPromptsContent: 'enhanced', outputStyleBody: 'style',
-    });
-    expect(profile.developerPrompt).toBe(PTAH_UI_HINT_CODEX);
-    expect(profile.developerPrompt).not.toContain('ptah-surface-authoring');
-    expect(profile.developerPrompt).not.toContain('skill');
-    expect(profile).toMatchObject({ systemPrompt: 'system', enhancedPrompt: 'enhanced', outputStyle: 'style' });
-  });
-  it.each([false, undefined] as const)('omits the UI hint when the fence is %s', async (ptahUiFence) => {
-    const { profile } = await harness().ports.profile({ ...config(), ptahUiFence });
-    expect(profile.developerPrompt).toBeUndefined();
-  });
+  it.each([undefined, 'coding'] as const)(
+    'maps the UI fence for tool profile %s',
+    async (mcpToolProfile) => {
+      const h = harness();
+      const { profile } = await h.ports.profile({
+        ...config(),
+        ptahUiFence: true,
+        mcpToolProfile,
+        systemPrompt: 'system',
+        enhancedPromptsContent: 'enhanced',
+        outputStyleBody: 'style',
+      });
+      expect(profile.developerPrompt).toBe(PTAH_UI_HINT_CODEX);
+      expect(profile.developerPrompt).not.toContain('ptah-surface-authoring');
+      expect(profile.developerPrompt).not.toContain('skill');
+      expect(profile).toMatchObject({
+        systemPrompt: 'system',
+        enhancedPrompt: 'enhanced',
+        outputStyle: 'style',
+      });
+    },
+  );
+  it.each([false, undefined] as const)(
+    'omits the UI hint when the fence is %s',
+    async (ptahUiFence) => {
+      const { profile } = await harness().ports.profile({
+        ...config(),
+        ptahUiFence,
+      });
+      expect(profile.developerPrompt).toBeUndefined();
+    },
+  );
   it('rejects a non-coding tool profile with the coded option error', async () => {
     const h = harness();
     const result = h.ports.profile({
-      ...config(), ptahUiFence: true, mcpToolProfile: 'apps',
+      ...config(),
+      ptahUiFence: true,
+      mcpToolProfile: 'apps',
     });
     await expect(result).rejects.toBeInstanceOf(CodexChatOptionError);
     await expect(result).rejects.toMatchObject({
@@ -372,45 +443,52 @@ describe('Codex chat host ports', () => {
     });
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
-  it.each([true, false])('strips host flags and keeps MCP keys (running %s)', async (mcpServerRunning) => {
-    const h = harness();
-    const input = {
-      ...config(),
-      mcpServerRunning,
-      workflowsDisabled: false,
-      includePartialMessages: true,
-      mcpServersOverride: {},
-    };
-    const prepare = jest.spyOn(
-      ChatRuntimeProfileService.prototype,
-      'prepare',
-    );
-    try {
-      const { profile } = await h.ports.profile(input);
-      expect(profile.model).toBe('gpt-5');
-      expect(prepare.mock.calls[0][0]).toEqual({
-        ...config(), mcpServerRunning, mcpServersOverride: {},
-      });
-      if (mcpServerRunning) {
-        expect(h.logger.info).toHaveBeenCalledTimes(1);
-        expect(h.logger.info).toHaveBeenCalledWith(
-          'Ptah MCP is attached to Codex chat.',
-          expect.objectContaining({ code: 'ptah-mcp-attached' }),
-        );
-      } else {
-        expect(h.logger.info).not.toHaveBeenCalled();
-      }
-      expect(profile.mcpServers.map((server) => server.name)).toEqual(
-        mcpServerRunning ? ['ptah'] : [],
+  it.each([true, false])(
+    'strips host flags and keeps MCP keys (running %s)',
+    async (mcpServerRunning) => {
+      const h = harness();
+      const input = {
+        ...config(),
+        mcpServerRunning,
+        workflowsDisabled: false,
+        includePartialMessages: true,
+        mcpServersOverride: {},
+      };
+      const prepare = jest.spyOn(
+        ChatRuntimeProfileService.prototype,
+        'prepare',
       );
-      expect(input).toHaveProperty('mcpServerRunning', mcpServerRunning);
-    } finally {
-      prepare.mockRestore();
-    }
-  });
+      try {
+        const { profile } = await h.ports.profile(input);
+        expect(profile.model).toBe('gpt-5');
+        expect(prepare.mock.calls[0][0]).toEqual({
+          ...config(),
+          mcpServerRunning,
+          mcpServersOverride: {},
+        });
+        if (mcpServerRunning) {
+          expect(h.logger.info).toHaveBeenCalledTimes(1);
+          expect(h.logger.info).toHaveBeenCalledWith(
+            'Ptah MCP is attached to Codex chat.',
+            expect.objectContaining({ code: 'ptah-mcp-attached' }),
+          );
+        } else {
+          expect(h.logger.info).not.toHaveBeenCalled();
+        }
+        expect(profile.mcpServers.map((server) => server.name)).toEqual(
+          mcpServerRunning ? ['ptah'] : [],
+        );
+        expect(input).toHaveProperty('mcpServerRunning', mcpServerRunning);
+      } finally {
+        prepare.mockRestore();
+      }
+    },
+  );
   it('attaches Ptah MCP natively for a new session routed by tab id', async () => {
     const { profile } = await harness().ports.profile({
-      ...config(), tabId: 'tab-1', mcpServerRunning: true,
+      ...config(),
+      tabId: 'tab-1',
+      mcpServerRunning: true,
     });
     expect(profile.mcpServers).toEqual([
       {
@@ -418,14 +496,44 @@ describe('Codex chat host ports', () => {
         transport: 'http',
         url: `http://localhost:51820/session/tab-1/workspace/${encodeURIComponent(profile.cwd)}`,
         headerReferences: {},
+        authReference: 'mcp.ptah.authorization',
         toolTimeoutSec: 960,
       },
     ]);
   });
-  it.each([false, undefined] as const)('attaches no Ptah server when MCP running is %s', async (mcpServerRunning) => {
-    const { profile } = await harness().ports.profile({ ...config(), mcpServerRunning });
-    expect(profile.mcpServers).toEqual([]);
+  it('binds a four-hour session token and returns it only in secrets', async () => {
+    const h = harness();
+    const prepared = await h.ports.profile({
+      ...config(),
+      tabId: 'tab-1',
+      mcpServerRunning: true,
+    });
+
+    expect(h.mcpCredentials.issue).toHaveBeenCalledWith(
+      {
+        kind: 'session',
+        sessionId: 'tab-1',
+        workspaceRoot: prepared.profile.cwd,
+        capability: 'privileged',
+      },
+      'tab-1',
+      4 * 60 * 60 * 1000,
+    );
+    expect(prepared.secrets).toEqual(
+      new Map([['mcp.ptah.authorization', mcpToken]]),
+    );
+    expect(JSON.stringify(prepared.profile)).not.toContain(mcpToken);
   });
+  it.each([false, undefined] as const)(
+    'attaches no Ptah server when MCP running is %s',
+    async (mcpServerRunning) => {
+      const { profile } = await harness().ports.profile({
+        ...config(),
+        mcpServerRunning,
+      });
+      expect(profile.mcpServers).toEqual([]);
+    },
+  );
   async function resumable(h: ReturnType<typeof harness>) {
     const { profile } = await h.ports.profile(config());
     h.readResumeIdentity.mockResolvedValue({
@@ -442,7 +550,10 @@ describe('Codex chat host ports', () => {
   it('routes a resume without a tab id by the session id and still resumes', async () => {
     const h = harness();
     await resumable(h);
-    const prepared = await h.ports.profile({ ...noTab(), mcpServerRunning: true }, id);
+    const prepared = await h.ports.profile(
+      { ...noTab(), mcpServerRunning: true },
+      id,
+    );
     expect(prepared.resume?.threadId).toBe(id);
     expect(prepared.profile.mcpServers).toHaveLength(1);
     expect(prepared.profile.mcpServers[0]).toMatchObject({
@@ -510,7 +621,9 @@ describe('Codex chat host ports', () => {
       id,
     );
     expect(prepared.resume?.threadId).toBe(id);
-    expect(prepared.profile.profileFingerprint).toBe(original.profileFingerprint);
+    expect(prepared.profile.profileFingerprint).toBe(
+      original.profileFingerprint,
+    );
     expect(prepared.profile.mcpServers[0]).toMatchObject({
       url: `http://localhost:51820/session/tab-new/workspace/${encodeURIComponent(prepared.profile.cwd)}`,
     });
@@ -529,7 +642,13 @@ describe('Codex chat host ports', () => {
     const configToken = 'secret-config-value';
     const apiKey = 'secret-api-key';
     const queryUrl = `https://server.smithery.ai/acme/mcp?config=${configToken}&api_key=${apiKey}`;
-    const secretValues = [token, `Bearer ${token}`, configToken, apiKey, queryUrl];
+    const secretValues = [
+      token,
+      `Bearer ${token}`,
+      configToken,
+      apiKey,
+      queryUrl,
+    ];
 
     it('attaches an http server with headers as references and returns the values as secrets', async () => {
       const { profile, secrets } = await harness().ports.profile({
@@ -555,17 +674,24 @@ describe('Codex chat host ports', () => {
       ]);
       expect(profile.mcpServers[0]).not.toHaveProperty('toolTimeoutSec');
       expect(profile.mcpServers[0]).not.toHaveProperty('urlReference');
-      expect(secrets).toEqual(new Map([
-        ['mcp.notion.header.0', `Bearer ${token}`],
-        ['mcp.notion.header.1', 'team-1'],
-      ]));
+      expect(secrets).toEqual(
+        new Map([
+          ['mcp.notion.header.0', `Bearer ${token}`],
+          ['mcp.notion.header.1', 'team-1'],
+        ]),
+      );
       expect(JSON.stringify(profile)).not.toContain(token);
-      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual({
-        'mcp_servers.notion': {
-          url: 'https://mcp.notion.com/mcp',
-          http_headers: { Authorization: `Bearer ${token}`, 'X-Team': 'team-1' },
+      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual(
+        {
+          'mcp_servers.notion': {
+            url: 'https://mcp.notion.com/mcp',
+            http_headers: {
+              Authorization: `Bearer ${token}`,
+              'X-Team': 'team-1',
+            },
+          },
         },
-      });
+      );
     });
 
     it('moves a query URL into a url reference that the real config builder restores', async () => {
@@ -585,9 +711,11 @@ describe('Codex chat host ports', () => {
       expect(secrets).toEqual(new Map([['mcp.smithery.url', queryUrl]]));
       expect(JSON.stringify(profile)).not.toContain(configToken);
       expect(JSON.stringify(profile)).not.toContain(apiKey);
-      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual({
-        'mcp_servers.smithery': { url: queryUrl },
-      });
+      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual(
+        {
+          'mcp_servers.smithery': { url: queryUrl },
+        },
+      );
     });
 
     it('maps a dotted OAuth key to a safe Codex server name', async () => {
@@ -601,11 +729,17 @@ describe('Codex chat host ports', () => {
           },
         },
       });
-      expect(profile.mcpServers.map((server) => server.name)).toEqual(['oauth_mcp_linear_app']);
+      expect(profile.mcpServers.map((server) => server.name)).toEqual([
+        'oauth_mcp_linear_app',
+      ]);
       expect(profile.mcpServers[0]).toMatchObject({
-        headerReferences: { Authorization: 'mcp.oauth_mcp_linear_app.header.0' },
+        headerReferences: {
+          Authorization: 'mcp.oauth_mcp_linear_app.header.0',
+        },
       });
-      expect(secrets?.get('mcp.oauth_mcp_linear_app.header.0')).toBe(`Bearer ${token}`);
+      expect(secrets?.get('mcp.oauth_mcp_linear_app.header.0')).toBe(
+        `Bearer ${token}`,
+      );
     });
 
     it('refuses two servers whose names collide after mapping, naming servers only', async () => {
@@ -613,7 +747,11 @@ describe('Codex chat host ports', () => {
       const result = h.ports.profile({
         ...config(),
         mcpServersOverride: {
-          'a.b': { type: 'http', url: queryUrl, headers: { Authorization: `Bearer ${token}` } },
+          'a.b': {
+            type: 'http',
+            url: queryUrl,
+            headers: { Authorization: `Bearer ${token}` },
+          },
           a_b: { type: 'http', url: 'https://example.invalid/mcp' },
         },
       });
@@ -635,28 +773,37 @@ describe('Codex chat host ports', () => {
     it.each([
       `not a url ${apiKey}`,
       `ftp://files.example.invalid/mcp?api_key=${apiKey}`,
-    ])('refuses an invalid or non-http URL with a coded error naming the server only: %s', async (url) => {
-      const h = harness();
-      const result = h.ports.profile({
-        ...config(),
-        mcpServersOverride: { broken: { type: 'http', url } },
-      });
-      await expect(result).rejects.toBeInstanceOf(CodexChatMcpServerUrlError);
-      await expect(result).rejects.toMatchObject({
-        code: 'codex-mcp-server-url-invalid',
-        serverName: 'broken',
-      });
-      const error = await result.catch((reason: unknown) => reason);
-      expect(error instanceof Error ? error.message : '').not.toContain(apiKey);
-      expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
-    });
+    ])(
+      'refuses an invalid or non-http URL with a coded error naming the server only: %s',
+      async (url) => {
+        const h = harness();
+        const result = h.ports.profile({
+          ...config(),
+          mcpServersOverride: { broken: { type: 'http', url } },
+        });
+        await expect(result).rejects.toBeInstanceOf(CodexChatMcpServerUrlError);
+        await expect(result).rejects.toMatchObject({
+          code: 'codex-mcp-server-url-invalid',
+          serverName: 'broken',
+        });
+        const error = await result.catch((reason: unknown) => reason);
+        expect(error instanceof Error ? error.message : '').not.toContain(
+          apiKey,
+        );
+        expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
+      },
+    );
 
     it('lets a user server named ptah replace the Ptah entry (caller wins)', async () => {
       const { profile, secrets } = await harness().ports.profile({
         ...config(),
         mcpServerRunning: true,
         mcpServersOverride: {
-          ptah: { type: 'http', url: 'https://proxy.example.invalid/ptah', headers: { Authorization: `Bearer ${token}` } },
+          ptah: {
+            type: 'http',
+            url: 'https://proxy.example.invalid/ptah',
+            headers: { Authorization: `Bearer ${token}` },
+          },
           other: { type: 'http', url: 'https://other.example.invalid/mcp' },
         },
       });
@@ -677,36 +824,48 @@ describe('Codex chat host ports', () => {
       expect(secrets?.get('mcp.ptah.header.0')).toBe(`Bearer ${token}`);
     });
 
-    it('returns no secrets when no user server needs one', async () => {
+    it('returns only the Ptah credential when no user server needs one', async () => {
       const prepared = await harness().ports.profile({
         ...config(),
         mcpServerRunning: true,
-        mcpServersOverride: { open: { type: 'http', url: 'https://open.example.invalid/mcp' } },
+        mcpServersOverride: {
+          open: { type: 'http', url: 'https://open.example.invalid/mcp' },
+        },
       });
-      expect(prepared.secrets).toBeUndefined();
-      expect(prepared.profile.mcpServers.map((server) => server.name)).toEqual(['ptah', 'open']);
+      expect(prepared.secrets).toEqual(
+        new Map([['mcp.ptah.authorization', mcpToken]]),
+      );
+      expect(prepared.profile.mcpServers.map((server) => server.name)).toEqual([
+        'ptah',
+        'open',
+      ]);
     });
 
     it('keeps every secret value out of logs, profile, fingerprint, identity, metadata and notices', async () => {
       const h = harness();
       const original = await resumable(h);
-      const prepared = await h.ports.profile({
-        ...config(),
-        mcpServerRunning: true,
-        mcpServersOverride: {
-          smithery: { type: 'http', url: queryUrl },
-          'oauth.mcp.linear.app': {
-            type: 'http',
-            url: 'https://mcp.linear.app/mcp',
-            headers: { Authorization: `Bearer ${token}` },
+      const prepared = await h.ports.profile(
+        {
+          ...config(),
+          mcpServerRunning: true,
+          mcpServersOverride: {
+            smithery: { type: 'http', url: queryUrl },
+            'oauth.mcp.linear.app': {
+              type: 'http',
+              url: 'https://mcp.linear.app/mcp',
+              headers: { Authorization: `Bearer ${token}` },
+            },
           },
+          thinking: { type: 'adaptive' },
+          outputStyleName: 'Explanatory',
         },
-        thinking: { type: 'adaptive' },
-        outputStyleName: 'Explanatory',
-      }, id);
+        id,
+      );
       expect(prepared.resume?.threadId).toBe(id);
       // MCP servers and their references stay outside the fingerprint.
-      expect(prepared.profile.profileFingerprint).toBe(original.profileFingerprint);
+      expect(prepared.profile.profileFingerprint).toBe(
+        original.profileFingerprint,
+      );
       expect([...(prepared.secrets?.values() ?? [])]).toEqual(
         expect.arrayContaining([queryUrl, `Bearer ${token}`]),
       );
@@ -742,7 +901,9 @@ describe('Codex chat host ports', () => {
       (call) => call[0] === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     );
   }
-  function request(expiresAt: number | 'absent' = 1_900_000_000_000): CodexApprovalRequest {
+  function request(
+    expiresAt: number | 'absent' = 1_900_000_000_000,
+  ): CodexApprovalRequest {
     return {
       contextId: 'context',
       processGeneration: 2,
@@ -759,27 +920,35 @@ describe('Codex chat host ports', () => {
       details: { command: 'pwd' },
     };
   }
-  it.each([false, true])('presents a renderer-valid approval (session fallback tab: %s)', (fallback) => {
-    const h = harness();
-    const tabId = '33333333-3333-4333-8333-333333333333';
-    h.deps.tabId = () => fallback ? id : tabId;
-    const approval = request();
-    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
-    const payload = h.broadcastMessage.mock.calls[0][1];
-    expect(parsePermissionRequest(payload)).not.toBeNull();
-    expect(payload.id).toMatch(UUID_REGEX);
-    expect(payload).toMatchObject({
-      sessionId: id,
-      toolName: 'Bash',
-      toolInput: { command: 'pwd' },
-      toolUseId: approval.toolId,
-      timeoutAt: approval.expiresAt,
-      description: expect.stringContaining('pwd'),
-    });
-    expect(payload).not.toHaveProperty('allowedDecisions');
-    if (fallback) expect(payload).not.toHaveProperty('tabId');
-    else expect(payload.tabId).toBe(tabId);
-  });
+  it.each([false, true])(
+    'presents a renderer-valid approval (session fallback tab: %s)',
+    (fallback) => {
+      const h = harness();
+      const tabId = '33333333-3333-4333-8333-333333333333';
+      h.deps.tabId = () => (fallback ? id : tabId);
+      const approval = request();
+      h.ports.presentation.present(id, approval, [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
+      const payload = h.broadcastMessage.mock.calls[0][1];
+      expect(parsePermissionRequest(payload)).not.toBeNull();
+      expect(payload.id).toMatch(UUID_REGEX);
+      expect(payload).toMatchObject({
+        sessionId: id,
+        toolName: 'Bash',
+        toolInput: { command: 'pwd' },
+        toolUseId: approval.toolId,
+        timeoutAt: approval.expiresAt,
+        description: expect.stringContaining('pwd'),
+      });
+      expect(payload).not.toHaveProperty('allowedDecisions');
+      if (fallback) expect(payload).not.toHaveProperty('tabId');
+      else expect(payload.tabId).toBe(tabId);
+    },
+  );
   it.each([
     ['allow', 'accept'],
     ['always_allow', 'acceptForSession'],
@@ -843,45 +1012,55 @@ describe('Codex chat host ports', () => {
       ],
     ]);
   });
-  it.each(['rejected', 'throws'] as const)('settles the Codex approval without falling through when the sink %s', (failure) => {
-    const h = harness();
-    h.ports.presentation.present(id, request(), [
-      'deny',
-      'allowOnce',
-      'allowWithInput',
-      'alwaysAllow',
-    ]);
-    const approval = request();
-    const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
-    if (failure === 'throws') {
-      h.respond.mockImplementationOnce(() => {
-        h.ports.presentation.dismiss(id, approval);
-        throw new Error('private request');
+  it.each(['rejected', 'throws'] as const)(
+    'settles the Codex approval without falling through when the sink %s',
+    (failure) => {
+      const h = harness();
+      h.ports.presentation.present(id, request(), [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
+      const approval = request();
+      const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
+      if (failure === 'throws') {
+        h.respond.mockImplementationOnce(() => {
+          h.ports.presentation.dismiss(id, approval);
+          throw new Error('private request');
+        });
+      } else {
+        h.respond.mockImplementationOnce(() => {
+          h.ports.presentation.dismiss(id, approval);
+          return false;
+        });
+      }
+      expect(
+        h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
+      ).toBe(true);
+      expect(h.resolveAttention).toHaveBeenCalledWith(
+        attentionRequestKey('permission', wireId),
+        h.broadcastMessage.mock.calls[0][1].timestamp,
+      );
+      expect(autoResolved(h.broadcastMessage)).toEqual([
+        [
+          MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+          { id: wireId, sessionId: id, toolName: 'command' },
+        ],
+      ]);
+      expect(h.deps.logger.warn).toHaveBeenCalledWith(expect.any(String), {
+        code:
+          failure === 'throws'
+            ? 'approval-response-failed'
+            : 'approval-response-rejected',
       });
-    } else {
-      h.respond.mockImplementationOnce(() => {
-        h.ports.presentation.dismiss(id, approval);
-        return false;
-      });
-    }
-    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(true);
-    expect(h.resolveAttention).toHaveBeenCalledWith(
-      attentionRequestKey('permission', wireId),
-      h.broadcastMessage.mock.calls[0][1].timestamp,
-    );
-    expect(autoResolved(h.broadcastMessage)).toEqual([
-      [
-        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
-        { id: wireId, sessionId: id, toolName: 'command' },
-      ],
-    ]);
-    expect(h.deps.logger.warn).toHaveBeenCalledWith(
-      expect.any(String), { code: failure === 'throws' ? 'approval-response-failed' : 'approval-response-rejected' },
-    );
-    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
-    expect(h.respond).toHaveBeenCalledTimes(1);
-    expect(h.resolveAttention).toHaveBeenCalledTimes(1);
-  });
+      expect(
+        h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
+      ).toBe(false);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+    },
+  );
   it('declines an undeliverable prompt and releases its pending entry', async () => {
     const h = harness();
     h.broadcastMessage.mockRejectedValueOnce(new Error('window closed'));
@@ -896,30 +1075,52 @@ describe('Codex chat host ports', () => {
     await Promise.resolve();
     expect(h.respond).toHaveBeenCalledWith(
       { sessionId: id, threadId: id, requestId: '5' },
-      expect.objectContaining({ kind: 'codex', response: expect.objectContaining({ decision: 'decline' }) }),
+      expect.objectContaining({
+        kind: 'codex',
+        response: expect.objectContaining({ decision: 'decline' }),
+      }),
     );
     expect(h.resolveAttention).toHaveBeenCalledTimes(1);
     expect(h.resolveAttention).toHaveBeenCalledWith(
       attentionRequestKey('permission', wireId),
       h.broadcastMessage.mock.calls[0][1].timestamp,
     );
-    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+    expect(
+      h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
+    ).toBe(false);
   });
   it('does not decline a replacement when the previous delivery fails later', async () => {
     const h = harness();
     let rejectDelivery: ((reason: Error) => void) | undefined;
-    h.broadcastMessage.mockReturnValueOnce(new Promise<void>((_resolve, reject) => {
-      rejectDelivery = reject;
-    }));
+    h.broadcastMessage.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectDelivery = reject;
+      }),
+    );
     const approval = request();
-    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
-    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+    h.ports.presentation.present(id, approval, [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ]);
+    h.ports.presentation.present(id, approval, [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ]);
     const replacement = h.broadcastMessage.mock.calls[1][1];
     rejectDelivery?.(new Error('window closed'));
     await Promise.resolve();
     expect(h.respond).not.toHaveBeenCalled();
     expect(h.resolveAttention).toHaveBeenCalledTimes(1);
-    expect(h.ports.handlePermissionResponse({ id: replacement.id, decision: 'allow' })).toBe(true);
+    expect(
+      h.ports.handlePermissionResponse({
+        id: replacement.id,
+        decision: 'allow',
+      }),
+    ).toBe(true);
     expect(h.respond).toHaveBeenCalledTimes(1);
     expect(h.resolveAttention).toHaveBeenCalledTimes(2);
   });
@@ -927,12 +1128,19 @@ describe('Codex chat host ports', () => {
     const h = harness();
     const { profile } = await h.ports.profile(config());
     h.readResumeIdentity.mockResolvedValue({
-      threadId: id, contextId: profile.contextId, processGeneration: 1,
-      normalizedHome: profile.normalizedHome, providerId: profile.providerId,
-      workspaceId: (process.platform === 'win32' ? workspace.toUpperCase() : workspace) + '/',
+      threadId: id,
+      contextId: profile.contextId,
+      processGeneration: 1,
+      normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId,
+      workspaceId:
+        (process.platform === 'win32' ? workspace.toUpperCase() : workspace) +
+        '/',
       profileFingerprint: profile.profileFingerprint,
     });
-    expect((await h.ports.profile(config(), id)).profile.workspaceId).toBe(workspace);
+    expect((await h.ports.profile(config(), id)).profile.workspaceId).toBe(
+      workspace,
+    );
   });
   it('cancels the correlated UI prompt and forgets its wire id', () => {
     const h = harness();
@@ -1006,33 +1214,45 @@ describe('Codex chat host ports', () => {
       expect(h.resolveAttention).toHaveBeenCalledTimes(1);
     });
 
-    it.each(['turn-ended', 'disposed'] as const)('releases once for cancel then dismiss (%s)', (reason) => {
-      const { h, wireId, noticeKey, timestamp } = presented();
-      h.ports.presentation.cancelPrompt({
-        sessionId: id,
-        requestId: '5',
-        reason,
-      });
-      h.ports.presentation.dismiss(id, request());
-      expect(h.broadcastMessage).toHaveBeenCalledTimes(2);
-      expect(h.broadcastMessage).toHaveBeenLastCalledWith(
-        MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
-        { sessionId: id, requestId: wireId, reason },
-      );
-      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
-      expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
-      expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
-      expect(h.respond).not.toHaveBeenCalled();
-    });
+    it.each(['turn-ended', 'disposed'] as const)(
+      'releases once for cancel then dismiss (%s)',
+      (reason) => {
+        const { h, wireId, noticeKey, timestamp } = presented();
+        h.ports.presentation.cancelPrompt({
+          sessionId: id,
+          requestId: '5',
+          reason,
+        });
+        h.ports.presentation.dismiss(id, request());
+        expect(h.broadcastMessage).toHaveBeenCalledTimes(2);
+        expect(h.broadcastMessage).toHaveBeenLastCalledWith(
+          MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+          { sessionId: id, requestId: wireId, reason },
+        );
+        expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+        expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+        expect(
+          h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
+        ).toBe(false);
+        expect(h.respond).not.toHaveBeenCalled();
+      },
+    );
 
     it('replaces the wire identity and releases the previous presentation', () => {
       const { h, wireId, noticeKey, timestamp } = presented();
-      h.ports.presentation.present(id, request(), ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+      h.ports.presentation.present(id, request(), [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
       const replacement = h.broadcastMessage.mock.calls[1][1];
       expect(replacement.id).toMatch(UUID_REGEX);
       expect(replacement.id).not.toBe(wireId);
       expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
-      expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+      expect(
+        h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
+      ).toBe(false);
       expect(h.respond).not.toHaveBeenCalled();
       h.ports.presentation.dismiss(id, request());
       expect(h.broadcastMessage).toHaveBeenLastCalledWith(
@@ -1041,9 +1261,15 @@ describe('Codex chat host ports', () => {
       );
       expect(h.resolveAttention).toHaveBeenCalledTimes(2);
       expect(h.resolveAttention).toHaveBeenLastCalledWith(
-        attentionRequestKey('permission', replacement.id), replacement.timestamp,
+        attentionRequestKey('permission', replacement.id),
+        replacement.timestamp,
       );
-      expect(h.ports.handlePermissionResponse({ id: replacement.id, decision: 'allow' })).toBe(false);
+      expect(
+        h.ports.handlePermissionResponse({
+          id: replacement.id,
+          decision: 'allow',
+        }),
+      ).toBe(false);
     });
 
     it('releases nothing for an unknown response id', () => {
@@ -1110,6 +1336,7 @@ describe('Codex chat host ports', () => {
         transport: 'http',
         url: `http://localhost:51820/session/${routingId}/workspace/${encodeURIComponent(profile.cwd)}`,
         headerReferences: {},
+        authReference: 'mcp.ptah.authorization',
         toolTimeoutSec: 960,
       },
     ]);
@@ -1121,7 +1348,11 @@ describe('Codex chat host ports', () => {
   it('does not reject the gateway consumer as a Codex thread option', () => {
     const h = harness();
     expect(() =>
-      h.ports.checkOptions({ ...config(), consumer: 'gateway', prompt: 'hello' }),
+      h.ports.checkOptions({
+        ...config(),
+        consumer: 'gateway',
+        prompt: 'hello',
+      }),
     ).not.toThrow();
   });
 
@@ -1161,7 +1392,7 @@ describe('Codex chat host ports', () => {
       return { h, approval, payload };
     }
 
-    it('keeps a UUID tab on today\'s card with no timer and no lifecycle', () => {
+    it("keeps a UUID tab on today's card with no timer and no lifecycle", () => {
       jest.useFakeTimers({ now });
       const h = harness();
       const approval = request();
@@ -1182,7 +1413,7 @@ describe('Codex chat host ports', () => {
       ['shorter than 60s', 15_000, 15_000],
       ['longer than 60s', 120_000, 60_000],
     ] as const)(
-      'presents Claude\'s unroutable card when the bridge expiry is %s',
+      "presents Claude's unroutable card when the bridge expiry is %s",
       (_label, offset, timeoutMs) => {
         const { h, payload } = presentGateway(
           offset === undefined ? undefined : now + offset,
@@ -1222,9 +1453,11 @@ describe('Codex chat host ports', () => {
             }),
           }),
         );
-        expect(systemAbort('Bash', timeoutMs).startsWith(
-          'SYSTEM ABORT — this was NOT a user decision.',
-        )).toBe(true);
+        expect(
+          systemAbort('Bash', timeoutMs).startsWith(
+            'SYSTEM ABORT — this was NOT a user decision.',
+          ),
+        ).toBe(true);
         expect(h.publish).toHaveBeenLastCalledWith({
           phase: 'resolved',
           requestId: payload.id,
@@ -1257,11 +1490,18 @@ describe('Codex chat host ports', () => {
         jest.advanceTimersByTime(60_000);
         expect(h.respond).toHaveBeenCalledTimes(1);
         expect(h.publish).toHaveBeenLastCalledWith(
-          expect.objectContaining({ phase: 'resolved', outcome, routingHint: gatewayTab }),
+          expect.objectContaining({
+            phase: 'resolved',
+            outcome,
+            routingHint: gatewayTab,
+          }),
         );
-        expect(h.ports.handlePermissionResponse({ id: payload.id, decision: 'allow' })).toBe(
-          false,
-        );
+        expect(
+          h.ports.handlePermissionResponse({
+            id: payload.id,
+            decision: 'allow',
+          }),
+        ).toBe(false);
       },
     );
 
@@ -1270,17 +1510,26 @@ describe('Codex chat host ports', () => {
       (failure) => {
         const { h, payload } = presentGateway();
         if (failure === 'rejects') h.respond.mockReturnValue(false);
-        else h.respond.mockImplementation(() => { throw new Error('router failed'); });
+        else
+          h.respond.mockImplementation(() => {
+            throw new Error('router failed');
+          });
 
-        expect(h.ports.handlePermissionResponse({ id: payload.id, decision: 'allow' }))
-          .toBe(true);
+        expect(
+          h.ports.handlePermissionResponse({
+            id: payload.id,
+            decision: 'allow',
+          }),
+        ).toBe(true);
         expect(h.broadcastMessage).toHaveBeenCalledWith(
           MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
           expect.objectContaining({ id: payload.id, sessionId: id }),
         );
-        expect(h.broadcastMessage.mock.calls.filter(
-          ([type]) => type === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
-        )).toHaveLength(1);
+        expect(
+          h.broadcastMessage.mock.calls.filter(
+            ([type]) => type === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+          ),
+        ).toHaveLength(1);
         expect(h.publish).toHaveBeenLastCalledWith({
           phase: 'resolved',
           requestId: payload.id,
@@ -1383,7 +1632,10 @@ describe('Codex chat host ports', () => {
       h.ports.presentation.present(id, request('absent'), [...choices]);
       expect(h.broadcastMessage).toHaveBeenCalledWith(
         MESSAGE_TYPES.PERMISSION_REQUEST,
-        expect.objectContaining({ toolName: 'Bash', timeoutAt: now + UNROUTABLE_PERMISSION_TIMEOUT_MS }),
+        expect.objectContaining({
+          toolName: 'Bash',
+          timeoutAt: now + UNROUTABLE_PERMISSION_TIMEOUT_MS,
+        }),
       );
       expect(h.respond).not.toHaveBeenCalled();
       jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS);

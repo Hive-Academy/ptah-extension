@@ -249,7 +249,11 @@ describe('CopilotSdkAdapter', () => {
       expect(argsArg).toContain('json');
       expect(argsArg).toContain('--allow-all-tools');
       expect(argsArg).toContain('-s');
-      expect(argsArg[argsArg.indexOf('-p') + 1].match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+      expect(
+        argsArg[argsArg.indexOf('-p') + 1].match(
+          /Lane policy id: ptah-lane-policy-v1/g,
+        ),
+      ).toHaveLength(1);
 
       currentChild?.emitClose(0);
       const code = await handle.done;
@@ -328,6 +332,7 @@ describe('CopilotSdkAdapter', () => {
       const handle = await adapter.runSdk({
         ...defaultOptions,
         mcpPort: 51820,
+        mcpToken: 'lane-token',
       });
       handle.onOutput(() => {});
 
@@ -338,7 +343,9 @@ describe('CopilotSdkAdapter', () => {
       expect(mcpJson).toContain('51820');
       expect(mcpJson).toContain('ptah');
       // The URL carries the spawn's working directory (TASK_2026_364).
-      expect(mcpJson).toContain('http://localhost:51820/workspace/%2Fproj');
+      expect(mcpJson).toContain(
+        'http://localhost:51820/auth/lane-token/workspace/%2Fproj',
+      );
 
       currentChild?.emitClose(0);
       await handle.done;
@@ -348,6 +355,7 @@ describe('CopilotSdkAdapter', () => {
       const handle = await adapter.runSdk({
         ...defaultOptions,
         mcpPort: 51820,
+        mcpToken: 'lane-token',
         agentId: 'agent-7',
       });
       handle.onOutput(() => {});
@@ -357,7 +365,7 @@ describe('CopilotSdkAdapter', () => {
       // The agent segment is how the server learns WHICH spawn is calling
       // (TASK_2026_402) — the child never names itself.
       expect(mcpJson).toContain(
-        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+        'http://localhost:51820/auth/lane-token/agent/agent-7/workspace/%2Fproj',
       );
 
       currentChild?.emitClose(0);
@@ -948,6 +956,7 @@ describe('CopilotSdkAdapter', () => {
       model: 'claude-sonnet-4.5',
       reasoningEffort: 'high',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     function promptArg(call = 0): string {

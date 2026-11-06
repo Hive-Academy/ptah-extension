@@ -55,7 +55,7 @@ const executable: CodexExecutableSource = {
 const profile: CodexExecutionProfile = {
   contextId: 'context',
   consumer: 'chat',
-  normalizedHome: '/isolated/home',
+  normalizedHome: process.platform === 'win32' ? 'C:\\isolated\\home' : '/isolated/home',
   providerId: 'codex',
   workspaceId: 'workspace',
   cwd: '/work',
@@ -77,7 +77,7 @@ const profile: CodexExecutionProfile = {
   profileFingerprint: 'fingerprint',
 };
 const initializeResult = {
-  codexHome: '/isolated/home',
+  codexHome: process.platform === 'win32' ? 'C:\\isolated\\home' : '/isolated/home',
   platformFamily: 'unix',
   platformOs: 'linux',
   userAgent: 'test',
@@ -505,7 +505,7 @@ describe('CodexAppServerProcess', () => {
       command: executable.path,
       args: ['app-server'],
       cwd: '/work',
-      env: expect.objectContaining({ CODEX_HOME: '/isolated/home' }),
+      env: expect.objectContaining({ CODEX_HOME: profile.normalizedHome }),
     });
     expect(process.env['CODEX_HOME']).toBe(home);
     expect(child.frames).toEqual([
@@ -524,7 +524,18 @@ describe('CodexAppServerProcess', () => {
   it.each(['linux', 'win32'] as const)(
     'inherits only allowlisted host variables on %s',
     async (platform) => {
-      if (platform === 'win32') useWindowsExecutableFixture();
+      if (platform === 'win32') {
+        useWindowsExecutableFixture();
+      } else {
+        activeProfile = { ...profile, normalizedHome: '/isolated/home' };
+        runtime = new CodexAppServerProcess(
+          spawner,
+          executable,
+          activeProfile,
+          { onNotification, onRequest },
+          logger,
+        );
+      }
       Object.defineProperty(process, 'platform', { value: platform });
       const allowed = {
         PATH: '/bin',
@@ -618,7 +629,13 @@ describe('CodexAppServerProcess', () => {
     const starting = runtime.start();
     child.send({
       id: 1,
-      result: { ...initializeResult, codexHome: '/isolated/other/../home/' },
+      result: {
+        ...initializeResult,
+        codexHome:
+          process.platform === 'win32'
+            ? 'C:\\isolated\\other\\..\\home\\'
+            : '/isolated/other/../home/',
+      },
     });
     await starting;
     expect(runtime.verifiedCodexHome).toBe(profile.normalizedHome);

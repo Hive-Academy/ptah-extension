@@ -42,6 +42,7 @@ function makeManager(): {
   } as unknown as SdkModuleLoader;
   const queryOptionsBuilder = {
     build: jest.fn(),
+    revokeMcpSubject: jest.fn(),
   } as unknown as SdkQueryOptionsBuilder;
   const messageFactory = {} as unknown as SdkMessageFactory;
   const subagentRegistry = {} as unknown as SubagentRegistryService;
@@ -164,7 +165,7 @@ function makeScopedHarness(): {
     asLogger(logger),
     permissionHandler as unknown as ISdkPermissionHandler,
     { getQueryFunction: jest.fn() } as unknown as SdkModuleLoader,
-    { build: jest.fn() } as unknown as SdkQueryOptionsBuilder,
+    { build: jest.fn(), revokeMcpSubject: jest.fn() } as unknown as SdkQueryOptionsBuilder,
     {} as unknown as SdkMessageFactory,
     subagentRegistry,
     {} as AuthEnv,

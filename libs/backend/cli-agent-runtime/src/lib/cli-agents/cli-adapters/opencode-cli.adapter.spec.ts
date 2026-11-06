@@ -418,7 +418,11 @@ describe('OpencodeCliAdapter', () => {
       expect(argsArg.slice(0, 3)).toEqual(['run', '--format', 'json']);
       expect(argsArg).toContain('--auto');
       expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
-      expect(argsArg[argsArg.length - 1].match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+      expect(
+        argsArg[argsArg.length - 1].match(
+          /Lane policy id: ptah-lane-policy-v1/g,
+        ),
+      ).toHaveLength(1);
     });
 
     /**
@@ -626,6 +630,7 @@ describe('OpencodeCliAdapter', () => {
       projectGuidance: 'HARNESS CONTEXT',
       model: 'anthropic/claude-sonnet-4-5',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     async function spawnOnce(options: CliCommandOptions): Promise<void> {
@@ -1036,6 +1041,7 @@ describe('OpencodeCliAdapter', () => {
       workingDirectory: '/proj',
       model: 'opencode-go/glm-5.3',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     /** Run the first turn to completion, reporting `sessionId` if given. */
@@ -1232,6 +1238,7 @@ describe('OpencodeCliAdapter', () => {
         task: 'X',
         workingDirectory: '/proj',
         mcpPort: 51820,
+        mcpToken: 'lane-token',
       });
       collect(handle);
 
@@ -1247,7 +1254,7 @@ describe('OpencodeCliAdapter', () => {
       // The URL carries the spawn's working directory (TASK_2026_364).
       expect(parsed.mcp.ptah).toEqual({
         type: 'remote',
-        url: 'http://localhost:51820/workspace/%2Fproj',
+        url: 'http://localhost:51820/auth/lane-token/workspace/%2Fproj',
         enabled: true,
       });
 
@@ -1260,6 +1267,7 @@ describe('OpencodeCliAdapter', () => {
         task: 'X',
         workingDirectory: '/proj',
         mcpPort: 51820,
+        mcpToken: 'lane-token',
         agentId: 'agent-7',
       });
       collect(handle);
@@ -1271,7 +1279,7 @@ describe('OpencodeCliAdapter', () => {
       // The agent segment is how the server learns WHICH spawn is calling
       // (TASK_2026_402) — the child never names itself.
       expect(parsed.mcp.ptah.url).toBe(
-        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+        'http://localhost:51820/auth/lane-token/agent/agent-7/workspace/%2Fproj',
       );
 
       currentChild?.emitClose(0);

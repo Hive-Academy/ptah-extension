@@ -115,12 +115,15 @@ import {
   ProviderAccountService,
 } from '@ptah-extension/auth-providers';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
+import type { IMcpExternalCallerAccessUpdater } from '@ptah-extension/vscode-lm-tools';
 import {
   DecisionModelWriter,
   type DecisionKeyWrite,
 } from './decision-model-writer';
 import { CliModelListService } from '../services/cli-model-list.service';
 import { resolveSessionFolder } from '../chat/session/session-folder';
+
+const MCP_EXTERNAL_CALLER_ACCESS_SCHEMA = z.enum(['read-only', 'full']);
 
 /** `agent:setConfig` keys that hold a Claude built-in opt-in list (TASK_2026_853). */
 const CLAUDE_BUILTIN_OPT_IN_KEYS = [
@@ -553,6 +556,15 @@ export class AgentRpcHandlers {
                 'agentOrchestration.mcpPort',
                 51820,
               ) ?? 51820,
+            mcpExternalCallerAccess: MCP_EXTERNAL_CALLER_ACCESS_SCHEMA.catch(
+              'read-only',
+            ).parse(
+              this.workspace.getConfiguration<unknown>(
+                'ptah',
+                'mcp.externalCallerAccess',
+                'read-only',
+              ),
+            ),
             disabledClis: this.getAgentCfg<string[]>('disabledClis', []),
             disabledMcpNamespaces: this.getAgentCfg<string[]>(
               'disabledMcpNamespaces',
@@ -986,6 +998,17 @@ export class AgentRpcHandlers {
       if (params.codexSandboxMode !== undefined && !codexSandboxModeSchema.safeParse(params.codexSandboxMode).success) {
         return { success: false, error: 'Unsupported codexSandboxMode value' };
       }
+      if (
+        params.mcpExternalCallerAccess !== undefined &&
+        !MCP_EXTERNAL_CALLER_ACCESS_SCHEMA.safeParse(
+          params.mcpExternalCallerAccess,
+        ).success
+      ) {
+        return {
+          success: false,
+          error: 'Unsupported mcpExternalCallerAccess value',
+        };
+      }
       if (invalidBudget) {
         return {
           success: false,
@@ -1124,6 +1147,19 @@ export class AgentRpcHandlers {
           'agentOrchestration.mcpPort',
           Math.max(1024, Math.min(65535, params.mcpPort)),
         );
+      }
+      if (params.mcpExternalCallerAccess !== undefined) {
+        await this.workspace.setConfiguration(
+          'ptah',
+          'mcp.externalCallerAccess',
+          params.mcpExternalCallerAccess,
+        );
+        if (this.runtimeContainer.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+          const mcp = this.runtimeContainer.resolve<IMcpExternalCallerAccessUpdater>(
+            TOKENS.CODE_EXECUTION_MCP,
+          );
+          await mcp.applyExternalCallerAccess(params.mcpExternalCallerAccess);
+        }
       }
       if (params.disabledClis !== undefined) {
         await this.setAgentCfg('disabledClis', params.disabledClis);

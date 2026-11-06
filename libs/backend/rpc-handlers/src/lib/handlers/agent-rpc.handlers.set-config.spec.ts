@@ -26,6 +26,7 @@ jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: { SDK_CODEX_AUTH: Symbol.for('CodexAuthService') },
 }));
 
+import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   IAuthSecretsService,
   Logger,
@@ -60,7 +61,13 @@ import { AgentRpcHandlers } from './agent-rpc.handlers';
  * reasoning effort. Pi's value is passed raw to `pi --thinking`, so an
  * unsupported value must be refused before anything is persisted.
  */
-function makeHarness() {
+interface ExternalCallerAccessUpdater {
+  applyExternalCallerAccess(access: 'read-only' | 'full'): Promise<void>;
+}
+
+function makeHarness(
+  externalCallerAccessUpdater?: ExternalCallerAccessUpdater,
+) {
   const rpcHandler = createMockRpcHandler();
   const settings = new Map<string, unknown>();
   const workspace = {
@@ -103,8 +110,12 @@ function makeHarness() {
     } as unknown as IStateStorage,
     {} as unknown as CliModelListService,
     {
-      isRegistered: jest.fn().mockReturnValue(false),
-      resolve: jest.fn(),
+      isRegistered: jest.fn(
+        (token: unknown) =>
+          externalCallerAccessUpdater !== undefined &&
+          token === TOKENS.CODE_EXECUTION_MCP,
+      ),
+      resolve: jest.fn(() => externalCallerAccessUpdater),
     } as unknown as DependencyContainer,
     authSecrets as unknown as IAuthSecretsService,
     { exists: jest.fn().mockResolvedValue(true) } as never,
@@ -218,6 +229,78 @@ describe('agent:setConfig inherit effort (TASK_2026_597)', () => {
       success: true,
     });
     expect(h.settings.get(`ptah.agentOrchestration.${field}`)).toBe('inherit');
+  });
+});
+
+describe('MCP external caller access setting', () => {
+  it('agent:getConfig returns read-only by default', async () => {
+    const h = makeHarness();
+    expect((await h.getConfig()).mcpExternalCallerAccess).toBe('read-only');
+  });
+
+  it('agent:getConfig normalizes an invalid stored value to read-only', async () => {
+    const h = makeHarness();
+    h.settings.set('ptah.mcp.externalCallerAccess', 'privileged');
+    expect((await h.getConfig()).mcpExternalCallerAccess).toBe('read-only');
+  });
+
+  it.each(['read-only', 'full'])(
+    'agent:setConfig accepts and persists %s',
+    async (value) => {
+      const h = makeHarness();
+      expect(
+        await h.setConfig({ mcpExternalCallerAccess: value }),
+      ).toEqual({ success: true });
+      expect(h.settings.get('ptah.mcp.externalCallerAccess')).toBe(value);
+      expect((await h.getConfig()).mcpExternalCallerAccess).toBe(value);
+    },
+  );
+
+  it('agent:setConfig rejects another value before any write', async () => {
+    const h = makeHarness();
+    expect(
+      await h.setConfig({ mcpExternalCallerAccess: 'full' }),
+    ).toEqual({ success: true });
+    h.workspace.setConfiguration.mockClear();
+
+    expect(
+      await h.setConfig({
+        mcpExternalCallerAccess: 'privileged',
+        codexModel: 'changed',
+      }),
+    ).toEqual({
+      success: false,
+      error: 'Unsupported mcpExternalCallerAccess value',
+    });
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+    expect(h.settings.get('ptah.mcp.externalCallerAccess')).toBe('full');
+  });
+
+  it('applies a saved value to live persistent bindings before success', async () => {
+    const updater = {
+      applyExternalCallerAccess: jest.fn().mockResolvedValue(undefined),
+    };
+    const h = makeHarness(updater);
+
+    expect(
+      await h.setConfig({ mcpExternalCallerAccess: 'read-only' }),
+    ).toEqual({ success: true });
+    expect(updater.applyExternalCallerAccess).toHaveBeenCalledWith('read-only');
+  });
+
+  it('returns an error when the live persistent-binding update fails', async () => {
+    const updater = {
+      applyExternalCallerAccess: jest
+        .fn()
+        .mockRejectedValue(new Error('host detail: state write failed')),
+    };
+    const h = makeHarness(updater);
+
+    expect(await h.setConfig({ mcpExternalCallerAccess: 'full' })).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    expect(updater.applyExternalCallerAccess).toHaveBeenCalledWith('full');
   });
 });
 

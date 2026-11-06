@@ -5,7 +5,10 @@
  * for in-process subagent discovery by Claude SDK sessions.
  */
 
-export { CodeExecutionMCP } from './http-mcp-server.service';
+export {
+  CodeExecutionMCP,
+  type IMcpExternalCallerAccessUpdater,
+} from './http-mcp-server.service';
 export {
   startHttpServer,
   stopHttpServer,

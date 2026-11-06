@@ -622,6 +622,8 @@ describe('AntigravityCliAdapter', () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
         mcpPort: 51820,
+        mcpToken: 'lane-token',
+        agentId: 'lane-7',
         role,
       });
       collect(handle);

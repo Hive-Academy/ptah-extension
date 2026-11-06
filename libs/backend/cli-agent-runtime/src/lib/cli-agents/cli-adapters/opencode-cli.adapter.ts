@@ -89,6 +89,7 @@ import {
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { laneMcpAuthUrl } from './lane-mcp-credentials';
 import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
@@ -591,6 +592,7 @@ export class OpencodeCliAdapter implements CliAdapter {
   private buildMcpConfigContent(
     port: number,
     workingDirectory: string,
+    token: string,
     agentId?: string,
   ): string {
     return JSON.stringify({
@@ -599,7 +601,10 @@ export class OpencodeCliAdapter implements CliAdapter {
           type: 'remote',
           // Scoped to the spawn's working directory so the server attributes
           // this agent's calls to the right workspace (TASK_2026_364).
-          url: ptahMcpServerUrl(port, workingDirectory, agentId),
+          url: laneMcpAuthUrl(
+            ptahMcpServerUrl(port, workingDirectory, agentId),
+            token,
+          ),
           enabled: true,
         },
       },
@@ -664,10 +669,11 @@ export class OpencodeCliAdapter implements CliAdapter {
     }
 
     const env: NodeJS.ProcessEnv = {};
-    if (options.mcpPort) {
+    if (options.mcpPort && options.mcpToken) {
       env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
         options.mcpPort,
         options.workingDirectory,
+        options.mcpToken,
         options.agentId,
       );
     }
@@ -890,7 +896,9 @@ export class OpencodeCliAdapter implements CliAdapter {
       state.stderrErrorAfterStop,
     ].filter((message): message is string => message !== undefined);
     const cause =
-      errorMessages.length > 0 ? ` after error: ${errorMessages.join('; ')}` : '';
+      errorMessages.length > 0
+        ? ` after error: ${errorMessages.join('; ')}`
+        : '';
     launch.emitSegment({
       type: 'error',
       content: `opencode CLI exited with code ${exitCode}${cause}`,

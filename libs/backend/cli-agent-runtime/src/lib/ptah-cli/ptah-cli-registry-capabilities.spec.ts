@@ -219,6 +219,10 @@ function buildHarness(input: HarnessInput): Harness {
     { getPort: () => MCP_PORT } as unknown as IMcpServerStatus,
     undefined,
     ALL_BUILTINS_ENABLED as IWorkspaceProvider,
+    {
+      issue: jest.fn(() => 'a'.repeat(43)),
+      revokeSubject: jest.fn(),
+    },
   );
   const assembleSpawnOptions = jest.spyOn(spawnOptions, 'assembleSpawnOptions');
 
@@ -303,6 +307,7 @@ function flagSettings(options: Options): Record<string, unknown> {
 async function spawn(harness: Harness): Promise<void> {
   const result = await harness.registry.spawnAgent(CONFIG.id, 'do work', {
     workingDirectory: CWD,
+    agentId: 'capability-lane',
   });
   expect(result).toHaveProperty('handle');
 }

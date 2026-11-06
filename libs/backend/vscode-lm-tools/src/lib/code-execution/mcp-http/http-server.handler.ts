@@ -2,11 +2,12 @@
  * HTTP Server Handler
  *
  * Manages the HTTP server for MCP protocol communication.
- * Handles CORS, request parsing, and response formatting.
+ * Rejects non-loopback Host and any Origin, then authenticates before the body.
  * Uses platform-core interfaces for all configuration access.
  */
 
 import * as http from 'http';
+import { z } from 'zod';
 import { mcpAttachmentObserver } from './mcp-attachment-observer';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -14,6 +15,31 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { MCPRequest, MCPResponse } from '../types';
+import {
+  authenticateWithoutRegistry,
+  isAllowedHost,
+  isJsonContentType,
+  isRejectedOrigin,
+  splitCredential,
+} from './mcp-http-gate';
+import {
+  MCP_AUTH_REQUIRED_CODE,
+  MCP_AUTH_REQUIRED_MESSAGE,
+  MCP_CALLER_FORBIDDEN_CODE,
+  MCP_CONTENT_TYPE_MESSAGE,
+  MCP_TOOL_DENIED_MESSAGE,
+  type McpHttpAuthInput,
+  type McpRequestAuth,
+} from '../mcp-core/mcp-caller-auth.types';
+
+const jsonRpcEnvelopeSchema = z
+  .object({
+    jsonrpc: z.literal('2.0'),
+    id: z.union([z.string(), z.number()]).optional(),
+    method: z.string(),
+    params: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
 
 /**
  * Configuration for the HTTP server
@@ -23,6 +49,12 @@ export interface HttpServerConfig {
   logger: Logger;
   workspaceState: IStateStorage;
   onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>;
+  /**
+   * Credential check. Production passes the token registry. When omitted, a
+   * presented token is rejected and a missing token follows the grace switch,
+   * so parser tests keep exercising the URL grammar.
+   */
+  authenticate?: (input: McpHttpAuthInput) => McpRequestAuth;
 }
 
 /**
@@ -175,7 +207,7 @@ export async function startHttpServer(
   const { port: configuredPort, logger, workspaceState, onMCPRequest } = config;
 
   const server = http.createServer((req, res) => {
-    handleHttpRequest(req, res, onMCPRequest);
+    handleHttpRequest(req, res, onMCPRequest, config.authenticate);
   });
 
   const candidates = getMcpPortCandidates(configuredPort);
@@ -227,7 +259,8 @@ export async function stopHttpServer(
     return;
   }
   const address = server.address();
-  if (address && typeof address !== 'string') mcpAttachmentObserver.clearPort(address.port);
+  if (address && typeof address !== 'string')
+    mcpAttachmentObserver.clearPort(address.port);
 
   return new Promise((resolve) => {
     server.close(() => {
@@ -264,12 +297,11 @@ function extractCallerSessionId(url: string | undefined): string | undefined {
  * to be trusted to get it right. Ptah builds this URL itself and hands it to
  * the child at spawn, so the honest path carries the right id by construction.
  *
- * **This is attribution, not authentication.** This server binds localhost and
- * checks no credential, so any same-user process — the spawned child included —
- * can issue a request with any path it likes. The URL segment closes the
- * confused-deputy case; it does not defend against a hostile child, and neither
- * does `_callerSessionId`, which has carried the same property since
- * TASK_2026_295. Do not build a trust decision on either one.
+ * **This is attribution.** Trust is the credential binding the HTTP gate
+ * stamps onto the request after Host, Origin, and token checks. The URL
+ * segment still closes the confused-deputy case for a child that presents
+ * its own token on another child's path: that mismatch is rejected before
+ * the tool runs. Do not treat the path alone as a credential.
  */
 function extractCallerAgentId(url: string | undefined): string | undefined {
   if (!url) return undefined;
@@ -336,18 +368,31 @@ function abortOnEarlyClose(res: http.ServerResponse): AbortSignal {
 }
 
 /**
- * Handle incoming HTTP request with CORS support
+ * Handle one HTTP request. Host, Origin, method, Content-Type, and the
+ * credential are decided before the body is parsed. No CORS headers are set.
  */
 async function handleHttpRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
+  authenticate?: (input: McpHttpAuthInput) => McpRequestAuth,
 ): Promise<void> {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  const port = req.socket.localPort ?? 0;
+  if (!isAllowedHost(req.headers.host, port)) {
+    discardBody(req);
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+  if (isRejectedOrigin(req.headers.origin)) {
+    discardBody(req);
+    res.writeHead(403);
+    res.end();
+    return;
+  }
   if (req.method === 'OPTIONS') {
-    res.writeHead(204);
+    discardBody(req);
+    res.writeHead(403);
     res.end();
     return;
   }
@@ -361,6 +406,68 @@ async function handleHttpRequest(
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
   }
+  if (!isJsonContentType(req.headers['content-type'])) {
+    discardBody(req);
+    endAuthFailure(res, 415, MCP_AUTH_REQUIRED_CODE, MCP_CONTENT_TYPE_MESSAGE);
+    return;
+  }
+  const presented = splitCredential(req.headers.authorization, req.url);
+  if (!presented.ok) {
+    discardBody(req);
+    endAuthFailure(res, 401, MCP_AUTH_REQUIRED_CODE, MCP_AUTH_REQUIRED_MESSAGE);
+    return;
+  }
+  const identityUrl = presented.identityUrl;
+  let authInput: McpHttpAuthInput;
+  try {
+    authInput = {
+      ...(presented.token === undefined ? {} : { token: presented.token }),
+      agentId: extractCallerAgentId(identityUrl),
+      sessionId: extractCallerSessionId(identityUrl),
+      workspaceRoot: extractCallerWorkspaceRoot(identityUrl),
+      toolProfile: extractCallerToolProfile(identityUrl),
+    };
+  } catch (error) {
+    // degradation-audit: reported - the handler returns a JSON-RPC parse error
+    // for a malformed caller identity URL.
+    discardBody(req);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 0,
+        error: { code: -32700, message: 'Parse error', data: errorMessage },
+      }),
+    );
+    return;
+  }
+  let decision: McpRequestAuth;
+  try {
+    decision =
+      authenticate === undefined
+        ? authenticateWithoutRegistry(authInput)
+        : authenticate(authInput);
+  } catch {
+    // degradation-audit: reported - the fixed 401 response avoids disclosure
+    // of credential details when authentication throws.
+    discardBody(req);
+    endAuthFailure(res, 401, MCP_AUTH_REQUIRED_CODE, MCP_AUTH_REQUIRED_MESSAGE);
+    return;
+  }
+  if (!decision.ok) {
+    discardBody(req);
+    endAuthFailure(
+      res,
+      decision.failure.httpStatus,
+      decision.failure.jsonRpcCode,
+      decision.failure.message,
+    );
+    return;
+  }
+  const accepted = decision;
+
   let body = '';
   let bodySize = 0;
 
@@ -387,8 +494,14 @@ async function handleHttpRequest(
     if (bodySize > MAX_BODY_SIZE) return; // Already handled above
 
     try {
-      const parsed = JSON.parse(body) as Record<string, unknown>;
-      if (!('id' in parsed) || parsed['id'] === undefined) {
+      const json: unknown = JSON.parse(body);
+      const parsed = jsonRpcEnvelopeSchema.safeParse(json);
+      if (!parsed.success) {
+        endInvalidRequest(res);
+        return;
+      }
+      const id = parsed.data.id;
+      if (id === undefined) {
         res.writeHead(204);
         res.end();
         return;
@@ -403,21 +516,29 @@ async function handleHttpRequest(
         _callerAgentId: _ignoredBodyAgent,
         _callerWorkspaceRoot: _ignoredBodyWorkspace,
         _callerToolProfile: _ignoredBodyProfile,
+        _callerCapability: _ignoredBodyCapability,
+        _callerBinding: _ignoredBodyBinding,
         _abortSignal: _ignoredBodySignal,
         ...envelope
-      } = parsed;
-      const mcpRequest = envelope as unknown as MCPRequest;
-      mcpRequest._callerSessionId = extractCallerSessionId(req.url);
-      mcpRequest._callerAgentId = extractCallerAgentId(req.url);
-      mcpRequest._callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
-      mcpRequest._callerToolProfile = extractCallerToolProfile(req.url);
-      mcpRequest._abortSignal = abortOnEarlyClose(res);
+      } = parsed.data;
+      const mcpRequest: MCPRequest = {
+        ...envelope,
+        id,
+        _callerSessionId: extractCallerSessionId(identityUrl),
+        _callerAgentId: extractCallerAgentId(identityUrl),
+        _callerWorkspaceRoot: extractCallerWorkspaceRoot(identityUrl),
+        _callerToolProfile: extractCallerToolProfile(identityUrl),
+        _callerCapability: accepted.binding.capability,
+        _callerBinding: accepted.binding,
+        _abortSignal: abortOnEarlyClose(res),
+      };
 
       const mcpResponse = await onMCPRequest(mcpRequest);
       if (
         mcpRequest._callerAgentId &&
         /^[A-Za-z0-9-]{1,128}$/.test(mcpRequest._callerAgentId) &&
-        (mcpRequest.method === 'initialize' || mcpRequest.method === 'tools/list') &&
+        (mcpRequest.method === 'initialize' ||
+          mcpRequest.method === 'tools/list') &&
         !('error' in mcpResponse) &&
         req.socket.localPort
       ) {
@@ -431,7 +552,8 @@ async function handleHttpRequest(
       // The caller is gone: there is no one to write the reply to.
       if (res.destroyed) return;
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const status = isToolDenial(mcpResponse) ? 403 : 200;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(mcpResponse));
     } catch (error) {
       const errorMessage =
@@ -450,4 +572,43 @@ async function handleHttpRequest(
       res.end(JSON.stringify(errorResponse));
     }
   });
+}
+
+function discardBody(req: http.IncomingMessage): void {
+  req.resume();
+}
+
+function endInvalidRequest(res: http.ServerResponse): void {
+  res.writeHead(400, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32600, message: 'Invalid Request' },
+    }),
+  );
+}
+
+/** Auth failures carry no `data` and no token. The id was not parsed. */
+function endAuthFailure(
+  res: http.ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code, message },
+    }),
+  );
+}
+
+function isToolDenial(response: MCPResponse): boolean {
+  return (
+    response.error?.code === MCP_CALLER_FORBIDDEN_CODE &&
+    response.error.message === MCP_TOOL_DENIED_MESSAGE
+  );
 }
