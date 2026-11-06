@@ -49,7 +49,11 @@ export class LightfallComponent {
 
   public constructor() {
     const destroyRef = inject(DestroyRef);
-    effect(() => this.runtime?.setOptions(this.resolved()));
+    effect(() => {
+      // Read the options first: `runtime?.` would skip the read and drop the dependency.
+      const options = this.resolved();
+      this.runtime?.setOptions(options);
+    });
     if (!isPlatformBrowser(inject(PLATFORM_ID))) return;
     afterNextRender(() => this.start());
     destroyRef.onDestroy(() => {

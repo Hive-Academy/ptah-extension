@@ -90,7 +90,14 @@ describe('DecisionLoopSectionComponent', () => {
     );
     const cues = Array.from(root.querySelectorAll('li.loop-stage .cue'));
     expect(cues.map((cue) => cue.getAttribute('aria-hidden'))).toEqual(['true', 'true', 'true']);
-    expect(cues.map((cue) => cue.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+    // The cue's spans sit side by side with no whitespace text node between them.
+    const cueText = (cue: Element): string =>
+      Array.from(cue.querySelectorAll('span'))
+        .filter((span) => span.children.length === 0)
+        .map((span) => span.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ');
+    expect(cues.map(cueText)).toEqual([
       'Decision model',
       'Ollama ready',
       'Routing suggestions',

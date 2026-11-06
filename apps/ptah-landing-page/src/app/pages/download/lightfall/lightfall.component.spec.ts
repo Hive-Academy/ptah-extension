@@ -90,7 +90,8 @@ describe('LightfallComponent', () => {
     fixture.detectChanges();
     expect(renderer.draw).toHaveBeenCalledWith(expect.objectContaining({ fade: expect.any(Number) }));
     expect(state(fixture)).toBe('live');
-    frames[1](32);
+    // Angular's scheduler may queue its own frame too; run everything queued since.
+    frames.slice(1).forEach((cb) => cb(32));
     // One reused frame object: the loop allocates nothing per frame.
     expect(renderer.draw.mock.calls[1][0]).toBe(renderer.draw.mock.calls[0][0]);
 
