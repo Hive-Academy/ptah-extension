@@ -144,6 +144,16 @@ export class WorkspaceIndexingService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
 
   private readonly _status = signal<IndexingStatusWire | null>(null);
+  /**
+   * Bumped by every successful status read and workspace change. A failed-push
+   * fallback drops the stale `running` view only while its value is current.
+   */
+  private statusGeneration = 0;
+  /**
+   * Bumped by every user action (start, resume, pause, cancel). A failed-push
+   * fallback writes its sentence only when no newer action owns the message.
+   */
+  private actionGeneration = 0;
   private readonly _progress = signal<IndexingProgressEvent | null>(null);
   private readonly _completedAt = signal<number | null>(null);
   private readonly _hasWorkspace = signal<boolean>(true);
@@ -299,7 +309,11 @@ export class WorkspaceIndexingService implements MessageHandler {
    * stops counting as busy, and show a fixed failure sentence.
    */
   private async refreshAfterFailure(workspaceRoot: string): Promise<void> {
+    const statusGeneration = this.statusGeneration;
+    const actionGeneration = this.actionGeneration;
     if (await this.tryLoadStatus(workspaceRoot)) return;
+    // A newer snapshot or workspace change replaced the stale view: keep it.
+    if (statusGeneration !== this.statusGeneration) return;
     this._status.update((status) =>
       status
         ? {
@@ -313,6 +327,8 @@ export class WorkspaceIndexingService implements MessageHandler {
           }
         : status,
     );
+    // A newer action owns the message (for example its own failure sentence).
+    if (actionGeneration !== this.actionGeneration) return;
     this._actionMessage.set(INDEXING_FAILED_MESSAGE);
   }
 
@@ -365,6 +381,7 @@ export class WorkspaceIndexingService implements MessageHandler {
    */
   setWorkspaceAvailability(hasWorkspace: boolean): void {
     this._hasWorkspace.set(hasWorkspace);
+    this.statusGeneration++;
     if (!hasWorkspace) {
       this._status.set(null);
       this._progress.set(null);
@@ -384,6 +401,7 @@ export class WorkspaceIndexingService implements MessageHandler {
       console.warn('[workspace-indexing] getStatus failed', result.error);
       return false;
     }
+    this.statusGeneration++;
     this._status.set(result.data.status);
     return true;
   }
@@ -416,6 +434,7 @@ export class WorkspaceIndexingService implements MessageHandler {
    * the `status` signal converging without a manual refresh. Never rejects.
    */
   async pause(workspaceRoot?: string): Promise<void> {
+    this.actionGeneration++;
     this._actionMessage.set(null);
     try {
       const result = await this.rpc.call('indexing:pause', {});
@@ -441,6 +460,7 @@ export class WorkspaceIndexingService implements MessageHandler {
 
   /** Cancels the active run. Never rejects. */
   async cancel(workspaceRoot: string): Promise<void> {
+    this.actionGeneration++;
     this._actionMessage.set(null);
     try {
       const result = await this.rpc.call('indexing:cancel', {});
@@ -463,6 +483,7 @@ export class WorkspaceIndexingService implements MessageHandler {
   ): Promise<void> {
     if (this._starting()) return;
     this._starting.set(true);
+    this.actionGeneration++;
     this._actionMessage.set(null);
     try {
       const result = await send();

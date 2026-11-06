@@ -563,6 +563,100 @@ describe('WorkspaceIndexingService — running state, action messages, failed pu
     });
   });
 
+  it('an older failed-push reload that rejects after a newer start loads leaves the new run alone', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexed',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+
+    let rejectOldRead: (error: Error) => void = () => undefined;
+    const newStatus = baseStatus({
+      state: 'indexing',
+      running: { origin: 'manual', startedAt: 10, force: true },
+    });
+    let statusReads = 0;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        statusReads += 1;
+        if (statusReads === 1) {
+          return new Promise((_resolve, reject) => {
+            rejectOldRead = reject;
+          });
+        }
+        return Promise.resolve(makeRpcResult(true, { status: newStatus }));
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: 'indexing' }),
+      );
+    });
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    await service.start('/ws', true);
+    expect(service.runningOrigin()).toBe('manual');
+
+    rejectOldRead(new Error('ECONNRESET'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.runningOrigin()).toBe('manual');
+    expect(service.isBusy()).toBe(true);
+    expect(service.actionMessage()).toBeNull();
+  });
+
+  it('a failed start during a pending failed-push reload still drops the stale run and keeps the start error', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexed',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.runningOrigin()).toBe('background');
+
+    let rejectOldRead: (error: Error) => void = () => undefined;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        return new Promise((_resolve, reject) => {
+          rejectOldRead = reject;
+        });
+      }
+      return Promise.resolve(makeRpcResult(false, undefined));
+    });
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    await service.start('/ws', true);
+
+    rejectOldRead(new Error('ECONNRESET'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.runningOrigin()).toBeNull();
+    expect(service.isBusy()).toBe(false);
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Could not start indexing. See the logs.',
+    });
+  });
+
   it('cancel clears the last progress event', async () => {
     routeRpc(baseStatus({ state: 'indexed' }));
     service.handleMessage({
