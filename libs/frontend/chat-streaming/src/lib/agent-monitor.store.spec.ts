@@ -84,6 +84,71 @@ describe('AgentMonitorStore', () => {
     mockActiveTab.set(null);
   });
 
+  it('keeps a newer settled receipt when an older accepted RPC response arrives', () => {
+    const agentId = AgentId.from('00000000-0000-4000-8000-000000000001');
+    const base = { id: 'message-1', agentId, sender: 'user' as const, mode: 'queue-next-turn' as const,
+      delivery: 'queue' as const, createdAt: 1 };
+    store.onMessageReceipt({ ...base, state: 'settled', updatedAt: 3 });
+    store.onMessageReceipt({ ...base, state: 'accepted', updatedAt: 2 });
+    expect(store.receipt(agentId, 'message-1')?.state).toBe('settled');
+    store.onMessageReceipt({ ...base, state: 'started', updatedAt: 3 });
+    expect(store.receipt(agentId, 'message-1')?.state).toBe('settled');
+  });
+
+  it('labels interrupted delivery with the required em dash copy', () => {
+    const agentId = AgentId.from('00000000-0000-4000-8000-000000000001');
+    expect(store.receiptLabel({ id: 'm', agentId, state: 'interrupted-undelivered',
+      mode: 'interrupt-resume', delivery: 'now', createdAt: 1, updatedAt: 2 })).toBe('Interrupted \u2014 not sent');
+  });
+
+  it('keeps recently updated receipt and parent delivery agents under the 64-agent cap', () => {
+    const first = AgentId.from('00000000-0000-4000-8000-000000000001');
+    const receipt = (agentId: typeof first) => ({ id: 'm', agentId, sender: 'user' as const,
+      state: 'accepted' as const, mode: 'queue-next-turn' as const, delivery: 'queue' as const, createdAt: 1, updatedAt: 1 });
+    store.onMessageReceipt(receipt(first));
+    store.onParentDelivery({ agentId: first, kind: 'report', state: 'pending' });
+    for (let index = 2; index <= 64; index++) {
+      const id = AgentId.from(`00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+      store.onMessageReceipt(receipt(id));
+      store.onParentDelivery({ agentId: id, kind: 'report', state: 'pending' });
+    }
+    store.onMessageReceipt({ ...receipt(first), updatedAt: 2 });
+    store.onParentDelivery({ agentId: first, kind: 'report', state: 'delivered' });
+    const last = AgentId.from('00000000-0000-4000-8000-000000000065');
+    store.onMessageReceipt(receipt(last));
+    store.onParentDelivery({ agentId: last, kind: 'report', state: 'pending' });
+    expect(store.receipts().has(first)).toBe(true);
+    expect(store.parentDelivery().has(first)).toBe(true);
+  });
+
+  it('routes preview, send and cancel through ClaudeRpcService', async () => {
+    const preview = { agentId: '00000000-0000-4000-8000-000000000001', delivery: 'queue', mode: 'queue-next-turn', supported: true, usesResume: false, effectiveCapabilities: { agentId: '00000000-0000-4000-8000-000000000001', resolvedAt: 1, source: 'live-handle', messaging: 'queue', mcp: { supported: true } } };
+    const receipt = { id: 'message-1', agentId: '00000000-0000-4000-8000-000000000001', state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1 };
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess(preview));
+    await store.previewMessage('00000000-0000-4000-8000-000000000001', 'queue');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:previewMessage', { agentId: '00000000-0000-4000-8000-000000000001', delivery: 'queue' });
+    expect(store.composerState('00000000-0000-4000-8000-000000000001').queue?.supported).toBe(true);
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess({ mode: 'queue-next-turn', receipt }));
+    await store.sendMessage('00000000-0000-4000-8000-000000000001', 'hello', 'queue');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:sendMessage', { agentId: '00000000-0000-4000-8000-000000000001', message: 'hello', delivery: 'queue', allowPartialTurnLoss: undefined });
+    expect(store.receipt('00000000-0000-4000-8000-000000000001', 'message-1')?.state).toBe('accepted');
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ...receipt, state: 'failed', reason: 'cancelled-by-user' }));
+    await store.cancelMessage('00000000-0000-4000-8000-000000000001', 'message-1');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:cancelMessage', { agentId: '00000000-0000-4000-8000-000000000001', messageId: 'message-1' });
+  });
+
+  it('bounds receipt and parent delivery projections', () => {
+    for (let i = 0; i < 40; i++) store.onMessageReceipt({ id: `message-${i}`, agentId: AgentId.from('00000000-0000-4000-8000-000000000001'), state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: i, updatedAt: i });
+    expect(store.receipts().get('00000000-0000-4000-8000-000000000001')).toHaveLength(32);
+    store.onParentDelivery({ agentId: AgentId.from('00000000-0000-4000-8000-000000000001'), kind: 'report', state: 'pending' });
+    expect(store.parentDelivery().get('00000000-0000-4000-8000-000000000001')?.[0].state).toBe('pending');
+    store.onParentDelivery({ agentId: AgentId.from('00000000-0000-4000-8000-000000000001'),
+      kind: 'completion', state: 'pending', verdict: 'no-deliverable', stopReason: 'usage-limit' });
+    expect(store.parentDelivery().get('00000000-0000-4000-8000-000000000001')?.[1]).toMatchObject({
+      verdict: 'no-deliverable', stopReason: 'usage-limit',
+    });
+  });
+
   it('includes the owning session in a child cache query', async () => {
     store.onAgentStart({
       id: 'native-child',
@@ -114,6 +179,18 @@ describe('AgentMonitorStore', () => {
       workingDirectory: '/workspace/root',
       startedAt: '2026-10-01T10:00:00.000Z',
       status,
+    });
+
+    it('prunes message previews when a completed agent is removed', async () => {
+      const agentId = '00000000-0000-4000-8000-000000000001';
+      store.onAgentSpawned(info(agentId));
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ agentId, delivery: 'queue', mode: 'queue-next-turn', supported: true, usesResume: false,
+        effectiveCapabilities: { agentId, resolvedAt: 1, source: 'live-handle', messaging: 'queue', mcp: { supported: true } } }));
+      await store.previewMessage(agentId, 'queue');
+      expect(store.composerState(agentId).queue).toBeDefined();
+      store.onAgentExited(info(agentId, 'completed'));
+      store.clearCompleted();
+      expect(store.composerState(agentId).queue).toBeUndefined();
     });
 
     it('ignores a turn-one exit and spawn after turn two starts', () => {

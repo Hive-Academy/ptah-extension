@@ -22,13 +22,14 @@ import type { CliDetectionResult } from '@ptah-extension/shared';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { validateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   probeCliVersion,
   resolveCliPath,
@@ -178,8 +179,29 @@ export class GrokCliAdapter implements CliAdapter {
   }
 
   /** A mid-turn message is queued and delivered as the next prompt on the session. */
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: true };
+  capabilities(): CliAdapterManifest {
+    const unverified = (reason: string) => ({ state: 'unsupported' as const, reason, networkModes: [] });
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'ACP messages begin the next turn.' },
+        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: unverified('Grok ACP policy mapping is unverified.'),
+        ask: unverified('Grok ACP policy mapping is unverified.'),
+        'auto-edit': unverified('Grok ACP policy mapping is unverified.'),
+        yolo: unverified('Grok ACP policy mapping is unverified.'),
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified ACP network sandbox exists.' },
+      },
+      limitReader: { state: 'available', source: 'grok' },
+      mcp: { state: 'supported' },
+    };
   }
 
   parseOutput(raw: string): string {
@@ -243,6 +265,7 @@ export class GrokCliAdapter implements CliAdapter {
    * resolves a Windows `.cmd` wrapper itself.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    validateLaneSpawnPolicy(this.name, this.capabilities(), options);
     return createAcpSessionHandle({
       profile: grokAcpProfile,
       options,

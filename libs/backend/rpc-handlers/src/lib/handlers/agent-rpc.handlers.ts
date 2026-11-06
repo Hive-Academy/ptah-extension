@@ -36,6 +36,8 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
+  AgentMessageCoordinator,
+  AgentLaneResumeService,
   AgentContinueError,
   LaneAccountResumeError,
   CLI_AGENT_RUNTIME_TOKENS,
@@ -96,6 +98,7 @@ import type {
   ProviderAccountSelection,
 } from '@ptah-extension/shared';
 import {
+  AgentId,
   PROVIDER_ACCOUNT_RESULT_CODES,
   CLI_REASONING_EFFORT_VALUES,
   CLAUDE_REASONING_EFFORT_VALUES,
@@ -1552,10 +1555,24 @@ export class AgentRpcHandlers {
           agentId: params.agentId,
         });
 
-        await this.agentProcessManager.continueConversation(
-          params.agentId,
-          params.message,
-        );
+        const input = z.object({
+          agentId: z.string().refine(AgentId.validate).transform(AgentId.from),
+          message: z.string().min(1).max(32768).refine((value) => value.trim().length > 0),
+        }).strict().parse(params);
+        const outcome = await this.runtimeContainer.resolve<AgentMessageCoordinator>(
+          CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR,
+        ).send({ ...input, delivery: 'queue' }, 'user');
+        if (outcome.mode === 'unsupported') {
+          if (outcome.receipt?.reason === 'account_refused')
+            return { success: false, code: 'account_refused', error: LANE_ACCOUNT_REFUSED_ERROR };
+          if (outcome.receipt?.reason === 'not_found')
+            return { success: false, code: 'not_found', error: 'Agent was not found.' };
+          if (outcome.receipt?.reason === 'busy')
+            return { success: false, code: 'busy', error: 'Agent is busy.' };
+          if (outcome.receipt?.reason === 'released')
+            return { success: false, code: 'released', error: 'Agent handle was released.' };
+          return { success: false, code: 'unknown', error: 'Message delivery unavailable' };
+        }
 
         this.logger.info('RPC: agent:continue success', {
           agentId: params.agentId,
@@ -1563,12 +1580,19 @@ export class AgentRpcHandlers {
 
         return { success: true };
       } catch (error) {
+        if (error instanceof z.ZodError)
+          return { success: false, code: 'invalid_params', error: 'Invalid agent message parameters.' };
         if (error instanceof AgentContinueError) {
           this.logger.warn('RPC: agent:continue rejected', {
             agentId: params.agentId,
             code: error.code,
           });
-          return { success: false, code: error.code, error: error.message };
+          const safeError = error.code === 'account_refused' ? LANE_ACCOUNT_REFUSED_ERROR
+            : error.code === 'not_found' ? 'Agent was not found.'
+            : error.code === 'busy' ? 'Agent is busy.'
+            : error.code === 'released' ? 'Agent handle was released.'
+            : 'Message delivery unavailable.';
+          return { success: false, code: error.code, error: safeError };
         }
         const accountRefusal = laneAccountRefusalCode(error);
         if (accountRefusal) {
@@ -1682,7 +1706,9 @@ export class AgentRpcHandlers {
             parsed.data.cli,
             parsed.data.accountSelection,
           );
-          result = await this.agentProcessManager.spawn({
+          result = await this.runtimeContainer.resolve<AgentLaneResumeService>(
+            CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
+          ).resumeRequest({
             cli: params.cli,
             task: params.task,
             workingDirectory: workspaceRoot,
@@ -1837,6 +1863,7 @@ export class AgentRpcHandlers {
           ptahCliName: a.name,
           providerName: a.providerName,
           providerId: a.providerId,
+          manifest: a.manifest,
           ...PTAH_CLI_ROLE_DELIVERY,
         }));
       return [...cliResults, ...ptahClis];
@@ -1870,7 +1897,9 @@ export class AgentRpcHandlers {
     // the blocked-model check (R9.5) run here, before it does (TASK_2026_614,
     // E.4 and B-m2). On `fresh` the lane gets the handoff task and no resume
     // id; the record keeps the caller's task.
-    const prepared = await this.agentProcessManager.prepareSdkHandleSpawn({
+    const prepared = await this.runtimeContainer.resolve<AgentLaneResumeService>(
+      CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
+    ).prepareSdkResume({
       cli: 'ptah-cli',
       task: params.task,
       resumeSessionId: params.cliSessionId,

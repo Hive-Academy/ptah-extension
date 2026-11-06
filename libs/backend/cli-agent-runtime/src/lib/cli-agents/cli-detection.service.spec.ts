@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 import type {
   AgentRoleChannel,
+  CliAdapterManifest,
   CliDetectionResult,
   CliType,
 } from '@ptah-extension/shared';
 import { AuthSecretsService, Logger, SentryService } from '@ptah-extension/vscode-core';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type {
-  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
@@ -20,7 +20,7 @@ interface MockAdapter extends CliAdapter {
   displayName: string;
   roleChannel: AgentRoleChannel;
   detect: jest.Mock<Promise<CliDetectionResult>, []>;
-  capabilities: jest.Mock<AgentMessagingCapabilities, []>;
+  capabilities: jest.Mock<CliAdapterManifest, []>;
   parseOutput: jest.Mock<string, [string]>;
   runSdk: jest.Mock<Promise<SdkHandle>, [CliCommandOptions]>;
   listModels: jest.Mock<Promise<CliModelInfo[]>, []>;
@@ -93,8 +93,23 @@ function createAdapter(
       messagingMode: 'queue',
     }),
     capabilities: jest
-      .fn<AgentMessagingCapabilities, []>()
-      .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
+      .fn<CliAdapterManifest, []>()
+      .mockReturnValue({
+        messaging: {
+          steer: { state: 'unsupported', reason: 'No live input.' },
+          interrupt: { state: 'unsupported', reason: 'No interrupt.' },
+          continuation: { state: 'supported' },
+          resume: { state: 'supported' },
+        },
+        roleChannel,
+        permissionModes: {},
+        networkModes: {
+          allow: { state: 'supported' },
+          deny: { state: 'unsupported', reason: 'No sandbox.' },
+        },
+        limitReader: { state: 'no-reliable-source', reason: 'No reader.' },
+        mcp: { state: 'unsupported', reason: 'No transport.' },
+      }),
     parseOutput: jest.fn<string, [string]>((raw) => raw),
     runSdk: jest.fn<Promise<SdkHandle>, [CliCommandOptions]>()
       .mockResolvedValue({
@@ -175,6 +190,12 @@ describe('CliDetectionService role stamp', () => {
     expect(logger.error).toHaveBeenCalledWith(
       '[CliDetection] Native Codex adapter factory failed', failure,
     );
+    expect(service.getAdapter('codex')?.capabilities().limitReader).toEqual({
+      state: 'no-reliable-source',
+      reason: 'Native Codex adapter is unavailable.',
+    });
+    expect(JSON.stringify(service.getAdapter('codex')?.capabilities()))
+      .not.toContain(failure.message);
     expect(sentry.captureException).toHaveBeenCalledWith(failure, {
       errorSource: 'CliDetectionService.codexAdapterFactory',
     });
@@ -219,7 +240,7 @@ describe('CliDetectionService role stamp', () => {
 
     expect(results).toHaveLength(CHANNELS.length);
     for (const [name, channel] of CHANNELS) {
-      expect(results.find((r) => r.cli === name)).toEqual({
+      expect(results.find((r) => r.cli === name)).toMatchObject({
         cli: name,
         installed: true,
         path: `/bin/${name}`,
@@ -227,6 +248,7 @@ describe('CliDetectionService role stamp', () => {
         messagingMode: 'queue',
         roleDelivery: 'preamble',
         roleChannel: channel,
+        manifest: mockAdapterFor(name).capabilities(),
       });
     }
   });
@@ -260,12 +282,13 @@ describe('CliDetectionService role stamp', () => {
     const codex = await service.getDetection('codex');
 
     expect(sentry.captureException).toHaveBeenCalledTimes(1);
-    expect(codex).toEqual({
+    expect(codex).toMatchObject({
       cli: 'codex',
       installed: false,
       messagingMode: 'queue',
       roleDelivery: 'preamble',
       roleChannel: 'developer-instructions',
+      manifest: mockAdapterFor('codex').capabilities(),
     });
   });
 

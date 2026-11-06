@@ -44,6 +44,7 @@ jest.mock('./cli-adapters/grok-cli.adapter', () => ({
 import { CliDetectionService } from './cli-detection.service';
 import { ClaudeCliAdapter } from './cli-adapters/claude-cli.adapter';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import { manifestFixture } from './testing/manifest.fixture';
 
 const names: CliType[] = [
   'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok',
@@ -55,7 +56,9 @@ function makeAdapter(name: CliType, model: string): CliAdapter {
     displayName: name,
     roleChannel: name === 'codex' ? 'developer-instructions' : 'task-prompt',
     supportsMcp: true,
-    capabilities: jest.fn(() => ({ steer: false, interrupt: false, continuation: true })),
+    capabilities: jest.fn(() => manifestFixture({
+      roleChannel: name === 'codex' ? 'developer-instructions' : 'task-prompt',
+    })),
     detect: jest.fn(async () => ({
       cli: name, installed: true, path: `/bin/${name}`, version: '1.0.0',
       messagingMode: 'queue' as const,

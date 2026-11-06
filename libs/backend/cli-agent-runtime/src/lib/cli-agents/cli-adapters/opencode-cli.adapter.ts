@@ -65,7 +65,7 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
@@ -73,6 +73,7 @@ import type {
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { applyLaneArgvPolicy, translateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   stripAnsiCodes,
   buildArgvTaskPrompt,
@@ -188,6 +189,7 @@ interface OpencodeTurnLaunch {
   /** The child closed or failed to start; its PID must no longer be used. */
   readonly onExited: (child: ReturnType<typeof spawnCli>) => void;
   readonly onSessionId: (sessionId: string) => void;
+  readonly expectedSessionId?: string;
 }
 
 /** The readable message of an `error` event, whichever shape it has. */
@@ -349,8 +351,28 @@ export class OpencodeCliAdapter implements CliAdapter {
    * the handle's `continue` spawns `run --session <id>` on the same session
    * (the router queues it until the current turn ends).
    */
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: true };
+  capabilities(): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'OpenCode resumes on the next turn.' },
+        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: '--agent plan', networkModes: ['allow'] },
+        ask: { state: 'unsupported', reason: 'No verified native approval route.', networkModes: [] },
+        'auto-edit': { state: 'unsupported', reason: 'No verified native scoped edit mode.', networkModes: [] },
+        yolo: { state: 'unsupported', reason: 'No verified native unrestricted mode.', networkModes: [] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified general network sandbox exists.' },
+      },
+      limitReader: { state: 'available', source: 'opencode-go' },
+      mcp: { state: 'supported' },
+    };
   }
 
   parseOutput(raw: string): string {
@@ -620,6 +642,7 @@ export class OpencodeCliAdapter implements CliAdapter {
    * starting a fresh session that would lose the conversation (as Pi does).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const policy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
     const taskPrompt = buildArgvTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
@@ -683,7 +706,11 @@ export class OpencodeCliAdapter implements CliAdapter {
       prompt: string,
       sessionId: string | undefined,
     ): Promise<number> => {
-      const args = [...spawnDescriptor.prefixArgs, ...baseArgs];
+      const args = [
+        ...spawnDescriptor.prefixArgs,
+        ...applyLaneArgvPolicy(baseArgs,
+          policy.cli === 'opencode' ? policy.argv : { addArgs: [], removeArgs: [] }),
+      ];
       if (sessionId) {
         args.push('--session', sessionId);
       }
@@ -714,6 +741,7 @@ export class OpencodeCliAdapter implements CliAdapter {
             capturedSessionId = reported;
           }
         },
+        expectedSessionId: sessionId,
       });
     };
 
@@ -793,11 +821,40 @@ export class OpencodeCliAdapter implements CliAdapter {
       textTracker: new Map<string, string>(),
       stoppedAfterLastError: false,
     };
+    let boundSessionId = launch.expectedSessionId;
+    let firstSessionEvent = true;
+    let sessionMismatch = false;
     const parseLine = (line: string): void =>
       this.handleLine(line, emitOutput, emitSegment, state, (event) => {
-        if (event.sessionID) {
+        if (event.type === 'error') {
+          if (!boundSessionId || !event.sessionID || event.sessionID === boundSessionId) return true;
+          emitSegment({ type: 'info', content: 'Ignored OpenCode event from another session' });
+          return false;
+        }
+        if (!event.sessionID) {
+          emitSegment({ type: 'info', content: 'Ignored OpenCode event without session identity' });
+          return false;
+        }
+        if (firstSessionEvent) {
+          if (!launch.expectedSessionId && event.type !== 'step_start') {
+            emitSegment({ type: 'info', content: 'Ignored OpenCode event before lane session start' });
+            return false;
+          }
+          firstSessionEvent = false;
+          if (launch.expectedSessionId && event.sessionID !== launch.expectedSessionId) {
+            sessionMismatch = true;
+            emitSegment({ type: 'error', content: 'session-mismatch: OpenCode resumed a different session' });
+            child.kill();
+            return false;
+          }
+          boundSessionId = event.sessionID;
           launch.onSessionId(event.sessionID);
         }
+        if (sessionMismatch || event.sessionID !== boundSessionId) {
+          emitSegment({ type: 'info', content: 'Ignored OpenCode event from another session' });
+          return false;
+        }
+        return true;
       });
 
     let lineBuf = '';
@@ -838,7 +895,7 @@ export class OpencodeCliAdapter implements CliAdapter {
           lineBuf = '';
         }
         const exitCode = code ?? (exitSignal ? 1 : 0);
-        resolve(this.settleExitCode(exitCode, state, signal.aborted, launch));
+        resolve(sessionMismatch ? 1 : this.settleExitCode(exitCode, state, signal.aborted, launch));
       });
 
       child.on('error', (err) => {
@@ -908,7 +965,7 @@ export class OpencodeCliAdapter implements CliAdapter {
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
     turn: OpencodeTurnState,
-    setSessionId: (event: OpencodeEvent) => void,
+    acceptSession: (event: OpencodeEvent) => boolean,
   ): void {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -924,7 +981,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       return;
     }
 
-    setSessionId(event);
+    if (!acceptSession(event)) return;
 
     switch (event.type) {
       case 'step_start':

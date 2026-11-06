@@ -44,6 +44,7 @@ import {
   ClaudeCliAdapter,
   type ClaudeCliAdapterDependencies,
 } from './cli-adapters/claude-cli.adapter';
+import { manifestFixture } from './testing/manifest.fixture';
 
 /** The roster before the native Claude lane joined, in auto-detect order. */
 const PREVIOUS_SEVEN = ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const;
@@ -54,7 +55,7 @@ function mockRosterAdapter(name: CliType) {
   return {
     name, displayName: name, roleChannel: 'task-prompt',
     detect: jest.fn().mockResolvedValue({ cli: name, installed: true, messagingMode: 'queue' }),
-    capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    capabilities: () => manifestFixture(),
     parseOutput: (raw: string) => raw,
   };
 }
@@ -130,7 +131,7 @@ function harness(
   const logger = stub<Args[0]>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() });
   const adapter: CliAdapter = {
     name: CLAUDE, displayName: 'Claude', roleChannel: 'system-prompt',
-    detect: jest.fn(), capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    detect: jest.fn(), capabilities: () => manifestFixture({ roleChannel: 'system-prompt' }),
     parseOutput: raw => raw, runSdk: jest.fn(), accountBindings, supportsMcp: false,
   };
   const environment = stub<Args[5]>({
@@ -140,6 +141,7 @@ function harness(
     resolveModel: jest.fn().mockReturnValue({ source: 'cli-default' }),
     resolveReasoningEffort: jest.fn().mockReturnValue({ step: 'default', ignored: [] }),
     resolveAutoApprove: jest.fn().mockReturnValue(false),
+    resolveLanePolicy: jest.fn().mockReturnValue({}),
     maxConcurrentAgents: () => cap, sdkIdleReleaseMs: () => 100,
     scopedWorkspaceRoot: () => undefined, isWithinScope: () => true,
   });

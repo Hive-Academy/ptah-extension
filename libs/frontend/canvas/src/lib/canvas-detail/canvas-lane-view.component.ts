@@ -207,8 +207,6 @@ const LANE_PANEL_CLASS =
                         monitor.toggleAgentExpanded(agent.agentId)
                       "
                     />
-                    <!-- Hides itself when the agent cannot continue; queues
-                       while it runs (AgentFollowUpQueueService). -->
                     <ptah-agent-continue-input
                       [class]="laneColumnClass + ' block flex-shrink-0 sticky bottom-0 z-10 bg-base-100 pt-2'"
                       variant="composer"

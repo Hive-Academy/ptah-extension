@@ -65,13 +65,14 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { applyLaneArgvPolicy, translateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   assertCommandLineWithinLimit,
   stripAnsiCodes,
@@ -431,11 +432,29 @@ export class AntigravityCliAdapter implements CliAdapter {
    * stream-json input. A live handle also reports its own capability, which is
    * authoritative while a lane is running.
    */
-  capabilities(): AgentMessagingCapabilities {
+  capabilities(): CliAdapterManifest {
     return {
-      steer: false,
-      interrupt: false,
-      continuation: this.streamJsonInputSupported === true,
+      messaging: {
+        steer: { state: 'unsupported', reason: 'Stream input has no verified mid-turn steer.' },
+        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        continuation: this.streamJsonInputSupported === true
+          ? { state: 'supported' }
+          : { state: 'unsupported', reason: 'Stream JSON input has not been verified for this binary.' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: '--mode plan', networkModes: ['allow'] },
+        ask: { state: 'unsupported', reason: 'No noninteractive approval route exists.', networkModes: [] },
+        'auto-edit': { state: 'supported', nativeMode: '--mode accept-edits', networkModes: ['allow'] },
+        yolo: { state: 'supported', nativeMode: '--dangerously-skip-permissions', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified general network sandbox exists.' },
+      },
+      limitReader: { state: 'available', source: 'antigravity' },
+      mcp: { state: 'supported' },
     };
   }
 
@@ -736,6 +755,7 @@ export class AntigravityCliAdapter implements CliAdapter {
    * `init` event. stderr and non-zero exit surface as `error` segments.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const policy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
     if (options.workingDirectory) {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
@@ -754,7 +774,10 @@ export class AntigravityCliAdapter implements CliAdapter {
     const useStreamInput = await this.probeStreamJsonInput(binary);
 
     const prompt = useStreamInput ? taskPrompt : buildArgvTaskPrompt(options, this.name);
-    const args = buildAntigravityArgs(options, prompt, useStreamInput);
+    const args = applyLaneArgvPolicy(
+      buildAntigravityArgs(options, prompt, useStreamInput),
+      policy.cli === 'antigravity' ? policy.argv : { addArgs: [], removeArgs: [] },
+    );
 
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
