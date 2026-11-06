@@ -2,10 +2,15 @@
  * Worker-side `IEmbedder` that forwards embed and rerank calls to the host
  * process, which owns the real embedder utility process.
  *
- * Every call is bounded by `callTimeoutMs`: a host that never answers leaves
- * no entry behind, and the caller degrades (an empty embedding makes the
- * vector branch return nothing, so the hybrid search still returns its BM25
- * rows; a failed rerank keeps the RRF order).
+ * Every call is bounded: a host that never answers leaves no entry behind,
+ * and the call rejects. The searches catch it and degrade visibly: a failed
+ * embed marks the response `bm25Only` (the hybrid search still returns its
+ * BM25 rows), a failed rerank keeps the RRF order, and neither degraded
+ * response is cached as final.
+ *
+ * Until the first embed succeeds the host's model may still be loading, so
+ * embeds get `coldCallTimeoutMs` (the host also warms its embedder when it
+ * forks this process); after that, `callTimeoutMs`.
  */
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import {
@@ -19,6 +24,7 @@ type PendingCall =
   | {
       readonly kind: 'embed';
       readonly resolve: (vectors: Float32Array[]) => void;
+      readonly reject: (error: Error) => void;
       readonly timer: ReturnType<typeof setTimeout>;
     }
   | {
@@ -33,7 +39,10 @@ export interface HostBridgeEmbedderOptions {
   readonly modelId: string;
   readonly canRerank: boolean;
   readonly post: (message: SearchWorkerOutbound) => void;
+  /** Bound on a host call once the host embedder is warm. Default 2 000 ms. */
   readonly callTimeoutMs?: number;
+  /** Bound on an embed until one has succeeded (model load). Default 4 000 ms. */
+  readonly coldCallTimeoutMs?: number;
 }
 
 export class HostBridgeEmbedder implements IEmbedder {
@@ -43,6 +52,8 @@ export class HostBridgeEmbedder implements IEmbedder {
   readonly canRerank: boolean;
   private readonly post: (message: SearchWorkerOutbound) => void;
   private readonly callTimeoutMs: number;
+  private readonly coldCallTimeoutMs: number;
+  private warm = false;
   private readonly calls = new Map<number, PendingCall>();
   private nextId = 1;
 
@@ -52,6 +63,7 @@ export class HostBridgeEmbedder implements IEmbedder {
     this.canRerank = options.canRerank;
     this.post = options.post;
     this.callTimeoutMs = options.callTimeoutMs ?? 2_000;
+    this.coldCallTimeoutMs = Math.max(this.callTimeoutMs, options.coldCallTimeoutMs ?? 4_000);
   }
 
   /** Number of host calls awaiting an answer. Diagnostic and test accessor. */
@@ -67,12 +79,13 @@ export class HostBridgeEmbedder implements IEmbedder {
       );
     }
     const id = this.nextId++;
-    return new Promise<Float32Array[]>((resolve) => {
+    const timeoutMs = this.warm ? this.callTimeoutMs : this.coldCallTimeoutMs;
+    return new Promise<Float32Array[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
-        resolve([]);
-      }, this.callTimeoutMs);
-      this.calls.set(id, { kind: 'embed', resolve, timer });
+        reject(new Error(`host embed timed out after ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.calls.set(id, { kind: 'embed', resolve, reject, timer });
       this.post({ kind: 'embed', id, texts: [...texts] });
     });
   }
@@ -102,9 +115,12 @@ export class HostBridgeEmbedder implements IEmbedder {
     this.calls.delete(reply.id);
     clearTimeout(call.timer);
     if (call.kind === 'embed') {
-      call.resolve(
-        reply.kind === 'embed-result' ? reply.vectors.map((v) => Float32Array.from(v)) : [],
-      );
+      if (reply.kind === 'embed-result') {
+        this.warm = true;
+        call.resolve(reply.vectors.map((v) => Float32Array.from(v)));
+      } else {
+        call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
+      }
       return;
     }
     if (reply.kind === 'rerank-result') call.resolve(reply.ranked);
@@ -114,8 +130,7 @@ export class HostBridgeEmbedder implements IEmbedder {
   async dispose(): Promise<void> {
     for (const call of this.calls.values()) {
       clearTimeout(call.timer);
-      if (call.kind === 'embed') call.resolve([]);
-      else call.reject(new Error('search worker shutting down'));
+      call.reject(new Error('search worker shutting down'));
     }
     this.calls.clear();
   }

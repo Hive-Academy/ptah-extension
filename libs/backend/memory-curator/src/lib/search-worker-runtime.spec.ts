@@ -2,9 +2,13 @@ import 'reflect-metadata';
 import type { SqliteDatabase, SqliteStatement } from '@ptah-extension/persistence-sqlite';
 import { SearchWorkerRuntime } from './search-worker-runtime';
 import {
-  searchWorkerResultSchemas,
+  createSearchWorkerResultSchemas,
+  searchWorkerOutboundSchema,
   type SearchWorkerOutbound,
 } from './search-worker.protocol';
+
+const droppedRows = jest.fn();
+const searchWorkerResultSchemas = createSearchWorkerResultSchemas(droppedRows);
 
 interface FakeDbState {
   dataVersion: number;
@@ -116,6 +120,26 @@ function resultFor(posted: SearchWorkerOutbound[], id: number): unknown {
 }
 
 describe('SearchWorkerRuntime', () => {
+  afterEach(() => expect(droppedRows).not.toHaveBeenCalled());
+
+  it('forwards a logged Error as a bounded serialized error, not a plain record', () => {
+    const { runtime, posted } = setup();
+    runtime.logger.error('query blew up', new Error('outer', { cause: new Error('inner') }));
+    const [message] = posted;
+    expect(searchWorkerOutboundSchema.safeParse(message).success).toBe(true);
+    expect(message).toEqual({
+      kind: 'log',
+      level: 'error',
+      message: 'query blew up',
+      error: {
+        name: 'Error',
+        message: 'outer',
+        stack: expect.stringContaining('outer'),
+        cause: { name: 'Error', message: 'inner', stack: expect.stringContaining('inner') },
+      },
+    });
+  });
+
   it('rejects invalid host messages with a forwarded warning', () => {
     const { runtime, posted } = setup();
     runtime.handle({ kind: 'memory', id: -1, query: 'x', topK: 3 });

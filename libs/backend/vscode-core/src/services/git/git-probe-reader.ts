@@ -9,6 +9,7 @@ import {
   isNotAGitRepository,
   toError,
   type CommonDirRead,
+  type GitProbeReads,
   type WorktreeListRead,
 } from './git-probe-outcome';
 
@@ -17,12 +18,6 @@ export interface GitProbeReaderDeps {
   readonly exec: GitWriteRunner;
   readonly logger: Pick<Logger, 'error'>;
 }
-
-/** The two uncached reads {@link GitFolderProbe} shares and caches. */
-export type GitProbeReads = Pick<
-  GitProbeReader,
-  'readWorktreeList' | 'readCommonDir'
->;
 
 type ProbeRun =
   | { readonly kind: 'ok'; readonly stdout: string }
@@ -35,7 +30,7 @@ type ProbeRun =
  * deadline, cancellation, spawn error or any other non-zero exit is
  * `failed`, never a negative answer.
  */
-export class GitProbeReader {
+export class GitProbeReader implements GitProbeReads {
   constructor(private readonly deps: GitProbeReaderDeps) {}
 
   /** Uncached `git worktree list --porcelain -z` in `folder`. */

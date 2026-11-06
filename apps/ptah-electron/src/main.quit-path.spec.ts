@@ -212,7 +212,11 @@ function makeFullRefs(order: string[]): BootRefs {
   };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
-  refs.searchWorker = { dispose: record('searchWorker') };
+  refs.searchWorker = {
+    dispose: async () => {
+      order.push('searchWorker');
+    },
+  };
   refs.diagnostics = {
     dispose: record('diagnostics'),
   } as unknown as BootRefs['diagnostics'];
@@ -472,6 +476,66 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
       order.indexOf('sqliteConnection'),
     );
     expect(order).toEqual(EXPECTED_LIFO_ORDER);
+  });
+
+  it('waits for the search worker to exit before closing SQLite', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.searchWorker = {
+      dispose: () => {
+        order.push('searchWorker');
+        // The utility process reports its exit 40 ms after the kill.
+        return new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push('searchWorkerExited');
+            resolve();
+          }, 40);
+        });
+      },
+    };
+    refs.messagingGateway = null;
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+    });
+
+    await flushMicrotasks();
+    expect(order).toContain('searchWorker');
+    expect(order).not.toContain('sqliteConnection');
+
+    await jest.advanceTimersByTimeAsync(40);
+    await flushMicrotasks();
+
+    expect(order.indexOf('searchWorkerExited')).toBeGreaterThan(-1);
+    expect(order.indexOf('searchWorkerExited')).toBeLessThan(
+      order.indexOf('sqliteConnection'),
+    );
+  });
+
+  it('closes SQLite anyway when the search worker exit outlives its budget', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.searchWorker = {
+      dispose: () => new Promise<void>(() => undefined),
+    };
+    refs.messagingGateway = null;
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+      searchWorkerExitBudgetMs: 100,
+    });
+
+    await flushMicrotasks();
+    expect(order).not.toContain('sqliteConnection');
+    await jest.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+    expect(order).toContain('sqliteConnection');
   });
 
   it('closes anyway once a wedged stop exceeds its budget', async () => {

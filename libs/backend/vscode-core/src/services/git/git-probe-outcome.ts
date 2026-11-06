@@ -20,6 +20,17 @@ export type CommonDirRead =
   | { readonly kind: 'not-a-repo' }
   | { readonly kind: 'failed'; readonly cause: Error };
 
+/**
+ * The two uncached probe reads {@link GitFolderProbe} shares and caches.
+ * `GitProbeReader` is the production implementation.
+ */
+export interface GitProbeReads {
+  /** Uncached `git worktree list --porcelain -z` in `folder`. */
+  readWorktreeList(folder: string, signal?: AbortSignal): Promise<WorktreeListRead>;
+  /** Uncached absolute `git rev-parse --git-common-dir` in `dir`. */
+  readCommonDir(dir: string, signal?: AbortSignal): Promise<CommonDirRead>;
+}
+
 export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }

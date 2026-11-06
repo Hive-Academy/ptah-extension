@@ -128,6 +128,13 @@ export const RUN_CHECK_KILL_BUDGET_MS = 5000;
 export const CODEX_SIGN_IN_STOP_BUDGET_MS = 2000;
 
 /**
+ * How long the chain waits for the search utility process to exit before
+ * `SQLite close`. The client bounds its own wait at the same 2 s; this budget
+ * is the chain's guarantee that a hung dispose cannot block the quit.
+ */
+export const SEARCH_WORKER_EXIT_BUDGET_MS = 2000;
+
+/**
  * How long the chain may wait for the main-chat SDK sessions to end before it
  * moves on to the agent reap and `SQLite close`.
  *
@@ -186,6 +193,8 @@ export interface QuitSequenceDeps {
   codexSignInStopBudgetMs?: number;
   /** Override for tests. Defaults to {@link CHAT_SESSION_DISPOSE_BUDGET_MS}. */
   chatSessionDisposeBudgetMs?: number;
+  /** Override for tests. Defaults to {@link SEARCH_WORKER_EXIT_BUDGET_MS}. */
+  searchWorkerExitBudgetMs?: number;
 }
 
 /** The subset of {@link QuitSequenceDeps} the disposal chain reads. */
@@ -202,6 +211,7 @@ export type DisposalDeps = Pick<
   | 'codexSignIn'
   | 'codexSignInStopBudgetMs'
   | 'chatSessionDisposeBudgetMs'
+  | 'searchWorkerExitBudgetMs'
 >;
 
 /** Run `fn`, log and continue on failure. Every disposal is non-fatal. */
@@ -242,6 +252,8 @@ function nonFatal(label: string, fn: () => void): void {
 function disposeBeforePersistence(deps: DisposalDeps): {
   checksKilled: Promise<void>;
   codexSignInStopped: Promise<void>;
+  /** `null` when there is no search worker: nothing to wait for. */
+  searchWorkerExited: Promise<void> | null;
 } {
   const { refs } = deps;
 
@@ -260,7 +272,12 @@ function disposeBeforePersistence(deps: DisposalDeps): {
   // The search worker holds a second, read-only connection to the database.
   // Killing it before `SQLite close` lets the close checkpoint the WAL without
   // a reader pinning it, and stops a respawn during teardown. Writes nothing.
-  nonFatal('Search worker dispose', () => refs.searchWorker?.dispose());
+  // The kill is synchronous; the deferred path also awaits the exit (bounded)
+  // before `SQLite close`, so the reader is really gone when the close runs.
+  let searchWorkerExited: Promise<void> | null = null;
+  nonFatal('Search worker dispose', () => {
+    searchWorkerExited = refs.searchWorker?.dispose() ?? null;
+  });
   // A live run_check owns an Nx process group that outlives the app unless
   // killed. `killRunningChecks` never rejects; the kill is started here and
   // awaited by the caller.
@@ -283,7 +300,7 @@ function disposeBeforePersistence(deps: DisposalDeps): {
   // Releases routing subscriptions while their producers (the SDK adapter and
   // the session-id registry) are still alive. Synchronous, touches no SQLite.
   nonFatal('Host routing dispose', () => refs.hostRouting?.dispose());
-  return { checksKilled, codexSignInStopped };
+  return { checksKilled, codexSignInStopped, searchWorkerExited };
 }
 
 /**
@@ -573,8 +590,11 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
  * listener.
  */
 export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
-  const { checksKilled: killStarted, codexSignInStopped: stopStarted } =
-    disposeBeforePersistence(deps);
+  const {
+    checksKilled: killStarted,
+    codexSignInStopped: stopStarted,
+    searchWorkerExited: exitStarted,
+  } = disposeBeforePersistence(deps);
   // The check kill gates nothing in the chain, only the re-issued quit, so its
   // budget starts now and it is awaited after the rest of the teardown: the
   // gateway drain, SQLite close and the agent reap do not queue behind it.
@@ -591,6 +611,19 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
     'quitting with the sign-in process possibly still alive.',
   );
 
+  // Its budget starts now, beside the gateway drain; it is awaited before
+  // `disposeAfterPersistence`, whose `SQLite close` it must precede. With no
+  // search worker nothing is awaited, so no turn is added before the close.
+  const searchWorkerExited =
+    exitStarted === null
+      ? null
+      : withBudget(
+          'Search worker exit',
+          () => exitStarted,
+          deps.searchWorkerExitBudgetMs ?? SEARCH_WORKER_EXIT_BUDGET_MS,
+          'closing SQLite with the search reader possibly still alive.',
+        );
+
   const gateway = deps.refs.messagingGateway;
   if (gateway !== null) {
     await stopMessagingGateway(
@@ -599,6 +632,7 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
     );
   }
 
+  if (searchWorkerExited !== null) await searchWorkerExited;
   await disposeAfterPersistence(deps);
   await checksKilled;
   await codexSignInStopped;

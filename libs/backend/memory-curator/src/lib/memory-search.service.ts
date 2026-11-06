@@ -372,6 +372,10 @@ export class MemorySearchService implements IMemoryReader {
     const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
     let bm25Only = !this.vecStatus.available;
+    // A response degraded by a failed or timed-out embed or rerank is answered
+    // but never cached: the next identical query retries the full ranking
+    // instead of serving the fallback until the next write.
+    let degraded = false;
     if (!bm25Only) {
       try {
         vecRows = await this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot);
@@ -383,6 +387,7 @@ export class MemorySearchService implements IMemoryReader {
           },
         );
         bm25Only = true;
+        degraded = true;
       }
     }
     const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
@@ -416,6 +421,7 @@ export class MemorySearchService implements IMemoryReader {
               error: err instanceof Error ? err.message : String(err),
             },
           );
+          degraded = true;
         }
       }
     }
@@ -442,7 +448,7 @@ export class MemorySearchService implements IMemoryReader {
     }
 
     const response: MemorySearchResponse = { hits, bm25Only };
-    this.cache.set(cacheKey, response);
+    if (!degraded) this.cache.set(cacheKey, response);
     return response;
   }
 
@@ -666,6 +672,8 @@ export class MemorySearchService implements IMemoryReader {
     const vecLoaded = this.connection.vecExtensionLoaded;
 
     let response: MemSearchIndexResponse;
+    // Not cached when the vector branch failed (see searchRichInner).
+    let degraded = false;
 
     if (trimmedQuery.length === 0) {
       const rows = this.listIndexRowsByFilter(filter, limit);
@@ -695,6 +703,7 @@ export class MemorySearchService implements IMemoryReader {
             { error: err instanceof Error ? err.message : String(err) },
           );
           bm25Only = true;
+          degraded = true;
         }
       }
       const fused = this.rrfFuseByMemory(bm25Rows, vecRows, limit * 4);
@@ -720,7 +729,7 @@ export class MemorySearchService implements IMemoryReader {
       response = { rows: ranked, bm25Only };
     }
 
-    this.indexCache.set(cacheKey, response);
+    if (!degraded) this.indexCache.set(cacheKey, response);
     return response;
   }
 

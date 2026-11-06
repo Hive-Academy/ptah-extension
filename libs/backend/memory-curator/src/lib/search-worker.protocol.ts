@@ -9,6 +9,7 @@
  */
 import { z } from 'zod';
 import { chunkId, memoryId } from './memory.types';
+import { serializedWorkerErrorSchema } from './search-worker-error';
 
 const MAX_QUERY_CHARS = 10_000;
 /** Upper bound on texts the worker may ask the host to embed in one call. */
@@ -120,6 +121,8 @@ export const searchWorkerOutboundSchema = z.discriminatedUnion('kind', [
     kind: z.literal('log'),
     level: searchWorkerLogLevelSchema,
     message: z.string(),
+    /** Set when the worker logged an `Error`; the host rebuilds a real one. */
+    error: serializedWorkerErrorSchema.optional(),
     context: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
@@ -181,93 +184,125 @@ const memoryChunkSchema = z.object({
   createdAt: z.number(),
 });
 
-const memorySearchResponseSchema = z.object({
-  hits: z.array(
-    z.object({
-      memory: memorySchema,
-      chunk: memoryChunkSchema,
-      score: z.number(),
-      bm25Rank: z.number().nullable(),
-      vecRank: z.number().nullable(),
-    }),
-  ),
-  bm25Only: z.boolean(),
+/** What a tolerant array reports about the rows it dropped. */
+export interface DroppedRowsReport {
+  readonly kind: SearchWorkerQueryKind;
+  readonly dropped: number;
+  readonly kept: number;
+  readonly issue: string | undefined;
+  readonly path: string | undefined;
+}
+
+export type DroppedRowsReporter = (report: DroppedRowsReport) => void;
+
+/**
+ * An array whose invalid rows are dropped and reported instead of failing the
+ * whole result: one row with a value the schema does not know (the DB has no
+ * CHECK on `memories.type`, for example) must not blank a search page.
+ */
+function tolerantArray<T extends z.ZodType>(
+  item: T,
+  kind: SearchWorkerQueryKind,
+  report: DroppedRowsReporter,
+) {
+  return z.array(z.unknown()).transform((rows) => {
+    const kept: Array<z.output<T>> = [];
+    let first: z.ZodError['issues'][number] | undefined;
+    for (const row of rows) {
+      const parsed = item.safeParse(row);
+      if (parsed.success) kept.push(parsed.data);
+      else first ??= parsed.error.issues[0];
+    }
+    const dropped = rows.length - kept.length;
+    if (dropped > 0) {
+      report({
+        kind,
+        dropped,
+        kept: kept.length,
+        issue: first?.message,
+        path: first?.path.map(String).join('.'),
+      });
+    }
+    return kept;
+  });
+}
+
+const memoryHitSchema = z.object({
+  memory: memorySchema,
+  chunk: memoryChunkSchema,
+  score: z.number(),
+  bm25Rank: z.number().nullable(),
+  vecRank: z.number().nullable(),
 });
 
-const codeSymbolHitPageSchema = z.object({
-  hits: z.array(
-    z.object({
-      id: z.string(),
-      workspaceRoot: z.string(),
-      filePath: z.string(),
-      kind: z.string(),
-      symbolName: z.string(),
-      subject: z.string(),
-      text: z.string(),
-      tokenCount: z.number(),
-      score: z.number(),
-    }),
-  ),
-  bm25Only: z.boolean(),
+const codeSymbolHitSchema = z.object({
+  id: z.string(),
+  workspaceRoot: z.string(),
+  filePath: z.string(),
+  kind: z.string(),
+  symbolName: z.string(),
+  subject: z.string(),
+  text: z.string(),
+  tokenCount: z.number(),
+  score: z.number(),
 });
 
-const codeSymbolSearchResultSchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      workspaceRoot: z.string(),
-      filePath: z.string(),
-      kind: z.string(),
-      symbolName: z.string(),
-      subject: z.string(),
-      tokenCount: z.number(),
-      updatedAt: z.number(),
-    }),
-  ),
-  total: z.number(),
+const codeSymbolItemSchema = z.object({
+  id: z.string(),
+  workspaceRoot: z.string(),
+  filePath: z.string(),
+  kind: z.string(),
+  symbolName: z.string(),
+  subject: z.string(),
+  tokenCount: z.number(),
+  updatedAt: z.number(),
 });
 
-const memoryListPageSchema = z.object({
-  memories: z.array(
-    z.object({
-      id: z.string(),
-      subject: nullableString,
-      content: z.string(),
-      tier: z.string(),
-      kind: z.string(),
-      salience: z.number(),
-      createdAt: z.number(),
-    }),
-  ),
-  total: z.number(),
+const memoryListItemSchema = z.object({
+  id: z.string(),
+  subject: nullableString,
+  content: z.string(),
+  tier: z.string(),
+  kind: z.string(),
+  salience: z.number(),
+  createdAt: z.number(),
 });
 
-/** Result schema for each query kind. */
-export const searchWorkerResultSchemas = {
-  memory: memorySearchResponseSchema,
-  symbols: codeSymbolHitPageSchema,
-  'symbol-page': codeSymbolSearchResultSchema,
-  list: memoryListPageSchema,
-  chunks: z.array(memoryChunkSchema),
-} as const;
+/**
+ * Result schema for each query kind. Row arrays are tolerant: a row that
+ * fails its schema is dropped and passed to `report`; the envelope itself
+ * (`bm25Only`, `total`) still has to be valid.
+ */
+export function createSearchWorkerResultSchemas(report: DroppedRowsReporter) {
+  return {
+    memory: z.object({ hits: tolerantArray(memoryHitSchema, 'memory', report), bm25Only: z.boolean() }),
+    symbols: z.object({ hits: tolerantArray(codeSymbolHitSchema, 'symbols', report), bm25Only: z.boolean() }),
+    'symbol-page': z.object({
+      items: tolerantArray(codeSymbolItemSchema, 'symbol-page', report),
+      total: z.number(),
+    }),
+    list: z.object({ memories: tolerantArray(memoryListItemSchema, 'list', report), total: z.number() }),
+    chunks: tolerantArray(memoryChunkSchema, 'chunks', report),
+  } as const;
+}
+
+export type SearchWorkerResultSchemas = ReturnType<typeof createSearchWorkerResultSchemas>;
 
 /** Parsed result type for each query kind. */
 export type SearchWorkerResultMap = {
-  readonly [K in SearchWorkerQueryKind]: z.output<(typeof searchWorkerResultSchemas)[K]>;
+  readonly [K in SearchWorkerQueryKind]: z.output<SearchWorkerResultSchemas[K]>;
 };
 
 /**
- * JSON-safe copy of a log context. Structured clone rejects functions and
- * class instances with native handles, which would turn a log call into a
- * worker crash; anything that does not survive JSON is replaced by a marker.
+ * JSON-safe copy of a non-error log context. Structured clone rejects
+ * functions and class instances with native handles, which would turn a log
+ * call into a worker crash; anything that does not survive JSON is replaced
+ * by a marker. An `Error` goes through `serializeWorkerError` instead.
  */
 export function toTransferableLogContext(
   context: unknown,
 ): Record<string, unknown> | undefined {
   if (context === undefined) return undefined;
-  if (context instanceof Error) {
-    return { error: context.message, errorName: context.name };
-  }
   try {
     const parsed: unknown = JSON.parse(JSON.stringify(context) ?? 'null');
     if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {

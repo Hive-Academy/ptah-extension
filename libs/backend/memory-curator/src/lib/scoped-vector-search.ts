@@ -14,7 +14,10 @@ const reportedCappedScopes = new Set<string>();
 
 /**
  * Search the vec0 index first, then apply the relational workspace predicate.
- * Doubling k gives small workspaces a chance without a whole-table distance join.
+ *
+ * vec0 KNN is a brute-force scan of the whole table whatever `k` is (`k` only
+ * sizes the result heap), so this runs exactly ONE KNN pass at the cap and
+ * post-filters it: widening `k` pass by pass would re-scan the table each time.
  *
  * Recall trade-off: the KNN never inspects more than
  * {@link MAX_SCOPED_VECTOR_CANDIDATES} global neighbours. A workspace holding a
@@ -22,7 +25,9 @@ const reportedCappedScopes = new Set<string>();
  * or none. That is deliberate (the alternative is the full-table scan that
  * blocked the Electron main thread for seconds); the rows found are returned,
  * the shortfall is logged once per table and scope at debug, and hybrid callers
- * still fuse their BM25 rows, which this cap does not touch.
+ * still fuse their BM25 rows, which this cap does not touch. When the KNN
+ * returns fewer than the cap the table is exhausted: every vector was
+ * inspected, the answer is exact and nothing is logged.
  */
 export function scopedVectorCandidates(
   connection: Pick<SqliteDbProvider, 'db'>,
@@ -35,28 +40,57 @@ export function scopedVectorCandidates(
   logger: Pick<CuratorLogger, 'debug'>,
 ): VectorCandidate[] {
   const target = Math.max(1, Math.min(limit, 100));
+  // The outer LEFT JOIN always yields one row, so the inspected count is
+  // known even when the predicate keeps nothing (that row has a null rowid).
   const statement = connection.db.prepare(`
     WITH candidates AS MATERIALIZED (
       SELECT rowid, distance FROM ${table}
       WHERE embedding MATCH ? AND k = ?
       ORDER BY distance
+    ),
+    scoped AS (
+      SELECT candidates.rowid AS rowid, candidates.distance AS distance
+      FROM candidates
+      ${joins}
+      WHERE ${predicate}
+      ORDER BY candidates.distance ASC LIMIT ?
     )
-    SELECT candidates.rowid AS rowid, candidates.distance AS distance
-    FROM candidates
-    ${joins}
-    WHERE ${predicate}
-    ORDER BY candidates.distance ASC LIMIT ?
+    SELECT (SELECT COUNT(*) FROM candidates) AS inspected,
+           scoped.rowid AS rowid, scoped.distance AS distance
+    FROM (SELECT 1) AS anchor LEFT JOIN scoped ON 1 = 1
+    ORDER BY scoped.distance ASC
   `);
-  let k = Math.min(MAX_SCOPED_VECTOR_CANDIDATES, Math.max(64, target * 4));
-  for (;;) {
-    const rows = statement.all(embedding, k, ...params, target) as VectorCandidate[];
-    if (rows.length >= target) return rows;
-    if (k === MAX_SCOPED_VECTOR_CANDIDATES) {
-      reportCapReached(logger, table, params, rows.length, target);
-      return rows;
-    }
-    k = Math.min(MAX_SCOPED_VECTOR_CANDIDATES, k * 2);
+  let inspected = 0;
+  const rows: VectorCandidate[] = [];
+  for (const raw of statement.all(embedding, MAX_SCOPED_VECTOR_CANDIDATES, ...params, target)) {
+    const row = parseRow(raw);
+    if (!row) continue;
+    inspected = row.inspected;
+    if (row.candidate) rows.push(row.candidate);
   }
+  if (rows.length < target && inspected >= MAX_SCOPED_VECTOR_CANDIDATES) {
+    reportCapReached(logger, table, params, rows.length, target);
+  }
+  return rows;
+}
+
+interface ParsedRow {
+  readonly inspected: number;
+  readonly candidate: VectorCandidate | null;
+}
+
+function parseRow(raw: unknown): ParsedRow | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const inspected: unknown = Reflect.get(raw, 'inspected');
+  const rowid: unknown = Reflect.get(raw, 'rowid');
+  const distance: unknown = Reflect.get(raw, 'distance');
+  if (typeof inspected !== 'number') return null;
+  const id = typeof rowid === 'bigint' ? Number(rowid) : rowid;
+  return {
+    inspected,
+    candidate:
+      typeof id === 'number' && typeof distance === 'number' ? { rowid: id, distance } : null,
+  };
 }
 
 function reportCapReached(

@@ -696,7 +696,7 @@ export function captureShutdownHandles(
     coordinator.refs.searchWorker = container.isRegistered(
       MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
     )
-      ? container.resolve<{ dispose: () => void }>(
+      ? container.resolve<{ dispose: () => Promise<void> }>(
           MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
         )
       : null;

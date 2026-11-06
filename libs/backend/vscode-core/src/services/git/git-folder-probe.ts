@@ -1,7 +1,10 @@
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
-import type { CommonDirRead, WorktreeListRead } from './git-probe-outcome';
-import type { GitProbeReads } from './git-probe-reader';
+import type {
+  CommonDirRead,
+  GitProbeReads,
+  WorktreeListRead,
+} from './git-probe-outcome';
 
 /** How long a confirmed common directory is reused. */
 export const COMMON_DIR_CONFIRMED_TTL_MS = 60_000;

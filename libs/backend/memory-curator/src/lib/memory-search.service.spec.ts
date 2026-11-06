@@ -340,6 +340,34 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
     ).toBe(true);
   });
 
+  it('a rerank failure (e.g. the 2 s host cap) is answered in RRF order but not cached', async () => {
+    const rows = [1, 2, 3, 4, 5].map((i) => ftsRow(i, `text ${i}`));
+    const rerankImpl = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('host rerank timed out after 2000 ms'))
+      .mockResolvedValue([{ id: '5', score: 0.99 }]);
+    const { service } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? { id, subject: `s${id}`, content: `c${id}`, tier: 'core' }
+          : undefined,
+    });
+
+    const fallback = await service.searchRich('test query', 5);
+    expect(fallback.hits.length).toBeGreaterThan(1);
+
+    // Not served from the cache: the reranker runs again and its order wins.
+    const reranked = await service.searchRich('test query', 5);
+    expect(rerankImpl).toHaveBeenCalledTimes(2);
+    expect(reranked.hits.map((hit) => hit.chunk.id)).toEqual(['ck5']);
+
+    // The complete answer is cached.
+    await service.searchRich('test query', 5);
+    expect(rerankImpl).toHaveBeenCalledTimes(2);
+  });
+
   it('4×K over-fetch: reranker receives limit*4 candidates when BM25 returns >limit*4 rows', async () => {
     // topK = 3 → reranker should receive up to 12 candidates (3*4), not just 3.
     const topK = 3;
@@ -448,6 +476,41 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
 // ---------------------------------------------------------------------------
 // LRU result cache
 // ---------------------------------------------------------------------------
+
+describe('MemorySearchService.searchRich — degraded vector branch', () => {
+  it('answers bm25Only when the embed fails and does not cache that answer', async () => {
+    const rows = [1, 2].map((i) => ftsRow(i, `text ${i}`));
+    const embed = jest
+      .fn<Promise<Float32Array[]>, [readonly string[]]>()
+      .mockRejectedValueOnce(new Error('host embed timed out after 4000 ms'))
+      .mockResolvedValue([]);
+    const embedder: IEmbedder = {
+      embed,
+      dim: 384,
+      modelId: 'test-model',
+      dispose: async () => undefined,
+    };
+    const service = new MemorySearchService(
+      makeLogger(),
+      makeConnection(),
+      embedder,
+      makeStore(),
+      makeObservationQueue(),
+      makeVecStatus(true),
+    );
+
+    const first = await service.searchRich('hello world', 10);
+    expect(first.bm25Only).toBe(true);
+
+    // A cache hit would skip the embed; the retry reaches the vector branch.
+    const second = await service.searchRich('hello world', 10);
+    expect(embed).toHaveBeenCalledTimes(2);
+    expect(second.bm25Only).toBe(false);
+
+    await service.searchRich('hello world', 10);
+    expect(embed).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
   /**
@@ -1971,7 +2034,8 @@ describe('MemorySearchService.searchRich — scoped vector candidate cap', () =>
       all: (...params: unknown[]) => {
         if (sql.includes('embedding MATCH ? AND k = ?')) {
           knnK.push(Number(params[1]));
-          return [];
+          // The cap-sized KNN held no scoped row: one anchor row, null rowid.
+          return [{ inspected: 2048, rowid: null, distance: null }];
         }
         return rows;
       },
@@ -2022,8 +2086,8 @@ describe('MemorySearchService.searchRich — scoped vector candidate cap', () =>
       'lexical match 2',
       'lexical match 3',
     ]);
-    // Hard bound held: the KNN widened to the cap and no further.
-    expect(Math.max(...knnK)).toBe(2048);
+    // Hard bound held: one KNN pass, at the cap.
+    expect(knnK).toEqual([2048]);
     expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('candidate cap'),
       expect.objectContaining({ table: 'memory_chunks_vec', scopedHits: 0 }),
