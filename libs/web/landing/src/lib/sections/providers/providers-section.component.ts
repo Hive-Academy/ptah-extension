@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -20,13 +19,13 @@ export const SETUP_HUB_STILL = '/assets/images/showcase/setup-hub.png';
  * still's left edge, each card further right. A seal stamps the still's
  * lower corner once the named accounts are in (certified before launch). Scroll:
  * the header lines, the still rises, then the pinned steps raise the cards
- * and drop the seal in. Two canvas bolts flank the still: a lintel above it
- * and one along its right edge.
+ * and drop the seal in. The still sits under the header row, so it takes the
+ * shared stacked clip width (`section-media.css`).
  */
 @Component({
   selector: 'ptah-providers-section',
   standalone: true,
-  imports: [FlankBoltComponent, SectionHeaderComponent],
+  imports: [SectionHeaderComponent],
   template: `
     <section id="providers" class="section-frame" aria-labelledby="providers-title">
       <div class="frame-atmosphere pv-atmosphere" aria-hidden="true"></div>
@@ -54,8 +53,6 @@ export const SETUP_HUB_STILL = '/assets/images/showcase/setup-hub.png';
         </ul>
 
         <figure class="pv-still">
-          <ptah-flank-bolt class="pv-bolt pv-bolt-lintel" axis="horizontal" [seed]="127" [strike]="strike()" />
-          <ptah-flank-bolt class="pv-bolt pv-bolt-edge" axis="vertical" [seed]="139" [strike]="strike()" />
           <div class="still-window">
             <img
               class="still-image"
@@ -83,7 +80,11 @@ export const SETUP_HUB_STILL = '/assets/images/showcase/setup-hub.png';
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './providers-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './providers-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProvidersSectionComponent {
@@ -104,6 +105,4 @@ export class ProvidersSectionComponent {
   );
   /** Cards dealt so far (0 to 3); the seal stamps with the second. */
   public readonly reached = computed(() => stepsReached(this.scroll.steps()));
-  /** The flanking bolts flash once per header line and once per card. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

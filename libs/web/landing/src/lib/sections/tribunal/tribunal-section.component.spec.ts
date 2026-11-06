@@ -44,20 +44,17 @@ describe('TribunalSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('lays out the bench: copy over the clip edge, the clip flanked by two bolts, no seam bolt', () => {
+  it('lays out the bench: copy over the clip edge, with no lightning', () => {
     const { root, fixture } = mount();
     const stage = root.querySelector('[data-stage]');
     expect(stage?.getAttribute('data-layout')).toBe('bench');
-    // The copy is inside the pinned stage (so it stays on screen), the bolts belong to the clip.
+    // The copy is inside the pinned stage, so it stays on screen.
     expect(Array.from(stage?.children ?? []).map((el) => el.className.split(' ')[0])).toEqual([
       'tb-text',
       'tb-clip',
     ]);
-    expect(root.querySelectorAll('.tb-clip > ptah-flank-bolt')).toHaveLength(2);
-    expect(root.querySelector('.tb-bolt-floor')?.getAttribute('data-axis')).toBe('horizontal');
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     // Seats sit behind the clip, not over the picture.
     expect(root.querySelector('.tb-bench')?.getAttribute('aria-hidden')).toBe('true');
     fixture.destroy();
@@ -82,7 +79,6 @@ describe('TribunalSectionComponent', () => {
     expect(shown('.tb-seat')).toBe(5);
     expect(shown('.tb-point')).toBe(2);
     expect(root.querySelector('.tb-point.is-verdict')?.classList.contains('is-in')).toBe(false);
-    expect(component.strike()).toBe(5);
 
     component.scroll.steps.set(1);
     fixture.detectChanges();

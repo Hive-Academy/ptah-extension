@@ -1,4 +1,4 @@
-/* S7 "hand-off": desk off the left edge, a bolt across the gap, the phone higher on the right. */
+/* S7 "hand-off": desk off the left edge, the phone higher on the right. */
 .ao-atmosphere {
   background:
     radial-gradient(ellipse 38% 40% at 22% 70%, rgb(245 165 36 / 7%), transparent 72%),
@@ -110,10 +110,6 @@
   opacity: 1;
 }
 
-.ao-bolt {
-  display: none;
-}
-
 /* The phone: the three points arrive on it as messages. */
 .ao-phone {
   position: relative;
@@ -181,45 +177,39 @@
 }
 
 @media (min-width: 1024px) {
-  /* Desk column bleeds off the left edge; a bolt gutter; the right column holds header and phone. */
+  /* Desk column bleeds off the left edge; the shared gap; the header column holds header and phone. */
   .ao-stage {
-    grid-template-columns: minmax(0, 1fr) clamp(5rem, 8vw, 8rem) min(30rem, 34vw);
+    grid-template-columns: minmax(0, 1fr) var(--sec-head-w);
     grid-template-rows: auto auto;
-    column-gap: 0;
+    column-gap: var(--sec-gap);
     row-gap: clamp(2rem, 4vh, 3rem);
-    width: min(100%, 92rem);
-    margin: 0 auto;
-    padding-right: clamp(1rem, 4vw, 4rem);
+    padding-right: clamp(0rem, 3vw, 3rem);
   }
 
   .ao-head {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
   }
 
-  /* Set lower than the phone, squared where it runs off the page. */
+  /*
+   * Set lower than the phone, squared where it runs off the page. Sized as
+   * the shared split clip (8 / 5), plus the 1.5rem it bleeds past the padding.
+   */
   .ao-desk {
     grid-column: 1;
     grid-row: 1 / span 2;
     align-self: end;
-    min-height: clamp(18rem, 42vh, 27rem);
+    justify-self: start;
+    width: calc(min(100%, var(--sec-media-w-split)) + 1.5rem);
+    min-height: 0;
+    aspect-ratio: 8 / 5;
     margin-left: -1.5rem;
     border-left: 0;
     border-radius: 0 0.5rem 0.5rem 0;
   }
 
-  /* The hand-off: one bolt across the gap, touching neither window. */
-  .ao-bolt {
-    display: block;
-    grid-column: 2;
-    grid-row: 2;
-    align-self: center;
-    width: 100%;
-    height: 3rem;
-  }
-
   .ao-phone {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 2;
     align-self: start;
     width: min(21rem, 100%);

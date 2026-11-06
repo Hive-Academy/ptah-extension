@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -15,17 +14,17 @@ const DESK_LINES = [0.62, 0.84, 0.48, 0.74, 0.56] as const;
 
 /**
  * Always-on. Composition "hand-off": a desktop chat window runs off the left
- * page edge; a single bolt carries the live chat across the gap to a phone
- * set higher on the right, and the three points arrive on the phone as
- * messages. The desktop composer shows a lock once the chat is handed over.
- * The header sits top-right, above the phone. Scroll: the header lines, the
- * desk rises, then the pinned steps strike the hand-off, lock the composer
- * and deliver the messages, top-down. No clip here, so one canvas bolt.
+ * page edge; the live chat moves across the gap to a phone set higher on
+ * the right, and the three points arrive on the phone as messages. The
+ * desktop composer shows a lock once the chat is handed over. The header sits
+ * top-right, above the phone. Scroll: the header lines, the desk rises, then
+ * the pinned steps hand off, lock the composer and deliver the messages,
+ * top-down. The desk takes the shared split clip size (`section-media.css`).
  */
 @Component({
   selector: 'ptah-always-on-section',
   standalone: true,
-  imports: [FlankBoltComponent, SectionHeaderComponent],
+  imports: [SectionHeaderComponent],
   template: `
     <section id="always-on" class="section-frame" aria-labelledby="always-on-title">
       <div class="frame-atmosphere ao-atmosphere" aria-hidden="true"></div>
@@ -59,8 +58,6 @@ const DESK_LINES = [0.62, 0.84, 0.48, 0.74, 0.56] as const;
           </div>
         </div>
 
-        <ptah-flank-bolt class="ao-bolt" axis="horizontal" [seed]="113" [strike]="strike()" />
-
         <div class="ao-phone" data-phone [class.is-live]="reached() >= 1">
           <div class="phone-notch" aria-hidden="true"></div>
           <ul class="ao-points">
@@ -72,7 +69,11 @@ const DESK_LINES = [0.62, 0.84, 0.48, 0.74, 0.56] as const;
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './always-on-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './always-on-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AlwaysOnSectionComponent {
@@ -93,6 +94,4 @@ export class AlwaysOnSectionComponent {
   );
   /** Messages delivered so far (0 to 3); the first one also locks the desk. */
   public readonly reached = computed(() => stepsReached(this.scroll.steps()));
-  /** The hand-off bolt flashes once per header line and once per message. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

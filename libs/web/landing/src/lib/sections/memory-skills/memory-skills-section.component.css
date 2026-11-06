@@ -226,12 +226,6 @@
   color: #ffbb4d;
 }
 
-.ms-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   /*
    * The window sits right of centre; the header breaks its top edge from the
@@ -239,8 +233,6 @@
    * on screen while the stage is pinned.
    */
   .ms-stage {
-    width: min(100%, 82rem);
-    margin: 0 auto;
     padding-right: clamp(3rem, 5vw, 5rem);
   }
 
@@ -248,7 +240,7 @@
     position: relative;
     z-index: 4;
     /* Kept narrower than the memory pane (2/5 of the window) so it never covers a diff line. */
-    width: min(34rem, 30vw);
+    width: min(var(--sec-head-w), 30vw);
     margin: 0 0 -3rem clamp(0rem, 2vw, 2rem);
     isolation: isolate;
     pointer-events: none;
@@ -263,8 +255,9 @@
     background: linear-gradient(90deg, rgb(8 9 12 / 94%) calc(100% - 5rem), rgb(8 9 12 / 0%));
   }
 
+  /* The window takes the shared clip width, set right of centre. */
   .ms-sheet-wrap {
-    width: min(100%, 68rem);
+    width: min(100%, var(--sec-media-w));
     margin-left: auto;
   }
 
@@ -287,24 +280,6 @@
   .ms-hunks {
     gap: 1rem;
     padding: 1.5rem 1.75rem 1.75rem;
-  }
-
-  /* Margin bolt: along the window's right edge, in the page margin. */
-  .ms-bolt-margin {
-    display: block;
-    top: 12%;
-    left: calc(100% + 0.5rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 88%;
-  }
-
-  /* Floor bolt: under the memory pane, clear of the header above it. */
-  .ms-bolt-floor {
-    display: block;
-    top: calc(100% + 0.4rem);
-    left: 0;
-    width: 40%;
-    height: 2.75rem;
   }
 }
 

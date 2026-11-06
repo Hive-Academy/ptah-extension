@@ -50,7 +50,7 @@ describe('ProvidersSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('lays out the account deck: header, cards, then the still with two bolts', () => {
+  it('lays out the account deck: header, cards, then the still, with no lightning', () => {
     const { root, fixture } = mount();
     const stage = root.querySelector('[data-stage]');
     expect(stage?.getAttribute('data-layout')).toBe('account-deck');
@@ -60,8 +60,7 @@ describe('ProvidersSectionComponent', () => {
       'pv-still',
     ]);
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
-    const bolts = Array.from(root.querySelectorAll('.pv-still ptah-flank-bolt[aria-hidden="true"]'));
-    expect(bolts.map((bolt) => bolt.getAttribute('data-axis'))).toEqual(['horizontal', 'vertical']);
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     expect(root.querySelector('[data-seal]')?.getAttribute('aria-hidden')).toBe('true');
     expect(root.querySelectorAll('.card-index[aria-hidden="true"]')).toHaveLength(3);
     fixture.destroy();

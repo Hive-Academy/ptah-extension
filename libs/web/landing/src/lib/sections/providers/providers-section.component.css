@@ -125,21 +125,13 @@
   transform: rotate(-8deg);
 }
 
-.pv-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   .pv-stage {
     grid-template-columns: min(26rem, 30vw) minmax(0, 1fr);
     grid-template-rows: auto auto;
     column-gap: 0;
     row-gap: clamp(1.5rem, 3vh, 2.5rem);
-    width: min(100%, 90rem);
-    margin: 0 auto;
-    padding: 0 clamp(4rem, 6vw, 6rem) 0 clamp(1rem, 3vw, 3rem);
+    padding: 0 clamp(3rem, 5vw, 5rem) 0 clamp(0rem, 3vw, 3rem);
   }
 
   .pv-head {
@@ -147,7 +139,7 @@
     z-index: 4;
     grid-column: 1 / span 2;
     grid-row: 1;
-    max-width: 38rem;
+    max-width: var(--sec-head-w);
   }
 
   /*
@@ -161,7 +153,7 @@
     grid-row: 1 / span 2;
     align-self: end;
     justify-self: start;
-    width: min(100%, calc(64vh * 1.576));
+    width: min(100%, var(--sec-media-w-stacked));
     margin-top: clamp(12rem, 28vh, 18rem);
   }
 
@@ -177,24 +169,6 @@
 
   .pv-card {
     margin-left: calc(var(--at, 0) * 1.75rem);
-  }
-
-  /* Lintel bolt: above the still, clear of the header column. */
-  .pv-bolt-lintel {
-    display: block;
-    bottom: calc(100% + 0.5rem);
-    right: 0;
-    left: 30%;
-    height: 2.75rem;
-  }
-
-  /* Edge bolt: along the still's right edge, in the page margin, above the seal. */
-  .pv-bolt-edge {
-    display: block;
-    top: -6%;
-    left: calc(100% + 0.25rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 86%;
   }
 }
 

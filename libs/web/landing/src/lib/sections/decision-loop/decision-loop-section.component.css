@@ -40,8 +40,6 @@
   );
 }
 
-
-
 .loop-shell {
   width: min(100%, 68rem);
   margin: 0 auto;
@@ -290,6 +288,15 @@
 }
 
 @media (min-width: 1024px) {
+  /*
+   * Header centred above, the loop window under it at the shared clip width
+   * (section-media.css). The window is wide and short (1080 / 470), so it
+   * stays under the shared height cap without the stacked width.
+   */
+  .loop-shell {
+    width: min(100%, var(--sec-media-w));
+  }
+
   .loop-canvas-wrap {
     position: relative;
     aspect-ratio: 1080 / 470;

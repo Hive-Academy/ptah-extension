@@ -11,7 +11,6 @@ import {
 import { RouterLink } from '@angular/router';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { LightningComponent } from '../../shared/lightning/lightning.component';
 import { HeroLightning } from './hero-lightning';
 
 const CINEMATIC_QUERY =
@@ -33,7 +32,7 @@ const TITLE_INERT = 0.95;
 @Component({
   selector: 'ptah-hero',
   standalone: true,
-  imports: [RouterLink, LightningComponent],
+  imports: [RouterLink],
   template: `
     <section class="cinematic-hero" aria-labelledby="hero-title">
       <div class="story-stage" data-story-stage>
@@ -75,8 +74,6 @@ const TITLE_INERT = 0.95;
             <span class="cue-line" aria-hidden="true"></span><span>No account, no license key, no credit card</span><span class="cue-line" aria-hidden="true"></span>
           </p>
         </div>
-        <!-- The page-wide bolt: outlives the title fade and runs through the bottom seam into the next section. -->
-        <ptah-lightning class="hero-bolt" [hue]="40" [transparent]="true" [size]="1.2" [intensity]="0.85" [seed]="11" />
       </div>
     </section>
   `,
@@ -126,14 +123,14 @@ export class HeroComponent {
     this.mediaContext.add(CINEMATIC_QUERY, () => this.animateCinematic(view, stage));
   }
 
-  /** Desktop motion, as on main: intro reveal, floating artifacts, arcs, and the pinned title fade. */
+  /** Desktop motion, as on main: intro reveal, floating artifacts, WebGL arcs, and the pinned title fade. */
   private animateCinematic(view: Window, stage: HTMLElement): () => void {
     this.host.nativeElement.classList.add('is-cinematic');
     const title = stage.querySelector<HTMLElement>('[data-title-frame]');
     const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
     const artifacts = stage.querySelector<HTMLElement>('[data-artifacts]');
     const canvas = artifacts?.querySelector<HTMLCanvasElement>('[data-lightning]');
-    if (artifacts && canvas) this.lightning = new HeroLightning(view, artifacts, canvas, symbols);
+    if (artifacts && canvas) this.lightning = new HeroLightning(view, artifacts, canvas, symbols, stage);
     this.syncLightning();
     const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
     const supporting = Array.from(stage.querySelectorAll<HTMLElement>('.title-index, .title-lead, .title-actions, .title-footnote'));

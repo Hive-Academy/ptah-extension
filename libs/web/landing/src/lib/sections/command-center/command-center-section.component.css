@@ -98,12 +98,6 @@
   transform: translateY(-0.1rem);
 }
 
-.cc-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   /*
    * The header rides in the pinned stage, over the clip's top-left (the
@@ -115,7 +109,7 @@
     z-index: 4;
     top: clamp(1.5rem, 4vh, 3rem);
     left: clamp(0rem, 3vw, 3rem);
-    width: min(34rem, 40vw);
+    width: var(--sec-head-w);
     margin: 0;
     isolation: isolate;
     pointer-events: none;
@@ -138,7 +132,7 @@
   .cc-clip {
     --clip-radius: 0.5rem 0 0 0.5rem;
     --clip-border-right: 0;
-    width: min(76vw, calc(100vw - 22rem), calc(80vh * 1.6));
+    width: var(--sec-media-w);
     margin-right: -1.5rem;
     margin-left: auto;
   }
@@ -150,24 +144,6 @@
     bottom: 8%;
     width: 21rem;
     margin: 0;
-  }
-
-  /* Left of the clip, outside the picture, behind the rail tiles. */
-  .cc-bolt-edge {
-    display: block;
-    top: -6%;
-    right: calc(100% + 0.5rem);
-    width: 4rem;
-    height: 112%;
-  }
-
-  /* Under the clip, running off the right page edge with it. */
-  .cc-bolt-floor {
-    display: block;
-    top: calc(100% + 0.4rem);
-    right: 0;
-    left: 14%;
-    height: 2.75rem;
   }
 }
 

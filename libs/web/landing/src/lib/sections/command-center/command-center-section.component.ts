@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { ConsoleClipComponent } from '../shared/console-clip.component';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { STEP_THRESHOLDS, stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -22,13 +21,13 @@ const RAIL_RUNNING = 9;
  * and the three points as stacked tiles overlapping its left edge. The
  * header sits in an off-centre column on the left. Scroll: the header lines,
  * then the clip rises, then the pinned steps light the nine running ticks
- * and bring the tiles in, top-down. Two canvas bolts flank the clip: one
- * along its left edge behind the rail, one under it running off the edge.
+ * and bring the tiles in, top-down. Its clip, header column and type set
+ * the shared media proportions (`section-media.css`) every other section follows.
  */
 @Component({
   selector: 'ptah-command-center-section',
   standalone: true,
-  imports: [ConsoleClipComponent, FlankBoltComponent, SectionHeaderComponent],
+  imports: [ConsoleClipComponent, SectionHeaderComponent],
   template: `
     <section id="command-center" class="section-frame" aria-labelledby="command-center-title">
       <div class="frame-atmosphere cc-atmosphere" aria-hidden="true"></div>
@@ -47,8 +46,6 @@ const RAIL_RUNNING = 9;
           />
         </div>
         <div class="cc-clip">
-          <ptah-flank-bolt class="cc-bolt cc-bolt-edge" axis="vertical" [seed]="31" [strike]="strike()" />
-          <ptah-flank-bolt class="cc-bolt cc-bolt-floor" axis="horizontal" [seed]="47" [strike]="strike()" />
           <ptah-console-clip
             class="cc-video"
             video="/assets/live-demo/multi-agent.mp4"
@@ -76,7 +73,11 @@ const RAIL_RUNNING = 9;
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './command-center-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './command-center-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommandCenterSectionComponent {
@@ -101,6 +102,4 @@ export class CommandCenterSectionComponent {
   public readonly running = computed(() =>
     Math.round(RAIL_RUNNING * Math.min(1, this.scroll.steps() / STEP_THRESHOLDS[2])),
   );
-  /** The flanking bolts flash once per header line and once per tile. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

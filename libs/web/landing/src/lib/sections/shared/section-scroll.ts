@@ -75,13 +75,3 @@ export function bindSectionScroll(
 
   return () => media.revert();
 }
-
-/** The seam bolt charges while the header reveals. */
-export function seamCharge(progress: number): number {
-  return Math.min(1, progress / REVEAL.visual);
-}
-
-/** How many header lines (eyebrow, headline, subline) are shown: a strike count. */
-export function revealedLines(progress: number): number {
-  return [REVEAL.eyebrow, REVEAL.headline, REVEAL.subline].filter((at) => progress >= at).length;
-}

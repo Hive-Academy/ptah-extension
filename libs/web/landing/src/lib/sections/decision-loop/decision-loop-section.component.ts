@@ -11,9 +11,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { generateBoltPath, seededRandom } from '../../shared/lightning-bolt';
-import { SeamBoltComponent } from '../shared/seam-bolt.component';
-import { REVEAL, bindSectionScroll, seamCharge } from '../shared/section-scroll';
+import { REVEAL, bindSectionScroll } from '../shared/section-scroll';
 
 export interface DecisionLoopStage {
   readonly id: string;
@@ -73,7 +71,6 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
 @Component({
   selector: 'ptah-decision-loop-section',
   standalone: true,
-  imports: [SeamBoltComponent],
   template: `
     <section
       id="decision-model-loop"
@@ -82,7 +79,6 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
     >
       <div class="loop-atmosphere" aria-hidden="true"></div>
       <div class="loop-grain" aria-hidden="true"></div>
-      <ptah-seam-bolt [charge]="seam()" [strike]="activeStage() + 1" [speed]="0.9" [seed]="23" />
 
       <div class="loop-shell">
         <header class="loop-header">
@@ -174,7 +170,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 stroke-dasharray="5 7"
               />
 
-              <!-- Primary 01 -> 06 active circuit (3-layer hero-lightning stroke craft) -->
+              <!-- Primary 01 -> 06 active circuit (3-layer stroke: glow, path, core) -->
               <path
                 data-forward-glow
                 [attr.d]="forwardTrackPath"
@@ -312,15 +308,6 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
                 "
               >
                 <circle r="14" fill="#f5a524" fill-opacity="0.22" />
-                <!-- The travelling spark: a short bolt that re-jags at each stage. -->
-                <polyline
-                  [attr.points]="sparkPoints()"
-                  stroke="#ffbb4d"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  fill="none"
-                />
                 <circle r="6" fill="#ffbb4d" />
                 <circle r="2.5" fill="#fff9eb" />
               </g>
@@ -411,7 +398,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
       </div>
     </section>
   `,
-  styleUrl: './decision-loop-section.component.css',
+  styleUrls: ['../shared/section-media.css', './decision-loop-section.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DecisionLoopSectionComponent {
@@ -437,13 +424,6 @@ export class DecisionLoopSectionComponent {
   /** Section scroll progress for the top-down header reveal; settled at 1. */
   public readonly revealProgress = signal(1);
   protected readonly reveal = REVEAL;
-  public readonly seam = computed(() => seamCharge(this.revealProgress()));
-  /** A short bolt through the orb, re-drawn when the active stage changes. */
-  protected readonly sparkPoints = computed(() =>
-    generateBoltPath({ x: -22, y: 0 }, { x: 22, y: 0 }, seededRandom(31 + this.activeStage()))
-      .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
-      .join(' '),
-  );
 
   protected readonly perimeterTrackPath =
     'M 210 115 H 870 A 120 120 0 0 1 870 355 H 210 A 120 120 0 0 1 210 115 Z';

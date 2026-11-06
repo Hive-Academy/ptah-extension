@@ -71,8 +71,7 @@ describe('MemorySkillsSectionComponent', () => {
     expect(root.querySelectorAll('.memory-row:not(.is-lit)')).toHaveLength(0);
     expect(root.querySelector('[data-sheet]')?.classList.contains('is-applied')).toBe(true);
     expect(root.querySelector('[data-apply]')?.classList.contains('is-on')).toBe(true);
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     fixture.destroy();
   });
 
@@ -95,8 +94,6 @@ describe('MemorySkillsSectionComponent', () => {
     ).toBe(true);
     expect(root.querySelectorAll('.memory-row[data-kind="keyword"]').length).toBeGreaterThan(0);
     expect(root.querySelectorAll('.memory-row[data-kind="vector"]').length).toBeGreaterThan(0);
-    expect(root.querySelector('.ms-bolt-floor')?.getAttribute('data-axis')).toBe('horizontal');
-    expect(root.querySelector('.ms-bolt-margin')?.getAttribute('data-axis')).toBe('vertical');
     expect(root.querySelectorAll('[tabindex], button, a, input')).toHaveLength(0);
     fixture.destroy();
   });
@@ -112,7 +109,6 @@ describe('MemorySkillsSectionComponent', () => {
     expect(root.querySelectorAll('.memory-row.is-lit')).toHaveLength(0);
     expect(root.querySelectorAll('.ms-hunk.is-in')).toHaveLength(0);
     expect(applied()).toBe(false);
-    expect(component.strike()).toBe(2);
 
     component.scroll.reveal.set(1);
     component.scroll.enter.set(0.5);
@@ -121,7 +117,6 @@ describe('MemorySkillsSectionComponent', () => {
     expect(root.querySelectorAll('.memory-row.is-lit')).toHaveLength(4);
     expect(root.querySelectorAll('.ms-hunk.is-in')).toHaveLength(2);
     expect(applied()).toBe(false);
-    expect(component.strike()).toBe(5);
 
     component.scroll.enter.set(1);
     component.scroll.steps.set(0.75);
@@ -132,13 +127,11 @@ describe('MemorySkillsSectionComponent', () => {
     component.scroll.steps.set(APPLY_AT);
     fixture.detectChanges();
     expect(applied()).toBe(true);
-    expect(component.strike()).toBe(7);
     fixture.destroy();
   });
 
   it('stays settled and creates no scroll triggers under reduced motion', () => {
     installMatchMedia(true);
-    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const create = jest.spyOn(ScrollTrigger, 'create');
     const matchMedia = jest.spyOn(gsap, 'matchMedia');
     const { component, root, fixture } = mount('browser');
@@ -152,7 +145,6 @@ describe('MemorySkillsSectionComponent', () => {
 
   it('releases its scroll bindings on destroy', () => {
     installMatchMedia(false);
-    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const media = gsap.matchMedia();
     const add = jest.spyOn(media, 'add').mockImplementation(() => media);
     const revert = jest.spyOn(media, 'revert').mockImplementation(() => undefined);

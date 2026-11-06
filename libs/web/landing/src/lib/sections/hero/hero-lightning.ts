@@ -1,34 +1,55 @@
-import { BoltPoint, generateBoltPath, paintBolt } from '../../shared/lightning-bolt';
+import {
+  type BoltPoint,
+  type LightningBolt,
+  LightningRenderer,
+} from '../../shared/lightning/lightning-renderer';
+import {
+  STRIKE,
+  STRIKE_TOTAL_MS,
+  shimmerStep,
+  strikeGap,
+  strikeLook,
+} from '../../shared/lightning/strike-envelope';
+import { HeroPointer } from './hero-pointer';
 
-// Re-exported for existing importers; the implementation lives in the shared util.
-export { generateBoltPath };
-export type { BoltPoint };
+const LIT = 'lightning-lit';
+const MAX_PIXEL_RATIO = 2;
+/** The mouse bolt jags differently from the icon bolt drawn beside it. */
+const POINTER_SEED_OFFSET = 31;
 
-const ARC_DURATION = 360;
-const FLICKER_INTERVAL = 95;
-const REVERSE_PAUSE = 110;
-
+/**
+ * The hero's WebGL lightning between the floating symbols: the page's only
+ * WebGL context. Each strike joins a pair of opposite symbols (cycling pairs)
+ * and, while a mouse hovers the hero, also joins the symbol nearest the mouse
+ * to the mouse itself, following it live. Frames run only while a strike is
+ * visible; a dark gap sleeps on one timer. The host decides when it runs
+ * (`start` / `stop`). Without WebGL it draws nothing. If the context is lost
+ * it stops drawing and resumes once the browser restores it.
+ */
 export class HeroLightning {
-  private readonly context: CanvasRenderingContext2D | null;
+  private renderer?: LightningRenderer;
+  private readonly pointer?: HeroPointer;
   private readonly observer?: ResizeObserver;
+  private running = false;
   private timeout?: number;
   private frame?: number;
-  private running = false;
+  private strikeStart?: number;
+  private seed = 0;
   private pairIndex = 0;
-  private direction = 1;
-  private arcStart?: number;
-  private shapeAt = -1;
-  private path: BoltPoint[] = [];
-  private pixelRatio = 1;
 
-  constructor(
+  public constructor(
     private readonly view: Window,
     private readonly artifacts: HTMLElement,
     private readonly canvas: HTMLCanvasElement,
     private readonly symbols: HTMLElement[],
+    pointerHost: HTMLElement,
   ) {
-    this.context = canvas.getContext('2d');
-    if (!this.context || symbols.length < 2) return;
+    if (symbols.length < 2) return;
+    this.renderer = LightningRenderer.create(canvas);
+    if (!this.renderer) return;
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+    this.pointer = new HeroPointer(view, pointerHost);
     this.resize();
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(() => this.resize());
@@ -36,112 +57,126 @@ export class HeroLightning {
     }
   }
 
-  start(): void {
-    if (this.running || !this.context || this.symbols.length < 2) return;
+  public start(): void {
+    if (this.running || !this.renderer) return;
     this.running = true;
-    this.scheduleNext();
+    this.schedule(STRIKE.firstDelayMs);
   }
 
-  stop(): void {
+  public stop(): void {
     this.running = false;
+    this.halt();
+    this.renderer?.clear();
+  }
+
+  public destroy(): void {
+    this.stop();
+    this.observer?.disconnect();
+    this.pointer?.destroy();
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.renderer?.dispose();
+    this.renderer = undefined;
+  }
+
+  /** Cancels the pending timer or frame and unlights the symbols. */
+  private halt(): void {
     if (this.timeout !== undefined) this.view.clearTimeout(this.timeout);
     if (this.frame !== undefined) this.view.cancelAnimationFrame(this.frame);
     this.timeout = undefined;
     this.frame = undefined;
-    this.arcStart = undefined;
-    this.direction = 1;
-    this.clear();
-    this.symbols.forEach((symbol) => symbol.classList.remove('lightning-lit'));
+    this.strikeStart = undefined;
+    this.light(new Set());
   }
 
-  destroy(): void {
-    this.stop();
-    this.observer?.disconnect();
+  private schedule(delay: number): void {
+    this.timeout = this.view.setTimeout(this.beginStrike, delay);
   }
 
-  private scheduleNext(): void {
-    this.timeout = this.view.setTimeout(() => this.beginArc(), 3000 + Math.random() * 3000);
-  }
-
-  private beginArc(): void {
-    if (!this.running) return;
+  private readonly beginStrike = (): void => {
     this.timeout = undefined;
-    this.resize();
-    this.arcStart = undefined;
-    this.shapeAt = -1;
-    const first = this.symbols[this.pairIndex];
-    const second = this.symbols[this.partnerIndex()];
-    first.classList.add('lightning-lit');
-    second.classList.add('lightning-lit');
+    if (!this.running || !this.renderer) return;
+    this.strikeStart = undefined;
+    // A new jag shape for every strike.
+    this.seed = Math.floor(Math.random() * 997);
     this.frame = this.view.requestAnimationFrame(this.draw);
-  }
+  };
+
+  private readonly draw = (time: number): void => {
+    this.frame = undefined;
+    const renderer = this.renderer;
+    if (!this.running || !renderer) return;
+    this.strikeStart ??= time;
+    const elapsed = time - this.strikeStart;
+    if (elapsed >= STRIKE_TOTAL_MS) {
+      this.halt();
+      renderer.clear();
+      this.pairIndex = (this.pairIndex + 1) % Math.ceil(this.symbols.length / 2);
+      this.schedule(strikeGap(Math.random));
+      return;
+    }
+    const look = strikeLook(elapsed, this.seed);
+    const box = this.artifacts.getBoundingClientRect();
+    const centers = this.symbols.map((symbol) => center(symbol, box));
+    const lit = new Set([this.pairIndex, this.partnerIndex()]);
+    const bolts: LightningBolt[] = [
+      { ...look, from: centers[this.pairIndex], to: centers[this.partnerIndex()], seed: this.seed },
+    ];
+    const mouse = this.pointer?.position(box);
+    if (mouse) {
+      const nearest = nearestIndex(centers, mouse);
+      lit.add(nearest);
+      bolts.push({ ...look, from: centers[nearest], to: mouse, seed: this.seed + POINTER_SEED_OFFSET });
+    }
+    this.light(lit);
+    renderer.draw(bolts, shimmerStep(elapsed));
+    this.frame = this.view.requestAnimationFrame(this.draw);
+  };
 
   // Symbols run clockwise from top-left, so the opposite symbol is half the ring away (crossways arcs).
   private partnerIndex(): number {
     return (this.pairIndex + Math.floor(this.symbols.length / 2)) % this.symbols.length;
   }
 
-  private readonly draw = (time: number): void => {
-    this.frame = undefined;
-    if (!this.running || !this.context) return;
-    this.arcStart ??= time;
-    const elapsed = time - this.arcStart;
-    if (elapsed >= ARC_DURATION) {
-      this.clear();
-      this.symbols.forEach((symbol) => symbol.classList.remove('lightning-lit'));
-      if (this.direction === 1) {
-        this.direction = -1;
-        this.timeout = this.view.setTimeout(() => this.beginArc(), REVERSE_PAUSE);
-      } else {
-        this.direction = 1;
-        this.pairIndex = (this.pairIndex + 1) % Math.ceil(this.symbols.length / 2);
-        this.scheduleNext();
-      }
-      return;
-    }
-
-    const shape = Math.floor(elapsed / FLICKER_INTERVAL);
-    if (shape !== this.shapeAt) {
-      this.shapeAt = shape;
-      this.path = generateBoltPath({ x: 0, y: 0 }, { x: 1, y: 0 });
-    }
-    const fromIndex = this.direction === 1 ? this.pairIndex : this.partnerIndex();
-    const toIndex = this.direction === 1 ? this.partnerIndex() : this.pairIndex;
-    const box = this.artifacts.getBoundingClientRect();
-    const from = this.center(this.symbols[fromIndex], box);
-    const to = this.center(this.symbols[toIndex], box);
-    const distance = Math.hypot(to.x - from.x, to.y - from.y);
-    const fade = Math.min(1, (ARC_DURATION - elapsed) / 110);
-    this.clear();
-    if (distance > 0) this.paint(from, to, fade);
-    this.frame = this.view.requestAnimationFrame(this.draw);
-  };
-
-  private paint(from: BoltPoint, to: BoltPoint, fade: number): void {
-    if (!this.context) return;
-    paintBolt(this.context, this.path, from, to, fade);
-  }
-
-  private center(symbol: HTMLElement, box: DOMRect): BoltPoint {
-    const rect = symbol.getBoundingClientRect();
-    return { x: rect.left - box.left + rect.width / 2, y: rect.top - box.top + rect.height / 2 };
+  private light(lit: ReadonlySet<number>): void {
+    this.symbols.forEach((symbol, index) => symbol.classList.toggle(LIT, lit.has(index)));
   }
 
   private resize(): void {
-    if (!this.context) return;
     const rect = this.artifacts.getBoundingClientRect();
-    const ratio = Math.min(this.view.devicePixelRatio || 1, 2);
-    const width = Math.max(1, Math.round(rect.width * ratio));
-    const height = Math.max(1, Math.round(rect.height * ratio));
-    if (this.canvas.width === width && this.canvas.height === height && this.pixelRatio === ratio) return;
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.pixelRatio = ratio;
-    this.context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const ratio = Math.min(this.view.devicePixelRatio || 1, MAX_PIXEL_RATIO);
+    this.renderer?.resize(rect.width, rect.height, ratio);
   }
 
-  private clear(): void {
-    if (!this.context) return;
-    this.context.clearRect(0, 0, this.canvas.width / this.pixelRatio, this.canvas.height / this.pixelRatio);
-  }
+  private readonly onContextLost = (event: Event): void => {
+    // Default prevented: the browser may restore the context later.
+    event.preventDefault();
+    this.halt();
+    this.renderer = undefined;
+  };
+
+  private readonly onContextRestored = (): void => {
+    this.renderer = LightningRenderer.create(this.canvas);
+    this.resize();
+    if (!this.running || !this.renderer) return;
+    this.schedule(STRIKE.firstDelayMs);
+  };
+}
+
+function center(symbol: HTMLElement, box: DOMRect): BoltPoint {
+  const rect = symbol.getBoundingClientRect();
+  return { x: rect.left - box.left + rect.width / 2, y: rect.top - box.top + rect.height / 2 };
+}
+
+function nearestIndex(points: readonly BoltPoint[], target: BoltPoint): number {
+  let best = 0;
+  let bestDistance = Infinity;
+  points.forEach((point, index) => {
+    const distance = Math.hypot(point.x - target.x, point.y - target.y);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return best;
 }

@@ -42,24 +42,20 @@ describe('AlwaysOnSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('lays out the hand-off: header, desk, one bolt, then the phone', () => {
+  it('lays out the hand-off: header, desk, then the phone, with no lightning', () => {
     const { root, fixture } = mount();
     const stage = root.querySelector('[data-stage]');
     expect(stage?.getAttribute('data-layout')).toBe('hand-off');
     expect(Array.from(stage?.children ?? []).map((el) => el.className.split(' ')[0])).toEqual([
       'ao-head',
       'ao-desk',
-      'ao-bolt',
       'ao-phone',
     ]);
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
     expect(root.querySelector('[data-desk]')?.getAttribute('aria-hidden')).toBe('true');
-    const bolts = root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]');
-    expect(bolts).toHaveLength(1);
-    expect(bolts[0].getAttribute('data-axis')).toBe('horizontal');
     // The points are real list items inside the phone, not decoration.
     expect(root.querySelector('[data-phone] ul.ao-points')).not.toBeNull();
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     fixture.destroy();
   });
 
@@ -86,15 +82,6 @@ describe('AlwaysOnSectionComponent', () => {
     component.scroll.steps.set(1);
     fixture.detectChanges();
     expect(shown('.ao-point')).toBe(3);
-    fixture.destroy();
-  });
-
-  it('strikes the bolt once per header line and once per message', () => {
-    const { component, fixture } = mount();
-    expect(component.strike()).toBe(6);
-    component.scroll.reveal.set(0);
-    component.scroll.steps.set(0);
-    expect(component.strike()).toBe(0);
     fixture.destroy();
   });
 });

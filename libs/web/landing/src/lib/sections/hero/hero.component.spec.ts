@@ -3,6 +3,7 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import gsap from 'gsap';
+import { LightningRenderer } from '../../shared/lightning/lightning-renderer';
 import { HeroComponent } from './hero.component';
 import { HeroLightning } from './hero-lightning';
 
@@ -78,7 +79,7 @@ describe('HeroComponent', () => {
     ObserverStub.instances = [];
   });
 
-  it('renders the headline, CTAs and both lightning layers on the server', () => {
+  it('renders the headline, CTAs and the symbol lightning canvas on the server', () => {
     const start = jest.spyOn(HeroLightning.prototype, 'start');
     const { root, destroy } = mount('server');
     expect(root.querySelector('.title-index')?.textContent?.trim()).toBe('PTAHCODE / YOUR AI DEV TEAM');
@@ -89,7 +90,9 @@ describe('HeroComponent', () => {
     expect(root.querySelector<HTMLAnchorElement>('.watch-link')?.getAttribute('href')).toBe('#command-center');
     expect(root.querySelectorAll('.artifacts[aria-hidden] img[alt=""]')).toHaveLength(4);
     expect(root.querySelector('.artifacts canvas[data-lightning][aria-hidden="true"]')).not.toBeNull();
-    expect(root.querySelector('[data-story-stage] > ptah-lightning.hero-bolt')).not.toBeNull();
+    // The only lightning is the one canvas between the symbols: no page-wide bolt.
+    expect(root.querySelectorAll('canvas')).toHaveLength(1);
+    expect(root.querySelector('ptah-lightning, .hero-bolt')).toBeNull();
     expect(start).not.toHaveBeenCalled();
     destroy();
   });
@@ -141,18 +144,17 @@ describe('HeroComponent', () => {
     const stop = jest.spyOn(HeroLightning.prototype, 'stop');
     const destroyLightning = jest.spyOn(HeroLightning.prototype, 'destroy');
     const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
-    const getContextDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'getContext');
-    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
-      configurable: true,
-      value: jest.fn(() => Object.assign({} as CanvasRenderingContext2D, {
-        setTransform: jest.fn(), clearRect: jest.fn(),
-      })),
-    });
+    const renderer = { resize: jest.fn(), draw: jest.fn(), clear: jest.fn(), dispose: jest.fn() };
+    const create = jest.spyOn(LightningRenderer, 'create')
+      .mockReturnValue(renderer as unknown as LightningRenderer);
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     try {
       const { component, root, destroy } = mount('browser');
       expect(root.classList.contains('is-cinematic')).toBe(true);
       expect(component['lightning']).toBeInstanceOf(HeroLightning);
+      // One WebGL context for the page, made for the symbol canvas.
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(create.mock.calls[0][0]).toBe(root.querySelector('canvas[data-lightning]'));
       expect(start).not.toHaveBeenCalled();
 
       ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
@@ -183,10 +185,10 @@ describe('HeroComponent', () => {
 
       destroy();
       expect(destroyLightning).toHaveBeenCalled();
+      expect(renderer.dispose).toHaveBeenCalled();
       expect(component['lightning']).toBeUndefined();
       expect(root.classList.contains('is-cinematic')).toBe(false);
     } finally {
-      if (getContextDescriptor) Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', getContextDescriptor);
       if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
       else Reflect.deleteProperty(document, 'hidden');
       jest.useRealTimers();

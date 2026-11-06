@@ -79,43 +79,6 @@
 .scroll-cue { margin: 0; position: absolute; right: 1.5rem; bottom: 1.5rem; left: 1.5rem; display: flex; align-items: center; justify-content: center; gap: .75rem; color: #c5cad3; font-size: .8125rem; letter-spacing: .08em; text-transform: uppercase; }
 .cue-line { width: 2.5rem; height: 1px; background: #f5a524; }
 
-/*
- * The page-wide WebGL bolt runs the full height of the stage and out through its bottom edge.
- * It sits over the title frame so it outlives the title fade; `screen` keeps the white copy
- * white. The mask dims it across the copy block so the headline and CTAs stay readable, and
- * fades its loose end into the seam glow, where the next section's bolt takes over.
- */
-.hero-bolt {
-  --copy-y: 51%;
-  --copy-ry: 24%;
-  position: absolute;
-  z-index: 7;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: min(36rem, 70vw);
-  height: auto;
-  transform: translateX(-50%);
-  mix-blend-mode: screen;
-  mask-image: linear-gradient(180deg, #000 84%, transparent 98%),
-    radial-gradient(ellipse 80% var(--copy-ry) at 50% var(--copy-y), rgb(0 0 0 / 18%) 62%, #000 100%);
-  mask-composite: intersect;
-}
-
-/* The seam: amber light pooling where the bolt leaves the hero, plus a hairline that fades to the sides. */
-.story-stage::after {
-  position: absolute;
-  z-index: 8;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 6rem;
-  content: '';
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent 8%, rgb(245 165 36 / 50%) 50%, transparent 92%) bottom / 100% 1px no-repeat,
-    radial-gradient(ellipse 22% 100% at 50% 100%, rgb(245 165 36 / 22%), transparent 72%);
-}
-
 @media (max-width: 767px) {
   .artifact-ankh { top: 12%; left: -1.5rem; }
   .artifact-scarab { top: 8%; right: -1rem; }
@@ -126,7 +89,6 @@
   .title-actions { flex-direction: column; gap: .25rem; }
   .download-link { width: min(100%, 19rem); }
   .watch-link { min-height: 2.5rem !important; }
-  .hero-bolt { --copy-y: 50%; --copy-ry: 34%; }
 }
 
 @media (min-width: 768px) {
