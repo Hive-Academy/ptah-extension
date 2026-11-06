@@ -6,6 +6,18 @@ import { z } from 'zod';
 import { MACHINE_SSH_ALIAS_PATTERN } from '@ptah-extension/shared';
 import { validateSshAlias } from './ssh-alias';
 
+const MAX_MACHINES = 256;
+const MAX_REGISTRY_BYTES = 256 * 1024;
+
+export class MachineRegistryWriteError extends Error {
+  constructor(
+    readonly code: 'TOO_MANY_MACHINES' | 'REGISTRY_TOO_LARGE',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export const MachineRegistrySchema = z
   .object({
     machines: z
@@ -19,7 +31,7 @@ export const MachineRegistrySchema = z
           })
           .strict(),
       )
-      .max(256),
+      .max(MAX_MACHINES),
   })
   .strict();
 export type MachineRegistryData = z.infer<typeof MachineRegistrySchema>;
@@ -39,10 +51,10 @@ export class MachineRegistry {
     let source: string;
     try {
       const metadata = await this.io.stat(this.path);
-      if (metadata.size > 256 * 1024)
+      if (metadata.size > MAX_REGISTRY_BYTES)
         throw new Error('Machine registry exceeds 256 KiB');
       const bytes = await this.io.readFile(this.path);
-      if (bytes.byteLength > 256 * 1024)
+      if (bytes.byteLength > MAX_REGISTRY_BYTES)
         throw new Error('Machine registry exceeds 256 KiB');
       source = bytes.toString('utf8');
     } catch (error) {
@@ -60,7 +72,18 @@ export class MachineRegistry {
   }
 
   async write(value: MachineRegistryData): Promise<void> {
+    if (value.machines.length > MAX_MACHINES)
+      throw new MachineRegistryWriteError(
+        'TOO_MANY_MACHINES',
+        `Machine registry supports at most ${MAX_MACHINES} machines.`,
+      );
     const parsed = MachineRegistrySchema.parse(value);
+    const serialized = JSON.stringify(parsed, null, 2) + '\n';
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_REGISTRY_BYTES)
+      throw new MachineRegistryWriteError(
+        'REGISTRY_TOO_LARGE',
+        'Machine registry exceeds 256 KiB. Remove machines or shorten names before saving.',
+      );
     parsed.machines.forEach((machine) => validateSshAlias(machine.alias));
     // Refuse to replace an existing corrupt registry.
     await this.read();
@@ -73,7 +96,7 @@ export class MachineRegistry {
       const handle = await this.io.open(temp, 'wx', 0o600);
       created = true;
       try {
-        await handle.writeFile(JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+        await handle.writeFile(serialized, 'utf8');
         await handle.sync();
       } finally {
         await handle.close();

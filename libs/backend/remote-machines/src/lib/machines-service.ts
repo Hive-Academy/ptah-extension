@@ -13,7 +13,10 @@ import type {
   MachinesSessionAttachResult,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { WORKER_METHOD_SCHEMAS } from '@ptah-extension/worker-protocol';
+import {
+  WORKER_METHOD_SCHEMAS,
+  WorkerClientError,
+} from '@ptah-extension/worker-protocol';
 import { KernelSessionDriverLock } from '@ptah-extension/platform-core';
 import type {
   WorkerMethod,
@@ -36,6 +39,7 @@ export interface MachinesServiceOptions {
   createConnection?: (options: MachineConnectionOptions) => MachineConnection;
   sshAliases?: () => Promise<string[]>;
   sshCommand?: typeof runSshWorkerCommand;
+  logger?: { error(message: string): void };
 }
 export class MachineServiceError extends Error {
   constructor(
@@ -52,6 +56,7 @@ export class MachinesService {
   private readonly connections = new Map<string, MachineConnection>();
   private mutation: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  private readonly pairing = new Set<string>();
   constructor(private readonly options: MachinesServiceOptions) {}
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.mutation.then(operation, operation);
@@ -78,7 +83,17 @@ export class MachinesService {
       throw new MachineServiceError('MACHINE_UNREACHABLE', 'Service disposed');
     const existing = this.connections.get(machineId);
     if (existing) return existing;
-    const token = await this.options.tokens.get(machineId);
+    let token: string | undefined;
+    try {
+      const stored: unknown = await this.options.tokens.get(machineId);
+      if (stored !== undefined && typeof stored !== 'string')
+        throw new Error('Credential store returned a non-string token');
+      token = stored as string | undefined;
+    } catch (error) {
+      this.options.logger?.error(
+        `Could not read credential for machine ${machineId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
     if (this.disposed)
       throw new MachineServiceError('MACHINE_UNREACHABLE', 'Service disposed');
     const connection = (
@@ -150,12 +165,6 @@ export class MachinesService {
   async add(alias: string): Promise<{ machine: MachineSummary }> {
     validateSshAlias(alias);
     return this.serialize(async () => {
-      const aliases = await (this.options.sshAliases ?? listSshAliases)();
-      if (!aliases.includes(alias))
-        throw new MachineServiceError(
-          'MACHINE_NOT_FOUND_OR_FORBIDDEN',
-          'SSH alias not found',
-        );
       const data = await this.options.registry.read();
       if (data.machines.some((entry) => entry.alias === alias))
         throw new MachineServiceError(
@@ -173,61 +182,22 @@ export class MachinesService {
     machineId: string,
     code: string,
   ): Promise<{ machine: MachineSummary }> {
-    return this.serialize(async () => {
-      const data = await this.options.registry.read();
-      const entry = data.machines.find((item) => item.machineId === machineId);
-      if (!entry)
-        throw new MachineServiceError(
-          'MACHINE_NOT_FOUND_OR_FORBIDDEN',
-          'Machine not found',
-        );
-      const connection = this.connection(machineId);
-      if (connection.state === 'connected')
-        throw new MachineServiceError(
-          'MACHINE_PAIRING_REJECTED',
-          'Disconnect before pairing again',
-        );
-      const result = await connection.exchange(code);
-      if (
-        result.grant.machineId !== result.workerMachineId ||
-        (entry.workerMachineId &&
-          entry.workerMachineId !== result.workerMachineId)
-      )
-        throw new MachineServiceError(
-          'MACHINE_PAIRING_REJECTED',
-          'Pairing returned a different worker',
-        );
-      try {
-        await this.options.tokens.set(machineId, result.token);
-        await this.options.registry.write({
-          machines: data.machines.map((item) =>
-            item.machineId === machineId
-              ? { ...item, workerMachineId: result.workerMachineId }
-              : item,
-          ),
-        });
-      } catch (error) {
-        connection.setToken(result.token);
-        connection.setWorkerMachineId(result.workerMachineId);
-        try {
-          await connection.connect();
-          await connection.call('token.revokeSelf', {});
-        } catch {
-          /* best effort */
-        }
-        connection.clearToken();
-        // degradation-audit: reported - the persistence error is rethrown below; this only
-        // cleans up a token that may not have been stored.
-        await this.options.tokens.delete(machineId).catch(() => undefined);
-        throw error;
-      }
-      connection.setWorkerMachineId(result.workerMachineId);
-      connection.setToken(result.token);
-      await connection.connect();
-      return { machine: this.summary(connection, entry.displayName) };
-    });
+    if (this.pairing.has(machineId))
+      throw new MachineServiceError(
+        'MACHINE_PAIRING_REJECTED',
+        'Pairing already in progress',
+      );
+    this.pairing.add(machineId);
+    try {
+      return await this.serialize(() => this.pairLocked(machineId, code));
+    } finally {
+      this.pairing.delete(machineId);
+    }
   }
-  async pairViaSsh(machineId: string): Promise<{ machine: MachineSummary }> {
+  private async pairLocked(
+    machineId: string,
+    code: string,
+  ): Promise<{ machine: MachineSummary }> {
     const data = await this.options.registry.read();
     const entry = data.machines.find((item) => item.machineId === machineId);
     if (!entry)
@@ -235,13 +205,118 @@ export class MachinesService {
         'MACHINE_NOT_FOUND_OR_FORBIDDEN',
         'Machine not found',
       );
-    const result = await (this.options.sshCommand ?? runSshWorkerCommand)(
-      entry.alias,
-      'pair',
-    );
-    const parsed =
-      WORKER_METHOD_SCHEMAS['admin.pairing.open'].result.parse(result);
-    return this.pair(machineId, parsed.code);
+    const connection = this.connection(machineId);
+    if (connection.state === 'connected')
+      throw new MachineServiceError(
+        'MACHINE_PAIRING_REJECTED',
+        'Disconnect before pairing again',
+      );
+    const result = await connection.exchange(code, async (paired, revoke) => {
+      if (
+        paired.grant.machineId !== paired.workerMachineId ||
+        (entry.workerMachineId &&
+          entry.workerMachineId !== paired.workerMachineId)
+      ) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            revoke(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('Revocation timed out')),
+                5000,
+              );
+            }),
+          ]);
+        } catch (error) {
+          this.options.logger?.error(
+            `Could not revoke mismatched worker token: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+        throw new MachineServiceError(
+          'MACHINE_PAIRING_REJECTED',
+          'Pairing returned a different worker',
+        );
+      }
+    });
+    try {
+      await this.options.tokens.set(machineId, result.token);
+      await this.options.registry.write({
+        machines: data.machines.map((item) =>
+          item.machineId === machineId
+            ? { ...item, workerMachineId: result.workerMachineId }
+            : item,
+        ),
+      });
+    } catch (error) {
+      connection.setToken(result.token);
+      connection.setWorkerMachineId(result.workerMachineId);
+      try {
+        await connection.connect();
+        await connection.call('token.revokeSelf', {});
+      } catch {
+        /* best effort */
+      }
+      connection.clearToken();
+      // degradation-audit: reported - the persistence error is rethrown below; this only
+      // cleans up a token that may not have been stored.
+      await this.options.tokens.delete(machineId).catch(() => undefined);
+      throw error;
+    }
+    connection.setWorkerMachineId(result.workerMachineId);
+    connection.setToken(result.token);
+    try {
+      await connection.connect();
+    } catch (error) {
+      if (
+        connection.state !== 'offline' ||
+        connection.nextRetryAt === undefined ||
+        (error instanceof WorkerClientError &&
+          !['NOT_CONNECTED', 'CONNECTION_CLOSED', 'CALL_TIMEOUT'].includes(
+            error.code,
+          ))
+      )
+        throw error;
+    }
+    return { machine: this.summary(connection, entry.displayName) };
+  }
+  async pairViaSsh(machineId: string): Promise<{ machine: MachineSummary }> {
+    if (this.pairing.has(machineId))
+      throw new MachineServiceError(
+        'MACHINE_PAIRING_REJECTED',
+        'Pairing already in progress',
+      );
+    this.pairing.add(machineId);
+    try {
+      return await this.serialize(async () => {
+        const data = await this.options.registry.read();
+        const entry = data.machines.find(
+          (item) => item.machineId === machineId,
+        );
+        if (!entry)
+          throw new MachineServiceError(
+            'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+            'Machine not found',
+          );
+        const connection = this.connection(machineId);
+        if (connection.state === 'connected')
+          throw new MachineServiceError(
+            'MACHINE_PAIRING_REJECTED',
+            'Disconnect before pairing again',
+          );
+        const result = await (this.options.sshCommand ?? runSshWorkerCommand)(
+          entry.alias,
+          'pair',
+        );
+        const parsed =
+          WORKER_METHOD_SCHEMAS['admin.pairing.open'].result.parse(result);
+        return this.pairLocked(machineId, parsed.code);
+      });
+    } finally {
+      this.pairing.delete(machineId);
+    }
   }
   async remove(
     machineId: string,

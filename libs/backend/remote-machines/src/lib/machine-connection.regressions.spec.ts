@@ -282,3 +282,34 @@ it('L7 ignores an old socket close and error after a newer retry begins; S7 caps
   expect(delays).toHaveLength(scheduled);
   connection.dispose();
 });
+
+it('retry on a connected machine preserves the live client', async () => {
+  const h = harness();
+  await h.connection.connect();
+  await h.connection.retry();
+  expect(h.clients).toHaveLength(1);
+  expect(h.clients[0].close).not.toHaveBeenCalled();
+  expect(h.connection.state).toBe('connected');
+  h.connection.dispose();
+});
+
+it('does not open a new connection while a pairing exchange is in flight', async () => {
+  const gate = deferred<unknown>();
+  const h = harness({}, async (method) => {
+    if (method === 'hello') return hello;
+    if (method === 'pair.exchange') return gate.promise;
+    return auth;
+  });
+  const exchange = h.connection.exchange('code');
+  await Promise.resolve();
+  await Promise.resolve();
+  await h.connection.retry();
+  expect(h.clients).toHaveLength(1);
+  gate.resolve({
+    token: 'new-token',
+    grant: { machineId: 'worker', workspaceIds: [] },
+  });
+  await exchange;
+  expect(h.clients[0].close).toHaveBeenCalledTimes(1);
+  h.connection.dispose();
+});

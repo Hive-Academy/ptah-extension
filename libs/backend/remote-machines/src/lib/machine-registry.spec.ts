@@ -114,3 +114,39 @@ it('caps registry input and machine count', async () => {
     new MachineRegistry('/tmp/remote-machines.json', io2 as never).read(),
   ).rejects.toThrow('corrupt');
 });
+
+it('rejects an oversized write before replacing the existing registry', async () => {
+  const io = {
+    stat: jest.fn(async () => ({ size: 15 })),
+    readFile: jest.fn(async () => '{"machines":[]}'),
+    mkdir: jest.fn(),
+    open: jest.fn(),
+    rename: jest.fn(),
+    unlink: jest.fn(),
+  };
+  const registry = new MachineRegistry(
+    '/tmp/remote-machines.json',
+    io as never,
+  );
+  await expect(
+    registry.write({
+      machines: Array.from({ length: 256 }, (_, n) => ({
+        machineId: String(n),
+        alias: 'host',
+        displayName: '\n'.repeat(256),
+        workerMachineId: '\n'.repeat(256),
+      })),
+    }),
+  ).rejects.toMatchObject({ code: 'REGISTRY_TOO_LARGE' });
+  expect(io.open).not.toHaveBeenCalled();
+  expect(io.rename).not.toHaveBeenCalled();
+  await expect(
+    registry.write({
+      machines: Array.from({ length: 257 }, (_, n) => ({
+        machineId: String(n),
+        alias: 'host',
+      })),
+    }),
+  ).rejects.toMatchObject({ code: 'TOO_MANY_MACHINES' });
+  expect(io.open).not.toHaveBeenCalled();
+});

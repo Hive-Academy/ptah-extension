@@ -60,6 +60,11 @@ export class MachineConnection {
   private attempts = 0;
   private disposed = false;
   private connecting?: Promise<void>;
+  private exchanging?: Promise<{
+    token: string;
+    grant: WorkerMethodResult<'pair.exchange'>['grant'];
+    workerMachineId: string;
+  }>;
   private readonly sessions = new Map<
     string,
     { epoch?: string; seq: number }
@@ -224,6 +229,7 @@ export class MachineConnection {
   }
   connect(): Promise<void> {
     if (this.connecting) return this.connecting;
+    if (this.exchanging || this.state === 'connected') return Promise.resolve();
     if (this.disposed || !this.token) return Promise.resolve();
     if (!this.workerMachineId) {
       this.cancelTimer();
@@ -327,8 +333,21 @@ export class MachineConnection {
       throw error;
     }
   }
-  async exchange(code: string) {
-    if (this.connecting || this.state === 'reconnecting')
+  async exchange(
+    code: string,
+    validate?: (
+      result: WorkerMethodResult<'pair.exchange'> & { workerMachineId: string },
+      revoke: () => Promise<void>,
+    ) => Promise<void>,
+  ): Promise<
+    WorkerMethodResult<'pair.exchange'> & { workerMachineId: string }
+  > {
+    if (
+      this.exchanging ||
+      this.connecting ||
+      this.state === 'reconnecting' ||
+      this.state === 'connected'
+    )
       throw new Error(
         'Pairing cannot start while a connection is in progress.',
       );
@@ -336,23 +355,42 @@ export class MachineConnection {
     const client = this.makeClient(generation);
     this.client = client;
     this.cancelTimer();
-    await client.connect();
-    try {
-      const hello = await client.call('hello', {
-        protocol: SUPPORTED_PROTOCOL_RANGE,
-        client: { name: 'Ptah Electron', version: this.options.ptahVersion },
-      });
-      const result = await client.call('pair.exchange', {
-        code,
-        clientName: 'Ptah Electron',
-      });
-      return { ...result, workerMachineId: hello.worker.machineId };
-    } finally {
-      this.closing = true;
-      client.close();
-      this.transport?.destroy();
-      this.closing = false;
-    }
+    const operation = (async () => {
+      try {
+        await client.connect();
+        const hello = await client.call('hello', {
+          protocol: SUPPORTED_PROTOCOL_RANGE,
+          client: { name: 'Ptah Electron', version: this.options.ptahVersion },
+        });
+        const result = await client.call('pair.exchange', {
+          code,
+          clientName: 'Ptah Electron',
+        });
+        const paired = { ...result, workerMachineId: hello.worker.machineId };
+        await validate?.(paired, async () => {
+          await client.call('auth', { token: result.token });
+          await client.call('token.revokeSelf', {});
+        });
+        return paired;
+      } finally {
+        this.closing = true;
+        client.close();
+        if (this.client === client) {
+          this.transport?.destroy();
+          this.transport = undefined;
+          this.client = undefined;
+        }
+        this.closing = false;
+      }
+    })();
+    this.exchanging = operation;
+    // degradation-audit: reported - the caller receives the original rejection.
+    void operation
+      .finally(() => {
+        if (this.exchanging === operation) this.exchanging = undefined;
+      })
+      .catch(() => undefined);
+    return operation;
   }
   setWorkerMachineId(id: string): void {
     this.workerMachineId = id;
@@ -375,6 +413,7 @@ export class MachineConnection {
   }
   retry(): Promise<void> {
     if (this.connecting) return this.connecting;
+    if (this.exchanging || this.state === 'connected') return Promise.resolve();
     this.state = this.token ? 'offline' : 'unpaired';
     this.attempts = 0;
     return this.connect();

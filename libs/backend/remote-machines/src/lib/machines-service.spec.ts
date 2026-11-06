@@ -168,7 +168,10 @@ describe('MachinesService removal and pairing', () => {
     const result = await f.service.pair('m', 'code');
     expect(result.machine.state).toBe('connected');
     expect(JSON.stringify(result)).not.toContain('secret-token');
-    expect(f.connection.exchange).toHaveBeenCalledWith('code');
+    expect(f.connection.exchange).toHaveBeenCalledWith(
+      'code',
+      expect.any(Function),
+    );
     expect(f.connection.connect).toHaveBeenCalledTimes(1);
     expect(f.tokens.set).toHaveBeenCalledWith('m', 'secret-token');
     expect(f.order).toEqual(['token.set', 'registry']);
@@ -247,11 +250,25 @@ describe('MachinesService lifecycle regressions', () => {
       machineId: 'local',
       alias: 'host',
       state: 'unpaired',
-      exchange: async () => ({
-        token: 'secret',
-        workerMachineId: 'worker-a',
-        grant: { machineId: 'worker-b', workspaceIds: [] },
-      }),
+      exchange: async (
+        _code: string,
+        validate: (
+          result: {
+            token: string;
+            workerMachineId: string;
+            grant: { machineId: string; workspaceIds: string[] };
+          },
+          revoke: () => Promise<void>,
+        ) => Promise<void>,
+      ) => {
+        const result = {
+          token: 'secret',
+          workerMachineId: 'worker-a',
+          grant: { machineId: 'worker-b', workspaceIds: [] },
+        };
+        await validate(result, async () => undefined);
+        return result;
+      },
       dispose: jest.fn(),
     } as unknown as MachineConnection;
     const registry = {
@@ -410,5 +427,208 @@ describe('MachinesService failure regressions', () => {
     hooks.onState?.({ machineId: 'local', state: 'unpaired' });
     await new Promise((resolve) => setImmediate(resolve));
     expect(rejected).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('CodeRabbit regressions', () => {
+  it('keeps listing other machines when one credential read fails or is malformed', async () => {
+    const logger = { error: jest.fn() };
+    const tokens = {
+      get: jest.fn(async (id: string) => {
+        if (id === 'a') throw new Error('keyring unavailable');
+        if (id === 'b') return { secret: 'never-log-me' };
+        return 'valid-token';
+      }),
+    };
+    const options: MachineConnectionOptions[] = [];
+    const service = new MachinesService({
+      registry: {
+        read: async () => ({
+          machines: ['a', 'b', 'c'].map((machineId) => ({
+            machineId,
+            alias: machineId,
+            workerMachineId: machineId,
+          })),
+        }),
+      } as unknown as MachineRegistry,
+      tokens: tokens as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      logger,
+      createConnection: (value) => {
+        options.push(value);
+        return {
+          machineId: value.machineId,
+          alias: value.alias,
+          state: value.token ? 'offline' : 'unpaired',
+        } as MachineConnection;
+      },
+    });
+    expect((await service.list()).machines.map((m) => m.state)).toEqual([
+      'unpaired',
+      'unpaired',
+      'offline',
+    ]);
+    expect(options.map((o) => o.token)).toEqual([
+      undefined,
+      undefined,
+      'valid-token',
+    ]);
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(
+      'never-log-me',
+    );
+    expect(logger.error).toHaveBeenCalledTimes(2);
+  });
+  it('accepts a valid alias absent from the SSH suggestion list', async () => {
+    let machines: { machineId: string; alias: string }[] = [];
+    const service = new MachinesService({
+      registry: {
+        read: async () => ({ machines }),
+        write: async (data: { machines: typeof machines }) => {
+          machines = data.machines;
+        },
+      } as unknown as MachineRegistry,
+      tokens: { get: async () => undefined } as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      sshAliases: async () => [],
+    });
+    expect((await service.add('included-host')).machine.alias).toBe(
+      'included-host',
+    );
+  });
+});
+
+describe('pairing review regressions', () => {
+  function fixture(workerMachineId?: string) {
+    const revoke = jest.fn(async () => undefined);
+    const connection = {
+      machineId: 'local',
+      alias: 'host',
+      state: 'unpaired' as string,
+      nextRetryAt: undefined as number | undefined,
+      exchange: jest.fn(
+        async (
+          _code: string,
+          validate: (
+            result: {
+              token: string;
+              workerMachineId: string;
+              grant: { machineId: string; workspaceIds: string[] };
+            },
+            revoke: () => Promise<void>,
+          ) => Promise<void>,
+        ) => {
+          const result = {
+            token: 'new-token',
+            workerMachineId: 'worker-a',
+            grant: { machineId: 'worker-a', workspaceIds: [] },
+          };
+          await validate(result, revoke);
+          return result;
+        },
+      ),
+      setToken: jest.fn(),
+      setWorkerMachineId: jest.fn(),
+      connect: jest.fn(async () => {
+        connection.state = 'offline';
+        connection.nextRetryAt = 100;
+        throw new Error('offline');
+      }),
+      dispose: jest.fn(),
+    };
+    const registry = {
+      read: jest.fn(async () => ({
+        machines: [
+          {
+            machineId: 'local',
+            alias: 'host',
+            ...(workerMachineId ? { workerMachineId } : {}),
+          },
+        ],
+      })),
+      write: jest.fn(async () => undefined),
+    };
+    const tokens = {
+      get: jest.fn(async () => undefined),
+      set: jest.fn(async () => undefined),
+    };
+    const service = new MachinesService({
+      registry: registry as unknown as MachineRegistry,
+      tokens: tokens as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      createConnection: () => connection as unknown as MachineConnection,
+    });
+    return { service, connection, registry, tokens, revoke };
+  }
+  it('revokes the newly issued token on the pairing connection after worker mismatch', async () => {
+    const h = fixture('worker-b');
+    await h.service.list();
+    await expect(h.service.pair('local', 'code')).rejects.toThrow(
+      'different worker',
+    );
+    expect(h.revoke).toHaveBeenCalledTimes(1);
+    expect(h.tokens.set).not.toHaveBeenCalled();
+    expect(h.registry.write).not.toHaveBeenCalled();
+    expect(h.connection.setToken).not.toHaveBeenCalled();
+  });
+  it('returns an offline summary after a saved pairing has a retryable connection failure', async () => {
+    const h = fixture();
+    await h.service.list();
+    const result = await h.service.pair('local', 'code');
+    expect(result.machine.state).toBe('offline');
+    expect(result.machine.nextRetryAt).toBe(100);
+    expect(h.tokens.set).toHaveBeenCalledWith('local', 'new-token');
+    expect(h.registry.write).toHaveBeenCalledTimes(1);
+  });
+  it('checks pairing preconditions before running the SSH command', async () => {
+    const h = fixture();
+    h.connection.state = 'connected';
+    const sshCommand = jest.fn(async () => ({
+      code: 'code',
+      expiresAt: new Date().toISOString(),
+    }));
+    const service = new MachinesService({
+      registry: h.registry as unknown as MachineRegistry,
+      tokens: h.tokens as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      createConnection: () => h.connection as unknown as MachineConnection,
+      sshCommand,
+    });
+    await service.list();
+    await expect(service.pairViaSsh('local')).rejects.toThrow(
+      'Disconnect before pairing',
+    );
+    expect(sshCommand).not.toHaveBeenCalled();
+  });
+  it('rejects a concurrent SSH pairing before it can issue a second code', async () => {
+    const h = fixture();
+    let release: ((value: unknown) => void) | undefined;
+    const gate = new Promise<unknown>((resolve) => {
+      release = resolve;
+    });
+    const sshCommand = jest.fn(async () => gate);
+    const service = new MachinesService({
+      registry: h.registry as unknown as MachineRegistry,
+      tokens: h.tokens as unknown as MachineTokenStore,
+      webviewManager: { broadcastMessage: async () => undefined },
+      ptahVersion: '1',
+      createConnection: () => h.connection as unknown as MachineConnection,
+      sshCommand,
+    });
+    await service.list();
+    const first = service.pairViaSsh('local');
+    await expect(service.pairViaSsh('local')).rejects.toThrow(
+      'Pairing already in progress',
+    );
+    expect(sshCommand).toHaveBeenCalledTimes(1);
+    release?.({ code: 'one', expiresAt: Date.now() + 60_000, workspaces: [] });
+    await first;
+    expect(h.connection.exchange).toHaveBeenCalledWith(
+      'one',
+      expect.any(Function),
+    );
   });
 });
