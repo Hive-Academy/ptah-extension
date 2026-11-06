@@ -1,6 +1,7 @@
 import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
+  type IFileSystemProvider,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
 import {
@@ -88,6 +89,12 @@ export function registerLaneOutcomeServices(
           c.isRegistered(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER)
             ? c.resolve<LaneTaskKindClassifier>(
                 LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER,
+              )
+            : undefined,
+          // Optional: without a filesystem port the host deliverables producer is inert.
+          c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+            ? c.resolve<IFileSystemProvider>(
+                PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
               )
             : undefined,
         ),

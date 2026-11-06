@@ -2,7 +2,11 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
-import { reportEffectOf } from '../write/report-effect';
+import {
+  hostDeliverablesReportId,
+  reportEffectOf,
+} from '../write/report-effect';
+import type { HeldOutcomeReport } from './lane-outcome.store';
 import { SqliteLaneOutcomeStore } from './sqlite-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 import { testLogger } from '../write/pipeline.test-support';
@@ -59,6 +63,28 @@ function fixture(file = ':memory:', migrate = false) {
   Object.defineProperty(connection, 'isOpen', { value: true });
   const logger = testLogger();
   return { db, store: new SqliteLaneOutcomeStore(connection, logger), logger };
+}
+
+/**
+ * holdReport prunes with the wall clock, and the fixture holds expire one
+ * second after `now`. Freezing only Date keeps a slow run from expiring them.
+ */
+function freezeDate(nowMs: number): void {
+  jest.useFakeTimers({
+    now: nowMs,
+    doNotFake: [
+      'nextTick',
+      'queueMicrotask',
+      'setImmediate',
+      'clearImmediate',
+      'setTimeout',
+      'clearTimeout',
+      'setInterval',
+      'clearInterval',
+      'hrtime',
+      'performance',
+    ],
+  });
 }
 
 describe('SqliteLaneOutcomeStore', () => {
@@ -386,6 +412,7 @@ describe('SqliteLaneOutcomeStore', () => {
     const { db, store } = fixture();
     try {
       const now = Date.now();
+      freezeDate(now);
       for (let i = 0; i < 500; i++)
         await store.holdReport(heldReport(i, now, i < 3));
       expect(await store.countHeldReports(now)).toBe(497);
@@ -403,6 +430,7 @@ describe('SqliteLaneOutcomeStore', () => {
       expect(expired).toHaveLength(499);
       expect(expired.some((r) => r.kind === 'budget-stop')).toBe(true);
     } finally {
+      jest.useRealTimers();
       db.close();
     }
   });
@@ -435,6 +463,218 @@ describe('SqliteLaneOutcomeStore', () => {
       expect(existsSync(file)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SqliteLaneOutcomeStore host-observed deliverables', () => {
+  const runId = 'subagent:host';
+  const deliverables = (
+    reportId: string,
+    payload: Record<string, unknown>,
+    heldAt: number,
+  ): HeldOutcomeReport => ({
+    reportId,
+    runId,
+    kind: 'deliverables',
+    payload: JSON.stringify(payload),
+    heldAt,
+    expiresAt: heldAt + 60_000,
+  });
+  const missing = [{ exists: false, bytes: 0, mtimeMs: null }];
+  const written = [{ exists: true, bytes: 3, mtimeMs: null }];
+  const host = (heldAt: number) =>
+    deliverables(
+      hostDeliverablesReportId(runId),
+      { checks: missing, origin: 'host' },
+      heldAt,
+    );
+  const explicit = (heldAt: number) =>
+    deliverables('explicit-1', { checks: written }, heldAt);
+  const receiptCount = (db: ReturnType<typeof fixture>['db'], id: string) =>
+    (
+      db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM lane_outcome_report_receipts WHERE report_id = ?',
+        )
+        .get(id) as { n: number }
+    ).n;
+
+  it('applies a host report to an undeclared row', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow(runId));
+      const now = Date.now();
+      expect(
+        await store.applyReportWithReceipt(host(now), now, reportEffectOf),
+      ).toBe('applied');
+      expect(await store.get(runId)).toMatchObject({
+        verdict: 'no-deliverable',
+        deliverablesDeclaredAt: now,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lets an explicit report after a host report set the verdict', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow(runId));
+      const now = Date.now();
+      await store.applyReportWithReceipt(host(now), now, reportEffectOf);
+      expect(
+        await store.applyReportWithReceipt(
+          explicit(now + 1),
+          now + 1,
+          reportEffectOf,
+        ),
+      ).toBe('applied');
+      expect((await store.get(runId))?.verdict).toBe('delivered');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('leaves an explicitly declared row unchanged on a later host report', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow(runId));
+      const now = Date.now();
+      await store.applyReportWithReceipt(explicit(now), now, reportEffectOf);
+      const before = await store.get(runId);
+      await store.applyReportWithReceipt(
+        host(now + 1),
+        now + 1,
+        reportEffectOf,
+      );
+      expect(await store.get(runId)).toEqual(before);
+      expect(before?.verdict).toBe('delivered');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps an explicit report held before the stop over the host report', async () => {
+    const { db, store } = fixture();
+    try {
+      const now = Date.now();
+      await store.holdReport(explicit(now - 10));
+      const stop = await store.insertStopWithHeldReports(
+        outcomeRow(runId),
+        now,
+        reportEffectOf,
+      );
+      expect(stop.joined.map((r) => r.reportId)).toEqual(['explicit-1']);
+      await store.applyReportWithReceipt(
+        host(now + 1),
+        now + 1,
+        reportEffectOf,
+      );
+      expect((await store.get(runId))?.verdict).toBe('delivered');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('joins a host report held before insert, then yields to a later explicit one', async () => {
+    const { db, store } = fixture();
+    try {
+      const now = Date.now();
+      await store.holdReport(host(now - 10));
+      const stop = await store.insertStopWithHeldReports(
+        outcomeRow(runId),
+        now,
+        reportEffectOf,
+      );
+      expect(stop.joined.map((r) => r.reportId)).toEqual([
+        hostDeliverablesReportId(runId),
+      ]);
+      expect((await store.get(runId))?.verdict).toBe('no-deliverable');
+      await store.applyReportWithReceipt(
+        explicit(now + 1),
+        now + 1,
+        reportEffectOf,
+      );
+      expect((await store.get(runId))?.verdict).toBe('delivered');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps a classified failed verdict on a host report and still receipts it', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent({
+        ...outcomeRow(runId),
+        verdict: 'failed',
+        failureClass: 'timeout',
+      });
+      const before = await store.get(runId);
+      const now = Date.now();
+      const hostWritten = deliverables(
+        hostDeliverablesReportId(runId),
+        { checks: written, origin: 'host' },
+        now,
+      );
+      expect(
+        await store.applyReportWithReceipt(hostWritten, now, reportEffectOf),
+      ).toBe('applied');
+      expect(await store.get(runId)).toEqual(before);
+      expect(receiptCount(db, hostDeliverablesReportId(runId))).toBe(1);
+      // An explicit report keeps its current behaviour on a subagent row.
+      await store.applyReportWithReceipt(
+        explicit(now + 1),
+        now + 1,
+        reportEffectOf,
+      );
+      expect((await store.get(runId))?.verdict).toBe('delivered');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('receipts a repeated host report once', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow(runId));
+      const now = Date.now();
+      expect(
+        await store.applyReportWithReceipt(host(now), now, reportEffectOf),
+      ).toBe('applied');
+      expect(
+        await store.applyReportWithReceipt(
+          host(now + 1),
+          now + 1,
+          reportEffectOf,
+        ),
+      ).toBe('duplicate');
+      expect(receiptCount(db, hostDeliverablesReportId(runId))).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects an unknown origin without writing', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow(runId));
+      const now = Date.now();
+      const agentClaim = deliverables(
+        'claim-1',
+        { checks: written, origin: 'agent' },
+        now,
+      );
+      expect(
+        await store.applyReportWithReceipt(agentClaim, now, reportEffectOf),
+      ).toBe('invalid');
+      expect(await store.get(runId)).toMatchObject({
+        verdict: 'unverified',
+        deliverablesDeclaredAt: null,
+      });
+      expect(receiptCount(db, 'claim-1')).toBe(0);
+    } finally {
+      db.close();
     }
   });
 });
