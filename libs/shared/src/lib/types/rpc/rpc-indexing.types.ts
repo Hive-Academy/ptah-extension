@@ -132,7 +132,8 @@ export interface IndexingCompleteEvent {
 
 export interface IndexingFailedEvent {
   readonly workspaceRoot: string;
-  readonly workspaceFingerprint: string;
+  /** Absent when the failure happened before a fingerprint could be derived. */
+  readonly workspaceFingerprint?: string;
   readonly failedAt: number;
   readonly elapsedMs: number;
   readonly origin: 'manual' | 'background';

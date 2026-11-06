@@ -131,6 +131,8 @@ interface CensusRecord {
   readonly gitHeadSha: string | null;
   readonly origin: CensusOrigin;
   readonly startedAt: number;
+  /** Monotonic open order; a lower value is an older census. */
+  readonly seq: number;
   readonly force: boolean;
   /** Joinable. False once any symbols phase settled without an abort. */
   open: boolean;
@@ -144,6 +146,12 @@ interface CensusRecord {
   lastProgress: IndexingRunProgress | null;
   /** The one progress handler every participant's indexer call receives. */
   readonly onProgress: (progress: IndexingRunProgress) => void;
+}
+
+/** Order and start time reserved when a background attempt begins. */
+interface SetupAttempt {
+  readonly seq: number;
+  readonly startedAt: number;
 }
 
 interface CensusParticipant {
@@ -216,6 +224,11 @@ function isAbortError(error: unknown): boolean {
   return name === 'AbortError' || name === 'DOMException';
 }
 
+/** Log-only text for an unknown failure; never pushed or returned over RPC. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function abortCauseOf(signal: AbortSignal): AbortCause {
   return signal.reason === 'pause' || signal.reason === 'cancel'
     ? signal.reason
@@ -232,7 +245,7 @@ interface IndexingStateRow {
   disclosure_acknowledged_at: number | null;
   last_dismissed_stale_sha: string | null;
   last_error: string | null;
-  /** JSON `IndexingLastRunWire` (migration 0067). */
+  /** JSON `IndexingLastRunWire` (migration 0070). */
   last_run_json: string | null;
 }
 
@@ -278,6 +291,17 @@ export class IndexingControlService {
   private readonly openCensuses = new Map<string, CensusRecord>();
   /** Every record with a live participant, open or closed. */
   private readonly liveCensuses = new Set<CensusRecord>();
+  /** Source of `CensusRecord.seq` and of background setup-failure attempts. */
+  private censusSeq = 0;
+  /**
+   * Per fingerprint: the `seq` and the exact JSON of the newest lastRun this
+   * instance persisted. The JSON tells whether the row is still ours or
+   * another instance has replaced it since.
+   */
+  private readonly newestPersisted = new Map<
+    string,
+    { readonly seq: number; readonly json: string }
+  >();
 
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -614,10 +638,36 @@ export class IndexingControlService {
     workspaceRoot: string,
     run: (onProgress: (progress: IndexingRunProgress) => void) => Promise<T>,
   ): Promise<T> {
-    const [{ fp }, gitHeadSha] = await Promise.all([
+    // Reserved when the attempt starts, so a setup failure that is handled
+    // late still ranks behind any census opened while it was pending.
+    const attempt: SetupAttempt = {
+      seq: ++this.censusSeq,
+      startedAt: Date.now(),
+    };
+    const [fpResult, shaResult] = await Promise.allSettled([
       deriveWorkspaceFingerprint(workspaceRoot, this.fs),
       deriveGitHeadSha(workspaceRoot, this.fs),
     ]);
+    if (fpResult.status === 'rejected') {
+      this.recordBackgroundSetupFailure(
+        workspaceRoot,
+        null,
+        attempt,
+        fpResult.reason,
+      );
+      throw fpResult.reason;
+    }
+    const { fp } = fpResult.value;
+    if (shaResult.status === 'rejected') {
+      this.recordBackgroundSetupFailure(
+        workspaceRoot,
+        fp,
+        attempt,
+        shaResult.reason,
+      );
+      throw shaResult.reason;
+    }
+    const gitHeadSha = shaResult.value;
     // No `await` between joining and calling `run`.
     const participant = this.joinCensus(
       workspaceRoot,
@@ -644,6 +694,50 @@ export class IndexingControlService {
       stats: toRunStats(result),
     });
     return result;
+  }
+
+  /**
+   * A background run whose setup failed: it never joined a census, so record
+   * one failed background attempt and push INDEXING_FAILED once. The raw
+   * error goes to the log only. Without a fingerprint there is no
+   * `indexing_state` row to hold a lastRun, so only the push is sent.
+   */
+  private recordBackgroundSetupFailure(
+    workspaceRoot: string,
+    fp: string | null,
+    attempt: SetupAttempt,
+    error: unknown,
+  ): void {
+    const finishedAt = Date.now();
+    const elapsedMs = Math.max(0, finishedAt - attempt.startedAt);
+    if (fp === null) {
+      this.logger.warn(
+        '[indexing-control] background index setup failed before a workspace fingerprint was derived',
+        { error: describeError(error) },
+      );
+    } else {
+      this.logger.warn('[indexing-control] background index setup failed', {
+        error: describeError(error),
+      });
+      this.persistLastRun(fp, attempt.seq, {
+        origin: 'background',
+        outcome: 'failed',
+        startedAt: attempt.startedAt,
+        finishedAt,
+        durationMs: elapsedMs,
+      });
+    }
+    const failedEvent: IndexingFailedEvent = {
+      workspaceRoot,
+      ...(fp === null ? {} : { workspaceFingerprint: fp }),
+      failedAt: finishedAt,
+      elapsedMs,
+      origin: 'background',
+    };
+    void this.webviewManager.broadcastMessage(
+      MESSAGE_TYPES.INDEXING_FAILED,
+      failedEvent,
+    );
   }
 
   /**
@@ -696,12 +790,16 @@ export class IndexingControlService {
       gitHeadSha,
       origin,
       startedAt,
+      seq: ++this.censusSeq,
       force,
       open: true,
       participants: new Set(),
       outcomes: [],
       lastProgress: null,
       onProgress: (progress) => {
+        // A late indexer callback after the final release must not make a
+        // settled census look active again.
+        if (!this.liveCensuses.has(record)) return;
         const last = record.lastProgress;
         if (
           last !== null &&
@@ -800,9 +898,15 @@ export class IndexingControlService {
           }
         : {}),
     };
-    this.upsertRow(record.fp, { last_run_json: JSON.stringify(lastRun) });
+    const persisted = this.persistLastRun(record.fp, record.seq, lastRun);
+    if (!persisted && decided.kind !== 'failed') {
+      this.logger.warn('[indexing-control] last run could not be saved', {
+        origin: record.origin,
+        outcome: lastRun.outcome,
+      });
+    }
 
-    if (decided.kind === 'succeeded') {
+    if (decided.kind === 'succeeded' && persisted) {
       const completeEvent: IndexingCompleteEvent = {
         workspaceRoot: record.workspaceRoot,
         workspaceFingerprint: record.fp,
@@ -814,12 +918,15 @@ export class IndexingControlService {
         MESSAGE_TYPES.INDEXING_COMPLETE,
         completeEvent,
       );
-    } else if (decided.kind === 'failed') {
-      const error = decided.error;
-      this.logger.warn('[indexing-control] indexing failed', {
-        origin: record.origin,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } else if (decided.kind !== 'aborted') {
+      // A failed census, or a succeeded census whose required lastRun write
+      // failed: a success push would show a run that a refresh cannot find.
+      if (decided.kind === 'failed') {
+        this.logger.warn('[indexing-control] indexing failed', {
+          origin: record.origin,
+          error: describeError(decided.error),
+        });
+      }
       const failedEvent: IndexingFailedEvent = {
         workspaceRoot: record.workspaceRoot,
         workspaceFingerprint: record.fp,
@@ -832,6 +939,43 @@ export class IndexingControlService {
         failedEvent,
       );
     }
+  }
+
+  /**
+   * The single lastRun write of one census. A census older than the one
+   * already persisted for `fp` skips the write, so a long manual memory
+   * phase never overwrites a newer census's summary. The stored row is read
+   * on every write. While it still holds the JSON this instance wrote last,
+   * order is the in-memory `seq` alone (immune to a clock rollback). When the
+   * row holds anything else (another instance or process replaced it, or
+   * this instance never wrote it), the persisted `startedAt` decides.
+   * Returns false only when the write itself failed; a stale skip is not a
+   * failure.
+   */
+  private persistLastRun(
+    fp: string,
+    seq: number,
+    lastRun: IndexingLastRunWire,
+  ): boolean {
+    const storedJson = this.readRow(fp)?.last_run_json ?? null;
+    const ours = this.newestPersisted.get(fp);
+    let stale: boolean;
+    if (ours !== undefined && storedJson === ours.json) {
+      stale = ours.seq > seq;
+    } else {
+      const stored = this.readLastRun(storedJson);
+      stale = stored !== null && stored.startedAt > lastRun.startedAt;
+    }
+    if (stale) {
+      this.logger.debug(
+        '[indexing-control] older census settled after a newer one; last run kept',
+      );
+      return true;
+    }
+    const json = JSON.stringify(lastRun);
+    const written = this.upsertRow(fp, { last_run_json: json });
+    if (written) this.newestPersisted.set(fp, { seq, json });
+    return written;
   }
 
   private hasLiveManual(record: CensusRecord): boolean {
@@ -1139,7 +1283,7 @@ export class IndexingControlService {
         | 'last_run_json'
       >
     >,
-  ): void {
+  ): boolean {
     try {
       const now = Date.now();
       const setClauses: string[] = ['updated_at = ?'];
@@ -1192,10 +1336,14 @@ export class IndexingControlService {
         `UPDATE indexing_state SET ${setClauses.join(', ')} WHERE workspace_fingerprint = ?`,
       );
       updateStmt.run(...values);
+      return true;
     } catch (error: unknown) {
-      this.logger.debug('[indexing-control] upsertRow failed', {
-        error: error instanceof Error ? error.message : String(error),
+      // degradation-audit: reported - the write failure is warn-logged and
+      // returned; settleCensus turns a failed lastRun write into a failed push.
+      this.logger.warn('[indexing-control] indexing_state write failed', {
+        error: describeError(error),
       });
+      return false;
     }
   }
 }
