@@ -121,13 +121,21 @@ import { CliDetectionService } from './cli-detection.service';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import {
+  LaneResumeGate,
+  RESUME_GATE_MAX_HOST_RESTART_AGE_MS,
+  type LaneResumeGateInput,
+} from './lane-resume-gate';
 import { PTAH_API_RATE_LIMIT_SEGMENT } from './limits/lane-rate-limit-classifier';
 import type {
   CliAdapter,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { IMcpCallerCredentials } from '@ptah-extension/platform-core';
+import type {
+  IMcpCallerCredentials,
+  IOutputChannel,
+} from '@ptah-extension/platform-core';
 import type { HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
@@ -248,12 +256,19 @@ function createSdkAdapter(
     }),
     capabilities: jest.fn().mockReturnValue({
       messaging: {
-        steer: { state: 'unsupported' }, interrupt: { state: 'unsupported' },
-        continuation: { state: 'supported' }, resume: { state: 'supported' },
+        steer: { state: 'unsupported' },
+        interrupt: { state: 'unsupported' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
       },
-      roleChannel: 'developer-instructions', permissionModes: {},
-      networkModes: { allow: { state: 'supported' }, deny: { state: 'unsupported' } },
-      limitReader: { state: 'no-reliable-source' }, mcp: { state: 'supported' },
+      roleChannel: 'developer-instructions',
+      permissionModes: {},
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported' },
+      },
+      limitReader: { state: 'no-reliable-source' },
+      mcp: { state: 'supported' },
     } satisfies CliAdapterManifest),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
@@ -1292,61 +1307,192 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     }
 
     it('passes the explicit interruption marker and resumes after the idle window', async () => {
-      manager.restoreAgents([{
-        cliSessionId: SESSION,
-        cli: 'codex',
-        agentId: 'interrupted-previous' as CliSessionReference['agentId'],
-        task: 'Implement the parser',
-        startedAt: '2026-10-04T08:00:00.000Z',
-        status: 'running',
-      }], '/workspace/root');
-      const previous = manager.getStatus('interrupted-previous') as AgentProcessInfo;
-      if (!previous.completedAt) throw new Error('Expected interruption timestamp');
-      resumeGate.evaluate.mockImplementationOnce(async (input: { interruptedByHostRestart?: boolean }) => ({
-        decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
-        reason: 'host restart interrupted the lane',
-        contextTokens: null,
-        source: 'estimate',
-        idleMs: 601_000,
-      }));
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: SESSION,
+            cli: 'codex',
+            agentId: 'interrupted-previous' as CliSessionReference['agentId'],
+            task: 'Implement the parser',
+            startedAt: '2026-10-04T08:00:00.000Z',
+            status: 'running',
+          },
+        ],
+        '/workspace/root',
+      );
+      const previous = manager.getStatus(
+        'interrupted-previous',
+      ) as AgentProcessInfo;
+      if (!previous.completedAt)
+        throw new Error('Expected interruption timestamp');
+      resumeGate.evaluate.mockImplementationOnce(
+        async (input: { interruptedByHostRestart?: boolean }) => ({
+          decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
+          reason: 'host restart interrupted the lane',
+          contextTokens: null,
+          source: 'estimate',
+          idleMs: 601_000,
+        }),
+      );
 
       const result = await manager.spawn({
-        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+        task: 'Continue',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
       });
 
-      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
-        cliSessionId: SESSION,
-        interruptedByHostRestart: true,
-        lastActivityAt: Date.parse(previous.completedAt),
-      }));
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cliSessionId: SESSION,
+          interruptedByHostRestart: true,
+          lastActivityAt: Date.parse(previous.completedAt),
+          hostRestartLaneStartedAt: Date.parse(previous.startedAt),
+        }),
+      );
       expect(result.resumeDecision?.decision).toBe('resumed');
-      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBe(SESSION);
+      expect(
+        (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId,
+      ).toBe(SESSION);
+    });
+
+    it('starts fresh when a running persisted lane started over 24 hours ago', async () => {
+      const startedAt = new Date(
+        Date.now() - RESUME_GATE_MAX_HOST_RESTART_AGE_MS - 1,
+      ).toISOString();
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: SESSION,
+            cli: 'codex',
+            agentId: 'old-interruption' as CliSessionReference['agentId'],
+            task: 'Implement the parser',
+            startedAt,
+            status: 'running',
+          },
+        ],
+        '/workspace/root',
+      );
+      const realGate = new LaneResumeGate(
+        {
+          name: 'test',
+          appendLine: jest.fn(),
+          append: jest.fn(),
+          clear: jest.fn(),
+          show: jest.fn(),
+          dispose: jest.fn(),
+        } as IOutputChannel,
+        async () => null,
+        () => Date.now(),
+      );
+      resumeGate.evaluate.mockImplementationOnce((input: LaneResumeGateInput) =>
+        realGate.evaluate(input),
+      );
+      const result = await manager.spawn({
+        task: 'Continue',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          interruptedByHostRestart: true,
+          hostRestartLaneStartedAt: Date.parse(startedAt),
+        }),
+      );
+      expect(result.resumeDecision).toMatchObject({
+        decision: 'fresh',
+        reason:
+          'host restart interruption: interrupted lane started more than 24h ago',
+      });
+    });
+
+    it('resumes when a running persisted lane started within 24 hours', async () => {
+      const startedAt = new Date(Date.now() - 60_000).toISOString();
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: SESSION,
+            cli: 'codex',
+            agentId: 'recent-interruption' as CliSessionReference['agentId'],
+            task: 'Implement the parser',
+            startedAt,
+            status: 'running',
+          },
+        ],
+        '/workspace/root',
+      );
+      const realGate = new LaneResumeGate(
+        {
+          name: 'test',
+          appendLine: jest.fn(),
+          append: jest.fn(),
+          clear: jest.fn(),
+          show: jest.fn(),
+          dispose: jest.fn(),
+        } as IOutputChannel,
+        async () => null,
+        () => Date.now(),
+      );
+      resumeGate.evaluate.mockImplementationOnce((input: LaneResumeGateInput) =>
+        realGate.evaluate(input),
+      );
+      const result = await manager.spawn({
+        task: 'Continue',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          interruptedByHostRestart: true,
+          hostRestartLaneStartedAt: Date.parse(startedAt),
+        }),
+      );
+      expect(result.resumeDecision?.decision).toBe('resumed');
     });
 
     it('leaves an ordinary stopped lane subject to the idle gate', async () => {
-      manager.restoreAgents([{
-        cliSessionId: SESSION,
-        cli: 'codex',
-        agentId: 'stopped-previous' as CliSessionReference['agentId'],
-        task: 'Implement the parser',
-        startedAt: '2026-10-04T08:00:00.000Z',
-        completedAt: '2026-10-04T08:01:00.000Z',
-        status: 'stopped',
-      }], '/workspace/root');
+      manager.restoreAgents(
+        [
+          {
+            cliSessionId: SESSION,
+            cli: 'codex',
+            agentId: 'stopped-previous' as CliSessionReference['agentId'],
+            task: 'Implement the parser',
+            startedAt: '2026-10-04T08:00:00.000Z',
+            completedAt: '2026-10-04T08:01:00.000Z',
+            status: 'stopped',
+          },
+        ],
+        '/workspace/root',
+      );
       resumeGate.evaluate.mockResolvedValueOnce({
-        decision: 'fresh', reason: 'idle 601s exceeds 600s',
-        contextTokens: null, source: 'estimate', idleMs: 601_000,
+        decision: 'fresh',
+        reason: 'idle 601s exceeds 600s',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 601_000,
       });
       const result = await manager.spawn({
-        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+        task: 'Continue',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
       });
-      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
-        cliSessionId: SESSION,
-        lastActivityAt: Date.parse('2026-10-04T08:01:00.000Z'),
-      }));
-      expect(resumeGate.evaluate.mock.calls[0][0]).not.toHaveProperty('interruptedByHostRestart');
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cliSessionId: SESSION,
+          lastActivityAt: Date.parse('2026-10-04T08:01:00.000Z'),
+        }),
+      );
+      expect(resumeGate.evaluate.mock.calls[0][0]).not.toHaveProperty(
+        'interruptedByHostRestart',
+      );
       expect(result.resumeDecision?.decision).toBe('fresh');
-      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBeUndefined();
+      expect(
+        (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId,
+      ).toBeUndefined();
     });
 
     it('does not inherit an owner from a restored lane when resume omits the owner', async () => {
@@ -2336,17 +2482,27 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(contextOf(0)).toMatchObject({ rateLimited: true });
-      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'usage-limit');
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'stopReason',
+        'usage-limit',
+      );
     });
 
     it('recognizes the recorded Kimi Code provider error wording on exit 0', async () => {
       const emit = attachSegments(sdkControls);
       const agentId = await spawnCodex();
-      emit({ type: 'error', content: 'API Error: Request rejected (429) · Kimi Code API rate limit exceeded.' });
+      emit({
+        type: 'error',
+        content:
+          'API Error: Request rejected (429) · Kimi Code API rate limit exceeded.',
+      });
       sdkControls.resolve(0);
       await Promise.resolve();
       await Promise.resolve();
-      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'usage-limit');
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'stopReason',
+        'usage-limit',
+      );
     });
 
     it('does not read stdout on exit 0', async () => {
@@ -2363,12 +2519,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     it('does not classify a successful turn mentioning 429.md or quota', async () => {
       const emit = attachSegments(sdkControls);
       const agentId = await spawnCodex();
-      emit({ type: 'error', content: 'Read docs/429.md; the quota field is documented there.' });
+      emit({
+        type: 'error',
+        content: 'Read docs/429.md; the quota field is documented there.',
+      });
       sdkControls.resolve(0);
       await Promise.resolve();
       await Promise.resolve();
       expect(manager.getStatus(agentId)).toMatchObject({ status: 'completed' });
-      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'stopReason',
+        undefined,
+      );
       expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
       expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
     });
@@ -2376,23 +2538,35 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     it('does not classify a successful turn discussing rate limit guidance', async () => {
       const emit = attachSegments(sdkControls);
       const agentId = await spawnCodex();
-      emit({ type: 'error', content: 'Review the rate limit guidance in docs before updating it.' });
+      emit({
+        type: 'error',
+        content: 'Review the rate limit guidance in docs before updating it.',
+      });
       sdkControls.resolve(0);
       await Promise.resolve();
       await Promise.resolve();
       expect(manager.getStatus(agentId)).toMatchObject({ status: 'completed' });
-      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'stopReason',
+        undefined,
+      );
       expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
     });
 
     it('ignores a tool error line about rate limit tests on exit 0', async () => {
       const emit = attachSegments(sdkControls);
       const agentId = await spawnCodex();
-      emit({ type: 'error', content: 'rate limit exceeded in the test fixture' });
+      emit({
+        type: 'error',
+        content: 'rate limit exceeded in the test fixture',
+      });
       sdkControls.resolve(0);
       await Promise.resolve();
       await Promise.resolve();
-      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', undefined);
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'stopReason',
+        undefined,
+      );
     });
 
     it('classifies a structured authentication error on exit 0', async () => {
@@ -2408,12 +2582,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     it('surfaces an OpenCode session mismatch as a typed stop reason', async () => {
       const emit = attachSegments(sdkControls);
       const agentId = await spawnCodex();
-      emit({ type: 'error', content: 'session-mismatch: OpenCode resumed a different session' });
+      emit({
+        type: 'error',
+        content: 'session-mismatch: OpenCode resumed a different session',
+      });
       sdkControls.resolve(1);
       await Promise.resolve();
       await Promise.resolve();
       expect(manager.getStatus(agentId)).toMatchObject({
-        status: 'failed', stopReason: 'session-mismatch',
+        status: 'failed',
+        stopReason: 'session-mismatch',
       });
     });
 
@@ -2731,20 +2909,30 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       sdkControls.emitOutput('HTTP 402: usage balance exhausted\n');
       sdkControls.resolve(1);
       await settle();
-      expect(manager.getStatus(agentId)).toMatchObject({ status: 'failed', stopReason: 'usage-limit' });
+      expect(manager.getStatus(agentId)).toMatchObject({
+        status: 'failed',
+        stopReason: 'usage-limit',
+      });
       expect(manager.findAgentInfo(agentId)?.stopResetAt).toBeUndefined();
     });
 
     it('uses a known limit ledger reset when the rate-limit error has no reset text', async () => {
       const reset = Date.now() + 60_000;
       laneOwners.ownerForLane.mockReturnValue(codexAccount);
-      planLimits.snapshotFor.mockReturnValue({ owner: codexAccount, windows: [], ownerEvidence: [],
-        cooldown: { until: reset, observedAt: Date.now() } });
+      planLimits.snapshotFor.mockReturnValue({
+        owner: codexAccount,
+        windows: [],
+        ownerEvidence: [],
+        cooldown: { until: reset, observedAt: Date.now() },
+      });
       const agentId = await spawnLane('codex');
       sdkControls.emitOutput('HTTP 429 Too Many Requests\n');
       sdkControls.resolve(1);
       await settle();
-      expect(manager.getStatus(agentId)).toMatchObject({ stopReason: 'usage-limit', stopResetAt: reset });
+      expect(manager.getStatus(agentId)).toMatchObject({
+        stopReason: 'usage-limit',
+        stopResetAt: reset,
+      });
       expect(planLimits.snapshotFor).toHaveBeenCalledWith(codexAccount.key);
     });
 
@@ -3199,7 +3387,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'change direction', 'now', undefined, true);
+      const outcome = await manager.sendToAgent(
+        agentId,
+        'change direction',
+        'now',
+        undefined,
+        true,
+      );
 
       expect(interrupt).toHaveBeenCalledTimes(1);
       expect(outcome.mode).toBe('interrupt-resume');
@@ -3218,7 +3412,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'change direction', 'now', undefined, true);
+      const outcome = await manager.sendToAgent(
+        agentId,
+        'change direction',
+        'now',
+        undefined,
+        true,
+      );
 
       expect(outcome.mode).toBe('unsupported');
       expect(outcome.detail).toContain('operation failed');
@@ -3261,11 +3461,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     it('refuses with unsupported when the handle offers no mechanism at all', async () => {
       const capabilities = sdkAdapter.capabilities();
-      sdkAdapter.capabilities.mockReturnValue({ ...capabilities, messaging: {
-        ...capabilities.messaging,
-        steer: { state: 'unsupported' }, interrupt: { state: 'unsupported' },
-        continuation: { state: 'unsupported' }, resume: { state: 'unsupported' },
-      } });
+      sdkAdapter.capabilities.mockReturnValue({
+        ...capabilities,
+        messaging: {
+          ...capabilities.messaging,
+          steer: { state: 'unsupported' },
+          interrupt: { state: 'unsupported' },
+          continuation: { state: 'unsupported' },
+          resume: { state: 'unsupported' },
+        },
+      });
       const agentId = await spawnWithHandle(sdkControls.handle);
 
       const outcome = await manager.sendToAgent(agentId, 'anything');
