@@ -171,6 +171,26 @@
         "external": ["@huggingface/transformers"]
       }
     },
+    "build-search-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/search-worker.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/memory-curator/src/lib/search-worker.ts",
+        "outputFileName": "search-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.search-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": { "outExtension": { ".js": ".mjs" }, "banner": { "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } },
+        "external": ["better-sqlite3", "sqlite-vec", "reflect-metadata", "tsyringe"]
+      }
+    },
     "build-integrity-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
@@ -281,6 +301,7 @@
         "build-embedder-worker",
         "build-voice-worker",
         "build-integrity-worker",
+        "build-search-worker",
         "build-state-storage-worker",
         "build-workspace-watch-host",
         "ptah-extension-webview:build"
@@ -317,6 +338,7 @@
           "nx build-embedder-worker ptah-electron",
           "nx build-voice-worker ptah-electron",
           "nx build-integrity-worker ptah-electron",
+          "nx build-search-worker ptah-electron",
           "nx build-state-storage-worker ptah-electron",
           "nx build-workspace-watch-host ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron"
@@ -372,6 +394,7 @@
           "nx build-embedder-worker ptah-electron --watch",
           "nx build-voice-worker ptah-electron --watch",
           "nx build-integrity-worker ptah-electron --watch",
+          "nx build-search-worker ptah-electron --watch",
           "nx build-state-storage-worker ptah-electron --watch",
           "nx build-workspace-watch-host ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch",
@@ -444,6 +467,7 @@
         "build-main",
         "build-embedder-worker",
         "build-integrity-worker",
+        "build-search-worker",
         "build-state-storage-worker",
         "build-voice-worker",
         "build-workspace-watch-host"

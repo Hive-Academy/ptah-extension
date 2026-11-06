@@ -154,6 +154,7 @@ const EXPECTED_ESM_TARGETS = [
   'build-main',
   'build-embedder-worker',
   'build-integrity-worker',
+  'build-search-worker',
   'build-state-storage-worker',
   'build-voice-worker',
   'build-workspace-watch-host',
@@ -247,6 +248,7 @@ describe('worker wiring (three-place rule)', () => {
     'build-embedder-worker',
     'build-voice-worker',
     'build-integrity-worker',
+    'build-search-worker',
     'build-state-storage-worker',
     'build-workspace-watch-host',
   ];
@@ -328,6 +330,8 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'embedder-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
   'build-voice-worker':
     'voice-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+  'build-search-worker':
+    'search-worker.ts must be run as an Electron utilityProcess (no parentPort)',
   'build-state-storage-worker':
     'Electron state storage worker requires a worker_threads parent port',
   'build-workspace-watch-host':

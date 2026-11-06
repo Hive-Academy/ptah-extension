@@ -51,6 +51,21 @@ function makeReader(
 const QUERY = 'where do we validate the auth token';
 
 describe('CodeSymbolPromptInjector.buildBlock', () => {
+  it('shares concurrent lookup and invalidates after a write revision', async () => {
+    let revision = 0;
+    const reader: ICodeSymbolReader = {
+      getRevision: () => revision,
+      searchSymbols: jest.fn().mockResolvedValue({ hits: [makeHit()], bm25Only: false }),
+    };
+    const injector = new CodeSymbolPromptInjector(makeLogger(), makeWorkspace(), reader);
+    const first = injector.buildBlock(QUERY, '/ws');
+    const second = injector.buildBlock(QUERY, '/ws');
+    expect(await first).toBe(await second);
+    expect(reader.searchSymbols).toHaveBeenCalledTimes(1);
+    revision++;
+    await injector.buildBlock(QUERY, '/ws');
+    expect(reader.searchSymbols).toHaveBeenCalledTimes(2);
+  });
   it('returns "" when no reader is registered', async () => {
     const injector = new CodeSymbolPromptInjector(
       makeLogger(),

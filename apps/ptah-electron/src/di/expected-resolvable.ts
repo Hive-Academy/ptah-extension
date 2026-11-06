@@ -1,4 +1,5 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
@@ -80,6 +81,7 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['CODEX_SIGN_IN_QUIT_HANDLE', CODEX_SIGN_IN_QUIT_HANDLE],
   ['SDK_CODEX_LOGIN', AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN],
   ['SDK_CODEX_READINESS', AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS],
+  ['SQLITE_SEARCH_WORKER', MEMORY_TOKENS.SQLITE_SEARCH_WORKER],
 ] as const;
 
 /**

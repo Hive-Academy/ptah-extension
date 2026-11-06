@@ -163,6 +163,16 @@ describe('Electron DI — skill telemetry seam', () => {
   });
 });
 
+describe('Electron DI search worker registration', () => {
+  it('includes the host worker port in the resolvable census', () => {
+    const entry = EXPECTED_RESOLVABLE_TOKENS.find(([name]) => name === 'SQLITE_SEARCH_WORKER');
+    expect(entry).toBeDefined();
+    const phase = fs.readFileSync(path.join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    expect(phase).toContain('container.register(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, {');
+    expect(phase).toContain('new ElectronSearchWorkerFactory(');
+  });
+});
+
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
   for (const token of [

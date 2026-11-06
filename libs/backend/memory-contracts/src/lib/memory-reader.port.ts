@@ -36,6 +36,10 @@ export interface IMemoryReader {
 }
 
 export interface IMemoryLister {
+  /** Host-backed session-start snapshot. Implementations without a worker may omit it. */
+  listSnapshot?(workspaceRoot: string, limit: number): Promise<MemoryListPage>;
+  /** Monotonic revision of writes on the owning SQLite connection, when available. */
+  getRevision?(): number;
   listAll(
     workspaceRoot?: string,
     tier?: string,

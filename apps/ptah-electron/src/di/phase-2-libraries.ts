@@ -10,7 +10,7 @@
  *   - Phase 2.5: llm-abstraction
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import { resolve } from 'node:path';
 import { resolveReviewRootsForPath } from '../services/review/resolve-review-roots-for-path';
 import { registerElectronCodexReadinessAndLogin } from './codex-login-composition';
@@ -96,14 +96,18 @@ import {
   resolveVecPackageName,
   resolveVecBinaryName,
   type SqliteConnectionService,
+  type IEmbedder,
   type SqliteVecPathResolver,
+  type VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import * as fs from 'node:fs';
 import { app } from 'electron';
 import {
   registerMemoryCuratorServices,
   MEMORY_TOKENS,
+  SearchWorkerClient,
 } from '@ptah-extension/memory-curator';
+import { ElectronSearchWorkerFactory } from '../services/platform/electron-search-worker-factory';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
@@ -489,6 +493,28 @@ export function registerPhase2Libraries(
       );
     }
     registerMemoryCuratorServices(container, logger);
+    // Memory / code-symbol search, the session-start memory listing and chunk
+    // lookup run in their own utilityProcess with a read-only connection, so
+    // their synchronous SQLite reads never block this thread. Built
+    // `search-worker.mjs` sits beside `main.mjs`, like the embedder worker.
+    // The stores take this token as optional; VS Code and the CLI leave it
+    // unregistered and keep searching in-process.
+    const searchWorkerEntry = path.join(
+      dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+      'search-worker.mjs',
+    );
+    container.register(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, {
+      useFactory: instanceCachingFactory(
+        (c) =>
+          new SearchWorkerClient(
+            new ElectronSearchWorkerFactory(searchWorkerEntry, dbPath, () =>
+              loadedVecPath(c.resolve<VecStatusService>(PERSISTENCE_TOKENS.VEC_STATUS)),
+            ),
+            c.resolve<IEmbedder>(PERSISTENCE_TOKENS.EMBEDDER),
+            logger,
+          ),
+      ),
+    });
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
@@ -690,6 +716,16 @@ function configureElectronVoiceProviders(
     modelCacheDir,
     ffmpegConfigured: ffmpegPath !== null,
   });
+}
+
+/**
+ * The sqlite-vec binary the main connection actually loaded, so the search
+ * worker loads the same file. `undefined` while vec is unavailable: the
+ * worker then searches lexically, as the main connection would.
+ */
+function loadedVecPath(vecStatus: VecStatusService): string | undefined {
+  const diagnostic = vecStatus.diagnostic;
+  return diagnostic.ok ? diagnostic.attemptedPath : undefined;
 }
 
 function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {
