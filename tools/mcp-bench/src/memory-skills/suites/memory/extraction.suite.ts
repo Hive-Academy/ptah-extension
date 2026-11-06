@@ -401,7 +401,11 @@ async function runCase(
     dispose();
   }
   const failureDetail = input.env.curatorFailureDetail?.();
-  const miss = errors.find((error) => error.includes('Cassette miss for '));
+  // The curator event carries a fixed sentence (TASK_2026_878), so the miss
+  // text comes from the double's failure detail; event text stays a fallback.
+  const miss = [...(failureDetail ? [failureDetail] : []), ...errors].find(
+    (error) => error.includes('Cassette miss for '),
+  );
   if (caseError === null && miss !== undefined) {
     caseError = `cassette-miss: ${miss}`;
   } else if (caseError === null && errors.length > 0) {

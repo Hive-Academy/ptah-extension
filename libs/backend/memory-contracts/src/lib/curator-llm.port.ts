@@ -45,10 +45,14 @@ export interface ResolvedMemoryDraft extends ExtractedMemoryDraft {
  *   429) after the subprocess's own retries (TASK_2026_437 C14 f). The model
  *   read nothing, so the input is kept exactly as for a quota stall, and the
  *   caller backs its background passes off.
+ * - `provider-unsupported` — the deliberate Codex native-runtime refusal.
+ *   No query is sent. Any other auth failure, including a Codex id with a
+ *   different message, is not this reason.
  */
 export type CuratorStallReason =
   | 'provider-cooling-down'
-  | 'provider-unreachable';
+  | 'provider-unreachable'
+  | 'provider-unsupported';
 
 /**
  * The outcome of one extraction pass — TASK_2026_306 Batch 10, finding F1.

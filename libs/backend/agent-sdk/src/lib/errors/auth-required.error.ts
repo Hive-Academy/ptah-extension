@@ -32,3 +32,22 @@ export class AuthRequiredError extends SdkError {
     this.recoveryHint = details?.recoveryHint ?? null;
   }
 }
+
+/** Exact text of the deliberate native-Codex refusal. Not a general auth failure. */
+export const CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE =
+  'Codex chat requires a host with the native Codex runtime.';
+
+/**
+ * True only for the deliberate Codex native-runtime refusal.
+ * Any other `AuthRequiredError` (including Codex id with a different message)
+ * stays an ordinary auth failure.
+ */
+export function isCodexNativeRuntimeRefusal(
+  error: unknown,
+): error is AuthRequiredError {
+  return (
+    error instanceof AuthRequiredError &&
+    error.providerId === 'openai-codex' &&
+    error.message === CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE
+  );
+}

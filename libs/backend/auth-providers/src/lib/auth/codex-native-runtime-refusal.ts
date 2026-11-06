@@ -1,8 +1,10 @@
-import { AuthRequiredError } from '@ptah-extension/agent-sdk';
+import {
+  AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+} from '@ptah-extension/agent-sdk';
 import type { AuthOperationContext } from './auth-strategy.types';
 
-export const CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE =
-  'Codex chat requires a host with the native Codex runtime.';
+export { CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE };
 
 /** Native hosts own Codex authentication except for historical SDK sessions. */
 export function isNativeCodexAuthIntent(

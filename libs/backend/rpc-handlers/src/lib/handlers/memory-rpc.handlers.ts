@@ -15,7 +15,10 @@ import {
   memoryId,
   flattenMemoryTriggers,
   readMemoryTriggers,
+  curatorRunMessage,
   type CodeSymbolStore,
+  type CuratorRunReason,
+  type CuratorRunStats,
   type Memory,
   type MemoryChunk,
   type MemoryCuratorService,
@@ -57,6 +60,7 @@ import type {
   MemoryRebuildIndexResult,
   MemoryRestoreQuarantinedParams,
   MemoryRestoreQuarantinedResult,
+  MemoryCuratorRunReason,
   MemoryRunNowParams,
   MemoryRunNowResult,
   MemorySearchHitWire,
@@ -86,6 +90,37 @@ import {
 } from './memory-rpc.schema';
 
 const WorkspaceRootSchema = z.string().min(1).optional();
+
+/**
+ * Compile-time parity between the curator's run reasons and the wire union
+ * (TASK_2026_878). A reason added on either side without the other fails
+ * typecheck here.
+ */
+type _AssertTrue<T extends true> = T;
+type _RunReasonParity = _AssertTrue<
+  [CuratorRunReason] extends [MemoryCuratorRunReason]
+    ? [MemoryCuratorRunReason] extends [CuratorRunReason]
+      ? true
+      : false
+    : false
+>;
+
+/**
+ * `outcome`, plus `reason` and the fixed `error` sentence when the pass did
+ * not run cleanly. Omitted keys stay absent rather than `undefined`, which the
+ * wire record type does not allow.
+ */
+function runOutcomeFields(stats: CuratorRunStats): {
+  readonly outcome: CuratorRunStats['outcome'];
+  readonly reason?: MemoryCuratorRunReason;
+  readonly error?: string;
+} {
+  return {
+    outcome: stats.outcome,
+    ...(stats.reason !== undefined ? { reason: stats.reason } : {}),
+    ...(stats.error !== undefined ? { error: stats.error } : {}),
+  };
+}
 
 function toMemoryWire(m: Memory): MemoryWire {
   return {
@@ -359,13 +394,17 @@ export class MemoryRpcHandlers {
         _params: MemoryRebuildIndexParams | undefined,
       ): Promise<MemoryRebuildIndexResult> => {
         try {
-          const r = await this.store.rebuildIndex();
-          return r;
-        } catch (err) {
+          return await this.store.rebuildIndex();
+        } catch (err: unknown) {
+          // Thrown, not `{ rebuiltFts: false }`: that result read as a
+          // successful no-op in the Memory tab (TASK_2026_878 component 7).
           this.logger.warn('[memory] rebuildIndex failed', {
-            error: String(err),
+            error: err instanceof Error ? err.message : String(err),
           });
-          return { rebuiltFts: false, rebuiltVec: false };
+          throw new RpcUserError(
+            'Could not rebuild the memory search index. See the logs for details.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
         }
       },
     );
@@ -587,6 +626,9 @@ export class MemoryRpcHandlers {
                   merged: snapshot.lastRunStats.merged,
                   created: snapshot.lastRunStats.created,
                   skipped: snapshot.lastRunStats.skipped,
+                  // `error` is a fixed sentence from the curator's message
+                  // table, never provider text (TASK_2026_878).
+                  ...runOutcomeFields(snapshot.lastRunStats),
                 }
               : null,
             recentEvents: snapshot.recentEvents.map((e) => ({
@@ -696,19 +738,22 @@ export class MemoryRpcHandlers {
           // where a wrong reading is most expensive, because the user is
           // standing there deciding whether the feature works.
           //
-          // `success` stays `true`: the RPC completed and the false branch
-          // below is reserved for a thrown failure. Conflating "the gate
-          // stopped a background pass" with "your request errored" would trade
-          // one ambiguity for another. `stats.outcome` is the discriminator,
-          // and `MemoryRunNowResult.stats` is already
-          // `Record<string, number | string | boolean | null>`, so carrying it
-          // needs no wire-contract change and no frontend change.
+          // `success` is `false` when the pass failed, and when the provider
+          // can never run the curator (`provider-unsupported`): the user has
+          // to change a setting before a retry can help. A transient stall
+          // (quota, network, queue) keeps `success: true`, because the RPC
+          // completed and a later run can succeed unchanged (TASK_2026_878
+          // P2). `outcome`, `reason` and the fixed `error` sentence say which.
+          const outcomeFields = runOutcomeFields(stats);
           const runStats = {
             outcome: stats.outcome,
             extracted: stats.extracted,
             merged: stats.merged,
             created: stats.created,
             skipped: stats.skipped,
+            ...(outcomeFields.reason !== undefined
+              ? { reason: outcomeFields.reason }
+              : {}),
           };
           if (stats.outcome === 'stalled') {
             this.logger.info(
@@ -723,12 +768,17 @@ export class MemoryRpcHandlers {
             stats: runStats,
           });
           return {
-            success: true,
+            success:
+              stats.outcome !== 'failed' &&
+              stats.reason !== 'provider-unsupported',
             startedAt,
             completedAt: Date.now(),
             stats: runStats,
-          };
+            ...outcomeFields,
+          } satisfies MemoryRunNowResult;
         } catch (err: unknown) {
+          // The raw message can carry provider text, URLs or key fragments:
+          // it goes to the log, and the caller gets the fixed sentence.
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error('[memory] runNow failed', { error: message });
           return {
@@ -736,8 +786,10 @@ export class MemoryRpcHandlers {
             startedAt,
             completedAt: Date.now(),
             stats: null,
-            error: message,
-          };
+            outcome: 'failed',
+            reason: 'curator-error',
+            error: curatorRunMessage('curator-error'),
+          } satisfies MemoryRunNowResult;
         }
       },
     );

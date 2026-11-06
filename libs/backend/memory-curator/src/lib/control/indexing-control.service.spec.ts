@@ -7,7 +7,11 @@ import { container } from 'tsyringe';
 import {
   IndexingControlService,
   type IndexingRunDeps,
+  type IndexingRunProgress,
+  type IndexingRunStats,
 } from './indexing-control.service';
+import * as fingerprintModule from '../workspace-fingerprint';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -47,8 +51,16 @@ function makeFakeDb(
               disclosure_acknowledged_at: null,
               last_dismissed_stale_sha: null,
               last_error: null,
+              last_run_json: null,
             });
           }
+        } else if (normalizedSql.includes('and last_run_json is ?')) {
+          // Compare-and-set: args [updated_at, last_run_json, fp, expected].
+          const row = rowsByFp.get(args[2] as string);
+          if (!row || (row['last_run_json'] ?? null) !== args[3]) {
+            return { changes: 0, lastInsertRowid: 0 };
+          }
+          row['last_run_json'] = args[1];
         } else if (normalizedSql.startsWith('update indexing_state')) {
           // Parse SET clauses and apply to the row in the map
           // This is a best-effort simulation for tests
@@ -699,5 +711,1212 @@ describe('IndexingControlService Done progress event', () => {
     expect(done).toBeDefined();
     expect(done).not.toHaveProperty('processed');
     expect(done).not.toHaveProperty('total');
+  });
+});
+
+// ============================================================================
+// Run state, last run and the census registry (TASK_2026_878 Batch 11)
+// ============================================================================
+
+const STATS: IndexingRunStats = {
+  filesScanned: 4,
+  symbolsIndexed: 40,
+  errors: 1,
+  durationMs: 25,
+};
+
+/** Drain pending promise callbacks and immediates. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 25; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (condition()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error('waitFor: condition never became true');
+}
+
+function abortError(): DOMException {
+  return new DOMException('Aborted', 'AbortError');
+}
+
+interface FakeCensus {
+  readonly promise: Promise<IndexingRunStats>;
+  readonly resolve: (stats: IndexingRunStats) => void;
+  readonly reject: (error: unknown) => void;
+  readonly listeners: Set<(progress: IndexingRunProgress) => void>;
+}
+
+/**
+ * Fake code-symbol indexer with the real join semantics: the first call for
+ * the root creates a deferred census; a later call shares its promise and
+ * adds its `onProgress`; a joiner's abort rejects only that joiner; the
+ * starter's abort rejects the census. The census leaves the indexer before it
+ * settles, so a later call starts a new one.
+ */
+function makeFakeIndexer() {
+  let active: FakeCensus | null = null;
+  let calls = 0;
+
+  function index(
+    _root: string,
+    options?: {
+      signal?: AbortSignal;
+      onProgress?: (progress: IndexingRunProgress) => void;
+    },
+  ): Promise<IndexingRunStats> {
+    calls++;
+    const progress = options?.onProgress;
+    const signal = options?.signal;
+    if (active !== null) {
+      const census = active;
+      if (progress) census.listeners.add(progress);
+      if (!signal) return census.promise;
+      return new Promise<IndexingRunStats>((resolve, reject) => {
+        const onAbort = (): void => {
+          if (progress) census.listeners.delete(progress);
+          reject(abortError());
+        };
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+        census.promise.then(
+          (stats) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(stats);
+          },
+          (error: unknown) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+        );
+      });
+    }
+    let resolve!: (stats: IndexingRunStats) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<IndexingRunStats>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // The census may reject with no direct listener left in a test.
+    promise.catch(() => undefined);
+    const census: FakeCensus = {
+      promise,
+      resolve,
+      reject,
+      listeners: new Set(progress ? [progress] : []),
+    };
+    active = census;
+    signal?.addEventListener(
+      'abort',
+      () => {
+        if (active === census) active = null;
+        census.reject(abortError());
+      },
+      { once: true },
+    );
+    return promise;
+  }
+
+  function current(): FakeCensus {
+    if (active === null) throw new Error('no active fake census');
+    return active;
+  }
+
+  return {
+    index,
+    calls: () => calls,
+    hasActive: () => active !== null,
+    batch(filesScanned: number, totalFiles: number): void {
+      for (const listener of current().listeners) {
+        listener({ filesScanned, totalFiles });
+      }
+    },
+    succeed(stats: IndexingRunStats = STATS): void {
+      const census = current();
+      active = null;
+      census.resolve(stats);
+    },
+    fail(error: unknown): void {
+      const census = current();
+      active = null;
+      census.reject(error);
+    },
+  };
+}
+
+type FakeIndexer = ReturnType<typeof makeFakeIndexer>;
+
+function manualDeps(
+  indexer: FakeIndexer,
+  runMemory: () => Promise<void> = () => Promise.resolve(),
+): IndexingRunDeps {
+  return {
+    runSymbols: (root, options) => indexer.index(root, options),
+    runMemory: jest.fn(runMemory),
+  };
+}
+
+/** A lifecycle-style background run with its own abort controller. */
+function startBackground(
+  service: IndexingControlService,
+  indexer: FakeIndexer,
+  controller: AbortController = new AbortController(),
+): Promise<IndexingRunStats> {
+  return service.trackBackgroundRun(ROOT, (onProgress) =>
+    indexer.index(ROOT, { signal: controller.signal, onProgress }),
+  );
+}
+
+/** Rows written with a `last_run_json` value, in order. */
+function lastRunWrites(fakeDb: SqliteDatabase): Array<Record<string, unknown>> {
+  const prepare = fakeDb.prepare as jest.Mock;
+  const seen = new Set<SqliteStatement>();
+  const writes: Array<Record<string, unknown>> = [];
+  prepare.mock.calls.forEach((call: unknown[], i: number) => {
+    const sql = call[0] as string;
+    const stmt = prepare.mock.results[i]?.value as SqliteStatement;
+    if (!sql.includes('last_run_json = ?') || seen.has(stmt)) return;
+    seen.add(stmt);
+    for (const args of (stmt.run as jest.Mock).mock.calls as unknown[][]) {
+      // args: [updated_at, last_run_json, fingerprint]
+      writes.push(JSON.parse(args[1] as string) as Record<string, unknown>);
+    }
+  });
+  return writes;
+}
+
+function pushes(
+  webviewManager: { broadcastMessage: jest.Mock },
+  type: string,
+): Array<Record<string, unknown>> {
+  return webviewManager.broadcastMessage.mock.calls
+    .filter((call: unknown[]) => call[0] === type)
+    .map((call: unknown[]) => call[1] as Record<string, unknown>);
+}
+
+/** Batch progress pushes (the manual "Done" push has no `processed`). */
+function batchPushes(webviewManager: {
+  broadcastMessage: jest.Mock;
+}): Array<Record<string, unknown>> {
+  return pushes(webviewManager, MESSAGE_TYPES.INDEXING_PROGRESS).filter(
+    (event) => event['processed'] !== undefined,
+  );
+}
+
+/**
+ * Size of the private open-census map. A-F6 is a statement about this map,
+ * so the spec reads it directly as well as through `getStatus().running`.
+ */
+function openCensusCount(service: IndexingControlService): number {
+  return (service as unknown as { openCensuses: Map<string, unknown> })
+    .openCensuses.size;
+}
+
+function buildCensusService() {
+  const rows = new Map<string, Record<string, unknown>>();
+  const fakeDb = makeFakeDb(rows);
+  const built = buildService(fakeDb, { headContent: `${VALID_SHA_A}\n` });
+  return { ...built, rows, fakeDb, indexer: makeFakeIndexer() };
+}
+
+describe('IndexingControlService run state and lastRun', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('a fingerprint throw releases the controller', async () => {
+    const { service, indexer } = buildCensusService();
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockRejectedValueOnce(new Error('fingerprint boom'));
+
+    await expect(
+      service.start('symbols', ROOT, manualDeps(indexer)),
+    ).rejects.toThrow('fingerprint boom');
+    expect(service.isRunning()).toBe(false);
+
+    const second = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed();
+    await second;
+    expect(service.isRunning()).toBe(false);
+  });
+
+  it('a duplicate manual start is ignored and logged', async () => {
+    const { service, indexer, logger } = buildCensusService();
+    const first = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+
+    await service.start('symbols', ROOT, manualDeps(indexer));
+
+    expect(service.isRunning()).toBe(true);
+    expect(indexer.calls()).toBe(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[indexing-control] start ignored — already running',
+    );
+    indexer.succeed();
+    await first;
+  });
+
+  it('a manual failure pushes indexing:failed, persists last_error and records lastRun.failed', async () => {
+    const { service, indexer, webviewManager, fakeDb, logger } =
+      buildCensusService();
+    const run = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    indexer.fail(new Error('parser crashed at /secret/path'));
+    await run;
+
+    const failed = pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toEqual(
+      expect.objectContaining({ origin: 'manual', workspaceRoot: ROOT }),
+    );
+    expect(JSON.stringify(failed[0])).not.toContain('parser crashed');
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    const status = await service.getStatus(ROOT);
+    expect(status.errorMessage).toBe('parser crashed at /secret/path');
+    expect(status.lastRun).toEqual(
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    );
+    expect(JSON.stringify(status.lastRun)).not.toContain('parser crashed');
+    expect(lastRunWrites(fakeDb)).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(service.isRunning()).toBe(false);
+  });
+
+  it('getStatus reports indexing + running during a manual run and the persisted lastRun after, across instances', async () => {
+    const { service, indexer, fakeDb } = buildCensusService();
+    const run = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    indexer.batch(2, 4);
+
+    const during = await service.getStatus(ROOT);
+    expect(during.state).toBe('indexing');
+    expect(during.running).toEqual(
+      expect.objectContaining({
+        origin: 'manual',
+        force: false,
+        processed: 2,
+        total: 4,
+      }),
+    );
+    expect(during.running?.joinedBackground).toBeUndefined();
+
+    indexer.succeed(STATS);
+    await run;
+
+    const after = await service.getStatus(ROOT);
+    expect(after.state).toBe('indexed');
+    expect(after.running).toBeNull();
+    expect(after.lastRun).toEqual(
+      expect.objectContaining({
+        origin: 'manual',
+        outcome: 'succeeded',
+        filesScanned: 4,
+        symbolsIndexed: 40,
+        errors: 1,
+      }),
+    );
+
+    const fresh = buildService(fakeDb, { headContent: `${VALID_SHA_A}\n` });
+    expect((await fresh.service.getStatus(ROOT)).lastRun).toEqual(
+      after.lastRun,
+    );
+  });
+
+  it('a corrupt or invalid last_run_json reads as lastRun null', async () => {
+    const { service, rows, logger } = buildCensusService();
+    const { workspaceFingerprint } = await service.getStatus(ROOT);
+    const base = {
+      workspace_fingerprint: workspaceFingerprint,
+      git_head_sha: VALID_SHA_A,
+      last_indexed_at: 1,
+      symbols_enabled: 1,
+      memory_enabled: 1,
+      symbols_cursor: null,
+      disclosure_acknowledged_at: null,
+      last_dismissed_stale_sha: null,
+      last_error: null,
+    };
+
+    rows.set(workspaceFingerprint, { ...base, last_run_json: '{not json' });
+    expect((await service.getStatus(ROOT)).lastRun).toBeNull();
+
+    rows.set(workspaceFingerprint, {
+      ...base,
+      last_run_json: JSON.stringify({ origin: 'manual', outcome: 'exploded' }),
+    });
+    expect((await service.getStatus(ROOT)).lastRun).toBeNull();
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[indexing-control] last_run_json has an invalid shape',
+    );
+  });
+});
+
+describe('IndexingControlService.trackBackgroundRun alone', () => {
+  it('success: running background, progress, one INDEXING_COMPLETE and lastRun', async () => {
+    const { service, indexer, webviewManager, fakeDb, rows } =
+      buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    indexer.batch(1, 4);
+
+    const during = await service.getStatus(ROOT);
+    expect(during.state).toBe('indexing');
+    expect(during.running).toEqual(
+      expect.objectContaining({ origin: 'background', processed: 1, total: 4 }),
+    );
+    expect(service.isRunning()).toBe(false);
+
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+
+    expect(batchPushes(webviewManager)).toHaveLength(1);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({
+        origin: 'background',
+        outcome: 'succeeded',
+        filesScanned: 4,
+      }),
+    ]);
+    // Background runs never write the per-call columns.
+    const row = [...rows.values()][0];
+    expect(row['last_indexed_at']).toBeNull();
+    expect(row['last_error']).toBeNull();
+  });
+
+  it('failure: one INDEXING_FAILED, and the rejection passes through unchanged', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const error = new Error('census broke');
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    indexer.fail(error);
+
+    await expect(bg).rejects.toBe(error);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toEqual([
+      expect.objectContaining({ origin: 'background' }),
+    ]);
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'failed' }),
+    ]);
+  });
+
+  it('abort: records nothing, pushes nothing and removes the record', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const controller = new AbortController();
+    const bg = startBackground(service, indexer, controller);
+    await waitFor(() => indexer.calls() === 1);
+    controller.abort();
+
+    await expect(bg).rejects.toMatchObject({ name: 'AbortError' });
+    expect(lastRunWrites(fakeDb)).toHaveLength(0);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      0,
+    );
+    expect(openCensusCount(service)).toBe(0);
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+  });
+
+  it('passes a non-Error rejection and a plain resolution through unchanged', async () => {
+    const { service } = buildCensusService();
+    const reason = { code: 'not-an-error' };
+    await expect(
+      service.trackBackgroundRun(ROOT, () => Promise.reject(reason)),
+    ).rejects.toBe(reason);
+    await expect(
+      service.trackBackgroundRun(ROOT, () => Promise.resolve('done')),
+    ).resolves.toBe('done');
+  });
+});
+
+describe('IndexingControlService census join (F5)', () => {
+  it('manual first, watcher second, success', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    const during = await service.getStatus(ROOT);
+    expect(during.running?.origin).toBe('manual');
+    expect(during.running?.joinedBackground).toBeUndefined();
+
+    indexer.batch(2, 4);
+    indexer.batch(4, 4);
+    indexer.succeed(STATS);
+    await manual;
+    await expect(bg).resolves.toBe(STATS);
+
+    expect(batchPushes(webviewManager)).toHaveLength(2);
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({
+        origin: 'manual',
+        outcome: 'succeeded',
+        filesScanned: 4,
+        symbolsIndexed: 40,
+      }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      0,
+    );
+  });
+
+  it('manual first, watcher second, failure', async () => {
+    const { service, indexer, webviewManager, fakeDb, logger } =
+      buildCensusService();
+    const error = new Error('census broke');
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    indexer.fail(error);
+    await manual;
+    await expect(bg).rejects.toBe(error);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    ]);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const lastErrorWrites = (fakeDb.prepare as jest.Mock).mock.calls.filter(
+      (call: unknown[]) =>
+        (call[0] as string).includes(
+          'SET updated_at = ?, last_error = ? WHERE',
+        ),
+    );
+    expect(lastErrorWrites).toHaveLength(1);
+  });
+
+  it('background then background, success', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const first = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const second = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    expect((await service.getStatus(ROOT)).running?.origin).toBe('background');
+    indexer.batch(2, 4);
+    indexer.succeed(STATS);
+    await expect(first).resolves.toBe(STATS);
+    await expect(second).resolves.toBe(STATS);
+
+    expect(batchPushes(webviewManager)).toHaveLength(1);
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+  });
+
+  it('background then background, failure', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const error = new Error('census broke');
+    const first = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const second = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    indexer.fail(error);
+    await expect(first).rejects.toBe(error);
+    await expect(second).rejects.toBe(error);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ outcome: 'failed' }),
+    ]);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+  });
+
+  it('background first, manual second, success', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 2);
+
+    const during = await service.getStatus(ROOT);
+    expect(during.running).toEqual(
+      expect.objectContaining({ origin: 'background', joinedBackground: true }),
+    );
+
+    indexer.batch(2, 4);
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+    await manual;
+
+    expect(batchPushes(webviewManager)).toHaveLength(1);
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+  });
+
+  it('a manual start is running in status before its setup reads finish', async () => {
+    const { service, indexer } = buildCensusService();
+    const real = fingerprintModule.deriveWorkspaceFingerprint;
+    let releaseSetup!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockImplementationOnce(async (...args) => {
+        await gate;
+        return real(...args);
+      });
+
+    const manual = service.start('symbols', ROOT, manualDeps(indexer), {
+      force: true,
+    });
+    const during = await service.getStatus(ROOT);
+    expect(during.state).toBe('indexing');
+    expect(during.running).toEqual(
+      expect.objectContaining({ origin: 'manual', force: true }),
+    );
+
+    releaseSetup();
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed(STATS);
+    await manual;
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+  });
+
+  it('a pending manual start reports joinedBackground on an open background census', async () => {
+    const { service, indexer } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const real = fingerprintModule.deriveWorkspaceFingerprint;
+    let releaseSetup!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockImplementationOnce(async (...args) => {
+        await gate;
+        return real(...args);
+      });
+
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    expect((await service.getStatus(ROOT)).running).toEqual(
+      expect.objectContaining({ origin: 'background', joinedBackground: true }),
+    );
+
+    releaseSetup();
+    await waitFor(() => indexer.calls() === 2);
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+    await manual;
+  });
+
+  it('A-F7: background first, manual second, census fails', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const error = new Error('census broke');
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 2);
+
+    indexer.fail(error);
+    await expect(bg).rejects.toBe(error);
+    await manual;
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'failed' }),
+    ]);
+    const failed = pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]['origin']).toBe('background');
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+  });
+
+  it('record closes: a watcher run during the manual memory phase opens a new census', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    let finishMemory!: () => void;
+    const memory = new Promise<void>((resolve) => {
+      finishMemory = resolve;
+    });
+    const manual = service.start(
+      undefined,
+      ROOT,
+      manualDeps(indexer, () => memory),
+    );
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed(STATS);
+    await settle();
+
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+    expect(indexer.hasActive()).toBe(true);
+    // The live manual record wins the running view.
+    expect((await service.getStatus(ROOT)).running?.origin).toBe('manual');
+
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+    finishMemory();
+    await manual;
+
+    // The newer background census settled first; the older manual census
+    // settles later and must not overwrite its persisted summary.
+    const writes = lastRunWrites(fakeDb);
+    expect(writes).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
+    ]);
+    const status = await service.getStatus(ROOT);
+    expect(status.lastRun).toEqual(
+      expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
+    );
+    expect(status.running).toBeNull();
+    // The stale-skipped older census sends no second real completion, only
+    // a status-only refresh.
+    const completes = pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE);
+    expect(completes).toHaveLength(2);
+    expect(completes[0]['refreshOnly']).toBeUndefined();
+    expect(completes[1]['refreshOnly']).toBe(true);
+  });
+
+  it('joiner cancel: background first, manual joins, cancel → the census continues', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 2);
+    expect((await service.getStatus(ROOT)).running?.joinedBackground).toBe(
+      true,
+    );
+
+    service.cancel();
+    await manual;
+    const after = await service.getStatus(ROOT);
+    expect(after.running?.origin).toBe('background');
+    expect(after.running?.joinedBackground).toBeUndefined();
+
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'succeeded' }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+  });
+
+  it('an older background success that settles after a newer failed census sends only a status refresh', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const joiner = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 2);
+    service.cancel();
+    await joiner; // the aborted manual participant leaves the older census
+
+    // A memory-only run opens a newer census of its own, which fails.
+    await service.start(
+      'memory',
+      ROOT,
+      manualDeps(indexer, () => Promise.reject(new Error('memory broke'))),
+      { force: true },
+    );
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+
+    indexer.succeed(STATS);
+    await expect(bg).resolves.toBe(STATS);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    ]);
+    const status = await service.getStatus(ROOT);
+    expect(status.lastRun).toEqual(
+      expect.objectContaining({ origin: 'manual', outcome: 'failed' }),
+    );
+    expect(status.running).toBeNull();
+    // The failure push arrived while the older census was still live, so
+    // the panel needs one status-only refresh, never a real completion.
+    const completes = pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE);
+    expect(completes).toHaveLength(1);
+    expect(completes[0]).toEqual(
+      expect.objectContaining({ workspaceRoot: ROOT, refreshOnly: true }),
+    );
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+  });
+
+  it('manual first, watcher joined, cancel → one cancelled lastRun, no push', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    service.cancel();
+    await manual;
+    await expect(bg).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'manual', outcome: 'cancelled' }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe('IndexingControlService census removal on final release (A-F6)', () => {
+  let now = 1_000;
+
+  beforeEach(() => {
+    now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('A-F6: manual start, watcher joins, cancel → record removed; a fresh manual start opens a new manual record', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    service.cancel();
+    await manual;
+    await expect(bg).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(openCensusCount(service)).toBe(0);
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+    const cancelWrites = lastRunWrites(fakeDb).length;
+    const settlePushesBefore =
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE).length +
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED).length;
+    expect(settlePushesBefore).toBe(0);
+
+    now = 5_000;
+    const fresh = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 3);
+    const running = (await service.getStatus(ROOT)).running;
+    expect(running).toEqual(
+      expect.objectContaining({ origin: 'manual', startedAt: 5_000 }),
+    );
+    indexer.succeed(STATS);
+    await fresh;
+
+    const freshWrites = lastRunWrites(fakeDb).slice(cancelWrites);
+    expect(freshWrites).toEqual([
+      expect.objectContaining({
+        origin: 'manual',
+        outcome: 'succeeded',
+        startedAt: 5_000,
+      }),
+    ]);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(1);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      0,
+    );
+    expect(openCensusCount(service)).toBe(0);
+  });
+
+  it('A-F6 pause variant: no lastRun write and the record is removed', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 2);
+
+    service.pause();
+    await manual;
+    await expect(bg).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(lastRunWrites(fakeDb)).toHaveLength(0);
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      0,
+    );
+    expect(openCensusCount(service)).toBe(0);
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+    expect((await service.getStatus(ROOT)).state).toBe('paused');
+  });
+});
+
+/** Makes every `last_run_json` write throw, as a failing SQLite write would. */
+function failLastRunWrites(fakeDb: SqliteDatabase): void {
+  const prepare = fakeDb.prepare as jest.Mock;
+  const original = prepare.getMockImplementation() as (
+    sql: string,
+  ) => SqliteStatement;
+  prepare.mockImplementation((sql: string): SqliteStatement => {
+    const stmt = original(sql);
+    if (!sql.includes('last_run_json = ?')) return stmt;
+    return {
+      ...stmt,
+      run: jest.fn(() => {
+        throw new Error('SQLITE_FULL: database or disk is full');
+      }),
+    };
+  });
+}
+
+describe('IndexingControlService review fixes (TASK_2026_878 B/C)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('a failed lastRun write turns a succeeded census into one INDEXING_FAILED push', async () => {
+    const { service, indexer, webviewManager, fakeDb, logger } =
+      buildCensusService();
+    failLastRunWrites(fakeDb);
+    const run = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed(STATS);
+    await run;
+
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+    const failed = pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED);
+    expect(failed).toEqual([
+      expect.objectContaining({ origin: 'manual', workspaceRoot: ROOT }),
+    ]);
+    expect(JSON.stringify(failed[0])).not.toContain('SQLITE_FULL');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[indexing-control] last run could not be saved',
+      expect.objectContaining({ origin: 'manual', outcome: 'succeeded' }),
+    );
+    expect((await service.getStatus(ROOT)).lastRun).toBeNull();
+  });
+
+  it('a failed lastRun write for a failed census still pushes INDEXING_FAILED once', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    failLastRunWrites(fakeDb);
+    const bg = startBackground(service, indexer);
+    await waitFor(() => indexer.calls() === 1);
+    const error = new Error('census broke');
+    indexer.fail(error);
+    await expect(bg).rejects.toBe(error);
+
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toHaveLength(
+      1,
+    );
+    expect(
+      pushes(webviewManager, MESSAGE_TYPES.INDEXING_COMPLETE),
+    ).toHaveLength(0);
+  });
+
+  it('a late progress callback after the census settled produces no broadcast', async () => {
+    const { service, webviewManager } = buildCensusService();
+    const captured: { onProgress?: (progress: IndexingRunProgress) => void } =
+      {};
+    await service.trackBackgroundRun(ROOT, (onProgress) => {
+      captured.onProgress = onProgress;
+      onProgress({ filesScanned: 1, totalFiles: 4 });
+      return Promise.resolve(STATS);
+    });
+    expect(batchPushes(webviewManager)).toHaveLength(1);
+    const listener = jest.fn();
+    service.onProgress(listener);
+
+    expect(captured.onProgress).toBeDefined();
+    captured.onProgress?.({ filesScanned: 3, totalFiles: 4 });
+
+    expect(batchPushes(webviewManager)).toHaveLength(1);
+    expect(listener).not.toHaveBeenCalled();
+    expect((await service.getStatus(ROOT)).running).toBeNull();
+  });
+
+  it('a background setup failure after the fingerprint records one failed background lastRun and one push', async () => {
+    const { service, webviewManager, fakeDb, logger } = buildCensusService();
+    const setupError = new Error('EACCES: /home/user/.git/HEAD');
+    jest
+      .spyOn(fingerprintModule, 'deriveGitHeadSha')
+      .mockRejectedValueOnce(setupError);
+    const run = jest.fn(() => Promise.resolve(STATS));
+
+    await expect(service.trackBackgroundRun(ROOT, run)).rejects.toBe(
+      setupError,
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'background', outcome: 'failed' }),
+    ]);
+    const failed = pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED);
+    expect(failed).toEqual([
+      expect.objectContaining({ origin: 'background', workspaceRoot: ROOT }),
+    ]);
+    expect(JSON.stringify(failed[0])).not.toContain('EACCES');
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ origin: 'background', outcome: 'failed' }),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[indexing-control] background index setup failed',
+      expect.objectContaining({ error: 'EACCES: /home/user/.git/HEAD' }),
+    );
+    expect(openCensusCount(service)).toBe(0);
+  });
+
+  it('a background setup failure without a fingerprint warns with a fixed message and pushes one fingerprint-less INDEXING_FAILED', async () => {
+    const { service, webviewManager, fakeDb, logger } = buildCensusService();
+    const setupError = new Error('fingerprint boom');
+    jest
+      .spyOn(fingerprintModule, 'deriveWorkspaceFingerprint')
+      .mockRejectedValueOnce(setupError);
+
+    await expect(
+      service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS)),
+    ).rejects.toBe(setupError);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[indexing-control] background index setup failed before a workspace fingerprint was derived',
+      expect.objectContaining({ error: 'fingerprint boom' }),
+    );
+    // No fingerprint, no indexing_state row: nothing to write a lastRun to.
+    expect(lastRunWrites(fakeDb)).toHaveLength(0);
+    const failed = pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED);
+    expect(failed).toEqual([
+      expect.objectContaining({ origin: 'background', workspaceRoot: ROOT }),
+    ]);
+    expect(failed[0]).not.toHaveProperty('workspaceFingerprint');
+    expect(JSON.stringify(failed[0])).not.toContain('fingerprint boom');
+  });
+
+  it('a delayed setup failure never replaces the last run of a census that opened and settled after it started', async () => {
+    const { service, indexer, webviewManager, fakeDb } = buildCensusService();
+    let failSha!: (error: Error) => void;
+    jest.spyOn(fingerprintModule, 'deriveGitHeadSha').mockImplementationOnce(
+      () =>
+        new Promise<string | null>((_resolve, reject) => {
+          failSha = reject;
+        }),
+    );
+    const bg = service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    await settle();
+
+    const manual = service.start('symbols', ROOT, manualDeps(indexer));
+    await waitFor(() => indexer.calls() === 1);
+    indexer.succeed(STATS);
+    await manual;
+
+    const setupError = new Error('EIO: late HEAD read');
+    failSha(setupError);
+    await expect(bg).rejects.toBe(setupError);
+
+    expect(lastRunWrites(fakeDb)).toEqual([
+      expect.objectContaining({ origin: 'manual', outcome: 'succeeded' }),
+    ]);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ origin: 'manual', outcome: 'succeeded' }),
+    );
+    expect(pushes(webviewManager, MESSAGE_TYPES.INDEXING_FAILED)).toEqual([
+      expect.objectContaining({ origin: 'background' }),
+    ]);
+  });
+
+  it('orders by the in-memory sequence after a clock rollback', async () => {
+    const { service, fakeDb } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    now = 5_000; // the wall clock moves backwards
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    expect(lastRunWrites(fakeDb).map((w) => w['startedAt'])).toEqual([
+      10_000, 5_000,
+    ]);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 5_000 }),
+    );
+  });
+
+  it('keeps a newer last run written by another instance', async () => {
+    const { service, fakeDb } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    const other = buildService(fakeDb, { headContent: `${VALID_SHA_A}\n` });
+    now = 5_000;
+    await other.service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    expect(lastRunWrites(fakeDb).map((w) => w['startedAt'])).toEqual([10_000]);
+    expect((await other.service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 10_000 }),
+    );
+  });
+
+  it('does not overwrite a newer row from another instance after this instance wrote the row', async () => {
+    const { service, fakeDb } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    // A1: this instance writes the row first.
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    // A2 opens at 20 000 and stays in flight.
+    now = 20_000;
+    let finishA2!: (stats: typeof STATS) => void;
+    const a2 = service.trackBackgroundRun(
+      ROOT,
+      () =>
+        new Promise<typeof STATS>((resolve) => {
+          finishA2 = resolve;
+        }),
+    );
+    await waitFor(() => finishA2 !== undefined);
+
+    // B1: another instance writes a newer census (30 000) to the same row.
+    const other = buildService(fakeDb, { headContent: `${VALID_SHA_A}\n` });
+    now = 30_000;
+    await other.service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    // A2 settles last. Its local sequence beats A1, but the row is no longer
+    // A1, so the persisted startedAt decides and B1 stays.
+    now = 40_000;
+    finishA2(STATS);
+    await a2;
+
+    expect(lastRunWrites(fakeDb).map((w) => w['startedAt'])).toEqual([
+      10_000, 30_000,
+    ]);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 30_000 }),
+    );
+  });
+
+  const SELECT_ROW =
+    'SELECT * FROM indexing_state WHERE workspace_fingerprint = ?';
+  const CAS_LAST_RUN =
+    'UPDATE indexing_state SET updated_at = ?, last_run_json = ? WHERE workspace_fingerprint = ? AND last_run_json IS ?';
+
+  it('does not write the last run when the stored row cannot be read', async () => {
+    const { service, fakeDb, logger } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    const select = fakeDb.prepare(SELECT_ROW);
+    const realGet = select.get;
+    select.get = jest.fn(() => {
+      throw new Error('SQLITE_BUSY: database is locked');
+    });
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    select.get = realGet;
+
+    expect(lastRunWrites(fakeDb).map((w) => w['startedAt'])).toEqual([10_000]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[indexing-control] indexing_state read failed; last run not written',
+      expect.objectContaining({ error: 'SQLITE_BUSY: database is locked' }),
+    );
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 10_000 }),
+    );
+  });
+
+  it('re-reads and keeps a newer row that another process wrote between the read and the write', async () => {
+    const { service, fakeDb, rows } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    const [fp] = [...rows.keys()];
+    const newer = JSON.stringify({
+      ...JSON.parse(rows.get(fp)?.['last_run_json'] as string),
+      startedAt: 30_000,
+    });
+
+    // Another process replaces the row after this process read it and
+    // before its compare-and-set write runs.
+    const cas = fakeDb.prepare(CAS_LAST_RUN);
+    const realRun = cas.run;
+    let raced = false;
+    cas.run = jest.fn((...args: unknown[]) => {
+      if (!raced) {
+        raced = true;
+        const row = rows.get(fp);
+        if (row) row['last_run_json'] = newer;
+      }
+      return realRun(...args);
+    }) as typeof cas.run;
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    cas.run = realRun;
+
+    expect(raced).toBe(true);
+    expect(rows.get(fp)?.['last_run_json']).toBe(newer);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 30_000 }),
+    );
+  });
+
+  it('writes after a conflict when the re-read row is older', async () => {
+    const { service, fakeDb, rows } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    const [fp] = [...rows.keys()];
+    const older = JSON.stringify({
+      ...JSON.parse(rows.get(fp)?.['last_run_json'] as string),
+      startedAt: 15_000,
+    });
+
+    const cas = fakeDb.prepare(CAS_LAST_RUN);
+    const realRun = cas.run;
+    let raced = false;
+    cas.run = jest.fn((...args: unknown[]) => {
+      if (!raced) {
+        raced = true;
+        const row = rows.get(fp);
+        if (row) row['last_run_json'] = older;
+      }
+      return realRun(...args);
+    }) as typeof cas.run;
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    cas.run = realRun;
+
+    expect(raced).toBe(true);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 20_000 }),
+    );
   });
 });

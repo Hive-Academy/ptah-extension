@@ -8,9 +8,12 @@ import {
   MemoryPausedError,
 } from './memory-diagnostics-rpc.service';
 import {
+  CURATOR_UNREACHABLE_MESSAGE,
+  DIAGNOSTICS_LOAD_FAILED_MESSAGE,
   DIAGNOSTICS_POLL_MS,
   MEMORY_PAUSED_NOTICE,
   MemoryDiagnosticsStateService,
+  TRIGGERS_SAVE_FAILED_MESSAGE,
 } from './memory-diagnostics-state.service';
 
 /** A promise whose settlement the test controls. */
@@ -158,11 +161,14 @@ describe('MemoryDiagnosticsStateService', () => {
   });
 
   it('refresh() sets error signal and clears loading on RPC failure', async () => {
-    diagnosticsMock.mockRejectedValue(new Error('boom'));
+    diagnosticsMock.mockRejectedValue(new Error('boom /home/secret'));
 
     await service.refresh();
 
-    expect(service.error()).toBe('boom');
+    expect(service.error()).toBe(DIAGNOSTICS_LOAD_FAILED_MESSAGE);
+    expect(service.error()).toBe(
+      'Could not load the curator diagnostics. Try again.',
+    );
     expect(service.loading()).toBe(false);
   });
 
@@ -223,6 +229,32 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(service.hasActiveSession()).toBe(true);
   });
 
+  it('runNow() stays busy through a poll refresh and ignores a duplicate run', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    runNowMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = service.runNow();
+    expect(service.curatorRunning()).toBe(true);
+    await service.refresh();
+    expect(service.loading()).toBe(false);
+    expect(service.curatorRunning()).toBe(true);
+    await service.runNow();
+    expect(runNowMock).toHaveBeenCalledTimes(1);
+    release({ success: true, startedAt: 0, completedAt: 1, stats: null });
+    await first;
+    expect(service.curatorRunning()).toBe(false);
+  });
+
+  it('runNow() clears curatorRunning when the run fails', async () => {
+    runNowMock.mockRejectedValue(new Error('down'));
+    await service.runNow();
+    expect(service.curatorRunning()).toBe(false);
+  });
+
   it('setTriggers() updates the triggers signal from RPC response', async () => {
     await service.setTriggers({ idleMs: 0 });
 
@@ -239,7 +271,111 @@ describe('MemoryDiagnosticsStateService', () => {
 
     await service.setTriggers({ idleMs: 100 });
 
-    expect(service.error()).toBe('write failed');
+    expect(service.error()).toBe(TRIGGERS_SAVE_FAILED_MESSAGE);
+  });
+
+  describe('lastManualRun', () => {
+    it('stores a ran result from the RPC body', async () => {
+      runNowMock.mockResolvedValue({
+        success: true,
+        startedAt: 0,
+        completedAt: 5_000,
+        outcome: 'ran',
+        stats: {
+          outcome: 'ran',
+          extracted: 6,
+          merged: 2,
+          created: 3,
+          skipped: 1,
+        },
+      });
+      await service.runNow();
+      expect(service.lastManualRun()).toEqual({
+        at: 5_000,
+        success: true,
+        outcome: 'ran',
+        extracted: 6,
+        merged: 2,
+        created: 3,
+        skipped: 1,
+        reason: null,
+        error: null,
+      });
+    });
+
+    it('stores a success:false failed result with its fixed sentence', async () => {
+      runNowMock.mockResolvedValue({
+        success: false,
+        startedAt: 0,
+        completedAt: 7,
+        stats: null,
+        outcome: 'failed',
+        reason: 'curator-error',
+        error: 'The curator run failed. See the logs for details.',
+      });
+      await service.runNow();
+      expect(service.lastManualRun()).toMatchObject({
+        success: false,
+        outcome: 'failed',
+        reason: 'curator-error',
+        error: 'The curator run failed. See the logs for details.',
+        created: 0,
+      });
+      expect(service.error()).toBeNull();
+    });
+
+    it('stores a stalled run that learned nothing', async () => {
+      runNowMock.mockResolvedValue({
+        success: true,
+        startedAt: 0,
+        completedAt: 9,
+        stats: { outcome: 'stalled', extracted: 0, merged: 0, created: 0, skipped: 0 },
+        outcome: 'stalled',
+        reason: 'provider-cooling-down',
+        error: 'rate-limited sentence',
+      });
+      await service.runNow();
+      expect(service.lastManualRun()).toMatchObject({
+        success: true,
+        outcome: 'stalled',
+        reason: 'provider-cooling-down',
+      });
+    });
+
+    it('is not cleared by refresh() or the 30 s poll', async () => {
+      runNowMock.mockResolvedValue({
+        success: false,
+        startedAt: 0,
+        completedAt: 3,
+        stats: null,
+        outcome: 'failed',
+        reason: 'curator-error',
+        error: 'x',
+      });
+      await service.runNow();
+      const stored = service.lastManualRun();
+      expect(stored).not.toBeNull();
+      await service.refresh();
+      expect(service.lastManualRun()).toBe(stored);
+
+      jest.useFakeTimers();
+      service.startPolling();
+      await Promise.resolve();
+      jest.advanceTimersByTime(DIAGNOSTICS_POLL_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(diagnosticsMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(service.lastManualRun()).toBe(stored);
+    });
+
+    it('a transport error shows the fixed sentence, not the transport text', async () => {
+      runNowMock.mockRejectedValue(new Error('RPC timeout: memory:runNow'));
+      await service.runNow();
+      expect(service.error()).toBe(CURATOR_UNREACHABLE_MESSAGE);
+      expect(service.error()).toBe('Could not reach the curator. Try again.');
+      expect(service.lastManualRun()).toBeNull();
+      expect(service.loading()).toBe(false);
+    });
   });
 
   it('startPolling() triggers immediate refresh on first subscriber', async () => {

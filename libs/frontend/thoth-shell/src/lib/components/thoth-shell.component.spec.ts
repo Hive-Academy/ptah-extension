@@ -85,6 +85,10 @@ const skillStateStub = {
   specs: signal<readonly unknown[]>([]),
   specsLoading: signal(false),
   staleSpecCount: signal(0),
+  // Harvest running state and result (TASK_2026_878 Batch 18).
+  harvesting: signal(false),
+  lastHarvest: signal(null),
+  harvestError: signal<string | null>(null),
   refreshSpecs: (): Promise<void> => Promise.resolve(),
   harvestSpecs: (): Promise<void> => Promise.resolve(),
   clearStaleSpecs: (): Promise<number> => Promise.resolve(0),

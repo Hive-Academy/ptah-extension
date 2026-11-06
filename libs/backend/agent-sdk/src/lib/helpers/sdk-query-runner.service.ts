@@ -59,7 +59,11 @@ import {
   AUTH_PROVIDERS_TOKENS,
   type ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
-import { AuthRequiredError, SdkError } from '../errors';
+import {
+  AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+  SdkError,
+} from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { SdkRuntimeStateService } from './sdk-runtime-state.service';
@@ -361,10 +365,9 @@ export class SdkQueryRunner {
       (options.env ?? process.env)['ANTHROPIC_AUTH_TOKEN'] ===
       CODEX_PROXY_TOKEN_PLACEHOLDER
     ) {
-      throw new AuthRequiredError(
-        'Codex chat requires a host with the native Codex runtime.',
-        { providerId: 'openai-codex' },
-      );
+      throw new AuthRequiredError(CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE, {
+        providerId: 'openai-codex',
+      });
     }
     const startedAt = Date.now();
     const result = invoke();

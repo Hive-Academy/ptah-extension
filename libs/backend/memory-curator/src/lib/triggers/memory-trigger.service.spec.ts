@@ -36,6 +36,7 @@ import {
   MemoryTriggerService,
 } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
+import { curatorRunMessage } from '../curator-llm/curator-activity-log';
 import type {
   ObservationQueueInsert,
   ObservationQueueRow,
@@ -1499,6 +1500,32 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(snippet).not.toContain('\n');
     expect(snippet.length).toBeLessThanOrEqual(141);
     expect(snippet.endsWith('…')).toBe(true);
+  });
+
+  it('tool-failure event never carries a secret from the tool failure text', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    const sentinel = 'sk-ant-SENTINEL0123456789abcdef';
+    const rawError = `401 from https://bot:SENTINELpw@api.example.com Authorization: Bearer ${sentinel}`;
+    toolFailure.fire({
+      toolName: 'WebFetch',
+      toolInput: { url: 'https://api.example.com' },
+      error: rawError,
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const pushed = (curator.pushEvent as jest.Mock).mock.calls.filter(
+      ([e]: [{ kind: string }]) => e.kind === 'tool-failure',
+    );
+    expect(pushed).toHaveLength(1);
+    const wire = JSON.stringify(pushed[0][0]);
+    expect(wire).not.toContain('SENTINEL');
+    expect(pushed[0][0].stats.error).toContain('401 from https://');
+    expect(pushed[0][0].stats.error).toContain('[REDACTED]');
   });
 
   it('recovery-only episode (turnCount === 0) does NOT fire episode-trigger', async () => {
@@ -3018,6 +3045,30 @@ describe('MemoryTriggerService — the network back-off spends no hourly slot (C
     expect(rateLimiter.snapshot('memory.curate')?.count ?? 0).toBe(0);
   });
 
+  it('refunds the slot of a pass the curator provider cannot run', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const curator = heldCurator({ value: 0 });
+    (curator.curate as jest.Mock).mockResolvedValue({
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+      reason: 'provider-unsupported',
+    });
+    const { service, userPromptSubmit } = buildService({
+      curator,
+      rateLimiter,
+    });
+    service.start();
+
+    userPromptSubmit.fire(userPromptPayload());
+    for (let i = 0; i < 16; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(rateLimiter.snapshot('memory.curate')?.count ?? 0).toBe(0);
+  });
+
   it('keeps the slot of a pass that dispatched and found the provider unreachable', async () => {
     const rateLimiter = new CuratorRateLimitService(makeLogger());
     const curator = heldCurator({ value: 0 });
@@ -3152,5 +3203,77 @@ describe('MemoryTriggerService — a failed curation pass keeps its input, bound
     await h.pass();
     expect(h.queue.markProcessed).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).not.toHaveBeenCalledWith(GIVE_UP, expect.anything());
+  });
+});
+
+describe('MemoryTriggerService — failure events carry fixed sentences (TASK_2026_878)', () => {
+  const SENTINEL =
+    'upstream 401 key=sk-SENTINEL-7f3a https://internal.example';
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function errorEvents(curator: MemoryCuratorService): unknown[] {
+    return (curator.pushEvent as jest.Mock).mock.calls
+      .map(([event]: [{ kind: string }]) => event)
+      .filter((event: { kind: string }) => event.kind === 'error');
+  }
+
+  it('a thrown trigger curate pushes the curator-error sentence and logs the raw text', async () => {
+    const curator = makeCurator();
+    (curator.curate as jest.Mock).mockRejectedValue(new Error(SENTINEL));
+    const logger = makeLogger();
+    const { service, postToolUse } = buildService({ curator, logger });
+    service.start();
+
+    postToolUse.fire(postToolUsePayload());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const events = errorEvents(curator);
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'error',
+        sessionId: 's1',
+        error: curatorRunMessage('curator-error'),
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('sk-SENTINEL');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] trigger curate failed',
+      expect.objectContaining({ error: SENTINEL }),
+    );
+  });
+
+  it('a thrown boot scan pushes the curator-error sentence and logs the raw text', async () => {
+    const curator = makeCurator();
+    const logger = makeLogger();
+    const workspace = makeWorkspace();
+    (workspace.getWorkspaceRoot as jest.Mock).mockImplementation(() => {
+      throw new Error(SENTINEL);
+    });
+    const { service } = buildService({ curator, logger, workspace });
+
+    await (
+      service as unknown as {
+        runBootScan(signal: AbortSignal, generation: number): Promise<void>;
+      }
+    ).runBootScan(new AbortController().signal, 1);
+
+    const events = errorEvents(curator);
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'error',
+        error: curatorRunMessage('curator-error'),
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('sk-SENTINEL');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] boot-scan failed',
+      { error: SENTINEL },
+    );
   });
 });

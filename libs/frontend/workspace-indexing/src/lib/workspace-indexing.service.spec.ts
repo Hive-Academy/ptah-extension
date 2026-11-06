@@ -233,3 +233,541 @@ describe('WorkspaceIndexingService — banner three-state predicate', () => {
     expect(service.uiState()).toEqual({ kind: 'never-indexed' });
   });
 });
+
+describe('WorkspaceIndexingService — running state, action messages, failed push', () => {
+  let service: WorkspaceIndexingService;
+  let rpcCall: jest.Mock;
+
+  /** Route RPC calls by method; getStatus returns `status`. */
+  function routeRpc(
+    status: IndexingStatusWire,
+    byMethod: Record<string, unknown> = {},
+  ): void {
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        return Promise.resolve(makeRpcResult(true, { status }));
+      }
+      if (method in byMethod) return Promise.resolve(byMethod[method]);
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: status.state }),
+      );
+    });
+  }
+
+  beforeEach(() => {
+    rpcCall = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        WorkspaceIndexingService,
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+      ],
+    });
+    service = TestBed.inject(WorkspaceIndexingService);
+  });
+
+  it('reports indexing with processed/total from a manual running view before any push', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: {
+          origin: 'manual',
+          startedAt: 1,
+          force: true,
+          processed: 25,
+          total: 100,
+        },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.uiState()).toEqual({
+      kind: 'indexing',
+      percent: 25,
+      label: '',
+      elapsedMs: 0,
+      totalKnown: true,
+      processed: 25,
+      total: 100,
+    });
+    expect(service.runningOrigin()).toBe('manual');
+    expect(service.isBusy()).toBe(true);
+  });
+
+  it('reports indexing (indeterminate) for a background run even when the row says indexed', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexed',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.uiState()).toEqual({
+      kind: 'indexing',
+      percent: 0,
+      label: '',
+      elapsedMs: 0,
+      totalKnown: false,
+    });
+    expect(service.runningOrigin()).toBe('background');
+    expect(service.isBusy()).toBe(false);
+  });
+
+  it('reports indexing when a progress push below 100 arrives in the indexed state', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    await service.loadStatus('/ws');
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 40, totalKnown: true }),
+    });
+    expect(service.uiState().kind).toBe('indexing');
+  });
+
+  it('keeps the paused view while its last progress push is below 100', async () => {
+    routeRpc(baseStatus({ state: 'paused' }));
+    await service.loadStatus('/ws');
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 40 }),
+    });
+    expect(service.uiState()).toEqual({ kind: 'paused', percent: 40 });
+  });
+
+  it('counts a manual start that joined a background scan as busy', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: {
+          origin: 'background',
+          startedAt: 1,
+          force: true,
+          joinedBackground: true,
+        },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.isBusy()).toBe(true);
+  });
+
+  it('exposes lastRun from the status', async () => {
+    const lastRun = {
+      origin: 'background',
+      outcome: 'succeeded',
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+    } as const;
+    routeRpc(baseStatus({ state: 'indexed', lastRun }));
+    expect(service.lastRun()).toBeNull();
+    await service.loadStatus('/ws');
+    expect(service.lastRun()).toEqual(lastRun);
+  });
+
+  it.each([
+    [
+      'already-running',
+      'info',
+      'A full index is already running.',
+    ],
+    [
+      'indexer-not-ready',
+      'error',
+      'The code indexer is not ready yet. Open a workspace folder and try again.',
+    ],
+    ['no-workspace', 'error', 'Open a workspace folder to index it.'],
+    ['setup-failed', 'error', 'Could not start indexing. See the logs.'],
+  ] as const)(
+    'start refusal %s sets a fixed %s message',
+    async (reason, tone, text) => {
+      routeRpc(baseStatus({ state: 'indexed' }), {
+        'indexing:start': makeRpcResult(true, {
+          accepted: false,
+          reason,
+          state: 'indexed',
+        }),
+      });
+      await expect(service.start('/ws', true)).resolves.toBeUndefined();
+      expect(service.actionMessage()).toEqual({ tone, text });
+      expect(service.isBusy()).toBe(false);
+    },
+  );
+
+  it('resume refusal sets the same fixed message', async () => {
+    routeRpc(baseStatus({ state: 'paused' }), {
+      'indexing:resume': makeRpcResult(true, {
+        accepted: false,
+        reason: 'indexer-not-ready',
+        state: 'paused',
+      }),
+    });
+    await service.resume('/ws');
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'The code indexer is not ready yet. Open a workspace folder and try again.',
+    });
+  });
+
+  it('a start that joins a background scan sets the joined info message', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: {
+          origin: 'background',
+          startedAt: 1,
+          force: true,
+          joinedBackground: true,
+        },
+      }),
+    );
+    await service.start('/ws', true);
+    expect(service.actionMessage()).toEqual({
+      tone: 'info',
+      text: 'Joined the scan already in progress. Progress appears after its next batch.',
+    });
+  });
+
+  it('a failed start RPC sets the fixed error and never shows transport text', async () => {
+    const failed = makeRpcResult(false, undefined);
+    failed.error = 'ECONNRESET /home/secret/path';
+    routeRpc(baseStatus({ state: 'indexed' }), { 'indexing:start': failed });
+    await service.start('/ws');
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Could not start indexing. See the logs.',
+    });
+  });
+
+  it('start, pause and cancel never reject when the transport throws', async () => {
+    rpcCall.mockRejectedValue(new Error('boom'));
+    await expect(service.start('/ws')).resolves.toBeUndefined();
+    expect(service.actionMessage()?.text).toBe(
+      'Could not start indexing. See the logs.',
+    );
+    expect(service.starting()).toBe(false);
+    await expect(service.pause('/ws')).resolves.toBeUndefined();
+    expect(service.actionMessage()?.text).toBe(
+      'Could not pause indexing. See the logs.',
+    );
+    await expect(service.cancel('/ws')).resolves.toBeUndefined();
+    expect(service.actionMessage()?.text).toBe(
+      'Could not cancel indexing. See the logs.',
+    );
+    await expect(service.resume('/ws')).resolves.toBeUndefined();
+  });
+
+  it('is busy while a start is in flight and ignores a second start', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:start') {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { status: baseStatus({ state: 'indexed' }) }),
+      );
+    });
+    const first = service.start('/ws');
+    expect(service.isBusy()).toBe(true);
+    await service.start('/ws');
+    expect(
+      rpcCall.mock.calls.filter(([m]) => m === 'indexing:start'),
+    ).toHaveLength(1);
+    release(makeRpcResult(true, { accepted: true, state: 'indexing' }));
+    await first;
+    expect(service.isBusy()).toBe(false);
+  });
+
+  it('indexing:failed clears progress and reloads the status', async () => {
+    routeRpc(baseStatus({ state: 'error' }));
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 30 }),
+    });
+    rpcCall.mockClear();
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'manual',
+      },
+    });
+    expect(service.progress()).toBeNull();
+    expect(rpcCall).toHaveBeenCalledWith('indexing:getStatus', {
+      workspaceRoot: '/ws',
+    });
+    expect(service.handledMessageTypes).toContain('indexing:failed');
+  });
+
+  it('ignores complete and failed pushes for another workspace', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    await service.loadStatus('/ws-a');
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 30 }),
+    });
+    rpcCall.mockClear();
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws-b',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws-b',
+        workspaceFingerprint: 'fp',
+        completedAt: 6,
+        gitHeadSha: null,
+        elapsedMs: 4,
+      },
+    });
+    await Promise.resolve();
+
+    expect(rpcCall).not.toHaveBeenCalled();
+    expect(service.progress()).not.toBeNull();
+    expect(service.completedAt()).toBeNull();
+    expect(service.actionMessage()).toBeNull();
+
+    // The same root in another spelling still counts as the active one.
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws-a/',
+        workspaceFingerprint: 'fp',
+        completedAt: 7,
+        gitHeadSha: null,
+        elapsedMs: 4,
+      },
+    });
+    expect(service.completedAt()).toBe(7);
+    expect(rpcCall).toHaveBeenCalledWith('indexing:getStatus', {
+      workspaceRoot: '/ws-a/',
+    });
+  });
+
+  it('a refreshOnly completion after a newer failed push moves the panel to the persisted error', async () => {
+    // The older census is still live when the newer census fails: the
+    // failure push re-reads a status that still shows it running.
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'manual',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 40 }),
+    });
+    expect(service.uiState().kind).toBe('indexing');
+
+    // The older census settles, is stale-skipped and sends a refresh only.
+    routeRpc(baseStatus({ state: 'error', errorMessage: 'memory broke' }));
+    service.handleMessage({
+      type: 'indexing:complete',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        completedAt: 9,
+        gitHeadSha: null,
+        elapsedMs: 8,
+        refreshOnly: true,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.progress()).toBeNull();
+    expect(service.isBusy()).toBe(false);
+    expect(service.uiState()).toEqual({
+      kind: 'error',
+      message: 'memory broke',
+    });
+  });
+
+  it('loadStatus resolves false on a failed read and keeps the last status', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    await expect(service.loadStatus('/ws')).resolves.toBe(true);
+    rpcCall.mockResolvedValue(makeRpcResult(false, undefined));
+    await expect(service.loadStatus('/ws')).resolves.toBe(false);
+    expect(service.uiState().kind).toBe('indexed');
+  });
+
+  it('an accepted start whose status read fails shows a fixed sentence, not the join or start error', async () => {
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        const failed = makeRpcResult(false, undefined);
+        failed.error = 'SQLITE_BUSY /home/secret';
+        return Promise.resolve(failed);
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: 'indexing' }),
+      );
+    });
+    await service.start('/ws', true);
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Indexing started, but its status could not be read. Reopen this view to check it.',
+    });
+    await service.resume('/ws');
+    expect(service.actionMessage()?.text).toBe(
+      'Indexing started, but its status could not be read. Reopen this view to check it.',
+    );
+  });
+
+  it('indexing:failed with a failed reload drops the stale running view and shows a fixed error', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: { origin: 'manual', startedAt: 1, force: true },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.isBusy()).toBe(true);
+    rpcCall.mockRejectedValue(new Error('ECONNRESET'));
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'manual',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.isBusy()).toBe(false);
+    expect(service.runningOrigin()).toBeNull();
+    expect(service.uiState()).toEqual({
+      kind: 'error',
+      message: 'Indexing failed. See the logs.',
+    });
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Indexing failed. See the logs.',
+    });
+  });
+
+  it('an older failed-push reload that rejects after a newer start loads leaves the new run alone', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexed',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+
+    let rejectOldRead: (error: Error) => void = () => undefined;
+    const newStatus = baseStatus({
+      state: 'indexing',
+      running: { origin: 'manual', startedAt: 10, force: true },
+    });
+    let statusReads = 0;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        statusReads += 1;
+        if (statusReads === 1) {
+          return new Promise((_resolve, reject) => {
+            rejectOldRead = reject;
+          });
+        }
+        return Promise.resolve(makeRpcResult(true, { status: newStatus }));
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: 'indexing' }),
+      );
+    });
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    await service.start('/ws', true);
+    expect(service.runningOrigin()).toBe('manual');
+
+    rejectOldRead(new Error('ECONNRESET'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.runningOrigin()).toBe('manual');
+    expect(service.isBusy()).toBe(true);
+    expect(service.actionMessage()).toBeNull();
+  });
+
+  it('a failed start during a pending failed-push reload still drops the stale run and keeps the start error', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexed',
+        running: { origin: 'background', startedAt: 1, force: false },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.runningOrigin()).toBe('background');
+
+    let rejectOldRead: (error: Error) => void = () => undefined;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        return new Promise((_resolve, reject) => {
+          rejectOldRead = reject;
+        });
+      }
+      return Promise.resolve(makeRpcResult(false, undefined));
+    });
+
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'background',
+      },
+    });
+    await service.start('/ws', true);
+
+    rejectOldRead(new Error('ECONNRESET'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.runningOrigin()).toBeNull();
+    expect(service.isBusy()).toBe(false);
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Could not start indexing. See the logs.',
+    });
+  });
+
+  it('cancel clears the last progress event', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    service.handleMessage({
+      type: 'indexing:progress',
+      payload: progress({ percent: 30 }),
+    });
+    await service.cancel('/ws');
+    expect(service.progress()).toBeNull();
+    expect(service.uiState().kind).toBe('indexed');
+  });
+});

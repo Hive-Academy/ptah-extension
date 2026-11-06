@@ -269,6 +269,7 @@ function harness(
       const counts = double.callCounts();
       return counts.extract + counts.resolve;
     },
+    curatorFailureDetail: () => double.lastFailureMessage(),
   };
   return { env, double };
 }

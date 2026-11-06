@@ -51,6 +51,41 @@ export class WorkspaceIndexingComponent {
   readonly uiState = this.service.uiState;
   readonly status = this.service.status;
   readonly progress = this.service.progress;
+  /** Start in flight or a manual run live: start buttons are disabled. */
+  readonly isBusy = this.service.isBusy;
+  readonly actionMessage = this.service.actionMessage;
+  readonly runningOrigin = this.service.runningOrigin;
+
+  /** A background scan runs and no manual run takes part in it. */
+  readonly backgroundOnly = computed(
+    () => this.runningOrigin() === 'background' && !this.isBusy(),
+  );
+
+  /** One-line summary of the last finished run (or `null` when none). */
+  readonly lastRunSummary = computed<string | null>(() => {
+    const run = this.service.lastRun();
+    if (!run) return null;
+    const who = run.origin === 'manual' ? 'manual run' : 'background scan';
+    const when = this.formatRelativeTime(run.finishedAt);
+    if (run.outcome === 'failed') {
+      return `Last ${who} ${when} failed. See the logs for details.`;
+    }
+    if (run.outcome === 'cancelled') {
+      return `Last ${who} ${when} was cancelled.`;
+    }
+    const parts: string[] = [];
+    if (run.filesScanned !== undefined) {
+      parts.push(plural(run.filesScanned, 'file'));
+    }
+    if (run.symbolsIndexed !== undefined) {
+      parts.push(plural(run.symbolsIndexed, 'symbol'));
+    }
+    if (run.errors !== undefined) {
+      parts.push(plural(run.errors, 'error'));
+    }
+    parts.push(formatDuration(run.durationMs));
+    return `Last ${who} ${when}: ${parts.join(', ')}`;
+  });
 
   /** Workspace root from global app state (null = no workspace open). */
   readonly workspaceRoot = computed<string | null>(
@@ -163,4 +198,19 @@ export class WorkspaceIndexingComponent {
     if (!sha) return '—';
     return sha.slice(0, 7);
   }
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** Compact duration — `2h 25m`, `4m 10s`, `12s`. */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }

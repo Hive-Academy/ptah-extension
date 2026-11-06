@@ -42,8 +42,30 @@ export interface IndexingEmbedderStatusWire {
   };
 }
 
+export interface IndexingRunWire {
+  readonly origin: 'manual' | 'background';
+  readonly startedAt: number;
+  readonly force: boolean;
+  readonly joinedBackground?: boolean;
+  readonly processed?: number;
+  readonly total?: number;
+}
+
+export interface IndexingLastRunWire {
+  readonly origin: 'manual' | 'background';
+  readonly outcome: 'succeeded' | 'failed' | 'cancelled';
+  readonly startedAt: number;
+  readonly finishedAt: number;
+  readonly durationMs: number;
+  readonly filesScanned?: number;
+  readonly symbolsIndexed?: number;
+  readonly errors?: number;
+}
+
 export interface IndexingStatusWire {
   readonly state: IndexingState;
+  readonly running?: IndexingRunWire | null;
+  readonly lastRun?: IndexingLastRunWire | null;
   readonly workspaceFingerprint: string;
   readonly gitHeadSha: string | null;
   readonly currentGitHeadSha: string | null;
@@ -106,7 +128,30 @@ export interface IndexingCompleteEvent {
   readonly completedAt: number;
   readonly gitHeadSha: string | null;
   readonly elapsedMs: number;
+  /**
+   * `true` when no run completed: an older census settled after a newer one
+   * had already persisted its own result, so the stored status did not
+   * change. The panel must drop its live progress and re-read the status;
+   * it must not count this push as a completion or a recovery. Absent on a
+   * real completion.
+   */
+  readonly refreshOnly?: true;
 }
+
+export interface IndexingFailedEvent {
+  readonly workspaceRoot: string;
+  /** Absent when the failure happened before a fingerprint could be derived. */
+  readonly workspaceFingerprint?: string;
+  readonly failedAt: number;
+  readonly elapsedMs: number;
+  readonly origin: 'manual' | 'background';
+}
+
+export type IndexingRefusalReason =
+  | 'no-workspace'
+  | 'indexer-not-ready'
+  | 'already-running'
+  | 'setup-failed';
 
 export interface IndexingGetStatusParams {
   readonly workspaceRoot: string;
@@ -124,6 +169,7 @@ export interface IndexingStartParams {
 }
 export interface IndexingStartResult {
   readonly accepted: boolean;
+  readonly reason?: IndexingRefusalReason;
   /** State after the start command was processed. */
   readonly state: IndexingState;
 }
@@ -142,6 +188,7 @@ export interface IndexingResumeParams {
 }
 export interface IndexingResumeResult {
   readonly accepted: boolean;
+  readonly reason?: IndexingRefusalReason;
   readonly state: IndexingState;
 }
 

@@ -250,6 +250,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                         [defaultTier]="row.defaultTier"
                         [requiresToolUse]="row.requiresToolUse"
                         [extraProviders]="extraProviders()"
+                        [excludedProviders]="row.unsupportedProviders"
                         [disabled]="busy() || disabled()"
                         (selectionChange)="onDraftChange(row.id, $event)"
                         [attr.data-testid]="'picker-' + row.id"
@@ -655,16 +656,17 @@ export class ProviderConsumerAssignmentsComponent {
     ),
   );
 
-  /** `blocking: false` is an advisory note: the choice still saves. */
-  protected readonly draftProviderReadiness = computed(() =>
-    this.activeEditId()
-      ? providerReadiness(
-          this.currentDraft().provider,
-          this.state.route().data?.providers ?? [],
-          !!this.state.activeProviderId(),
-        )
-      : null,
-  );
+  /** `blocking: false` is an advisory note: the choice still saves. A provider the role cannot run on always blocks. */
+  protected readonly draftProviderReadiness = computed(() => {
+    const id = this.activeEditId();
+    if (!id) return null;
+    return providerReadiness(
+      this.currentDraft().provider,
+      this.state.route().data?.providers ?? [],
+      !!this.state.activeProviderId(),
+      this.rows().find((r) => r.id === id)?.unsupportedProviders ?? [],
+    );
+  });
 
   protected toggleEdit(id: ProviderConsumerId): void {
     if (this.activeEditId() === id) {
