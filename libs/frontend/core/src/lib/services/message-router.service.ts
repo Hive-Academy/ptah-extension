@@ -33,6 +33,17 @@
  *   runs before that bubble-phase listener no matter which registered first.
  *   A BATCH carrying an `rpc:response` member gets the same flush; no producer
  *   batches responses, so that case is also reported as a producer regression.
+ * - Every drain, the response flush included, runs under one budget
+ *   (`DRAIN_BUDGET_MS` / `DRAIN_MESSAGE_CAP` units, a BATCH member counting as
+ *   one unit, so a large BATCH is split across tasks in order). When the
+ *   backlog ahead of a response does not fit, the response is HELD: its
+ *   event's propagation is stopped (the other window listeners, the RPC client
+ *   among them, do not see it yet), the backlog continues in the next tasks,
+ *   and when the drain reaches the response it is dispatched and then
+ *   re-dispatched on `window` for those listeners -- the same stop-and-replay
+ *   `apps/ptah-extension-webview/src/main.ts` uses at boot. That drain ends
+ *   right after it, so the awaiting caller still resumes after every earlier
+ *   push and before every later one (R-P8 unchanged).
  * - Errors: each dispatched message (each BATCH member included) is isolated
  *   and reported to Angular's `ErrorHandler`; so is a malformed BATCH envelope
  *   and a drain wake-up that fails to post (the drain then runs synchronously
@@ -79,6 +90,36 @@ const SIGNAL_ONLY_STREAM_TYPES = new Set<string>([MESSAGE_TYPES.CHAT_CHUNK]);
 const DRAIN_BUDGET_MS = 8;
 const DRAIN_MESSAGE_CAP = 64;
 
+/** The event that triggered a response flush, so it can be held. */
+interface FlushTrigger {
+  readonly message: InboundMessage;
+  readonly event: MessageEvent;
+}
+
+/** Where a drain stopped: next message, and the undispatched BATCH tail. */
+interface DrainCursor {
+  index: number;
+  tail: InboundMessage | null;
+}
+
+/** One drain's time and unit budget; never spent before the first unit. */
+class DrainBudget {
+  private units = 0;
+  private readonly started = performance.now();
+
+  count(): void {
+    this.units++;
+  }
+
+  spent(): boolean {
+    return (
+      this.units > 0 &&
+      (this.units >= DRAIN_MESSAGE_CAP ||
+        performance.now() - this.started >= DRAIN_BUDGET_MS)
+    );
+  }
+}
+
 /** `payload.events` of a well-formed BATCH envelope, or `null`. */
 function batchEvents(message: { payload?: unknown }): unknown[] | null {
   const payload = message.payload;
@@ -108,16 +149,21 @@ export class MessageRouterService {
   private drainHandle: MacrotaskHandle | null = null;
   private destroyed = false;
   private batchedResponseReported = false;
+  /** Responses whose window event was stopped; replayed once dispatched. */
+  private readonly heldResponses = new Set<InboundMessage>();
+  /** Replays in flight, which this router's own listener must not re-queue. */
+  private readonly replaying = new WeakSet<object>();
 
   private readonly onWindowMessage = (event: MessageEvent): void => {
     if (this.destroyed) return;
     const message = event.data;
     if (!message || !message.type) return;
+    if (this.replaying.has(message)) return;
 
     this.queue.push(message as InboundMessage);
 
     if (!this.draining && this.needsSynchronousFlush(message)) {
-      this.drain(true);
+      this.drain({ message: message as InboundMessage, event });
       return;
     }
     this.scheduleDrain();
@@ -206,20 +252,37 @@ export class MessageRouterService {
     if (handle && this.drainScheduled) this.drainHandle = handle;
   }
 
-  /** Dispatch queued messages in arrival order; later arrivals get a new drain. */
-  private drain(synchronous = false): void {
+  /**
+   * Dispatch queued messages in arrival order under one `DrainBudget`; the
+   * rest, and later arrivals, get a new drain. With a `trigger` (a response
+   * flush) that the budget did not reach, the trigger is held.
+   */
+  private drain(trigger?: FlushTrigger): void {
     if (this.destroyed || this.draining || this.queue.length === 0) return;
     const pending = this.queue;
     this.queue = [];
     this.draining = true;
-    let dispatched = 0;
-    const started = performance.now();
+    const budget = new DrainBudget();
+    // An object, not two `let`s: the loop below runs in a closure, and the
+    // `finally` must read what it left behind.
+    const cursor: DrainCursor = { index: 0, tail: null };
     try {
       const dispatch = () => {
-        while (dispatched < pending.length) {
-          if (!synchronous && dispatched > 0 &&
-              (dispatched >= DRAIN_MESSAGE_CAP || performance.now() - started >= DRAIN_BUDGET_MS)) break;
-          this.dispatchPending([pending[dispatched++]]);
+        while (cursor.index < pending.length && !budget.spent()) {
+          const message = pending[cursor.index];
+          const tail = this.dispatchUnit(message, budget);
+          if (tail !== null) {
+            cursor.tail = tail;
+            if (this.heldResponses.delete(message)) this.heldResponses.add(tail);
+            break;
+          }
+          cursor.index++;
+          if (this.heldResponses.delete(message)) {
+            this.replay(message);
+            // End here: the replay resolves the awaiting caller, which must
+            // resume before anything that arrived after its response.
+            break;
+          }
         }
       };
       if (pending.some((message) => this.requiresZone(message))) {
@@ -232,27 +295,77 @@ export class MessageRouterService {
       }
     } finally {
       this.draining = false;
-      if (dispatched < pending.length) {
-        this.queue = pending.slice(dispatched).concat(this.queue);
+      const rest = pending.slice(cursor.index);
+      if (cursor.tail !== null) rest[0] = cursor.tail;
+      if (rest.length > 0) this.queue = rest.concat(this.queue);
+      if (trigger !== undefined && rest.length > 0) {
+        this.hold(trigger, cursor.tail);
       }
       if (this.queue.length > 0) this.scheduleDrain();
     }
   }
 
-  private dispatchPending(pending: readonly InboundMessage[]): void {
-    for (const message of pending) {
-      const dispatch = () => {
-        if (message.type === MESSAGE_TYPES.BATCH) {
-          this.dispatchBatch(message);
-        } else {
-          this.dispatchGuarded(message);
-        }
-      };
-      if (this.requiresZone(message)) {
-        dispatch();
+  /**
+   * The flush did not reach its trigger, which is always the last pending
+   * message (it was queued just before this non-reentrant drain). Stop the
+   * event so the other window listeners see it only when its turn comes.
+   */
+  private hold(trigger: FlushTrigger, tail: InboundMessage | null): void {
+    trigger.event.stopImmediatePropagation();
+    const queued = this.queue.includes(trigger.message)
+      ? trigger.message
+      : tail;
+    if (queued !== null) this.heldResponses.add(queued);
+  }
+
+  /** Re-dispatch a held response for the window listeners it was kept from. */
+  private replay(message: InboundMessage): void {
+    this.replaying.add(message);
+    try {
+      this.ngZone.runOutsideAngular(() =>
+        window.dispatchEvent(new MessageEvent('message', { data: message })),
+      );
+    } finally {
+      this.replaying.delete(message);
+    }
+  }
+
+  /**
+   * Dispatch one queued message. A well-formed BATCH is dispatched member by
+   * member, each member one budget unit; when the budget runs out mid-batch
+   * the undispatched members come back as a new BATCH envelope (the tail),
+   * which keeps its place at the head of the queue.
+   */
+  private dispatchUnit(
+    message: InboundMessage,
+    budget: DrainBudget,
+  ): InboundMessage | null {
+    const events =
+      message.type === MESSAGE_TYPES.BATCH ? batchEvents(message) : null;
+    if (events === null) {
+      this.dispatchPending(message);
+      budget.count();
+      return null;
+    }
+    const next = this.dispatchBatchEvents(events, budget);
+    return next < events.length
+      ? { type: message.type, payload: { events: events.slice(next) } }
+      : null;
+  }
+
+  /** Dispatch one message (a malformed BATCH is reported) in its own zone. */
+  private dispatchPending(message: InboundMessage): void {
+    const dispatch = () => {
+      if (message.type === MESSAGE_TYPES.BATCH) {
+        this.reportMalformedBatch();
       } else {
-        this.ngZone.runOutsideAngular(dispatch);
+        this.dispatchGuarded(message);
       }
+    };
+    if (this.requiresZone(message)) {
+      dispatch();
+    } else {
+      this.ngZone.runOutsideAngular(dispatch);
     }
   }
 
@@ -293,18 +406,29 @@ export class MessageRouterService {
     }
   }
 
-  private dispatchBatch(message: { payload?: unknown }): void {
-    const events = batchEvents(message);
-    if (!events) {
-      this.errorHandler.handleError(
-        new Error(
-          'MessageRouterService: dropped a BATCH envelope whose payload.events is not an array.',
-        ),
-      );
-      return;
-    }
+  private reportMalformedBatch(): void {
+    this.errorHandler.handleError(
+      new Error(
+        'MessageRouterService: dropped a BATCH envelope whose payload.events is not an array.',
+      ),
+    );
+  }
+
+  /**
+   * Dispatch `events` in order, each in its own required zone. Stops before a
+   * member once `budget` is spent (never before the first member) and returns
+   * the index of the first undispatched member.
+   */
+  private dispatchBatchEvents(
+    events: readonly unknown[],
+    budget: DrainBudget,
+  ): number {
     let skipped = 0;
-    for (const event of events) {
+    let next = 0;
+    while (next < events.length) {
+      if (next > 0 && budget.spent()) break;
+      const event = events[next++];
+      budget.count();
       if (
         !event ||
         typeof event !== 'object' ||
@@ -327,6 +451,7 @@ export class MessageRouterService {
         ),
       );
     }
+    return next;
   }
 
   private teardown(): void {
@@ -340,6 +465,11 @@ export class MessageRouterService {
     this.drainHandle = null;
     this.drainScheduled = false;
     this.queue = [];
+    // A held response was kept from the RPC client; hand it over rather than
+    // leave its caller waiting for its timeout.
+    const held = [...this.heldResponses];
+    this.heldResponses.clear();
+    for (const message of held) this.replay(message);
   }
 }
 

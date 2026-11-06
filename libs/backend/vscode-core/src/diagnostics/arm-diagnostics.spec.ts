@@ -271,6 +271,35 @@ describe('armDiagnostics — opt-in hang profiler (PTAH_HANG_PROFILE)', () => {
     expect(session.calls[3]).toBe('Profiler.stop');
     expect(session.disconnected).toBe(true);
   });
+
+  it('disposes the profiler when the watchdog fails to start, leaving no debugger attached', async () => {
+    process.env[HANG_PROFILE_ENV] = '1';
+    const fakes = createFakes();
+    fakes.watchdog.start.mockImplementation(() => {
+      throw new Error('workers forbidden');
+    });
+    let profiler: HangProfiler | undefined;
+    const session = createFakeInspectorSession();
+    armDiagnostics({
+      container: buildContainer(fakes),
+      logsPath: '/logs',
+      createHangProfiler: (options) => {
+        profiler = new HangProfiler({ ...options, createSession: () => session });
+        return profiler;
+      },
+    });
+    for (let i = 0; i < 50; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(profiler).toBeDefined();
+    // Disposed before its queued start ran: no inspector session was opened,
+    // so nothing samples and no rotation timer holds the profiler alive.
+    expect(session.calls).toEqual([]);
+    expect(
+      (profiler as unknown as { rotateTimer: unknown }).rotateTimer,
+    ).toBeUndefined();
+  });
 });
 
 async function waitForCalls(

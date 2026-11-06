@@ -566,6 +566,26 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     expect(bind).toBeGreaterThan(sqlite);
     expect(bind).toBeGreaterThan(sdk);
   });
+
+  it('phase 2 binds the slow-statement sink before the SQLite connection is registered', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const sink = source.indexOf(
+      'container.register(PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK',
+    );
+    const sqlite = source.indexOf(
+      'registerPersistenceSqliteServices(container, logger);',
+    );
+    expect(sink).toBeGreaterThan(-1);
+    expect(sink).toBeLessThan(sqlite);
+    expect(
+      EXPECTED_RESOLVABLE_TOKENS.some(
+        ([name]) => name === 'SQLITE_SLOW_STATEMENT_SINK',
+      ),
+    ).toBe(true);
+  });
 });
 
 /** Stubs the lane-listing constructor deps this container does not bind. */

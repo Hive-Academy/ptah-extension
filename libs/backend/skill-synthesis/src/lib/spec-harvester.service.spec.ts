@@ -661,22 +661,57 @@ describe('SpecHarvesterService — carrier-less folder warning', () => {
     ]);
   });
 
-  it('reuses an unchanged skipped folder and warns again when the set changes', async () => {
-    const first = join(specsRoot, 'TASK_2026_LEGACY');
-    await mkdir(first);
+  it('skips carrier-less folders without extraction and warns again when the set changes', async () => {
+    await mkdir(join(specsRoot, 'TASK_2026_LEGACY'));
     const extract = jest.spyOn(specExtractor, 'extractSpec');
     try {
       await svc.harvest();
-      const parsed = extract.mock.calls.length;
       await svc.harvest();
-      expect(extract).toHaveBeenCalledTimes(parsed);
       expect(logger.warn).toHaveBeenCalledTimes(1);
       await mkdir(join(specsRoot, 'TASK_2026_OTHER'));
       await svc.harvest();
       expect(logger.warn).toHaveBeenCalledTimes(2);
-      expect(extract).toHaveBeenCalledTimes(parsed + 1);
+      // A definite miss (no carrier file) never needs the full extraction.
+      expect(extract).not.toHaveBeenCalled();
     } finally {
       extract.mockRestore();
+    }
+  });
+
+  it('re-reads a folder whose carrier exists but yields no spec, every run', async () => {
+    const dir = join(specsRoot, 'TASK_2026_BROKEN');
+    await mkdir(dir);
+    await writeFile(join(dir, 'task.md'), 'no frontmatter here', 'utf8');
+    const extract = jest.spyOn(specExtractor, 'extractSpec');
+    try {
+      await svc.harvest();
+      await svc.harvest();
+      // Not cached: a transient read failure looks the same as this from
+      // outside extractSpec, and must not hide the folder.
+      expect(extract).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    } finally {
+      extract.mockRestore();
+    }
+  });
+
+  it('keys the skipped-set warning per specs root', async () => {
+    const otherRoot = await mkdtemp(join(tmpdir(), 'spec-harvest-warn-b-'));
+    try {
+      await mkdir(join(specsRoot, 'TASK_2026_A'));
+      await mkdir(join(otherRoot, '.ptah', 'specs', 'TASK_2026_B'), {
+        recursive: true,
+      });
+
+      await svc.harvest(root);
+      await svc.harvest(otherRoot);
+      await svc.harvest(root);
+      await svc.harvest(otherRoot);
+
+      // One warn per root, not one per alternating call.
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
     }
   });
 

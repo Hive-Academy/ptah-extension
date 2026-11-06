@@ -69,11 +69,30 @@ function emptyStartupConfig(): StartupConfig {
   };
 }
 
+/**
+ * Map Chromium's `gpu_compositing` feature status onto the renderer's mode.
+ *
+ * Chromium reports `enabled*` (`enabled`, `enabled_on`, `enabled_force`, ...),
+ * `*_software` when compositing falls back to the CPU, and `disabled_*` /
+ * `unavailable_*` when it is off. The renderer turns glass blur off for both
+ * `software` and `disabled`, so only a status that positively says the GPU is
+ * not compositing may leave `hardware`. A missing or unrecognised status maps
+ * to `hardware`: turning glass off on a working GPU is a visible regression,
+ * while a wrong `hardware` on a GPU-less machine only costs blur performance.
+ */
+export function gpuCompositingModeFor(
+  status: string | undefined,
+): StartupConfig['gpuCompositing'] {
+  if (!status || status.startsWith('enabled')) return 'hardware';
+  if (status.endsWith('software')) return 'software';
+  if (status.startsWith('disabled') || status.startsWith('unavailable')) {
+    return 'disabled';
+  }
+  return 'hardware';
+}
+
 function gpuCompositingMode(): StartupConfig['gpuCompositing'] {
-  const status = app.getGPUFeatureStatus().gpu_compositing;
-  if (status === 'enabled') return 'hardware';
-  if (status?.startsWith('disabled') || status === 'unavailable') return 'disabled';
-  return 'software';
+  return gpuCompositingModeFor(app.getGPUFeatureStatus().gpu_compositing);
 }
 
 /**

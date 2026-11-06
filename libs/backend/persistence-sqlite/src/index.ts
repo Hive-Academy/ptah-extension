@@ -15,6 +15,8 @@ export type {
   SqliteVecPathResolver,
 } from './lib/sqlite-connection.service';
 
+export type { SlowStatementSink } from './lib/slow-statement-timing';
+
 export type {
   VecLoadDiagnostic,
   VecLoadReason,

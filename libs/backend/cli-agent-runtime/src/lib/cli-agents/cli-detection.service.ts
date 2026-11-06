@@ -22,7 +22,7 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
-import { fixPathReady } from './cli-adapters/fix-path';
+import { fixPathReady, isShellPathPending } from './cli-adapters/fix-path';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
 import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
@@ -55,6 +55,14 @@ function unavailableCodexAdapter(cause: Error): CliAdapter {
  */
 const REFRESH_JOIN_MAX_AGE_MS = 15_000;
 
+/**
+ * Longest the first detection waits for the login-shell PATH probe
+ * (`fixPathReady`). Bounded well under the probe's own 5 s timeout: a slow rc
+ * file costs the first scan at most this long, and a later answer still drops
+ * the cache (`refreshWhenShellPathLands`).
+ */
+export const SHELL_PATH_FIRST_SCAN_WAIT_MS = 1_000;
+
 @injectable()
 export class CliDetectionService {
   private readonly adapters: Map<CliType, CliAdapter> = new Map();
@@ -70,6 +78,10 @@ export class CliDetectionService {
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
   private modelInFlight: Promise<Record<string, CliModelInfo[]>> | null = null;
+  /** The first scan's login-shell PATH head start was given (shellPathHeadStart). */
+  private shellPathWaitGiven = false;
+  /** PATH the latest scan started its adapters with; null before any scan. */
+  private scannedWithPath: string | null = null;
 
   /**
    * @param spawner - The off-thread process spawner, reusing `agent-sdk`'s
@@ -154,16 +166,21 @@ export class CliDetectionService {
   }
 
   /**
-   * The login-shell PATH probe started by `fixPath` answers after boot and
-   * detection never waits for it. When it changes PATH, drop the cached scan
-   * once, so the next detection finds CLIs that only the login shell's PATH
-   * contains (macOS/Linux GUI launches). On Windows the PATH never changes.
+   * The login-shell PATH probe started by `fixPath` answers after boot. The
+   * first scan waits for it at most {@link SHELL_PATH_FIRST_SCAN_WAIT_MS}
+   * ({@link shellPathHeadStart}); when it lands later than that and differs
+   * from the PATH a scan already ran with, drop the cached scan once, so the
+   * next detection finds CLIs that only the login shell's PATH contains
+   * (macOS/Linux GUI launches). A scan still waiting for its head start needs
+   * no drop: it starts after this callback, on the new PATH. On Windows the
+   * PATH never changes.
    */
   private refreshWhenShellPathLands(): void {
-    const before = process.env['PATH'] ?? '';
     fixPathReady()
       .then((after) => {
-        if (after !== before) this.invalidateCache();
+        if (this.scannedWithPath !== null && this.scannedWithPath !== after) {
+          this.invalidateCache();
+        }
       })
       .catch((error: unknown) => {
         // degradation-audit: reported - a failed PATH wait only skips the one-time refresh.
@@ -218,6 +235,32 @@ export class CliDetectionService {
     return this.detectAll();
   }
 
+  /**
+   * A short, bounded head start for the login-shell PATH probe before the
+   * first scan, so a probe that answers within
+   * {@link SHELL_PATH_FIRST_SCAN_WAIT_MS} is already in PATH when the adapters
+   * look for their binaries and the renderer's first answer is not a stale
+   * "not installed". An async wait: the main loop keeps running. Returns
+   * `null` (start at once, in this tick) when no probe is pending — Windows,
+   * no `SHELL`, a host that never called `fixPath`, a probe that already
+   * answered — or once the head start has been given.
+   */
+  private shellPathHeadStart(): Promise<void> | null {
+    if (this.shellPathWaitGiven || !isShellPathPending()) return null;
+    this.shellPathWaitGiven = true;
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, SHELL_PATH_FIRST_SCAN_WAIT_MS);
+      timer.unref?.();
+      const settle = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      // A rejected PATH wait is logged by `refreshWhenShellPathLands`; here
+      // either outcome only ends the head start.
+      fixPathReady().then(settle, settle);
+    });
+  }
+
   /** The in-flight scan, only when it started in the current generation. */
   private currentInFlight(): Promise<CliDetectionResult[]> | null {
     return this.detectionInFlight && this.inFlightGeneration === this.generation
@@ -230,10 +273,13 @@ export class CliDetectionService {
    */
   private async doDetectAll(generation: number): Promise<CliDetectionResult[]> {
     this.logger.info('[CliDetection] Detecting installed CLI agents...');
-    // Do NOT await the login-shell PATH probe here: starting every adapter in
-    // this tick is what lets peer detection run while one binary probe hangs.
-    // The host starts the probe at boot (`fixPath`); its result is merged when
-    // it answers, and detection does not block the main loop waiting for it.
+    // The scan is already registered as in flight, so callers join it during
+    // the (first scan only, bounded) PATH head start.
+    const headStart = this.shellPathHeadStart();
+    if (headStart) await headStart;
+    this.scannedWithPath = process.env['PATH'] ?? '';
+    // Every adapter starts in one tick, so peer detection runs while one
+    // binary probe hangs.
     const entries = await Promise.all(
       [...this.adapters].map(async ([name, adapter]): Promise<[CliType, CliDetectionResult]> => {
         try {

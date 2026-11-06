@@ -118,6 +118,12 @@ export class HangProfiler {
   private session: InspectorSessionPort | undefined;
   private rotateTimer: ReturnType<typeof setInterval> | undefined;
   private lastTickAt = 0;
+  /**
+   * True while V8 is sampling (a `Profiler.start` succeeded and no stop has
+   * run since). A failed restart leaves it false, so the next rotation retries
+   * the start instead of failing forever at `stop` ("not started").
+   */
+  private sampling = false;
   /** Serialises start/stop so a rotation and a capture never interleave. */
   private chain: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -154,6 +160,7 @@ export class HangProfiler {
       throw error;
     }
     this.session = session;
+    this.sampling = true;
     this.lastTickAt = this.now();
     const timer = setInterval(() => this.onRotateTick(), this.rotateMs);
     timer.unref();
@@ -195,17 +202,23 @@ export class HangProfiler {
       this.rotateTimer = undefined;
     }
     await this.chain;
+    // A start already running when dispose began may have armed its timer.
+    if (this.rotateTimer !== undefined) {
+      clearInterval(this.rotateTimer);
+      this.rotateTimer = undefined;
+    }
     const session = this.session;
     this.session = undefined;
     if (session === undefined) return;
     try {
-      await session.post('Profiler.stop');
-      session.disconnect();
+      if (this.sampling) await session.post('Profiler.stop');
     } catch (error: unknown) {
       this.options.logger.debug('[hang-profile] stop on dispose failed', {
         reason: error instanceof Error ? error.message : String(error),
       });
     }
+    this.sampling = false;
+    session.disconnect();
   }
 
   /** Test seam and timer body: rotate unless the tick itself was late. */
@@ -223,13 +236,21 @@ export class HangProfiler {
     const session = this.session;
     if (session === undefined || this.disposed) return;
     try {
-      await session.post('Profiler.stop');
-      await session.post('Profiler.start');
+      if (this.sampling) {
+        await session.post('Profiler.stop');
+        this.sampling = false;
+      }
+      await this.restartSampling(session);
     } catch (error: unknown) {
       this.options.logger.warn('[hang-profile] rotation failed', {
         reason: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async restartSampling(session: InspectorSessionPort): Promise<void> {
+    await session.post('Profiler.start');
+    this.sampling = true;
   }
 
   private async capture(
@@ -239,11 +260,25 @@ export class HangProfiler {
     if (session === undefined || this.disposed) {
       throw new Error('hang profiler not running');
     }
+    if (!this.sampling) {
+      // A previous restart failed: there is no window to keep. Try to sample
+      // again for the next hang, and answer this one without a profile.
+      await this.restartSampling(session);
+      throw new Error('hang profiler was not sampling');
+    }
     const stoppedAt = this.now();
     const raw = await session.post('Profiler.stop');
+    this.sampling = false;
     // Restart before the slow part (parse, write), so the next hang is
-    // covered even while this one is being saved.
-    await session.post('Profiler.start');
+    // covered even while this one is being saved. A failed restart must not
+    // cost this hang its profile; the next rotation retries it.
+    try {
+      await this.restartSampling(session);
+    } catch (error: unknown) {
+      this.options.logger.warn('[hang-profile] restart after capture failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
     this.lastTickAt = this.now();
 
     const profileValue = extractProfile(raw);

@@ -172,6 +172,60 @@ describe('HangProfiler', () => {
     expect(session.calls[session.calls.length - 1]).toBe('Profiler.start');
   });
 
+  it('retries the start on the next rotation when a restart failed after a good stop', async () => {
+    const flush = (): Promise<void> =>
+      new Promise((resolve) => setImmediate(resolve));
+    await profiler.start();
+    session.calls.length = 0;
+
+    session.failOn = 'Profiler.start';
+    now += HANG_PROFILE_ROTATE_MS;
+    profiler.onRotateTick();
+    await flush();
+    expect(session.calls).toEqual(['Profiler.stop', 'Profiler.start']);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[hang-profile] rotation failed',
+      { reason: 'Profiler.start failed' },
+    );
+
+    // Not sampling: the next rotation goes straight to `start`, not to a
+    // `stop` that would fail with "not started" forever.
+    session.failOn = undefined;
+    session.calls.length = 0;
+    now += HANG_PROFILE_ROTATE_MS;
+    profiler.onRotateTick();
+    await flush();
+    expect(session.calls).toEqual(['Profiler.start']);
+
+    session.calls.length = 0;
+    await profiler.captureHang({ hangStartedAt: now - 10, blockedForMs: 5 });
+    expect(session.calls).toEqual(['Profiler.stop', 'Profiler.start']);
+  });
+
+  it('keeps the hang profile when the restart after capture fails, and recovers later', async () => {
+    await profiler.start();
+    session.failOn = 'Profiler.start';
+
+    const fields = await profiler.captureHang({
+      hangStartedAt: T - 600,
+      blockedForMs: 500,
+    });
+    expect(fs.existsSync(fields.hangProfile)).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[hang-profile] restart after capture failed',
+      { reason: 'Profiler.start failed' },
+    );
+
+    // Nothing is sampling, so the next capture has no window: it restarts
+    // sampling and answers without a profile.
+    session.failOn = undefined;
+    session.calls.length = 0;
+    await expect(
+      profiler.captureHang({ hangStartedAt: T - 600, blockedForMs: 500 }),
+    ).rejects.toThrow('hang profiler was not sampling');
+    expect(session.calls).toEqual(['Profiler.start']);
+  });
+
   it('stops and disconnects on dispose, idempotently', async () => {
     await profiler.start();
     await profiler.dispose();

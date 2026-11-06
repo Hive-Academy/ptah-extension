@@ -24,9 +24,10 @@
  * froze the Electron main loop for up to 5 s. It is now an async `execFile`
  * started once by {@link fixPath}; the curated fallback directories are
  * applied synchronously at once, and the shell's PATH is prepended when the
- * probe answers. CLI detection does not wait for it: it listens on
- * {@link fixPathReady}, which shares the single probe and never re-runs it,
- * and drops its cached scan once if the shell's PATH changed PATH.
+ * probe answers. CLI detection gives its first scan a short bounded head start
+ * on {@link fixPathReady} (async, never on the main loop's clock), which shares
+ * the single probe and never re-runs it, and drops its cached scan once if the
+ * shell's PATH lands later and differs from the PATH that scan used.
  *
  * No-op on Windows (PATH inheritance works correctly there).
  */
@@ -42,6 +43,7 @@ const PATH_MARKER = '__PTAH_PATH_MARKER__';
 
 let applied = false;
 let ready: Promise<string> | undefined;
+let shellProbePending = false;
 
 function getCommonFallbackDirs(): string[] {
   const home = homedir();
@@ -70,7 +72,8 @@ function getCommonFallbackDirs(): string[] {
       }
     }
   } catch {
-    void 0;
+    // degradation-audit: optional-capability — no ~/.nvm (or it is unreadable)
+    // means there are no nvm node versions to add; the other fallback dirs stand.
   }
   dirs.push(path.join(home, 'n', 'bin'));
 
@@ -90,7 +93,7 @@ export function parseShellPathOutput(stdout: string): string | null {
 function readShellPath(shell: string): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
     try {
-      execFile(
+      const child = execFile(
         shell,
         ['-ilc', `echo "${PATH_MARKER}$PATH${PATH_MARKER}"`],
         {
@@ -107,6 +110,10 @@ function readShellPath(shell: string): Promise<string | null> {
           else resolve(parseShellPathOutput(stdout));
         },
       );
+      // EOF on stdin at once, as the old `spawnSync` gave with
+      // `stdio: 'ignore'`: an rc file that reads stdin (an update prompt,
+      // `read`, `ssh-add`) must see end-of-input, not block until the timeout.
+      child.stdin?.end();
     } catch {
       // A spawn that throws synchronously (bad shell path) is the same
       // skipped probe.
@@ -158,8 +165,10 @@ export function fixPath(): string {
   );
 
   const shell = process.env['SHELL'];
+  shellProbePending = Boolean(shell);
   ready = shell
     ? readShellPath(shell).then((shellPath) => {
+        shellProbePending = false;
         if (shellPath) {
           process.env['PATH'] = mergePath(
             shellPath.split(path.delimiter),
@@ -180,4 +189,14 @@ export function fixPath(): string {
  */
 export function fixPathReady(): Promise<string> {
   return ready ?? Promise.resolve(process.env['PATH'] || '');
+}
+
+/**
+ * True only while the login-shell probe started by {@link fixPath} has not
+ * answered yet. Lets a caller skip waiting on {@link fixPathReady} without an
+ * extra tick when there is nothing to wait for (Windows, no `SHELL`, a host
+ * that never called `fixPath`, or a probe that already answered).
+ */
+export function isShellPathPending(): boolean {
+  return shellProbePending;
 }

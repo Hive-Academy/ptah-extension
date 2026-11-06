@@ -29,6 +29,7 @@ import {
   DEFAULT_SQLITE_SLOW_WARN_MS,
   SQLITE_SLOW_WARN_MS_ENV,
   withSlowStatementTiming,
+  type SlowStatementSink,
 } from './slow-statement-timing';
 import {
   buildBaseDiagnostic,
@@ -140,6 +141,9 @@ export class SqliteConnectionService {
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly _dbPath: string,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /** Optional observer of slow statements; only the Electron host binds one. */
+    @inject(PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK, { isOptional: true })
+    private readonly slowStatementSink: SlowStatementSink | null = null,
   ) {
     this.logger.info(
       '[persistence-sqlite] SqliteConnectionService constructed',
@@ -211,6 +215,7 @@ export class SqliteConnectionService {
       // slow synchronous statements are named in the log (TASK_2026_437 C13).
       db = withSlowStatementTiming(this.factory(this._dbPath), {
         logger: this.logger,
+        sink: this.slowStatementSink,
         thresholdMs:
           readMsEnv(SQLITE_SLOW_WARN_MS_ENV) ?? DEFAULT_SQLITE_SLOW_WARN_MS,
       });

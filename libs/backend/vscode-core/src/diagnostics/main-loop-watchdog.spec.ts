@@ -377,6 +377,44 @@ describe('MainLoopWatchdog — hang breadcrumbs and recovery enrichment', () => 
     );
   });
 
+  it('posts every begin at once but coalesces ends to one post per macrotask', async () => {
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      ...fastTimings,
+      heartbeatIntervalMs: 60_000,
+    });
+    const worker = (
+      watchdog as unknown as {
+        worker: { postMessage: (message: unknown) => void };
+      }
+    ).worker;
+    const post = jest.spyOn(worker, 'postMessage');
+    const nextMacrotask = (): Promise<void> =>
+      new Promise((resolve) => setImmediate(resolve));
+
+    const a = crumbs.begin('rpc', 'a');
+    const b = crumbs.begin('rpc', 'b');
+    expect(post).toHaveBeenCalledTimes(2);
+
+    crumbs.end(a);
+    crumbs.end(b);
+    expect(post).toHaveBeenCalledTimes(2);
+    await nextMacrotask();
+    expect(post).toHaveBeenCalledTimes(3);
+    const last = post.mock.calls[2][0] as { breadcrumbs: Record<string, string> };
+    expect(last.breadcrumbs[HANG_BREADCRUMB_KEYS.rpc]).toBe('');
+
+    // A begin after an end in the same tick posts at once and carries the
+    // end too, so the deferred flush has nothing left to send.
+    const c = crumbs.begin('rpc', 'c');
+    crumbs.end(c);
+    crumbs.begin('rpc', 'd');
+    expect(post).toHaveBeenCalledTimes(5);
+    await nextMacrotask();
+    expect(post).toHaveBeenCalledTimes(5);
+  });
+
   it('stops pushing after dispose', async () => {
     watchdog.start({
       logsPath: logsDir,

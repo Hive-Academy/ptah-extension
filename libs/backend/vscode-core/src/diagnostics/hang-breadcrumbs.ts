@@ -25,8 +25,11 @@
  * cannot fire until the block ends. So a change notifies the attached sink at
  * once, and the watchdog posts its breadcrumbs immediately. `postMessage`
  * enqueues synchronously, so the worker holds the begin even though main
- * freezes on the very next line. No sink attached (watchdog not armed, VS Code
- * tests) — begin/end are just two map operations.
+ * freezes on the very next line. Every notification says what changed
+ * ({@link HangBreadcrumbChange}): the watchdog posts a `begin` or `slow-sql`
+ * at once and coalesces `end` changes to one post per macrotask, since an
+ * ended operation cannot be the culprit of a later block. No sink attached
+ * (watchdog not armed, VS Code tests) — begin/end are just two map operations.
  *
  * ## Why a process-wide instance
  *
@@ -58,8 +61,18 @@ export const MAX_OP_NAME_LENGTH = 80;
 /** Returned by `begin` when the set is full; `end` ignores it. */
 export const DROPPED_TOKEN = 0;
 
+/**
+ * What changed. `begin` and `slow-sql` may be followed by a synchronous block
+ * in the same tick, so a sink must hand them over at once; an `end` cannot
+ * name a culprit (the operation is over), so a sink may coalesce it.
+ */
+export type HangBreadcrumbChange = 'attach' | 'begin' | 'end' | 'slow-sql';
+
 /** Receives the full breadcrumb set after every change. */
-export type HangBreadcrumbSink = (breadcrumbs: Record<string, string>) => void;
+export type HangBreadcrumbSink = (
+  breadcrumbs: Record<string, string>,
+  change: HangBreadcrumbChange,
+) => void;
 
 interface InFlightOp {
   readonly kind: HangOpKind;
@@ -91,7 +104,7 @@ export class HangBreadcrumbs {
    */
   attach(sink: HangBreadcrumbSink): () => void {
     this.sink = sink;
-    if (this.ops.size > 0 || this.lastSlowSql !== '') this.publish();
+    if (this.ops.size > 0 || this.lastSlowSql !== '') this.notifySink('attach');
     return () => {
       if (this.sink === sink) this.sink = undefined;
     };
@@ -109,31 +122,37 @@ export class HangBreadcrumbs {
       name: clip(name),
       startedAt: this.now(),
     });
-    this.publish();
+    this.notifySink('begin');
     return token;
   }
 
   /** Record an operation leaving its dispatcher. Unknown tokens are ignored. */
   end(token: number): void {
     if (token === DROPPED_TOKEN || !this.ops.delete(token)) return;
-    this.publish();
+    this.notifySink('end');
   }
 
   /** Remember the label of the last slow SQL statement (no parameters). */
   noteSlowSql(label: string, durationMs: number): void {
     this.lastSlowSql = `${clip(label)} ${Math.round(durationMs)}ms at ${timeOfDay(this.now())}`;
-    this.publish();
+    this.notifySink('slow-sql');
   }
 
   /**
    * The breadcrumbs as the watchdog carries them. In-flight operations are
-   * listed oldest first — the oldest is the most likely culprit — each with
-   * its start time of day (UTC, matching the hang line's ISO `time`).
+   * listed newest first, each with its start time of day (UTC, matching the
+   * hang line's ISO `time`). A synchronous block is caused by something that
+   * began in the same tick, so the culprit is the most recent begin; listing
+   * oldest first let legitimately long async RPCs (a chat turn runs for
+   * minutes) fill the {@link MAX_OPS_PER_BREADCRUMB} slots and hide it.
    */
   snapshot(): Record<string, string> {
     const byKind: Record<HangOpKind, string[]> = { rpc: [], mcp: [] };
     const totals: Record<HangOpKind, number> = { rpc: 0, mcp: 0 };
-    for (const op of this.ops.values()) {
+    // Map order is insertion order (oldest first); walk it backwards. The map
+    // is bounded at MAX_IN_FLIGHT_OPS, so the copy is at most 64 entries.
+    const newestFirst = [...this.ops.values()].reverse();
+    for (const op of newestFirst) {
       totals[op.kind]++;
       const list = byKind[op.kind];
       if (list.length < MAX_OPS_PER_BREADCRUMB) {
@@ -151,10 +170,10 @@ export class HangBreadcrumbs {
     };
   }
 
-  private publish(): void {
+  private notifySink(change: HangBreadcrumbChange): void {
     const sink = this.sink;
     if (sink === undefined) return;
-    sink(this.snapshot());
+    sink(this.snapshot(), change);
   }
 }
 
