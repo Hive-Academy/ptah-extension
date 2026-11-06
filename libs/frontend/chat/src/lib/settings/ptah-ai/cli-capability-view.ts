@@ -57,7 +57,8 @@ export function cliCapabilityView(manifest?: CliAdapterManifest): CliCapabilityV
     items.filter((line) => line.state === 'supported').map(label).join(' · ') ||
     (items.some((line) => line.state === 'unverified') ? 'Unverified' : 'unsupported');
   const summaryState = (value: string): CapabilityState => value === 'Unverified' ? 'unverified' : value === 'unsupported' ? 'unsupported' : 'supported';
-  const messagingValue = summaryValue(messaging, (line) => line.label.toLowerCase());
+  // Short words in the summary badge; the detail lines keep the full labels.
+  const messagingValue = summaryValue(messaging, (line) => line.label.split(' ')[0].toLowerCase());
   const permissionValue = summaryValue(permissions, (line) => line.label);
   const networkValue = summaryValue(network, (line) => line.label.replace(' network', '').toLowerCase());
   const badges: CliCapabilityBadge[] = [

@@ -33,7 +33,7 @@ describe('cliCapabilityView', () => {
 
   it('projects live support and unsupported reasons', () => {
     const view = cliCapabilityView(manifest);
-    expect(view.summary).toContain('Messaging: steer · continue session · resume saved session');
+    expect(view.summary).toContain('Messaging: steer · continue · resume');
     expect(view.lines.find((line) => line.label === 'Interrupt')).toEqual({
       label: 'Interrupt', value: 'Unsupported', state: 'unsupported', reason: 'Adapter cannot use this mode.',
     });

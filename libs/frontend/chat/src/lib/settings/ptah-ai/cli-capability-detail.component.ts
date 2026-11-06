@@ -8,9 +8,13 @@ import { cliCapabilityView } from './cli-capability-view';
   standalone: true,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div class="grid gap-4 text-xs text-base-content sm:grid-cols-2 xl:grid-cols-4" data-testid="cli-capability-detail">
+  // The expanded row spans every matrix column, so it is wider than the
+  // visible scroll area. Keep it inside the visible part of the matrix
+  // (`cqw` = the matrix host container) and pinned to its left edge.
+  styles: `:host { display: block; position: sticky; left: 1rem; max-width: calc(100cqw - 4.75rem); }`,
+  template: `<div class="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(14rem,100%),1fr))] gap-4 text-xs text-base-content" data-testid="cli-capability-detail">
     @for (group of view().groups; track group.heading) {
-      <section [attr.aria-label]="group.heading">
+      <section class="min-w-0" [attr.aria-label]="group.heading">
         <h4 class="mb-2 font-semibold uppercase tracking-wide text-base-content-muted">{{ group.heading }}</h4>
         <dl class="grid gap-2">
           @for (line of group.lines; track line.label) {
@@ -21,7 +25,7 @@ import { cliCapabilityView } from './cli-capability-view';
                 {{ line.label }}
               </dt>
               <dd class="ml-5 text-base-content">{{ line.value }}
-                @if (line.reason) { <span class="mt-0.5 block text-base-content-muted">{{ line.reason }}</span> }
+                @if (line.reason) { <span class="mt-0.5 block break-words text-base-content-muted">{{ line.reason }}</span> }
               </dd>
             </div>
           }

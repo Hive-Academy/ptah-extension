@@ -7,7 +7,7 @@ describe('laneThreadEntries', () => {
       state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: 10, updatedAt: 10 };
     const entries = laneThreadEntries([], [receipt], 'Claude', 'Docs', 'Codex',
       [{ agentId: 'lane', kind: 'completion', state: 'pending' }], { status: 'failed', timestamp: 20 });
-    expect(entries.map(entry => entry.body)).toEqual(['Check the files', 'Failed']);
+    expect(entries.map(entry => entry.body || entry.verdict)).toEqual(['Check the files', 'Failed']);
     expect(entries[0].sender).toBe('Parent agent · Claude');
     expect(entries[1]).toMatchObject({ verdict: 'Failed', parentSignal: 'Waiting for parent' });
   });
@@ -50,11 +50,24 @@ describe('laneThreadEntries', () => {
     const entries = laneThreadEntries([], [], 'Claude', 'Docs', 'Codex',
       [{ agentId: 'lane', kind: 'completion', state: 'pending', verdict }],
       { status: 'completed', timestamp: 20 });
-    expect(entries[0].body).toBe(label);
+    expect(entries[0].verdict).toBe(label);
   });
   it('does not infer deliverables from a completed status', () => {
     const entries = laneThreadEntries([], [], 'Claude', 'Docs', 'Codex', [],
       { status: 'completed', timestamp: 20 });
-    expect(entries[0].body).toBe('Unverified');
+    expect(entries[0].verdict).toBe('Unverified');
+    expect(entries[0].body).toBe('');
+  });
+
+  it('shows no parent signal when no parent-delivery push exists', () => {
+    const entries = laneThreadEntries([], [], 'Claude', 'Docs', 'Codex', [],
+      { status: 'completed', timestamp: 20 });
+    expect(entries[0].parentSignal).toBeUndefined();
+  });
+
+  it('names the CLI once when the lane label equals the CLI', () => {
+    const entries = laneThreadEntries([], [], 'Claude', 'opencode', 'opencode', [],
+      { status: 'completed', timestamp: 20 });
+    expect(entries[0].sender).toBe('opencode');
   });
 });

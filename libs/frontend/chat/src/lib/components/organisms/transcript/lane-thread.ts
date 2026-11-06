@@ -22,6 +22,10 @@ export function laneThreadEntries(
   completion?: { readonly status: string; readonly timestamp: number },
 ): LaneThreadEntry[] {
   const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
+  // "kimi · kimi" reads as a stutter: name the CLI once when the label is the CLI.
+  const laneSender = laneLabel && laneLabel.trim().toLowerCase() !== cli.trim().toLowerCase() ? `${laneLabel} · ${cli}` : cli;
+  const signalFor = (state: string | undefined): string | undefined =>
+    state === 'delivered' ? 'Sent to parent' : state === 'expired' ? 'Expired — not sent to parent' : state === 'pending' ? 'Waiting for parent' : undefined;
   const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
   const matched = new Set<string>();
   const entries: LaneThreadEntry[] = messages.filter(message => message.role === 'user' && message.rawContent && message.timestamp > 0).map(message => {
@@ -30,7 +34,7 @@ export function laneThreadEntries(
     if (receipt) matched.add(receipt.id);
     const sender = message.role === 'user'
       ? receipt?.sender === 'user' ? 'You' : (parentFamily ? `Parent agent · ${parentFamily}` : 'Parent agent')
-      : `${laneLabel} · ${cli}`;
+      : laneSender;
     return { id: message.id, sender, kind: 'message' as const, timestamp: message.timestamp,
       body: message.rawContent ?? '', receipt };
   });
@@ -40,9 +44,9 @@ export function laneThreadEntries(
       kind: 'message', timestamp: receipt.createdAt, body: receipt.preview, receipt });
   }
   for (const event of parentDelivery.filter(event => event.kind === 'report')) {
-    entries.push({ id: `report:${event.deliveryId ?? event.agentId}`, sender: `${laneLabel} · ${cli}`,
+    entries.push({ id: `report:${event.deliveryId ?? event.agentId}`, sender: laneSender,
       kind: 'report', timestamp: event.createdAt ?? completion?.timestamp ?? 0, body: event.preview ?? 'Report to parent',
-      parentSignal: event.state === 'delivered' ? 'Sent to parent' : String(event.state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent' });
+      parentSignal: signalFor(event.state) });
   }
   if (completion) {
     const delivery = parentDelivery.find(event => event.kind === 'completion');
@@ -51,8 +55,10 @@ export function laneThreadEntries(
       : delivery?.verdict === 'failed' ? 'Failed'
       : delivery?.verdict === 'unverified' ? 'Unverified'
       : completion.status === 'failed' ? 'Failed' : 'Unverified';
-    entries.push({ id: 'completion', sender: `${laneLabel} · ${cli}`, kind: 'completion', timestamp: completion.timestamp,
-      body: verdict, verdict, parentSignal: delivery?.state === 'delivered' ? 'Sent to parent' : String(delivery?.state) === 'expired' ? 'Expired — not sent to parent' : 'Waiting for parent' });
+    // No parent-delivery push means the state is unknown (for example a lane from an earlier
+    // app run), so no parent signal is shown instead of a false "Waiting for parent".
+    entries.push({ id: 'completion', sender: laneSender, kind: 'completion', timestamp: completion.timestamp,
+      body: '', verdict, parentSignal: signalFor(delivery?.state) });
   }
   return entries.sort((a, b) => a.timestamp - b.timestamp);
 }

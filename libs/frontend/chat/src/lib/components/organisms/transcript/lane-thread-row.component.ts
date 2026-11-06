@@ -21,7 +21,7 @@ import type { LaneThreadEntry } from './lane-thread';
           <span class="ml-auto inline-block w-40 shrink-0 text-right text-xs text-base-content-muted">{{ receiptLabel() }}</span>
         }
       </div>
-      <p class="mt-1 whitespace-pre-wrap break-words text-base-content">{{ entry().body }}</p>
+      @if (entry().body) { <p class="mt-1 whitespace-pre-wrap break-words text-base-content">{{ entry().body }}</p> }
       @if (entry().verdict) { <p class="mt-1 text-xs font-medium">{{ entry().verdict }}</p> }
       @if (entry().parentSignal) {
         <p class="mt-1 text-xs" [class.text-warning]="entry().parentSignal === 'Waiting for parent' || entry().parentSignal?.startsWith('Expired')">{{ entry().parentSignal }}</p>
