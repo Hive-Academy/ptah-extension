@@ -57,3 +57,6 @@ the mobile PWA, P3 = later.
 | `exchange()`: move `await client.connect()` inside the `try` so a failed connect closes the client and the transport (`machine-connection.ts:345`). | round 2 review, Minor 2 |
 | A failed explicit re-attach drops the tracked cursor, so auto-reconnect no longer re-attaches that session (`machine-connection.ts:387-405`). Fold into the Phase F reason work. | round 2 review, Minor 3 |
 | A re-pair over a legacy token without a worker ID does not revoke the old token on the worker. | round 2 review, Minor 4 |
+| Map `MachineRegistryWriteError` (registry over the size or count cap) in `mapMachineError`. Today it falls back to `MACHINE_UNREACHABLE` with a log entry. | PR 962 CodeRabbit re-review, Moderate 1 |
+| `pairViaSsh` holds the service mutation queue for the ssh command (up to 15 s), so `add`/`remove`/`list` wait behind it. Use a per-machine queue. | PR 962 CodeRabbit re-review, Moderate 2 |
+| `pair()` returns the offline summary for any error while the state is offline, not only for a `WorkerClientError`. Narrow the check. | PR 962 CodeRabbit re-review, Moderate 3 |
