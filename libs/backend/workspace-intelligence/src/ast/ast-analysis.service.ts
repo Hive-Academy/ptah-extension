@@ -140,6 +140,14 @@ export class AstAnalysisService {
     private readonly parserService: TreeSitterParserService,
   ) {}
 
+  isRuntimeUnavailable(): boolean {
+    return this.parserService.isRuntimeUnavailable();
+  }
+
+  runtimeRetryInMs(): number {
+    return this.parserService.runtimeRetryInMs();
+  }
+
   /**
    * Analyzes source code using tree-sitter queries (recommended).
    * This is the preferred method as it uses native tree-sitter pattern matching.
@@ -155,6 +163,14 @@ export class AstAnalysisService {
     filePath?: string,
   ): Promise<Result<CodeInsights, Error>> {
     const logPath = filePath || '<inline>';
+
+    if (this.parserService.isRuntimeUnavailable()) {
+      return Result.err(
+        new Error(
+          `AST analysis failed for ${logPath}: tree-sitter runtime unavailable`,
+        ),
+      );
+    }
 
     try {
       const langQueries = LANGUAGE_QUERIES_MAP[language];
@@ -181,9 +197,13 @@ export class AstAnalysisService {
       if (multiResult.isErr()) {
         const errorMessage =
           multiResult.error?.message ?? 'queryMulti returned an unknown error';
-        this.logger.error(
-          `AstAnalysisService.analyzeSource() - queryMulti failed for ${logPath}: ${errorMessage}`,
-        );
+        if (!this.parserService.isRuntimeUnavailable())
+          this.logger.error(
+            `AstAnalysisService.analyzeSource() - queryMulti failed for ${logPath}: ${errorMessage}`,
+            multiResult.error instanceof Error
+              ? multiResult.error
+              : new Error(errorMessage),
+          );
         // `cause` keeps a parser refusal readable (`parserFailureReason`).
         return Result.err(
           new Error(`AST analysis failed for ${logPath}: ${errorMessage}`, {
@@ -258,12 +278,15 @@ export class AstAnalysisService {
       );
 
       return Result.ok(insights);
-    } catch (error) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `AstAnalysisService.analyzeSource() - Failed to analyze ${logPath}: ${errorMessage}`,
-      );
+      if (!this.parserService.isRuntimeUnavailable()) {
+        this.logger.error(
+          `AstAnalysisService.analyzeSource() - Failed to analyze ${logPath}: ${errorMessage}`,
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+      }
       return Result.err(
         new Error(`AST analysis failed for ${logPath}: ${errorMessage}`),
       );

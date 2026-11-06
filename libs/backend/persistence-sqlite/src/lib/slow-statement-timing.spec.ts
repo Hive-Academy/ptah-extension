@@ -18,6 +18,7 @@ import type {
   SqliteStatement,
 } from './sqlite-connection.service';
 import { createMockLogger, type MockLogger } from './testing/mock-logger';
+import { hangBreadcrumbs } from '@ptah-extension/vscode-core';
 
 class ManualClock {
   value = 1_000;
@@ -189,6 +190,21 @@ describe('withSlowStatementTiming', () => {
       failed: false,
       suppressedSinceLastLog: 0,
     });
+  });
+
+  it('leaves the slow statement label (SQL text only) as a hang breadcrumb, even when rate-limited', () => {
+    const { db, real } = setup(50);
+    real.costMs = 80;
+
+    db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(42);
+    db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(43);
+
+    const label = hangBreadcrumbs.snapshot()['lastSlowSql'];
+    expect(label).toMatch(
+      /^all SELECT a FROM memory_chunks WHERE id = \? 80ms at \d{2}:\d{2}/,
+    );
+    expect(label).not.toContain('42');
+    expect(label).not.toContain('43');
   });
 
   it('reports changes for run and 0/1 rows for get', () => {

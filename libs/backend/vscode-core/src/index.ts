@@ -156,8 +156,12 @@ export {
   MAX_BREADCRUMB_VALUE_LENGTH,
   MAX_WORKER_RESTARTS,
   WORKER_RESTART_WINDOW_MS,
+  HangBreadcrumbs,
+  hangBreadcrumbs,
+  HANG_PROFILE_ENV,
 } from './diagnostics';
 export type {
+  HangOpKind,
   BackgroundWorkAdmission,
   BackgroundWorkSignal,
   BackgroundWorkState,

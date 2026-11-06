@@ -22,6 +22,7 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
+import { fixPathReady } from './cli-adapters/fix-path';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
 import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
@@ -68,6 +69,7 @@ export class CliDetectionService {
   private inFlightStartedAt = 0;
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
+  private modelInFlight: Promise<Record<string, CliModelInfo[]>> | null = null;
 
   /**
    * @param spawner - The off-thread process spawner, reusing `agent-sdk`'s
@@ -148,6 +150,26 @@ export class CliDetectionService {
     this.logger.info('[CliDetection] Service initialized with adapters', {
       adapters: [...this.adapters.keys()].join(', '),
     });
+    this.refreshWhenShellPathLands();
+  }
+
+  /**
+   * The login-shell PATH probe started by `fixPath` answers after boot and
+   * detection never waits for it. When it changes PATH, drop the cached scan
+   * once, so the next detection finds CLIs that only the login shell's PATH
+   * contains (macOS/Linux GUI launches). On Windows the PATH never changes.
+   */
+  private refreshWhenShellPathLands(): void {
+    const before = process.env['PATH'] ?? '';
+    fixPathReady()
+      .then((after) => {
+        if (after !== before) this.invalidateCache();
+      })
+      .catch((error: unknown) => {
+        // degradation-audit: reported - a failed PATH wait only skips the one-time refresh.
+        const cause = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn('[CliDetection] Login-shell PATH refresh skipped', cause);
+      });
   }
 
   /**
@@ -208,6 +230,10 @@ export class CliDetectionService {
    */
   private async doDetectAll(generation: number): Promise<CliDetectionResult[]> {
     this.logger.info('[CliDetection] Detecting installed CLI agents...');
+    // Do NOT await the login-shell PATH probe here: starting every adapter in
+    // this tick is what lets peer detection run while one binary probe hangs.
+    // The host starts the probe at boot (`fixPath`); its result is merged when
+    // it answers, and detection does not block the main loop waiting for it.
     const entries = await Promise.all(
       [...this.adapters].map(async ([name, adapter]): Promise<[CliType, CliDetectionResult]> => {
         try {
@@ -288,7 +314,17 @@ export class CliDetectionService {
       }
       return result;
     }
+    if (this.modelInFlight) return this.modelInFlight;
+    const pending = this.loadModelsForAll();
+    this.modelInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.modelInFlight === pending) this.modelInFlight = null;
+    }
+  }
 
+  private async loadModelsForAll(): Promise<Record<string, CliModelInfo[]>> {
     const generation = this.generation;
     const detections = await this.detectAll();
     const cache = new Map<CliType, CliModelInfo[]>();
@@ -331,6 +367,7 @@ export class CliDetectionService {
   invalidateCache(): void {
     this.detectionCache = null;
     this.modelCache = null;
+    this.modelInFlight = null;
     this.generation++;
   }
 

@@ -290,9 +290,7 @@ export class PtahCliRegistry {
   async listAgents(): Promise<PtahCliSummary[]> {
     await this.configPersistence.ensureMigrated();
     const configs = this.configPersistence.loadConfigs();
-    const summaries: PtahCliSummary[] = [];
-
-    for (const agentConfig of configs) {
+    const summaries = await Promise.all(configs.map(async (agentConfig): Promise<PtahCliSummary> => {
       const provider = getAnthropicProvider(agentConfig.providerId);
       const trulyLocal = this.isTrulyLocal(provider);
       const hasStoredKey = await this.authSecrets.hasProviderKey(
@@ -315,7 +313,7 @@ export class PtahCliRegistry {
         status = 'available';
       }
 
-      summaries.push({
+      return {
         id: agentConfig.id,
         name: agentConfig.name,
         providerName: provider?.name ?? 'Unknown',
@@ -326,8 +324,8 @@ export class PtahCliRegistry {
         enabled: agentConfig.enabled,
         modelCount,
         reasoningEffort: agentConfig.reasoningEffort,
-      });
-    }
+      };
+    }));
 
     this.logger.info(`[PtahCliRegistry] Listed ${summaries.length} agents`);
     return summaries;

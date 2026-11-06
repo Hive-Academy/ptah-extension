@@ -411,6 +411,28 @@ describe('PluginLoaderService — workspace-scoped harness plugins', () => {
       expect.stringContaining('shadows a user-global one'),
       expect.objectContaining({ pluginId: 'ptah-harness-dup' }),
     );
+    h.service.resolveCurrentPluginPaths();
+    expect(
+      h.logger.warn.mock.calls.filter(([message]) =>
+        String(message).includes('shadows a user-global one'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      h.service['shouldLogShadow'](
+        'harness',
+        'ptah-harness-dup',
+        '/new/workspace',
+        '/global',
+      ),
+    ).toBe(true);
+    expect(
+      h.service['shouldLogShadow'](
+        'harness',
+        'ptah-harness-dup',
+        '/new/workspace',
+        '/global',
+      ),
+    ).toBe(false);
   });
 
   it('lists them in getAvailablePlugins, tagged workspace, so they are toggleable', () => {
@@ -2480,6 +2502,38 @@ describe('PluginLoaderService — skills.sh roots: retired global, local workspa
     expect(h.service.resolveCurrentPluginPaths()).toEqual([local]);
   });
 
+  it('logs a skills.sh root shadow once until its paths change', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-skillssh-dup'],
+        workspaceHarnessDirs: ['ptah-skillssh-dup'],
+      }),
+    );
+    h.service.resolveCurrentPluginPaths();
+    h.service.resolveCurrentPluginPaths();
+    expect(
+      h.logger.debug.mock.calls.filter(([message]) =>
+        String(message).includes('Workspace skills.sh root shadows'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      h.service['shouldLogShadow'](
+        'skills-sh',
+        'ptah-skillssh-dup',
+        '/new/workspace',
+        '/global',
+      ),
+    ).toBe(true);
+    expect(
+      h.service['shouldLogShadow'](
+        'skills-sh',
+        'ptah-skillssh-dup',
+        '/new/workspace',
+        '/global',
+      ),
+    ).toBe(false);
+  });
+
   it('excludes Make global staging dirs in both roots', () => {
     const h = track(
       makeHarness({
@@ -2532,9 +2586,7 @@ describe('PluginLoaderService — skills.sh roots: retired global, local workspa
 
     const plugins = h.service.getAvailablePlugins();
     const localInfo = plugins.find((p) => p.id === 'ptah-skillssh-local-kit');
-    const globalInfo = plugins.find(
-      (p) => p.id === 'ptah-skillssh-global-kit',
-    );
+    const globalInfo = plugins.find((p) => p.id === 'ptah-skillssh-global-kit');
     expect(localInfo).toMatchObject({
       source: 'skillssh',
       description: 'this repo only',

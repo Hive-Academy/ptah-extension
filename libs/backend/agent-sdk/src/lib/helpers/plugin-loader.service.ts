@@ -510,6 +510,25 @@ function humanizeSlug(slug: string): string {
  */
 @injectable()
 export class PluginLoaderService {
+  private readonly shadowWarnings = new Map<string, string>();
+
+  private shouldLogShadow(
+    kind: string,
+    id: string,
+    using: string,
+    shadowed: string,
+  ): boolean {
+    const key = `${kind}:${id}`;
+    const signature = JSON.stringify([using, shadowed]);
+    if (this.shadowWarnings.get(key) === signature) return false;
+    this.shadowWarnings.delete(key);
+    this.shadowWarnings.set(key, signature);
+    if (this.shadowWarnings.size > 256) {
+      const oldest = this.shadowWarnings.keys().next().value;
+      if (oldest !== undefined) this.shadowWarnings.delete(oldest);
+    }
+    return true;
+  }
   /** Absolute path to the plugins base directory (~/.ptah/plugins/) */
   private pluginsBasePath: string | null = null;
 
@@ -1825,7 +1844,10 @@ export class PluginLoaderService {
     )) {
       const id = path.basename(pluginPath);
       const shadowed = byId.get(id);
-      if (shadowed !== undefined) {
+      if (
+        shadowed !== undefined &&
+        this.shouldLogShadow('skills-sh', id, pluginPath, shadowed)
+      ) {
         // DEBUG, not WARN: a Make global remnant is an expected, self-healing
         // state, and this runs on every overlay resolution until it heals.
         this.logger.debug(
@@ -1856,7 +1878,10 @@ export class PluginLoaderService {
     )) {
       const id = path.basename(pluginPath);
       const shadowed = byId.get(id);
-      if (shadowed !== undefined) {
+      if (
+        shadowed !== undefined &&
+        this.shouldLogShadow('harness', id, pluginPath, shadowed)
+      ) {
         this.logger.warn(
           '[PluginLoaderService] Workspace harness plugin shadows a user-global one of the same id',
           { pluginId: id, using: pluginPath, shadowed },

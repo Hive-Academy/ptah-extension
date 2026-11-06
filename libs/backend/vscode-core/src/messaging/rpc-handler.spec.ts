@@ -3,6 +3,7 @@ import { container } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import { RpcHandler } from './rpc-handler';
 import { RpcUserError } from './rpc-types';
+import { hangBreadcrumbs } from '../diagnostics/hang-breadcrumbs';
 
 describe('RpcHandler.handleMessage — RpcUserError handling', () => {
   let captureException: jest.Mock;
@@ -218,6 +219,24 @@ describe('RpcHandler.handleMessage — slow-handler warning (TASK_2026_323)', ()
       logger.warn.mock.calls.filter((call) => call[0] === '[RPC] slow handler'),
     ).toHaveLength(0);
     expect(addBreadcrumb).not.toHaveBeenCalled();
+  });
+
+  it('marks the method in flight for the hang log while its handler runs, success or throw', async () => {
+    const handler = buildHandler(60_000);
+    let duringHandler = '';
+    handler.registerMethod('chat:continue', async () => {
+      duringHandler = hangBreadcrumbs.snapshot()['rpcInFlight'];
+      throw new Error('boom');
+    });
+
+    await handler.handleMessage({
+      method: 'chat:continue',
+      params: {},
+      correlationId: 'crumb-1',
+    });
+
+    expect(duringHandler).toMatch(/^chat:continue@/);
+    expect(hangBreadcrumbs.snapshot()['rpcInFlight']).toBe('');
   });
 
   it('warns even when the slow handler throws', async () => {

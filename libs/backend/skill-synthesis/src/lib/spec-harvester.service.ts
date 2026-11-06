@@ -86,6 +86,8 @@ const MARKER_VERSION = 2;
 @injectable()
 export class SpecHarvesterService implements SpecFindingsPort {
   private readonly gradeFailures = new Map<string, { digest: string; attempts: number }>();
+  private readonly skippedFolders = new Map<string, string>();
+  private lastSkippedSet = '';
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -357,19 +359,42 @@ export class SpecHarvesterService implements SpecFindingsPort {
     const skipped: string[] = [];
     for (const entry of entries) {
       if (!entry.startsWith('TASK_')) continue;
-      const spec = await extractSpec(join(root, entry), root);
+      const directory = join(root, entry);
+      const cacheKey = `${root}:${entry}`;
+      // A missing carrier changes the directory mtime when it appears. An
+      // existing invalid carrier changes its own mtime/size when edited.
+      // degradation-audit: optional-capability — missing or unreadable folders
+      // and carriers still flow through extractSpec's existing skip behavior.
+      const [folder, carrier] = await Promise.all([
+        lstat(directory).catch(() => null),
+        lstat(join(directory, CARRIER_FILE)).catch(() => null),
+      ]);
+      const signature = `${folder?.mtimeMs ?? -1}:${folder?.size ?? -1}:${carrier?.mtimeMs ?? -1}:${carrier?.size ?? -1}`;
+      if (this.skippedFolders.get(cacheKey) === signature) {
+        skipped.push(entry);
+        continue;
+      }
+      const spec = await extractSpec(directory, root);
       if (spec) {
+        this.skippedFolders.delete(cacheKey);
         specs.push(spec);
       } else {
+        if (this.skippedFolders.size >= 512) {
+          const oldest = this.skippedFolders.keys().next().value;
+          if (oldest !== undefined) this.skippedFolders.delete(oldest);
+        }
+        this.skippedFolders.set(cacheKey, signature);
         skipped.push(entry);
       }
     }
-    if (options.warnOnSkipped === true && skipped.length > 0) {
+    const skippedSet = `${root}:${skipped.sort().join(',')}`;
+    if (options.warnOnSkipped === true && skipped.length > 0 && skippedSet !== this.lastSkippedSet) {
       this.logger.warn(
         `[spec-harvester] skipped ${skipped.length} TASK_* folder(s) with no valid ${CARRIER_FILE} carrier — invisible to harvesting and to the Tasks board`,
         { folders: skipped, carrier: CARRIER_FILE },
       );
     }
+    if (options.warnOnSkipped === true) this.lastSkippedSet = skippedSet;
     return specs;
   }
 

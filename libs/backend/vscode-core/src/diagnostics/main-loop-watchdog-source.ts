@@ -27,12 +27,18 @@
  *
  * Protocol (see `main-loop-watchdog.ts` for the typed mirror):
  *   workerData: { hangLogPath: string, hangLogMaxBytes: number,
- *                 hangThresholdMs: number, checkIntervalMs: number }
- *   message:    { type: 'heartbeat', breadcrumbs: Record<string, string> }
+ *                 hangThresholdMs: number, checkIntervalMs: number,
+ *                 deferRecovery: boolean }
+ *   message in:  { type: 'heartbeat', breadcrumbs: Record<string, string> }
+ *   message out: { type: 'recovered', hangStartedAt: number, record }
+ *                only when `deferRecovery` is true; main then appends the
+ *                recovery line itself (with its hang-profile summary)
+ *                instead of the worker.
  *
  * Line format, one JSON object per line so a reader can `grep` or parse it:
  *   { time, source: 'main-loop-watchdog', event: 'hang', blockedForMs, breadcrumbs }
- *   { time, source: 'main-loop-watchdog', event: 'recovered', blockedForMs, breadcrumbs }
+ *   { time, source: 'main-loop-watchdog', event: 'recovered', blockedForMs, breadcrumbs,
+ *     [hangProfile, topSelfTime | hangProfileError] }
  *
  * **Suspend guard.** A laptop that sleeps stops BOTH threads. On wake the gap
  * since the last heartbeat is large, but the main loop was never blocked. The
@@ -90,6 +96,7 @@ const hangLogPath = workerData.hangLogPath;
 const hangLogMaxBytes = workerData.hangLogMaxBytes;
 const hangThresholdMs = workerData.hangThresholdMs;
 const checkIntervalMs = workerData.checkIntervalMs;
+const deferRecovery = workerData.deferRecovery === true;
 
 let lastBeatAt = Date.now();
 let lastCheckAt = lastBeatAt;
@@ -99,17 +106,21 @@ let breadcrumbs = {};
 ` +
   HANG_LOG_APPEND_SOURCE +
   String.raw`
-// A failed append is swallowed. The watchdog is instrumentation: a read-only
-// log directory must not take down the thread, and there is nobody to report
-// the failure to without the main loop.
-function append(event, blockedForMs) {
-  const line = JSON.stringify({
+function record(event, blockedForMs) {
+  return {
     time: new Date().toISOString(),
     source: 'main-loop-watchdog',
     event: event,
     blockedForMs: blockedForMs,
     breadcrumbs: breadcrumbs,
-  }) + '\n';
+  };
+}
+
+// A failed append is swallowed. The watchdog is instrumentation: a read-only
+// log directory must not take down the thread, and there is nobody to report
+// the failure to without the main loop.
+function append(event, blockedForMs) {
+  const line = JSON.stringify(record(event, blockedForMs)) + '\n';
   appendHangLogLine(nodeFs, nodePath, hangLogPath, line, hangLogMaxBytes);
 }
 
@@ -121,7 +132,17 @@ parentPort.on('message', function (message) {
   }
   if (hung) {
     hung = false;
-    append('recovered', now - hangStartedAt);
+    if (deferRecovery) {
+      // Main is alive again (this heartbeat proves it) and asked to write the
+      // recovery line itself, enriched with its hang profile.
+      parentPort.postMessage({
+        type: 'recovered',
+        hangStartedAt: hangStartedAt,
+        record: record('recovered', now - hangStartedAt),
+      });
+    } else {
+      append('recovered', now - hangStartedAt);
+    }
   }
   lastBeatAt = now;
 });

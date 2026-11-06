@@ -25,6 +25,11 @@ import {
 import { CpuProfileCapture } from './cpu-profile-capture';
 import type { MainLoopWatchdog } from './main-loop-watchdog';
 import type { BackgroundWorkGovernor } from './background-work-governor';
+import {
+  HangProfiler,
+  isHangProfileEnabled,
+  type HangProfilerOptions,
+} from './hang-profiler';
 
 export interface ArmDiagnosticsOptions extends EventLoopMonitorOptions {
   /** Container holding the vscode-core platform-agnostic registrations. */
@@ -40,6 +45,24 @@ export interface ArmDiagnosticsOptions extends EventLoopMonitorOptions {
    * `debug.perf.lag` JSON-RPC notification; the desktop hosts rely on the log.
    */
   onLag?: EventLoopLagListener;
+  /**
+   * Builds the opt-in hang profiler (`PTAH_HANG_PROFILE=1`). Test seam;
+   * defaults to a profiler on a real `node:inspector` session.
+   */
+  createHangProfiler?: HangProfilerFactory;
+}
+
+/** Builds a {@link HangProfiler}; the spec seam of {@link armDiagnostics}. */
+export type HangProfilerFactory = (
+  options: HangProfilerOptions,
+) => HangProfiler;
+
+const defaultHangProfilerFactory: HangProfilerFactory = (options) =>
+  new HangProfiler(options);
+
+interface ArmedWatchdog {
+  readonly watchdog: MainLoopWatchdog;
+  readonly profiler: HangProfiler | null;
 }
 
 export interface DiagnosticsHandle {
@@ -62,7 +85,13 @@ export interface DiagnosticsHandle {
 export function armDiagnostics(
   options: ArmDiagnosticsOptions,
 ): DiagnosticsHandle {
-  const { container, logsPath, onLag, ...monitorOptions } = options;
+  const {
+    container,
+    logsPath,
+    onLag,
+    createHangProfiler = defaultHangProfilerFactory,
+    ...monitorOptions
+  } = options;
 
   let logger: Logger | undefined;
   try {
@@ -89,9 +118,12 @@ export function armDiagnostics(
 
     monitor.start(monitorOptions);
 
-    const watchdog =
-      logsPath !== undefined ? armWatchdog(container, logsPath, logger) : null;
-    if (watchdog !== null) {
+    const armed =
+      logsPath !== undefined
+        ? armWatchdog(container, logsPath, logger, createHangProfiler)
+        : null;
+    if (armed !== null) {
+      const { watchdog } = armed;
       // The last lag sample rides every heartbeat, so a hang line names the
       // most recent measured stall that preceded it.
       unsubscribers.push(
@@ -108,9 +140,13 @@ export function armDiagnostics(
       dispose: () => {
         for (const unsubscribe of unsubscribers) unsubscribe();
         monitor.dispose();
-        // `dispose` never rejects; the worker's terminate is fire-and-forget
-        // inside a synchronous LIFO teardown chain.
-        if (watchdog !== null) void watchdog.dispose();
+        // Both `dispose`s never reject; the worker's terminate and the
+        // profiler's stop are fire-and-forget inside a synchronous LIFO
+        // teardown chain.
+        if (armed !== null) {
+          void armed.watchdog.dispose();
+          if (armed.profiler !== null) void armed.profiler.dispose();
+        }
       },
       captureCpuProfile: (durationMs?: number) =>
         capture.captureFor(durationMs),
@@ -177,16 +213,45 @@ function armWatchdog(
   container: DependencyContainer,
   logsPath: string,
   logger: Logger,
-): MainLoopWatchdog | null {
-  let watchdog: MainLoopWatchdog | null = null;
+  createHangProfiler: HangProfilerFactory,
+): ArmedWatchdog | null {
+  let armed: ArmedWatchdog | null = null;
   try {
-    watchdog = container.resolve<MainLoopWatchdog>(TOKENS.MAIN_LOOP_WATCHDOG);
-    watchdog.start({ logsPath });
+    const watchdog = container.resolve<MainLoopWatchdog>(
+      TOKENS.MAIN_LOOP_WATCHDOG,
+    );
+    const profiler = isHangProfileEnabled()
+      ? armHangProfiler(createHangProfiler({ logger, logsPath }), logger)
+      : null;
+    watchdog.start(
+      profiler === null
+        ? { logsPath }
+        : {
+            logsPath,
+            onRecovered: async (details) => ({
+              ...(await profiler.captureHang(details)),
+            }),
+          },
+    );
+    armed = { watchdog, profiler };
   } catch (error: unknown) {
     logger.warn('[diagnostics] main-loop watchdog not armed', {
       reason: error instanceof Error ? error.message : String(error),
     });
-    watchdog = null;
   }
-  return watchdog;
+  return armed;
+}
+
+/**
+ * Start the opt-in hang profiler (`PTAH_HANG_PROFILE=1`). Its start is async;
+ * a failure there is logged and leaves the watchdog's recovery lines carrying
+ * `hangProfileError` instead of a profile, never failing the arming.
+ */
+function armHangProfiler(profiler: HangProfiler, logger: Logger): HangProfiler {
+  profiler.start().catch((error: unknown) => {
+    logger.warn('[diagnostics] hang profiler did not start', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  });
+  return profiler;
 }

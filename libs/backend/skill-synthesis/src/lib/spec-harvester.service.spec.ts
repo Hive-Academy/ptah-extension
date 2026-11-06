@@ -7,6 +7,7 @@ import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import { SpecHarvesterService } from './spec-harvester.service';
 import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { HARVEST_MARKER_FILE } from './spec-extractor';
+import * as specExtractor from './spec-extractor';
 
 const COMPLETED_TASKS_MD = `## Batch 1: Backend — COMPLETE
 
@@ -658,6 +659,25 @@ describe('SpecHarvesterService — carrier-less folder warning', () => {
     expect((payload as { folders: string[] }).folders).toEqual([
       'TASK_2026_LEGACY',
     ]);
+  });
+
+  it('reuses an unchanged skipped folder and warns again when the set changes', async () => {
+    const first = join(specsRoot, 'TASK_2026_LEGACY');
+    await mkdir(first);
+    const extract = jest.spyOn(specExtractor, 'extractSpec');
+    try {
+      await svc.harvest();
+      const parsed = extract.mock.calls.length;
+      await svc.harvest();
+      expect(extract).toHaveBeenCalledTimes(parsed);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      await mkdir(join(specsRoot, 'TASK_2026_OTHER'));
+      await svc.harvest();
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(extract).toHaveBeenCalledTimes(parsed + 1);
+    } finally {
+      extract.mockRestore();
+    }
   });
 
   it('names every skipped folder in ONE warn, not one warn per folder', async () => {
