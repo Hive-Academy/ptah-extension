@@ -57,7 +57,7 @@
   color: #fff;
   background: #0e1015;
   box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.4;
   opacity: 0;
@@ -190,7 +190,6 @@
   .mv-lane {
     width: calc(100% - 5rem);
     margin-left: calc(var(--lane, 0) * 2.5rem);
-    font-size: 1.05rem;
   }
 
   /* Ceiling bolt: above the clip's left half, clear of the copy column. */

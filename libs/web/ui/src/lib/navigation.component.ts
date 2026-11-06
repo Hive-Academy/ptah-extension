@@ -82,7 +82,7 @@ import {
         <a
           routerLink="/"
           fragment="features"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md inline-flex items-center min-h-11 px-2"
         >
           Features
         </a>
@@ -92,7 +92,7 @@ import {
           href="https://docs.ptah.live"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md inline-flex items-center min-h-11 px-2"
           aria-label="View documentation"
         >
           Docs

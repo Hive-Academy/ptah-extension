@@ -38,7 +38,7 @@
   color: #e9ebef;
   background: #0e1015;
   box-shadow: 0 1.25rem 3rem rgb(0 0 0 / 55%);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.45;
   opacity: 0;
@@ -165,19 +165,18 @@
     margin-top: clamp(12rem, 28vh, 18rem);
   }
 
-  /* The deck steps out from under the still's left edge. */
+  /* The deck steps onto the still's frame edge, clear of the hub cards inside it. */
   .pv-deck {
     order: 0;
     grid-column: 1;
     grid-row: 2;
     align-self: end;
-    width: calc(100% + 4rem);
+    width: calc(100% + 0.75rem);
     margin-bottom: clamp(1.5rem, 4vh, 3rem);
   }
 
   .pv-card {
     margin-left: calc(var(--at, 0) * 1.75rem);
-    font-size: 1.05rem;
   }
 
   /* Lintel bolt: above the still, clear of the header column. */

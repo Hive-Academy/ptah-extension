@@ -196,7 +196,7 @@
   border: 1px dashed #3a3f4b;
   border-radius: 0.3rem;
   color: #e9ebef;
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.45;
   transition:
@@ -249,7 +249,7 @@
     z-index: 4;
     /* Kept narrower than the memory pane (2/5 of the window) so it never covers a diff line. */
     width: min(34rem, 30vw);
-    margin: 0 0 -5rem clamp(0rem, 2vw, 2rem);
+    margin: 0 0 -3rem clamp(0rem, 2vw, 2rem);
     isolation: isolate;
     pointer-events: none;
   }
@@ -287,10 +287,6 @@
   .ms-hunks {
     gap: 1rem;
     padding: 1.5rem 1.75rem 1.75rem;
-  }
-
-  .hunk-line {
-    font-size: 1.05rem;
   }
 
   /* Margin bolt: along the window's right edge, in the page margin. */
