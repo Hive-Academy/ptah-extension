@@ -67,6 +67,7 @@ export class RpcBridge {
 
         return await new Promise<unknown>((resolve, reject) => {
           const timer = setTimeout(() => {
+            cleanup();
             reject(
               new Error(
                 `[RpcBridge] sendRpc timed out after ${args.timeoutMs}ms (channel="${args.channel}")`,
@@ -77,14 +78,25 @@ export class RpcBridge {
             send: (channel: string, ...args: unknown[]) => void;
           };
           const originalSend = patchable.send.bind(win.webContents);
+          const cleanup = (): void => {
+            clearTimeout(timer);
+            win.removeListener('closed', onClosed);
+            if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+              patchable.send = originalSend;
+            }
+          };
+          const onClosed = (): void => {
+            cleanup();
+            reject(new Error('[RpcBridge] window closed while waiting for RPC response'));
+          };
+          win.once('closed', onClosed);
           patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0] as
                 | { correlationId?: string }
                 | undefined;
               if (message?.correlationId === args.correlationId) {
-                clearTimeout(timer);
-                patchable.send = originalSend;
+                cleanup();
                 resolve(message);
                 return;
               }
@@ -155,22 +167,33 @@ export class RpcBridge {
             send: (channel: string, ...args: unknown[]) => void;
           };
           const originalSend = patchable.send.bind(win.webContents);
+          const cleanup = (): void => {
+            clearTimeout(timer);
+            win.removeListener('closed', onClosed);
+            if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+              patchable.send = originalSend;
+            }
+          };
+          const onClosed = (): void => {
+            cleanup();
+            reject(new Error('[RpcBridge] window closed while waiting for renderer message'));
+          };
           const timer = setTimeout(() => {
-            patchable.send = originalSend;
+            cleanup();
             reject(
               new Error(
                 `[RpcBridge] waitForRendererMessage timed out after ${args.timeoutMs}ms`,
               ),
             );
           }, args.timeoutMs);
+          win.once('closed', onClosed);
 
           patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0];
 
               if (predicate(message)) {
-                clearTimeout(timer);
-                patchable.send = originalSend;
+                cleanup();
                 resolve(message);
                 return;
               }

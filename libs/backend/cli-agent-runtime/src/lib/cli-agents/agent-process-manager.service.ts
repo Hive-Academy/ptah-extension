@@ -673,6 +673,10 @@ export class AgentProcessManager {
     const lastActivityAt = latest
       ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
       : Number.NaN;
+    const interruptedByHostRestart =
+      latest?.info.stopReason === 'host-restart' &&
+      latest.info.status === 'stopped' &&
+      latest.info.cliSessionId === resumeSessionId;
     const lastRequestContext = [...lane]
       .reverse()
       .find((tracked) => tracked.info.lastRequestContext !== undefined)
@@ -684,6 +688,7 @@ export class AgentProcessManager {
       accountReference: latest ? laneAccountFields(latest.info) : undefined,
       accountBindings: this.cliDetection.getAdapter(cli)?.accountBindings,
       ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
+      ...(interruptedByHostRestart ? { interruptedByHostRestart: true } : {}),
       ...(lastRequestContext ? { lastRequestContext } : {}),
     });
     this.logger.info('[AgentProcessManager] Resume gate', {
@@ -1689,6 +1694,7 @@ export class AgentProcessManager {
       if (!agentId || this.agents.has(agentId)) continue;
 
       const stdout = ref.stdout ?? '';
+      const interrupted = ref.status === 'running';
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
@@ -1702,6 +1708,12 @@ export class AgentProcessManager {
         // never resolves and would count against the concurrency cap.
         status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
+        ...(interrupted
+          ? { completedAt: new Date().toISOString(), stopReason: 'host-restart' as const }
+          : {
+              ...(ref.completedAt ? { completedAt: ref.completedAt } : {}),
+              ...(ref.stopReason ? { stopReason: ref.stopReason } : {}),
+            }),
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
