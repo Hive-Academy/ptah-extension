@@ -160,6 +160,12 @@ interface CensusParticipant {
   released: boolean;
 }
 
+/**
+ * Compare-and-set attempts for one lastRun write. Each miss means another
+ * process wrote the row in between, so three misses in a row is rare.
+ */
+const LAST_RUN_WRITE_ATTEMPTS = 3;
+
 const LAST_RUN_ORIGINS: ReadonlySet<unknown> = new Set([
   'manual',
   'background',
@@ -949,33 +955,88 @@ export class IndexingControlService {
    * order is the in-memory `seq` alone (immune to a clock rollback). When the
    * row holds anything else (another instance or process replaced it, or
    * this instance never wrote it), the persisted `startedAt` decides.
-   * Returns false only when the write itself failed; a stale skip is not a
-   * failure.
+   * The write is a compare-and-set on the value that was read, so a second
+   * process that writes the row between the read and the write makes the
+   * write miss; the row is then read again and the order decided again.
+   * A failed read never writes: the order cannot be decided without it.
+   * Returns false when the read or the write failed, or the row kept
+   * changing for every attempt; a stale skip is not a failure.
    */
   private persistLastRun(
     fp: string,
     seq: number,
     lastRun: IndexingLastRunWire,
   ): boolean {
-    const storedJson = this.readRow(fp)?.last_run_json ?? null;
-    const ours = this.newestPersisted.get(fp);
-    let stale: boolean;
-    if (ours !== undefined && storedJson === ours.json) {
-      stale = ours.seq > seq;
-    } else {
-      const stored = this.readLastRun(storedJson);
-      stale = stored !== null && stored.startedAt > lastRun.startedAt;
-    }
-    if (stale) {
-      this.logger.debug(
-        '[indexing-control] older census settled after a newer one; last run kept',
-      );
-      return true;
-    }
     const json = JSON.stringify(lastRun);
-    const written = this.upsertRow(fp, { last_run_json: json });
-    if (written) this.newestPersisted.set(fp, { seq, json });
-    return written;
+    for (let attempt = 0; attempt < LAST_RUN_WRITE_ATTEMPTS; attempt++) {
+      const read = this.readRowResult(fp);
+      if (!read.ok) {
+        this.logger.warn(
+          '[indexing-control] indexing_state read failed; last run not written',
+          { error: describeError(read.error) },
+        );
+        return false;
+      }
+      const storedJson = read.row?.last_run_json ?? null;
+      const ours = this.newestPersisted.get(fp);
+      let stale: boolean;
+      if (ours !== undefined && storedJson === ours.json) {
+        stale = ours.seq > seq;
+      } else {
+        const stored = this.readLastRun(storedJson);
+        stale = stored !== null && stored.startedAt > lastRun.startedAt;
+      }
+      if (stale) {
+        this.logger.debug(
+          '[indexing-control] older census settled after a newer one; last run kept',
+        );
+        return true;
+      }
+      const outcome = this.compareAndSetLastRun(fp, storedJson, json);
+      if (outcome === 'failed') return false;
+      if (outcome === 'written') {
+        this.newestPersisted.set(fp, { seq, json });
+        return true;
+      }
+      // 'conflict': another writer replaced the row after the read.
+    }
+    this.logger.warn(
+      '[indexing-control] indexing_state last run kept changing; last run not written',
+      { attempts: LAST_RUN_WRITE_ATTEMPTS },
+    );
+    return false;
+  }
+
+  /**
+   * Writes `json` only while the row still holds `expectedJson`.
+   * 'conflict' means another writer changed the row after it was read.
+   */
+  private compareAndSetLastRun(
+    fingerprint: string,
+    expectedJson: string | null,
+    json: string,
+  ): 'written' | 'conflict' | 'failed' {
+    try {
+      const now = Date.now();
+      this.sqlite.db
+        .prepare(
+          `INSERT OR IGNORE INTO indexing_state (workspace_fingerprint, created_at, updated_at) VALUES (?, ?, ?)`,
+        )
+        .run(fingerprint, now, now);
+      const result = this.sqlite.db
+        .prepare(
+          `UPDATE indexing_state SET updated_at = ?, last_run_json = ? WHERE workspace_fingerprint = ? AND last_run_json IS ?`,
+        )
+        .run(now, json, fingerprint, expectedJson);
+      return result.changes > 0 ? 'written' : 'conflict';
+    } catch (error: unknown) {
+      // degradation-audit: reported - the write failure is warn-logged and
+      // returned; settleCensus turns a failed lastRun write into a failed push.
+      this.logger.warn('[indexing-control] indexing_state write failed', {
+        error: describeError(error),
+      });
+      return 'failed';
+    }
   }
 
   private hasLiveManual(record: CensusRecord): boolean {
@@ -1254,15 +1315,31 @@ export class IndexingControlService {
     return { kind: 'succeeded', stats: toRunStats(result) };
   }
 
-  /** Synchronous SQLite read — returns null if no row exists. */
+  /**
+   * Synchronous SQLite read — null if no row exists or the read failed.
+   * Status reads show defaults on a failed read; writes that depend on the
+   * stored row use readRowResult so they can tell "no row" from "no read".
+   */
   private readRow(fingerprint: string): IndexingStateRow | null {
+    const read = this.readRowResult(fingerprint);
+    return read.ok ? read.row : null;
+  }
+
+  private readRowResult(
+    fingerprint: string,
+  ):
+    | { readonly ok: true; readonly row: IndexingStateRow | null }
+    | { readonly ok: false; readonly error: unknown } {
     try {
       const stmt = this.sqlite.db.prepare(
         'SELECT * FROM indexing_state WHERE workspace_fingerprint = ?',
       );
-      return (stmt.get(fingerprint) as IndexingStateRow | undefined) ?? null;
-    } catch {
-      return null;
+      const row = (stmt.get(fingerprint) as IndexingStateRow | undefined) ?? null;
+      return { ok: true, row };
+    } catch (error: unknown) {
+      // degradation-audit: reported - the error is returned to the caller;
+      // persistLastRun warn-logs it and fails the write.
+      return { ok: false, error };
     }
   }
 

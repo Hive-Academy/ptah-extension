@@ -54,6 +54,13 @@ function makeFakeDb(
               last_run_json: null,
             });
           }
+        } else if (normalizedSql.includes('and last_run_json is ?')) {
+          // Compare-and-set: args [updated_at, last_run_json, fp, expected].
+          const row = rowsByFp.get(args[2] as string);
+          if (!row || (row['last_run_json'] ?? null) !== args[3]) {
+            return { changes: 0, lastInsertRowid: 0 };
+          }
+          row['last_run_json'] = args[1];
         } else if (normalizedSql.startsWith('update indexing_state')) {
           // Parse SET clauses and apply to the row in the map
           // This is a best-effort simulation for tests
@@ -1709,6 +1716,103 @@ describe('IndexingControlService review fixes (TASK_2026_878 B/C)', () => {
     ]);
     expect((await service.getStatus(ROOT)).lastRun).toEqual(
       expect.objectContaining({ startedAt: 30_000 }),
+    );
+  });
+
+  const SELECT_ROW =
+    'SELECT * FROM indexing_state WHERE workspace_fingerprint = ?';
+  const CAS_LAST_RUN =
+    'UPDATE indexing_state SET updated_at = ?, last_run_json = ? WHERE workspace_fingerprint = ? AND last_run_json IS ?';
+
+  it('does not write the last run when the stored row cannot be read', async () => {
+    const { service, fakeDb, logger } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+
+    const select = fakeDb.prepare(SELECT_ROW);
+    const realGet = select.get;
+    select.get = jest.fn(() => {
+      throw new Error('SQLITE_BUSY: database is locked');
+    });
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    select.get = realGet;
+
+    expect(lastRunWrites(fakeDb).map((w) => w['startedAt'])).toEqual([10_000]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[indexing-control] indexing_state read failed; last run not written',
+      expect.objectContaining({ error: 'SQLITE_BUSY: database is locked' }),
+    );
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 10_000 }),
+    );
+  });
+
+  it('re-reads and keeps a newer row that another process wrote between the read and the write', async () => {
+    const { service, fakeDb, rows } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    const [fp] = [...rows.keys()];
+    const newer = JSON.stringify({
+      ...JSON.parse(rows.get(fp)?.['last_run_json'] as string),
+      startedAt: 30_000,
+    });
+
+    // Another process replaces the row after this process read it and
+    // before its compare-and-set write runs.
+    const cas = fakeDb.prepare(CAS_LAST_RUN);
+    const realRun = cas.run;
+    let raced = false;
+    cas.run = jest.fn((...args: unknown[]) => {
+      if (!raced) {
+        raced = true;
+        const row = rows.get(fp);
+        if (row) row['last_run_json'] = newer;
+      }
+      return realRun(...args);
+    }) as typeof cas.run;
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    cas.run = realRun;
+
+    expect(raced).toBe(true);
+    expect(rows.get(fp)?.['last_run_json']).toBe(newer);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 30_000 }),
+    );
+  });
+
+  it('writes after a conflict when the re-read row is older', async () => {
+    const { service, fakeDb, rows } = buildCensusService();
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    const [fp] = [...rows.keys()];
+    const older = JSON.stringify({
+      ...JSON.parse(rows.get(fp)?.['last_run_json'] as string),
+      startedAt: 15_000,
+    });
+
+    const cas = fakeDb.prepare(CAS_LAST_RUN);
+    const realRun = cas.run;
+    let raced = false;
+    cas.run = jest.fn((...args: unknown[]) => {
+      if (!raced) {
+        raced = true;
+        const row = rows.get(fp);
+        if (row) row['last_run_json'] = older;
+      }
+      return realRun(...args);
+    }) as typeof cas.run;
+    now = 20_000;
+    await service.trackBackgroundRun(ROOT, () => Promise.resolve(STATS));
+    cas.run = realRun;
+
+    expect(raced).toBe(true);
+    expect((await service.getStatus(ROOT)).lastRun).toEqual(
+      expect.objectContaining({ startedAt: 20_000 }),
     );
   });
 });

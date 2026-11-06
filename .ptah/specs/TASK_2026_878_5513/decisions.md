@@ -27,3 +27,7 @@
 | 24 | Codex sandbox blocks Nx daemon socket (EPERM /tmp/.nx sockets): codex batches verify with NX_DAEMON=false NX_ISOLATE_PLUGINS=false, else direct tsc/jest/eslint under verify.mjs --exec lock; orchestrator runs official npm run verify per batch before commit | reports/batch-9-report.md | orchestrator |
 | 25 | Codex resume fell back to a context-free handoff lane (idle >600 s); stopped it and respawned with a full self-contained brief | agent-lanes §5 | orchestrator |
 | 5 | Task folder moved from main checkout to worktree (cp + cmp + rm) | CLAUDE.md worktree rule; ptah_task_create wrote into main | CLAUDE.md |
+| 26 | User (2026-11-06): fix both Moderate open items in PR #957 (compare-and-set lastRun write with 3 attempts; failed row read never writes) | open-review-items.md | user |
+| 27 | User: keep parseReviewVerdict strict; a bare bold `**APPROVED — 8/10**` line is not a verdict | spec-extractor.ts | user |
+| 28 | User: marks GitGuardian incident 39753787 false positive in the dashboard; no code change | fake JWT in 4029d354f, built at run time since 6c934072a | user |
+| 29 | Fix review: grok lane failed (HTTP 402 usage exhausted); kimi lane reviews instead (reviewer family kimi, implementer claude) | agent-lanes §5 fallback | orchestrator |
