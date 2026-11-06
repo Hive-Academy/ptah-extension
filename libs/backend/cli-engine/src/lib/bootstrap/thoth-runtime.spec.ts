@@ -128,7 +128,7 @@ function makeRuntimeDoubles(
     },
     backupService: {
       backup: jest.fn(async () => '/backups/daily.db'),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
     },
     gateway: {
       start: jest.fn(async () => order.push('gateway.start')),

@@ -414,7 +414,7 @@ function registerBackupJob(
         );
         const backupPath = await backupService.backup('daily');
         try {
-          backupService.rotate('daily', KEEP_BY_KIND.daily);
+          await backupService.rotate('daily', KEEP_BY_KIND.daily);
         } catch (rotateError: unknown) {
           logger.warn('[CLI Thoth] Daily backup rotation failed (non-fatal)', {
             error:

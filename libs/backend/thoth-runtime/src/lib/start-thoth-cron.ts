@@ -287,7 +287,7 @@ export async function startThothCron(
                 );
                 const backupPath = await backupSvc.backup('daily');
                 try {
-                  backupSvc.rotate('daily', KEEP_BY_KIND.daily);
+                  await backupSvc.rotate('daily', KEEP_BY_KIND.daily);
                 } catch (rotateErr: unknown) {
                   console.warn(
                     `${logPrefix} Daily backup rotation failed (non-fatal):`,

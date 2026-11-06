@@ -223,7 +223,7 @@ describe('SqliteBackupService.backup — a clean verdict', () => {
     const h = makeHarness();
 
     const result = await h.service.backup('pre-migration');
-    h.service.rotate('pre-migration', 3);
+    await h.service.rotate('pre-migration', 3);
 
     expect(fs.existsSync(result as string)).toBe(true);
   });
@@ -613,7 +613,7 @@ describe('SqliteBackupService.backup — the worker never answers', () => {
     fs.writeFileSync(good, 'good-backup');
 
     await h.service.backup('pre-migration');
-    h.service.rotate('pre-migration', 1);
+    await h.service.rotate('pre-migration', 1);
 
     expect(fs.existsSync(good)).toBe(true);
   });
@@ -954,7 +954,7 @@ describe('SqliteBackupService.rotate', () => {
     }
   }
 
-  it('keeps the 3 newest pre-migration files and deletes the rest', () => {
+  it('keeps the 3 newest pre-migration files and deletes the rest', async () => {
     const h = makeHarness();
     const names = [
       'ptah.pre-migration-20250101T120000Z.sqlite',
@@ -965,7 +965,7 @@ describe('SqliteBackupService.rotate', () => {
     ];
     seed(h.tmpDir, names);
 
-    h.service.rotate('pre-migration', 3);
+    await h.service.rotate('pre-migration', 3);
 
     const remaining = fs
       .readdirSync(h.tmpDir)
@@ -973,7 +973,7 @@ describe('SqliteBackupService.rotate', () => {
     expect(remaining.sort()).toEqual(names.slice(2).sort());
   });
 
-  it('never counts a -wal or -shm sidecar as a backup', () => {
+  it('never counts a -wal or -shm sidecar as a backup', async () => {
     // A read-write validation connection can leave `<file>-wal` / `-shm`
     // beside the artifact. They carry the backup's own prefix and sort AFTER
     // it, so if rotation counted them they would take keep slots and evict
@@ -989,14 +989,14 @@ describe('SqliteBackupService.rotate', () => {
       'ptah.pre-migration-20250102T120000Z.sqlite-shm',
     ]);
 
-    h.service.rotate('pre-migration', 2);
+    await h.service.rotate('pre-migration', 2);
 
     for (const name of real) {
       expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
     }
   });
 
-  it('keeps the newest N across mixed old/new seconds and excludes sidecars', () => {
+  it('keeps the newest N across mixed old/new seconds and excludes sidecars', async () => {
     const h = makeHarness();
     const oldest = 'ptah.pre-migration-20250101T120000Z.sqlite';
     const middle =
@@ -1011,7 +1011,7 @@ describe('SqliteBackupService.rotate', () => {
       `${newest}-shm`,
     ]);
 
-    h.service.rotate('pre-migration', 2);
+    await h.service.rotate('pre-migration', 2);
 
     expect(fs.existsSync(path.join(h.tmpDir, oldest))).toBe(false);
     expect(fs.existsSync(path.join(h.tmpDir, middle))).toBe(true);
@@ -1020,19 +1020,19 @@ describe('SqliteBackupService.rotate', () => {
     expect(fs.existsSync(path.join(h.tmpDir, `${newest}-shm`))).toBe(true);
   });
 
-  it('ignores a young staging file without sweeping or counting it', () => {
+  it('ignores a young staging file without sweeping or counting it', async () => {
     const h = makeHarness();
     const final = 'ptah.pre-migration-20250101T120000Z.sqlite';
     const staging = `${final}.11111111.tmp`;
     seed(h.tmpDir, [final, staging]);
 
-    h.service.rotate('pre-migration', 1);
+    await h.service.rotate('pre-migration', 1);
 
     expect(fs.existsSync(path.join(h.tmpDir, final))).toBe(true);
     expect(fs.existsSync(path.join(h.tmpDir, staging))).toBe(true);
   });
 
-  it('sweeps an old staging file and its sidecars', () => {
+  it('sweeps an old staging file and its sidecars', async () => {
     const h = makeHarness();
     const staging =
       'ptah.pre-migration-20250101T120000Z.sqlite.22222222.tmp';
@@ -1043,12 +1043,12 @@ describe('SqliteBackupService.rotate', () => {
     const old = new Date(Date.now() - 2 * BACKUP_WORKER_BUDGET_MS - 1);
     for (const target of paths) fs.utimesSync(target, old, old);
 
-    h.service.rotate('pre-migration', 1);
+    await h.service.rotate('pre-migration', 1);
 
     for (const target of paths) expect(fs.existsSync(target)).toBe(false);
   });
 
-  it('is a no-op when keep=0', () => {
+  it('is a no-op when keep=0', async () => {
     // No kind maps to 0 in KEEP_BY_KIND any more; this pins the guard itself
     // so a caller passing a non-positive keep can never delete every backup.
     const h = makeHarness();
@@ -1059,14 +1059,14 @@ describe('SqliteBackupService.rotate', () => {
     ];
     seed(h.tmpDir, names);
 
-    h.service.rotate('pre-migration', 0);
+    await h.service.rotate('pre-migration', 0);
 
     for (const name of names) {
       expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
     }
   });
 
-  it('rotate(reset, KEEP_BY_KIND.reset) keeps the newest 2 reset backups', () => {
+  it('rotate(reset, KEEP_BY_KIND.reset) keeps the newest 2 reset backups', async () => {
     const h = makeHarness();
     const names = [
       'ptah.reset-20250101T120000Z.sqlite',
@@ -1079,7 +1079,7 @@ describe('SqliteBackupService.rotate', () => {
     const other = 'ptah.pre-migration-20250101T120000Z.sqlite';
     seed(h.tmpDir, [...names, other]);
 
-    h.service.rotate('reset', KEEP_BY_KIND.reset);
+    await h.service.rotate('reset', KEEP_BY_KIND.reset);
 
     const remaining = fs
       .readdirSync(h.tmpDir)
@@ -1088,7 +1088,7 @@ describe('SqliteBackupService.rotate', () => {
     expect(fs.existsSync(path.join(h.tmpDir, other))).toBe(true);
   });
 
-  it('is a no-op when the file count is within the keep limit', () => {
+  it('is a no-op when the file count is within the keep limit', async () => {
     const h = makeHarness();
     const names = [
       'ptah.pre-migration-20250101T120000Z.sqlite',
@@ -1096,16 +1096,34 @@ describe('SqliteBackupService.rotate', () => {
     ];
     seed(h.tmpDir, names);
 
-    h.service.rotate('pre-migration', 3);
+    await h.service.rotate('pre-migration', 3);
 
     for (const name of names) {
       expect(fs.existsSync(path.join(h.tmpDir, name))).toBe(true);
     }
   });
 
-  it('is non-fatal when the backup directory does not exist', () => {
+  it('is non-fatal when the backup directory does not exist', async () => {
     const h = makeHarness();
-    expect(() => h.service.rotate('daily', 7)).not.toThrow();
+    await expect(h.service.rotate('daily', 7)).resolves.toBeUndefined();
+  });
+
+  it('rotates without synchronous filesystem calls', async () => {
+    const h = makeHarness();
+    const old = 'ptah.pre-migration-20250101T120000Z.sqlite';
+    const newest = 'ptah.pre-migration-20250102T120000Z.sqlite';
+    fs.writeFileSync(path.join(h.tmpDir, old), 'old');
+    fs.writeFileSync(path.join(h.tmpDir, newest), 'new');
+    const nativeFs = jest.requireActual<typeof import('node:fs')>('node:fs');
+    const syncCalls = ['readdirSync', 'existsSync', 'statSync', 'unlinkSync'] as const;
+    const spies = syncCalls.map((name) => jest.spyOn(nativeFs, name));
+    try {
+      await h.service.rotate('pre-migration', 1);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(fs.existsSync(path.join(h.tmpDir, old))).toBe(false);
   });
 });
 

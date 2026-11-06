@@ -147,7 +147,7 @@ describe('startThothCron', () => {
     const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -198,7 +198,7 @@ describe('startThothCron', () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
     };
     const refs = refsWithSqlite();
     const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
@@ -237,7 +237,7 @@ describe('startThothCron', () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const backupService = {
       backup: jest.fn().mockResolvedValue(null),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -822,7 +822,7 @@ describe('startThothCron', () => {
           PERSISTENCE_TOKENS.BACKUP_SERVICE,
           {
             backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-            rotate: jest.fn(),
+            rotate: jest.fn().mockResolvedValue(undefined),
           },
         ],
         [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],

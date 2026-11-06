@@ -101,7 +101,7 @@ export class SqliteMigrationRunner {
         );
       }
       if (backupDest !== null) {
-        this.backupService.rotate(
+        await this.backupService.rotate(
           'pre-migration',
           KEEP_BY_KIND['pre-migration'],
         );

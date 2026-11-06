@@ -436,7 +436,7 @@ export class PersistenceRpcHandlers {
           // runner's rule. Rotating on `null` would delete an older reset copy
           // without leaving a newer one in its place.
           if (rawBackupPath !== null) {
-            this.backup.rotate('reset', KEEP_BY_KIND.reset);
+            await this.backup.rotate('reset', KEEP_BY_KIND.reset);
           }
         } catch (err: unknown) {
           this.logger.warn('[persistence] db:reset backup error (non-fatal)', {
