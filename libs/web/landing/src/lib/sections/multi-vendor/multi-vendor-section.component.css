@@ -1,0 +1,220 @@
+/* S5 "front and lanes": clip off the left page edge, lanes branching right. */
+.mv-atmosphere {
+  background:
+    radial-gradient(ellipse 50% 46% at 26% 56%, rgb(245 165 36 / 9%), transparent 72%),
+    radial-gradient(ellipse 24% 30% at 86% 74%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+/* Compact: one column, header first, then the clip, then the lanes. */
+.mv-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.mv-text {
+  display: contents;
+}
+
+.mv-text > ptah-section-header {
+  order: -1;
+}
+
+.mv-clip {
+  position: relative;
+  order: 0;
+  min-width: 0;
+}
+
+.mv-video {
+  position: relative;
+  z-index: 1;
+  display: block;
+  aspect-ratio: 8 / 5;
+  height: auto;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+.mv-lanes {
+  order: 1;
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A child chat: window colour, hairline, a branch stub back towards the clip. */
+.mv-lane {
+  position: relative;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem 0.85rem 1.1rem;
+  border: 1px solid #262a33;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #0e1015;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.mv-lane.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* The worktree branch: an amber notch on the lane's left edge. */
+.lane-branch {
+  position: absolute;
+  top: 1.2rem;
+  left: -1px;
+  width: 0.55rem;
+  height: 1px;
+  background: #f5a524;
+}
+
+.lane-branch::before {
+  position: absolute;
+  top: -0.2rem;
+  left: 0.5rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  content: '';
+  border: 1px solid #ffbb4d;
+  border-radius: 50%;
+  background: #08090c;
+}
+
+.lane-text {
+  display: block;
+  padding-left: 0.65rem;
+}
+
+/* The context meter: fills with the steps, then resets to a short fresh brief. */
+.lane-meter {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin-left: 0.65rem;
+  overflow: hidden;
+  border-radius: 1px;
+  background: #262a33;
+}
+
+.lane-meter::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: #8a6a33;
+  transform: scaleX(var(--fill, 0));
+  transform-origin: 0 50%;
+  transition:
+    transform 0.3s ease,
+    background-color 0.3s ease;
+}
+
+.lane-meter.is-fresh::after {
+  background: #ffbb4d;
+}
+
+.mv-bolt {
+  position: absolute;
+  z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  /*
+   * Uneven grid: a wide clip anchored to the left page edge, the copy column
+   * pulled 8rem back over its top-right corner on an ink scrim, so the
+   * headline stays on screen while the stage is pinned.
+   */
+  .mv-stage {
+    display: grid;
+    grid-template-columns: minmax(0, min(60vw, calc(72vh * 1.6))) minmax(0, 1fr);
+    align-items: start;
+    gap: 0;
+    padding-right: clamp(3rem, 5vw, 5rem);
+  }
+
+  /*
+   * The negative margin undoes the frame's 1.5rem padding (and hides the
+   * left hairline past the page edge). Set on the clip, not the pinned stage,
+   * because the pin moves the stage's margins onto its spacer.
+   */
+  .mv-clip {
+    --clip-radius: 0 0.5rem 0.5rem 0;
+    grid-column: 1;
+    grid-row: 1;
+    margin-top: clamp(2.5rem, 6vh, 4.5rem);
+    margin-left: calc(-1.5rem - 1px);
+  }
+
+  .mv-text {
+    position: relative;
+    z-index: 4;
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    margin-left: -8rem;
+    isolation: isolate;
+  }
+
+  /* The scrim fades in from the clip side: the picture stays visible left of the copy. */
+  .mv-text::before {
+    position: absolute;
+    z-index: -1;
+    inset: -1.5rem -1rem -1.5rem -3rem;
+    content: '';
+    border-radius: 0.75rem;
+    background: linear-gradient(90deg, rgb(8 9 12 / 0%), rgb(8 9 12 / 94%) 7rem);
+    pointer-events: none;
+  }
+
+  .mv-lanes {
+    width: min(100%, 31rem);
+    margin-top: clamp(1.5rem, 3vw, 2.25rem);
+  }
+
+  /* The staircase: each child chat steps one notch further from the clip. */
+  .mv-lane {
+    width: calc(100% - 5rem);
+    margin-left: calc(var(--lane, 0) * 2.5rem);
+    font-size: 1.05rem;
+  }
+
+  /* Ceiling bolt: above the clip's left half, clear of the copy column. */
+  .mv-bolt-ceiling {
+    display: block;
+    top: -3.15rem;
+    left: 0;
+    width: 52%;
+    height: 2.75rem;
+  }
+
+  /* Margin bolt: in the right page margin, beside the lanes. */
+  .mv-bolt-margin {
+    display: block;
+    top: 34%;
+    left: calc(100% + 0.5rem);
+    width: clamp(2.25rem, 3.5vw, 4rem);
+    height: 70%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-lane,
+  .lane-meter::after {
+    transition: none;
+  }
+}

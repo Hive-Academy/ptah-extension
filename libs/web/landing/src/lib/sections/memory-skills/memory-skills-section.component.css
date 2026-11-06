@@ -1,0 +1,323 @@
+/* S6 "split sheet": one window, memory pane and skill-diff pane; the header breaks its top edge. */
+.ms-atmosphere {
+  background:
+    radial-gradient(ellipse 48% 42% at 62% 60%, rgb(245 165 36 / 8%), transparent 72%),
+    radial-gradient(ellipse 22% 26% at 10% 18%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+/* Extra jump targets for the section's older anchors; they take no space. */
+.ms-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.ms-stage {
+  position: relative;
+}
+
+.ms-head {
+  width: min(100%, 38rem);
+  margin: 0 0 clamp(2rem, 4vw, 3rem);
+}
+
+.ms-sheet-wrap {
+  position: relative;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+/* The window: same frame as the console clip, split into two panes. */
+.ms-sheet {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #262a33;
+  border-radius: 0.5rem;
+  background: #0e1015;
+  box-shadow:
+    0 2rem 6rem rgb(0 0 0 / 65%),
+    0 0 4rem rgb(245 165 36 / 10%);
+}
+
+.ms-sheet::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent 8%, rgb(255 187 77 / 45%) 50%, transparent 92%);
+  pointer-events: none;
+}
+
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 2.25rem;
+  padding: 0 0.85rem;
+  border-bottom: 1px solid #262a33;
+}
+
+.pane-bar i {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: #262a33;
+}
+
+.pane-bar i:first-child {
+  background: #f5a524;
+}
+
+/* The memory pane: the local index, keyword rows solid, vector rows dotted. */
+.ms-memory {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #262a33;
+  background: #0b0c10;
+}
+
+.memory-rows {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.1rem 1.25rem 1.35rem;
+}
+
+.memory-row {
+  display: block;
+  width: calc(var(--w, 1) * 100%);
+  height: 0.4rem;
+  border-radius: 1px;
+  background: #1a1d24;
+  transition:
+    background-color 0.35s ease,
+    opacity 0.35s ease;
+}
+
+.memory-row[data-kind='vector'] {
+  background: radial-gradient(circle, #262a33 1.5px, transparent 2px) 0 50% / 0.55rem 100% repeat-x;
+}
+
+.memory-row.is-lit[data-kind='keyword'] {
+  background-color: #8a6a33;
+}
+
+.memory-row.is-lit[data-kind='vector'] {
+  background-image: radial-gradient(circle, #ffbb4d 1.5px, transparent 2px);
+}
+
+/* The skill-diff pane: three added lines, pending until applied. */
+.diff-tab {
+  display: block;
+  width: 7rem;
+  height: 0.4rem;
+  border-radius: 1px;
+  background: #262a33;
+}
+
+/* The apply mark: an empty box that takes a check when the diff is applied. */
+.diff-apply {
+  position: relative;
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  margin-left: auto;
+  border: 1px solid #3a3f4b;
+  border-radius: 0.2rem;
+  transition:
+    border-color 0.3s ease,
+    background-color 0.3s ease;
+}
+
+.diff-apply::after {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.32rem;
+  width: 0.28rem;
+  height: 0.52rem;
+  content: '';
+  border: solid #08090c;
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: rotate(45deg);
+}
+
+.diff-apply.is-on {
+  border-color: #ffbb4d;
+  background: #f5a524;
+}
+
+.diff-apply.is-on::after {
+  opacity: 1;
+}
+
+.ms-hunks {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 1.1rem 1.25rem 1.35rem;
+  list-style: none;
+}
+
+.ms-hunk {
+  display: grid;
+  gap: 0.5rem;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.ms-hunk.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.hunk-context {
+  display: block;
+  width: calc(var(--w, 1) * 100%);
+  height: 0.35rem;
+  margin-left: 1.6rem;
+  border-radius: 1px;
+  background: #1a1d24;
+}
+
+.hunk-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px dashed #3a3f4b;
+  border-radius: 0.3rem;
+  color: #e9ebef;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  transition:
+    border-color 0.3s ease,
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.hunk-sign {
+  flex: none;
+  color: #8a6a33;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-weight: 700;
+  transition: color 0.3s ease;
+}
+
+/* Applied: the pending dashed lines turn solid amber. */
+.ms-sheet.is-applied .hunk-line {
+  border-style: solid;
+  border-color: rgb(255 187 77 / 45%);
+  border-left: 2px solid #f5a524;
+  color: #fff;
+  background: rgb(245 165 36 / 6%);
+}
+
+.ms-sheet.is-applied .hunk-sign {
+  color: #ffbb4d;
+}
+
+.ms-bolt {
+  position: absolute;
+  z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  /*
+   * The window sits right of centre; the header breaks its top edge from the
+   * upper left, over the memory pane, on an ink scrim, so the headline stays
+   * on screen while the stage is pinned.
+   */
+  .ms-stage {
+    width: min(100%, 82rem);
+    margin: 0 auto;
+    padding-right: clamp(3rem, 5vw, 5rem);
+  }
+
+  .ms-head {
+    position: relative;
+    z-index: 4;
+    /* Kept narrower than the memory pane (2/5 of the window) so it never covers a diff line. */
+    width: min(34rem, 30vw);
+    margin: 0 0 -5rem clamp(0rem, 2vw, 2rem);
+    isolation: isolate;
+    pointer-events: none;
+  }
+
+  .ms-head::before {
+    position: absolute;
+    z-index: -1;
+    inset: -1.5rem -2rem -1.75rem -2rem;
+    content: '';
+    border-radius: 0.75rem;
+    background: linear-gradient(90deg, rgb(8 9 12 / 94%) calc(100% - 5rem), rgb(8 9 12 / 0%));
+  }
+
+  .ms-sheet-wrap {
+    width: min(100%, 68rem);
+    margin-left: auto;
+  }
+
+  /* Memory pane narrower, diff pane wider; the header covers the memory pane's top. */
+  .ms-sheet {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+
+  .ms-memory {
+    border-right: 1px solid #262a33;
+    border-bottom: 0;
+  }
+
+  .ms-memory .memory-rows {
+    flex: 1;
+    align-content: end;
+    padding-top: 6.5rem;
+  }
+
+  .ms-hunks {
+    gap: 1rem;
+    padding: 1.5rem 1.75rem 1.75rem;
+  }
+
+  .hunk-line {
+    font-size: 1.05rem;
+  }
+
+  /* Margin bolt: along the window's right edge, in the page margin. */
+  .ms-bolt-margin {
+    display: block;
+    top: 12%;
+    left: calc(100% + 0.5rem);
+    width: clamp(2.25rem, 3.5vw, 4rem);
+    height: 88%;
+  }
+
+  /* Floor bolt: under the memory pane, clear of the header above it. */
+  .ms-bolt-floor {
+    display: block;
+    top: calc(100% + 0.4rem);
+    left: 0;
+    width: 40%;
+    height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-row,
+  .ms-hunk,
+  .hunk-line,
+  .hunk-sign,
+  .diff-apply {
+    transition: none;
+  }
+}
