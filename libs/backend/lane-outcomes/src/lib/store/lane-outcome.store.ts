@@ -100,6 +100,7 @@ export function applyOutcomeEffect(
 }
 
 export interface LaneOutcomeStore {
+  listRecent(sinceMs: number, workspaceRoot?: string | null): Promise<readonly LaneOutcomeRow[]>;
   /** True inserts a new run; false leaves its existing row intact. */
   insertIfAbsent(row: LaneOutcomeRecord): Promise<boolean>;
   /** Inserts any run row and joins that run's held reports; also returns invalid reports and budget-stop state. */
@@ -145,11 +146,13 @@ export interface LaneOutcomeStore {
   listByLane(
     laneId: string,
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]>;
   /** Returns matching role rows for readers; an empty list means no matches. */
   listByRoles(
     slugs: readonly string[],
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]>;
   /** True means the report was already applied and must not be replayed. */
   hasReceipt(reportId: string): Promise<boolean>;

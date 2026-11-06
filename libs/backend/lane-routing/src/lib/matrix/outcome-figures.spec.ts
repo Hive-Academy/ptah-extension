@@ -64,6 +64,19 @@ describe('outcomeFiguresFrom', () => {
     expect(outcomeFiguresFrom([summary('only', 'unverified')])('codex', 'implement')).toBeNull();
   });
 
+  it('excludes capacity failures from model quality figures', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('delivered', 'delivered'),
+      summary('quota', 'failed', { failureClass: 'usage-limit' }),
+      summary('auth', 'failed', { failureClass: 'auth' }),
+      summary('timeout', 'failed', { failureClass: 'timeout' }),
+      summary('crash', 'failed', { failureClass: 'crash' }),
+    ]);
+    expect(lookup('codex', 'implement')).toEqual({
+      laneId: 'codex', taskKind: 'implement', delivered: 1, failed: 1,
+    });
+  });
+
   it('keeps lane and task-kind pairs separate', () => {
     const lookup = outcomeFiguresFrom([
       summary('a', 'delivered'),

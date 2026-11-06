@@ -150,6 +150,11 @@ export interface CapabilityMatrixView {
   readonly profiles: readonly MatrixViewProfile[];
 }
 
+/** Read-only merged matrix for host RPC surfaces. */
+export interface CapabilityMatrixViewReader {
+  readMergedView(): Promise<CapabilityMatrixView>;
+}
+
 interface LayerLoad {
   readonly matrix: CapabilityMatrix;
   readonly reasons: readonly string[];
@@ -180,6 +185,18 @@ export class CapabilityMatrixStore {
     this.viewPath = capabilityMatrixViewPath(deps.ptahHomeDir);
   }
 
+  async readMergedView(): Promise<CapabilityMatrixView> {
+    const nowMs = Date.now();
+    const user = await this.readUserMatrix(false);
+    const local = await this.readWorkspaceLocalMatrix(nowMs);
+    const layers = [
+      indexMatrix(user.matrix),
+      indexMatrix(local.matrix),
+      indexMatrix(buildSeedMatrix(nowMs)),
+    ];
+    return viewDocument(layers, nowMs);
+  }
+
   /**
    * Merge seed, the user file and local cells for one routing call.
    * Reads the user file at most once. Writes the view only on change.
@@ -207,7 +224,7 @@ export class CapabilityMatrixStore {
     };
   }
 
-  private async readUserMatrix(): Promise<LayerLoad> {
+  private async readUserMatrix(createTemplate = true): Promise<LayerLoad> {
     let text: string;
     try {
       text = await this.deps.fileSystem.readFile(this.userFilePath);
@@ -215,7 +232,7 @@ export class CapabilityMatrixStore {
       // degradation-audit: reported - a missing user file is created once; any other read failure keeps the last valid matrix
       if (isMissingFile(error)) {
         this.lastValidUser = emptyMatrix();
-        await this.writeEmptyTemplate();
+        if (createTemplate) await this.writeEmptyTemplate();
         return { matrix: this.lastValidUser, reasons: [] };
       }
       this.warn('capability matrix user file could not be read', error);
@@ -326,6 +343,25 @@ export class CapabilityMatrixStore {
       reasons: [],
       outcomeFigures: outcomeFiguresFrom(summaries),
     };
+  }
+
+  private async readWorkspaceLocalMatrix(nowMs: number): Promise<LayerLoad> {
+    const reader = this.deps.outcomeReader;
+    if (reader === undefined || reader.recentWorkspaceOutcomes === undefined) {
+      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+    }
+    const persistent = this.readPersistent(reader);
+    if (persistent !== 'yes') {
+      return { matrix: emptyMatrix(), reasons: [persistent === 'no' ? NO_OUTCOME_HISTORY_REASON : OUTCOMES_UNAVAILABLE_REASON] };
+    }
+    try {
+      const summaries = await reader.recentWorkspaceOutcomes({ sinceMs: nowMs - OUTCOME_WINDOW_MS });
+      return { matrix: deriveLocalMatrix(summaries, nowMs), reasons: [] };
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failed workspace read leaves the read-only view with seed and user cells
+      this.warn('lane outcome workspace read failed', error);
+      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+    }
   }
 
   private readPersistent(reader: LaneOutcomeReader): Persistence {

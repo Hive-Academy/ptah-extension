@@ -19,6 +19,7 @@ import {
 } from './contracts/route-decide-args.schema';
 import {
   loggableErrorName,
+  SUBAGENT_LANE_ID,
   type LoggableErrorName,
 } from '@ptah-extension/shared';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
@@ -29,6 +30,8 @@ import type { LaneModelListing } from './lane-model-listing.port';
 import type { LaneRoutingLogger } from './lane-routing-logger';
 import type { OutcomeFigureLookup } from './matrix/outcome-figures';
 import type { RouteCandidateSource } from './route-candidate-source.port';
+import { laneCandidateId } from './ranking/candidate.types';
+import type { RotationPick } from './ranking/rotation.store';
 import { assembleGateResult } from './pipeline/assemble-gate';
 import {
   emptyTally,
@@ -89,6 +92,7 @@ export interface RouteDecideSeams {
 }
 
 export interface RouteDecideDependencies {
+  readonly rotationSetting?: { isEnabled(): boolean };
   readonly config: DecisionModelConfig;
   readonly matrix: RouteMatrix;
   readonly rotation: RouteRotation;
@@ -106,11 +110,20 @@ type PreflightArgs = Extract<RouteDecideArgs, { stage: 'pre-flight' }>;
  * the listing and structured ports are optional and the seams are not
  * constructor tokens.
  */
-export class RouteDecideService {
+export interface RotationStateReader {
+  getLastPicks(): { readonly entries: readonly RotationPick[]; readonly reason: string | null };
+}
+
+export class RouteDecideService implements RotationStateReader {
   private readonly decisionCaller: DecisionCaller;
 
   constructor(private readonly deps: RouteDecideDependencies) {
     this.decisionCaller = new DecisionCaller(deps);
+  }
+
+  getLastPicks(): { readonly entries: readonly RotationPick[]; readonly reason: string | null } {
+    const loaded = this.deps.rotation.load();
+    return { entries: loaded.state.entries, reason: loaded.reason };
   }
 
   async decide(
@@ -217,6 +230,7 @@ export class RouteDecideService {
     started: number,
   ): Promise<GateResult> {
     const caller = await this.decisionCaller.openCaller();
+    const rotate = this.deps.rotationSetting?.isEnabled() ?? true;
     const mode = dispatchMode(caller);
     const gathered = await gatherRouteCall({
       source,
@@ -244,6 +258,7 @@ export class RouteDecideService {
       true,
       [],
       remember,
+      rotate,
     );
     cursor = pass1.cursor;
     const pass1Run = await this.runPass(
@@ -262,6 +277,7 @@ export class RouteDecideService {
       false,
       implementersOf(pass1.plans, resolutions),
       remember,
+      rotate,
     );
     const pass2Run = await this.runPass(
       pass2.plans, args, caller, mode, gathered.matrix.outcomeFigures,

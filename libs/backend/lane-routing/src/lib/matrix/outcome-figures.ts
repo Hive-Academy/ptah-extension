@@ -4,7 +4,7 @@ import {
   type OutcomeTaskKind,
 } from '@ptah-extension/shared';
 import type { DecisionOutcomeFigures } from '../decision-model/decision-payload';
-import { dedupeByRun } from './local-derivation';
+import { dedupeByRun, isCapacityFailure } from './local-derivation';
 
 export type OutcomeFigureLookup = (
   laneId: string,
@@ -27,7 +27,7 @@ export function outcomeFiguresFrom(
     ) {
       continue;
     }
-    if (verdict === 'unverified') continue;
+    if (verdict === 'unverified' || (verdict === 'failed' && isCapacityFailure(summary.failureClass))) continue;
 
     const key = JSON.stringify([laneId, taskKind]);
     const previous = figures.get(key);

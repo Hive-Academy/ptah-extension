@@ -46,6 +46,10 @@ import {
 
 /** Model id that selects a model automatically (Requirement 11.3). */
 export const AUTOMATIC_MATRIX_MODEL = 'auto';
+export const CAPACITY_FAILURE_CLASSES = new Set(['usage-limit', 'auth', 'timeout']);
+export function isCapacityFailure(failureClass: LaneOutcomeSummary['failureClass']): boolean {
+  return failureClass !== null && CAPACITY_FAILURE_CLASSES.has(failureClass);
+}
 
 interface RateBucket {
   readonly family: string;
@@ -56,6 +60,7 @@ interface RateBucket {
   failed: number;
   approved: number;
   rejected: number;
+  unresolvedRevise: number;
   delivery: LaneOutcomeSummary[];
   review: LaneOutcomeSummary[];
 }
@@ -152,6 +157,7 @@ function bucketFor(
     failed: 0,
     approved: 0,
     rejected: 0,
+    unresolvedRevise: 0,
     delivery: [],
     review: [],
   };
@@ -177,12 +183,16 @@ function countSummary(bucket: RateBucket, summary: LaneOutcomeSummary): void {
       bucket.delivery.push(summary);
       break;
     case 'no-deliverable':
-      bucket.noDeliverable += 1;
-      bucket.delivery.push(summary);
+      if (!isCapacityFailure(summary.failureClass)) {
+        bucket.noDeliverable += 1;
+        bucket.delivery.push(summary);
+      }
       break;
     case 'failed':
-      bucket.failed += 1;
-      bucket.delivery.push(summary);
+      if (!isCapacityFailure(summary.failureClass)) {
+        bucket.failed += 1;
+        bucket.delivery.push(summary);
+      }
       break;
     case 'unverified':
       break;
@@ -201,6 +211,10 @@ function countSummary(bucket: RateBucket, summary: LaneOutcomeSummary): void {
       bucket.review.push(summary);
       break;
     case null:
+      if (summary.reviseRounds > 0) {
+        bucket.unresolvedRevise += 1;
+        bucket.review.push(summary);
+      }
       break;
     default: {
       const unexpected: never = summary.finalReview;
@@ -274,7 +288,7 @@ function cellFrom(
   prior: number,
 ): ValueMatrixCell | undefined {
   const deliveryTotal = bucket.delivered + bucket.noDeliverable + bucket.failed;
-  const reviewTotal = bucket.approved + bucket.rejected;
+  const reviewTotal = bucket.approved + bucket.rejected + bucket.unresolvedRevise;
   if (deliveryTotal === 0 && reviewTotal === 0) return undefined;
 
   const scored = scoreBucket(bucket, deliveryTotal, reviewTotal, prior);

@@ -26,6 +26,7 @@ jest.mock('./handlers', () => ({
   SessionLifecycleNotifier: class SessionLifecycleNotifier {},
   GitChangeSetRpcHandlers: class GitChangeSetRpcHandlers {},
   PlanLimitsBroadcaster: class PlanLimitsBroadcaster {},
+  CapabilityMatrixRpcHandlers: class CapabilityMatrixRpcHandlers {},
 }));
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';

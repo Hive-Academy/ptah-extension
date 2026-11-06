@@ -18,8 +18,8 @@ import {
   buildDecisionPayload,
   formatDecisionOptionLabel,
   type DecisionOption,
-  type DecisionPayload,
   type DecisionOutcomeFigures,
+  type DecisionPayload,
 } from '../decision-model/decision-payload';
 import type { OutcomeFigureLookup } from '../matrix/outcome-figures';
 import type { SystemOneTarget } from '../decision-model/decision-model.config';

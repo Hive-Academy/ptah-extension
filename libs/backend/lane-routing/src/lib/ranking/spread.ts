@@ -13,8 +13,8 @@
  * descending, limit class, then T.
  */
 import type { OutcomeTaskKind } from '@ptah-extension/shared';
+import { insideClosenessBand } from './closeness-band';
 import {
-  CLOSENESS_BAND,
   EXCLUDED_LIMIT_STATE,
   INSIDE_BAND_LIMIT_ORDER,
   PREFERRED_RANK_MIN_RANKED,
@@ -47,6 +47,7 @@ export interface SpreadInput {
   readonly candidates: readonly RankedCandidate[];
   readonly preferences?: SpreadPreferences;
   readonly rotation: RotationState;
+  readonly rotate?: boolean;
 }
 
 export interface SpreadResult {
@@ -84,7 +85,7 @@ export function spread(input: SpreadInput): SpreadResult {
   }
 
   const top = topScore(eligible);
-  const band = eligible.filter((entry) => top - entry.score <= CLOSENESS_BAND);
+  const band = eligible.filter((entry) => insideClosenessBand(top, entry.score));
   const bestLane = bestLaneRank(band);
   const pool = band.filter(
     (entry) => poolRank(entry, bestLane) === (bestLane ?? 0),
@@ -94,8 +95,8 @@ export function spread(input: SpreadInput): SpreadResult {
   const natural = [...pool].sort(byPreference);
   const bare = [...pool].sort(compareBare);
   const lastId = lastCandidateId(input.rotation, key);
-  const pick = successor(natural, lastId, input.candidates, byPreference);
-  const barePick = successor(bare, lastId, input.candidates, compareBare);
+  const pick = input.rotate === false ? natural[0] : successor(natural, lastId, input.candidates, byPreference);
+  const barePick = input.rotate === false ? bare[0] : successor(bare, lastId, input.candidates, compareBare);
   const start = natural.findIndex(
     (entry) => entry.candidate.id === pick.candidate.id,
   );
@@ -112,7 +113,7 @@ export function spread(input: SpreadInput): SpreadResult {
     key,
     pick,
     ranking: [...rotated, ...others],
-    rotation: withPick(input.rotation, key, pick.candidate.id),
+    rotation: input.rotate === false ? input.rotation : withPick(input.rotation, key, pick.candidate.id),
     rotationChangedChoice:
       first !== undefined && pick.candidate.id !== first.candidate.id,
     preferenceChangedChoice: pick.candidate.id !== barePick.candidate.id,
