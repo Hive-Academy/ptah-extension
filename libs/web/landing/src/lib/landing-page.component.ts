@@ -1,15 +1,14 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SeoService } from '@ptah-web/core';
-import { NavigationComponent } from '@ptah-web/ui';
-import { ComparisonSectionComponent } from './sections/comparison/comparison-section.component';
+import { FooterComponent, NavigationComponent } from '@ptah-web/ui';
+import { AlwaysOnSectionComponent } from './sections/always-on/always-on-section.component';
 import { CommandCenterSectionComponent } from './sections/command-center/command-center-section.component';
-import { CTASectionComponent } from './sections/cta/cta-section.component';
 import { DecisionLoopSectionComponent } from './sections/decision-loop/decision-loop-section.component';
-import { FooterComponent } from '@ptah-web/ui';
+import { FinalCtaSectionComponent } from './sections/final-cta/final-cta-section.component';
 import { HeroComponent } from './sections/hero/hero.component';
-import { ProblemSectionComponent } from './sections/problem/problem-section.component';
-import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
-import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
+import { MemorySkillsSectionComponent } from './sections/memory-skills/memory-skills-section.component';
+import { MultiVendorSectionComponent } from './sections/multi-vendor/multi-vendor-section.component';
+import { ProvidersSectionComponent } from './sections/providers/providers-section.component';
 import { TribunalSectionComponent } from './sections/tribunal/tribunal-section.component';
 import { VoiceAndAppsSectionComponent } from './sections/voice-and-apps/voice-and-apps-section.component';
 
@@ -23,33 +22,33 @@ import { VoiceAndAppsSectionComponent } from './sections/voice-and-apps/voice-an
     VoiceAndAppsSectionComponent,
     DecisionLoopSectionComponent,
     TribunalSectionComponent,
-    ProblemSectionComponent,
-    PillarsSpineComponent,
-    ProviderStripComponent,
-    ComparisonSectionComponent,
-    CTASectionComponent,
+    MultiVendorSectionComponent,
+    MemorySkillsSectionComponent,
+    AlwaysOnSectionComponent,
+    ProvidersSectionComponent,
+    FinalCtaSectionComponent,
     FooterComponent,
   ],
   template: `
     <div class="min-h-screen bg-ink-950 text-ink-100">
       <ptah-navigation />
 
+      <!--
+        Every section renders eagerly so its copy ships in the prerendered
+        static HTML; scroll reveals apply their from-state only after hydration.
+      -->
       <main>
         <ptah-hero />
-        <ptah-command-center-section />
+        <!-- The navigation's "Features" link lands on the first section. -->
+        <ptah-command-center-section id="features" />
         <ptah-voice-and-apps-section />
         <ptah-decision-loop-section />
         <ptah-tribunal-section />
-        <ptah-problem-section />
-
-        <!--
-          Render eagerly so SEO copy ships in the prerendered static HTML.
-          Entrance animations apply their from-state only after hydration.
-        -->
-        <ptah-pillars-spine />
-        <ptah-provider-strip />
-        <ptah-comparison-section />
-        <ptah-cta-section />
+        <ptah-multi-vendor-section />
+        <ptah-memory-skills-section />
+        <ptah-always-on-section />
+        <ptah-providers-section />
+        <ptah-final-cta-section />
       </main>
 
       <ptah-footer />

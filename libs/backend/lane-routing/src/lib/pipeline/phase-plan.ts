@@ -9,6 +9,7 @@ import {
 } from '@ptah-extension/shared';
 
 import type { SystemOneTarget } from '../decision-model/decision-model.config';
+import { insideClosenessBand } from '../ranking/closeness-band';
 import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type { DecisionOption } from '../decision-model/decision-payload';
 import type { RouteDecideArgs } from '../contracts/route-decide-args.schema';
@@ -120,6 +121,7 @@ export function planRoutePhases(
   deferReviewerFamily: boolean,
   knownExecutors: readonly KnownPhaseExecutor[],
   remember: (candidates: readonly RoutingCandidate[]) => void,
+  rotate = true,
 ): { readonly plans: PhasePlan[]; readonly cursor: GatheredCall['rotation'] } {
   const plans: PhasePlan[] = [];
   let cursor = rotation;
@@ -170,6 +172,7 @@ export function planRoutePhases(
         ? { preferences: args.preferences }
         : {}),
       rotation: cursor,
+      rotate,
     });
     cursor = spreadResult.rotation;
     plans.push({
@@ -207,11 +210,14 @@ export function dispatchMode(caller: OpenedCaller): DispatchMode {
 }
 
 export function laneQuestion(plan: PhasePlan): LaneQuestion {
+  const top = Math.max(...plan.ranked.map((row) => row.scored.score));
   return {
     phaseId: plan.phaseId,
     taskKind: plan.taskKind,
     instructions: LANE_INSTRUCTIONS,
-    options: plan.ranked.map(toOption),
+    options: plan.ranked
+      .filter((row) => insideClosenessBand(top, row.scored.score))
+      .map(toOption),
   };
 }
 

@@ -26,6 +26,8 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
           (keydown.control.enter)="onEnter($event)" (keydown.meta.enter)="onEnter($event)" />
       }
 
+      <div class="flex items-center gap-2 self-end">
+      <ng-content select="[laneControls]" />
       @if (stopped()) {
         <button type="button" class="btn btn-primary btn-sm shrink-0" [disabled]="queueDisabled()"
           (click)="send('queue')">Resume with message</button>
@@ -47,6 +49,7 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
           }
         </div>
       }
+      </div>
       </div>
       <p class="min-h-4 text-xs text-base-content-muted" aria-live="polite">{{ hint() }}</p>
       @if (error(); as message) { <p class="min-h-4 text-xs text-error" role="alert">{{ message }}</p> }

@@ -88,6 +88,11 @@ describe('Electron RPC surface', () => {
     expect(surface.excluded).not.toContain('plugins:resolve-config-home');
   });
 
+  it('serves the capability matrix read on every host that loads the manifest', () => {
+    expect(surface.registered).toContain('agent:getCapabilityMatrix');
+    expect(surface.excluded).not.toContain('agent:getCapabilityMatrix');
+  });
+
   it('serves every method owned by the live manifest except the pending host.remoteMachines methods', () => {
     expect(surface.registered).toEqual(expect.arrayContaining([
       'agent:previewMessage', 'agent:sendMessage', 'agent:getMessageReceipt', 'agent:cancelMessage',

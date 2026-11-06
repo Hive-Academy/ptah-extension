@@ -14,6 +14,18 @@ function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   } as MonitoredAgent;
 }
 
+function capabilities(steer: 'supported' | 'unsupported'): NonNullable<MonitoredAgent['effectiveCapabilities']> {
+  return {
+    agentId: agentId as NonNullable<MonitoredAgent['effectiveCapabilities']>['agentId'],
+    resolvedAt: 1, source: 'live-handle',
+    messaging: {
+      steer: { state: steer }, interrupt: { state: 'unsupported' },
+      continuation: { state: 'unsupported' }, resume: { state: 'unsupported' },
+    },
+    mcp: { state: 'unsupported' },
+  };
+}
+
 describe('AgentContinueInputComponent', () => {
   let fixture: ComponentFixture<AgentContinueInputComponent>;
   let sendMessage: jest.Mock;
@@ -55,15 +67,54 @@ describe('AgentContinueInputComponent', () => {
     expect(fixture.nativeElement.querySelector('input')).not.toBeNull();
   });
 
+  it('shows Stop without a text input while running and Resume when stopped', () => {
+    const running = makeAgent({ status: 'running', supportsContinuation: false });
+    setup(running);
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Stop generating"]')).not.toBeNull();
+    fixture.componentRef.setInput('agent', { ...running, status: 'stopped', cliSessionId: 'cli-1' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Resume codex session"]')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Stopped');
+  });
+
+  it('shows the composer and emits Stop for a running steer-capable lane without continuation', () => {
+    setup(makeAgent({ supportsContinuation: false, effectiveCapabilities: capabilities('supported') }));
+    expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
+    const stop = fixture.nativeElement.querySelector('[aria-label="Stop generating"]') as HTMLButtonElement;
+    const requested = jest.fn();
+    fixture.componentInstance.stopRequested.subscribe(requested);
+    stop.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('stopPending', true);
+    fixture.detectChanges();
+    expect(stop.disabled).toBe(true);
+  });
+
+  it('shows Stop alone for a running lane without steering or continuation', () => {
+    setup(makeAgent({ supportsContinuation: false, effectiveCapabilities: capabilities('unsupported') }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Stop generating"]')).not.toBeNull();
+  });
+
+  it('renders no message field when continuation is unavailable', () => {
+    setup(makeAgent({ supportsContinuation: false, status: 'completed' }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    setup(makeAgent({ supportsContinuation: undefined, status: 'completed' }));
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+  });
+
   it('keeps a failed draft and clears only an accepted message', async () => {
     setup();
     const field = draft('follow up');
     sendMessage.mockResolvedValueOnce({ mode: 'unsupported', detail: 'Unavailable' });
-    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send') as HTMLButtonElement).click();
     await fixture.whenStable(); fixture.detectChanges();
     expect(field.value).toBe('follow up');
     expect(fixture.nativeElement.textContent).toContain('Unavailable');
-    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Send') as HTMLButtonElement).click();
     await fixture.whenStable(); fixture.detectChanges();
     expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'follow up', 'queue', false);
     expect(field.value).toBe('');

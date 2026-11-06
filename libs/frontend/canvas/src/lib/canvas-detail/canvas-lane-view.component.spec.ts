@@ -178,7 +178,7 @@ describe('CanvasLaneViewComponent', () => {
       },
     });
     TestBed.overrideComponent(AgentCardComponent, {
-      set: { template: '<span>CLI card</span><ptah-agent-continue-input />', imports: [], schemas: [NO_ERRORS_SCHEMA] },
+      set: { template: '<span>CLI card</span>', imports: [], schemas: [NO_ERRORS_SCHEMA] },
     });
   });
 
@@ -290,12 +290,19 @@ describe('CanvasLaneViewComponent', () => {
     );
     expect(input).not.toBeNull();
     expect(fixture.nativeElement.querySelectorAll('ptah-agent-continue-input')).toHaveLength(1);
-    expect(card?.contains(input)).toBe(true);
+    expect(card?.nextElementSibling).toBe(input);
     // The main chat shell (TASK_2026_717 D3): the chrome panel, the session
     // layout, and the composer in the centered column.
     const cliPanel = card?.closest('[data-testid="lane-panel"]');
     expect(cliPanel?.getAttribute('data-glass-surface')).toBe('chrome');
     expect(card?.parentElement?.tagName).toBe('PTAH-CHAT-SESSION-LAYOUT');
+    expect(card?.parentElement?.classList.contains('!flex-none')).toBe(true);
+    expect(card?.parentElement?.classList.contains('min-h-full')).toBe(true);
+    expect(input?.classList.contains('mx-auto')).toBe(true);
+    expect(input?.classList.contains('w-[calc(100cqw-1.5rem)]')).toBe(true);
+    expect(input?.classList.contains('sticky')).toBe(true);
+    expect(input?.classList.contains('bottom-0')).toBe(true);
+    expect(input?.classList.contains('bg-base-100')).toBe(true);
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
     expect(
@@ -303,6 +310,8 @@ describe('CanvasLaneViewComponent', () => {
     ).toBeNull();
     const subLane = fixture.nativeElement.querySelector('ptah-subagent-lane');
     expect(subLane?.parentElement?.tagName).toBe('PTAH-CHAT-SESSION-LAYOUT');
+    expect(subLane?.parentElement?.classList.contains('!flex-none')).toBe(true);
+    expect(subLane?.parentElement?.classList.contains('min-h-full')).toBe(true);
     expect(
       subLane
         ?.closest('[data-testid="lane-panel"]')

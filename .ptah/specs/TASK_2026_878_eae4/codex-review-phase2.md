@@ -1,0 +1,15 @@
+# Phase 2 code review
+
+**Verdict: changes requested.** Read-only review of `git diff main`, the approved copy/design decisions, the new section sources/specs, and repository references. No scripts, builds, tests, or browser were run. **No finding below is a confirmed CI failure**; CI status remains unverified.
+
+## Findings (severity order)
+
+1. **Major — motion breaks the page-wide direction and scrub rule.** `libs/web/landing/src/lib/sections/multi-vendor/multi-vendor-section.component.css:37,64-70` moves the clip and lanes horizontally; `libs/web/landing/src/lib/sections/providers/providers-section.component.css:45-51` also deals cards with a horizontal transition. The owner required vertical, scroll-scrubbed motion in reading order. The step classes trigger timed CSS transitions, so their progress can continue after scrolling stops. **Fix:** drive vertical offsets and opacity from continuous scroll progress; remove the horizontal entrance transforms and time-based reveal transitions. This is a design requirement, **not a CI failure**.
+
+2. **Minor — starting with reduced motion permanently disables later scroll binding.** `libs/web/landing/src/lib/sections/shared/stage-scroll.ts:46-49` returns a no-op when reduced motion initially matches. S5–S8 use this helper (`libs/web/landing/src/lib/sections/multi-vendor/multi-vendor-section.component.ts:108`, etc.); changing the OS preference to normal while the page stays open leaves every section settled with no scroll motion. The CTA repeats the same pattern at `libs/web/landing/src/lib/sections/final-cta/final-cta-section.component.ts:43-46`. **Fix:** retain a media-query change listener or register both preference branches in GSAP matchMedia, and release it on destroy. This is **not a CI failure**.
+
+3. **Minor — obsolete console diagrams remain publicly exported.** `libs/web/landing/src/index.ts:2-4` still exports `MemoryRecallDiagramComponent`, `OrchestraFanoutDiagramComponent`, and `TerminalMockComponent`, although the new page no longer imports them; a repository search found no other consumers. **Fix:** remove these exports and their three `libs/web/landing/src/lib/console/` source files if the public package does not promise them externally. They are safe to delete *within this repository*. `ConsoleGridBackgroundComponent` is **not** orphaned: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:23,34` uses it. This is **not a CI failure**.
+
+## Checks and limits
+
+The five new sections' visible copy matches the public fields in `landing-copy.md`; decorative marks are hidden from accessibility, the setup image has alt text, and the page keeps an H1 followed by section H2s. All four clips appear once, S5 has two flanking canvas bolts, and the section layouts are distinct in source. Removed-section names have no remaining application/library references; the `#features` navigation target is retained. Browser rendering is needed to confirm actual overlap, bolt placement, pin behavior, and the two-WebGL-context ceiling. Skill discovery returned no invokable Angular skill in this lane; the repository guidance was used.

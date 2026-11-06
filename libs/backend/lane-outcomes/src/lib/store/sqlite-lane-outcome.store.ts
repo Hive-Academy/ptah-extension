@@ -7,6 +7,14 @@ import type {
   SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
 import { z } from 'zod';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
+
+const WORKSPACE_MATCH = "(? IS NULL OR workspace_root IS NULL OR lower(replace(rtrim(workspace_root, '/\\'), '\\', '/')) = ? OR lower(replace(rtrim(workspace_root, '/\\'), '\\', '/')) LIKE ? ESCAPE '!')";
+function workspaceBindings(root?: string | null): readonly [string | null, string | null, string | null] {
+  if (root == null) return [null, null, null];
+  const normalized = normalizeWorkspaceRoot(root);
+  return [normalized, normalized, `${normalized.replace(/[!%_]/g, (value) => `!${value}`)}/%`];
+}
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
 import type { LaneOutcomeLogger } from '../lane-outcome-logger';
 import { applyOutcomeEffect } from './lane-outcome.store';
@@ -62,6 +70,10 @@ const HeldSchema = z.object({
 });
 
 export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
+  async listRecent(sinceMs: number, workspaceRoot?: string | null): Promise<readonly LaneOutcomeRow[]> {
+    return this.decodeMany(this.db.prepare(`${SELECT} WHERE ended_at >= ? AND ${WORKSPACE_MATCH} ORDER BY ended_at DESC LIMIT 2000`)
+      .all(sinceMs, ...workspaceBindings(workspaceRoot)));
+  }
   constructor(
     private readonly connection: SqliteConnectionService,
     private readonly logger: LaneOutcomeLogger,
@@ -357,29 +369,33 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
   async listByLane(
     laneId: string,
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]> {
+    // Legacy null-root rows remain visible until they leave the outcome window.
     return this.decodeMany(
       this.db
         .prepare(
-          `${SELECT} WHERE lane_id = ? AND ended_at >= ? ORDER BY ended_at DESC LIMIT 2000`,
+          `${SELECT} WHERE lane_id = ? AND ended_at >= ? AND ${WORKSPACE_MATCH} ORDER BY ended_at DESC LIMIT 2000`,
         )
-        .all(laneId, sinceMs),
+        .all(laneId, sinceMs, ...workspaceBindings(workspaceRoot)),
     );
   }
 
   async listByRoles(
     slugs: readonly string[],
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]> {
+    // Apply the same null-root transition to agent signals.
     if (slugs.length === 0) return [];
     const raw: unknown[] = [];
     for (const slug of slugs) {
       raw.push(
         ...this.db
           .prepare(
-            `${SELECT} WHERE role = ? AND ended_at >= ? ORDER BY ended_at DESC LIMIT 2000`,
+             `${SELECT} WHERE role = ? AND ended_at >= ? AND ${WORKSPACE_MATCH} ORDER BY ended_at DESC LIMIT 2000`,
           )
-          .all(slug, sinceMs),
+           .all(slug, sinceMs, ...workspaceBindings(workspaceRoot)),
       );
     }
     return this.decodeMany(raw)

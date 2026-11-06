@@ -32,6 +32,7 @@ import {
   AgentRpcHandlers,
   AgentMessageRpcHandlers,
   AgentOutcomeRpcHandlers,
+  CapabilityMatrixRpcHandlers,
   AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   ConfigScopeRpcHandlers,
@@ -162,6 +163,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AgentOutcomeRpcHandlers.METHODS,
     requires: [],
     handler: AgentOutcomeRpcHandlers,
+  },
+  {
+    // Capability matrix table (routing learning, item 7). Every host serves
+    // it. An unavailable store answers PERSISTENCE_UNAVAILABLE.
+    key: 'capabilityMatrix',
+    methods: CapabilityMatrixRpcHandlers.METHODS,
+    requires: [],
+    handler: CapabilityMatrixRpcHandlers,
   },
   {
     // Usage dashboard read (TASK_2026_707 PR 2). Every host serves it; sources

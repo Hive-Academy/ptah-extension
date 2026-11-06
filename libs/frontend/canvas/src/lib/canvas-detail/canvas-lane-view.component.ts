@@ -71,7 +71,7 @@ export function effectiveCanvasLaneKind(
  * that `LANE_COLUMN_CLASS` and the lane transcript measure their column from.
  */
 const LANE_PANEL_CLASS =
-  'relative flex h-full min-h-0 min-w-0 flex-col pt-2 [container-type:inline-size]';
+  'relative flex h-full min-h-0 min-w-0 flex-col overflow-y-auto pt-2 [container-type:inline-size]';
 
 @Component({
   selector: 'ptah-canvas-lane-view',
@@ -155,7 +155,7 @@ const LANE_PANEL_CLASS =
                   data-glass-surface="chrome"
                   data-testid="lane-panel"
                 >
-                  <ptah-chat-session-layout>
+                  <ptah-chat-session-layout class="!flex-none min-h-full">
                     @for (
                       permission of agent.permissionQueue;
                       track permission.requestId
@@ -199,12 +199,22 @@ const LANE_PANEL_CLASS =
                     }
                     <ptah-agent-card
                       [showStats]="false"
-                      class="block flex-1 min-h-0"
+                      #laneCard
+                      class="block flex-1 min-h-fit"
                       [agent]="agent"
                       presentation="flat"
                       (toggleExpanded)="
                         monitor.toggleAgentExpanded(agent.agentId)
                       "
+                    />
+                    <ptah-agent-continue-input
+                      [class]="laneColumnClass + ' block flex-shrink-0 sticky bottom-0 z-10 bg-base-100 pt-2'"
+                      variant="composer"
+                      [agent]="agent"
+                      [stopPending]="laneCard.isStopping()"
+                      [resumePending]="laneCard.isResuming()"
+                      (stopRequested)="laneCard.stopAgent($event)"
+                      (resumeRequested)="laneCard.resumeAgent($event)"
                     />
                   </ptah-chat-session-layout>
                 </div>
@@ -244,10 +254,11 @@ const LANE_PANEL_CLASS =
             data-glass-surface="chrome"
             data-testid="lane-panel"
           >
-            <ptah-chat-session-layout>
+            <ptah-chat-session-layout class="!flex-none min-h-full">
               <ptah-subagent-lane
                 [showStats]="false"
-                class="flex-1"
+                class="flex-1 min-h-fit"
+                presentation="flat"
                 [record]="sub"
                 [sessionId]="sessionId()"
                 [getPermissionForTool]="getPermissionForTool"

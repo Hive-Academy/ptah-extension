@@ -67,6 +67,16 @@ function ids(result: SpreadResult): string[] {
 }
 
 describe('spread requirement 7.1', () => {
+  it('keeps the first tie-break pick and cursor when rotation is disabled', () => {
+    const candidates = [ranked('a', 80), ranked('b', 80)];
+    const rotation = withPick(emptyRotationState(), 'build|implement', 'a');
+    const first = spread({ phaseId: 'build', taskKind: 'implement', candidates, rotation, rotate: false });
+    const second = spread({ phaseId: 'build', taskKind: 'implement', candidates, rotation: first.rotation, rotate: false });
+    expect(pickId(first)).toBe('a');
+    expect(pickId(second)).toBe('a');
+    expect(first.rotation).toBe(rotation);
+    expect(second.rotationChangedChoice).toBe(false);
+  });
   it('chooses N different lanes across N consecutive decisions for one key', () => {
     const candidates = [ranked('a', 50), ranked('b', 50), ranked('c', 50)];
     const picks: string[] = [];
