@@ -1,4 +1,5 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -8,8 +9,10 @@ import {
   output,
   signal,
   untracked,
+  DestroyRef,
+  ElementRef,
+  viewChild,
 } from '@angular/core';
-import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, Moon, Square } from 'lucide-angular';
 import { injectWallClock } from '@ptah-extension/core';
 import {
@@ -17,10 +20,7 @@ import {
   SubagentExecutionStore,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import {
-  AgentLaneStatsComponent,
-  agentRunLabel,
-} from '@ptah-extension/chat-ui';
+import { AgentLaneStatsComponent } from '@ptah-extension/chat-ui';
 import { createExecutionNode } from '@ptah-extension/shared';
 import type {
   PermissionRequest,
@@ -35,6 +35,7 @@ import { summarizeExecutionNodes } from '../../../utils/message-summary.utils';
 import { subagentProgressText } from '../../../utils/subagent-progress.utils';
 import { subagentLaneStats } from '../../../utils/lane-stats.adapters';
 import { SubagentLaneComposerComponent } from './subagent-lane-composer.component';
+import { findScrollingAncestor } from '../../../utils/scroll-parent.utils';
 
 /**
  * Each refresh re-reads the whole sidechain transcript over paged RPC, so the
@@ -46,7 +47,6 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
   selector: 'ptah-subagent-lane',
   standalone: true,
   imports: [
-    SlicePipe,
     LucideAngularModule,
     AgentLaneStatsComponent,
     ExecutionHeaderComponent,
@@ -54,20 +54,20 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
     SubagentLaneComposerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // Same shell as the main chat: a control row and the composer in the
-  // centered column, and the transcript in its own scroller between them.
-  host: { class: 'flex min-h-0 flex-col' },
+  // Card mode keeps a bounded transcript; flat mode flows through its host scroller.
+  host: {
+    class: 'flex min-h-0 flex-col',
+    '[class.!min-h-fit]': "presentation() === 'flat'",
+  },
   template: `
     <ptah-execution-header
       class="shrink-0"
       kind="subagent"
       [showStats]="showStats()"
-      [label]="label()"
       [live]="live()"
       [peek]="progress()"
       [toolCount]="headerToolCount()"
       [extraMeta]="meta()"
-      [controlsId]="'subagent-lane-details-' + record().parentToolUseId"
     >
       @if (showStats()) {
         <ptah-agent-lane-stats
@@ -110,25 +110,6 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
           }
         </div>
       }
-      <dl class="space-y-1 py-1">
-        @if (record().taskDescription) {
-          <div>
-            <dt class="inline font-medium">Task:</dt>
-            <dd class="ms-1 inline">{{ record().taskDescription }}</dd>
-          </div>
-        }
-        @if (record().parentSessionId) {
-          <div>
-            <dt class="inline font-medium">Parent:</dt>
-            <dd
-              class="ms-1 inline font-mono"
-              [title]="record().parentSessionId"
-            >
-              {{ record().parentSessionId | slice: 0 : 8 }}&hellip;
-            </dd>
-          </div>
-        }
-      </dl>
     </ptah-execution-header>
     @if (commandError(); as err) {
       <p
@@ -139,11 +120,9 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
         {{ err.message }}
       </p>
     }
-    <!-- relative: the scroller is the containing block of positioned rows
-         (streaming bubbles), so it clips them. Without it they escape to the
-         canvas lane host, which scrolls past the composer. -->
     <div
-      class="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+      #laneBody
+      [class]="presentation() === 'card' ? 'relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]' : 'relative flex-none'"
       data-testid="lane-scroll"
     >
       <div [class]="columnClass + ' space-y-2 pt-2'">
@@ -226,7 +205,7 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
       }
     </div>
     <ptah-subagent-lane-composer
-      [class]="columnClass + ' shrink-0 pt-2 pb-2'"
+      [class]="columnClass + ' shrink-0 pt-2 pb-2' + (presentation() === 'flat' ? ' mt-auto sticky bottom-0 z-10 bg-base-100' : '')"
       [record]="record()"
       [context]="context()"
       [sessionId]="sessionId()"
@@ -235,6 +214,7 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
 })
 export class SubagentLaneComponent {
   readonly showStats = input(true);
+  readonly presentation = input<'card' | 'flat'>('card');
   readonly record = input.required<SubagentRecord>();
   readonly sessionId = input<string | null>(null);
   readonly getPermissionForTool = input<
@@ -246,6 +226,10 @@ export class SubagentLaneComponent {
   protected readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly store = inject(SubagentExecutionStore);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly laneBody = viewChild<ElementRef<HTMLDivElement>>('laneBody');
+  private flatScroller: HTMLElement | null = null;
+  private flatPinned = true;
   protected readonly MoonIcon = Moon;
   protected readonly SquareIcon = Square;
   protected readonly stopPending = signal(false);
@@ -296,19 +280,6 @@ export class SubagentLaneComponent {
         ]
       : this.nodes();
   });
-  protected readonly label = computed(() => {
-    const record = this.record();
-    const live = this.live();
-    return agentRunLabel(
-      {
-        running: live,
-        startedAt: record.startedAt,
-        endedAt: record.completedAt,
-        reportedMs: record.durationMs,
-      },
-      this.now(),
-    );
-  });
   protected readonly progress = computed(() =>
     subagentProgressText(this.record()),
   );
@@ -341,6 +312,29 @@ export class SubagentLaneComponent {
   });
 
   constructor() {
+    afterNextRender(() => {
+      if (this.presentation() !== 'flat') return;
+      const body = this.laneBody()?.nativeElement;
+      if (!body) return;
+      const scroller = findScrollingAncestor(body);
+      if (!scroller) return;
+      this.flatScroller = scroller;
+      const onScroll = (): void => {
+        this.flatPinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 48;
+      };
+      scroller.addEventListener('scroll', onScroll, { passive: true });
+      this.destroyRef.onDestroy(() => scroller.removeEventListener('scroll', onScroll));
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    effect(() => {
+      if (this.presentation() !== 'flat') return;
+      this.messageNodes();
+      this.events();
+      requestAnimationFrame(() => {
+        if (this.flatPinned && this.flatScroller)
+          this.flatScroller.scrollTop = this.flatScroller.scrollHeight;
+      });
+    });
     effect((onCleanup) => {
       const key = this.key();
       this.store.retain(

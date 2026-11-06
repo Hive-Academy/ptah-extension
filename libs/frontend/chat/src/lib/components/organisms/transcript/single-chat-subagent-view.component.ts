@@ -89,6 +89,7 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
         @if (record(); as rec) {
           <ptah-subagent-lane
             class="block"
+            presentation="flat"
             [record]="rec"
             [sessionId]="rec.parentSessionId ?? null"
             [getPermissionForTool]="getPermissionForTool"

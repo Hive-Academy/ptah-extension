@@ -48,12 +48,6 @@ function metaText(root: HTMLElement): string {
   );
 }
 
-function detailsToggle(root: HTMLElement): HTMLButtonElement {
-  return root.querySelector<HTMLButtonElement>(
-    '[data-test="execution-header-details"]',
-  )!;
-}
-
 describe('AgentCardComponent flat execution header', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -79,7 +73,7 @@ describe('AgentCardComponent flat execution header', () => {
     });
   });
 
-  it('puts stats, facts and Resume in one control row without a turn label', () => {
+  it('puts stats and Resume in one control row without a turn label', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
     fixture.componentRef.setInput('agent', lane());
     fixture.componentRef.setInput('presentation', 'flat');
@@ -88,10 +82,8 @@ describe('AgentCardComponent flat execution header', () => {
     const row = root.querySelector<HTMLElement>(
       '[data-test="execution-header-row"]',
     )!;
-    const toggle = detailsToggle(root);
     // The transcript bubble owns "Worked for …" and the tool counts.
     expect(root.querySelector('ptah-turn-disclosure-row')).toBeNull();
-    expect(toggle.getAttribute('aria-label')).toBe('Worked for 2s details');
     // Tokens live in the stats chips, a completed run has no status meta.
     expect(metaText(root)).not.toContain('tokens');
     expect(metaText(root)).not.toContain('Completed');
@@ -112,19 +104,8 @@ describe('AgentCardComponent flat execution header', () => {
       '[aria-label="Resume codex session"]',
     )!;
     expect(row.contains(resume)).toBe(true);
-    expect(toggle.contains(resume)).toBe(false);
     expect(root.querySelector('ptah-cli-lane-usage-summary')).toBeNull();
-    toggle.click();
-    fixture.detectChanges();
-    const details = root.querySelector<HTMLElement>(
-      '#cli-lane-details-lane-1',
-    )!;
-    expect(details.textContent).not.toContain('Model:');
-    expect(details.textContent).toMatch(/Status:\s*Completed/);
-    expect(details.textContent).toMatch(/Task:\s*Inspect files/);
-    expect(details.textContent).toMatch(/CLI session:\s*cli-123/);
-    expect(details.textContent).toMatch(/Parent:\s*parent-456/);
-    expect(details.textContent).not.toContain('ctx ');
+    expect(root.querySelector('[data-test="execution-header-details"]')).toBeNull();
   });
 
   it('shows Stop while running and omits unknown token totals', () => {
@@ -148,7 +129,7 @@ describe('AgentCardComponent flat execution header', () => {
     ['timeout', 'Timed out'],
     ['stopped', 'Stopped'],
   ] as const)(
-    'shows %s as warning metadata and in details',
+    'shows %s as warning metadata ',
     (status, label) => {
       const fixture = TestBed.createComponent(AgentCardComponent);
       fixture.componentRef.setInput('agent', lane({ status }));
@@ -159,11 +140,7 @@ describe('AgentCardComponent flat execution header', () => {
       expect(
         root.querySelector('[data-test="execution-header-meta"]')?.className,
       ).toContain('!text-warning');
-      detailsToggle(root).click();
-      fixture.detectChanges();
-      expect(
-        root.querySelector('#cli-lane-details-lane-1')?.textContent,
-      ).toMatch(new RegExp(`Status:\\s*${label}`));
+
     },
   );
 
@@ -255,7 +232,7 @@ describe('AgentCardComponent flat execution header', () => {
         ?.className,
     ).toContain('!text-warning');
   });
-  it('hides passive stats on request and keeps Resume, Close column and Details', () => {
+  it('hides passive stats on request and keeps Resume and Close column', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
     fixture.componentRef.setInput('agent', lane());
     fixture.componentRef.setInput('presentation', 'flat');
@@ -270,13 +247,6 @@ describe('AgentCardComponent flat execution header', () => {
     expect(
       root.querySelector('[aria-label="Remove codex column"]'),
     ).not.toBeNull();
-    detailsToggle(root).click();
-    fixture.detectChanges();
-    expect(
-      root.querySelector<HTMLElement>('#cli-lane-details-lane-1')?.hidden,
-    ).toBe(false);
-    expect(
-      root.querySelector('#cli-lane-details-lane-1')?.textContent,
-    ).toContain('cli-123');
+    expect(root.querySelector('#cli-lane-details-lane-1')).toBeNull();
   });
 });

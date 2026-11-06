@@ -36,7 +36,6 @@ import {
 import {
   AgentLaneStatsComponent,
   agentRunDurationMs,
-  agentRunLabel,
   formatAgentDuration,
   type RenderSegment,
   type StderrSegment,
@@ -58,6 +57,7 @@ import {
   template: `
     <div
       class="border border-base-content/10 rounded-lg overflow-hidden bg-base-100 flex flex-col h-full"
+      [class.!h-auto]="presentation() === 'flat'"
       [class.!border-0]="presentation() === 'flat'"
       [class.!rounded-none]="presentation() === 'flat'"
       [class.!bg-transparent]="presentation() === 'flat'"
@@ -70,7 +70,6 @@ import {
           class="block flex-shrink-0"
           kind="cli"
           [showStats]="showStats()"
-          [label]="laneLabel()"
           [live]="agent().status === 'running'"
           [peek]="lanePeek()"
           [extraMeta]="laneMeta()"
@@ -83,7 +82,6 @@ import {
               ? 'warning'
               : 'muted'
           "
-          [controlsId]="'cli-lane-details-' + agent().agentId"
         >
           @if (showStats()) {
             <ptah-agent-lane-stats
@@ -148,34 +146,6 @@ import {
               </button>
             }
           </div>
-          <dl class="space-y-1 py-1">
-            <div>
-              <dt class="inline font-medium">Status:</dt>
-              <dd class="ms-1 inline">{{ laneStatus() }}</dd>
-            </div>
-            @if (agent().task) {
-              <div>
-                <dt class="inline font-medium">Task:</dt>
-                <dd class="ms-1 inline">{{ agent().task }}</dd>
-              </div>
-            }
-            @if (agent().cliSessionId) {
-              <div>
-                <dt class="inline font-medium">CLI session:</dt>
-                <dd class="ms-1 inline break-all font-mono">
-                  {{ agent().cliSessionId }}
-                </dd>
-              </div>
-            }
-            @if (agent().parentSessionId) {
-              <div>
-                <dt class="inline font-medium">Parent:</dt>
-                <dd class="ms-1 inline break-all font-mono">
-                  {{ agent().parentSessionId }}
-                </dd>
-              </div>
-            }
-          </dl>
         </ptah-execution-header>
       } @else {
         <!-- Card header -->
@@ -238,6 +208,7 @@ import {
         ) {
           <ptah-cli-agent-output
             class="block flex-1 min-h-0 overflow-hidden"
+            [class.!overflow-visible]="presentation() === 'flat'"
             [agentId]="agent().agentId"
             [usage]="laneUsage()"
             [segments]="agent().segments"
@@ -291,17 +262,6 @@ export class AgentCardComponent {
     return duration === null ? '' : (formatAgentDuration(duration) ?? '');
   });
 
-  protected readonly laneLabel = computed(() => {
-    const a = this.agent();
-    return agentRunLabel(
-      {
-        running: a.status === 'running',
-        startedAt: a.startedAt,
-        endedAt: a.completedAt,
-      },
-      this.now(),
-    );
-  });
   protected readonly laneStatus = computed(() => {
     switch (this.agent().status) {
       case 'failed':
