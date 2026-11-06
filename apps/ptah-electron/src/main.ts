@@ -152,6 +152,7 @@ if (!gotLock) {
 
   const bootSequence = app.whenReady().then(async () => {
     bootStep('whenReady');
+    console.info('[Ptah Electron] GPU features', app.getGPUFeatureStatus());
     const fixtureDirectory =
       !app.isPackaged && process.env['PTAH_E2E'] === '1'
         ? process.env['PTAH_E2E_ARTIFACT_FIXTURE_DIR']

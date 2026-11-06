@@ -76,6 +76,8 @@ const LISTENER_OPTIONS: AddEventListenerOptions = { capture: true };
  * default to the Zone until their handler contract has been audited.
  */
 const SIGNAL_ONLY_STREAM_TYPES = new Set<string>([MESSAGE_TYPES.CHAT_CHUNK]);
+const DRAIN_BUDGET_MS = 8;
+const DRAIN_MESSAGE_CAP = 64;
 
 /** `payload.events` of a well-formed BATCH envelope, or `null`. */
 function batchEvents(message: { payload?: unknown }): unknown[] | null {
@@ -115,7 +117,7 @@ export class MessageRouterService {
     this.queue.push(message as InboundMessage);
 
     if (!this.draining && this.needsSynchronousFlush(message)) {
-      this.drain();
+      this.drain(true);
       return;
     }
     this.scheduleDrain();
@@ -205,25 +207,35 @@ export class MessageRouterService {
   }
 
   /** Dispatch queued messages in arrival order; later arrivals get a new drain. */
-  private drain(): void {
+  private drain(synchronous = false): void {
     if (this.destroyed || this.draining || this.queue.length === 0) return;
     const pending = this.queue;
     this.queue = [];
     this.draining = true;
+    let dispatched = 0;
+    const started = performance.now();
     try {
+      const dispatch = () => {
+        while (dispatched < pending.length) {
+          if (!synchronous && dispatched > 0 &&
+              (dispatched >= DRAIN_MESSAGE_CAP || performance.now() - started >= DRAIN_BUDGET_MS)) break;
+          this.dispatchPending([pending[dispatched++]]);
+        }
+      };
       if (pending.some((message) => this.requiresZone(message))) {
         // One entry at most, even when zone-required and signal-only messages
         // are interleaved. Nested runOutsideAngular keeps the latter's handler
         // contract truthful without changing FIFO/BATCH expansion ordering.
-        this.ngZone.run(() => this.dispatchPending(pending));
+        this.ngZone.run(dispatch);
       } else {
-        this.ngZone.runOutsideAngular(() => this.dispatchPending(pending));
+        this.ngZone.runOutsideAngular(dispatch);
       }
     } finally {
       this.draining = false;
-    }
-    if (this.queue.length > 0) {
-      this.scheduleDrain();
+      if (dispatched < pending.length) {
+        this.queue = pending.slice(dispatched).concat(this.queue);
+      }
+      if (this.queue.length > 0) this.scheduleDrain();
     }
   }
 

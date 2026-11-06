@@ -77,6 +77,7 @@ function isValidMotionStyle(value: unknown): value is MotionStyleName {
 }
 const SCENE_STATE_KEY = 'ptah-scene';
 const SCENE_HINT_KEY = 'ptah-scene';
+const GLASS_EFFECTS_KEY = 'ptah-glass-effects';
 function isValidScene(value: unknown): value is SceneName {
   return typeof value === 'string' && SCENES.some((scene) => scene === value);
 }
@@ -228,6 +229,8 @@ export class ThemeService {
   readonly scene = this._scene.asReadonly();
   private readonly _motionStyle = signal<MotionStyleName>(DEFAULT_MOTION_STYLE);
   readonly motionStyle = this._motionStyle.asReadonly();
+  private readonly _glassEffects = signal(true);
+  readonly glassEffects = this._glassEffects.asReadonly();
 
   /**
    * Public readonly signal for current theme
@@ -261,10 +264,15 @@ export class ThemeService {
     this.initializeAccent();
     this.initializeScene();
     this.initializeMotionStyle();
+    const savedGlass = this.vscode.getState<string>(GLASS_EFFECTS_KEY) ??
+      this.readThemeHint(GLASS_EFFECTS_KEY);
+    this._glassEffects.set(savedGlass !== 'off');
 
     effect(() => {
       const theme = this._currentTheme();
       const root = document.documentElement;
+      const gpu = this.vscode.config().gpuCompositing;
+      if (gpu) root.setAttribute('data-gpu-compositing', gpu);
       root.setAttribute('data-theme', theme);
       // Expose a coarse light/dark marker so brand tokens (e.g. --ptah-gold)
       // can adapt to ANY selected daisyUI theme without per-theme CSS.
@@ -273,6 +281,7 @@ export class ThemeService {
         DARK_THEMES.has(theme) ? 'dark' : 'light',
       );
       const info = DAISYUI_THEMES.find((item) => item.name === theme);
+      root.setAttribute('data-glass-effects', this._glassEffects() ? 'on' : 'off');
       if (info?.glass) {
         root.setAttribute('data-glass', 'on');
         root.setAttribute('data-glass-mode', info.isDark ? 'dark' : 'light');
@@ -293,6 +302,13 @@ export class ThemeService {
       if (motionStyle === DEFAULT_MOTION_STYLE) root.removeAttribute('data-motion-style');
       else root.setAttribute('data-motion-style', motionStyle);
     });
+  }
+
+  setGlassEffects(enabled: boolean): void {
+    this._glassEffects.set(enabled);
+    const value = enabled ? 'on' : 'off';
+    this.vscode.setState(GLASS_EFFECTS_KEY, value);
+    try { localStorage.setItem(GLASS_EFFECTS_KEY, value); } catch { /* optional mirror */ }
   }
 
   /**

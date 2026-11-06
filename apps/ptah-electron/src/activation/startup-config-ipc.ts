@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import {
@@ -41,6 +41,7 @@ export function registerStartupConfigIpc(
  * What `preload.ts` reads out of the main process before Angular bootstraps.
  */
 export interface StartupConfig {
+  gpuCompositing: 'hardware' | 'software' | 'disabled';
   initialView: string | null;
   workspaceRoot: string;
   workspaceName: string;
@@ -49,6 +50,7 @@ export interface StartupConfig {
 }
 
 const EMPTY_STARTUP_CONFIG: StartupConfig = {
+  gpuCompositing: 'hardware',
   initialView: null,
   workspaceRoot: '',
   workspaceName: '',
@@ -62,8 +64,16 @@ function readZoneChangeDetectionFallback(): boolean {
 function emptyStartupConfig(): StartupConfig {
   return {
     ...EMPTY_STARTUP_CONFIG,
+    gpuCompositing: gpuCompositingMode(),
     zoneChangeDetectionFallback: readZoneChangeDetectionFallback(),
   };
+}
+
+function gpuCompositingMode(): StartupConfig['gpuCompositing'] {
+  const status = app.getGPUFeatureStatus().gpu_compositing;
+  if (status === 'enabled') return 'hardware';
+  if (status?.startsWith('disabled') || status === 'unavailable') return 'disabled';
+  return 'software';
 }
 
 /**
@@ -86,6 +96,7 @@ export function readStartupConfig(
     const resolvedRoot = workspaceProvider.getWorkspaceRoot();
     if (!resolvedRoot) return emptyStartupConfig();
     return {
+      gpuCompositing: gpuCompositingMode(),
       initialView: null,
       workspaceRoot: resolvedRoot,
       workspaceName: path.basename(resolvedRoot),

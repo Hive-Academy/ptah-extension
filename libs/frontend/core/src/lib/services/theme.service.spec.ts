@@ -75,12 +75,22 @@ function deferredSheetLink(): HTMLLinkElement | null {
 }
 
 describe('ThemeService', () => {
+  it('persists the glass effects preference and updates the root', () => {
+    const mock = createMockVscode();
+    const service = configure(mock);
+    service.setGlassEffects(false);
+    TestBed.inject(ApplicationRef).tick();
+    expect(service.glassEffects()).toBe(false);
+    expect(mock.setState).toHaveBeenCalledWith('ptah-glass-effects', 'off');
+    expect(document.documentElement.getAttribute('data-glass-effects')).toBe('off');
+  });
   afterEach(() => {
     TestBed.resetTestingModule();
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-theme-mode');
     document.documentElement.removeAttribute('data-glass');
     document.documentElement.removeAttribute('data-glass-mode');
+    document.documentElement.removeAttribute('data-glass-effects');
     document.documentElement.removeAttribute('data-accent');
     document.documentElement.removeAttribute('data-scene');
     document.documentElement.removeAttribute('data-motion-style');

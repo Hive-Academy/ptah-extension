@@ -17,6 +17,7 @@ import {
   VSCodeService,
   provideVSCodeService,
   provideMessageRouter,
+  RendererFrameMonitorService,
   MESSAGE_HANDLERS,
   ATTENTION_ACTION_DISPATCHER,
   ATTENTION_LANE_OPENER,
@@ -246,6 +247,8 @@ export const appConfig: ApplicationConfig = {
     provideAppInitializer(() => {
       inject(ChatAttentionSourceService);
     }),
+    RendererFrameMonitorService,
+    provideAppInitializer(() => { inject(RendererFrameMonitorService); }),
     {
       provide: SurfaceRouterService.generationRouteTabValidatorToken,
       useFactory: () => {

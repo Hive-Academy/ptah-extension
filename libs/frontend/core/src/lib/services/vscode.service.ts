@@ -24,6 +24,7 @@ export interface WebviewConfig {
   isElectron?: boolean;
   /** OS platform from Electron main process: 'darwin', 'win32', 'linux'. */
   platform?: string;
+  gpuCompositing?: 'hardware' | 'software' | 'disabled';
   /** Temporary bootstrap-only rollback switch for the zoneless webview. */
   zoneChangeDetectionFallback?: boolean;
 }

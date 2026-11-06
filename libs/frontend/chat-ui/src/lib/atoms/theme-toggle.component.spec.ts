@@ -42,6 +42,8 @@ describe('ThemeToggleComponent', () => {
             currentTheme: currentTheme.asReadonly(),
             accent: accent.asReadonly(),
             setTheme,
+            glassEffects: signal(true).asReadonly(),
+            setGlassEffects: jest.fn(),
             setAccent,
             setScene,
             scene: scene.asReadonly(),

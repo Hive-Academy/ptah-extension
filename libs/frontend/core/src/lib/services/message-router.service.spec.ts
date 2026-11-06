@@ -354,7 +354,7 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
     jest.restoreAllMocks();
   });
 
-  it('drains 1,000 queued messages in one MessageChannel task with exactly one zone entry, in arrival order (AC-13)', () => {
+  it('spreads 1,000 queued messages over tasks in arrival order', () => {
     const { run } = boot([loggingHandler(['burst'])]);
 
     for (let ord = 0; ord < 1000; ord++) {
@@ -368,10 +368,26 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
 
     channel.deliver();
 
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(log.length).toBeGreaterThan(0);
+    expect(log.length).toBeLessThan(1000);
+    while (channel.pending()) channel.deliver();
+    expect(run.mock.calls.length).toBeGreaterThan(1);
     expect(log).toEqual(
       Array.from({ length: 1000 }, (_, ord) => `burst:${ord}`),
     );
+  });
+
+  it('requeues undispatched messages when a zone drain throws', () => {
+    const { zone } = boot([loggingHandler(['burst'])]);
+    fireWindowMessage({ type: 'burst', payload: { ord: 1 } });
+    fireWindowMessage({ type: 'burst', payload: { ord: 2 } });
+    jest.spyOn(zone, 'run').mockImplementationOnce(() => {
+      throw new Error('zone failed');
+    });
+    expect(() => channel.deliver()).toThrow('zone failed');
+    expect(log).toEqual([]);
+    channel.deliver();
+    expect(log).toEqual(['burst:1', 'burst:2']);
   });
 
   it('dispatches a burst of signal-only stream messages outside Angular with no zone entry', () => {
@@ -389,6 +405,7 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
 
     expect(run).not.toHaveBeenCalled();
     expect(handlerInZone).toBe(false);
+    while (channel.pending()) channel.deliver();
     expect(log).toHaveLength(1000);
   });
 

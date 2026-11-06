@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { z } from 'zod';
 
 /**
  * Preload script -- bridges renderer (Angular) with main process.
@@ -15,12 +16,15 @@ import { contextBridge, ipcRenderer } from 'electron';
  * The Angular app (VSCodeService) reads window.vscode in constructor.
  * By providing the same shape, ZERO Angular code changes needed.
  */
-const startupConfig = ipcRenderer.sendSync('get-startup-config') as {
-  initialView?: string | null;
-  workspaceRoot?: string;
-  workspaceName?: string;
-  zoneChangeDetectionFallback?: boolean;
-} | null;
+const rawStartupConfig = ipcRenderer.sendSync('get-startup-config');
+const startupConfigResult = z.object({
+  initialView: z.string().nullable().optional(),
+  workspaceRoot: z.string().optional(),
+  workspaceName: z.string().optional(),
+  zoneChangeDetectionFallback: z.boolean().optional(),
+  gpuCompositing: z.enum(['hardware', 'software', 'disabled']).optional(),
+}).safeParse(rawStartupConfig);
+const startupConfig = startupConfigResult.success ? startupConfigResult.data : null;
 contextBridge.exposeInMainWorld('vscode', {
   postMessage: (message: unknown) => {
     ipcRenderer.send('rpc', message);
@@ -44,6 +48,7 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
+  gpuCompositing: startupConfig?.gpuCompositing ?? 'hardware',
   initialView: startupConfig?.initialView || 'chat',
   // TODO(streaming-p6): remove zone fallback flag after one stable release
   zoneChangeDetectionFallback:
