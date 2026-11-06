@@ -689,7 +689,8 @@ export function captureShutdownHandles(
     coordinator.refs.hostRouting = null;
   }
 
-  // The SQLite search worker is a utilityProcess forked on the first search.
+  // The SQLite search worker is a utilityProcess forked once the database is
+  // migrated (`search-worker-prestart.ts`), or on the first search otherwise.
   // Captured here so `will-quit` kills the instance the stores hold; resolving
   // forks nothing. Unregistered when memory-curator registration was skipped.
   try {

@@ -2048,7 +2048,7 @@ describe('MemorySearchService — real SQLite scope and quarantine', () => {
 // ---------------------------------------------------------------------------
 
 describe('MemorySearchService.searchRich — scoped vector candidate cap', () => {
-  it('returns the BM25 hits when the capped KNN finds no scoped vectors', async () => {
+  it('returns the BM25 hits, not bm25Only, when the capped KNN finds no scoped vectors', async () => {
     const rows = [1, 2, 3].map((i) => ftsRow(i, `lexical match ${i}`));
     const knnK: number[] = [];
     const statementFor = (sql: string): SqliteStatement => ({
@@ -2101,13 +2101,16 @@ describe('MemorySearchService.searchRich — scoped vector candidate cap', () =>
 
     const result = await service.searchRich('lexical match', 5, '/tiny-workspace');
 
-    expect(result.bm25Only).toBe(true);
+    // A capped KNN is a partial vector answer, not a failure (review 4 Critical 1).
+    expect(result.bm25Only).toBe(false);
+    expect(logger.warn).not.toHaveBeenCalled();
     expect(result.hits.map((hit) => hit.chunk.text)).toEqual([
       'lexical match 1',
       'lexical match 2',
       'lexical match 3',
     ]);
-    // Hard bound held: one KNN pass, at the cap.
+    // Hard bound held: one KNN pass, at the cap. Partial answers are not
+    // cached, so the repeat scans again.
     expect(knnK).toEqual([2048]);
     await service.searchRich('lexical match', 5, '/tiny-workspace');
     expect(knnK).toEqual([2048, 2048]);

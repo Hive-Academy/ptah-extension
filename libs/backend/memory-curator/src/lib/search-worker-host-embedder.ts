@@ -2,24 +2,30 @@
  * Worker-side `IEmbedder` that forwards embed and rerank calls to the host
  * process, which owns the real embedder utility process.
  *
- * Every call is bounded: a host that never answers leaves no entry behind,
- * and the call rejects. The searches catch it and degrade visibly: a failed
- * embed marks the response `bm25Only` (the hybrid search still returns its
- * BM25 rows), a failed rerank keeps the RRF order, and neither degraded
- * response is cached as final.
- *
- * Until the first embed succeeds the host's model may still be loading, so
- * embeds get `coldCallTimeoutMs` (the host also warms its embedder when it
- * forks this process); after that, `callTimeoutMs`.
+ * Every call is bounded by `callTimeoutMs`, a backstop at least as long as
+ * the host's whole request budget: a host that never answers leaves no entry
+ * behind, and the call rejects. The real per-request bound is the request
+ * deadline, which the searches race these calls against (`withinBudget`), so
+ * a query embed may wait behind another query's embed or rerank for as long
+ * as its request allows. The searches degrade visibly: a failed embed marks
+ * the response `bm25Only` (the hybrid search still returns its BM25 rows), a
+ * failed rerank keeps the RRF order, and neither is cached as final.
  */
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
-const EMBEDDER_IDLE_MS = 5 * 60 * 1000;
 import {
   MAX_EMBED_TEXTS,
   MAX_RERANK_CANDIDATES,
   type SearchWorkerHostReply,
   type SearchWorkerOutbound,
 } from './search-worker.protocol';
+
+/** The host shed an optional call (its reranker is busy); the caller skips it. */
+export class HostCallSkippedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HostCallSkippedError';
+  }
+}
 
 type PendingCall =
   | {
@@ -40,10 +46,8 @@ export interface HostBridgeEmbedderOptions {
   readonly modelId: string;
   readonly canRerank: boolean;
   readonly post: (message: SearchWorkerOutbound) => void;
-  /** Bound on a host call once the host embedder is warm. Default 2 000 ms. */
+  /** Backstop on a host call. Default 5 000 ms, the host's request budget. */
   readonly callTimeoutMs?: number;
-  /** Bound on an embed until one has succeeded (model load). Default 4 000 ms. */
-  readonly coldCallTimeoutMs?: number;
 }
 
 export class HostBridgeEmbedder implements IEmbedder {
@@ -53,9 +57,6 @@ export class HostBridgeEmbedder implements IEmbedder {
   readonly canRerank: boolean;
   private readonly post: (message: SearchWorkerOutbound) => void;
   private readonly callTimeoutMs: number;
-  private readonly coldCallTimeoutMs: number;
-  private warm = false;
-  private lastSuccessAt = 0;
   private readonly calls = new Map<number, PendingCall>();
   private nextId = 1;
 
@@ -64,8 +65,7 @@ export class HostBridgeEmbedder implements IEmbedder {
     this.modelId = options.modelId;
     this.canRerank = options.canRerank;
     this.post = options.post;
-    this.callTimeoutMs = options.callTimeoutMs ?? 2_000;
-    this.coldCallTimeoutMs = Math.max(this.callTimeoutMs, options.coldCallTimeoutMs ?? 4_000);
+    this.callTimeoutMs = options.callTimeoutMs ?? 5_000;
   }
 
   /** Number of host calls awaiting an answer. Diagnostic and test accessor. */
@@ -81,14 +81,11 @@ export class HostBridgeEmbedder implements IEmbedder {
       );
     }
     const id = this.nextId++;
-    if (Date.now() - this.lastSuccessAt >= EMBEDDER_IDLE_MS) this.warm = false;
-    const timeoutMs = this.warm ? this.callTimeoutMs : this.coldCallTimeoutMs;
     return new Promise<Float32Array[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
-        this.warm = false;
-        reject(new Error(`host embed timed out after ${timeoutMs} ms`));
-      }, timeoutMs);
+        reject(new Error(`host embed timed out after ${this.callTimeoutMs} ms`));
+      }, this.callTimeoutMs);
       this.calls.set(id, { kind: 'embed', resolve, reject, timer });
       this.post({ kind: 'embed', id, texts: [...texts] });
     });
@@ -118,21 +115,14 @@ export class HostBridgeEmbedder implements IEmbedder {
     if (!call) return;
     this.calls.delete(reply.id);
     clearTimeout(call.timer);
-    if (call.kind === 'embed') {
-      if (reply.kind === 'embed-result') {
-        this.warm = true;
-        this.lastSuccessAt = Date.now();
-        call.resolve(reply.vectors.map((v) => Float32Array.from(v)));
-      } else {
-        this.warm = false;
-        call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
-      }
-      return;
-    }
-    if (reply.kind === 'rerank-result') call.resolve(reply.ranked);
-    else {
-      this.warm = false;
-      call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
+    if (call.kind === 'embed' && reply.kind === 'embed-result') {
+      call.resolve(reply.vectors.map((v) => Float32Array.from(v)));
+    } else if (call.kind === 'rerank' && reply.kind === 'rerank-result') {
+      call.resolve(reply.ranked);
+    } else if (reply.kind === 'host-call-failed') {
+      call.reject(reply.busy ? new HostCallSkippedError(reply.message) : new Error(reply.message));
+    } else {
+      call.reject(new Error('unexpected host reply'));
     }
   }
 

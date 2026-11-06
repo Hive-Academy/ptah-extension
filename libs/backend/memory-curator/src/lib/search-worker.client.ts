@@ -8,18 +8,22 @@
  * - Every message from the worker is parsed with `searchWorkerOutboundSchema`,
  *   and every result with the schema of the request kind it answers. A row
  *   that fails its schema is dropped and logged; the rest of the page stays.
- * - At most `maxInFlight` requests are owed by the worker at once; the rest
- *   wait host-side, so a request's `timeoutMs` runs from its dispatch, not
- *   from time spent queued behind others in the single-threaded worker. A
- *   queued request waits at most `queueTimeoutMs` for its turn, so a caller
- *   waits at most `queueTimeoutMs + timeoutMs` (10 s by default).
+ * - Nothing is dispatched before the worker reports `ready`, and at most
+ *   `maxInFlight` requests are owed by it at once; the rest wait host-side.
+ *   A request's `timeoutMs` and the deadline it carries therefore run from its
+ *   dispatch, not from the worker's boot or from time queued behind others in
+ *   the single-threaded worker. A queued request waits at most
+ *   `queueTimeoutMs` (default 15 s, a normal boot included) for its turn.
  * - A timeout degrades only that request. The process is killed (every pending
- *   request degrades, exponential backoff capped at 30 s) only when it is
- *   unresponsive: it owes answers and has sent no message of any kind for
- *   `livenessMs`. A process exit, a failed init or a failed send also kill it.
- *   While backing off, requests resolve degraded at once; nothing is queued.
+ *   request degrades) when it is unresponsive (it owes answers and has sent no
+ *   message of any kind for `livenessMs`), when it is not ready 30 s after the
+ *   fork, on exit, on a failed init and on a failed send. Each kill backs off
+ *   exponentially (250 ms doubling, capped at 30 s); only a valid result
+ *   resets the backoff. While backing off, requests resolve degraded at once.
  * - At most `maxPending` requests are queued or in flight; more resolve degraded.
- * - Forking the worker also warms the host embedder, so the first vector
+ * - `start()` forks the worker before any request (the host calls it once the
+ *   database is migrated); otherwise the first request forks it.
+ * - The first request to a new worker also warms the host embedder, so the first vector
  *   search does not pay the model load inside its budget.
  * - `dispose()` kills the process, stops respawns and waits (bounded) for the
  *   exit, so the host can close SQLite after the reader is gone (app quit).
@@ -36,18 +40,20 @@ import {
   createSearchWorkerResultSchemas,
   searchWorkerOutboundSchema,
   searchWorkerQuerySchema,
-  type DroppedRowsReport,
   type SearchWorkerInbound,
   type SearchWorkerOutbound,
   type SearchWorkerQuery,
   type SearchWorkerResultSchemas,
 } from './search-worker.protocol';
-import { rebuildWorkerError } from './search-worker-error';
+import { forwardWorkerLog, reportDroppedRows } from './search-worker-log-forwarding';
 import type { CuratorLogger } from './sqlite-reader-deps.types';
 
 const LOG_PREFIX = '[sqlite-search-worker]';
 const BASE_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 30_000;
+const BOOT_TIMEOUT_MS = 30_000;
+/** Margin between the deadline sent to the worker and the client's own timeout. */
+const DEADLINE_MARGIN_MS = 500;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type QueryBody = DistributiveOmit<SearchWorkerQuery, 'id'>;
@@ -66,7 +72,7 @@ interface PendingRequest {
 export interface SearchWorkerClientOptions {
   /** Budget from dispatch to the worker's answer. Default 5 000 ms. */
   readonly timeoutMs?: number;
-  /** Budget for waiting host-side for a dispatch slot. Default `timeoutMs`. */
+  /** Budget for waiting host-side for the worker's boot and a dispatch slot. Default 15 000 ms. */
   readonly queueTimeoutMs?: number;
   /** Requests queued or in flight at once. Default 32. */
   readonly maxPending?: number;
@@ -90,9 +96,9 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   private lastActivityAt = 0;
   private ready = false;
   private spawnedAt = 0;
-  private watchdogRestarts = 0;
-  private watchdogCapLogged = false;
-  private restartResumeAt = 0;
+  /** The embedder warm-up for the current process waits for its first request. */
+  private warmPending = false;
+  private bootTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private nextId = 1;
   private failures = 0;
@@ -116,14 +122,14 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     options: SearchWorkerClientOptions = {},
   ) {
     this.timeoutMs = options.timeoutMs ?? 5_000;
-    this.queueTimeoutMs = options.queueTimeoutMs ?? this.timeoutMs;
+    this.queueTimeoutMs = options.queueTimeoutMs ?? Math.max(this.timeoutMs, 15_000);
     this.maxPending = options.maxPending ?? 32;
     this.maxInFlight = Math.max(1, options.maxInFlight ?? 4);
     this.livenessMs = options.livenessMs ?? 10_000;
     this.exitWaitMs = options.exitWaitMs ?? 2_000;
     this.reranker = embedder instanceof EmbedderWorkerClient ? embedder : null;
-    this.hostCalls = new SearchWorkerHostCalls(embedder);
-    this.schemas = createSearchWorkerResultSchemas((report) => this.reportDroppedRows(report));
+    this.hostCalls = new SearchWorkerHostCalls(embedder, logger);
+    this.schemas = createSearchWorkerResultSchemas((report) => reportDroppedRows(this.logger, report));
   }
 
   searchMemory(query: string, topK: number, workspaceRoot?: string | null): Promise<MemorySearchResponse> {
@@ -160,6 +166,15 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
 
   getChunks(memoryId: string): Promise<readonly MemoryChunk[]> {
     return this.request({ kind: 'chunks', memoryId }, this.schemas.chunks, []);
+  }
+
+  /**
+   * Fork the worker now, so the first request does not pay the utility
+   * process boot. No-op when it is running, disposed or backing off.
+   */
+  start(): void {
+    if (this.disposed || this.process || Date.now() < this.retryAfter) return;
+    this.ensureProcess('boot');
   }
 
   /**
@@ -210,7 +225,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       return Promise.resolve(empty);
     }
     const message: SearchWorkerQuery = checked.data;
-    if (!this.ensureProcess()) return Promise.resolve(empty);
+    if (!this.ensureProcess('request')) return Promise.resolve(empty);
+    if (this.warmPending) {
+      this.warmPending = false;
+      this.warmEmbedder();
+    }
     return new Promise<T>((resolve) => {
       this.pending.set(id, {
         message,
@@ -237,9 +256,9 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     });
   }
 
-  /** Dispatch queued requests while the worker owes fewer than `maxInFlight`. */
+  /** Dispatch queued requests to a ready worker while it owes fewer than `maxInFlight`. */
   private pump(): void {
-    while (this.process && this.owed.size < this.maxInFlight) {
+    while (this.process && this.ready && this.owed.size < this.maxInFlight) {
       const id = this.queue.shift();
       if (id === undefined) return;
       const slot = this.pending.get(id);
@@ -256,16 +275,14 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.owed.add(id);
     this.armWatchdog();
     try {
-      child.postMessage(slot.message.kind === 'memory'
-        ? { ...slot.message, deadlineMs: Date.now() + Math.max(1, this.timeoutMs - 500) }
-        : slot.message);
+      child.postMessage({ ...slot.message, deadlineMs: Date.now() + Math.max(1, this.timeoutMs - DEADLINE_MARGIN_MS) });
     } catch (error: unknown) {
       this.logger.warn(`${LOG_PREFIX} request send failed`, { error: errorMessage(error) });
       this.resetProcess(child, true);
     }
   }
 
-  private ensureProcess(): ISearchWorkerProcess | null {
+  private ensureProcess(reason: 'boot' | 'request'): ISearchWorkerProcess | null {
     if (this.process) return this.process;
     let child: ISearchWorkerProcess;
     let init: SearchWorkerInbound;
@@ -292,6 +309,10 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.process = child;
     this.ready = false;
     this.spawnedAt = Date.now();
+    this.warmPending = vecPath !== undefined;
+    this.logger.info(`${LOG_PREFIX} forked`, { reason });
+    this.bootTimer = setTimeout(() => this.onBootTimeout(child), BOOT_TIMEOUT_MS);
+    this.bootTimer.unref?.();
     let markExited: () => void = () => undefined;
     this.processExited = new Promise<void>((resolve) => {
       markExited = resolve;
@@ -314,17 +335,16 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       this.resetProcess(child, true);
       return null;
     }
-    if (vecPath) this.warmEmbedder();
     return child;
   }
 
   /**
-   * Start the host embedder's model load while the worker boots, so the
-   * worker's first embed call does not spend its budget on it. A failure here
-   * resurfaces at warn on the search that needs the embedder.
+   * Start the host embedder's model loads while the worker boots, so the
+   * worker's first embed and rerank do not spend their budgets on them. A
+   * failure here resurfaces at warn on the search that needs the embedder.
    */
   private warmEmbedder(): void {
-    this.embedder.embed(['warmup']).then(
+    this.hostCalls.warmup().then(
       () => undefined,
       (error: unknown) =>
         this.logger.debug(`${LOG_PREFIX} embedder warm-up failed`, { error: errorMessage(error) }),
@@ -340,7 +360,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       this.logger.warn(`${LOG_PREFIX} rejected an invalid worker message`, {
         issue: parsed.error.issues[0]?.message,
       });
-      const identifiable = z.object({ id: z.number().int().positive() }).safeParse(raw);
+      // Only an answer's id names a request: embed/rerank ids are the worker
+      // bridge's own sequence.
+      const identifiable = z
+        .object({ kind: z.enum(['result', 'error']), id: z.number().int().positive() })
+        .safeParse(raw);
       if (identifiable.success) {
         this.owed.delete(identifiable.data.id);
         this.takePending(identifiable.data.id)?.degrade();
@@ -349,17 +373,16 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       return;
     }
     const message = parsed.data;
-    this.failures = 0;
-    if (message.kind === 'result' || message.kind === 'ready') {
-      this.watchdogRestarts = 0;
-      this.watchdogCapLogged = false;
-      this.restartResumeAt = 0;
-    }
     switch (message.kind) {
       case 'ready':
         this.ready = true;
+        this.clearBootTimer();
         this.lastActivityAt = Date.now();
-        this.logger.info(`${LOG_PREFIX} ready`, { vecLoaded: message.vecLoaded });
+        this.logger.info(`${LOG_PREFIX} ready`, {
+          vecLoaded: message.vecLoaded,
+          sinceForkMs: Date.now() - this.spawnedAt,
+        });
+        this.pump();
         return;
       case 'init-failed':
         this.logger.warn(`${LOG_PREFIX} init failed`, { error: message.message });
@@ -373,13 +396,18 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       case 'error': {
         this.owed.delete(message.id);
         const slot = this.takePending(message.id);
-        this.logger.warn(`${LOG_PREFIX} query failed; answering degraded`, { error: message.message });
-        slot?.degrade();
+        if (slot) {
+          this.logger.warn(`${LOG_PREFIX} query failed; answering degraded`, { error: message.message });
+          slot.degrade();
+        } else {
+          // Already answered degraded at its timeout, which was logged then.
+          this.logger.debug(`${LOG_PREFIX} late error for a timed-out request`, { error: message.message });
+        }
         this.pump();
         return;
       }
       case 'log':
-        this.forwardLog(message);
+        forwardWorkerLog(this.logger, message);
         return;
       case 'embed':
       case 'rerank':
@@ -388,57 +416,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     }
   }
 
-  private forwardLog(message: Extract<SearchWorkerOutbound, { kind: 'log' }>): void {
-    const text = `${LOG_PREFIX} ${message.message}`;
-    // A logged Error is rebuilt with the worker's stack and cause chain, so the
-    // host logger receives a real Error, as everywhere else in the host.
-    const detail = message.error ? rebuildWorkerError(message.error) : message.context;
-    const args: unknown[] = detail === undefined ? [] : [detail];
-    switch (message.level) {
-      case 'debug':
-        this.logger.debug(text, ...args);
-        return;
-      case 'info':
-        this.logger.info(text, ...args);
-        return;
-      case 'warn':
-        this.logger.warn(text, ...args);
-        return;
-      case 'error':
-        this.logger.error(text, detail);
-        return;
-    }
-  }
-
-  private reportDroppedRows(report: DroppedRowsReport): void {
-    this.logger.warn(`${LOG_PREFIX} dropped result rows that failed validation`, {
-      kind: report.kind,
-      dropped: report.dropped,
-      kept: report.kept,
-      issue: report.issue,
-      path: report.path,
-    });
-  }
-
   private async answerHostCall(
     child: ISearchWorkerProcess,
     message: Extract<SearchWorkerOutbound, { kind: 'embed' | 'rerank' }>,
   ): Promise<void> {
-    let reply: SearchWorkerInbound;
-    try {
-      if (message.kind === 'embed') {
-        const vectors = await this.hostCalls.embed(message.texts);
-        reply = { kind: 'embed-result', id: message.id, vectors: vectors.map((v) => Array.from(v)) };
-      } else if (this.reranker) {
-        const ranked = await this.hostCalls.rerank(message.query, message.candidates, message.topK);
-        reply = { kind: 'rerank-result', id: message.id, ranked: ranked.map((r) => ({ id: r.id, score: r.score })) };
-      } else {
-        reply = { kind: 'host-call-failed', id: message.id, message: 'reranker unavailable' };
-      }
-    } catch (error: unknown) {
-      this.logger.warn(`${LOG_PREFIX} host ${message.kind} failed`, { error: errorMessage(error) });
-      reply = { kind: 'host-call-failed', id: message.id, message: errorMessage(error) };
-    }
+    const reply: SearchWorkerInbound = await this.hostCalls.answer(message);
     if (child !== this.process) return;
     try {
       child.postMessage(reply);
@@ -477,33 +459,46 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.watchdog = null;
     const child = this.process;
     if (!child || this.owed.size === 0) return;
+    if (Date.now() - this.lastActivityAt < this.livenessMs) {
+      this.armWatchdog();
+      return;
+    }
+    // After a long block of this thread the timer can fire before the worker
+    // messages queued behind it are handled; look again on the next turn,
+    // after the poll phase has delivered them.
+    const recheck = setTimeout(() => this.confirmUnresponsive(child), 0);
+    recheck.unref?.();
+  }
+
+  private confirmUnresponsive(child: ISearchWorkerProcess): void {
+    if (child !== this.process || this.owed.size === 0) return;
     const silentMs = Date.now() - this.lastActivityAt;
-    if (!this.ready && Date.now() - this.spawnedAt < 30_000) {
-      this.lastActivityAt = Date.now();
+    if (silentMs < this.livenessMs) {
       this.armWatchdog();
       return;
     }
-    if (this.watchdogRestarts >= 2 && Date.now() >= this.restartResumeAt) {
-      this.watchdogRestarts = 0;
-      this.watchdogCapLogged = false;
-    }
-    if (silentMs < this.livenessMs || this.watchdogRestarts >= 2) {
-      this.lastActivityAt = Date.now();
-      if (this.watchdogRestarts >= 2 && !this.watchdogCapLogged) {
-        this.watchdogCapLogged = true;
-        this.restartResumeAt = Date.now() + MAX_BACKOFF_MS;
-        this.logger.warn(`${LOG_PREFIX} restart cap reached; keeping worker under observation`);
-      }
-      this.armWatchdog();
-      return;
-    }
-    this.watchdogRestarts++;
     this.logger.warn(`${LOG_PREFIX} worker unresponsive; restarting`, {
       silentMs,
       owed: this.owed.size,
       pending: this.pending.size,
     });
     this.resetProcess(child, true);
+  }
+
+  private onBootTimeout(child: ISearchWorkerProcess): void {
+    this.bootTimer = null;
+    if (child !== this.process || this.ready) return;
+    this.logger.warn(`${LOG_PREFIX} worker not ready after boot timeout; restarting`, {
+      waitedMs: BOOT_TIMEOUT_MS,
+      queued: this.queue.length,
+    });
+    this.resetProcess(child, true);
+  }
+
+  private clearBootTimer(): void {
+    if (this.bootTimer === null) return;
+    clearTimeout(this.bootTimer);
+    this.bootTimer = null;
   }
 
   private takePending(id: number): PendingRequest | undefined {
@@ -517,6 +512,8 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   private resetProcess(child: ISearchWorkerProcess, backOff: boolean): void {
     if (child !== this.process) return;
     this.process = null;
+    this.ready = false;
+    this.clearBootTimer();
     this.owed.clear();
     this.queue.length = 0;
     if (this.watchdog !== null) {

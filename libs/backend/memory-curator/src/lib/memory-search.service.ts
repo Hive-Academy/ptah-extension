@@ -35,6 +35,8 @@ import {
 } from './memory.types';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import { HostBridgeEmbedder } from './search-worker-host-embedder';
+import { BudgetExceededError, remainingMs, withinBudget } from './search-deadline';
+import { rerankFused } from './memory-rerank';
 import { ObservationQueueStore } from './observation-queue.store';
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { salienceRankOrderBy } from './salience-ranking';
@@ -339,7 +341,12 @@ export class MemorySearchService implements IMemoryReader {
   ): Promise<MemorySearchResponse> {
     if (this.searchWorker) return this.searchWorker.searchMemory(query, topK, workspaceRoot);
     const key = this.makeCacheKey(query.trim(), workspaceRoot, Math.max(1, Math.min(50, topK)));
-    return this.searchFlight.run(key, () => this.searchRichTracked(query, topK, workspaceRoot, key, deadlineMs));
+    const search = () => this.searchRichTracked(query, topK, workspaceRoot, key, deadlineMs);
+    if (deadlineMs === undefined) return this.searchFlight.run(key, search);
+    // A deadline-bound search (the search worker's) joins only work due in the
+    // same second, and skips the process-wide serial queue: that wait would be
+    // spent from its budget, and the worker has no UI thread to protect.
+    return this.searchFlight.run(`${key}|${Math.floor(deadlineMs / 1_000)}`, search, { serialize: false });
   }
 
   private async searchRichTracked(
@@ -379,25 +386,17 @@ export class MemorySearchService implements IMemoryReader {
     // but never cached: the next identical query retries the full ranking
     // instead of serving the fallback until the next write.
     let degraded = false;
+    // A partial answer (capped scoped KNN, rerank skipped) keeps its rows and
+    // its bm25Only flag, but is not cached as full quality either.
+    let partial = false;
     if (!bm25Only) {
       try {
-        const remaining = deadlineMs === undefined ? Infinity : deadlineMs - Date.now();
-        if (remaining <= 250) throw new Error('vector deadline exhausted');
-        const vector = this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot);
-        if (Number.isFinite(remaining)) {
-          const vectorBudgetMs = Math.max(1, remaining - 200);
-          // degradation-audit: optional-capability - a vector call may finish after
-          // the deadline; the BM25 response has already been returned.
-          void vector.catch(() => undefined);
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          try {
-            vecRows = await Promise.race([vector, new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error('vector deadline exhausted')), vectorBudgetMs);
-            })]);
-          } finally {
-            clearTimeout(timer);
-          }
-        } else vecRows = await vector;
+        const remaining = remainingMs(deadlineMs);
+        if (remaining <= 250) throw new BudgetExceededError('vector search', remaining);
+        const vector = this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot, deadlineMs, () => {
+          partial = true;
+        });
+        vecRows = await withinBudget(vector, remaining - 200, 'vector search');
       } catch (err) {
         this.logger.warn(
           '[memory-curator] vec search failed; falling back to BM25',
@@ -413,36 +412,12 @@ export class MemorySearchService implements IMemoryReader {
     const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
     const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
     let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
-    if (!degraded && fused.length >= 5 && (deadlineMs === undefined || deadlineMs - Date.now() > 2_200)) {
-      const reranker = this.reranker;
-      if (reranker !== null) {
-        try {
-          const MAX_CANDIDATE_CHARS = 512;
-          const rerankInput = fused.slice(0, limit * 4).map((e) => ({
-            id: String(e.row.rowid),
-            text:
-              e.row.text.length > MAX_CANDIDATE_CHARS
-                ? e.row.text.slice(0, MAX_CANDIDATE_CHARS)
-                : e.row.text,
-          }));
-          const ranked = await reranker.rerank(trimmed, rerankInput, limit);
-          const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
-          const reranked = ranked
-            .map((r) => byId.get(r.id))
-            .filter((e): e is NonNullable<typeof e> => e !== undefined);
-          if (reranked.length > 0) {
-            fused = reranked;
-          }
-        } catch (err: unknown) {
-          this.logger.warn(
-            '[memory-curator] reranker failed; using RRF order',
-            {
-              error: err instanceof Error ? err.message : String(err),
-            },
-          );
-          degraded = true;
-        }
-      }
+    const reranker = this.reranker;
+    if (!degraded && fused.length >= 5 && reranker !== null) {
+      const reranked = await rerankFused(reranker, trimmed, fused, limit, deadlineMs, this.logger);
+      fused = reranked.fused;
+      if (reranked.outcome === 'partial') partial = true;
+      if (reranked.outcome === 'failed') degraded = true;
     }
 
     fused = fused.slice(0, limit);
@@ -467,7 +442,7 @@ export class MemorySearchService implements IMemoryReader {
     }
 
     const response: MemorySearchResponse = { hits, bm25Only };
-    if (!degraded) this.cache.set(cacheKey, response);
+    if (!degraded && !partial) this.cache.set(cacheKey, response);
     return response;
   }
 
@@ -530,11 +505,13 @@ export class MemorySearchService implements IMemoryReader {
     query: string,
     limit: number,
     workspaceRoot: string | null | undefined,
+    deadlineMs: number | undefined,
+    onCapped: () => void,
   ): Promise<Array<FtsRow & { distance: number }>> {
     return this.tracer.startSpan(
       'memory.vecSearch',
       { op: 'db.query.vector', topK: limit },
-      () => this.vecSearchInner(query, limit, workspaceRoot),
+      () => this.vecSearchInner(query, limit, workspaceRoot, deadlineMs, onCapped),
     );
   }
 
@@ -543,9 +520,14 @@ export class MemorySearchService implements IMemoryReader {
     query: string,
     limit: number,
     workspaceRoot: string | null | undefined,
+    deadlineMs: number | undefined,
+    onCapped: () => void,
   ): Promise<Array<FtsRow & { distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) throw new Error('embedder returned missing or wrong-size vector');
+    // The caller stopped waiting: skip the synchronous KNN it no longer needs
+    // (one already running cannot be interrupted).
+    if (remainingMs(deadlineMs) <= 0) throw new BudgetExceededError('vector search', 0);
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const scope = searchScopePredicate(workspaceRoot);
@@ -553,8 +535,7 @@ export class MemorySearchService implements IMemoryReader {
       ? scopedVectorCandidates(
           this.connection, 'memory_chunks_vec', buf, limit,
           'JOIN memory_chunks mc ON mc.rowid = candidates.rowid JOIN memories m ON m.id = mc.memory_id',
-          `${ACTIVE_MEMORY} ${scope.sql}`, scope.params, this.logger,
-          () => { throw new Error('scoped vector candidates capped'); },
+          `${ACTIVE_MEMORY} ${scope.sql}`, scope.params, this.logger, onCapped,
         )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
@@ -692,7 +673,8 @@ export class MemorySearchService implements IMemoryReader {
     const vecLoaded = this.connection.vecExtensionLoaded;
 
     let response: MemSearchIndexResponse;
-    // Not cached when the vector branch failed (see searchRichInner).
+    // Not cached when the vector branch failed or was capped (partial rows are
+    // kept; see searchRichInner).
     let degraded = false;
 
     if (trimmedQuery.length === 0) {
@@ -716,6 +698,9 @@ export class MemorySearchService implements IMemoryReader {
             trimmedQuery,
             Math.min(100, limit * 2),
             workspaceRoot,
+            () => {
+              degraded = true;
+            },
           );
         } catch (err) {
           this.logger.warn(
@@ -1049,7 +1034,8 @@ export class MemorySearchService implements IMemoryReader {
   private async vecSearchByMemory(
     query: string,
     limit: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | undefined,
+    onCapped: () => void,
   ): Promise<Array<{ rowid: number; memory_id: string; distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) throw new Error('embedder returned missing or wrong-size vector');
@@ -1059,7 +1045,7 @@ export class MemorySearchService implements IMemoryReader {
       ? scopedVectorCandidates(
           this.connection, 'memory_chunks_vec', buf, limit,
           'JOIN memory_chunks mc ON mc.rowid = candidates.rowid JOIN memories m ON m.id = mc.memory_id',
-          `${ACTIVE_MEMORY} AND m.workspace_root IS ?`, [workspaceRoot], this.logger,
+          `${ACTIVE_MEMORY} AND m.workspace_root IS ?`, [workspaceRoot], this.logger, onCapped,
         )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
