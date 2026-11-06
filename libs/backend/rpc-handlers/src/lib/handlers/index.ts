@@ -9,7 +9,9 @@
  * Tier 2 handlers: Refactored to use platform abstractions.
  */
 export { AgentRpcHandlers } from './agent-rpc.handlers';
+export { AgentMessageRpcHandlers } from './agent-message-rpc.handlers';
 export { AgentOutcomeRpcHandlers } from './agent-outcome-rpc.handlers';
+export { CapabilityMatrixRpcHandlers } from './capability-matrix-rpc.handlers';
 export { DecisionModelCatalogRpcHandlers } from './decision-model-catalog-rpc.handlers';
 export { LanePlanLimitsRpcHandlers } from './lane-plan-limits-rpc.handlers';
 export { BootRpcHandlers } from './boot-rpc.handlers';

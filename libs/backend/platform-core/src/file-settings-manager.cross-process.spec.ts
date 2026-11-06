@@ -160,10 +160,18 @@ function waitForValue(
   expected: unknown,
   timeoutMs: number,
 ): Promise<boolean> {
+  return waitUntil(() => received.includes(expected), timeoutMs);
+}
+
+/** Poll until `predicate` is true, or until `timeoutMs` elapses. */
+function waitUntil(
+  predicate: () => boolean,
+  timeoutMs: number,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const start = Date.now();
     const interval = setInterval(() => {
-      if (received.includes(expected)) {
+      if (predicate()) {
         clearInterval(interval);
         resolve(true);
         return;
@@ -174,6 +182,68 @@ function waitForValue(
       }
     }, 25);
   });
+}
+
+/**
+ * External atomic replace: write a sibling temp file, then rename it onto
+ * `filePath`. This is the write shape that replaces the watched inode.
+ */
+function atomicReplaceSettings(filePath: string, contents: string): void {
+  const tmpPath = `${filePath}.${process.pid}.atomic.tmp`;
+  fs.writeFileSync(tmpPath, contents, 'utf-8');
+  fs.renameSync(tmpPath, filePath);
+}
+
+function settingsDocument(marker: string): string {
+  return JSON.stringify(
+    {
+      $schema: 'https://ptah.live/schemas/settings.json',
+      version: 1,
+      external: { marker },
+    },
+    null,
+    2,
+  );
+}
+
+interface RecordedWatcher {
+  target: string;
+  closed: boolean;
+}
+
+/**
+ * Record every `fs.watch` the manager opens, and whether `close()` ran.
+ * Spies on the real `fs` exports object: the manager's `import * as fs`
+ * reads that object, so a spy on this file's namespace would miss it.
+ */
+function recordFileWatches(): {
+  records: RecordedWatcher[];
+  restore: () => void;
+} {
+  const fsActual = jest.requireActual<typeof import('fs')>('fs');
+  const originalWatch = fsActual.watch;
+  const records: RecordedWatcher[] = [];
+  const spy = jest.spyOn(fsActual, 'watch').mockImplementation((
+    (...args: unknown[]) => {
+      const watcher = Reflect.apply(
+        originalWatch,
+        fsActual,
+        args,
+      ) as fs.FSWatcher;
+      const record: RecordedWatcher = {
+        target: String(args[0]),
+        closed: false,
+      };
+      const originalClose = watcher.close.bind(watcher);
+      watcher.close = () => {
+        record.closed = true;
+        originalClose();
+      };
+      records.push(record);
+      return watcher;
+    }
+  ) as typeof fs.watch);
+  return { records, restore: () => spy.mockRestore() };
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +354,65 @@ describe('PtahFileSettingsManager — REAL cross-process integration (Gap A)', (
       expect(received).toHaveLength(0);
     } finally {
       await killChild(child);
+    }
+  }, 15000);
+
+  /**
+   * TC-CP-REAL-3: an existing settings.json is in file-watch mode. Two
+   * successive external atomic replacements (tmp + rename) must both reload,
+   * and each replaced inode's watcher must be closed.
+   *
+   * The 2 000 ms window matches TC-CP-REAL-1. This case fails while
+   * tryStartFileWatch listens for an FSWatcher 'rename' event: the first
+   * replacement can still flush, and the second is never delivered because
+   * the watch stays on the dead inode.
+   */
+  it('TC-CP-REAL-3: two atomic replacements reload and close the stale watcher', async () => {
+    const settingsPath = path.join(tempHome, '.ptah', 'settings.json');
+    fs.writeFileSync(settingsPath, settingsDocument('initial'), 'utf-8');
+
+    const { records, restore } = recordFileWatches();
+    const parentMgr = new PtahFileSettingsManager({});
+    const received: unknown[] = [];
+    parentMgr.watch('external.marker', (value) => received.push(value));
+
+    try {
+      parentMgr.enableCrossProcessWatch();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      expect(records.map((record) => record.target)).toEqual([settingsPath]);
+      expect(records[0].closed).toBe(false);
+
+      atomicReplaceSettings(settingsPath, settingsDocument('edit-1'));
+      const firstArrived = await waitForValue(received, 'edit-1', 2000);
+      expect(firstArrived).toBe(true);
+      const firstWatcherClosed = await waitUntil(
+        () => records[0].closed,
+        2000,
+      );
+      expect(firstWatcherClosed).toBe(true);
+
+      atomicReplaceSettings(settingsPath, settingsDocument('edit-2'));
+      const secondArrived = await waitForValue(received, 'edit-2', 2000);
+      expect(secondArrived).toBe(true);
+
+      expect(received).toEqual(['edit-1', 'edit-2']);
+      expect(parentMgr.get('external.marker')).toBe('edit-2');
+      expect(records).toHaveLength(3);
+      expect(records.map((record) => record.target)).toEqual([
+        settingsPath,
+        settingsPath,
+        settingsPath,
+      ]);
+      expect(records.map((record) => record.closed)).toEqual([
+        true,
+        true,
+        false,
+      ]);
+    } finally {
+      parentMgr.disposeCrossProcessWatch();
+      expect(records.every((record) => record.closed)).toBe(true);
+      restore();
     }
   }, 15000);
 });

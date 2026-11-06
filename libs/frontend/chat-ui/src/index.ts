@@ -59,6 +59,7 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
+export { LaneComposerComponent } from './lib/molecules/lane-composer.component';
 export {
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,

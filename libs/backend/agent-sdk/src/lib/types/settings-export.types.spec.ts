@@ -91,6 +91,10 @@ describe('KNOWN_CONFIG_KEYS', () => {
       );
     });
 
+    it('exports the lane rotation key', () => {
+      expect(KNOWN_CONFIG_KEYS).toContain('agentOrchestration.laneRotation');
+    });
+
     it('exports the subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
       expect(KNOWN_CONFIG_KEYS).toContain(
         'agentOrchestration.subagentPromptCacheTtl',

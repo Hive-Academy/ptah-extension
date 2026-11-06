@@ -34,6 +34,10 @@ import {
 } from '@ptah-extension/platform-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { ISessionHandoffChain } from '../session-children/session-handoff-chain.port';
+
+import { registerAgentDeliveryPushSinks } from './agent-delivery-push-sinks-registration';
+
+export { registerAgentDeliveryPushSinks };
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
@@ -134,6 +138,7 @@ export function wireAgentEventListeners(
   }
 
   try {
+    registerAgentDeliveryPushSinks(container, logger, platform);
     const agentProcessManager = container.resolve<AgentProcessManager>(
       TOKENS.AGENT_PROCESS_MANAGER,
     );

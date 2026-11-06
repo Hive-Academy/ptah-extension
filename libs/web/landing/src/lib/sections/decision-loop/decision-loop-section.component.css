@@ -289,7 +289,7 @@
   color: #ffbb4d;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .loop-canvas-wrap {
     position: relative;
     aspect-ratio: 1080 / 470;
@@ -383,7 +383,7 @@
   }
 
   .stage-label {
-    font-size: 0.98rem;
+    font-size: 1.05rem;
   }
 }
 
@@ -399,7 +399,7 @@
     transform: none;
   }
 
-  @media (min-width: 768px) {
+  @media (min-width: 1024px) {
     .loop-stage,
     .loop-stage.is-active {
       transform: translate(-50%, -50%);

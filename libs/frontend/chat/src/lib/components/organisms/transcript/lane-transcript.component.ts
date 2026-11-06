@@ -7,6 +7,7 @@ import {
   output,
 } from '@angular/core';
 import { injectWallClock } from '@ptah-extension/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -24,17 +25,29 @@ import {
 } from './transcript-turn-contexts';
 import { laneTranscriptMessages } from './lane-transcript-messages';
 import { LaneLogChoicesStore } from './lane-log-choices.store';
+import { laneThreadEntries } from './lane-thread';
+import { LaneThreadRowComponent } from './lane-thread-row.component';
 
 /** Message chrome is owned by MessageBubbleComponent for every transcript host. */
 @Component({
   selector: 'ptah-lane-transcript',
   standalone: true,
-  imports: [MessageBubbleComponent],
+  imports: [MessageBubbleComponent, LaneThreadRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['./chat-transcript.component.css'],
   host: { class: 'block min-w-0' },
   template: `
     <div class="chat-scroll-content">
+      @if (thread().length) {
+        <section class="mb-4 border-b border-base-content/10 pb-3" aria-label="Parent and lane communication">
+          <h3 class="mb-2 text-xs font-semibold text-base-content-muted">Parent ↔ lane communication</h3>
+          <div role="list" class="space-y-1">
+            @for (entry of thread(); track entry.id) {
+              <ptah-lane-thread-row [entry]="entry" [receiptLabel]="entry.receipt ? monitor?.receiptLabel(entry.receipt) ?? '' : ''" />
+            }
+          </div>
+        </section>
+      }
       @for (message of messages(); track message.id; let i = $index) {
         @let turn = contexts().get(message.id) ?? null;
         @let live = turn !== null && liveTurns().has(turn.turnId);
@@ -74,12 +87,21 @@ export class LaneTranscriptComponent {
     ((id: string) => PermissionRequest | null) | undefined
   >();
   readonly permissionResponded = output<PermissionResponse>();
+  protected readonly monitor = inject(AgentMonitorStore, { optional: true });
   private readonly turnContexts = new TranscriptTurnContexts();
   /** Kept outside the component so a tab switch keeps the user's choice. */
   private readonly logChoices = inject(LaneLogChoicesStore);
   protected readonly messages = computed(() =>
     laneTranscriptMessages(this.laneId(), this.nodes(), this.events()),
   );
+  protected readonly thread = computed(() => {
+    const agent = this.monitor?.agentsById?.().get(this.laneId());
+    if (!agent) return [];
+    const receipts = this.monitor?.receipts?.().get(this.laneId()) ?? [];
+    const parentDelivery = this.monitor?.parentDelivery?.().get(this.laneId()) ?? [];
+    const completion = agent.completedAt ? { status: agent.status, timestamp: agent.completedAt } : undefined;
+    return laneThreadEntries(this.messages(), receipts, '', agent.displayName ?? agent.cli ?? 'Lane', agent.cli ?? 'CLI', parentDelivery, completion);
+  });
   protected readonly contexts = computed(() =>
     this.turnContexts.compute(this.messages()),
   );

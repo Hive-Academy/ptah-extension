@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, relative, resolve, sep, win32 } from 'node:path';
 import { z } from 'zod';
 import {
   DeliverablesPayloadSchema,
+  checkDeliverable,
+  containedDeliverablePath,
   OutcomeReportArgsSchema,
   ReviewPayloadSchema,
   deterministicReviewReportId,
@@ -62,21 +63,8 @@ function outcomeInputSchema(): MCPToolDefinition['inputSchema'] {
   return schema;
 }
 
-/**
- * Node reports a missing path as ENOENT (ENOTDIR for a file in the parent
- * chain); `vscode.workspace.fs` rejects with a FileSystemError whose code is
- * FileNotFound (FileNotADirectory for the parent case).
- */
-const NOT_FOUND_CODES: ReadonlySet<unknown> = new Set([
-  'ENOENT',
-  'ENOTDIR',
-  'FileNotFound',
-  'FileNotADirectory',
-]);
-
-function isNotFound(error: unknown): boolean {
-  return isJsonObject(error) && NOT_FOUND_CODES.has(error['code']);
-}
+/** `checkDeliverable`'s code for a real path outside the real workspace root. */
+const OUTSIDE_ROOT = 'outside-root';
 
 export function buildOutcomeReportTool(): MCPToolDefinition {
   return {
@@ -161,36 +149,26 @@ export async function runOutcomeReport(
   if (args.kind === 'deliverables') {
     const fileSystem = deps.fileSystem;
     if (!fileSystem) throw new Error('outcome filesystem unavailable');
-    const root = resolve(deps.workspaceRoot);
+    const root = deps.workspaceRoot;
+    const escaping = args.paths.find(
+      (entry) => containedDeliverablePath(root, entry) === null,
+    );
+    // One escaping entry refuses the whole report before any filesystem call.
+    if (escaping !== undefined)
+      return {
+        recorded: false,
+        reason: `deliverable path escapes workspace: ${escaping}`,
+      };
+    // Absolute and relative entries inside the root are both accepted; the
+    // helper realpaths root and entry, so a symlink escape is never stat'ed.
     const checked = await Promise.all(
       args.paths.map(async (entry) => {
-        const path = resolve(root, entry);
-        const rel = relative(root, path);
-        if (
-          isAbsolute(entry) ||
-          win32.isAbsolute(entry) ||
-          /^[A-Za-z]:/.test(entry) ||
-          rel === '..' ||
-          rel.startsWith(`..${sep}`) ||
-          isAbsolute(rel)
-        )
+        const result = await checkDeliverable(fileSystem, root, entry);
+        if ('check' in result) return { check: result.check };
+        if (result.errorCode === OUTSIDE_ROOT)
           return { reason: `deliverable path escapes workspace: ${entry}` };
-        try {
-          const stat = await fileSystem.stat(path);
-          return {
-            check: { exists: true, bytes: stat.size, mtimeMs: stat.mtime },
-          };
-        } catch (error: unknown) {
-          if (isNotFound(error))
-            return { check: { exists: false, bytes: 0, mtimeMs: null } };
-          deps.logger.warn('Deliverable stat failed', {
-            code:
-              isJsonObject(error) && typeof error['code'] === 'string'
-                ? error['code']
-                : 'UNKNOWN',
-          });
-          return { reason: `deliverable stat failed for ${entry}` };
-        }
+        deps.logger.warn('Deliverable stat failed', { code: result.errorCode });
+        return { reason: `deliverable stat failed for ${entry}` };
       }),
     );
     const failure = checked.find(

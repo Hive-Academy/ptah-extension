@@ -50,13 +50,13 @@ interface FooterLink {
               your model — no lock-in.
             </p>
             <p class="text-xs text-ink-500">Powered by Claude Agent SDK</p>
-            <div class="flex items-center gap-5 mt-7">
+            <div class="flex items-center gap-1 mt-7 -ml-3">
               @for (social of socialLinks; track social.label) {
                 <a
                   [href]="social.href"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-ink-500 hover:text-amber-500 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
+                  class="inline-flex items-center justify-center w-11 h-11 text-ink-500 hover:text-amber-500 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
                   [attr.aria-label]="social.label"
                 >
                   <svg
@@ -77,10 +77,10 @@ interface FooterLink {
               class="md:col-span-2"
               [attr.aria-label]="column.title + ' links'"
             >
-              <h3 class="text-sm font-semibold text-white mb-6 tracking-wide">
+              <h3 class="text-sm font-semibold text-white mb-3 tracking-wide">
                 {{ column.title }}
               </h3>
-              <ul class="space-y-4">
+              <ul>
                 @for (link of column.links; track link.label) {
                   <li>
                     @if (link.external) {
@@ -88,14 +88,14 @@ interface FooterLink {
                         [href]="link.href"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="text-sm text-ink-400 hover:text-amber-500 transition-colors"
+                        class="inline-flex items-center min-h-11 min-w-11 text-sm text-ink-400 hover:text-amber-500 transition-colors"
                       >
                         {{ link.label }}
                       </a>
                     } @else {
                       <a
                         [routerLink]="link.href"
-                        class="text-sm text-ink-400 hover:text-amber-500 transition-colors"
+                        class="inline-flex items-center min-h-11 min-w-11 text-sm text-ink-400 hover:text-amber-500 transition-colors"
                       >
                         {{ link.label }}
                       </a>

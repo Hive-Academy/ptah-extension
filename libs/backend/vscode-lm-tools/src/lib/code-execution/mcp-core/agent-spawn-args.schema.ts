@@ -106,6 +106,8 @@ export const AgentSpawnArgsSchema = z
     // Optional account route for a `claude` lane: ID or sentinel only, never
     // a path, env, token or owner (strict shared schema).
     accountSelection: ProviderAccountSelectionSchema.optional(),
+    permission: z.enum(['plan', 'ask', 'auto-edit', 'yolo']).optional(),
+    network: z.enum(['allow', 'deny']).optional(),
   })
   .strict()
   .superRefine((args, ctx) => {

@@ -252,7 +252,7 @@ describe('ptah_lsp_definitions description — desktop limits', () => {
  */
 describe('buildAgentMessageTool', () => {
   it('offers explicit delivery and a status receipt tool', () => {
-    expect(buildAgentMessageTool().inputSchema.properties?.['delivery']).toMatchObject({ enum: ['queue', 'steer'] });
+    expect(buildAgentMessageTool().inputSchema.properties?.['delivery']).toMatchObject({ enum: ['queue', 'now', 'steer'] });
     expect(buildAgentMessageStatusTool().name).toBe('ptah_agent_message_status');
     expect(buildAgentMessageStatusTool().inputSchema.required).toEqual(['agentId', 'messageId']);
   });

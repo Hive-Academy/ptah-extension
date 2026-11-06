@@ -53,15 +53,21 @@
       title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
     <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
   </div>
-  <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[50px]">
+  <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[50px]" role="list" aria-label="Parent and lane communication">
     @if (expanded()) {
       @for (event of row().events; track event.messageId; let first = $first) {
-        <section [class.border-t]="!first" class="mt-2 border-base-content/10 pt-2">
-          <h4 class="text-[11px] font-semibold text-base-content-muted">{{ event.kind === 'report' ? 'Report' : 'Completion' }}, {{ time(event.timestamp) }}</h4>
+        <section role="listitem" [attr.aria-label]="row().agent + ' · ' + row().cli + ', ' + time(event.timestamp) + ', ' + (event.kind === 'report' ? 'report' : 'completion')"
+          [class.border-t]="!first" [class.border-l-error]="event.kind === 'completed' && event.verdict === 'failed'" [class.border-l-success]="event.kind !== 'completed' || event.verdict !== 'failed'" class="mt-2 border-l-2 border-base-content/10 px-2 pt-2">
+          <h4 class="flex items-center gap-1 text-[11px] font-semibold text-base-content-muted">
+            <lucide-angular [img]="event.kind === 'report' ? ReportIcon : (event.verdict === 'failed' ? FailedIcon : CompletionIcon)" class="h-3.5 w-3.5" aria-hidden="true" />
+            {{ row().agent }} · {{ row().cli }} · {{ event.kind === 'report' ? 'Report' : 'Completion' }}
+            <time [attr.datetime]="iso(event.timestamp)" [title]="newDateLabel(event.timestamp)">{{ time(event.timestamp) }}</time>
+          </h4>
           @if (event.kind === 'report') {
             <markdown [data]="markdown(event.body) | surfaceMarkdown: surfaceActive()"
               class="prose prose-sm max-w-none [&_*]:text-base-content" />
           } @else {
+            <p class="mt-1 text-xs font-semibold">{{ verdict(event.verdict) }}</p>
             @let detail = completionFor(event.body);
             <dl data-testid="lane-event-completion" class="mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
               @if (detail.status) { <dt>Status</dt><dd>{{ detail.status }}</dd> }
@@ -80,6 +86,7 @@
             </dl>
             @for (line of detail.extra; track $index) { <p class="mt-1 break-words text-[11px]">{{ line }}</p> }
           }
+          <p class="mt-1 text-xs" [class.text-warning]="parentSignal(event.kind === 'report' ? 'report' : 'completion') === 'Waiting for parent'">{{ parentSignal(event.kind === 'report' ? 'report' : 'completion') }}</p>
         </section>
       }
       @if (attachments().files.length || attachments().images) {

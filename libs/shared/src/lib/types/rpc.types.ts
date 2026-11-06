@@ -61,6 +61,8 @@ export * from './rpc/rpc-lane-plan-limits.types';
 
 export * from './rpc/rpc-lane-outcome.types';
 
+export * from './rpc/rpc-capability-matrix.types';
+
 export * from './rpc/rpc-decision-model-catalog.types';
 
 // Remote machines (`machines:*`, TASK_2026_858 W11). Merged into
@@ -90,6 +92,11 @@ import type {
   AgentOutcomeSignalsParams,
   AgentOutcomeSignalsResult,
 } from './rpc/rpc-lane-outcome.types';
+
+import type {
+  AgentGetCapabilityMatrixParams,
+  AgentGetCapabilityMatrixResult,
+} from './rpc/rpc-capability-matrix.types';
 
 import type {
   AgentListDecisionModelsParams,
@@ -1725,6 +1732,28 @@ export interface RpcMethodRegistry
     params: void;
     result: { clis: import('./agent-process.types').CliDetectionResult[] };
   };
+  'agent:previewMessage': {
+    params: import('./agent-process.types').AgentMessagePreviewRequest;
+    result: import('./agent-process.types').AgentMessagePreview;
+  };
+  'agent:sendMessage': {
+    params: import('./agent-process.types').AgentMessageRequest;
+    result: import('./agent-process.types').AgentMessageOutcome;
+  };
+  'agent:getMessageReceipt': {
+    params: {
+      agentId: import('./agent-process.types').AgentId;
+      messageId: string;
+    };
+    result: import('./agent-process.types').AgentDeliveryReceipt;
+  };
+  'agent:cancelMessage': {
+    params: {
+      agentId: import('./agent-process.types').AgentId;
+      messageId: string;
+    };
+    result: import('./agent-process.types').AgentDeliveryReceipt;
+  };
   'agent:listCliModels': {
     params: void;
     result: AgentListCliModelsResult;
@@ -1824,6 +1853,14 @@ export interface RpcMethodRegistry
   'agent:outcomeSignals': {
     params: AgentOutcomeSignalsParams;
     result: AgentOutcomeSignalsResult;
+  };
+  /**
+   * Merged capability matrix for the Electron orchestration settings.
+   * Read-only. Unknown cells stay `kind: 'unknown'` ("unrated").
+   */
+  'agent:getCapabilityMatrix': {
+    params: AgentGetCapabilityMatrixParams;
+    result: AgentGetCapabilityMatrixResult;
   };
   /**
    * Decision-capable models of one host, for the decision-model picker
@@ -3666,6 +3703,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:getClaudeBuiltins': true,
   'agent:setClaudeBuiltin': true,
   'agent:detectClis': true,
+  'agent:previewMessage': true,
+  'agent:sendMessage': true,
+  'agent:getMessageReceipt': true,
+  'agent:cancelMessage': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:e2eSeedPermission': true, // TEST-ONLY seam, PTAH_E2E-gated (TASK_2026_264)
@@ -3678,6 +3719,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
   'agent:getLanePlanLimits': true,
   'agent:outcomeSignals': true,
+  // Routing-learning item 7. `agent:` is already in ALLOWED_METHOD_PREFIXES.
+  'agent:getCapabilityMatrix': true,
   'agent:listDecisionModels': true,
   'ptahCli:list': true,
   'ptahCli:create': true,

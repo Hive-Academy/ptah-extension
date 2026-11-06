@@ -220,10 +220,10 @@ describe('cliMatrixRows', () => {
         ),
       );
 
-    it('shows Ready for an installed, enabled CLI with its model, effort and version', () => {
+    it('shows Installed for an installed, enabled CLI with its model, effort and version', () => {
       expect(row('codex')).toMatchObject({
         name: 'Codex',
-        status: { kind: 'ready', label: 'Ready', tone: 'success' },
+        status: { kind: 'ready', label: 'Installed', tone: 'success' },
         enabled: true,
         interactive: true,
         version: '1.4',
@@ -264,7 +264,7 @@ describe('cliMatrixRows', () => {
       ).toBe('not-installed');
     });
 
-    it('keeps Cursor actionable in the Uninstalled group: Needs API key and the Credentials action', () => {
+    it('keeps Cursor actionable in the Uninstalled group with the Credentials action', () => {
       expect(row('cursor')).toMatchObject({
         status: { kind: 'needs-key', label: 'Needs API key', tone: 'warning' },
         installed: false,
@@ -388,13 +388,13 @@ describe('cliMatrixRows', () => {
         }).installed.find((row) => row.kind === 'instance'),
       );
 
-    it.each([
-      ['available', 'ready', 'Ready', 'success'],
-      ['error', 'error', 'Error', 'error'],
-      ['initializing', 'initializing', 'Initializing', 'info'],
-      ['unconfigured', 'needs-key', 'Needs API key', 'warning'],
-    ] as const)('maps status %s to %s (#43)', (status, kind, label, tone) => {
-      expect(glm({ status }).status).toEqual({ kind, label, tone });
+    it.each(['available', 'error', 'initializing', 'unconfigured'] as const)('shows install state for runtime %s', (status) => {
+      expect(glm({ status }).status).toEqual({ kind: 'ready', label: 'Installed', tone: 'success' });
+    });
+    it('preserves error and initializing runtime states beside install status', () => {
+      expect(glm({ status: 'error' }).runtimeStatus).toBe('Error');
+      expect(glm({ status: 'initializing' }).runtimeStatus).toBe('Initializing');
+      expect(glm({ status: 'available' }).runtimeStatus).toBeNull();
     });
 
     it('shows Disabled for a switched-off instance whatever its runtime status', () => {

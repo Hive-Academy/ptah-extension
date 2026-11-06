@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import {
   AgentSteerInputComponent,
+  LaneComposerComponent,
   agentRunDurationMs,
   type InspectorLaneRunDetail,
 } from '@ptah-extension/chat-ui';
@@ -76,6 +77,7 @@ let nextSectionId = 0;
   standalone: true,
   imports: [
     AgentSteerInputComponent,
+    LaneComposerComponent,
     InspectorAgentActionsMenuComponent,
     InspectorAgentRowComponent,
     InspectorRequestLinesComponent,
@@ -184,6 +186,11 @@ let nextSectionId = 0;
                 />
               }
               @if (steerOpenKey() === row.key && row.tray) {
+                @if (cliLaneId(row.key); as agentId) {
+                  <ptah-lane-composer class="mb-2 ml-[52px] mr-3 block"
+                    [agentId]="agentId" [laneLabel]="row.name" [cli]="row.agent.cliId || row.secondary"
+                    variant="compact" [stopped]="row.agent.status !== 'running'" />
+                } @else {
                 <ptah-agent-steer-input
                   class="mb-2 ml-[52px] mr-3 block"
                   [steerable]="row.tray.entry.steerable"
@@ -199,6 +206,7 @@ let nextSectionId = 0;
                   >
                     Could not send your message. Try again.
                   </p>
+                }
                 }
               }
             </li>
@@ -232,6 +240,11 @@ let nextSectionId = 0;
   `,
 })
 export class InspectorAgentsSectionComponent {
+  protected readonly parseLaneKey = parseLaneKey;
+  protected cliLaneId(key: string): string | null {
+    const lane = parseLaneKey(key);
+    return lane?.kind === 'cli' && this.monitor.agents().some(agent => agent.agentId === lane.id) ? lane.id : null;
+  }
   private readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly roster = inject(SessionAgentRosterService);

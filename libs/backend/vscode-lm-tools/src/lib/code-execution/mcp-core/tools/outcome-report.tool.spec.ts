@@ -39,6 +39,8 @@ const fileSystem = {
     if (!file) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
     return { ...file, type: 1, ctime: file.mtime };
   },
+  // The fixture has no symlinks: every path is its own real path.
+  realpath: async (path: string) => path,
 } as IFileSystemProvider;
 
 function row(runId: string, agentId = runId): LaneOutcomeRecord {
@@ -163,7 +165,7 @@ describe('ptah_outcome_report', () => {
     ]);
     expect(properties['target']['description']).toBeUndefined();
     expect(properties['paths']['description']).toBe(
-      'Required for kind deliverables; not allowed for any other kind.',
+      'Deliverable files: absolute paths inside the workspace, or workspace-relative paths. At most 20. Required for kind deliverables; not allowed for any other kind.',
     );
     expect(properties['verdict']['description']).toBe(
       'Required for kind review; not allowed for any other kind.',
@@ -728,6 +730,107 @@ describe('ptah_outcome_report', () => {
     expect(
       JSON.stringify(new KeyValueOutcomeJournal(f.storage).snapshot()),
     ).not.toContain('secret.txt');
+    await f.pipeline.dispose();
+  });
+});
+
+describe('ptah_outcome_report deliverable paths', () => {
+  beforeEach(() => files.clear());
+
+  async function applied(path: string, file: string) {
+    const f = fixture();
+    f.pipeline.enqueue({ kind: 'subagent-stop', row: row('subagent:P', 'P') });
+    await f.pipeline.flush();
+    files.set(file, { size: 4, mtime: 150 });
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:P' }, path),
+      f.deps,
+    );
+    expect(result.recorded).toBe('applied');
+    expect((await f.store.get('subagent:P'))?.verdict).toBe('delivered');
+    await f.pipeline.dispose();
+  }
+
+  it('applies an absolute path inside the workspace', async () => {
+    const file = resolve(root, 'docs', 'plan.md');
+    await applied(file, file);
+  });
+
+  it('applies an absolute path inside a worktree under the workspace', async () => {
+    const file = resolve(root, '.claude-worktrees', 'x', 'a.md');
+    await applied(file, file);
+  });
+
+  it('still applies a workspace-relative path', async () => {
+    await applied('docs/plan.md', resolve(root, 'docs', 'plan.md'));
+  });
+
+  it.each([
+    ['absolute outside', resolve(root, '..', 'elsewhere', 'a.md')],
+    ['dot-dot traversal', '../a.md'],
+    ['nested traversal', 'docs/../../a.md'],
+    ['Windows drive on POSIX', 'C:/work/a.md'],
+  ])('refuses %s without a stat or write', async (_label, path) => {
+    const f = fixture();
+    const stat = jest.spyOn(fileSystem, 'stat');
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:A' }, path),
+      f.deps,
+    );
+    expect(result).toEqual({
+      recorded: false,
+      reason: `deliverable path escapes workspace: ${path}`,
+    });
+    expect(stat).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+    stat.mockRestore();
+    await f.pipeline.dispose();
+  });
+
+  it('refuses a symlink that resolves outside the workspace, never stat-ing it', async () => {
+    const f = fixture();
+    const link = resolve(root, 'docs', 'link.md');
+    const realpath = jest
+      .spyOn(fileSystem, 'realpath')
+      .mockImplementation(async (path: string) =>
+        path === link ? resolve(root, '..', 'secret.md') : path,
+      );
+    const stat = jest.spyOn(fileSystem, 'stat');
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:A' }, 'docs/link.md'),
+      f.deps,
+    );
+    expect(result).toEqual({
+      recorded: false,
+      reason: 'deliverable path escapes workspace: docs/link.md',
+    });
+    expect(realpath).toHaveBeenCalledWith(link);
+    expect(stat).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+    realpath.mockRestore();
+    stat.mockRestore();
+    await f.pipeline.dispose();
+  });
+
+  it('refuses the whole report when one of several paths escapes', async () => {
+    const f = fixture();
+    const stat = jest.spyOn(fileSystem, 'stat');
+    const result = await runOutcomeReport(
+      {
+        kind: 'deliverables',
+        target: { runId: 'subagent:A' },
+        paths: ['docs/plan.md', '../a.md'],
+      },
+      f.deps,
+    );
+    expect(result).toEqual({
+      recorded: false,
+      reason: 'deliverable path escapes workspace: ../a.md',
+    });
+    expect(stat).not.toHaveBeenCalled();
+    stat.mockRestore();
     await f.pipeline.dispose();
   });
 });

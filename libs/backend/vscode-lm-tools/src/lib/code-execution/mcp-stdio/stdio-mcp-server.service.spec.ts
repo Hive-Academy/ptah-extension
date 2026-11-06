@@ -506,7 +506,7 @@ describe('StdioMcpServerService', () => {
           },
         }),
       );
-      expect(api.message).toHaveBeenCalledWith('a-1', 'be brief', undefined);
+      expect(api.message).toHaveBeenCalledWith('a-1', 'be brief', undefined, undefined);
       const result = resp.result as {
         structuredContent: { agentId: string; mode: string };
       };

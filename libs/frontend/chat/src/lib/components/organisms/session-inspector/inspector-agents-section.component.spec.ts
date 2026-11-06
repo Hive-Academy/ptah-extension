@@ -147,6 +147,52 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       row.getAttribute('data-agent-key'),
     );
 
+  it.each(['sub:tool-1', 'bg:tool-1'])('keeps the tray steer input for %s', (key) => {
+    const context = { agentId: 'sdk-1', model: null, sessionId: 'owner', entry: {
+      id: 'tool-1', name: 'Explore', origin: key.startsWith('bg:') ? 'background' as const : 'foreground' as const,
+      status: 'running' as const, steerable: true, stoppable: true, canBackground: false,
+    } };
+    TestBed.overrideProvider(SessionAgentTrayService, { useValue: {
+      contextsFor: () => new Map(),
+      extrasFor: () => new Map([[key, { tray: context, model: null, tokens: null }]]),
+      focus: jest.fn(), steer: jest.fn().mockResolvedValue(true),
+    } });
+    const fixture = mount([agent({ key, kind: key.startsWith('bg:') ? 'background' : 'subagent', status: 'running', endedAt: null })]);
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Actions for Codex"]')?.click();
+    fixture.detectChanges();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent?.trim() === 'Steer')?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('ptah-agent-steer-input')).not.toBeNull();
+    expect(root.querySelector('ptah-lane-composer')).toBeNull();
+  });
+
+  it('mounts the lane composer for a monitored CLI row', () => {
+    const key = 'cli:lane-1';
+    const context = { agentId: 'lane-1', model: null, sessionId: 'owner', entry: {
+      id: 'lane-1', name: 'Codex', origin: 'background' as const,
+      status: 'running' as const, steerable: true, stoppable: true, canBackground: false,
+    } };
+    TestBed.overrideProvider(AgentMonitorStore, { useValue: {
+      agents: signal([{ agentId: 'lane-1', segments: [] }]), agentsById: signal(new Map([['lane-1', { status: 'running', segments: [] }]])),
+      subagents: signal(new Map()), receipts: signal(new Map()),
+      composerState: () => ({ queue: { supported: true }, now: { supported: true } }),
+      previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: () => 'Queued',
+    } });
+    TestBed.overrideProvider(SessionAgentTrayService, { useValue: {
+      contextsFor: () => new Map(), extrasFor: () => new Map([[key, { tray: context, model: null, tokens: null }]]),
+      focus: jest.fn(), steer: jest.fn().mockResolvedValue(true),
+    } });
+    const fixture = mount([agent({ status: 'running', endedAt: null })]);
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Actions for Codex"]')?.click();
+    fixture.detectChanges();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent?.trim() === 'Steer')?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('ptah-lane-composer')).not.toBeNull();
+    expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
+  });
+
   it('shows the CLI lane summary without a details disclosure', () => {
     const fixture = mount([agent()]);
     fixture.componentRef.setInput('laneRuns', [detail]);

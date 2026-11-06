@@ -326,7 +326,7 @@ const STAGE_THRESHOLDS = [0.06, 0.2, 0.36, 0.52, 0.68, 0.82] as const;
               </g>
             </svg>
 
-            <!-- Mobile Closed-Loop SVG Rail (< 768px) -->
+            <!-- Mobile Closed-Loop SVG Rail (< 1024px) -->
             <svg
               class="loop-svg-mobile"
               viewBox="0 0 56 520"

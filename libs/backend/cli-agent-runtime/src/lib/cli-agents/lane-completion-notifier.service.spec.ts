@@ -37,6 +37,8 @@ import type {
   SessionChildSettle,
 } from '../session-children/session-spawner.port';
 import { recordLaneUsageOutcome } from './lane-completion-outcome';
+import { ParentEnvelopeStoreService } from './parent-delivery/parent-envelope-store.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -152,6 +154,52 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('holds a tab-id completion until the real parent session resolves', async () => {
+    const h = createHarness();
+    const store = new ParentEnvelopeStoreService(h.logger);
+    const adapter = { isSessionActive: h.isSessionActive,
+      sendMessageToSession: h.sendMessageToSession } as never;
+    const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
+    const notifier = new LaneCompletionNotifier(h.logger,
+      { exists: h.exists, stat: h.stat } as never, adapter, () => null, drainer);
+    const pending = await notifier.signal(createInfo({ parentSessionId: 'tab-1' }));
+    expect(pending).toMatchObject({ delivered: false, recorded: true, pending: true });
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    await drainer.resolveParentSessionId('tab-1', PARENT);
+    expect(store.find(`agent-abc:${COMPLETED_AT}`)?.state).toBe('delivered');
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a progress report followed by usage-limit as failed', async () => {
+    const h = createHarness();
+    const result = await h.notifier.signal(createInfo({ stopReason: 'usage-limit' }),
+      { reportsDelivered: 1 });
+    expect(result.signal?.verdict).toBe('failed');
+  });
+  it('keeps a usage-limit stop failed despite a report completion flag', async () => {
+    const h = createHarness();
+    const result = await h.notifier.signal(createInfo({ stopReason: 'usage-limit' }),
+      { reportsDelivered: 1, reportClaimsCompletion: true });
+    expect(result.signal?.verdict).toBe('failed');
+  });
+  it('marks a usage-limit stop failed despite a fresh skeleton deliverable', async () => {
+    const h = createHarness({ files: { '/ws/report.md': 10 } });
+    const result = await h.notifier.signal(createInfo({
+      deliverables: ['report.md'],
+      stopReason: 'usage-limit',
+      stopResetAt: Date.parse('2026-09-21T12:00:00.000Z'),
+    }));
+    expect(result.signal?.verdict).toBe('failed');
+    expect(h.envelope()).toContain('stop-reason="usage-limit"');
+    expect(h.envelope()).toContain('reset-at="2026-09-21T12:00:00.000Z"');
+  });
+  it('omits an invalid usage-limit reset time while delivering completion', async () => {
+    const h = createHarness();
+    await expect(h.notifier.signal(createInfo({ stopReason: 'usage-limit', stopResetAt: NaN })))
+      .resolves.toMatchObject({ delivered: true });
+    expect(h.envelope()).toContain('stop-reason="usage-limit"');
+    expect(h.envelope()).not.toContain('reset-at=');
+  });
   it('records orphan lane usage with its workspace and execution host', () => {
     const recordUsage = jest.fn();
     const sink: SessionUsageSink = { recordUsage };

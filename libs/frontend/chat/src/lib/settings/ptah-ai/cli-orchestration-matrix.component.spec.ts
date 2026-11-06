@@ -493,17 +493,17 @@ describe('CliOrchestrationMatrixComponent', () => {
 
   describe('cells', () => {
     it('shows only detection states for system CLIs (D11) and the instance status, with its last latency on the card (#43)', () => {
-      expect(statusOf('codex')).toBe('Ready');
+      expect(statusOf('codex')).toBe('Installed');
       expect(statusOf('copilot')).toBe('Disabled');
       expect(statusOf('pi')).toBe('Not installed');
       expect(statusOf('cursor')).toBe('Needs API key');
-      expect(statusOf('glm-1')).toBe('Ready');
+      expect(statusOf('glm-1')).toBe('Installed');
       expect(element().textContent?.toLowerCase()).not.toContain('quota');
       state.cliTest.set(
         ready({ id: 'glm-1', success: true, latencyMs: 112, reason: null }),
       );
       fixture.detectChanges();
-      expect(statusOf('glm-1')).toBe('Ready');
+      expect(statusOf('glm-1')).toBe('Installed');
       expect(
         row('glm-1')
           ?.querySelector('[data-testid="cli-matrix-test-result"]')
@@ -1283,7 +1283,7 @@ describe('CliOrchestrationMatrixComponent', () => {
         canUndo: false,
       });
       expect(inlineResult()?.textContent?.trim()).toBe('Passed in 112ms');
-      expect(statusOf('glm-1')).toBe('Ready');
+      expect(statusOf('glm-1')).toBe('Installed');
     });
 
     it("M1: a failure is a fixed sentence, followed only by the state's own fixed reason", async () => {
@@ -1303,7 +1303,7 @@ describe('CliOrchestrationMatrixComponent', () => {
         message: 'Glm: The connection test failed.',
         canUndo: false,
       });
-      expect(statusOf('glm-1')).toBe('Ready');
+      expect(statusOf('glm-1')).toBe('Installed');
       state.testResult = {
         id: 'glm-1',
         success: false,
@@ -1336,7 +1336,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       });
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       fixture.detectChanges();
-      expect(statusOf('glm-1')).toBe('Ready');
+      expect(statusOf('glm-1')).toBe('Installed');
       fail();
       await flush();
       expect(feedback.toast()).toEqual({

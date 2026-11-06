@@ -235,6 +235,7 @@ function outcomeReader(options: {
       }
       return Promise.resolve(options.summaries ?? []);
     },
+    recentWorkspaceOutcomes: () => Promise.resolve(options.summaries ?? []),
   };
   return { reader, calls };
 }
@@ -320,6 +321,21 @@ function valueCell(cell: MatrixCell): ValueMatrixCell {
 }
 
 describe('CapabilityMatrixStore', () => {
+  it('shows learned cells on a fresh read and does not create the user template', async () => {
+    const { store, files } = harness({ reader: outcomeReader({ summaries: deliveredRuns(5) }).reader });
+    const view = await store.readMergedView();
+    const profile = view.profiles.find((entry) => entry.family === 'z-ai' && entry.model === 'glm-5');
+    expect(profile?.cells.implement).toMatchObject({ kind: 'value', source: 'local', sampleCount: 5 });
+    expect(files.writes).toEqual([]);
+  });
+  it('reads a typed merged view with unknown cells and local sample counts', async () => {
+    const { store } = harness({ reader: outcomeReader({ summaries: deliveredRuns(5) }).reader });
+    await load(store, [{ laneId: 'codex', subagent: false }]);
+    const view = await store.readMergedView();
+    const profile = view.profiles.find((entry) => entry.family === 'z-ai' && entry.model === 'glm-5');
+    expect(profile?.cells.plan).toEqual({ kind: 'unknown' });
+    expect(profile?.cells.implement).toMatchObject({ kind: 'value', source: 'local', sampleCount: 5 });
+  });
   it('resolves an unseen family to the neutral score (Req 6.4)', async () => {
     const { store } = harness();
     const snapshot = await load(store);
@@ -661,12 +677,21 @@ describe('CapabilityMatrixStore', () => {
   });
 
   it('puts lane-default outcomes on the family profile', async () => {
-    const { store } = harness({
-      reader: outcomeReader({
-        summaries: deliveredRuns(5, LANE_DEFAULT_MODEL),
-      }).reader,
+    const doubled = outcomeReader({
+      summaries: deliveredRuns(5, LANE_DEFAULT_MODEL),
     });
+    const { store } = harness({ reader: doubled.reader });
     const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
+    expect(snapshot.outcomeFigures('codex', 'implement')).toEqual({
+      laneId: 'codex',
+      taskKind: 'implement',
+      delivered: 5,
+      failed: 0,
+    });
+    expect(snapshot.outcomeFigures('codex', 'review')).toBeNull();
+    expect(doubled.calls).toEqual([
+      { laneId: 'codex', sinceMs: NOW - OUTCOME_WINDOW_MS },
+    ]);
     // The family profile has no seed, so the prior is 50: round(1000/15).
     expect(
       snapshot.resolve('z-ai', LANE_DEFAULT_MODEL, 'implement').cell,
@@ -689,6 +714,7 @@ describe('CapabilityMatrixStore', () => {
     const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
     expect(doubled.calls).toEqual([]);
     expect(snapshot.reasons).toEqual([NO_OUTCOME_HISTORY_REASON]);
+    expect(snapshot.outcomeFigures('codex', 'implement')).toBeNull();
     expect(snapshot.resolve('z-ai', 'glm-5', 'implement').cell).toMatchObject({
       source: 'seed',
     });
@@ -698,6 +724,7 @@ describe('CapabilityMatrixStore', () => {
     const absent = harness();
     const absentSnapshot = await load(absent.store);
     expect(absentSnapshot.reasons).toEqual([OUTCOMES_UNAVAILABLE_REASON]);
+    expect(absentSnapshot.outcomeFigures('codex', 'implement')).toBeNull();
 
     const doubled = outcomeReader({
       readThrows: true,
@@ -706,11 +733,34 @@ describe('CapabilityMatrixStore', () => {
     const { store, warnings } = harness({ reader: doubled.reader });
     const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
     expect(snapshot.reasons).toEqual([OUTCOMES_UNAVAILABLE_REASON]);
+    expect(snapshot.outcomeFigures('codex', 'implement')).toBeNull();
     expect(warnings).toContain('lane outcome read failed');
     expect(snapshot.resolve('z-ai', 'glm-5', 'implement').cell).toMatchObject({
       source: 'seed',
       score: SEED_LABEL_SCORE.strong,
     });
+  });
+
+  it('returns empty figures when the persistence check throws', async () => {
+    const doubled = outcomeReader({ persistThrows: true });
+    const { store, warnings } = harness({ reader: doubled.reader });
+    const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
+    expect(snapshot.outcomeFigures('codex', 'implement')).toBeNull();
+    expect(snapshot.reasons).toEqual([OUTCOMES_UNAVAILABLE_REASON]);
+    expect(warnings).toContain('lane outcome persistence check failed');
+    expect(doubled.calls).toEqual([]);
+  });
+
+  it('returns empty figures when the outcome reader returns a non-array', async () => {
+    const reader: LaneOutcomeReader = {
+      isPersistent: () => true,
+      recentOutcomes: async () => null as unknown as LaneOutcomeSummary[],
+    };
+    const { store, warnings } = harness({ reader });
+    const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
+    expect(snapshot.outcomeFigures('codex', 'implement')).toBeNull();
+    expect(snapshot.reasons).toEqual([OUTCOMES_UNAVAILABLE_REASON]);
+    expect(warnings).toContain('lane outcome read failed');
   });
 
   it('reads each lane once and uses the subagent lane id', async () => {

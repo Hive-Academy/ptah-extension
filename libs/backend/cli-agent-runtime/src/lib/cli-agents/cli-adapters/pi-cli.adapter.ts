@@ -70,7 +70,7 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
@@ -78,6 +78,7 @@ import type {
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { validateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -235,8 +236,29 @@ export class PiCliAdapter implements CliAdapter {
    * turn already in flight. `continue` is on the handle too, but steering wins.
    * No run-scoped abort exists that keeps the agent alive.
    */
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: true, interrupt: false, continuation: true };
+  capabilities(): CliAdapterManifest {
+    const unverified = (reason: string) => ({ state: 'unsupported' as const, reason, networkModes: [] });
+    return {
+      messaging: {
+        steer: { state: 'supported' },
+        interrupt: { state: 'unsupported', reason: 'Pi has no run-scoped abort that keeps its agent alive.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: unverified('Pi native RPC permission scope is unverified.'),
+        ask: unverified('Pi native RPC permission scope is unverified.'),
+        'auto-edit': unverified('Pi native RPC permission scope is unverified.'),
+        yolo: unverified('Pi native RPC permission scope is unverified.'),
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified general network sandbox exists.' },
+      },
+      limitReader: { state: 'no-reliable-source', reason: 'No reliable noninteractive limit source exists.' },
+      mcp: { state: 'unsupported', reason: 'Pi RPC adapter does not configure Ptah MCP.' },
+    };
   }
 
   parseOutput(raw: string): string {
@@ -313,6 +335,7 @@ export class PiCliAdapter implements CliAdapter {
    * persistent process leaks. `steer()` and `continue()` target `activeChild`.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    validateLaneSpawnPolicy(this.name, this.capabilities(), options);
     // options.mcpPort is intentionally ignored — Pi has no MCP support.
     // options.autoApprove is a no-op — Pi has no tool-approval gate to skip;
     // tool execution is always auto-approved by Pi itself, so `false` cannot be

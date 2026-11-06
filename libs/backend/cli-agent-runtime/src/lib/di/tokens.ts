@@ -1,4 +1,9 @@
 export const CLI_AGENT_RUNTIME_TOKENS = {
+  PARENT_DELIVERY_EVENT_SINK: Symbol.for('ParentDeliveryEventSink'),
+  AGENT_MESSAGE_COORDINATOR: Symbol.for('AgentMessageCoordinator'),
+  AGENT_DELIVERY_RECEIPT_STORE: Symbol.for('AgentDeliveryReceiptStore'),
+  AGENT_LANE_RESUME: Symbol.for('AgentLaneResume'),
+  AGENT_DELIVERY_RECEIPT_EVENT_SINK: Symbol.for('AgentDeliveryReceiptEventSink'),
   AGENT_SPAWN_TRUSTED_ROOTS: Symbol.for('AgentSpawnTrustedRoots'),
   CODEX_ADAPTER_FACTORY: Symbol.for('CodexAdapterFactory'),
   MCP_ATTACHMENT_PROBE: Symbol.for('McpAttachmentProbe'),

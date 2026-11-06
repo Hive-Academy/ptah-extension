@@ -123,12 +123,12 @@ function request(overrides: Partial<ClaudeAuthPolicyScanRequest> = {}): ClaudeAu
 const REFUSED = { ok: false, code: 'unsupported-source', terminated: true };
 
 describe('CLAUDE_POLICY_COVERAGE', () => {
-  it('has exactly one entry: win32@2.1.310 with every source S1-S12', () => {
-    expect(CLAUDE_POLICY_COVERAGE.map((item) => item.id)).toEqual(['win32@2.1.310']);
+  it('has a win32 entry with every source S1-S12 and posix entries for darwin and linux', () => {
+    expect(CLAUDE_POLICY_COVERAGE.map((item) => item.id)).toEqual(['win32@2.1.310', 'darwin@2.1.310', 'linux@2.1.310']);
     const win = claudePolicyCoverage('win32');
-    expect(win?.inspectedVersion).toBe('2.1.310');
-    expect(win?.managedSettingsDir).toBe(MANAGED_DIR);
-    expect(win?.sources).toEqual(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12']);
+    expect(win.inspectedVersion).toBe('2.1.310');
+    expect(win.managedSettingsDir).toBe(MANAGED_DIR);
+    expect(win.sources).toEqual(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12']);
     expect(Object.isFrozen(CLAUDE_POLICY_COVERAGE)).toBe(true);
     expect(Object.isFrozen(win)).toBe(true);
   });
@@ -146,12 +146,21 @@ describe('CLAUDE_POLICY_COVERAGE', () => {
     ['2.1.312-beta', false],
   ] as const)('accepts version %s: %s', (version, accepted) => {
     const win = claudePolicyCoverage('win32');
-    expect(win).not.toBeNull();
-    if (win) expect(claudeCoverageAcceptsVersion(win, version)).toBe(accepted);
+    expect(claudeCoverageAcceptsVersion(win, version)).toBe(accepted);
   });
 
-  it.each(['darwin', 'linux'] as const)('has no entry for %s', (platform) => {
-    expect(claudePolicyCoverage(platform)).toBeNull();
+  it.each([
+    ['darwin', '/Library/Application Support/ClaudeCode'],
+    ['linux', '/etc/claude-code'],
+    ['freebsd', '/etc/claude-code'],
+  ] as const)('has a posix entry for %s without the registry source', (platform, managedDir) => {
+    const posix = claudePolicyCoverage(platform);
+    expect(posix.id).toBe(`${platform}@2.1.310`);
+    expect(posix.platform).toBe(platform);
+    expect(posix.managedSettingsDir).toBe(managedDir);
+    expect(posix.sources).toEqual(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S8', 'S9', 'S10', 'S11', 'S12']);
+    expect(Object.isFrozen(posix)).toBe(true);
+    expect(claudePolicyCoverage(platform)).toBe(posix);
   });
 });
 
@@ -174,15 +183,52 @@ describe('scanClaudeAuthPolicy', () => {
   });
 
   describe('coverage', () => {
-    it.each(['darwin', 'linux'] as const)('refuses %s with no fs or registry call', async (platform) => {
+    it.each([
+      ['darwin', '/Library/Application Support/ClaudeCode'],
+      ['linux', '/etc/claude-code'],
+    ] as const)('passes a clean %s context with no registry call', async (platform, managedDir) => {
       const { fs, calls } = fakeFs();
       const registry = fakeRegistry();
       const result = await scanClaudeAuthPolicy(
-        request({ platform, coverage: claudePolicyCoverage(platform), fs, queryRegistry: registry.queryRegistry }),
+        request({
+          platform,
+          cwd: '/home/dev/work/proj',
+          canonicalDir: '/home/dev/.ptah/claude-accounts/acct-1',
+          coverage: claudePolicyCoverage(platform),
+          fs,
+          queryRegistry: registry.queryRegistry,
+        }),
+      );
+      expect(result).toEqual({
+        ok: true,
+        terminated: true,
+        policy: {
+          coverage: `${platform}@2.1.310`,
+          managedFile: 'absent',
+          managedDropIn: 'absent',
+          registry: 'not-applicable',
+          remoteSignals: 'absent',
+        },
+      });
+      expect(calls).toContain(`readFile ${managedDir}/managed-settings.json`);
+      expect(calls).toContain(`readdir ${managedDir}/managed-settings.d`);
+      expect(registry.queryRegistry).not.toHaveBeenCalled();
+    });
+
+    it('refuses a linux managed settings file that overrides authentication', async () => {
+      const { fs } = fakeFs({
+        files: { '/etc/claude-code/managed-settings.json': JSON.stringify({ apiKeyHelper: '/usr/bin/key' }) },
+      });
+      const result = await scanClaudeAuthPolicy(
+        request({
+          platform: 'linux',
+          cwd: '/home/dev/work/proj',
+          canonicalDir: '/home/dev/.ptah/claude-accounts/acct-1',
+          coverage: claudePolicyCoverage('linux'),
+          fs,
+        }),
       );
       expect(result).toEqual(REFUSED);
-      expect(calls).toEqual([]);
-      expect(registry.queryRegistry).not.toHaveBeenCalled();
     });
 
     it('refuses an entry whose platform differs from the context', async () => {

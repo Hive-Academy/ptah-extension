@@ -158,6 +158,8 @@ export interface AgentOutcomeSignals {
  * it with its own queries and registers one service under it.
  */
 export interface LaneOutcomeReader {
+  /** All recent outcomes in the active workspace, for cold-start matrix views. */
+  recentWorkspaceOutcomes?(window: { readonly sinceMs: number }): Promise<readonly LaneOutcomeSummary[]>;
   /**
    * Records of one lane with `endedAt >= window.sinceMs`, newest first.
    * Never rejects: store failure → [] + log. Unknown laneId → [].

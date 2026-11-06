@@ -1,8 +1,27 @@
-import { reportEffectOf } from '../write/report-effect';
+import {
+  hostDeliverablesReportId,
+  reportEffectOf,
+} from '../write/report-effect';
+import type { HeldOutcomeReport } from './lane-outcome.store';
 import { InMemoryLaneOutcomeStore } from './in-memory-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 
 describe('InMemoryLaneOutcomeStore', () => {
+  it('matches normalized workspace and child paths, including worktrees', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const roots = ['D:\\Repo\\', 'd:/repo/src', 'D:/REPO/.claude-worktrees/task', 'd:/repository'];
+    for (const [index, root] of roots.entries()) await store.insertIfAbsent({ ...outcomeRow(String(index)), laneId: 'lane', workspaceRoot: root });
+    expect((await store.listByLane('lane', 0, 'd:/repo/')).map((row) => row.runId).sort()).toEqual(['0', '1', '2']);
+    expect((await store.listRecent(0, 'D:\\REPO')).map((row) => row.runId).sort()).toEqual(['0', '1', '2']);
+  });
+  it('scopes lane and role reads while retaining null-root history', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    for (const [id, root] of [['same', '/ws'], ['other', '/other'], ['legacy', null]] as const) {
+      await store.insertIfAbsent({ ...outcomeRow(id), laneId: 'lane', role: 'backend-developer', workspaceRoot: root });
+    }
+    expect((await store.listByLane('lane', 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+    expect((await store.listByRoles(['backend-developer'], 0, '/ws')).map((row) => row.runId).sort()).toEqual(['legacy', 'same']);
+  });
   it('classifies only a kindless unclassified row', async () => {
     const store = new InMemoryLaneOutcomeStore();
     await store.insertIfAbsent({
@@ -265,5 +284,148 @@ describe('InMemoryLaneOutcomeStore', () => {
     expect(
       (await store.listHeldReports(now)).some((r) => r.reportId === 'report-0'),
     ).toBe(false);
+  });
+});
+
+describe('InMemoryLaneOutcomeStore host-observed deliverables', () => {
+  const runId = 'subagent:host';
+  const deliverables = (
+    reportId: string,
+    payload: Record<string, unknown>,
+    heldAt: number,
+  ): HeldOutcomeReport => ({
+    reportId,
+    runId,
+    kind: 'deliverables',
+    payload: JSON.stringify(payload),
+    heldAt,
+    expiresAt: heldAt + 60_000,
+  });
+  const missing = [{ exists: false, bytes: 0, mtimeMs: null }];
+  const written = [{ exists: true, bytes: 3, mtimeMs: null }];
+  const host = (heldAt: number) =>
+    deliverables(
+      hostDeliverablesReportId(runId),
+      { checks: missing, origin: 'host' },
+      heldAt,
+    );
+  const explicit = (heldAt: number) =>
+    deliverables('explicit-1', { checks: written }, heldAt);
+
+  it('applies a host report to an undeclared row', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow(runId));
+    const now = Date.now();
+    expect(
+      await store.applyReportWithReceipt(host(now), now, reportEffectOf),
+    ).toBe('applied');
+    expect(await store.get(runId)).toMatchObject({
+      verdict: 'no-deliverable',
+      deliverablesDeclaredAt: now,
+    });
+  });
+
+  it('lets an explicit report after a host report set the verdict', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow(runId));
+    const now = Date.now();
+    await store.applyReportWithReceipt(host(now), now, reportEffectOf);
+    expect(
+      await store.applyReportWithReceipt(
+        explicit(now + 1),
+        now + 1,
+        reportEffectOf,
+      ),
+    ).toBe('applied');
+    expect((await store.get(runId))?.verdict).toBe('delivered');
+  });
+
+  it('leaves an explicitly declared row unchanged on a later host report', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow(runId));
+    const now = Date.now();
+    await store.applyReportWithReceipt(explicit(now), now, reportEffectOf);
+    const before = await store.get(runId);
+    await store.applyReportWithReceipt(host(now + 1), now + 1, reportEffectOf);
+    expect(await store.get(runId)).toEqual(before);
+    expect(before?.verdict).toBe('delivered');
+  });
+
+  it('keeps an explicit report held before the stop over the host report', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const now = Date.now();
+    await store.holdReport(explicit(now - 10));
+    const stop = await store.insertStopWithHeldReports(
+      outcomeRow(runId),
+      now,
+      reportEffectOf,
+    );
+    expect(stop.joined.map((r) => r.reportId)).toEqual(['explicit-1']);
+    await store.applyReportWithReceipt(host(now + 1), now + 1, reportEffectOf);
+    expect((await store.get(runId))?.verdict).toBe('delivered');
+  });
+
+  it('keeps a classified failed verdict on a host report and still receipts it', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent({
+      ...outcomeRow(runId),
+      verdict: 'failed',
+      failureClass: 'timeout',
+    });
+    const before = await store.get(runId);
+    const now = Date.now();
+    const hostWritten = deliverables(
+      hostDeliverablesReportId(runId),
+      { checks: written, origin: 'host' },
+      now,
+    );
+    expect(
+      await store.applyReportWithReceipt(hostWritten, now, reportEffectOf),
+    ).toBe('applied');
+    expect(await store.get(runId)).toEqual(before);
+    expect(await store.hasReceipt(hostDeliverablesReportId(runId))).toBe(true);
+    // An explicit report keeps its current behaviour on a subagent row.
+    await store.applyReportWithReceipt(
+      explicit(now + 1),
+      now + 1,
+      reportEffectOf,
+    );
+    expect((await store.get(runId))?.verdict).toBe('delivered');
+  });
+
+  it('receipts a repeated host report once', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow(runId));
+    const now = Date.now();
+    expect(
+      await store.applyReportWithReceipt(host(now), now, reportEffectOf),
+    ).toBe('applied');
+    expect(
+      await store.applyReportWithReceipt(
+        host(now + 1),
+        now + 1,
+        reportEffectOf,
+      ),
+    ).toBe('duplicate');
+    expect(await store.hasReceipt(hostDeliverablesReportId(runId))).toBe(true);
+  });
+
+  it('rejects an unknown origin without writing', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow(runId));
+    const now = Date.now();
+    const agentClaim = deliverables(
+      'claim-1',
+      { checks: written, origin: 'agent' },
+      now,
+    );
+    expect(
+      await store.applyReportWithReceipt(agentClaim, now, reportEffectOf),
+    ).toBe('invalid');
+    expect(await store.get(runId)).toMatchObject({
+      verdict: 'unverified',
+      deliverablesDeclaredAt: null,
+    });
+    expect(await store.hasReceipt('claim-1')).toBe(false);
   });
 });

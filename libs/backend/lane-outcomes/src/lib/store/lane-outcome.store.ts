@@ -48,6 +48,8 @@ export type OutcomeReportEffect =
       readonly taskKind?: OutcomeTaskKind;
       readonly taskId?: string;
       readonly routingSource?: OutcomeRoutingSource;
+      /** The host stated the files; an explicit declaration outranks it. */
+      readonly hostObserved?: true;
     }
   | {
       readonly kind: 'review';
@@ -63,6 +65,17 @@ export function applyOutcomeEffect(
   effect: OutcomeReportEffect,
 ): LaneOutcomeRecord {
   if (effect.kind === 'deliverables') {
+    // Every applied declaration sets deliverablesDeclaredAt, so a host report
+    // never replaces one; the stores call this inside their transaction.
+    if (effect.hostObserved && row.deliverablesDeclaredAt !== null) return row;
+    // A classified failure (e.g. a subagent timeout) outranks files the host
+    // saw on disk; only an explicit report may replace that verdict.
+    if (
+      effect.hostObserved &&
+      row.verdict === 'failed' &&
+      row.failureClass !== null
+    )
+      return row;
     const explicitTaskKind =
       effect.taskKind !== undefined && row.taskKindSource !== 'explicit';
     return {
@@ -87,6 +100,7 @@ export function applyOutcomeEffect(
 }
 
 export interface LaneOutcomeStore {
+  listRecent(sinceMs: number, workspaceRoot?: string | null): Promise<readonly LaneOutcomeRow[]>;
   /** True inserts a new run; false leaves its existing row intact. */
   insertIfAbsent(row: LaneOutcomeRecord): Promise<boolean>;
   /** Inserts any run row and joins that run's held reports; also returns invalid reports and budget-stop state. */
@@ -132,11 +146,13 @@ export interface LaneOutcomeStore {
   listByLane(
     laneId: string,
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]>;
   /** Returns matching role rows for readers; an empty list means no matches. */
   listByRoles(
     slugs: readonly string[],
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]>;
   /** True means the report was already applied and must not be replayed. */
   hasReceipt(reportId: string): Promise<boolean>;

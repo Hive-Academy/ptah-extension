@@ -12,6 +12,8 @@ import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.c
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { HostRoutingSettingComponent } from './host-routing-setting.component';
+import { LaneRotationSettingComponent } from './lane-rotation-setting.component';
+import { CapabilityMatrixSettingComponent } from './capability-matrix-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.component';
 
@@ -20,8 +22,8 @@ import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.
  * do not change). Opens the shared state itself, because a user can land on this tab first and the subagent cache TTL
  * reads it.
  *
- * Order: the subagent prompt-cache TTL, the session budget, Lane guards, Routing suggestions (Electron only: only the
- * Electron host runs the routing coordinator; TASK_2026_857), then the advanced groups (context budgets,
+ * Order: the subagent prompt-cache TTL, the session budget, Lane guards, then Electron-only routing
+ * suggestions, executor rotation and the capability matrix, then the advanced groups (context budgets,
  * Codex agents and the Codex sandbox mode (TASK_2026_885), background query limits; TASK_2026_658) in one
  * viewport-deferred chunk. The CLI matrix and the
  * background model roles moved to the Providers tab (`AgentsRoutingSettingsComponent`), with their deep links.
@@ -38,6 +40,8 @@ import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.
     SessionBudgetSettingsComponent,
     LaneGuardsSettingsComponent,
     HostRoutingSettingComponent,
+    LaneRotationSettingComponent,
+    CapabilityMatrixSettingComponent,
     AdvancedSettingsGroupComponent,
     CodexSandboxSettingComponent,
   ],
@@ -72,6 +76,8 @@ import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.
       <!-- Routing suggestions (TASK_2026_857): Electron only, because only the Electron host runs the coordinator. -->
       @if (isElectron) {
         <ptah-host-routing-setting />
+        <ptah-lane-rotation-setting />
+        <ptah-capability-matrix-setting />
       }
 
       <!-- Advanced orchestration values (TASK_2026_658): one chunk, loaded when scrolled into view, below the session

@@ -19,6 +19,8 @@ import {
   type AgentReportInput,
 } from './agent-report-router.service';
 import { SessionChildRegistry } from '../session-children/session-child.registry';
+import { ParentEnvelopeStoreService } from './parent-delivery/parent-envelope-store.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -95,6 +97,43 @@ function createHarness(
 }
 
 describe('AgentReportRouter.deliver', () => {
+  it('does not infer completion from report prose', async () => {
+    const h = createHarness();
+    await h.router.deliver({ agentId: AGENT_ID, message: 'Progress: wrote a draft' });
+    await h.router.deliver({ agentId: AGENT_ID, message: 'Completed step 2 of 5' });
+    expect(h.markReportDelivered).toHaveBeenNthCalledWith(1, AGENT_ID);
+    expect(h.markReportDelivered).toHaveBeenNthCalledWith(2, AGENT_ID);
+  });
+  it('queues a tab-id report and delivers it after session resolution', async () => {
+    const h = createHarness({ info: createInfo({ parentSessionId: 'tab-1' }) });
+    const store = new ParentEnvelopeStoreService(h.logger);
+    const adapter = { isSessionActive: h.isSessionActive,
+      sendMessageToSession: h.sendMessageToSession } as never;
+    const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
+    const manager = { findAgentInfo: h.findAgentInfo,
+      recordAgentNote: h.recordAgentNote, markReportDelivered: h.markReportDelivered } as never;
+    const router = new AgentReportRouter(h.logger, manager, adapter, null, drainer);
+    const pending = await router.deliver({ agentId: AGENT_ID, message: 'progress' });
+    expect(pending).toMatchObject({ delivered: false, recorded: true, pending: true });
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    await drainer.resolveParentSessionId('tab-1', PARENT);
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits attempted reports while the parent remains inactive', async () => {
+    const h = createHarness({ sessionActive: false });
+    const store = new ParentEnvelopeStoreService(h.logger);
+    const adapter = { isSessionActive: h.isSessionActive,
+      sendMessageToSession: h.sendMessageToSession } as never;
+    const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
+    const manager = { findAgentInfo: h.findAgentInfo,
+      recordAgentNote: h.recordAgentNote, markReportDelivered: h.markReportDelivered } as never;
+    const router = new AgentReportRouter(h.logger, manager, adapter, null, drainer);
+    for (let i = 0; i < AGENT_REPORT_BURST_LIMIT; i++)
+      expect((await router.deliver({ agentId: AGENT_ID, message: `report ${i}` })).pending).toBe(true);
+    expect(await router.deliver({ agentId: AGENT_ID, message: 'overflow' }))
+      .toMatchObject({ delivered: false, reason: 'rate-limited' });
+  });
   describe('the happy path', () => {
     it('sends exactly one turn with the peer origin and writes exactly one tile segment', async () => {
       const h = createHarness();
@@ -418,7 +457,7 @@ describe('AgentReportRouter.deliver', () => {
         '[AgentReportRouter] Report refused',
         expect.objectContaining({
           reason: 'delivery-failed',
-          detail: 'session closed mid-send',
+          detail: 'parent-send-failed',
         }),
       );
     });
