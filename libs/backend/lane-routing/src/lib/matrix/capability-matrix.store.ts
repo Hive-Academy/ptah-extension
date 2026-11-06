@@ -9,8 +9,6 @@ import {
 } from '@ptah-extension/shared';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import { NEUTRAL_SCORE, OUTCOME_WINDOW_MS } from '../routing-constants';
-import type { DecisionOutcomeFigures } from '../decision-model/decision-payload';
-import { outcomeFigures } from './outcome-figures';
 import type {
   LaneRoutingLogMeta,
   LaneRoutingLogger,
@@ -25,6 +23,11 @@ import {
   type MatrixProfile,
 } from './matrix.types';
 import { AUTOMATIC_MATRIX_MODEL, deriveLocalMatrix } from './local-derivation';
+import {
+  EMPTY_OUTCOME_FIGURES,
+  outcomeFiguresFrom,
+  type OutcomeFigureLookup,
+} from './outcome-figures';
 import { buildSeedMatrix, isStale } from './seed-matrix';
 
 /**
@@ -108,9 +111,9 @@ export interface ResolvedMatrixCell {
 }
 
 export interface CapabilityMatrixSnapshot {
-  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   /** `matrix-invalid:` entries, then an outcome-reader reason when one applies. */
   readonly reasons: readonly string[];
+  readonly outcomeFigures: OutcomeFigureLookup;
   resolve(
     family: string,
     model: string,
@@ -153,9 +156,12 @@ export interface CapabilityMatrixViewReader {
 }
 
 interface LayerLoad {
-  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly matrix: CapabilityMatrix;
   readonly reasons: readonly string[];
+}
+
+interface LocalLoad extends LayerLoad {
+  readonly outcomeFigures: OutcomeFigureLookup;
 }
 
 interface ProfileIndex {
@@ -211,8 +217,8 @@ export class CapabilityMatrixStore {
     ];
     await this.writeViewIfChanged(layers, input.nowMs);
     return {
-      outcomeFigures: localLoad.outcomeFigures ?? [],
       reasons: [...userLoad.reasons, ...localLoad.reasons],
+      outcomeFigures: localLoad.outcomeFigures,
       resolve: (family, model, taskKind) =>
         resolveIndexed(layers, family, model, taskKind, input.nowMs),
     };
@@ -284,21 +290,37 @@ export class CapabilityMatrixStore {
   private async readLocalMatrix(
     nowMs: number,
     queries: readonly MatrixOutcomeQuery[],
-  ): Promise<LayerLoad> {
+  ): Promise<LocalLoad> {
     const reader = this.deps.outcomeReader;
     if (reader === undefined) {
-      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const persistent = this.readPersistent(reader);
     if (persistent === 'unavailable') {
-      return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     if (persistent === 'no') {
-      return { matrix: emptyMatrix(), reasons: [NO_OUTCOME_HISTORY_REASON] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [NO_OUTCOME_HISTORY_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const laneIds = readerLaneIds(queries);
     if (laneIds.length === 0) {
-      return { matrix: emptyMatrix(), reasons: [] };
+      return {
+        matrix: emptyMatrix(),
+        reasons: [],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
+      };
     }
     const sinceMs = nowMs - OUTCOME_WINDOW_MS;
     let summaries: readonly LaneOutcomeSummary[];
@@ -313,9 +335,14 @@ export class CapabilityMatrixStore {
       return {
         matrix: emptyMatrix(),
         reasons: [OUTCOMES_UNAVAILABLE_REASON],
+        outcomeFigures: EMPTY_OUTCOME_FIGURES,
       };
     }
-    return { matrix: deriveLocalMatrix(summaries, nowMs), outcomeFigures: outcomeFigures(summaries), reasons: [] };
+    return {
+      matrix: deriveLocalMatrix(summaries, nowMs),
+      reasons: [],
+      outcomeFigures: outcomeFiguresFrom(summaries),
+    };
   }
 
   private async readWorkspaceLocalMatrix(nowMs: number): Promise<LayerLoad> {
@@ -324,11 +351,14 @@ export class CapabilityMatrixStore {
       return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
     }
     const persistent = this.readPersistent(reader);
-    if (persistent !== 'yes') return { matrix: emptyMatrix(), reasons: [persistent === 'no' ? NO_OUTCOME_HISTORY_REASON : OUTCOMES_UNAVAILABLE_REASON] };
+    if (persistent !== 'yes') {
+      return { matrix: emptyMatrix(), reasons: [persistent === 'no' ? NO_OUTCOME_HISTORY_REASON : OUTCOMES_UNAVAILABLE_REASON] };
+    }
     try {
       const summaries = await reader.recentWorkspaceOutcomes({ sinceMs: nowMs - OUTCOME_WINDOW_MS });
-      return { matrix: deriveLocalMatrix(summaries, nowMs), outcomeFigures: outcomeFigures(summaries), reasons: [] };
+      return { matrix: deriveLocalMatrix(summaries, nowMs), reasons: [] };
     } catch (error: unknown) {
+      // degradation-audit: reported - a failed workspace read leaves the read-only view with seed and user cells
       this.warn('lane outcome workspace read failed', error);
       return { matrix: emptyMatrix(), reasons: [OUTCOMES_UNAVAILABLE_REASON] };
     }

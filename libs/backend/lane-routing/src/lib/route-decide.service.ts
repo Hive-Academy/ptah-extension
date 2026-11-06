@@ -28,6 +28,7 @@ import type { StructuredDecisionCompleter } from './decision-model/structured-de
 import type { SystemOneClientOptions } from './decision-model/system-one.client';
 import type { LaneModelListing } from './lane-model-listing.port';
 import type { LaneRoutingLogger } from './lane-routing-logger';
+import type { OutcomeFigureLookup } from './matrix/outcome-figures';
 import type { RouteCandidateSource } from './route-candidate-source.port';
 import { laneCandidateId } from './ranking/candidate.types';
 import type { RotationPick } from './ranking/rotation.store';
@@ -74,6 +75,7 @@ import {
 } from './ranking/rotation.store';
 import { overallConfidence } from './reasons/confidence';
 import { compilePreflightReasons } from './reasons/compile-reasons';
+import { gateSummary, preflightSummary, type DecisionSummaryFacts } from './reasons/decision-summary';
 import type { PreflightReuseCache } from './scope/preflight-reuse-cache';
 import {
   MODEL_LISTING_BUDGET_MS,
@@ -119,68 +121,70 @@ export class RouteDecideService implements RotationStateReader {
     this.decisionCaller = new DecisionCaller(deps);
   }
 
-  async decide(
-    args: unknown,
-    source: RouteCandidateSource,
-    context?: { readonly sessionKey?: string },
-  ): Promise<RouteDecideResult> {
-    const parsed = RouteDecideArgsSchema.safeParse(args);
-    if (!parsed.success) {
-      throw schemaError('invalid route decide args', parsed.error);
-    }
-    if (parsed.data.stage === 'pre-flight') {
-      if (context?.sessionKey !== undefined && this.deps.reuse !== undefined) {
-        const fingerprint = JSON.stringify(this.deps.config.getSelection());
-        const cached = this.deps.reuse.get(context.sessionKey, fingerprint);
-        if (cached !== null) {
-          const reused = PreflightResultSchema.safeParse({
-            ...cached,
-            reasons: [...cached.reasons, 'reused host pre-flight result'],
-            usage: {
-              requests: 0,
-              inputTokens: null,
-              outputTokens: null,
-              costUsd: null,
-            },
-          });
-          if (!reused.success) {
-            throw schemaError(
-              'route decide result failed schema',
-              reused.error,
-            );
-          }
-          return reused.data;
-        }
-      }
-      return this.decidePreflight(parsed.data, source);
-    }
-    return this.decideGate(parsed.data, source);
-  }
-
   getLastPicks(): { readonly entries: readonly RotationPick[]; readonly reason: string | null } {
     const loaded = this.deps.rotation.load();
     return { entries: loaded.state.entries, reason: loaded.reason };
   }
 
-  private async preflightFigures(source: RouteCandidateSource) {
+  async decide(
+    args: unknown,
+    source: RouteCandidateSource,
+    context?: { readonly sessionKey?: string },
+  ): Promise<RouteDecideResult> {
+    const started = this.nowMs;
+    let stage: 'pre-flight' | 'gate-0.1' | 'unknown' = 'unknown';
     try {
-      const rows = await source.rows();
-      const outcomeQueries = rows.map((row) => ({ laneId: laneCandidateId(row), subagent: false }));
-      outcomeQueries.push({ laneId: SUBAGENT_LANE_ID, subagent: true });
-      return (await this.deps.matrix.load({ nowMs: this.nowMs, outcomeQueries })).outcomeFigures ?? [];
+      const parsed = RouteDecideArgsSchema.safeParse(args);
+      if (!parsed.success) {
+        throw schemaError('invalid route decide args', parsed.error);
+      }
+      stage = parsed.data.stage;
+      if (parsed.data.stage === 'pre-flight') {
+        if (context?.sessionKey !== undefined && this.deps.reuse !== undefined) {
+          const fingerprint = JSON.stringify(this.deps.config.getSelection());
+          const cached = this.deps.reuse.get(context.sessionKey, fingerprint);
+          if (cached !== null) {
+            const reused = PreflightResultSchema.safeParse({
+              ...cached,
+              reasons: [...cached.reasons, 'reused host pre-flight result'],
+              usage: {
+                requests: 0,
+                inputTokens: null,
+                outputTokens: null,
+                costUsd: null,
+              },
+            });
+            if (!reused.success) {
+              throw schemaError(
+                'route decide result failed schema',
+                reused.error,
+              );
+            }
+            this.logSummary(() => preflightSummary(reused.data, {
+              durationMs: this.nowMs - started, caller: 'unset', model: null,
+              timeoutMs: null, reused: true, outcomeFigures: 0,
+            }));
+            return reused.data;
+          }
+        }
+        return await this.decidePreflight(parsed.data, started);
+      }
+      return await this.decideGate(parsed.data, source, started);
     } catch (error: unknown) {
-      this.deps.logger.warn('[lane-routing] preflight outcomes could not be loaded', errorFacts(error));
-      return [];
+      this.logSummary(() => ({
+        stage, outcome: 'error', name: errorFacts(error).name,
+        durationMs: this.nowMs - started,
+      }));
+      throw error;
     }
   }
 
-  private async decidePreflight(args: PreflightArgs, source: RouteCandidateSource): Promise<PreflightResult> {
+  private async decidePreflight(args: PreflightArgs, started: number): Promise<PreflightResult> {
     const caller = await this.decisionCaller.openCaller();
     const tally = emptyTally();
     let outcome: ModelRequestOutcome | null = null;
     if (caller.kind === 'system-one' || caller.kind === 'structured') {
       outcome = await runFixedRequest({
-        outcomeFigures: await this.preflightFigures(source),
         request: args.request,
         questions: preflightQuestions(),
         maxRequestBytes: this.maxBytes,
@@ -216,12 +220,14 @@ export class RouteDecideService implements RotationStateReader {
     if (!validated.success) {
       throw schemaError('route decide result failed schema', validated.error);
     }
+    this.logSummary(() => preflightSummary(validated.data, this.summaryFacts(caller, started, 0)));
     return validated.data;
   }
 
   private async decideGate(
     args: GateArgs,
     source: RouteCandidateSource,
+    started: number,
   ): Promise<GateResult> {
     const caller = await this.decisionCaller.openCaller();
     const rotate = this.deps.rotationSetting?.isEnabled() ?? true;
@@ -255,7 +261,9 @@ export class RouteDecideService implements RotationStateReader {
       rotate,
     );
     cursor = pass1.cursor;
-    const pass1Run = await this.runPass(pass1.plans, args, caller, mode, gathered);
+    const pass1Run = await this.runPass(
+      pass1.plans, args, caller, mode, gathered.matrix.outcomeFigures,
+    );
     const resolutions = new Map<string, PhaseResolution>();
     const plans = new Map<string, PhasePlan>();
     storePass(pass1.plans, pass1Run.context, plans, resolutions);
@@ -271,7 +279,9 @@ export class RouteDecideService implements RotationStateReader {
       remember,
       rotate,
     );
-    const pass2Run = await this.runPass(pass2.plans, args, caller, mode, gathered);
+    const pass2Run = await this.runPass(
+      pass2.plans, args, caller, mode, gathered.matrix.outcomeFigures,
+    );
     storePass(pass2.plans, pass2Run.context, plans, resolutions);
 
     const tally = emptyTally();
@@ -291,7 +301,35 @@ export class RouteDecideService implements RotationStateReader {
       throw schemaError('route decide result failed schema', validated.error);
     }
     await this.persistRotation(gathered, validated.data);
+    this.logSummary(() => gateSummary(validated.data, this.summaryFacts(
+      caller, started,
+      (pass1Run.outcome?.outcomeFigures ?? 0) + (pass2Run.outcome?.outcomeFigures ?? 0),
+    )));
     return validated.data;
+  }
+
+  private summaryFacts(caller: OpenedCaller, started: number, outcomeFigures: number): DecisionSummaryFacts {
+    return {
+      durationMs: this.nowMs - started,
+      caller: caller.kind,
+      model: caller.kind === 'system-one' ? caller.target.model : caller.kind === 'structured' ? caller.model : null,
+      timeoutMs: caller.kind === 'system-one' ? caller.target.timeoutMs : null,
+      reused: false,
+      outcomeFigures,
+    };
+  }
+
+  private logSummary(build: () => Record<string, unknown>): void {
+    try {
+      this.deps.logger.info('[lane-routing] route decided', build());
+    } catch (error: unknown) {
+      // degradation-audit: reported - summary logging must not interrupt a completed route
+      try {
+        this.deps.logger.warn('[lane-routing] route summary failed', errorFacts(error));
+      } catch {
+        // degradation-audit: optional-capability - a broken host logger cannot interrupt routing
+      }
+    }
   }
 
   private async runPass(
@@ -299,7 +337,7 @@ export class RouteDecideService implements RotationStateReader {
     args: GateArgs,
     caller: OpenedCaller,
     mode: DispatchMode,
-    gathered: GatheredCall,
+    outcomes: OutcomeFigureLookup,
   ): Promise<{
     readonly outcome: ModelRequestOutcome | null;
     readonly context: PassContext;
@@ -320,7 +358,7 @@ export class RouteDecideService implements RotationStateReader {
           caller.kind === 'structured' ? 'structuredOutput' : caller.provider,
         request: args.request,
         phases: send.map(laneQuestion),
-        outcomeFigures: gathered.matrix.outcomeFigures ?? [],
+        outcomes,
         maxRequestBytes: this.maxBytes,
         dispatch: this.decisionCaller.dispatchFor(caller),
         logger: this.deps.logger,

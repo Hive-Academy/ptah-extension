@@ -14,6 +14,7 @@ import {
   SystemOneRequestBodySchema,
   type SystemOneRequestBody,
 } from './system-one.schema';
+import { preflightQuestions } from '../pipeline/preflight-answer';
 
 export interface LiveRoutingFixture {
   /** Stable name used in assertion messages. */
@@ -32,7 +33,33 @@ const QUESTION_KEY = 'route';
 const INSTRUCTIONS =
   'Pick the single option that is best suited to carry out the request.';
 
+const DEPTH_QUESTION = preflightQuestions().find((question) => question.key === 'depth');
+if (DEPTH_QUESTION === undefined) {
+  throw new Error('preflight depth question is missing');
+}
+
 export const LIVE_ROUTING_FIXTURES: readonly LiveRoutingFixture[] = [
+  {
+    id: 'depth-preflight-r1',
+    request: 'Rename the variable x to count on line 12 of utils.ts.',
+    instructions: DEPTH_QUESTION.instructions,
+    criteria: DEPTH_QUESTION.criteria,
+    expected: 'o3',
+  },
+  {
+    id: 'depth-preflight-r5',
+    request: 'Redesign our whole billing platform: new data model, new payment providers, migrate every customer, and keep it running with no downtime.',
+    instructions: DEPTH_QUESTION.instructions,
+    criteria: DEPTH_QUESTION.criteria,
+    expected: 'o1',
+  },
+  {
+    id: 'depth-preflight-r6',
+    request: 'Help my team collaborate better.',
+    instructions: DEPTH_QUESTION.instructions,
+    criteria: DEPTH_QUESTION.criteria,
+    expected: 'o1',
+  },
   {
     id: 'sql-migration',
     request:

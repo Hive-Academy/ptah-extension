@@ -81,6 +81,7 @@ function harness(options: {
   readonly seams?: RouteDecideSeams;
   readonly reply?: (payload: DecisionPayload) => SystemOneCallResult;
   readonly reuse?: PreflightReuseCache;
+  readonly logger?: LaneRoutingLogger;
 }) {
   const calls: DecisionPayload[] = [];
   const seen: SystemOneClientOptions[] = [];
@@ -116,7 +117,7 @@ function harness(options: {
         throw new Error('preflight must not save rotation');
       },
     },
-    logger: testLogger(),
+    logger: options.logger ?? testLogger(),
     ...(options.reuse !== undefined ? { reuse: options.reuse } : {}),
     ...(options.structured !== undefined
       ? { structured: options.structured }
@@ -149,6 +150,52 @@ function reuseCache(enabled = true): PreflightReuseCache {
 }
 
 describe('route decide preflight', () => {
+  it('logs one safe error summary for invalid input', async () => {
+    const logger = testLogger();
+    const run = harness({ selection: OLLAMA, logger });
+    await expect(run.service.decide({ ...preflight, stage: 'invalid' }, source())).rejects.toThrow(/invalid route decide args/);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', {
+      stage: 'unknown', outcome: 'error', name: 'Error', durationMs: expect.any(Number),
+    });
+  });
+
+  it('logs one safe summary and survives a throwing logger', async () => {
+    const logger = testLogger();
+    const run = harness({ selection: OLLAMA, logger, seams: { now: () => 100 } });
+    await run.service.decide({ ...preflight, request: 'SECRET REQUEST' }, source());
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', expect.objectContaining({
+      stage: 'pre-flight', outcome: 'ok', caller: 'system-one', durationMs: 0, requests: 1,
+      answers: [expect.objectContaining({ question: 'taskType', source: 'model' }),
+        expect.objectContaining({ question: 'depth', source: 'model' })],
+    }));
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls[0][1])).not.toContain('SECRET REQUEST');
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls[0][1])).not.toContain('reasons');
+
+    const broken = testLogger();
+    broken.info = jest.fn(() => { throw new Error('secret error'); });
+    await expect(harness({ selection: OLLAMA, logger: broken }).service.decide(preflight, source())).resolves.toMatchObject({ stage: 'pre-flight' });
+    expect(broken.warn).toHaveBeenCalledWith('[lane-routing] route summary failed', { name: expect.any(String) });
+    expect(JSON.stringify((broken.warn as jest.Mock).mock.calls)).not.toContain('secret error');
+  });
+
+  it('logs one error summary and rethrows a pre-flight failure unchanged', async () => {
+    const logger = testLogger();
+    const reuse = reuseCache();
+    const failure = new Error('SECRET FAILURE');
+    failure.name = 'SECRET NAME';
+    jest.spyOn(reuse, 'get').mockImplementation(() => { throw failure; });
+    const run = harness({ selection: OLLAMA, logger, reuse, seams: { now: () => 100 } });
+
+    await expect(run.service.decide(preflight, source(), { sessionKey: 'tab-1' })).rejects.toBe(failure);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', {
+      stage: 'pre-flight', outcome: 'error', name: 'other', durationMs: 0,
+    });
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toMatch(/SECRET/);
+  });
+
   it('returns a validated copy of a confirmed cached result without dispatching', async () => {
     const reuse = reuseCache();
     reuse.confirmRevision('tab-1', 4);
@@ -164,11 +211,16 @@ describe('route decide preflight', () => {
       result,
     });
 
-    const next = harness({ selection: OLLAMA, reuse });
+    const logger = testLogger();
+    const next = harness({ selection: OLLAMA, reuse, logger });
     const reused = await next.service.decide(preflight, source(), {
       sessionKey: 'tab-1',
     });
     expect(next.calls).toHaveLength(0);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', expect.objectContaining({
+      stage: 'pre-flight', outcome: 'ok', reused: true, caller: 'unset', requests: 0,
+    }));
     expect(reused).toMatchObject({
       ...result,
       reasons: [...result.reasons, 'reused host pre-flight result'],
@@ -261,7 +313,7 @@ describe('route decide preflight', () => {
     const rows = source();
     const { service, calls, seen } = harness({ selection: OLLAMA });
     const result = await service.decide(preflight, rows);
-    expect(rows.rows).toHaveBeenCalledTimes(1);
+    expect(rows.rows).not.toHaveBeenCalled();
     expect(calls).toHaveLength(1);
     expect(Object.keys(calls[0]?.questions ?? {}).sort()).toEqual([
       'depth',

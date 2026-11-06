@@ -26,6 +26,7 @@ import {
 import type { LaneModelListing } from './lane-model-listing.port';
 import type { LaneRoutingLogger } from './lane-routing-logger';
 import { FAMILY_PROFILE_MODEL } from './matrix/matrix.types';
+import { EMPTY_OUTCOME_FIGURES } from './matrix/outcome-figures';
 import type { RouteMatrix } from './pipeline/gather';
 import { systemOneClientOptions } from './pipeline/model-refine';
 import {
@@ -73,6 +74,7 @@ const THREE = [lane('codex'), lane('grok'), lane('opencode')] as const;
 function neutralMatrix(): RouteMatrix {
   return {
     load: async () => ({
+      outcomeFigures: EMPTY_OUTCOME_FIGURES,
       reasons: [],
       resolve: (family, model, taskKind) => ({
         family,
@@ -197,6 +199,8 @@ function harness(options: {
   ) => SystemOneCallResult;
   readonly rotation?: ReturnType<typeof memoryRotation>;
   readonly rotate?: boolean;
+  readonly matrix?: RouteMatrix;
+  readonly logger?: LaneRoutingLogger;
 }) {
   const calls: DecisionPayload[] = [];
   const seen: SystemOneClientOptions[] = [];
@@ -218,9 +222,9 @@ function harness(options: {
         }),
       options.structured,
     ),
-    matrix: neutralMatrix(),
+    matrix: options.matrix ?? neutralMatrix(),
     rotation,
-    logger: testLogger(),
+    logger: options.logger ?? testLogger(),
     listing:
       options.listing ??
       listingOf(async () => [{ id: 'listed', provenance: 'reported' }]),
@@ -261,6 +265,39 @@ function implement(id = 'build') {
   };
 }
 
+describe('route decide outcome figures', () => {
+  it('passes only offered lane and phase-kind figures to the captured payload', async () => {
+    const matrix: RouteMatrix = {
+      load: async (input) => ({
+        ...(await neutralMatrix().load(input)),
+        outcomeFigures: (laneId, taskKind) => ({
+          laneId,
+          taskKind,
+          delivered: 3,
+          failed: 1,
+        }),
+      }),
+    };
+    const run = harness({ matrix });
+    await run.service.decide(implement(), run.source);
+    expect(run.calls).toHaveLength(1);
+    const payload = run.calls[0];
+    const offered = Object.keys(payload.state.availableExecutors).filter(
+      (id) => id !== 'subagent',
+    );
+    expect(offered.length).toBeGreaterThan(0);
+    expect(Object.keys(payload.state.pastOutcomes).sort()).toEqual(
+      offered.map((id) => `${id}/implement`).sort(),
+    );
+    for (const id of offered) {
+      expect(payload.state.pastOutcomes[`${id}/implement`]).toEqual({
+        delivered: 3,
+        failed: 1,
+      });
+    }
+  });
+});
+
 const READY_ROUTES: Record<string, FakeRoute> = {
   [VERSION_PATH]: VERSION_OK,
   [SYSTEM_ONE_PATH]: MODEL_REQUIRED,
@@ -283,6 +320,44 @@ function notFoundReply(): SystemOneCallResult {
 }
 
 describe('route decide gate', () => {
+  it('logs one safe gate summary after routing and survives a throwing logger', async () => {
+    const logger = testLogger();
+    const run = harness({ logger, seams: { now: () => 200 } });
+    await run.service.decide({ ...implement(), request: 'SECRET REQUEST' }, run.source);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', expect.objectContaining({
+      stage: 'gate-0.1', outcome: 'ok', durationMs: 0, requests: 1, outcomeFigures: 0,
+      phases: [expect.objectContaining({ phaseId: 'build', status: 'chosen', source: expect.any(String) })],
+    }));
+    const meta = JSON.stringify((logger.info as jest.Mock).mock.calls[0][1]);
+    expect(meta).not.toMatch(/SECRET REQUEST|reasons|excludedBy|apiKey|baseUrl/);
+
+    const broken = testLogger();
+    broken.info = jest.fn(() => { throw new Error('secret error'); });
+    const next = harness({ logger: broken });
+    await expect(next.service.decide(implement(), next.source)).resolves.toMatchObject({ stage: 'gate-0.1' });
+    expect(broken.warn).toHaveBeenCalledWith('[lane-routing] route summary failed', { name: expect.any(String) });
+  });
+
+  it('logs one error summary and rethrows a gate failure unchanged', async () => {
+    const logger = testLogger();
+    const failure = new Error('SECRET FAILURE');
+    failure.name = 'SECRET NAME';
+    logger.warn = jest.fn(() => { throw failure; });
+    const run = harness({ logger, seams: { now: () => 200 } });
+    const failingSource = {
+      ...run.source,
+      rows: jest.fn(async () => { throw new Error('source unavailable'); }),
+    };
+
+    await expect(run.service.decide(implement(), failingSource)).rejects.toBe(failure);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('[lane-routing] route decided', {
+      stage: 'gate-0.1', outcome: 'error', name: 'other', durationMs: 0,
+    });
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toMatch(/SECRET/);
+  });
+
   it('keeps a ready row when a live notFound is re-checked', async () => {
     const { service, source, config } = probeHarness(READY_ROUTES);
     const mark = jest.spyOn(config, 'markUnsupported');

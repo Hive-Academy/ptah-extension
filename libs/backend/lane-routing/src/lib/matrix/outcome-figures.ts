@@ -1,19 +1,45 @@
-import type { LaneOutcomeSummary } from '@ptah-extension/shared';
+import {
+  SUBAGENT_LANE_ID,
+  type LaneOutcomeSummary,
+  type OutcomeTaskKind,
+} from '@ptah-extension/shared';
 import type { DecisionOutcomeFigures } from '../decision-model/decision-payload';
-import { isCapacityFailure } from './local-derivation';
+import { dedupeByRun, isCapacityFailure } from './local-derivation';
 
-export function outcomeFigures(summaries: readonly LaneOutcomeSummary[]): readonly DecisionOutcomeFigures[] {
-  const figures = new Map<string, { laneId: string; taskKind: string; delivered: number; failed: number }>();
-  for (const row of summaries) {
-    if (row.taskKind === null) continue;
-    const key = JSON.stringify([row.laneId, row.taskKind]);
-    let figure = figures.get(key);
-    if (figure === undefined) {
-      figure = { laneId: row.laneId, taskKind: row.taskKind, delivered: 0, failed: 0 };
-      figures.set(key, figure);
+export type OutcomeFigureLookup = (
+  laneId: string,
+  taskKind: OutcomeTaskKind,
+) => DecisionOutcomeFigures | null;
+
+export const EMPTY_OUTCOME_FIGURES: OutcomeFigureLookup = () => null;
+
+/** Aggregate verified delivery results by lane and task kind. */
+export function outcomeFiguresFrom(
+  summaries: readonly LaneOutcomeSummary[],
+): OutcomeFigureLookup {
+  const figures = new Map<string, DecisionOutcomeFigures>();
+  for (const summary of dedupeByRun(summaries)) {
+    const { laneId, taskKind, verdict } = summary;
+    if (
+      laneId === SUBAGENT_LANE_ID ||
+      !/\S/.test(laneId) ||
+      taskKind === null
+    ) {
+      continue;
     }
-    if (row.verdict === 'delivered') figure.delivered += 1;
-    if (row.verdict === 'failed' && !isCapacityFailure(row.failureClass)) figure.failed += 1;
+    if (verdict === 'unverified' || (verdict === 'failed' && isCapacityFailure(summary.failureClass))) continue;
+
+    const key = JSON.stringify([laneId, taskKind]);
+    const previous = figures.get(key);
+    figures.set(key, {
+      laneId,
+      taskKind,
+      delivered: (previous?.delivered ?? 0) + (verdict === 'delivered' ? 1 : 0),
+      failed:
+        (previous?.failed ?? 0) +
+        (verdict === 'failed' || verdict === 'no-deliverable' ? 1 : 0),
+    });
   }
-  return [...figures.values()].filter((figure) => figure.delivered > 0 || figure.failed > 0);
+  return (laneId, taskKind) =>
+    figures.get(JSON.stringify([laneId, taskKind])) ?? null;
 }

@@ -32,7 +32,7 @@ import { score, type CandidateScore } from '../ranking/score';
 import { spread, type SpreadResult } from '../ranking/spread';
 import type { FallbackCause } from '../reasons/compile-reasons';
 
-const LANE_INSTRUCTIONS = 'Choose the executor for this phase.';
+const LANE_INSTRUCTIONS = 'Choose the executor for this phase. Each score already includes past outcomes; pastOutcomes lists the delivered and failed run counts behind it. No entry means no verified runs were available for that executor in the outcome window.';
 
 /** Built-in subagent role for a phase kind (part A, Assumption A4). */
 const DEFAULT_ROLE: Readonly<Record<PhaseKind, string>> = {
@@ -213,6 +213,7 @@ export function laneQuestion(plan: PhasePlan): LaneQuestion {
   const top = Math.max(...plan.ranked.map((row) => row.scored.score));
   return {
     phaseId: plan.phaseId,
+    taskKind: plan.taskKind,
     instructions: LANE_INSTRUCTIONS,
     options: plan.ranked
       .filter((row) => insideClosenessBand(top, row.scored.score))

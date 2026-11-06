@@ -6,6 +6,7 @@
  * sent. There are no retries. A live 404/405 is reported as `notFound` for
  * the caller to re-check; this module never persists a mark.
  */
+import { SUBAGENT_LANE_ID, type OutcomeTaskKind } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
   MIN_OPTIONS_PER_PHASE,
@@ -20,6 +21,7 @@ import {
   type DecisionOutcomeFigures,
   type DecisionPayload,
 } from '../decision-model/decision-payload';
+import type { OutcomeFigureLookup } from '../matrix/outcome-figures';
 import type { SystemOneTarget } from '../decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from '../decision-model/structured-decision.port';
 import {
@@ -46,6 +48,7 @@ export interface SystemOneCaller {
 
 export interface LaneQuestion {
   readonly phaseId: string;
+  readonly taskKind: OutcomeTaskKind;
   readonly instructions: string;
   /** Ranked options, rotation pick first. The fit slices this list. */
   readonly options: readonly DecisionOption[];
@@ -70,6 +73,7 @@ export interface ModelRequestOutcome {
   readonly offered: ReadonlyMap<string, readonly DecisionOption[]>;
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
+  readonly outcomeFigures: number;
 }
 
 export type ModelDispatch =
@@ -111,10 +115,10 @@ export function openSystemOne(
 }
 
 export async function runLaneRequest(input: {
-  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly provider: DecisionOptionProvider;
   readonly request: string;
   readonly phases: readonly LaneQuestion[];
+  readonly outcomes: OutcomeFigureLookup;
   readonly maxRequestBytes: number;
   readonly dispatch: ModelDispatch;
   readonly logger: LaneRoutingLogger;
@@ -125,14 +129,15 @@ export async function runLaneRequest(input: {
   }
   const asked = askedFromLane(input.phases, fitted.offered);
   if (input.dispatch.kind === 'system-one') {
-    return callSystemOne(
+    const outcome = await callSystemOne(
       input.dispatch.caller,
       fitted.payload,
       fitted.offered,
       asked,
     );
+    return { ...outcome, outcomeFigures: fitted.figureCount };
   }
-  return callStructured(
+  const outcome = await callStructured(
     input.dispatch,
     fitted.prompt,
     fitted.schema,
@@ -140,10 +145,10 @@ export async function runLaneRequest(input: {
     asked,
     input.logger,
   );
+  return { ...outcome, outcomeFigures: fitted.figureCount };
 }
 
 export async function runFixedRequest(input: {
-  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly request: string;
   readonly questions: readonly FixedQuestion[];
   readonly maxRequestBytes: number;
@@ -158,7 +163,8 @@ export async function runFixedRequest(input: {
       instructions: question.instructions,
       criteria: question.criteria,
     })),
-    outcomeFigures: input.outcomeFigures ?? [],
+    // Pre-flight, task-kind and scope questions choose no lane.
+    outcomeFigures: [],
   });
   const prompt = renderPrompt(input.request, input.questions);
   const schema = fixedSchema(input.questions);
@@ -208,13 +214,14 @@ interface FittedLane {
   readonly prompt: string;
   readonly schema: Record<string, unknown>;
   readonly offered: ReadonlyMap<string, readonly DecisionOption[]>;
+  readonly figureCount: number;
 }
 
 function fitLane(input: {
-  readonly outcomeFigures?: readonly DecisionOutcomeFigures[];
   readonly provider: DecisionOptionProvider;
   readonly request: string;
   readonly phases: readonly LaneQuestion[];
+  readonly outcomes: OutcomeFigureLookup;
   readonly maxRequestBytes: number;
   readonly dispatch: ModelDispatch;
 }): FittedLane | null {
@@ -224,6 +231,7 @@ function fitLane(input: {
   );
   for (let width = cap; width >= MIN_OPTIONS_PER_PHASE; width -= 1) {
     const offered = sliceOptions(input.phases, width);
+    const figures = offeredFigures(input.phases, offered, input.outcomes);
     const payload = buildDecisionPayload({
       request: input.request,
       questions: input.phases.map((phase) => ({
@@ -232,20 +240,40 @@ function fitLane(input: {
         instructions: phase.instructions,
         options: offered.get(phase.phaseId) ?? [],
       })),
-      outcomeFigures: input.outcomeFigures ?? [],
+      outcomeFigures: figures,
     });
     const questions = laneQuestions(input.phases, offered);
-    const prompt = renderLanePrompt(input.request, questions);
+    const prompt = renderLanePrompt(input.request, questions, figures);
     const schema = choiceSchema(questions);
     const bytes =
       input.dispatch.kind === 'system-one'
         ? bodyBytes(input.dispatch.model, payload)
         : textBytes(JSON.stringify({ prompt, jsonSchema: schema }));
     if (bytes <= input.maxRequestBytes) {
-      return { payload, prompt, schema, offered };
+      return { payload, prompt, schema, offered, figureCount: figures.length };
     }
   }
   return null;
+}
+
+function offeredFigures(
+  phases: readonly LaneQuestion[],
+  offered: ReadonlyMap<string, readonly DecisionOption[]>,
+  outcomes: OutcomeFigureLookup,
+): DecisionOutcomeFigures[] {
+  const figures: DecisionOutcomeFigures[] = [];
+  const seen = new Set<string>();
+  for (const phase of phases) {
+    for (const option of offered.get(phase.phaseId) ?? []) {
+      if (option.laneId === SUBAGENT_LANE_ID) continue;
+      const key = JSON.stringify([option.laneId, phase.taskKind]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const figure = outcomes(option.laneId, phase.taskKind);
+      if (figure !== null) figures.push(figure);
+    }
+  }
+  return figures;
 }
 
 function sliceOptions(
@@ -295,6 +323,7 @@ function renderLanePrompt(
     readonly instructions: string;
     readonly options: readonly DecisionOption[];
   }[],
+  figures: readonly DecisionOutcomeFigures[],
 ): string {
   const lines = [request];
   for (const question of questions) {
@@ -302,6 +331,11 @@ function renderLanePrompt(
     question.options.forEach((option, index) => {
       lines.push(`o${index + 1}: ${formatDecisionOptionLabel(option)}`);
     });
+  }
+  for (const figure of figures) {
+    lines.push(
+      `past outcomes ${figure.laneId}/${figure.taskKind}: delivered ${figure.delivered}, failed ${figure.failed}`,
+    );
   }
   return lines.join('\n');
 }

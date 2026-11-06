@@ -1,20 +1,106 @@
-import type { LaneOutcomeSummary } from '@ptah-extension/shared';
-import { outcomeFigures } from './outcome-figures';
+import {
+  SUBAGENT_LANE_ID,
+  type LaneOutcomeSummary,
+} from '@ptah-extension/shared';
+import { EMPTY_OUTCOME_FIGURES, outcomeFiguresFrom } from './outcome-figures';
 
-function row(runId: string, verdict: LaneOutcomeSummary['verdict'], failureClass: LaneOutcomeSummary['failureClass'] = null): LaneOutcomeSummary {
+function summary(
+  runId: string,
+  verdict: LaneOutcomeSummary['verdict'],
+  overrides: Partial<LaneOutcomeSummary> = {},
+): LaneOutcomeSummary {
   return {
-    runId, laneId: 'codex', family: 'codex', model: 'auto', taskKind: 'implement',
-    verdict, failureClass, finalReview: null, reviseRounds: 0, durationMs: null,
-    endedAt: Date.now(), routingSource: 'ranking', inputTokens: null, outputTokens: null, costUsd: null,
+    runId,
+    laneId: 'codex',
+    family: 'openai',
+    model: 'gpt-5',
+    taskKind: 'implement',
+    verdict,
+    failureClass: null,
+    finalReview: null,
+    reviseRounds: 0,
+    durationMs: null,
+    endedAt: 1000,
+    routingSource: 'ranking',
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
+    ...overrides,
   };
 }
 
-it('aggregates delivery and quality failures without capacity failures', () => {
-  expect(outcomeFigures([
-    row('delivered', 'delivered'),
-    row('crash', 'failed', 'crash'),
-    row('quota', 'failed', 'usage-limit'),
-    row('auth', 'failed', 'auth'),
-    row('timeout', 'failed', 'timeout'),
-  ])).toEqual([{ laneId: 'codex', taskKind: 'implement', delivered: 1, failed: 1 }]);
+describe('outcomeFiguresFrom', () => {
+  it('dedupes runs using the newest summary before counting', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('same', 'failed', { endedAt: 1000 }),
+      summary('same', 'delivered', { endedAt: 2000 }),
+      summary('other', 'no-deliverable'),
+    ]);
+    expect(lookup('codex', 'implement')).toEqual({
+      laneId: 'codex', taskKind: 'implement', delivered: 1, failed: 1,
+    });
+  });
+
+  it('skips subagents, blank lanes and null task kinds', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('subagent', 'delivered', { laneId: SUBAGENT_LANE_ID }),
+      summary('blank', 'failed', { laneId: '  ' }),
+      summary('null', 'delivered', { taskKind: null }),
+    ]);
+    expect(lookup(SUBAGENT_LANE_ID, 'implement')).toBeNull();
+    expect(lookup('  ', 'implement')).toBeNull();
+    expect(lookup('codex', 'implement')).toBeNull();
+  });
+
+  it('counts failed and no-deliverable, and ignores unverified', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('failed', 'failed'),
+      summary('missing', 'no-deliverable'),
+      summary('unverified', 'unverified'),
+    ]);
+    expect(lookup('codex', 'implement')).toEqual({
+      laneId: 'codex', taskKind: 'implement', delivered: 0, failed: 2,
+    });
+    expect(outcomeFiguresFrom([summary('only', 'unverified')])('codex', 'implement')).toBeNull();
+  });
+
+  it('excludes capacity failures from model quality figures', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('delivered', 'delivered'),
+      summary('quota', 'failed', { failureClass: 'usage-limit' }),
+      summary('auth', 'failed', { failureClass: 'auth' }),
+      summary('timeout', 'failed', { failureClass: 'timeout' }),
+      summary('crash', 'failed', { failureClass: 'crash' }),
+    ]);
+    expect(lookup('codex', 'implement')).toEqual({
+      laneId: 'codex', taskKind: 'implement', delivered: 1, failed: 1,
+    });
+  });
+
+  it('keeps lane and task-kind pairs separate', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('a', 'delivered'),
+      summary('b', 'failed', { laneId: 'glm' }),
+      summary('c', 'delivered', { taskKind: 'review' }),
+    ]);
+    expect(lookup('codex', 'implement')?.delivered).toBe(1);
+    expect(lookup('glm', 'implement')?.failed).toBe(1);
+    expect(lookup('codex', 'review')?.delivered).toBe(1);
+    expect(lookup('glm', 'review')).toBeNull();
+  });
+
+  it('returns null for empty figures', () => {
+    expect(outcomeFiguresFrom([])('codex', 'implement')).toBeNull();
+    expect(EMPTY_OUTCOME_FIGURES('codex', 'implement')).toBeNull();
+  });
+
+  it('exposes only the lane, task kind and two counts', () => {
+    const lookup = outcomeFiguresFrom([
+      summary('private-run', 'delivered', { family: 'private-family' }),
+    ]);
+    expect(Object.keys(lookup('codex', 'implement') ?? {}).sort()).toEqual([
+      'delivered', 'failed', 'laneId', 'taskKind',
+    ]);
+    expect(JSON.stringify(lookup('codex', 'implement'))).not.toContain('private');
+  });
 });
