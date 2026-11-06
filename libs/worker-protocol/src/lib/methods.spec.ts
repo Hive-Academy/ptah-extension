@@ -50,6 +50,9 @@ describe('method groups', () => {
         'admin.pairing.open',
         'admin.grants.list',
         'admin.grants.add',
+        'admin.grants.revoke',
+        'admin.workspace.add',
+        'admin.workspace.remove',
         'admin.status',
       ].sort(),
     );
@@ -118,8 +121,10 @@ describe('parseMethodParams', () => {
 
   it('accepts either auth form but not both or neither', () => {
     expect(parseMethodParams('auth', { token: 'ptw1.abc.def' }).ok).toBe(true);
-    expect(parseMethodParams('auth', { admin: 'key' }).ok).toBe(true);
-    expect(parseMethodParams('auth', { token: 't', admin: 'k' }).ok).toBe(
+    expect(parseMethodParams('auth', { adminProof: 'hmac' }).ok).toBe(true);
+    // The raw-key form is gone: the key never goes on the wire.
+    expect(parseMethodParams('auth', { admin: 'key' }).ok).toBe(false);
+    expect(parseMethodParams('auth', { token: 't', adminProof: 'k' }).ok).toBe(
       false,
     );
     expect(parseMethodParams('auth', {}).ok).toBe(false);
@@ -176,6 +181,47 @@ describe('parseMethodParams', () => {
       parseMethodParams('admin.grants.add', { tokenId: 't-1', workspaces: [] })
         .ok,
     ).toBe(false);
+  });
+
+  it('carries an optional admin challenge in the hello result', () => {
+    const worker = { machineId: 'm', displayName: 'd', ptahVersion: '1' };
+    expect(parseResult('hello', { protocol: 1, worker }).ok).toBe(true);
+    expect(
+      parseResult('hello', {
+        protocol: 1,
+        worker,
+        adminChallenge: 'c'.repeat(43),
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseResult('hello', { protocol: 1, worker, adminChallenge: 'short' }).ok,
+    ).toBe(false);
+  });
+
+  it('validates the Batch 21 admin revoke and workspace methods', () => {
+    expect(
+      parseMethodParams('admin.grants.revoke', { tokenId: 't-1' }).ok,
+    ).toBe(true);
+    expect(parseMethodParams('admin.grants.revoke', {}).ok).toBe(false);
+    expect(
+      parseMethodParams('admin.grants.revoke', { tokenId: 't-1', extra: 1 }).ok,
+    ).toBe(false);
+    expect(parseMethodParams('admin.workspace.add', { path: '/w' }).ok).toBe(
+      true,
+    );
+    expect(parseMethodParams('admin.workspace.add', { path: '' }).ok).toBe(
+      false,
+    );
+    expect(
+      parseMethodParams('admin.workspace.remove', { workspace: 'ws_1' }).ok,
+    ).toBe(true);
+    expect(
+      parseResult('admin.grants.revoke', {
+        tokenId: 't-1',
+        revokedAt: 1,
+        connectionsClosed: 2,
+      }).ok,
+    ).toBe(true);
   });
 
   it('accepts session.attach with and without a replay point', () => {

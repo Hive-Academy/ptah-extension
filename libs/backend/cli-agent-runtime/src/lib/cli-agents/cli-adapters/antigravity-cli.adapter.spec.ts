@@ -1365,11 +1365,7 @@ describe('AntigravityCliAdapter', () => {
         task: 'X',
         workingDirectory: '/proj',
       });
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.continuation.state).toBe('supported');
       currentChild?.emitClose(0);
       await handle.done;
     });
@@ -1391,7 +1387,7 @@ describe('AntigravityCliAdapter', () => {
         ),
       ]);
       expect(handle.continue).toBeUndefined();
-      expect(legacy.capabilities().continuation).toBe(false);
+      expect(legacy.capabilities().messaging.continuation.state).toBe('unsupported');
       expect(currentChild?.child.stdin.end).toHaveBeenCalledTimes(1);
 
       currentChild?.emitClose(0);

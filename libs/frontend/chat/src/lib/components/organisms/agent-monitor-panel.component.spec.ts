@@ -547,6 +547,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             sessionSubagentsForSession: sessionSubagentsForSessionMock,
             activeTabAgents: activeTabAgentsSig,
             agents: activeTabAgentsSig,
+            receipts: signal(new Map()),
             agentsById: signal(new Map()),
             pendingPermissions: signal([]),
             panelOpen: signal(true),

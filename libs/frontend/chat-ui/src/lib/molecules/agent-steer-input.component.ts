@@ -55,6 +55,7 @@ import {
           (keydown.enter)="onEnter($event)"
         ></textarea>
         <div [class]="toolbarClass">
+          <ng-content select="[composerActions]" />
           <button
             type="button"
             [class]="sendButtonClass"

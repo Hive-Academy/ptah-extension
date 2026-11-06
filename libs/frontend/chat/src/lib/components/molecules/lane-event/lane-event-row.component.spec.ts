@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 import { LaneEventRowComponent } from './lane-event-row.component';
 import { provideMarkdown } from 'ngx-markdown';
@@ -21,6 +22,7 @@ describe('LaneEventRowComponent', () => {
   beforeEach(() => {
     openLane.mockClear();
     TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [
+      { provide: AgentMonitorStore, useValue: { parentDelivery: signal(new Map()), parentDeliveryState: () => ({ report: 'Sent to parent', completion: 'Waiting for parent' }) } },
       provideMarkdown(),
       { provide: SURFACE_ACTIVE, useValue: signal(false) },
       { provide: SESSION_CARD_ACTIONS, useValue: { openLane } },

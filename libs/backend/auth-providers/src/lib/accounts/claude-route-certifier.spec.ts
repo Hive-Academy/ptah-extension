@@ -243,16 +243,13 @@ describe('ClaudeRouteCertifier.certify', () => {
     await expect(h.certifier.certify(certifyRequest(route))).resolves.toEqual({ ok: false, code: 'route-changed', terminated: true });
   });
 
-  it.each(['darwin', 'linux'] as const)('refuses %s before any probe or fs call', async (platform) => {
+  it.each(['darwin', 'linux'] as const)('certifies a personal account on %s with no registry query', async (platform) => {
     const h = harness(platform);
-    await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toEqual({
-      ok: false, code: 'unsupported-source', terminated: true,
-    });
-    expect(h.probe.certifyExecutable).not.toHaveBeenCalled();
-    expect(h.probe.status).not.toHaveBeenCalled();
-    expect(h.probe.logout).not.toHaveBeenCalled();
+    const result = await h.certifier.certify(certifyRequest(newRoute()));
+    expect(result).toMatchObject({ ok: true, launch: { policy: { coverage: `${platform}@2.1.310`, registry: 'not-applicable' } } });
+    expect(h.probe.certifyExecutable).toHaveBeenCalledTimes(1);
+    expect(h.probe.status).toHaveBeenCalledTimes(1);
     expect(h.probe.queryRegistry).not.toHaveBeenCalled();
-    expect(h.events).toEqual([]);
   });
 
   it.each(['2.1.309', '2.2.0'])('refuses the uncovered win32 version %s after the scan, without a status child', async (version) => {
@@ -490,12 +487,13 @@ describe('ClaudeRouteCertifier.authContext and checkCoverage', () => {
     expect(h.probe.certifyExecutable).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses on linux with no call', async () => {
+  it('prepares a linux context with no registry query', async () => {
     const h = harness('linux');
-    await expect(h.certifier.authContext({ route: newRoute(), signal: signal() })).resolves.toEqual({
-      ok: false, code: 'unsupported-source', terminated: true,
-    });
-    expect(h.events).toEqual([]);
+    const result = await h.certifier.authContext({ route: newRoute(), signal: signal() });
+    expect(result).toMatchObject({ ok: true, context: { policy: { coverage: 'linux@2.1.310', registry: 'not-applicable' } } });
+    expect(h.probe.queryRegistry).not.toHaveBeenCalled();
+    if (!result.ok) return;
+    await expect(h.certifier.checkCoverage(result.context, signal())).resolves.toEqual({ ok: true });
   });
 });
 

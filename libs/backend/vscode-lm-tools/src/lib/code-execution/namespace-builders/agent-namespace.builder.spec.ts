@@ -17,6 +17,9 @@
 // reflect-metadata polyfill. The builder needs only PTAH_CLI_ROLE_DELIVERY at
 // runtime, overridden with non-default values so a hand-typed literal fails.
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  AgentMessageError: class extends Error {
+    constructor(readonly code: string, message: string) { super(message); }
+  },
   MAX_AGENT_WAIT_MS: 900_000,
   PTAH_CLI_ROLE_DELIVERY: {
     roleDelivery: 'native',
@@ -180,6 +183,12 @@ describe('buildAgentNamespace — shape', () => {
     expect(typeof ns.listRoles).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
     expect(typeof ns.waitForAgents).toBe('function');
+  });
+  it('returns a coded not-found error for invalid message agent ids', async () => {
+    const { deps } = makeDeps();
+    const ns = buildAgentNamespace(deps);
+    await expect(ns.message('invalid', 'hello')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(ns.messageStatus('invalid', 'receipt')).rejects.toMatchObject({ code: 'not_found' });
   });
 });
 
@@ -419,6 +428,20 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — spawn (ptahCliId)', () => {
+  it('forwards permission and network to the provider before SDK spawn', async () => {
+    const { deps, mocks } = makeDeps();
+    const handle: SdkHandle = { abort: new AbortController(), done: Promise.resolve(0), onOutput: jest.fn() };
+    mocks.registry?.spawnAgent.mockResolvedValue({
+      handle,
+      agentName: 'MyAgent', setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({ agentId: 'spawned-1' } as SpawnAgentResult);
+    await buildAgentNamespace(deps).spawn({ task: 'work', ptahCliId: 'agent-a',
+      permission: 'plan', network: 'allow' });
+    expect(mocks.registry?.spawnAgent).toHaveBeenCalledWith('agent-a', expect.any(String),
+      expect.objectContaining({ permission: 'plan', network: 'allow' }));
+  });
+
   it('forwards taskKind and routingSource to the SDK handle spawn', async () => {
     const { deps, mocks } = makeDeps();
     mocks.registry?.spawnAgent.mockResolvedValue({
@@ -1011,16 +1034,28 @@ describe('buildAgentNamespace — thin delegates', () => {
       mode: 'interrupt-resume',
       detail: 'turn aborted',
     });
-    const outcome = await buildAgentNamespace(deps).message('x', 'go left');
+    const outcome = await buildAgentNamespace(deps).message('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left');
     expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
-      'x',
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       'go left',
+      undefined,
+      undefined,
       undefined,
     );
     expect(outcome).toEqual({
       mode: 'interrupt-resume',
       detail: 'turn aborted',
     });
+  });
+
+  it('message() forwards partial-turn-loss consent on the fallback path', async () => {
+    const { deps, mocks } = makeDeps();
+    await buildAgentNamespace(deps).message(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left', 'now', true,
+    );
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'go left', 'now', undefined, true,
+    );
   });
 
   it('report() forwards to the wired deliverAgentReport', async () => {

@@ -9,10 +9,13 @@ import type {
   AgentMessagingCapability,
   AgentRoleChannel,
   AgentRoleDefinition,
+  CliAdapterManifest,
   CliType,
   CliDetectionResult,
   CliOutputSegment,
   FlatStreamEventUnion,
+  LaneNetworkMode,
+  LanePermissionMode,
   ProviderAccountBinding,
 } from '@ptah-extension/shared';
 
@@ -124,6 +127,10 @@ export interface CliCommandOptions extends LaneAccountBindingFields {
   readonly reasoningEffort?: string;
   /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */
   readonly autoApprove?: boolean;
+  /** Explicit per-spawn permission policy. Omitted preserves existing defaults. */
+  readonly permission?: LanePermissionMode;
+  /** Explicit per-spawn network policy. Omitted preserves existing defaults. */
+  readonly network?: LaneNetworkMode;
   /**
    * The Ptah agent id this run belongs to (TASK_2026_402). Adapters that build
    * an MCP URL forward it to `ptahMcpServerUrl`, which encodes it as the
@@ -228,6 +235,8 @@ export interface SdkHandle extends LaneAccountBindingFields {
  * Declared once per adapter and read by the message router and by agent
  * listings, so a mode is never inferred from a CLI name.
  */
+export type { CliAdapterManifest } from '@ptah-extension/shared';
+
 export interface AgentMessagingCapabilities {
   /** Inject mid-turn into a run already in flight (a live input channel). */
   readonly steer: boolean;
@@ -243,18 +252,32 @@ export interface AgentMessagingCapabilities {
  * so a detection row and the router can never disagree about what a CLI offers.
  */
 export function bestMessagingCapability(
-  capabilities: AgentMessagingCapabilities,
+  capabilities: CliAdapterManifest | AgentMessagingCapabilities,
 ): AgentMessagingCapability {
-  if (capabilities.steer) {
+  const messaging = 'messaging' in capabilities
+    ? legacyMessagingCapabilities(capabilities)
+    : capabilities;
+  if (messaging.steer) {
     return 'steer';
   }
-  if (capabilities.interrupt) {
+  if (messaging.interrupt) {
     return 'interrupt';
   }
-  if (capabilities.continuation) {
+  if (messaging.continuation) {
     return 'queue';
   }
   return 'none';
+}
+
+/** Derive the legacy router view without making it a second declaration point. */
+export function legacyMessagingCapabilities(
+  manifest: CliAdapterManifest,
+): AgentMessagingCapabilities {
+  return {
+    steer: manifest.messaging.steer.state === 'supported',
+    interrupt: manifest.messaging.interrupt.state === 'supported',
+    continuation: manifest.messaging.continuation.state === 'supported',
+  };
 }
 
 export interface ContinuationOutcome {
@@ -280,7 +303,7 @@ export interface CliAdapter {
    * agent. Required — an adapter that does not answer it is a compile error, so
    * a new adapter cannot silently inherit "no messaging at all".
    */
-  capabilities(): AgentMessagingCapabilities;
+  capabilities(): CliAdapterManifest;
 
   /**
    * Where this CLI receives a resolved workspace role. Required — an adapter

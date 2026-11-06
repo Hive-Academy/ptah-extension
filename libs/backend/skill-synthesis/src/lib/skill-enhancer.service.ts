@@ -47,7 +47,11 @@ import {
   SkillRegistryStore,
   type SkillRegistryKind,
 } from './skill-registry.store';
-import { SkillJudgeService, type JudgeGateSettings } from './skill-judge.service';
+import {
+  MANUAL_PREVIEW_JUDGE_SETTINGS,
+  SkillJudgeService,
+  type JudgeGateSettings,
+} from './skill-judge.service';
 import { PROVIDER_AUTH_RESOLVER_TOKEN } from './di/tokens';
 import type { ILaneAuthResolver } from './lanes/lane-auth-resolver.port';
 import type { LaneAuthOverride } from './lanes/lane.types';
@@ -75,9 +79,9 @@ const PROVIDER_UNREACHABLE = Symbol('provider-unreachable');
  * stays bounded.
  */
 const MAX_SCORECARD_CHARS = 1200;
-/** Historical cooldown duration exposed to Library status. */
+/** Cooldown after a successful enhance. Enforced on manual preview and apply. */
 export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-/** Historical invocation threshold exposed to Library status. */
+/** Invocation floor. Enforced on manual preview and apply. */
 export const MIN_INVOCATIONS_TO_ENHANCE = 5;
 
 /**
@@ -97,6 +101,7 @@ export interface EnhanceOptions extends QueryOrigin {
 }
 
 export type EnhanceSkipReason =
+  | 'usage-stats-unavailable'
   | 'paused'
   | 'missing-clone'
   | 'cooldown'
@@ -175,6 +180,8 @@ export interface ApplyProposalResult {
   judgeScore: number | null;
   judgeReason: string | null;
   historyTs: string | null;
+  /** Set when the write was refused. The cached proposal is left in place. */
+  skipReason?: EnhanceSkipReason;
 }
 
 /** Why a `proposalId` could not be redeemed. */
@@ -206,6 +213,13 @@ function safeGenerationError(error: unknown): {
  * surface this rather than silently regenerating — re-running the LLM would
  * apply a body the user never previewed.
  */
+/** A cached proposal may be written only when its stored score cleared the manual bar. */
+function proposalClearsJudge(score: number | null): boolean {
+  return (
+    score !== null && score >= MANUAL_PREVIEW_JUDGE_SETTINGS.minJudgeScore
+  );
+}
+
 export class ProposalNotFoundError extends Error {
   constructor(
     readonly code: ProposalRejectionCode,
@@ -325,6 +339,13 @@ export class SkillEnhancerService {
         return { ...base, skipReason: 'missing-clone' };
       }
 
+      if (options.manual) {
+        const gate = this.manualEnhanceGate(kind, slug);
+        if (gate !== null) {
+          return { ...base, currentBody, skipReason: gate };
+        }
+      }
+
       const cwd = this.resolveCwd();
       // Measured-usage signal for agent clones only; null (byte-identical
       // fallback) for skills/commands or when no graded/metric data exists.
@@ -397,26 +418,16 @@ export class SkillEnhancerService {
       /**
        * The judge reports; the threshold is applied HERE.
        *
-       * `scored` is the only status carrying a number, so it is the only one
-       * that can clear the bar. The other two are split by who asked:
-       *
-       *  - AUTOMATIC enhancement demands a genuine verdict. `unscored` (the
-       *    judge could not tell us) and `disabled` (no gate configured) both
-       *    stop it, which is the behaviour the pre-lane code got by testing
-       *    `reason === 'judge-verdict'` — except that it used to arrive here
-       *    with a fabricated `score: 10` attached.
-       *  - A MANUAL request is the user asking for this specific change, so
-       *    only an explicit low score refuses them.
+       * `scored` is the only status that can clear the bar. `unscored` and
+       * `disabled` are `judge-rejected` for a manual preview as well: a
+       * direct RPC does not skip the verdict.
        */
       const scoredPass =
         decision.status === 'scored' &&
         decision.score !== null &&
         decision.score >= settings.minJudgeScore;
-      const passedForWrite = options.manual
-        ? decision.status !== 'scored' || scoredPass
-        : scoredPass;
 
-      if (!passedForWrite) {
+      if (!scoredPass) {
         this.logger.info('[skill-enhancer] candidate not written', {
           slug,
           kind,
@@ -492,7 +503,15 @@ export class SkillEnhancerService {
     proposalId: string,
     origin: QueryOrigin = {},
   ): Promise<ApplyProposalResult> {
-    const proposal = this.takeProposal(kind, slug, proposalId);
+    const proposal = this.requireProposal(kind, slug, proposalId);
+    const gate = this.manualEnhanceGate(kind, slug);
+    if (gate !== null) {
+      return this.refusedApply(proposal, gate);
+    }
+    if (!proposalClearsJudge(proposal.judgeScore)) {
+      return this.refusedApply(proposal, 'judge-rejected');
+    }
+    this.takeProposal(kind, slug, proposalId);
 
     const written: WriteEnhancedResult =
       proposal.kind === 'skill'
@@ -573,6 +592,14 @@ export class SkillEnhancerService {
           userInitiated: options.userInitiated,
         },
       );
+      if (!applied.applied) {
+        return {
+          ...base,
+          judgeScore: applied.judgeScore,
+          judgeReason: applied.judgeReason,
+          skipReason: applied.skipReason ?? 'error',
+        };
+      }
 
       return {
         changed: true,
@@ -615,11 +642,85 @@ export class SkillEnhancerService {
   }
 
   /**
-   * Resolve and consume a proposal, asserting it belongs to `(kind, slug)`.
-   * Removal happens before the write so a failed apply cannot be retried
-   * against a clone whose on-disk state is now unknown.
+   * The 5-use floor and the 24-hour cooldown. A thrown stats or registry
+   * read fails closed (`error`) and does not generate or write.
+   * `null` means the gate is open.
    */
-  private takeProposal(
+  private manualEnhanceGate(
+    kind: SkillRegistryKind,
+    slug: string,
+  ): EnhanceSkipReason | null {
+    let lastEnhancedAt: number | null;
+    try {
+      const row = this.registry.getBySlug(kind, slug);
+      lastEnhancedAt = row?.lastEnhancedAt ?? null;
+    } catch (error: unknown) {
+      // degradation-audit: reported - a registry failure refuses the enhance instead of guessing the cooldown
+      this.logger.warn('[skill-enhancer] enhance gate could not read the registry', {
+        slug,
+        kind,
+        ...safeGenerationError(error),
+      });
+      return 'error';
+    }
+
+    if (!this.scorecard) {
+      this.logger.warn('[skill-enhancer] enhance gate has no invocation stats', {
+        slug,
+        kind,
+      });
+      return 'usage-stats-unavailable';
+    }
+
+    let invocationCount: number;
+    try {
+      invocationCount = this.scorecard.getInvocationStats(
+        kind,
+        slug,
+        this.resolveAgentScope() ?? null,
+      ).invocationCount;
+    } catch (error: unknown) {
+      // degradation-audit: reported - a stats failure refuses the enhance instead of treating the clone as eligible
+      this.logger.warn('[skill-enhancer] enhance gate invocation stats failed', {
+        slug,
+        kind,
+        ...safeGenerationError(error),
+      });
+      return 'error';
+    }
+
+    if (
+      typeof invocationCount !== 'number' ||
+      invocationCount < MIN_INVOCATIONS_TO_ENHANCE
+    ) {
+      return 'below-threshold';
+    }
+    if (
+      typeof lastEnhancedAt === 'number' &&
+      lastEnhancedAt + ENHANCE_COOLDOWN_MS > Date.now()
+    ) {
+      return 'cooldown';
+    }
+    return null;
+  }
+
+  private refusedApply(
+    proposal: EnhancementProposal,
+    skipReason: EnhanceSkipReason,
+  ): ApplyProposalResult {
+    return {
+      applied: false,
+      slug: proposal.slug,
+      kind: proposal.kind,
+      judgeScore: proposal.judgeScore,
+      judgeReason: proposal.judgeReason,
+      historyTs: null,
+      skipReason,
+    };
+  }
+
+  /** Resolve a live proposal without consuming it. */
+  private requireProposal(
     kind: SkillRegistryKind,
     slug: string,
     proposalId: string,
@@ -632,6 +733,15 @@ export class SkillEnhancerService {
     if (proposal.kind !== kind || proposal.slug !== slug) {
       throw new ProposalNotFoundError('mismatch', proposalId);
     }
+    return proposal;
+  }
+
+  private takeProposal(
+    kind: SkillRegistryKind,
+    slug: string,
+    proposalId: string,
+  ): EnhancementProposal {
+    const proposal = this.requireProposal(kind, slug, proposalId);
     this.proposals.delete(proposalId);
     return proposal;
   }

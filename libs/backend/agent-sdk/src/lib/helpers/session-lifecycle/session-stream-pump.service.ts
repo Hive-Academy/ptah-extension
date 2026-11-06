@@ -51,6 +51,7 @@ import type {
 } from './session-registry.service';
 
 export class SessionStreamPump {
+  private readonly acceptedLaneDeliveries = new Map<string, string>();
   private readonly receipts = new WeakMap<SessionRecord, Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' }>>();
   private readonly followUpListeners = new Set<
     (change: QueuedFollowUpStateChange) => void
@@ -398,6 +399,15 @@ export class SessionStreamPump {
       markActive();
     }
     const fingerprint = JSON.stringify([content, files ?? [], images ?? []]);
+    const laneDeliveryId = options?.clientMessageId?.startsWith('lane-delivery:')
+      ? options.clientMessageId : undefined;
+    if (laneDeliveryId) {
+      const accepted = this.acceptedLaneDeliveries.get(laneDeliveryId);
+      if (accepted !== undefined) {
+        if (accepted !== fingerprint) throw new SdkError('Lane delivery ID reused with different content');
+        return;
+      }
+    }
     const receipts = this.receipts.get(session) ?? new Map<string, { fingerprint: string; state: 'queued' | 'delivered' | 'withdrawn' | 'failed' }>();
     this.receipts.set(session, receipts);
     if (options?.queueIntent) {
@@ -460,6 +470,13 @@ export class SessionStreamPump {
       sessionId: followUp ? sessionId : undefined,
       recordToken: followUp ? session.token : undefined,
     });
+    if (laneDeliveryId) {
+      this.acceptedLaneDeliveries.set(laneDeliveryId, fingerprint);
+      if (this.acceptedLaneDeliveries.size > 1024) {
+        const oldest = this.acceptedLaneDeliveries.keys().next().value;
+        if (oldest !== undefined) this.acceptedLaneDeliveries.delete(oldest);
+      }
+    }
     if (followUp)
       this.emit({
         sessionId,

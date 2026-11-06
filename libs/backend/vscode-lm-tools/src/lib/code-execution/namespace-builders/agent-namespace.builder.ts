@@ -23,6 +23,7 @@ import {
 } from '../mcp-core/mcp-request-context';
 import {
   MAX_AGENT_WAIT_MS,
+  AgentMessageError,
   PTAH_CLI_ROLE_DELIVERY,
   renderLaneCompletionContract,
   type AgentProcessManager,
@@ -34,11 +35,14 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentRoleDefinition,
+  CliAdapterManifest,
+  EffectiveLanePolicy,
   CliDetectionResult,
   ProviderAccountSelection,
   SpawnAgentRequest,
 } from '@ptah-extension/shared';
 import {
+  AgentId,
   FRESHNESS_MS,
   NEAR_LIMIT_PERCENT,
   OUTCOME_ROUTING_SOURCES,
@@ -101,9 +105,12 @@ interface PtahCliRegistryLike {
       /** Reserved agent id — rides the spawn's MCP URL as `/agent/{id}`. */
       agentId?: string;
       role?: AgentRoleDefinition;
+      permission?: SpawnAgentRequest['permission'];
+      network?: SpawnAgentRequest['network'];
     },
   ): Promise<
-    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
+    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void;
+        potentialCapabilities?: CliAdapterManifest; effectivePolicy?: EffectiveLanePolicy }
     | SpawnAgentFailure
   >;
 }
@@ -112,6 +119,7 @@ interface PtahCliRegistryLike {
  * Dependencies for agent namespace
  */
 export interface AgentNamespaceDependencies {
+  getMessageCoordinator?: () => Pick<import('@ptah-extension/cli-agent-runtime').AgentMessageCoordinator, 'send' | 'getReceipt'> | undefined;
   agentProcessManager: AgentProcessManager;
   cliDetectionService: CliDetectionService;
   /** Lazy getter for workspace root path. Called at spawn time to get the current workspace root. */
@@ -395,6 +403,8 @@ export function buildAgentNamespace(
             model: request.model,
             agentId,
             role: roleDefinition,
+            permission: request.permission,
+            network: request.network,
           },
         );
         if ('status' in result) {
@@ -421,6 +431,8 @@ export function buildAgentNamespace(
             parentSessionId: activeSessionId,
             ptahCliName: result.agentName,
             ptahCliId: request.ptahCliId,
+            potentialCapabilities: result.potentialCapabilities,
+            effectivePolicy: result.effectivePolicy,
             mcpPort: registry.getMcpPort?.(),
             // A registry that cannot say its port cannot say MCP was expected.
             expectsMcp: registry.getMcpPort !== undefined,
@@ -504,13 +516,21 @@ export function buildAgentNamespace(
       return agentProcessManager.readOutput(agentId, tail, offset);
     },
 
-    message: async (agentId, message, delivery) => {
+    message: async (agentId, message, delivery, allowPartialTurnLoss) => {
+      if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
+      const coordinator = deps.getMessageCoordinator?.();
+      if (coordinator) return coordinator.send({ agentId: AgentId.from(agentId), message, delivery, allowPartialTurnLoss });
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
       // discarded. A `void` return would have made both look like a success.
-      return agentProcessManager.sendToAgent(agentId, message, delivery);
+      return agentProcessManager.sendToAgent(agentId, message, delivery, undefined, allowPartialTurnLoss);
     },
-    messageStatus: async (agentId, messageId) => agentProcessManager.getAgentMessageStatus(agentId, messageId),
+    messageStatus: async (agentId, messageId) => {
+      if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
+      const coordinator = deps.getMessageCoordinator?.();
+      return coordinator ? coordinator.getReceipt(AgentId.from(agentId), messageId)
+        : agentProcessManager.getAgentMessageStatus(agentId, messageId);
+    },
 
     report: async (input) => {
       if (!deliverAgentReport) {

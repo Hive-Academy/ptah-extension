@@ -28,9 +28,10 @@ import { test, expect } from '../support/fixtures';
  *   `parentToolUseId` plus its own `tool_start`.
  *
  * The card is the store-backed sub-agent lane (`subagent-lane.component.ts`,
- * TASK_2026_685). The summary is its header peek (`latestSummary`), and the
- * tool-count observable is its disclosure row, which renders `"1 tool"` /
- * `"<n> tools"`.
+ * TASK_2026_685). The summary shows on the transcript tile's activity line
+ * (`latestSummary`); the flat lane renders no header peek, so it streams
+ * nothing the transcript does not show. The tool-count observable is the
+ * lane's disclosure row, which renders `"1 tool"` / `"<n> tools"`.
  *
  * ## Falsifiability
  *
@@ -218,18 +219,11 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
       agentStart(sessionId, rootMessageId, taskToolCallId, agentId, t0 + 2),
     );
 
-    // The transcript shows the agent as a tile; open its lane so the card renders.
+    // The transcript shows the agent as a tile. Its activity line carries the
+    // rolling summary until the agent has nested output of its own.
     await expect(tile).toHaveCount(1);
     await expect(tile).toContainText(AGENT_TYPE);
-    await tile.locator(AGENT_TILE_OPEN).click();
-
-    await expect(card).toHaveCount(1);
-    // The lane control row's live progress line (not the bubble's).
-    const peek = card.locator('[data-test="execution-header-peek"]');
-    // The lane header repeats no tool count; the transcript bubble owns it.
-    const meta = card.locator(
-      'ptah-lane-transcript [data-test="turn-disclosure-meta"]',
-    );
+    const peek = tile.locator('[data-testid="subagent-activity"]');
     await expect(peek).toContainText(AGENT_DESCRIPTION);
 
     // --- Summary: first delta ------------------------------------------
@@ -262,6 +256,15 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
     // Deltas append, so the first marker must still be there — a card that
     // replaced rather than appended would be a different defect.
     await expect(peek).toContainText(SUMMARY_ONE);
+
+    // Open the lane. The flat lane renders no header row, so no live peek.
+    await tile.locator(AGENT_TILE_OPEN).click();
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('ptah-execution-header')).toHaveCount(0);
+    // The lane header repeats no tool count; the transcript bubble owns it.
+    const meta = card.locator(
+      'ptah-lane-transcript [data-test="turn-disclosure-meta"]',
+    );
 
     // --- Tool count -----------------------------------------------------
     // One nested tool, then close the Task tool so the lane's disclosure

@@ -322,6 +322,15 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(error?.message).not.toMatch(/is not running/);
   });
 
+  it('does not emit a subprocess release for a restored record on cold resume', async () => {
+    const manager = makeManager({ providerRoot: ROOT_A });
+    manager.restoreAgents([makeRef()], ROOT_A);
+    const released = jest.fn();
+    manager.events.on('agent:released', released);
+    await manager.releaseIdleForResume(RESTORED_ID);
+    expect(released).not.toHaveBeenCalled();
+  });
+
   it('refuses stop on a restored record instead of reporting a no-op release as success', async () => {
     const manager = makeManager({ providerRoot: ROOT_A });
     manager.restoreAgents([makeRef()], ROOT_A);

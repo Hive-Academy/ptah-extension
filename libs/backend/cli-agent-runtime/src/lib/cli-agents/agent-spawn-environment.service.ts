@@ -24,6 +24,9 @@ import {
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
 import type { CliLaneBudgets } from './cli-adapters/cli-adapter.interface';
+import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
+import type { CliAdapterManifest, SpawnAgentRequest } from '@ptah-extension/shared';
+import { translateLaneSpawnPolicy } from './lane-spawn-policy';
 import { CODEX_DEFAULT_LANE_BUDGETS } from './cli-adapters/codex/codex-lane-budgets';
 import {
   resolveLaneEffort,
@@ -155,6 +158,21 @@ export class AgentSpawnEnvironment {
       'agentOrchestration.copilotAutoApprove',
       true,
     );
+  }
+
+  /** Validate explicit spawn controls before an adapter creates a process. */
+  resolveLanePolicy(
+    adapter: CliAdapter,
+    request: Pick<SpawnAgentRequest, 'permission' | 'network'>,
+  ) {
+    return AgentSpawnEnvironment.resolveLanePolicy(adapter, request);
+  }
+
+  static resolveLanePolicy(
+    adapter: { readonly name: CliType; capabilities(): CliAdapterManifest },
+    request: Pick<SpawnAgentRequest, 'permission' | 'network'>,
+  ) {
+    return translateLaneSpawnPolicy(adapter.name, adapter.capabilities(), request);
   }
 
   /** The lane's model and where it came from (see `resolveLaneModel`). */

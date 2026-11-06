@@ -13,6 +13,9 @@ import {
   type AgentOutputDelta,
   type AgentPermissionRequest,
   type AgentMonitorReparentedPayload,
+  AgentMonitorMessageReceiptPayloadSchema,
+  AgentMonitorParentDeliveryPayloadSchema,
+  AgentId,
 } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
@@ -78,6 +81,8 @@ export class AgentMonitorMessageHandler implements MessageHandler {
     MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
     MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_MONITOR_REPARENTED,
+    MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT,
+    MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -115,6 +120,22 @@ export class AgentMonitorMessageHandler implements MessageHandler {
           break;
         }
         this.store.reparentAgents(parsed.agentIds, parsed.parentSessionId);
+        break;
+      }
+      case MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT: {
+        const parsed = AgentMonitorMessageReceiptPayloadSchema.safeParse(message.payload);
+        if (parsed.success) this.store.onMessageReceipt({
+          ...parsed.data.receipt,
+          agentId: AgentId.from(parsed.data.receipt.agentId),
+        });
+        break;
+      }
+      case MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY: {
+        const parsed = AgentMonitorParentDeliveryPayloadSchema.safeParse(message.payload);
+        if (parsed.success) this.store.onParentDelivery({
+          ...parsed.data,
+          agentId: AgentId.from(parsed.data.agentId),
+        });
         break;
       }
     }

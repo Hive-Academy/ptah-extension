@@ -893,11 +893,8 @@ describe('PiCliAdapter (RPC mode)', () => {
 
   describe('capabilities() / parseOutput() / supportsMcp', () => {
     it('reports a steering capability and supportsMcp false', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: true,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.steer.state).toBe('supported');
+      expect(adapter.capabilities().limitReader.state).toBe('no-reliable-source');
       expect(adapter.supportsMcp).toBe(false);
     });
 

@@ -91,6 +91,7 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.laneRepeatCallStopAt',
   'agentOrchestration.subagentPromptCacheTtl',
   'agentOrchestration.hostRouting',
+  'agentOrchestration.laneRotation',
   'agentOrchestration.disabledClis',
   'provider.github-copilot.tokenExchangeUrl',
   'provider.github-copilot.apiEndpoint',

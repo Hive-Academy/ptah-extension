@@ -194,11 +194,8 @@ describe('CopilotSdkAdapter', () => {
     });
 
     it('reports continuation only', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.continuation.state).toBe('supported');
+      expect(adapter.capabilities().limitReader.state).toBe('no-reliable-source');
     });
 
     it('strips ANSI escape codes via parseOutput()', () => {

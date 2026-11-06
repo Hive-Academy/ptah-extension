@@ -93,6 +93,19 @@ function settle<T>(p: Promise<T>): Promise<T | typeof PENDING> {
 }
 
 describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
+  it('deduplicates accepted lane delivery IDs without changing ordinary IDs', async () => {
+    const h = makeHarness();
+    const options = { clientMessageId: 'lane-delivery:one' };
+    await h.pump.sendMessage(TAB, 'completion', undefined, undefined, options);
+    await h.pump.sendMessage(TAB, 'completion', undefined, undefined, options);
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(1);
+    await expect(h.pump.sendMessage(TAB, 'different', undefined, undefined, options))
+      .rejects.toThrow('Lane delivery ID reused');
+    await h.pump.sendMessage(TAB, 'human', undefined, undefined, { clientMessageId: 'ordinary' });
+    await h.pump.sendMessage(TAB, 'human', undefined, undefined, { clientMessageId: 'ordinary' });
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(3);
+  });
+
   it('keeps same-payload retries idempotent and refuses changed or withdrawn IDs', async () => {
     const h = makeHarness();
     const options = { queueIntent: 'next-turn' as const, clientMessageId: 'same' };

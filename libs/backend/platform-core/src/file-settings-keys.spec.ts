@@ -459,6 +459,16 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('lane rotation setting', () => {
+    const key = 'agentOrchestration.laneRotation';
+
+    it('is file-based and defaults to enabled', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(true);
+    });
+  });
+
   describe('saved Tasks-board view keys (TASK_2026_181)', () => {
     // Gate 1. These two keys have no `package.json contributes.configuration`
     // declaration behind them, so file routing is not a preference here — it is

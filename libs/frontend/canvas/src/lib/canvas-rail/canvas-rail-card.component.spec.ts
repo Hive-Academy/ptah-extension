@@ -283,7 +283,8 @@ describe('CanvasRailCardComponent', () => {
     expect(frame).not.toBeNull();
     expect(frame.contains(host.querySelector('ptah-compact-session-card'))).toBe(true);
     expect(frame.contains(host.querySelector('[data-testid="rail-card-needs-you"]'))).toBe(true);
-    expect([...frame.classList]).toEqual(expect.arrayContaining(['rounded-lg', 'border', 'bg-base-200']));
+    expect([...frame.classList]).toEqual(expect.arrayContaining(['rounded-lg', 'border']));
+    expect(frame.classList.contains('bg-base-200')).toBe(false);
     (host.querySelector('[data-testid="rail-card-needs-you"] button') as HTMLButtonElement).click();
     expect(emitted).toHaveBeenCalledWith({ item, actionId: 'answer' });
     expect(focusTile).not.toHaveBeenCalled();

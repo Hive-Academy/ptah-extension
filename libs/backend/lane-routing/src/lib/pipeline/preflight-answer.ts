@@ -32,10 +32,18 @@ const PREFLIGHT_QUESTIONS = [
   {
     key: 'depth',
     name: 'depth',
-    instructions: 'Choose the depth.',
+    instructions: 'Choose how much workflow this request needs before code is written.',
     values: DEPTHS,
   },
 ] as const;
+
+type Depth = (typeof DEPTHS)[number];
+
+const DEPTH_CRITERIA: Readonly<Record<Depth, string>> = {
+  Full: 'Full: the goal or scope is vague or open-ended; requirements must be gathered and the solution designed before any code',
+  Partial: 'Partial: a known bug or a clearly specified change touching several files or components; plan it, implement it, review it',
+  Minimal: 'Minimal: a tiny, mechanical edit in one place (rename, typo, one-line fix) that one developer can finish directly',
+};
 
 type SharedAnswer = Omit<PreflightResult['taskType'], 'value'>;
 
@@ -54,7 +62,11 @@ export function preflightQuestions(): FixedQuestion[] {
   return PREFLIGHT_QUESTIONS.map((question) => ({
     key: question.key,
     instructions: question.instructions,
-    criteria: criterionLabels(question.values),
+    criteria: criterionLabels(
+      question.key === 'depth'
+        ? DEPTHS.map((depth) => DEPTH_CRITERIA[depth])
+        : question.values,
+    ),
   }));
 }
 

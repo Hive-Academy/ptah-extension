@@ -86,6 +86,7 @@ import { handleOutcomeReportToolCall } from '../mcp-core/tools/outcome-report.ha
 import {
   AgentMessageError,
   AgentRoleError,
+  LaneSpawnPolicyError,
   CliCommandLineTooLongError,
   MAX_AGENT_REPORT_LENGTH,
   type AgentWaitResult,
@@ -115,7 +116,8 @@ const AgentMessageSchema = z
   .object({
     agentId: z.string().min(1),
     message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
-    delivery: z.enum(['queue', 'steer']).optional(),
+    delivery: z.enum(['queue', 'now', 'steer']).optional(),
+    allowPartialTurnLoss: z.boolean().optional(),
   })
   .strict();
 
@@ -509,6 +511,8 @@ export class AgentToolDispatcher {
         // `claude` lane (`agentSpawnAccountRefusal`), so forwarding admits
         // nothing.
         accountSelection: p.accountSelection,
+        permission: p.permission,
+        network: p.network,
       });
       if (!callerSessionId) {
         this.logger.warn('[MCP] Lane spawned without parent session', {
@@ -551,9 +555,11 @@ export class AgentToolDispatcher {
       const limitBlock = limits
         ? `\n\n${formatSpawnLimitBlock(limits, target, true, undefined, { forced })}`
         : '';
-      this.logger.error('[McpStdio] agent_spawn failed', {
-        error: errorMessage(err),
-      });
+      this.logger.error('[McpStdio] agent_spawn failed',
+        err instanceof Error ? err : new Error(errorMessage(err)));
+      if (err instanceof LaneSpawnPolicyError) {
+        return toolError(request, JSON.stringify(err.refusal), 'mcp_tool_failed', { tool: 'agent_spawn', ...err.refusal });
+      }
       if (err instanceof AgentRoleError) {
         return toolError(
           request,
@@ -710,6 +716,7 @@ export class AgentToolDispatcher {
         parsed.data.agentId,
         parsed.data.message,
         parsed.data.delivery,
+        parsed.data.allowPartialTurnLoss,
       );
       return await this.toolSuccess(
         request,
@@ -748,7 +755,7 @@ export class AgentToolDispatcher {
     if (!parsed.ok) return toolError(request, `Invalid arguments for agent_message_status: ${describeIssues(parsed.issues)}`, 'mcp_invalid_tool_args', { tool: 'agent_message_status', issues: parsed.issues });
     try {
       const result = await this.ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
-      return this.toolSuccess(request, 'agent_message_status', JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...result }), result);
+      return this.toolSuccess(request, 'agent_message_status', JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...result }), { ...result });
     } catch {
       return toolError(request, 'agent_message_status failed', 'mcp_tool_failed', { tool: 'agent_message_status' });
     }

@@ -19,6 +19,8 @@ import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.c
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { HostRoutingSettingComponent } from './host-routing-setting.component';
+import { LaneRotationSettingComponent } from './lane-rotation-setting.component';
+import { CapabilityMatrixSettingComponent } from './capability-matrix-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 import { CodexSandboxSettingComponent } from '../advanced/codex-sandbox-setting.component';
 
@@ -53,6 +55,22 @@ class LaneGuardsStub {}
   template: '<section data-testid="host-routing-setting">Routing</section>',
 })
 class HostRoutingStub {}
+
+@Component({
+  selector: 'ptah-lane-rotation-setting',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="lane-rotation-setting">Rotation</section>',
+})
+class LaneRotationStub {}
+
+@Component({
+  selector: 'ptah-capability-matrix-setting',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="capability-matrix-setting">Matrix</section>',
+})
+class CapabilityMatrixStub {}
 
 @Component({
   selector: 'ptah-advanced-settings-group',
@@ -109,6 +127,8 @@ describe('OrchestrationSettingsComponent', () => {
             SessionBudgetSettingsComponent,
             LaneGuardsSettingsComponent,
             HostRoutingSettingComponent,
+            LaneRotationSettingComponent,
+            CapabilityMatrixSettingComponent,
             AdvancedSettingsGroupComponent,
             CodexSandboxSettingComponent,
           ],
@@ -119,6 +139,8 @@ describe('OrchestrationSettingsComponent', () => {
             SessionBudgetStub,
             LaneGuardsStub,
             HostRoutingStub,
+            LaneRotationStub,
+            CapabilityMatrixStub,
             AdvancedGroupStub,
             CodexSandboxStub,
           ],
@@ -289,6 +311,23 @@ describe('OrchestrationSettingsComponent', () => {
     expect(routing?.compareDocumentPosition(firstGroup as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    const rotation = element.querySelector(
+      '[data-testid="lane-rotation-setting"]',
+    );
+    const matrix = element.querySelector(
+      '[data-testid="capability-matrix-setting"]',
+    );
+    expect(rotation).not.toBeNull();
+    expect(matrix).not.toBeNull();
+    expect(routing?.compareDocumentPosition(rotation as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(rotation?.compareDocumentPosition(matrix as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(matrix?.compareDocumentPosition(firstGroup as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it('does not mount Routing suggestions outside Electron (VS Code has no routing coordinator)', async () => {
@@ -299,6 +338,14 @@ describe('OrchestrationSettingsComponent', () => {
     expect(element.querySelector('ptah-host-routing-setting')).toBeNull();
     expect(
       element.querySelector('[data-testid="host-routing-setting"]'),
+    ).toBeNull();
+    expect(element.querySelector('ptah-lane-rotation-setting')).toBeNull();
+    expect(
+      element.querySelector('[data-testid="lane-rotation-setting"]'),
+    ).toBeNull();
+    expect(element.querySelector('ptah-capability-matrix-setting')).toBeNull();
+    expect(
+      element.querySelector('[data-testid="capability-matrix-setting"]'),
     ).toBeNull();
     expect(
       element.querySelector('[data-testid="lane-guards-settings"]'),

@@ -1,9 +1,12 @@
-import type {
-  AgentOutcomeSignals,
-  LaneOutcomeReader as LaneOutcomeReaderPort,
-  LaneOutcomeRecord,
-  LaneOutcomeSummary,
+import {
+  normalizeWorkspaceRoot,
+  NO_WORKSPACE_KEY,
+  type AgentOutcomeSignals,
+  type LaneOutcomeReader as LaneOutcomeReaderPort,
+  type LaneOutcomeRecord,
+  type LaneOutcomeSummary,
 } from '@ptah-extension/shared';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { computeAgentSignals } from './agent-signals';
 import type { LaneOutcomeLogger } from './lane-outcome-logger';
 import type {
@@ -31,10 +34,29 @@ export class LaneOutcomeReader implements LaneOutcomeQueries {
     private readonly store: LaneOutcomeStore,
     private readonly logger: LaneOutcomeLogger,
     private readonly seam?: SkillTelemetrySeam,
+    private readonly workspace?: IWorkspaceProvider,
   ) {}
 
   isPersistent(): boolean {
     return this.store.isPersistent();
+  }
+
+  private activeRoot(): string | null {
+    const root = this.workspace?.getWorkspaceRoot();
+    if (root === undefined) return null;
+    const normalized = normalizeWorkspaceRoot(root);
+    return normalized === NO_WORKSPACE_KEY ? null : normalized;
+  }
+
+  async recentWorkspaceOutcomes(window: { readonly sinceMs: number }): Promise<readonly LaneOutcomeSummary[]> {
+    try {
+      const rows = await this.store.listRecent(window.sinceMs, this.activeRoot());
+      return await this.join(rows.slice(0, READ_LIMIT));
+    } catch (error: unknown) {
+      // degradation-audit: reported - the matrix read port requires a resolved empty result after a logged store failure.
+      this.logger.warn('Outcome workspace read failed', { code: error instanceof Error ? error.name : 'UNKNOWN' });
+      return [];
+    }
   }
 
   async recentOutcomes(
@@ -42,7 +64,7 @@ export class LaneOutcomeReader implements LaneOutcomeQueries {
     window: { readonly sinceMs: number },
   ): Promise<readonly LaneOutcomeSummary[]> {
     try {
-      const rows = await this.store.listByLane(laneId, window.sinceMs);
+      const rows = await this.store.listByLane(laneId, window.sinceMs, this.activeRoot());
       if (rows.length > READ_LIMIT)
         this.logger.warn('Outcome read capped', { laneId, count: rows.length });
       return (await this.join(rows.slice(0, READ_LIMIT))).sort(
@@ -68,6 +90,7 @@ export class LaneOutcomeReader implements LaneOutcomeQueries {
     const rows = await this.store.listByRoles(
       unique,
       Date.now() - windowDays * 86400000,
+      this.activeRoot(),
     );
     if (rows.length > READ_LIMIT)
       this.logger.warn('Outcome signals capped', { count: rows.length });
