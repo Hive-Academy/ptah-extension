@@ -173,7 +173,7 @@ export class GitRpcHandlers {
     this.roots = new GitRootResolver({
       workspace,
       probe: createWorktreeRootProbe(gitInfo, fileSystem),
-      epoch: () => gitInfo.probeEpoch?.() ?? 0,
+      epoch: () => gitInfo.probeEpoch(),
       warn: (message, context) => this.logger.warn(message, context),
     });
   }

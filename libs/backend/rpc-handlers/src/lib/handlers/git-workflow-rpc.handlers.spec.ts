@@ -35,6 +35,7 @@ import type {
   GitOperationContinueResult,
   GitOperationFailed,
   GitPrStatusResult,
+  GitWorktreeInfo,
 } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -53,7 +54,10 @@ type MockGitInfo = jest.Mocked<
     | 'continueOperation'
     | 'getLog'
     | 'getWorktrees'
-    | 'getCommonDir'
+    | 'probeWorktreeList'
+    | 'probeCommonDir'
+    | 'probeEpoch'
+    | 'invalidateProbeReadCache'
   >
 >;
 
@@ -96,6 +100,7 @@ function buildSuite(): Suite {
   const workspace = createMockWorkspaceProvider({
     folders: ['/workspace', 'D:\\repos\\other'],
   });
+  const getWorktrees = jest.fn().mockResolvedValue([]);
   const gitInfo: MockGitInfo = {
     cancelOperation: jest.fn().mockReturnValue(true),
     getBranches: jest
@@ -109,8 +114,22 @@ function buildSuite(): Suite {
       .fn()
       .mockResolvedValue({ status: 'completed', kind: 'rebase' }),
     getLog: jest.fn().mockResolvedValue(LOG_OK),
-    getWorktrees: jest.fn().mockResolvedValue([]),
-    getCommonDir: jest.fn().mockResolvedValue('/workspace/.git'),
+    getWorktrees,
+    // The root probe reads the same `git worktree list` as getWorktrees.
+    probeWorktreeList: jest.fn((folder: string) =>
+      getWorktrees(folder).then(
+        (worktrees: GitWorktreeInfo[]) => ({ kind: 'listed', worktrees }),
+        (cause: unknown) => ({
+          kind: 'failed',
+          cause: cause instanceof Error ? cause : new Error(String(cause)),
+        }),
+      ),
+    ),
+    probeCommonDir: jest
+      .fn()
+      .mockResolvedValue({ kind: 'dir', path: '/workspace/.git' }),
+    probeEpoch: jest.fn(() => 0),
+    invalidateProbeReadCache: jest.fn(),
   };
   const generator: MockGenerator = {
     generate: jest.fn().mockResolvedValue({

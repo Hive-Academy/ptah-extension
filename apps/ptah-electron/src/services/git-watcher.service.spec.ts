@@ -63,6 +63,7 @@ function makeGitInfo(): jest.Mocked<GitInfoService> {
     }) as unknown as GitInfoResult;
   return {
     invalidateReadCache: jest.fn(),
+    invalidateProbeReadCache: jest.fn(),
     getGitInfo: jest.fn(result),
     refreshGitInfo: jest.fn(result),
     statusBackoffRemainingMs: jest.fn((): number => 0),
@@ -1043,8 +1044,8 @@ describe('GitWatcherService', () => {
     });
 
     it('pushes nothing when the confirming listing fails after a prune', async () => {
-      // `getWorktrees` reports a failed listing as `[]`: no main worktree, so
-      // it confirms nothing about the candidates.
+      // A listing without the main worktree (git saw no repository there)
+      // confirms nothing about the candidates.
       gitInfo.getWorktrees
         .mockResolvedValueOnce([
           main(),
@@ -1425,6 +1426,19 @@ describe('GitWatcherService', () => {
       expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
       expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
       expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+    });
+
+    // Review M1: a worktree added outside Ptah moves no ref, so the root
+    // resolver's cached worktree list must be dropped by this batch.
+    it('a worktree administration change drops the worktree-root probe answers at once', async () => {
+      const sub = await arm();
+      expect(gitInfo.invalidateProbeReadCache).not.toHaveBeenCalled();
+
+      sub.fire('create', path.join(gitDir, 'worktrees', 'wt1', 'gitdir'));
+      await flush();
+
+      expect(gitInfo.invalidateProbeReadCache).toHaveBeenCalledWith(root);
+      expect(gitInfo.invalidateReadCache).not.toHaveBeenCalled();
     });
 
     it('an overflow schedules one refresh with head, index and refs, and one worktree re-list', async () => {
