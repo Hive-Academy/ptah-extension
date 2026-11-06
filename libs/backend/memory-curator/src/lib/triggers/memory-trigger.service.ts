@@ -39,6 +39,7 @@ import {
   MemoryCuratorService,
   type CuratorRunStats,
 } from '../memory-curator.service';
+import { curatorRunMessage } from '../curator-llm/curator-activity-log';
 import {
   ObservationQueueStore,
   type ObservationDraftRow,
@@ -1023,11 +1024,13 @@ export class MemoryTriggerService {
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      // Fixed sentence on the event; the raw message, which can carry
+      // provider text, stays in the log line below (TASK_2026_878).
       this.curator.pushEvent({
         kind: 'error',
         timestamp: Date.now(),
         sessionId,
-        error: message,
+        error: curatorRunMessage('curator-error'),
       });
       this.logger.warn('[memory-curator] trigger curate failed', {
         source,
@@ -1201,10 +1204,11 @@ export class MemoryTriggerService {
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      // Fixed sentence on the event; the raw message stays in the log.
       this.curator.pushEvent({
         kind: 'error',
         timestamp: Date.now(),
-        error: message,
+        error: curatorRunMessage('curator-error'),
       });
       this.logger.warn('[memory-curator] boot-scan failed', { error: message });
     } finally {
