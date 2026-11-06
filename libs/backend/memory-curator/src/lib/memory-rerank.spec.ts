@@ -27,7 +27,7 @@ describe('rerankFused', () => {
   it('skips with too little time left: RRF order, partial, no rerank call', async () => {
     const rerank = jest.fn<ReturnType<Reranker['rerank']>, Parameters<Reranker['rerank']>>(async () => []);
     const logger = makeLogger();
-    const result = await rerankFused(reranker(rerank), 'q', fused, 5, Date.now() + 900, logger);
+    const result = await rerankFused(reranker(rerank), 'q', fused, 5, performance.now() + 900, logger);
     expect(result).toEqual({ fused, outcome: 'partial' });
     expect(rerank).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
@@ -39,7 +39,7 @@ describe('rerankFused', () => {
       reranker(async () => {
         throw new HostCallSkippedError('host reranker busy');
       }),
-      'q', fused, 5, Date.now() + 4_000, logger,
+      'q', fused, 5, performance.now() + 4_000, logger,
     );
     expect(result).toEqual({ fused, outcome: 'partial' });
     expect(logger.warn).not.toHaveBeenCalled();
@@ -51,7 +51,7 @@ describe('rerankFused', () => {
     const logger = makeLogger();
     const pending = rerankFused(
       reranker(() => new Promise(() => undefined)),
-      'q', fused, 5, Date.now() + 2_000, logger,
+      'q', fused, 5, performance.now() + 2_000, logger,
     );
     jest.advanceTimersByTime(1_800);
     await expect(pending).resolves.toEqual({ fused, outcome: 'partial' });
@@ -59,3 +59,4 @@ describe('rerankFused', () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('missed deadline'));
   });
 });
+

@@ -231,6 +231,28 @@ export class MemoryRpcHandlers {
     return typeof value === 'boolean' ? value : MEMORY_TRIGGER_DEFAULTS.enabled;
   }
 
+  private async withSearchDeadline<T>(
+    startWork: () => Promise<T>, deadlineMs: number, started: number, phase: string, degraded: T,
+  ): Promise<T> {
+    const remaining = deadlineMs - performance.now();
+    if (remaining <= 0) {
+      this.logger.warn('[memory] search deadline expired', { phase, elapsedMs: performance.now() - started });
+      return degraded;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<T>((resolve) => {
+          timer = setTimeout(() => {
+            this.logger.warn('[memory] search deadline expired', { phase, elapsedMs: performance.now() - started });
+            resolve(degraded);
+          }, remaining);
+        });
+      return await Promise.race([timeout, startWork()]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   register(): void {
     this.rpcHandler.registerMethod(
       'memory:list',
@@ -255,17 +277,20 @@ export class MemoryRpcHandlers {
       async (
         params: MemorySearchParams | undefined,
       ): Promise<MemorySearchResult> => {
+        const started = performance.now();
+        const deadlineMs = started + 4_700;
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
         const workspaceRoot = WorkspaceRootSchema.safeParse(
           (params as { workspaceRoot?: unknown }).workspaceRoot,
         ).data;
-        const r = await this.search.searchRich(
+        const r = await this.withSearchDeadline(() => this.search.searchRich(
           params.query,
           params.topK ?? 10,
           workspaceRoot,
-        );
+          deadlineMs,
+        ), deadlineMs, started, 'memory:search', { hits: [], bm25Only: true });
         const hits: MemorySearchHitWire[] = r.hits.map((h) => ({
           memory: toMemoryWire(h.memory),
           chunk: toChunkWire(h.chunk),
@@ -412,6 +437,8 @@ export class MemoryRpcHandlers {
       async (
         params: MemorySearchSymbolsParams | undefined,
       ): Promise<MemorySearchSymbolsResult> => {
+        const started = performance.now();
+        const deadlineMs = started + 4_700;
         let validated: z.infer<typeof MemorySearchSymbolsParamsSchema>;
         try {
           validated = MemorySearchSymbolsParamsSchema.parse(params ?? {});
@@ -425,7 +452,7 @@ export class MemoryRpcHandlers {
           );
         }
         try {
-          const result = await this.codeSymbols.searchAsync({
+          const result = await this.withSearchDeadline(() => this.codeSymbols.searchAsync({
             workspaceRoot: this.resolveReadScope(
               validated.scope,
               validated.workspaceRoot,
@@ -434,7 +461,7 @@ export class MemoryRpcHandlers {
             kinds: validated.kinds,
             limit: validated.limit,
             offset: validated.offset,
-          });
+          }, deadlineMs), deadlineMs, started, 'memory:searchSymbols', { items: [], total: 0 });
           return { items: result.items, total: result.total };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);

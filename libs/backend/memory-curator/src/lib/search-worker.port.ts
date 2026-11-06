@@ -26,9 +26,9 @@ export interface ISearchWorkerFactory {
 }
 
 export interface ISqliteSearchWorker {
-  searchMemory(query: string, topK: number, workspaceRoot?: string | null): Promise<MemorySearchResponse>;
+  searchMemory(query: string, topK: number, workspaceRoot?: string | null, deadlineMs?: number): Promise<MemorySearchResponse>;
   searchSymbols(query: string, topK: number, workspaceRoot?: string): Promise<CodeSymbolHitPage>;
-  searchSymbolPage(params: CodeSymbolSearchParams): Promise<CodeSymbolSearchResult>;
+  searchSymbolPage(params: CodeSymbolSearchParams, deadlineMs?: number): Promise<CodeSymbolSearchResult>;
   listMemories(workspaceRoot: string, limit: number): Promise<MemoryListPage>;
   getChunks(memoryId: string): Promise<readonly MemoryChunk[]>;
 }

@@ -24,7 +24,8 @@
 import { createHash } from 'node:crypto';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
-import { withinBudget } from './search-deadline';
+import { remainingMs, withinBudget } from './search-deadline';
+import { localDeadlineMs, wireTransitMs } from './search-deadline';
 import type { SearchWorkerHostReply, SearchWorkerOutbound } from './search-worker.protocol';
 import type { CuratorLogger } from './sqlite-reader-deps.types';
 
@@ -55,7 +56,7 @@ class TtlCache<T> {
   get(key: string): T | undefined {
     const entry = this.entries.get(key);
     if (!entry) return undefined;
-    if (entry.expires > Date.now()) return entry.value;
+    if (entry.expires > performance.now()) return entry.value;
     this.entries.delete(key);
     return undefined;
   }
@@ -64,7 +65,7 @@ class TtlCache<T> {
     this.entries.delete(key);
     const oldest = this.entries.keys().next();
     if (this.entries.size >= MAX_CACHED && !oldest.done) this.entries.delete(oldest.value);
-    this.entries.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+    this.entries.set(key, { value, expires: performance.now() + CACHE_TTL_MS });
   }
 }
 
@@ -75,6 +76,7 @@ export class SearchWorkerHostCalls {
   private hungReported = false;
   private readonly overdueCalls = new Set<symbol>();
   private readonly embeds = new Map<string, Promise<Float32Array[]>>();
+  private readonly queuedEmbeds = new Map<string, { extend: (deadlineMs: number | undefined) => void }>();
   private readonly reranks = new Map<string, Promise<Ranked>>();
   private readonly embeddings = new TtlCache<Float32Array[]>();
   private readonly ranked = new TtlCache<Ranked>();
@@ -86,15 +88,21 @@ export class SearchWorkerHostCalls {
 
   /** Answer one worker call. Never rejects: a failure becomes `host-call-failed`. */
   async answer(message: HostCallMessage): Promise<SearchWorkerHostReply> {
+    const transitMs = wireTransitMs(message.budgetMs, message.sentAtMs);
+    const remainingBudgetMs = message.budgetMs === undefined ? undefined : message.budgetMs - transitMs;
+    if (remainingBudgetMs !== undefined && remainingBudgetMs <= 0) {
+      this.logger.debug(`${LOG_PREFIX} host ${message.kind} expired in transit`, { transitMs });
+      return { kind: 'host-call-failed', id: message.id, message: `host ${message.kind} deadline expired` };
+    }
     if (message.kind === 'rerank' && !(this.embedder instanceof EmbedderWorkerClient)) {
       return { kind: 'host-call-failed', id: message.id, message: 'reranker unavailable' };
     }
     try {
       if (message.kind === 'embed') {
-        const vectors = await this.embed(message.texts);
+        const vectors = await this.embed(message.texts, localDeadlineMs(remainingBudgetMs));
         return { kind: 'embed-result', id: message.id, vectors: vectors.map((v) => Array.from(v)) };
       }
-      const ranked = await this.rerank(message.query, message.candidates, message.topK);
+      const ranked = await this.rerank(message.query, message.candidates, message.topK, localDeadlineMs(remainingBudgetMs));
       return { kind: 'rerank-result', id: message.id, ranked: ranked.map((r) => ({ id: r.id, score: r.score })) };
     } catch (error: unknown) {
       const text = error instanceof Error ? error.message : String(error);
@@ -107,13 +115,15 @@ export class SearchWorkerHostCalls {
     }
   }
 
-  embed(texts: readonly string[]): Promise<Float32Array[]> {
+  embed(texts: readonly string[], deadlineMs?: number): Promise<Float32Array[]> {
+    if (remainingMs(deadlineMs) <= 0) return Promise.reject(new Error('host embed deadline expired'));
     const key = JSON.stringify(texts);
     const cached = this.embeddings.get(key);
     if (cached) return Promise.resolve(cached);
     let work = this.embeds.get(key);
+    if (work) this.queuedEmbeds.get(key)?.extend(deadlineMs);
     if (!work) {
-      const started = this.runEmbed(texts);
+      const started = this.runEmbed(key, texts, deadlineMs);
       work = started;
       this.embeds.set(key, started);
       void started
@@ -127,10 +137,11 @@ export class SearchWorkerHostCalls {
         )
         .finally(() => this.embeds.delete(key));
     }
-    return withinBudget(work, CALL_WAIT_MS, 'host embed');
+    return withinBudget(work, Math.min(CALL_WAIT_MS, remainingMs(deadlineMs)), 'host embed');
   }
 
-  rerank(query: string, candidates: ReadonlyArray<{ id: string; text: string }>, topK: number): Promise<Ranked> {
+  rerank(query: string, candidates: ReadonlyArray<{ id: string; text: string }>, topK: number, deadlineMs?: number): Promise<Ranked> {
+    if (remainingMs(deadlineMs) <= 0) return Promise.reject(new HostRerankBusyError());
     const reranker = this.embedder;
     if (!(reranker instanceof EmbedderWorkerClient)) return Promise.reject(new Error('reranker unavailable'));
     const key = createHash('sha256').update(JSON.stringify([query, topK, candidates])).digest('hex');
@@ -151,7 +162,7 @@ export class SearchWorkerHostCalls {
         )
         .finally(() => this.reranks.delete(key));
     }
-    return withinBudget(work, CALL_WAIT_MS, 'host rerank');
+    return withinBudget(work, Math.min(CALL_WAIT_MS, remainingMs(deadlineMs)), 'host rerank');
   }
 
   /**
@@ -166,10 +177,15 @@ export class SearchWorkerHostCalls {
     return this.runExclusive(() => embedder.warmup(), 'warmup');
   }
 
-  private runEmbed(texts: readonly string[]): Promise<Float32Array[]> {
+  private runEmbed(key: string, texts: readonly string[], deadlineMs?: number): Promise<Float32Array[]> {
     return new Promise<Float32Array[]>((resolve, reject) => {
+      let queueDeadlineMs = deadlineMs ?? Infinity;
+      const queueLimitMs = performance.now() + QUEUE_WAIT_MS;
+      let waitTimer: ReturnType<typeof setTimeout> | undefined;
       const start = (waitTimer?: ReturnType<typeof setTimeout>): void => {
         clearTimeout(waitTimer);
+        this.queuedEmbeds.delete(key);
+        if (remainingMs(queueDeadlineMs) <= 0) { reject(new Error('host embed deadline expired in queue')); return; }
         this.runningEmbeds++;
         void this.track(Promise.resolve().then(() => this.embedder.embed(texts)), 'embed')
           .then(resolve, reject)
@@ -188,11 +204,20 @@ export class SearchWorkerHostCalls {
       }
       const queuedStart = (): void => start(waitTimer);
       this.embedQueue.push(queuedStart);
-      const waitTimer = setTimeout(() => {
-        const index = this.embedQueue.indexOf(queuedStart);
-        if (index >= 0) this.embedQueue.splice(index, 1);
-        reject(new Error('host embed queue wait timed out'));
-      }, QUEUE_WAIT_MS);
+      const arm = (): void => {
+        clearTimeout(waitTimer);
+        waitTimer = setTimeout(() => {
+          const index = this.embedQueue.indexOf(queuedStart);
+          if (index >= 0) this.embedQueue.splice(index, 1);
+          this.queuedEmbeds.delete(key);
+          reject(new Error('host embed queue wait timed out'));
+        }, Math.max(1, Math.min(remainingMs(queueLimitMs), remainingMs(queueDeadlineMs))));
+      };
+      this.queuedEmbeds.set(key, { extend: (next) => {
+        queueDeadlineMs = Math.max(queueDeadlineMs, next ?? Infinity);
+        arm();
+      } });
+      arm();
     });
   }
 
@@ -222,3 +247,4 @@ export class SearchWorkerHostCalls {
     });
   }
 }
+

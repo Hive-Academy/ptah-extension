@@ -16,6 +16,13 @@ function makeBridge(canRerank: boolean): { bridge: HostBridgeEmbedder; posted: S
 describe('HostBridgeEmbedder', () => {
   afterEach(() => jest.useRealTimers());
 
+  it('does not post an expired host call', async () => {
+    const { bridge, posted } = makeBridge(true);
+    await expect(bridge.embed(['needle'], performance.now() - 1)).rejects.toThrow('deadline expired');
+    await expect(bridge.rerank('q', [{ id: '1', text: 'a' }], 1, performance.now() - 1)).rejects.toBeInstanceOf(HostCallSkippedError);
+    expect(posted).toEqual([]);
+  });
+
   it('asks the host to embed and settles with typed vectors', async () => {
     const { bridge, posted } = makeBridge(false);
     const pending = bridge.embed(['needle']);
@@ -99,3 +106,4 @@ describe('HostBridgeEmbedder', () => {
     await expect(rerank).rejects.toThrow('shutting down');
   });
 });
+

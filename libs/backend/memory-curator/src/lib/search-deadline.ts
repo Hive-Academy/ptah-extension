@@ -18,7 +18,24 @@ export class BudgetExceededError extends Error {
 
 /** Milliseconds left before `deadlineMs`; `Infinity` without a deadline. */
 export function remainingMs(deadlineMs: number | undefined): number {
-  return deadlineMs === undefined ? Infinity : deadlineMs - Date.now();
+  return deadlineMs === undefined ? Infinity : deadlineMs - performance.now();
+}
+
+/** Translate a process-local deadline into a relative wire budget. */
+export function wireBudgetMs(deadlineMs: number | undefined): number | undefined {
+  return deadlineMs === undefined ? undefined : Math.max(0, Math.min(60_000, remainingMs(deadlineMs)));
+}
+
+/** Start a new process-local deadline when a wire message is received. */
+export function localDeadlineMs(budgetMs: number | undefined): number | undefined {
+  return budgetMs === undefined ? undefined : performance.now() + budgetMs;
+}
+
+/** Wall-clock transit time, bounded so clock steps cannot add or overdraw budget. */
+export function wireTransitMs(budgetMs: number | undefined, sentAtMs: number | undefined): number {
+  return budgetMs === undefined || sentAtMs === undefined
+    ? 0
+    : Math.max(0, Math.min(budgetMs, Date.now() - sentAtMs));
 }
 
 /** Wait for `work` at most `budgetMs` (no bound when it is not finite). */

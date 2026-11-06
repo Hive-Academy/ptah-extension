@@ -19,6 +19,7 @@ export interface Reranker {
     query: string,
     candidates: ReadonlyArray<{ id: string; text: string }>,
     topK: number,
+    deadlineMs?: number,
   ): Promise<ReadonlyArray<{ id: string; score: number }>>;
 }
 
@@ -46,7 +47,7 @@ export async function rerankFused<E extends RerankEntry>(
       id: String(e.row.rowid),
       text: e.row.text.length > MAX_CANDIDATE_CHARS ? e.row.text.slice(0, MAX_CANDIDATE_CHARS) : e.row.text,
     }));
-    const ranked = await withinBudget(reranker.rerank(query, rerankInput, limit), remaining - 200, 'rerank');
+    const ranked = await withinBudget(reranker.rerank(query, rerankInput, limit, deadlineMs), remaining - 200, 'rerank');
     const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
     const reranked = ranked.map((r) => byId.get(r.id)).filter((e): e is E => e !== undefined);
     return { fused: reranked.length > 0 ? reranked : fused, outcome: 'reranked' };

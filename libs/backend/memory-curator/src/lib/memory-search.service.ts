@@ -339,7 +339,7 @@ export class MemorySearchService implements IMemoryReader {
     workspaceRoot?: string | null,
     deadlineMs?: number,
   ): Promise<MemorySearchResponse> {
-    if (this.searchWorker) return this.searchWorker.searchMemory(query, topK, workspaceRoot);
+    if (this.searchWorker) return this.searchWorker.searchMemory(query, topK, workspaceRoot, deadlineMs);
     const key = this.makeCacheKey(query.trim(), workspaceRoot, Math.max(1, Math.min(50, topK)));
     const search = () => this.searchRichTracked(query, topK, workspaceRoot, key, deadlineMs);
     if (deadlineMs === undefined) return this.searchFlight.run(key, search);
@@ -523,7 +523,9 @@ export class MemorySearchService implements IMemoryReader {
     deadlineMs: number | undefined,
     onCapped: () => void,
   ): Promise<Array<FtsRow & { distance: number }>> {
-    const [vec] = await this.embedder.embed([query]);
+    const [vec] = await (this.embedder instanceof HostBridgeEmbedder
+      ? this.embedder.embed([query], deadlineMs)
+      : this.embedder.embed([query]));
     if (!vec || vec.length !== this.embedder.dim) throw new Error('embedder returned missing or wrong-size vector');
     // The caller stopped waiting: skip the synchronous KNN it no longer needs
     // (one already running cannot be interrupted).

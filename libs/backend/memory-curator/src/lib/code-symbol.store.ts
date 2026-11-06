@@ -21,6 +21,7 @@ import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { SearchFlight } from './search-flight';
 import { scopedVectorCandidates } from './scoped-vector-search';
 import { BudgetExceededError, remainingMs, withinBudget } from './search-deadline';
+import { HostBridgeEmbedder } from './search-worker-host-embedder';
 import { MEMORY_TOKENS } from './di/tokens';
 import type { ISqliteSearchWorker } from './search-worker.port';
 
@@ -687,8 +688,14 @@ export class CodeSymbolStore implements ICodeSymbolReader {
 
     const db = this.connection.db;
     const countSql = `SELECT COUNT(*) AS n FROM code_symbols ${whereSql}`;
+    const countStarted = performance.now();
     const countRow = db.prepare(countSql).get(...values) as
       { n: number } | undefined;
+    const countMs = performance.now() - countStarted;
+    if (countMs > 250) this.logger.warn('[code-symbols] slow search statement', {
+      statement: 'count', durationMs: countMs, scoped: Boolean(wsClause.sql),
+      substring: trimmedQuery.length > 0, kindCount: params.kinds?.length ?? 0,
+    });
     const total = countRow?.n ?? 0;
 
     const rowsSql = `SELECT id, workspace_root, file_path, kind, symbol_name, subject, token_count, updated_at
@@ -696,9 +703,16 @@ export class CodeSymbolStore implements ICodeSymbolReader {
        ${whereSql}
        ORDER BY updated_at DESC, symbol_name ASC
        LIMIT ? OFFSET ?`;
+    const pageStarted = performance.now();
     const rows = db
       .prepare(rowsSql)
       .all(...values, limit, offset) as CodeSymbolRow[];
+    const pageMs = performance.now() - pageStarted;
+    if (pageMs > 250) this.logger.warn('[code-symbols] slow search statement', {
+      statement: 'page', durationMs: pageMs, scoped: Boolean(wsClause.sql),
+      substring: trimmedQuery.length > 0, kindCount: params.kinds?.length ?? 0,
+      limit, offset,
+    });
 
     const items: CodeSymbolListEntry[] = rows.map((r) => ({
       id: r.id,
@@ -714,10 +728,14 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     return { items, total };
   }
 
-  searchAsync(params: CodeSymbolSearchParams): Promise<CodeSymbolSearchResult> {
-    return this.searchWorker
-      ? this.searchWorker.searchSymbolPage(params)
-      : Promise.resolve(this.search(params));
+  searchAsync(params: CodeSymbolSearchParams, deadlineMs?: number): Promise<CodeSymbolSearchResult> {
+    if (this.searchWorker) return this.searchWorker.searchSymbolPage(params, deadlineMs);
+    // Synchronous in-process SQL cannot be pre-empted by a JS timer.
+    return new Promise((resolve, reject) => {
+      setImmediate(() => {
+        try { resolve(this.search(params)); } catch (error: unknown) { reject(error); }
+      });
+    });
   }
 
   /**
@@ -955,7 +973,9 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     workspaceRoot: string | undefined,
     deadlineMs: number | undefined,
   ): Promise<CodeSymbolHitRow[]> {
-    const [vec] = await this.embedder.embed([query]);
+    const [vec] = await (this.embedder instanceof HostBridgeEmbedder
+      ? this.embedder.embed([query], deadlineMs)
+      : this.embedder.embed([query]));
     if (!vec || vec.length !== this.embedder.dim) return [];
     // The caller stopped waiting: skip the synchronous KNN it no longer needs.
     if (remainingMs(deadlineMs) <= 0) throw new BudgetExceededError('symbol vector search', 0);

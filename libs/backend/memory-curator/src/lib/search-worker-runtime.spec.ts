@@ -191,10 +191,34 @@ describe('SearchWorkerRuntime', () => {
   it('does not start a request whose deadline passed while it waited', async () => {
     const { runtime, posted } = setup();
     runtime.handle(init);
-    runtime.handle({ kind: 'chunks', id: 9, memoryId: 'm1', deadlineMs: Date.now() - 1 });
+    runtime.handle({ kind: 'chunks', id: 9, memoryId: 'm1', budgetMs: 0 });
     await flush();
     expect(posted).toContainEqual({ kind: 'error', id: 9, message: 'request deadline passed before it started' });
     expect(posted.some((m) => m.kind === 'result')).toBe(false);
+  });
+
+  it('deducts transit, rejects expired transit before SQL, and tolerates clock steps and legacy messages', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+    const searchSymbols = jest.spyOn(CodeSymbolStore.prototype, 'searchSymbols').mockResolvedValue({ hits: [], bm25Only: true });
+    try {
+      const { runtime, posted, state } = setup();
+      runtime.handle(init);
+      const before = performance.now();
+      runtime.handle({ kind: 'symbols', id: 1, query: 'a', topK: 1, budgetMs: 100, sentAtMs: 9_960 });
+      expect(searchSymbols.mock.calls[0][3]).toBeGreaterThanOrEqual(before + 60);
+      expect(searchSymbols.mock.calls[0][3]).toBeLessThanOrEqual(performance.now() + 60);
+      const pragmaCount = state.pragmas.length;
+      runtime.handle({ kind: 'chunks', id: 2, memoryId: 'm1', budgetMs: 100, sentAtMs: 9_800 });
+      expect(posted).toContainEqual({ kind: 'error', id: 2, message: 'request deadline passed before it started' });
+      expect(state.pragmas).toHaveLength(pragmaCount);
+      runtime.handle({ kind: 'symbols', id: 3, query: 'b', topK: 1, budgetMs: 100, sentAtMs: 10_050 });
+      runtime.handle({ kind: 'symbols', id: 4, query: 'c', topK: 1, budgetMs: 100 });
+      expect(searchSymbols.mock.calls[1][3]).toBeGreaterThanOrEqual(before + 100);
+      expect(searchSymbols.mock.calls[2][3]).toBeGreaterThanOrEqual(before + 100);
+    } finally {
+      now.mockRestore();
+      searchSymbols.mockRestore();
+    }
   });
 
   it('passes the request deadline to the symbol search', async () => {
@@ -204,10 +228,13 @@ describe('SearchWorkerRuntime', () => {
     try {
       const { runtime, posted } = setup();
       runtime.handle(init);
-      const deadlineMs = Date.now() + 4_500;
-      runtime.handle({ kind: 'symbols', id: 3, query: 'Foo', topK: 5, workspaceRoot: '/work', deadlineMs });
+      const before = performance.now();
+      runtime.handle({ kind: 'symbols', id: 3, query: 'Foo', topK: 5, workspaceRoot: '/work', budgetMs: 4_500 });
       await flush();
-      expect(searchSymbols).toHaveBeenCalledWith('Foo', 5, '/work', deadlineMs);
+      expect(searchSymbols).toHaveBeenCalledWith('Foo', 5, '/work', expect.any(Number));
+      const deadlineMs = searchSymbols.mock.calls[0][3];
+      expect(deadlineMs).toBeGreaterThanOrEqual(before + 4_500);
+      expect(deadlineMs).toBeLessThanOrEqual(performance.now() + 4_500);
       expect(resultFor(posted, 3)).toEqual({ hits: [], bm25Only: true });
     } finally {
       searchSymbols.mockRestore();
@@ -249,3 +276,4 @@ describe('SearchWorkerRuntime', () => {
     expect(state.writes).toEqual([]);
   });
 });
+

@@ -12,6 +12,7 @@
  * failed rerank keeps the RRF order, and neither is cached as final.
  */
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
+import { remainingMs, wireBudgetMs } from './search-deadline';
 import {
   MAX_EMBED_TEXTS,
   MAX_RERANK_CANDIDATES,
@@ -73,7 +74,7 @@ export class HostBridgeEmbedder implements IEmbedder {
     return this.calls.size;
   }
 
-  embed(texts: readonly string[]): Promise<Float32Array[]> {
+  embed(texts: readonly string[], deadlineMs?: number): Promise<Float32Array[]> {
     if (texts.length === 0) return Promise.resolve([]);
     if (texts.length > MAX_EMBED_TEXTS) {
       return Promise.reject(
@@ -81,13 +82,15 @@ export class HostBridgeEmbedder implements IEmbedder {
       );
     }
     const id = this.nextId++;
+    const waitMs = Math.min(this.callTimeoutMs, remainingMs(deadlineMs));
+    if (waitMs <= 0) return Promise.reject(new Error('host embed deadline expired'));
     return new Promise<Float32Array[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
         reject(new Error(`host embed timed out after ${this.callTimeoutMs} ms`));
-      }, this.callTimeoutMs);
+      }, waitMs);
       this.calls.set(id, { kind: 'embed', resolve, reject, timer });
-      this.post({ kind: 'embed', id, texts: [...texts] });
+      this.post({ kind: 'embed', id, texts: [...texts], ...(deadlineMs === undefined ? {} : { budgetMs: wireBudgetMs(deadlineMs), sentAtMs: Date.now() }) });
     });
   }
 
@@ -95,17 +98,20 @@ export class HostBridgeEmbedder implements IEmbedder {
     query: string,
     candidates: ReadonlyArray<{ id: string; text: string }>,
     topK: number,
+    deadlineMs?: number,
   ): Promise<ReadonlyArray<{ id: string; score: number }>> {
     if (!this.canRerank) return Promise.reject(new Error('host reranker unavailable'));
     const bounded = candidates.slice(0, MAX_RERANK_CANDIDATES).map((c) => ({ id: c.id, text: c.text }));
     const id = this.nextId++;
+    const waitMs = Math.min(this.callTimeoutMs, remainingMs(deadlineMs));
+    if (waitMs <= 0) return Promise.reject(new HostCallSkippedError('host rerank deadline expired'));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
         reject(new Error(`host rerank timed out after ${this.callTimeoutMs} ms`));
-      }, this.callTimeoutMs);
+      }, waitMs);
       this.calls.set(id, { kind: 'rerank', resolve, reject, timer });
-      this.post({ kind: 'rerank', id, query, candidates: bounded, topK: Math.max(1, topK) });
+      this.post({ kind: 'rerank', id, query, candidates: bounded, topK: Math.max(1, topK), ...(deadlineMs === undefined ? {} : { budgetMs: wireBudgetMs(deadlineMs), sentAtMs: Date.now() }) });
     });
   }
 

@@ -101,7 +101,7 @@ describe('SearchWorkerClient', () => {
       rerankAvailable: false,
     });
     expect(child.queries).toEqual([
-      { kind: 'symbols', id: 1, query: 'foo', topK: 3, workspaceRoot: '/work', deadlineMs: expect.any(Number) },
+      { kind: 'symbols', id: 1, query: 'foo', topK: 3, workspaceRoot: '/work', budgetMs: expect.any(Number), sentAtMs: expect.any(Number) },
     ]);
     child.reply({ kind: 'result', id: 1, result: { hits: [symbolHit], bm25Only: false } });
     expect(await response).toEqual({ hits: [symbolHit], bm25Only: false });
@@ -150,11 +150,10 @@ describe('SearchWorkerClient', () => {
   it('dispatches a memory deadline before its client timeout', async () => {
     const children: FakeProcess[] = [];
     const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
-    const before = Date.now();
     const response = client.searchMemory('needle', 5);
-    expect(children[0].queries[0]).toEqual(expect.objectContaining({ deadlineMs: expect.any(Number) }));
-    const query = children[0].queries[0] as { deadlineMs: number };
-    expect(query.deadlineMs - before).toBeLessThan(5_000);
+    expect(children[0].queries[0]).toEqual(expect.objectContaining({ budgetMs: expect.any(Number) }));
+    const query = children[0].queries[0] as { budgetMs: number };
+    expect(query.budgetMs).toBeLessThan(5_000);
     children[0].reply({ kind: 'result', id: 1, result: { hits: [], bm25Only: true } });
     await response;
   });
@@ -449,7 +448,7 @@ describe('SearchWorkerClient', () => {
     expect(await running).toEqual([]);
     expect(await queued).toEqual([]);
     // The worker still owes id 1, so nothing else was dispatched.
-    expect(children[0].queries).toEqual([{ kind: 'chunks', id: 1, memoryId: 'a', deadlineMs: expect.any(Number) }]);
+    expect(children[0].queries).toEqual([{ kind: 'chunks', id: 1, memoryId: 'a', budgetMs: expect.any(Number), sentAtMs: expect.any(Number) }]);
     children[0].reply({ kind: 'result', id: 1, result: [] });
     expect(children[0].queries).toHaveLength(1);
   });
@@ -498,7 +497,7 @@ describe('SearchWorkerClient', () => {
     void client.getChunks('m1');
     void client.searchSymbolPage({ workspaceRoot: '/work', query: 'Foo', limit: 20, offset: 0 });
     for (const query of children[0].queries) {
-      expect(query).toEqual(expect.objectContaining({ deadlineMs: expect.any(Number) }));
+      expect(query).toEqual(expect.objectContaining({ budgetMs: expect.any(Number), sentAtMs: expect.any(Number) }));
     }
     expect(children[0].queries).toHaveLength(3);
     void client.dispose();
@@ -513,15 +512,40 @@ describe('SearchWorkerClient', () => {
     // A slow cold boot: 4 s pass before the worker is ready.
     jest.advanceTimersByTime(4_000);
     expect(children[0].queries).toEqual([]);
-    const readyAt = Date.now();
     children[0].reply({ kind: 'ready', vecLoaded: true });
-    expect(children[0].queries).toEqual([expect.objectContaining({ id: 1, deadlineMs: readyAt + 4_500 })]);
+    expect(children[0].queries).toEqual([expect.objectContaining({ id: 1, budgetMs: 4_500 })]);
     // 4.9 s after ready (8.9 s after the request) the answer still counts.
     jest.advanceTimersByTime(4_900);
     const hit = { hits: [], bm25Only: true };
     children[0].reply({ kind: 'result', id: 1, result: hit });
     expect(await response).toEqual(hit);
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('expires a symbol page during boot and never dispatches it after ready', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children, false), makeEmbedder(), makeLogger());
+    const deadlineMs = performance.now() + 100;
+    const response = client.searchSymbolPage({ query: 'Foo', limit: 20, offset: 0 }, deadlineMs);
+    jest.advanceTimersByTime(100);
+    expect(await response).toEqual({ items: [], total: 0 });
+    children[0].reply({ kind: 'ready', vecLoaded: true });
+    expect(children[0].queries).toEqual([]);
+    void client.dispose();
+  });
+
+  it('caps a running memory request and its worker deadline to the caller', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    const deadlineMs = performance.now() + 100;
+    const response = client.searchMemory('needle', 5, '/work', deadlineMs);
+    const sent = children[0].queries[0] as { budgetMs: number };
+    expect(sent.budgetMs).toBeLessThanOrEqual(100);
+    jest.advanceTimersByTime(100);
+    expect(await response).toEqual({ hits: [], bm25Only: true });
+    void client.dispose();
   });
 
   it('lets a request wait 15 s host-side for a slow boot before it degrades', async () => {
@@ -722,3 +746,4 @@ describe('SearchWorkerClient', () => {
     );
   });
 });
+

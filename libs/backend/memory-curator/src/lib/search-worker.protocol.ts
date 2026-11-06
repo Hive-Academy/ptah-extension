@@ -41,12 +41,9 @@ const symbolPageParamsSchema = z.object({
   offset: z.number().int().nonnegative().optional(),
 });
 
-/**
- * Epoch ms by which the host needs the answer (dispatch + client timeout -
- * 500 ms). Sent with every kind: a request still unstarted at its deadline
- * is not run, and the searches bound their embed/rerank waits by it.
- */
-const deadlineMs = z.number().int().positive().optional();
+/** Relative milliseconds remaining at send time; each receiver starts its own clock. */
+const budgetMs = z.number().finite().nonnegative().max(60_000).optional();
+const sentAtMs = z.number().finite().int().nonnegative().optional();
 
 export const searchWorkerQuerySchema = z.discriminatedUnion('kind', [
   z.object({
@@ -55,7 +52,8 @@ export const searchWorkerQuerySchema = z.discriminatedUnion('kind', [
     query: z.string().max(MAX_QUERY_CHARS),
     topK: z.number().int().min(1).max(50),
     workspaceRoot: z.string().nullable().optional(),
-    deadlineMs,
+    budgetMs,
+    sentAtMs,
   }),
   z.object({
     kind: z.literal('symbols'),
@@ -63,26 +61,30 @@ export const searchWorkerQuerySchema = z.discriminatedUnion('kind', [
     query: z.string().max(MAX_QUERY_CHARS),
     topK: z.number().int().min(1).max(50),
     workspaceRoot: z.string().optional(),
-    deadlineMs,
+    budgetMs,
+    sentAtMs,
   }),
   z.object({
     kind: z.literal('symbol-page'),
     id: requestId,
     params: symbolPageParamsSchema,
-    deadlineMs,
+    budgetMs,
+    sentAtMs,
   }),
   z.object({
     kind: z.literal('list'),
     id: requestId,
     workspaceRoot: z.string(),
     limit: z.number().int().min(1).max(500),
-    deadlineMs,
+    budgetMs,
+    sentAtMs,
   }),
   z.object({
     kind: z.literal('chunks'),
     id: requestId,
     memoryId: z.string().min(1),
-    deadlineMs,
+    budgetMs,
+    sentAtMs,
   }),
 ]);
 export type SearchWorkerQuery = z.infer<typeof searchWorkerQuerySchema>;
@@ -142,11 +144,15 @@ export const searchWorkerOutboundSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('embed'),
     id: requestId,
+    budgetMs,
     texts: z.array(z.string()).max(MAX_EMBED_TEXTS),
+    sentAtMs,
   }),
   z.object({
     kind: z.literal('rerank'),
     id: requestId,
+    budgetMs,
+    sentAtMs,
     query: z.string().max(MAX_QUERY_CHARS),
     candidates: z
       .array(z.object({ id: z.string(), text: z.string() }))

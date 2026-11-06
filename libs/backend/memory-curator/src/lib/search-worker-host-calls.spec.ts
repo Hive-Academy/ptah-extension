@@ -48,6 +48,43 @@ const candidates = [{ id: '1', text: 'a' }, { id: '2', text: 'b' }];
 describe('SearchWorkerHostCalls', () => {
   afterEach(() => jest.useRealTimers());
 
+  it('deducts host-call transit and rejects expired calls without taking an embed slot', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+    try {
+      const embed = jest.fn(async () => [new Float32Array([1])]);
+      const logger = makeLogger();
+      const service = new SearchWorkerHostCalls(makeEmbedder(embed), logger);
+      const expired = await service.answer({ kind: 'embed', id: 1, texts: ['old'], budgetMs: 100, sentAtMs: 9_800 });
+      expect(expired).toEqual({ kind: 'host-call-failed', id: 1, message: 'host embed deadline expired' });
+      expect(embed).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('expired in transit'), { transitMs: 100 });
+      const active = await service.answer({ kind: 'embed', id: 2, texts: ['new'], budgetMs: 100, sentAtMs: 9_960 });
+      expect(active.kind).toBe('embed-result');
+      expect(embed).toHaveBeenCalledTimes(1);
+      await service.answer({ kind: 'embed', id: 3, texts: ['future'], budgetMs: 100, sentAtMs: 10_050 });
+      await service.answer({ kind: 'embed', id: 4, texts: ['legacy'], budgetMs: 100 });
+      expect(embed).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('caps a delivered host embed at the budget left after transit', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(10_000);
+    const pendingEmbed = deferred<Float32Array[]>();
+    const embed = jest.fn(() => pendingEmbed.promise);
+    const service = new SearchWorkerHostCalls(makeEmbedder(embed), makeLogger());
+    const answer = service.answer({ kind: 'embed', id: 5, texts: ['slow'], budgetMs: 100, sentAtMs: 9_960 });
+    jest.advanceTimersByTime(59);
+    await flush();
+    expect(embed).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await expect(answer).resolves.toEqual({ kind: 'host-call-failed', id: 5, message: expect.stringContaining('60 ms') });
+    pendingEmbed.resolve([new Float32Array([1])]);
+    await flush();
+  });
+
   it('coalesces and caches identical embeddings across database changes', async () => {
     const embed = jest.fn(async () => [new Float32Array([1])]);
     const service = new SearchWorkerHostCalls(makeEmbedder(embed), makeLogger());
@@ -73,6 +110,53 @@ describe('SearchWorkerHostCalls', () => {
     releases[1]([new Float32Array([2])]);
     releases[2]([new Float32Array([3])]);
     await Promise.all([second, third]);
+  });
+
+  it('removes an expired queued embed without starting duplicate work', async () => {
+    jest.useFakeTimers();
+    const calls: Array<Deferred<Float32Array[]>> = [];
+    const embed = jest.fn(() => {
+      const call = deferred<Float32Array[]>();
+      calls.push(call);
+      return call.promise;
+    });
+    const service = new SearchWorkerHostCalls(makeEmbedder(embed), makeLogger());
+    const first = service.embed(['a']);
+    const second = service.embed(['b']);
+    await flush();
+    const queued = service.embed(['c'], performance.now() + 50);
+    jest.advanceTimersByTime(50);
+    await expect(queued).rejects.toThrow();
+    calls[0].resolve([new Float32Array([1])]);
+    await flush();
+    expect(embed).toHaveBeenCalledTimes(2);
+    calls[1].resolve([new Float32Array([2])]);
+    await Promise.all([first, second]);
+  });
+
+  it('keeps a queued identical embed for the later caller after the first deadline', async () => {
+    jest.useFakeTimers();
+    const calls: Array<Deferred<Float32Array[]>> = [];
+    const embed = jest.fn(() => {
+      const call = deferred<Float32Array[]>();
+      calls.push(call);
+      return call.promise;
+    });
+    const service = new SearchWorkerHostCalls(makeEmbedder(embed), makeLogger());
+    const first = service.embed(['a']);
+    const second = service.embed(['b']);
+    await flush();
+    const short = service.embed(['c'], performance.now() + 50);
+    const long = service.embed(['c'], performance.now() + 2_000);
+    jest.advanceTimersByTime(50);
+    await expect(short).rejects.toThrow();
+    calls[0].resolve([new Float32Array([1])]);
+    await flush();
+    expect(embed).toHaveBeenCalledTimes(3);
+    calls[2].resolve([new Float32Array([3])]);
+    await expect(long).resolves.toEqual([new Float32Array([3])]);
+    calls[1].resolve([new Float32Array([2])]);
+    await Promise.all([first, second]);
   });
 
   it('holds an embed slot until the embedder settles, not until the caller stops waiting', async () => {
@@ -262,3 +346,4 @@ describe('SearchWorkerHostCalls', () => {
     expect(logger.warn).toHaveBeenCalledTimes(2);
   });
 });
+

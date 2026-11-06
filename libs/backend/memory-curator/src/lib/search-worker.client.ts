@@ -35,6 +35,7 @@ import type { MemoryChunk, MemorySearchResponse } from './memory.types';
 import type { CodeSymbolSearchParams, CodeSymbolSearchResult } from './code-symbol.store';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import { SearchWorkerHostCalls } from './search-worker-host-calls';
+import { wireBudgetMs } from './search-deadline';
 import type { ISearchWorkerFactory, ISearchWorkerProcess, ISqliteSearchWorker } from './search-worker.port';
 import {
   createSearchWorkerResultSchemas,
@@ -60,6 +61,9 @@ type QueryBody = DistributiveOmit<SearchWorkerQuery, 'id'>;
 
 interface PendingRequest {
   readonly message: SearchWorkerQuery;
+  readonly deadlineMs: number;
+  readonly queuedAt: number;
+  dispatchedAt?: number;
   /** Queue-wait timer until dispatch, then the run timer. */
   timer: ReturnType<typeof setTimeout>;
   dispatched: boolean;
@@ -132,11 +136,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.schemas = createSearchWorkerResultSchemas((report) => reportDroppedRows(this.logger, report));
   }
 
-  searchMemory(query: string, topK: number, workspaceRoot?: string | null): Promise<MemorySearchResponse> {
+  searchMemory(query: string, topK: number, workspaceRoot?: string | null, deadlineMs?: number): Promise<MemorySearchResponse> {
     return this.request(
       { kind: 'memory', query, topK: clampTopK(topK), workspaceRoot },
       this.schemas.memory,
-      { hits: [], bm25Only: true },
+      { hits: [], bm25Only: true }, deadlineMs,
     );
   }
 
@@ -148,11 +152,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     );
   }
 
-  searchSymbolPage(params: CodeSymbolSearchParams): Promise<CodeSymbolSearchResult> {
+  searchSymbolPage(params: CodeSymbolSearchParams, deadlineMs?: number): Promise<CodeSymbolSearchResult> {
     return this.request(
       { kind: 'symbol-page', params: { ...params, kinds: params.kinds ? [...params.kinds] : undefined } },
       this.schemas['symbol-page'],
-      { items: [], total: 0 },
+      { items: [], total: 0 }, deadlineMs,
     );
   }
 
@@ -173,7 +177,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
    * process boot. No-op when it is running, disposed or backing off.
    */
   start(): void {
-    if (this.disposed || this.process || Date.now() < this.retryAfter) return;
+    if (this.disposed || this.process || performance.now() < this.retryAfter) return;
     this.ensureProcess('boot');
   }
 
@@ -201,8 +205,10 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     }
   }
 
-  private request<T>(body: QueryBody, schema: z.ZodType<T>, empty: T): Promise<T> {
-    if (this.disposed || Date.now() < this.retryAfter) return Promise.resolve(empty);
+  private request<T>(body: QueryBody, schema: z.ZodType<T>, empty: T, callerDeadlineMs?: number): Promise<T> {
+    const deadlineMs = Math.min(callerDeadlineMs ?? Infinity, performance.now() + this.queueTimeoutMs + this.timeoutMs);
+    if (deadlineMs <= performance.now()) return Promise.resolve(empty);
+    if (this.disposed || performance.now() < this.retryAfter) return Promise.resolve(empty);
     if (this.pending.size >= this.maxPending) {
       if (!this.saturated) {
         this.saturated = true;
@@ -233,7 +239,9 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     return new Promise<T>((resolve) => {
       this.pending.set(id, {
         message,
-        timer: setTimeout(() => this.onTimeout(id), this.queueTimeoutMs),
+        deadlineMs,
+        queuedAt: performance.now(),
+        timer: setTimeout(() => this.onTimeout(id), Math.max(1, Math.min(this.queueTimeoutMs, deadlineMs - performance.now()))),
         dispatched: false,
         degrade: () => resolve(empty),
         settle: (raw) => {
@@ -268,14 +276,19 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
 
   private dispatch(child: ISearchWorkerProcess, id: number, slot: PendingRequest): void {
     clearTimeout(slot.timer);
-    slot.timer = setTimeout(() => this.onTimeout(id), this.timeoutMs);
+    const remaining = slot.deadlineMs - performance.now();
+    if (remaining <= 0) { this.onTimeout(id); return; }
+    const queueWaitMs = performance.now() - slot.queuedAt;
+    this.logger.debug(`${LOG_PREFIX} request queue wait`, { kind: slot.message.kind, queueWaitMs });
+    slot.dispatchedAt = performance.now();
+    slot.timer = setTimeout(() => this.onTimeout(id), Math.max(1, Math.min(this.timeoutMs, remaining)));
     slot.dispatched = true;
     // The silence clock starts when the worker begins owing an answer.
-    if (this.owed.size === 0) this.lastActivityAt = Date.now();
+    if (this.owed.size === 0) this.lastActivityAt = performance.now();
     this.owed.add(id);
     this.armWatchdog();
     try {
-      child.postMessage({ ...slot.message, deadlineMs: Date.now() + Math.max(1, this.timeoutMs - DEADLINE_MARGIN_MS) });
+      child.postMessage({ ...slot.message, budgetMs: Math.min(wireBudgetMs(slot.deadlineMs) ?? 0, Math.max(1, this.timeoutMs - DEADLINE_MARGIN_MS)), sentAtMs: Date.now() });
     } catch (error: unknown) {
       this.logger.warn(`${LOG_PREFIX} request send failed`, { error: errorMessage(error) });
       this.resetProcess(child, true);
@@ -308,7 +321,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     }
     this.process = child;
     this.ready = false;
-    this.spawnedAt = Date.now();
+    this.spawnedAt = performance.now();
     this.warmPending = vecPath !== undefined;
     this.logger.info(`${LOG_PREFIX} forked`, { reason });
     this.bootTimer = setTimeout(() => this.onBootTimeout(child), BOOT_TIMEOUT_MS);
@@ -354,7 +367,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   private handleMessage(child: ISearchWorkerProcess, raw: unknown): void {
     if (child !== this.process) return;
     // Any message, even one that fails validation, proves the worker is alive.
-    this.lastActivityAt = Date.now();
+    this.lastActivityAt = performance.now();
     const parsed = searchWorkerOutboundSchema.safeParse(raw);
     if (!parsed.success) {
       this.logger.warn(`${LOG_PREFIX} rejected an invalid worker message`, {
@@ -377,10 +390,10 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       case 'ready':
         this.ready = true;
         this.clearBootTimer();
-        this.lastActivityAt = Date.now();
+        this.lastActivityAt = performance.now();
         this.logger.info(`${LOG_PREFIX} ready`, {
           vecLoaded: message.vecLoaded,
-          sinceForkMs: Date.now() - this.spawnedAt,
+          sinceForkMs: performance.now() - this.spawnedAt,
         });
         this.pump();
         return;
@@ -390,7 +403,13 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
         return;
       case 'result':
         this.owed.delete(message.id);
-        this.takePending(message.id)?.settle(message.result);
+        {
+          const slot = this.takePending(message.id);
+          if (slot?.dispatchedAt !== undefined) this.logger.debug(`${LOG_PREFIX} request run time`, {
+            kind: slot.message.kind, runMs: performance.now() - slot.dispatchedAt,
+          });
+          slot?.settle(message.result);
+        }
         this.pump();
         return;
       case 'error': {
@@ -438,6 +457,9 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       if (queued >= 0) this.queue.splice(queued, 1);
     }
     slot.degrade();
+    if (slot.dispatchedAt !== undefined) this.logger.debug(`${LOG_PREFIX} request run time`, {
+      kind: slot.message.kind, runMs: performance.now() - slot.dispatchedAt,
+    });
     this.logger.warn(`${LOG_PREFIX} request timed out; answering degraded`, {
       kind: slot.message.kind,
       phase: slot.dispatched ? 'running' : 'queued',
@@ -449,7 +471,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
 
   private armWatchdog(): void {
     if (this.watchdog !== null || !this.process) return;
-    const wait = Math.max(0, this.lastActivityAt + this.livenessMs - Date.now());
+    const wait = Math.max(0, this.lastActivityAt + this.livenessMs - performance.now());
     this.watchdog = setTimeout(() => this.checkLiveness(), wait);
     this.watchdog.unref?.();
   }
@@ -459,7 +481,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.watchdog = null;
     const child = this.process;
     if (!child || this.owed.size === 0) return;
-    if (Date.now() - this.lastActivityAt < this.livenessMs) {
+    if (performance.now() - this.lastActivityAt < this.livenessMs) {
       this.armWatchdog();
       return;
     }
@@ -472,7 +494,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
 
   private confirmUnresponsive(child: ISearchWorkerProcess): void {
     if (child !== this.process || this.owed.size === 0) return;
-    const silentMs = Date.now() - this.lastActivityAt;
+    const silentMs = performance.now() - this.lastActivityAt;
     if (silentMs < this.livenessMs) {
       this.armWatchdog();
       return;
@@ -533,7 +555,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
 
   private backOff(): void {
     this.failures = Math.min(this.failures + 1, 8);
-    this.retryAfter = Date.now() + Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (this.failures - 1));
+    this.retryAfter = performance.now() + Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (this.failures - 1));
   }
 }
 
@@ -544,3 +566,4 @@ function clampTopK(topK: number): number {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+

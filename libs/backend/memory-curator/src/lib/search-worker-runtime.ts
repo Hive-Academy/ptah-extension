@@ -18,6 +18,7 @@ import { memoryId } from './memory.types';
 import { ObservationQueueStore } from './observation-queue.store';
 import { HostBridgeEmbedder } from './search-worker-host-embedder';
 import { serializeWorkerError } from './search-worker-error';
+import { localDeadlineMs, wireTransitMs } from './search-deadline';
 import {
   searchWorkerInboundSchema,
   toTransferableLogContext,
@@ -91,7 +92,16 @@ export class SearchWorkerRuntime {
         this.state?.bridge.settle(message);
         return;
       default:
-        void this.answer(message);
+        {
+          const transitMs = wireTransitMs(message.budgetMs, message.sentAtMs);
+          const remainingBudgetMs = message.budgetMs === undefined ? undefined : message.budgetMs - transitMs;
+          if (remainingBudgetMs !== undefined && remainingBudgetMs <= 0) {
+            this.logger.debug('[sqlite-search-worker] request expired in transit', { kind: message.kind, transitMs });
+            this.options.post({ kind: 'error', id: message.id, message: 'request deadline passed before it started' });
+            return;
+          }
+          void this.answer(message, localDeadlineMs(remainingBudgetMs));
+        }
     }
   }
 
@@ -117,7 +127,7 @@ export class SearchWorkerRuntime {
     }
     // Boot stage timings, so a slow boot shows where its time went. Uptime
     // covers the fork and the bundle load before `init` was handled.
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     const uptimeMs = Math.round(process.uptime() * 1000);
     let db: SqliteDatabase;
     try {
@@ -131,9 +141,9 @@ export class SearchWorkerRuntime {
       this.options.post({ kind: 'init-failed', message: text });
       return;
     }
-    const openedAt = Date.now();
+    const openedAt = performance.now();
     const vecLoaded = this.loadVec(db, message.vecPath);
-    const vecAt = Date.now();
+    const vecAt = performance.now();
     const logger = this.logger;
     const connection: SqliteDbProvider = {
       db,
@@ -167,7 +177,7 @@ export class SearchWorkerRuntime {
       memorySearch: this.createMemorySearch(partial),
       dataVersion: this.readDataVersion(db),
     };
-    const readyAt = Date.now();
+    const readyAt = performance.now();
     this.logger.info('[sqlite-search-worker] init stages', {
       uptimeBeforeInitMs: uptimeMs,
       openMs: openedAt - startedAt,
@@ -219,20 +229,20 @@ export class SearchWorkerRuntime {
     return Number(db.pragma('data_version', { simple: true }));
   }
 
-  private async answer(query: SearchWorkerQuery): Promise<void> {
+  private async answer(query: SearchWorkerQuery, deadlineMs?: number): Promise<void> {
     const state = this.state;
     if (!state) {
       this.options.post({ kind: 'error', id: query.id, message: 'search worker not initialized' });
       return;
     }
-    if (query.deadlineMs !== undefined && Date.now() >= query.deadlineMs) {
+    if (deadlineMs !== undefined && performance.now() >= deadlineMs) {
       // The host has already answered this request degraded and logged it;
       // starting its synchronous SQL now would only delay the requests behind.
       this.options.post({ kind: 'error', id: query.id, message: 'request deadline passed before it started' });
       return;
     }
     try {
-      const result = await this.run(state, query);
+      const result = await this.run(state, query, deadlineMs);
       this.options.post({ kind: 'result', id: query.id, result });
     } catch (error: unknown) {
       const text = error instanceof Error ? error.message : String(error);
@@ -241,7 +251,7 @@ export class SearchWorkerRuntime {
     }
   }
 
-  private run(state: WorkerState, query: SearchWorkerQuery): unknown {
+  private run(state: WorkerState, query: SearchWorkerQuery, deadlineMs?: number): unknown {
     switch (query.kind) {
       case 'memory': {
         const version = this.readDataVersion(state.db);
@@ -249,10 +259,10 @@ export class SearchWorkerRuntime {
           state.memorySearch = this.createMemorySearch(state);
           state.dataVersion = version;
         }
-        return state.memorySearch.searchRich(query.query, query.topK, query.workspaceRoot, query.deadlineMs);
+        return state.memorySearch.searchRich(query.query, query.topK, query.workspaceRoot, deadlineMs);
       }
       case 'symbols':
-        return state.symbols.searchSymbols(query.query, query.topK, query.workspaceRoot, query.deadlineMs);
+        return state.symbols.searchSymbols(query.query, query.topK, query.workspaceRoot, deadlineMs);
       // The remaining kinds are single synchronous statements: once started
       // they cannot be interrupted, so the deadline is only checked above.
       case 'symbol-page':
@@ -272,3 +282,4 @@ export class SearchWorkerRuntime {
     this.options.post({ kind: 'log', level, message, context: toTransferableLogContext(detail) });
   }
 }
+

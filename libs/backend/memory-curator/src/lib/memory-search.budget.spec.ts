@@ -97,12 +97,12 @@ describe('MemorySearchService — capped scoped KNN is partial, not a failure', 
     const logger = makeLogger();
     const service = makeService(connection, staticEmbedder(), logger);
 
-    const result = await service.searchRich('lexical match', 5, '/tiny-workspace', Date.now() + 4_500);
+    const result = await service.searchRich('lexical match', 5, '/tiny-workspace', performance.now() + 4_500);
 
     expect(result.bm25Only).toBe(false);
     expect(result.hits.find((hit) => hit.chunk.id === 'ck2')?.vecRank).toBeDefined();
     expect(logger.warn).not.toHaveBeenCalled();
-    await service.searchRich('lexical match', 5, '/tiny-workspace', Date.now() + 4_500);
+    await service.searchRich('lexical match', 5, '/tiny-workspace', performance.now() + 4_500);
     expect(knnK).toEqual([2048, 2048]);
   });
 
@@ -152,11 +152,11 @@ describe('MemorySearchService — shed or skipped rerank', () => {
     const logger = makeLogger();
     const service = makeService(connection, bridge, logger);
 
-    const result = await service.searchRich('lexical match', 5, undefined, Date.now() + 4_500);
+    const result = await service.searchRich('lexical match', 5, undefined, performance.now() + 4_500);
     expect(result.bm25Only).toBe(false);
     expect(result.hits.length).toBeGreaterThan(0);
     expect(logger.warn).not.toHaveBeenCalled();
-    await service.searchRich('lexical match', 5, undefined, Date.now() + 4_500);
+    await service.searchRich('lexical match', 5, undefined, performance.now() + 4_500);
     // Not served from the cache: the second search asked for a rerank again.
     expect(reranks()).toBe(2);
   });
@@ -181,11 +181,11 @@ describe('MemorySearchService — shed or skipped rerank', () => {
     const logger = makeLogger();
     const service = makeService(connection, bridge, logger);
 
-    const first = service.searchRich('lexical match', 5, undefined, Date.now() + 4_500);
+    const first = service.searchRich('lexical match', 5, undefined, performance.now() + 4_500);
     await jest.advanceTimersByTimeAsync(4_500);
     expect((await first).hits.length).toBeGreaterThan(0);
     expect(logger.warn).not.toHaveBeenCalled();
-    await service.searchRich('lexical match', 5, undefined, Date.now() + 4_500);
+    await service.searchRich('lexical match', 5, undefined, performance.now() + 4_500);
     expect(reranks).toBe(2);
     expect(logger.warn).not.toHaveBeenCalled();
   });
@@ -197,11 +197,11 @@ describe('MemorySearchService — shed or skipped rerank', () => {
     const logger = makeLogger();
     const service = makeService(connection, bridge, logger);
 
-    const hurried = await service.searchRich('lexical match', 5, undefined, Date.now() + 900);
+    const hurried = await service.searchRich('lexical match', 5, undefined, performance.now() + 900);
     expect(hurried.bm25Only).toBe(false);
     expect(reranks()).toBe(0);
     expect(logger.warn).not.toHaveBeenCalled();
-    await service.searchRich('lexical match', 5, undefined, Date.now() + 4_500);
+    await service.searchRich('lexical match', 5, undefined, performance.now() + 4_500);
     expect(reranks()).toBe(1);
   });
 });
@@ -225,9 +225,9 @@ describe('MemorySearchService — deadline-bound searches', () => {
     const logger = makeLogger();
     const service = makeService(connection, embedder, logger);
 
-    const stalled = service.searchRich('stalled', 5, undefined, Date.now() + 4_500);
+    const stalled = service.searchRich('stalled', 5, undefined, performance.now() + 4_500);
     let quickSettled = false;
-    const quick = service.searchRich('quick', 5, undefined, Date.now() + 4_500).then((response) => {
+    const quick = service.searchRich('quick', 5, undefined, performance.now() + 4_500).then((response) => {
       quickSettled = true;
       return response;
     });
@@ -255,7 +255,7 @@ describe('MemorySearchService — deadline-bound searches', () => {
       dispose: async () => undefined,
     };
     const service = makeService(connection, embedder, makeLogger());
-    const pending = service.searchRich('late', 5, undefined, Date.now() + 1_000);
+    const pending = service.searchRich('late', 5, undefined, performance.now() + 1_000);
     jest.advanceTimersByTime(1_000);
     expect((await pending).bm25Only).toBe(true);
     release([new Float32Array(384)]);
@@ -263,3 +263,4 @@ describe('MemorySearchService — deadline-bound searches', () => {
     expect(knnRuns).toBe(0);
   });
 });
+
