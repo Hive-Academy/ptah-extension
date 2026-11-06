@@ -1298,7 +1298,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         agentId: 'interrupted-previous' as CliSessionReference['agentId'],
         task: 'Implement the parser',
         startedAt: '2026-10-04T08:00:00.000Z',
-        status: 'running',
+        completedAt: '2026-10-04T08:01:00.000Z',
+        lastActivityAt: '2026-10-04T08:01:00.000Z',
+        status: 'stopped',
+        stopReason: 'host-restart',
       }], '/workspace/root');
       const previous = manager.getStatus('interrupted-previous') as AgentProcessInfo;
       if (!previous.completedAt) throw new Error('Expected interruption timestamp');

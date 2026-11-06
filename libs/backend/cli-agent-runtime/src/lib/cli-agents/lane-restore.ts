@@ -19,7 +19,11 @@ function boundedActivityAt(
     : parsed.data;
 }
 
-/** Lifecycle fields rebuilt from a persisted lane reference. */
+/**
+ * Lifecycle fields rebuilt from a persisted lane reference. `restoreAgents`
+ * excludes live `running` references before calling this helper. The store has
+ * already normalized an interrupted lane to `stopped` / `host-restart`.
+ */
 export function restoreLaneLifecycle(
   ref: CliSessionReference,
   restoredAt: string,
@@ -28,18 +32,6 @@ export function restoreLaneLifecycle(
   'status' | 'completedAt' | 'lastActivityAt' | 'stopReason'
 > {
   const lastActivityAt = boundedActivityAt(ref.lastActivityAt, restoredAt);
-
-  if (ref.status === 'running') {
-    // The process died with the previous host. An old record has no activity
-    // checkpoint, so the restore instant is the only honest interruption time.
-    const interruptedAt = lastActivityAt ?? restoredAt;
-    return {
-      status: 'stopped',
-      completedAt: interruptedAt,
-      lastActivityAt: interruptedAt,
-      stopReason: 'host-restart',
-    };
-  }
 
   return {
     status: ref.status,

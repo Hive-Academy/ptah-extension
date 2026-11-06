@@ -56,9 +56,10 @@ import { createCodexThreadIdentityStore } from './wiring/codex-thread-identity-s
 import * as hostRunIdModule from './host-run-id';
 import {
   HOST_RUN_HEARTBEAT_INTERVAL_MS,
-  HOST_RUN_LEASE_KEY,
   HOST_RUN_LEASE_RETENTION_MS,
   HOST_RUN_STALE_AFTER_MS,
+  HostRunLease,
+  hostRunLeaseKey,
 } from './host-run-lease';
 import { currentHostRunId } from './host-run-id';
 import { initializeSessionRuntimeIdentityLookup } from './wiring/session-runtime-identity-cache';
@@ -1768,8 +1769,9 @@ describe('SessionMetadataStore', () => {
 
       async function storedRef(
         reader: SessionMetadataStore,
+        sessionId = 'sess-1',
       ): Promise<CliSessionReference | undefined> {
-        return (await reader.get('sess-1'))?.cliSessions?.[0];
+        return (await reader.get(sessionId))?.cliSessions?.[0];
       }
 
       it('keeps a lane of another live host running and unchanged on disk', async () => {
@@ -1785,16 +1787,16 @@ describe('SessionMetadataStore', () => {
           status: 'running',
           hostRunId: 'host-run-a',
         });
-        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
-          'host-run-a': T0 + 120_000,
-        });
+        expect(
+          storage.__state.entries.get(hostRunLeaseKey('host-run-a')),
+        ).toBe(T0 + 120_000);
       });
 
       it('interrupts a lane once after its host stops beating', async () => {
         const { hostA, hostB } = await runningLaneOfHostA();
         // A crash: the heartbeat timer dies with the process, the entry stays.
         await hostA.flushForShutdown();
-        await storage.update(HOST_RUN_LEASE_KEY, { 'host-run-a': T0 });
+        await storage.update(hostRunLeaseKey('host-run-a'), T0);
         await jest.advanceTimersByTimeAsync(HOST_RUN_STALE_AFTER_MS + 1_000);
         const firstRestoreAt = Date.now();
 
@@ -1827,7 +1829,9 @@ describe('SessionMetadataStore', () => {
           status: 'stopped',
           stopReason: 'host-restart',
         });
-        expect(storage.__state.entries.has(HOST_RUN_LEASE_KEY)).toBe(false);
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-a')),
+        ).toBe(false);
       });
 
       it('disposes the heartbeat timer on shutdown', async () => {
@@ -1838,27 +1842,121 @@ describe('SessionMetadataStore', () => {
 
         expect(jest.getTimerCount()).toBe(0);
         await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS * 3);
-        expect(storage.__state.entries.has(HOST_RUN_LEASE_KEY)).toBe(false);
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-a')),
+        ).toBe(false);
       });
 
-      it('prunes expired, future and malformed lease entries on heartbeat', async () => {
-        await storage.update(HOST_RUN_LEASE_KEY, {
-          'host-run-old': T0 - HOST_RUN_LEASE_RETENTION_MS - 1,
-          'host-run-recent': T0 - 60_000,
-          'host-run-future': T0 + 3_600_000,
+      it('keeps host A live when hosts A and B interleave heartbeat writes', async () => {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        const metadata = await hostA.get('sess-1');
+        if (!metadata) throw new Error('Expected seeded session metadata');
+        await hostA.save({
+          ...metadata,
+          cliSessions: [
+            cliRef({
+              status: 'running',
+              completedAt: undefined,
+              hostRunId: 'host-run-a',
+            }),
+          ],
         });
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = new SessionMetadataStore(storage, asLogger(logger));
+        const leaseStorage = {
+          read: async (key: string) => storage.get(key),
+          write: (key: string, value: number | undefined) =>
+            storage.update(key, value),
+          keys: () => storage.keys(),
+        };
+
+        hostRun.mockReturnValue('host-run-a');
+        const leaseA = new HostRunLease(leaseStorage, asLogger(logger));
+        const writeA = leaseA.start();
+        hostRun.mockReturnValue('host-run-b');
+        const leaseB = new HostRunLease(leaseStorage, asLogger(logger));
+        const writeB = leaseB.start();
+        await Promise.all([writeA, writeB]);
+
+        // B restores A before A's next beat. B's write cannot erase A's key.
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+        expect(read.stopReason).toBeUndefined();
+        expect(await storedRef(hostA)).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-b'))).toBe(
+          T0,
+        );
+        await Promise.all([leaseA.dispose(), leaseB.dispose()]);
+      });
+
+      it('rejects a running write when the first heartbeat fails, then retries', async () => {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        storage.update.mockRejectedValueOnce(new Error('lease unavailable'));
+
+        await expect(
+          hostA.addCliSession(
+            'sess-1',
+            cliRef({ status: 'running', completedAt: undefined }),
+          ),
+        ).rejects.toThrow('lease unavailable');
+        expect(jest.getTimerCount()).toBe(0);
+        expect((await hostA.get('sess-1'))?.cliSessions ?? []).toEqual([]);
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-a'))).toBe(
+          false,
+        );
+
+        await expect(
+          hostA.addCliSession(
+            'sess-1',
+            cliRef({ status: 'running', completedAt: undefined }),
+          ),
+        ).resolves.toBeUndefined();
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(jest.getTimerCount()).toBe(1);
+      });
+
+      it('prunes expired, future and malformed lease keys on heartbeat', async () => {
+        await storage.update(
+          hostRunLeaseKey('host-run-old'),
+          T0 - HOST_RUN_LEASE_RETENTION_MS - 1,
+        );
+        await storage.update(hostRunLeaseKey('host-run-recent'), T0 - 60_000);
+        await storage.update(hostRunLeaseKey('host-run-future'), T0 + 3_600_000);
         await runningLaneOfHostA();
 
-        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
-          'host-run-a': T0,
-          'host-run-recent': T0 - 60_000,
-        });
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(
+          storage.__state.entries.get(hostRunLeaseKey('host-run-recent')),
+        ).toBe(T0 - 60_000);
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-old'))).toBe(
+          false,
+        );
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-future')),
+        ).toBe(false);
 
-        await storage.update(HOST_RUN_LEASE_KEY, { 'host-run-x': 'yesterday' });
+        await storage.update(hostRunLeaseKey('host-run-x'), 'yesterday');
         await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS);
-        expect(storage.__state.entries.get(HOST_RUN_LEASE_KEY)).toEqual({
-          'host-run-a': T0 + HOST_RUN_HEARTBEAT_INTERVAL_MS,
-        });
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0 + HOST_RUN_HEARTBEAT_INTERVAL_MS,
+        );
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-x'))).toBe(
+          false,
+        );
       });
     });
 

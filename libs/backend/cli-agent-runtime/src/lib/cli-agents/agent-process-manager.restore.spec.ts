@@ -22,6 +22,8 @@ import type {
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
+import { SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
@@ -224,12 +226,107 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(manager.readOutput(RESTORED_ID).stdout).toBe('live output');
   });
 
-  it("restores a ref persisted as 'running' as a host interruption without an exit code", () => {
+  it('does not install a live foreign running ref or mark it interrupted', async () => {
+    const evaluateResume = jest.fn().mockResolvedValue({
+      decision: 'fresh',
+      reason: 'no local record',
+      contextTokens: null,
+      source: 'estimate',
+      idleMs: 0,
+    });
+    const manager = makeManager({ providerRoot: ROOT_A, evaluateResume });
+
+    const count = manager.restoreAgents(
+      [makeRef({ status: 'running' })],
+      ROOT_A,
+    );
+
+    expect(count).toBe(0);
+    expect(manager.findAgentInfo(RESTORED_ID)).toBeUndefined();
+    await manager['gateResume']('Continue', 'cli-session-1', 'codex');
+    expect(evaluateResume).toHaveBeenCalledWith(
+      expect.not.objectContaining({ interruptedByHostRestart: true }),
+    );
+  });
+
+  it('restores a foreign lane only after its host lease becomes stale', async () => {
+    jest.useFakeTimers();
+    try {
+      const now = Date.parse('2026-10-17T12:00:00.000Z');
+      jest.setSystemTime(now);
+      const evaluateResume = jest.fn().mockResolvedValue({
+        decision: 'resume',
+        reason: 'test gate',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 0,
+      });
+      const manager = makeManager({ providerRoot: ROOT_A, evaluateResume });
+      const storage = createMockStateStorage();
+      const hostB = new SessionMetadataStore(storage, manager['logger']);
+      await hostB.create('sess-1', ROOT_A, 'parent');
+      const metadata = await hostB.get('sess-1');
+      if (!metadata) throw new Error('Expected seeded session metadata');
+      const lastActivityAt = new Date(now - 30_000).toISOString();
+      await hostB.save({
+        ...metadata,
+        cliSessions: [
+          makeRef({
+            status: 'running',
+            hostRunId: 'host-run-a',
+            lastActivityAt,
+          }),
+        ],
+      });
+      await storage.update('ptah.hostRunLease.host-run-a', now);
+
+      const [live] = await hostB.getCliSessionsForRestore('sess-1');
+      expect(live).toMatchObject({ status: 'running', lastActivityAt });
+      expect(live).not.toHaveProperty('hostRunId');
+      expect(manager.restoreAgents([live], ROOT_A)).toBe(0);
+      expect(manager.findAgentInfo(RESTORED_ID)).toBeUndefined();
+      await manager['gateResume']('Continue', 'cli-session-1', 'codex');
+      expect(evaluateResume).toHaveBeenNthCalledWith(
+        1,
+        expect.not.objectContaining({ interruptedByHostRestart: true }),
+      );
+
+      // Host A crashed: its key remains, but no beat arrives for over 90 s.
+      jest.setSystemTime(now + 91_000);
+      const [interrupted] = await hostB.getCliSessionsForRestore('sess-1');
+      expect(interrupted).toMatchObject({
+        status: 'stopped',
+        stopReason: 'host-restart',
+        completedAt: lastActivityAt,
+        lastActivityAt,
+      });
+      expect(manager.restoreAgents([interrupted], ROOT_A)).toBe(1);
+      await manager['gateResume']('Continue', 'cli-session-1', 'codex');
+      expect(evaluateResume).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          interruptedByHostRestart: true,
+          lastActivityAt: Date.parse(lastActivityAt),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('restores a store-normalized host interruption without an exit code', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
     const lastActivityAt = '2026-09-01T10:59:30.000Z';
 
     manager.restoreAgents(
-      [makeRef({ status: 'running', lastActivityAt })],
+      [
+        makeRef({
+          status: 'stopped',
+          stopReason: 'host-restart',
+          completedAt: lastActivityAt,
+          lastActivityAt,
+        }),
+      ],
       ROOT_A,
     );
 
@@ -243,23 +340,27 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(info.exitCode).toBeUndefined();
   });
 
-  it('loads an old running ref without activity and uses restore time as the interruption', () => {
+  it('keeps the interruption instant supplied by the store without prior activity', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
-    const beforeRestore = Date.now();
+    const interruptedAt = new Date().toISOString();
 
-    manager.restoreAgents([makeRef({ status: 'running' })], ROOT_A);
+    manager.restoreAgents(
+      [
+        makeRef({
+          status: 'stopped',
+          stopReason: 'host-restart',
+          completedAt: interruptedAt,
+          lastActivityAt: interruptedAt,
+        }),
+      ],
+      ROOT_A,
+    );
 
     const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
     expect(info.status).toBe('stopped');
     expect(info.stopReason).toBe('host-restart');
-    expect(Date.parse(info.lastActivityAt ?? '')).toBeGreaterThanOrEqual(
-      beforeRestore,
-    );
-    expect(Date.parse(info.completedAt ?? '')).toBeGreaterThanOrEqual(
-      beforeRestore,
-    );
-    expect(Date.parse(info.completedAt ?? '')).toBeLessThanOrEqual(Date.now());
-    expect(info.completedAt).toBe(info.lastActivityAt);
+    expect(info.completedAt).toBe(interruptedAt);
+    expect(info.lastActivityAt).toBe(interruptedAt);
   });
 
   it('resumes an interrupted long-running lane from last activity, not spawn', async () => {
@@ -276,9 +377,11 @@ describe('AgentProcessManager.restoreAgents', () => {
     manager.restoreAgents(
       [
         makeRef({
-          status: 'running',
+          status: 'stopped',
+          stopReason: 'host-restart',
           startedAt: new Date(now - 3_600_000).toISOString(),
           lastActivityAt,
+          completedAt: lastActivityAt,
         }),
       ],
       ROOT_A,
@@ -327,9 +430,11 @@ describe('AgentProcessManager.restoreAgents', () => {
       [
         makeRef({
           cli: 'copilot',
-          status: 'running',
+          status: 'stopped',
+          stopReason: 'host-restart',
           startedAt: new Date(now - 3_600_000).toISOString(),
           lastActivityAt: new Date(now - 601_000).toISOString(),
+          completedAt: new Date(now - 601_000).toISOString(),
         }),
       ],
       ROOT_A,
@@ -376,9 +481,11 @@ describe('AgentProcessManager.restoreAgents', () => {
         [
           makeRef({
             cli: 'copilot',
-            status: 'running',
+            status: 'stopped',
+            stopReason: 'host-restart',
             startedAt: new Date(now - 3_600_000).toISOString(),
             lastActivityAt: new Date(now + 3_600_000).toISOString(),
+            completedAt: new Date(now).toISOString(),
           }),
         ],
         ROOT_A,
@@ -417,8 +524,11 @@ describe('AgentProcessManager.restoreAgents', () => {
     manager.restoreAgents(
       [
         makeRef({
-          status: 'running',
+          status: 'stopped',
+          stopReason: 'host-restart',
           startedAt: new Date(beforeRestore - 3_600_000).toISOString(),
+          lastActivityAt: new Date(beforeRestore).toISOString(),
+          completedAt: new Date(beforeRestore).toISOString(),
         }),
       ],
       ROOT_A,

@@ -1695,15 +1695,23 @@ export class AgentProcessManager {
     for (const ref of refs) {
       const agentId = String(ref.agentId);
       if (!agentId || this.agents.has(agentId)) continue;
+      if (ref.status === 'running') {
+        // The store returns `running` only for a live host run. This run's own
+        // lanes are already in memory; a foreign live lane belongs to its host.
+        this.logger.debug(
+          '[AgentProcessManager] Skipped a live lane owned by another host run',
+          { agentId, cliSessionId: ref.cliSessionId, workingDirectory },
+        );
+        continue;
+      }
 
       const stdout = ref.stdout ?? '';
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
         ...laneAccountFields(ref),
-        // Status, completedAt, lastActivityAt and stopReason: a lane left
-        // `running` by an earlier host run is restored `stopped` /
-        // `host-restart` with a bounded completedAt.
+        // Status, completedAt, lastActivityAt and stopReason come from the
+        // store-normalized reference. Live foreign lanes were excluded above.
         ...restoreLaneLifecycle(ref, restoredAt),
         agentId: ref.agentId,
         cli: ref.cli,

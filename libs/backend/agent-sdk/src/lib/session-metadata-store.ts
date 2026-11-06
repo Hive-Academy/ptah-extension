@@ -59,12 +59,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
 import { currentHostRunId } from './host-run-id';
-import {
-  HOST_RUN_LEASE_KEY,
-  HostRunLease,
-  isHostRunLive,
-  type HostRunLeases,
-} from './host-run-lease';
+import { HostRunLease } from './host-run-lease';
 import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import {
@@ -869,19 +864,20 @@ function isForeignRunningReference(ref: CliSessionReference): boolean {
   );
 }
 
+type HostRunLiveness = ReadonlyMap<string, boolean>;
+
 /**
  * A foreign `running` reference whose writer is gone: unstamped (legacy), or
- * its host run's heartbeat is missing or stale. A live other host sharing this
- * store keeps its lanes `running`.
+ * its host run's own heartbeat key is missing, malformed or stale. A live
+ * other host sharing this store keeps its lanes `running`.
  */
 function isStaleRunningReference(
   ref: CliSessionReference,
-  leases: HostRunLeases,
-  now: number,
+  liveness: HostRunLiveness,
 ): boolean {
   return (
     isForeignRunningReference(ref) &&
-    (ref.hostRunId === undefined || !isHostRunLive(leases, ref.hostRunId, now))
+    (ref.hostRunId === undefined || liveness.get(ref.hostRunId) !== true)
   );
 }
 
@@ -910,9 +906,9 @@ function projectForRestore(ref: CliSessionReference): CliSessionReference {
 function restoreInterruptedReference(
   ref: CliSessionReference,
   restoredAt: string,
-  leases: HostRunLeases,
+  liveness: HostRunLiveness,
 ): CliSessionReference {
-  if (!isStaleRunningReference(ref, leases, Date.parse(restoredAt))) {
+  if (!isStaleRunningReference(ref, liveness)) {
     return ref;
   }
   const activity = persistedActivitySchema.safeParse(ref.lastActivityAt);
@@ -1133,8 +1129,9 @@ export class SessionMetadataStore {
     LIVE_STORES.add(new WeakRef(this));
     this.hostLease = new HostRunLease(
       {
-        read: () => this.readStorage<unknown>(HOST_RUN_LEASE_KEY),
-        write: (value) => this.storage.update(HOST_RUN_LEASE_KEY, value),
+        read: (key) => this.readStorage<unknown>(key),
+        write: (key, value) => this.storage.update(key, value),
+        keys: () => this.storage.keys(),
       },
       this.logger,
     );
@@ -2239,6 +2236,25 @@ export class SessionMetadataStore {
     await this.storage.update(agentOutputKey(agentId), undefined);
   }
 
+  private async readHostRunLiveness(
+    refs: readonly CliSessionReference[],
+    now: number,
+  ): Promise<HostRunLiveness> {
+    const hostRunIds = new Set<string>();
+    for (const ref of refs) {
+      if (isForeignRunningReference(ref) && ref.hostRunId !== undefined) {
+        hostRunIds.add(ref.hostRunId);
+      }
+    }
+    const entries = await Promise.all(
+      [...hostRunIds].map(
+        async (hostRunId) =>
+          [hostRunId, await this.hostLease.isLive(hostRunId, now)] as const,
+      ),
+    );
+    return new Map(entries);
+  }
+
   /**
    * Lean CLI references for startup and resume. Historical output remains in
    * per-agent sequences and is requested through bounded pages.
@@ -2254,9 +2270,8 @@ export class SessionMetadataStore {
     if (!stored.some(isForeignRunningReference)) {
       return stored.map(projectForRestore);
     }
-    const leases = await this.hostLease.read();
-    const now = Date.now();
-    if (!stored.some((ref) => isStaleRunningReference(ref, leases, now))) {
+    const liveness = await this.readHostRunLiveness(stored, Date.now());
+    if (!stored.some((ref) => isStaleRunningReference(ref, liveness))) {
       return stored.map(projectForRestore);
     }
 
@@ -2271,8 +2286,12 @@ export class SessionMetadataStore {
       if (!current) return;
       const restoredAt = new Date().toISOString();
       const existing = current.cliSessions ?? [];
+      const currentLiveness = await this.readHostRunLiveness(
+        existing,
+        Date.parse(restoredAt),
+      );
       refs = existing.map((ref) =>
-        restoreInterruptedReference(ref, restoredAt, leases),
+        restoreInterruptedReference(ref, restoredAt, currentLiveness),
       );
       if (refs.some((ref, index) => ref !== existing[index])) {
         await this._saveInternal({ ...current, cliSessions: refs });
@@ -2318,8 +2337,9 @@ export class SessionMetadataStore {
     sessionId: string,
     cliSession: CliSessionReference,
   ): Promise<void> {
-    // The heartbeat is durable before this run's first `running` reference,
-    // so another host reading the store never sees the reference unleased.
+    // The first heartbeat is durable before this run's first `running`
+    // reference. A failed first write rejects this call and leaves the lease
+    // unarmed, so the caller's retry attempts the heartbeat again.
     if (cliSession.status === 'running') await this.hostLease.start();
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);

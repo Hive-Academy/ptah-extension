@@ -2,28 +2,25 @@ import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { currentHostRunId } from './host-run-id';
 
-/** Storage key of the heartbeat map, kept beside the session metadata. */
-export const HOST_RUN_LEASE_KEY = 'ptah.hostRunLeases';
+/** Each host run owns one heartbeat key beside the session metadata. */
+export const HOST_RUN_LEASE_KEY_PREFIX = 'ptah.hostRunLease.';
 export const HOST_RUN_HEARTBEAT_INTERVAL_MS = 30_000;
-/** Three missed heartbeats: one lost cross-host merge cannot reach it. */
+/** Three missed heartbeats make a host run stale. */
 export const HOST_RUN_STALE_AFTER_MS = 90_000;
-/** Entries older than this belong to long-gone runs and are pruned. */
+/** Keys older than this belong to long-gone runs and are pruned. */
 export const HOST_RUN_LEASE_RETENTION_MS = 24 * 60 * 60 * 1000;
-const HOST_RUN_LEASE_MAX_ENTRIES = 64;
 const HOST_RUN_CLOCK_SKEW_MS = 60_000;
 
-const hostRunLeasesSchema = z.record(
-  z.string().min(1),
-  z.number().int().nonnegative(),
-);
+const hostRunHeartbeatSchema = z.number().int().nonnegative();
 
-/** `hostRunId` -> latest heartbeat, Unix milliseconds. */
-export type HostRunLeases = Readonly<Record<string, number>>;
+export function hostRunLeaseKey(hostRunId: string): string {
+  return `${HOST_RUN_LEASE_KEY_PREFIX}${hostRunId}`;
+}
 
-/** Persisted map, or empty when absent or malformed. */
-export function parseHostRunLeases(value: unknown): HostRunLeases {
-  const parsed = hostRunLeasesSchema.safeParse(value);
-  return parsed.success ? parsed.data : {};
+/** A malformed or absent value is no lease. */
+export function parseHostRunHeartbeat(value: unknown): number | undefined {
+  const parsed = hostRunHeartbeatSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
@@ -31,11 +28,9 @@ export function parseHostRunLeases(value: unknown): HostRunLeases {
  * clock-skew allowance is not evidence of anything and counts as missing.
  */
 export function isHostRunLive(
-  leases: HostRunLeases,
-  hostRunId: string,
+  heartbeatAt: number | undefined,
   now: number,
 ): boolean {
-  const heartbeatAt = leases[hostRunId];
   return (
     heartbeatAt !== undefined &&
     heartbeatAt <= now + HOST_RUN_CLOCK_SKEW_MS &&
@@ -43,25 +38,19 @@ export function isHostRunLive(
   );
 }
 
-/** Drops expired, future and excess entries; keeps the newest. */
-export function pruneHostRunLeases(
-  leases: HostRunLeases,
-  now: number,
-): Record<string, number> {
-  const kept = Object.entries(leases)
-    .filter(
-      ([, heartbeatAt]) =>
-        heartbeatAt <= now + HOST_RUN_CLOCK_SKEW_MS &&
-        now - heartbeatAt <= HOST_RUN_LEASE_RETENTION_MS,
-    )
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, HOST_RUN_LEASE_MAX_ENTRIES);
-  return Object.fromEntries(kept);
+function shouldPruneHeartbeat(value: unknown, now: number): boolean {
+  const heartbeatAt = parseHostRunHeartbeat(value);
+  return (
+    heartbeatAt === undefined ||
+    heartbeatAt > now + HOST_RUN_CLOCK_SKEW_MS ||
+    now - heartbeatAt > HOST_RUN_LEASE_RETENTION_MS
+  );
 }
 
 interface HostRunLeaseStorage {
-  read(): Promise<unknown>;
-  write(value: HostRunLeases | undefined): Promise<void>;
+  read(key: string): Promise<unknown>;
+  write(key: string, value: number | undefined): Promise<void>;
+  keys(): readonly string[];
 }
 
 /**
@@ -71,6 +60,7 @@ interface HostRunLeaseStorage {
  */
 export class HostRunLease {
   private timer: ReturnType<typeof setInterval> | undefined;
+  private starting: Promise<void> | undefined;
   private hostRunId = currentHostRunId();
   private queue: Promise<void> = Promise.resolve();
 
@@ -83,61 +73,100 @@ export class HostRunLease {
     return this.timer !== undefined;
   }
 
-  /** First call writes a heartbeat and arms the interval; later calls are free. */
+  /** The first call must persist a heartbeat before it arms the interval. */
   start(): Promise<void> {
     if (this.timer) return this.queue;
+    if (this.starting) return this.starting;
     this.hostRunId = currentHostRunId();
+    const firstBeat = this.enqueue('heartbeat', true);
+    this.starting = firstBeat.then(
+      () => {
+        this.starting = undefined;
+        this.arm();
+      },
+      (error: unknown) => {
+        // A later start must retry the failed first write.
+        this.starting = undefined;
+        throw error;
+      },
+    );
+    return this.starting;
+  }
+
+  private arm(): void {
     this.timer = setInterval(() => {
       void this.beat();
     }, HOST_RUN_HEARTBEAT_INTERVAL_MS);
     // A heartbeat must never keep a quitting host alive.
     this.timer.unref();
-    return this.beat();
   }
 
-  async read(): Promise<HostRunLeases> {
-    return parseHostRunLeases(await this.storage.read());
+  /** Liveness reads only the requested owner's key. */
+  async isLive(hostRunId: string, now = Date.now()): Promise<boolean> {
+    const value = await this.storage.read(hostRunLeaseKey(hostRunId));
+    return isHostRunLive(parseHostRunHeartbeat(value), now);
   }
 
-  /** Stops the heartbeat and withdraws this run's entry: a clean exit is dead at once. */
+  /** Stops the heartbeat and withdraws this run's key on a clean exit. */
   dispose(): Promise<void> {
-    if (!this.timer) return this.queue;
-    clearInterval(this.timer);
+    if (!this.timer && !this.starting) return this.queue;
+    if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    return this.enqueue('withdraw', (leases) => {
-      const { [this.hostRunId]: _own, ...rest } = leases;
-      return rest;
-    });
+    return this.enqueue('withdraw', false);
   }
 
   private beat(): Promise<void> {
-    return this.enqueue('heartbeat', (leases, now) => ({
-      ...leases,
-      [this.hostRunId]: now,
-    }));
+    return this.enqueue('heartbeat', false);
   }
 
   private enqueue(
-    action: string,
-    change: (leases: HostRunLeases, now: number) => HostRunLeases,
+    action: 'heartbeat' | 'withdraw',
+    rejectOnFailure: boolean,
   ): Promise<void> {
     const run = this.queue.then(async () => {
       try {
-        const now = Date.now();
-        const next = pruneHostRunLeases(change(await this.read(), now), now);
         await this.storage.write(
-          Object.keys(next).length > 0 ? next : undefined,
+          hostRunLeaseKey(this.hostRunId),
+          action === 'heartbeat' ? Date.now() : undefined,
         );
       } catch (error: unknown) {
-        // A missed write is tolerated by the stale threshold; the next
-        // interval retries. Failing the caller would block lane persistence.
+        // degradation-audit: reported - later beats retry after a warning; the
+        // first beat rejects so no unleased running reference is persisted.
         this.logger.warn(
           `[HostRunLease] Could not write the host run ${action}`,
           error instanceof Error ? error : new Error(String(error)),
         );
+        if (rejectOnFailure) throw error;
       }
+      if (action === 'heartbeat') await this.prune();
     });
-    this.queue = run;
+    // A rejected first beat reaches its caller but does not poison the queue.
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
+  }
+
+  /** Key listing makes pruning best-effort without a shared updateable index. */
+  private async prune(): Promise<void> {
+    try {
+      const now = Date.now();
+      const keys = this.storage
+        .keys()
+        .filter((key) => key.startsWith(HOST_RUN_LEASE_KEY_PREFIX));
+      for (const key of keys) {
+        if (shouldPruneHeartbeat(await this.storage.read(key), now)) {
+          await this.storage.write(key, undefined);
+        }
+      }
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - pruning is maintenance only;
+      // a failed prune delays cleanup and never changes liveness reads.
+      this.logger.warn(
+        '[HostRunLease] Could not prune old host run leases',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 }
