@@ -378,3 +378,122 @@ it('keeps an orphan whose abort was refused running until its terminal event fre
   expect(driver.running('s1')).toBe(false);
   expect(onAbandoned).toHaveBeenCalledWith('s1');
 });
+
+it('frees a start that never reported its session on a terminal event for its tab, once', async () => {
+  const onAbandoned = jest.fn();
+  const onUnresolvedEnded = jest.fn();
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onAbandoned,
+    onUnresolvedEnded,
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  // The engine turn may still run: it keeps its slot (max 1).
+  expect(driver.unresolvedStarts()).toBe(1);
+  await expect(
+    driver.start({ ...start, tabId: 'tab2' }, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'WORKER_BUSY' });
+  await driver.terminal(undefined, 'tab');
+  await driver.terminal(undefined, 'tab');
+  expect(driver.unresolvedStarts()).toBe(0);
+  expect(onUnresolvedEnded).toHaveBeenCalledTimes(1);
+  expect(onAbandoned).not.toHaveBeenCalled();
+  expect(handleMessage).not.toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'chat:abort' }),
+  );
+  // The slot is free again.
+  const next = driver.start(
+    { ...start, tabId: 'tab3' },
+    async () => undefined,
+    jest.fn(),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  driver.tabResolved('tab3', 's3');
+  await expect(next).resolves.toMatchObject({ sessionId: 's3' });
+});
+
+it('releases a tab-only orphan by the session its terminal event carries', async () => {
+  const onAbandoned = jest.fn();
+  const onUnresolvedEnded = jest.fn();
+  const { driver } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onAbandoned,
+    onUnresolvedEnded,
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  await driver.terminal('s1', 'tab');
+  await driver.terminal('s1', 'tab');
+  expect(driver.unresolvedStarts()).toBe(0);
+  expect(onAbandoned).toHaveBeenCalledTimes(1);
+  expect(onAbandoned).toHaveBeenCalledWith('s1');
+  expect(onUnresolvedEnded).not.toHaveBeenCalled();
+});
+
+it('frees a start whose turn ended before its session ID arrived', async () => {
+  const onUnresolvedEnded = jest.fn();
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onUnresolvedEnded,
+  });
+  handleMessage.mockImplementation(async ({ method }: Message) => {
+    if (method === 'chat:start') void driver.terminal(undefined, 'tab');
+    return ok;
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  expect(driver.unresolvedStarts()).toBe(0);
+  expect(driver.awaitingSession('tab')).toBe(false);
+  expect(onUnresolvedEnded).toHaveBeenCalledTimes(1);
+});
+
+it('a late session:id-resolved still aborts the orphan and releases its lock once', async () => {
+  const onAbandoned = jest.fn();
+  const onUnresolvedEnded = jest.fn();
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onAbandoned,
+    onUnresolvedEnded,
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  driver.tabResolved('tab', 's1');
+  // The terminal event of the abort arrives while chat:abort is in flight.
+  void driver.terminal('s1', 'tab');
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(handleMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'chat:abort' }),
+  );
+  expect(driver.unresolvedStarts()).toBe(0);
+  expect(driver.running('s1')).toBe(false);
+  expect(onAbandoned).toHaveBeenCalledTimes(1);
+  expect(onAbandoned).toHaveBeenCalledWith('s1');
+  expect(onUnresolvedEnded).not.toHaveBeenCalled();
+});
+
+it('drain does not wait for the session of a start whose chat:start returns after it began', async () => {
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 60_000,
+  });
+  let answer!: (value: unknown) => void;
+  handleMessage.mockImplementation(
+    ({ method }: Message) =>
+      new Promise((resolve) =>
+        method === 'chat:start' ? (answer = resolve) : resolve(ok),
+      ),
+  );
+  const pending = driver.start(start, async () => undefined, jest.fn());
+  await new Promise((resolve) => setImmediate(resolve));
+  const drained = driver.drain();
+  answer(ok);
+  await expect(pending).rejects.toMatchObject({ code: 'INTERNAL' });
+  await expect(drained).resolves.toEqual({
+    unresolvedTabs: ['tab'],
+    failedAborts: [],
+  });
+});

@@ -40,6 +40,12 @@ export interface SessionDriverOptions {
   resolveTimeoutMs?: number;
   /** Called after an admitted turn that never registered was aborted. */
   onAbandoned?: (sessionId: string) => void;
+  /**
+   * Called after the engine ended a started turn that never reported its
+   * session ID. Its driver lock is keyed by a session this driver never
+   * learned, so the caller decides which held lock it was.
+   */
+  onUnresolvedEnded?: () => void;
 }
 /** What `drain` could not stop: tab-only orphans and refused aborts. */
 export interface DrainResult {
@@ -152,6 +158,17 @@ export class SessionDriver {
       if (admission.tabId === tabId && !admission.sessionId) return true;
     return false;
   }
+  /**
+   * Started turns that never reported a session ID and were not ended by the
+   * engine: their engine turn may still run under a driver lock whose session
+   * this driver does not know.
+   */
+  unresolvedStarts(): number {
+    let count = 0;
+    for (const admission of this.admissions.values())
+      if (!admission.sessionId) count += 1;
+    return count;
+  }
   driving(sessionId: string): boolean {
     return this.turns.has(sessionId);
   }
@@ -198,12 +215,19 @@ export class SessionDriver {
       admission.ended = true;
       return;
     }
-    // The engine ended an orphan whose abort was refused: free its slot and lock.
-    for (const orphan of [...this.admissions.values()])
-      if (orphan.state === 'orphan' && id && orphan.sessionId === id) {
-        this.admissions.delete(orphan.key);
-        this.options.onAbandoned?.(id);
-      }
+    // The engine ended an orphan: one whose abort was refused, or a start that
+    // never reported its session (matched by its tab). Free its slot and lock.
+    for (const orphan of [...this.admissions.values()]) {
+      if (orphan.state !== 'orphan') continue;
+      const matches = orphan.sessionId
+        ? orphan.sessionId === id || (!id && orphan.tabId === tabId)
+        : orphan.tabId === tabId;
+      if (!matches) continue;
+      this.admissions.delete(orphan.key);
+      const ended = orphan.sessionId ?? sessionId;
+      if (ended) this.options.onAbandoned?.(ended);
+      else this.options.onUnresolvedEnded?.();
+    }
   }
 
   async attach(
@@ -312,10 +336,18 @@ export class SessionDriver {
       try {
         sessionId = await this.sessionOf(admission);
       } catch {
-        // The engine turn runs without a known session: keep the slot and
-        // abort it when `session:id-resolved` arrives (see tabResolved).
-        admission.state = 'orphan';
-        admission.buffer.length = 0;
+        if (admission.ended) {
+          // The engine already ended this turn: nothing runs, so its slot
+          // and its lock go now.
+          this.admissions.delete(admission.key);
+          this.options.onUnresolvedEnded?.();
+        } else {
+          // The engine turn runs without a known session: keep the slot and
+          // abort it when `session:id-resolved` arrives (see tabResolved),
+          // or free it on its terminal event (see terminal).
+          admission.state = 'orphan';
+          admission.buffer.length = 0;
+        }
         throw new SessionDriverError('INTERNAL');
       }
       return await this.register(
@@ -484,6 +516,8 @@ export class SessionDriver {
   private async retire(admission: Admission): Promise<boolean> {
     const sessionId = admission.sessionId;
     if (!sessionId || !(await this.chatAbort(sessionId))) return false;
+    // A terminal event during the abort already freed it and its lock.
+    if (this.admissions.get(admission.key) !== admission) return true;
     this.admissions.delete(admission.key);
     this.options.onAbandoned?.(sessionId);
     return true;
@@ -491,6 +525,9 @@ export class SessionDriver {
 
   private sessionOf(admission: Admission): Promise<string> {
     if (admission.sessionId) return Promise.resolve(admission.sessionId);
+    // Shutdown already cancelled the waiters: do not hold drain for the timeout.
+    if (this.closing)
+      return Promise.reject(new Error('Worker is shutting down'));
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         admission.waiter = undefined;

@@ -757,7 +757,7 @@ describe('turn lifecycle (Batch 20)', () => {
   );
 
   it(
-    'shuts down promptly with a start still waiting for its session and releases its lock',
+    'shuts down promptly with a start still waiting for its session and keeps the lock its engine turn may still hold',
     async () => {
       const worker = await startWorker(4, { resolveDelayMs: null });
       const client = await worker.connect();
@@ -775,11 +775,16 @@ describe('turn lifecycle (Batch 20)', () => {
       const began = Date.now();
       await worker.stop();
       expect(Date.now() - began).toBeLessThan(10_000);
-      expect(worker.engine.lock.release).toHaveBeenCalledWith(
+      // chat:start returned, so the engine turn may still run under the lock
+      // it bound for a session the worker never learned. Releasing it would
+      // let another driver take that session; it dies with the process.
+      expect(worker.engine.lock.release).not.toHaveBeenCalledWith(
         'sess-new-1',
         'nonce-sess-new-1',
       );
-      expect(worker.engine.lock.held()).toEqual([]);
+      expect(worker.engine.lock.held()).toEqual([
+        expect.objectContaining({ sessionId: 'sess-new-1' }),
+      ]);
     },
     ENGINE_TIMEOUT,
   );

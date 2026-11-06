@@ -34,7 +34,10 @@ const peer: WorkerPeer = {
 };
 
 /** createRemoteSessions over fakes for the engine RPC, logs and lock. */
-function setup(onCall: (message: Message, tap: Tap) => unknown) {
+function setup(
+  onCall: (message: Message, tap: Tap) => unknown,
+  overrides: Partial<RemoteSessionDeps> = {},
+) {
   const held = new Map<string, string>();
   const lock = {
     held: jest.fn(() =>
@@ -98,6 +101,7 @@ function setup(onCall: (message: Message, tap: Tap) => unknown) {
     requestRelease,
     log,
     resolveTimeoutMs: 20,
+    ...overrides,
   };
   const sessions = createRemoteSessions(deps);
   tap = (type, payload) => sessions.tap(type, payload);
@@ -180,4 +184,70 @@ it('binds a held tab-only permission request on a session:id-resolved that arriv
     id: 'req-tab',
     decision: 'allow',
   });
+});
+
+it('keeps the lock of a start that never reported its session at shutdown and logs it', async () => {
+  const fake = setup((message) => {
+    // The engine bound the session's lock, but session:id-resolved is lost.
+    if (message.method === 'chat:start') fake.held.set('s-new', 'nonce-new');
+    return undefined;
+  });
+  await expect(
+    fake.sessions.handle(
+      'session.start',
+      { workspaceId: 'ws_1', prompt: 'lost' },
+      grant,
+      peer,
+    ),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  await fake.sessions.drain();
+  await fake.sessions.releaseLocks();
+  expect(fake.lock.release).not.toHaveBeenCalled();
+  expect(fake.requestRelease).not.toHaveBeenCalled();
+  expect(fake.held.has('s-new')).toBe(true);
+  expect(fake.log).toHaveBeenCalledWith(
+    expect.stringContaining(
+      'kept 1 driver lock(s) that may belong to 1 start(s) that never reported a session',
+    ),
+  );
+});
+
+it('frees the slot and the lock of a start that never reported its session on its tab-only terminal event, once', async () => {
+  const tabs: string[] = [];
+  const fake = setup(
+    (message, tap) => {
+      if (message.method !== 'chat:start') return undefined;
+      const tabId = String(param(message, 'tabId'));
+      tabs.push(tabId);
+      if (tabs.length === 1) {
+        // Bound in the engine, never reported to the worker.
+        fake.held.set('s-new', 'nonce-new');
+        return undefined;
+      }
+      const sessionId = `s-${tabs.length}`;
+      fake.held.set(sessionId, `nonce-${sessionId}`);
+      tap('session:id-resolved', { tabId, realSessionId: sessionId });
+      return undefined;
+    },
+    { maxActiveTurns: 1 },
+  );
+  const start = () =>
+    fake.sessions.handle(
+      'session.start',
+      { workspaceId: 'ws_1', prompt: 'go' },
+      grant,
+      peer,
+    );
+  await expect(start()).rejects.toMatchObject({ code: 'INTERNAL' });
+  // Its engine turn may still run: the slot stays taken.
+  await expect(start()).rejects.toMatchObject({ code: 'WORKER_BUSY' });
+  expect(fake.held.has('s-new')).toBe(true);
+  fake.tap('session:turnEnded', { tabId: tabs[0] });
+  fake.tap('chat:sessionEnded', { tabId: tabs[0] });
+  await settle();
+  expect(fake.lock.release).toHaveBeenCalledTimes(1);
+  expect(fake.lock.release).toHaveBeenCalledWith('s-new', 'nonce-new');
+  expect(fake.requestRelease).toHaveBeenCalledTimes(1);
+  expect(fake.held.has('s-new')).toBe(false);
+  await expect(start()).resolves.toMatchObject({ sessionId: 's-2' });
 });

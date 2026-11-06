@@ -194,8 +194,35 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
       resolveTimeoutMs: deps.resolveTimeoutMs ?? RESOLUTION_TIMEOUT_MS,
       // An admitted turn that never registered was aborted: free its lock.
       onAbandoned: (sessionId) => void releaseLock(sessionId),
+      // The engine ended a start that never reported its session.
+      onUnresolvedEnded: () => void releaseUnattributed(),
     },
   );
+  /**
+   * True when a held lock's session is one this worker started or continued.
+   * The engine binds a new session's lock when it resolves the session ID,
+   * so a held lock of any other session may belong to a start that never
+   * reported its session (`session:id-resolved` lost or late).
+   */
+  const attributable = (sessionId: string): boolean =>
+    tabsBySession.has(sessionId);
+  /**
+   * Frees the drive locks no known session explains, once no started turn is
+   * still waiting for its session: none of them can belong to a running turn.
+   */
+  const releaseUnattributed = async (): Promise<void> => {
+    if (driver.unresolvedStarts() > 0) return;
+    const sessions = new Set(
+      deps.lock
+        .held()
+        // A refresh lock is a transcript read, never a turn of this worker.
+        .filter((held) => held.purpose !== 'refresh')
+        .map((held) => held.sessionId),
+    );
+    for (const sessionId of sessions)
+      if (!attributable(sessionId) && !driver.running(sessionId))
+        await releaseLock(sessionId);
+  };
   const workspaceById = (workspaceId: string) =>
     deps.registry.list().find((item) => item.workspaceId === workspaceId);
   const listSessions = async (workspaceId: string) => {
@@ -531,15 +558,25 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
       // The process is stopping: a lock still held now would be stranded.
       // A turn whose chat:abort was refused may still run, so its lock stays
       // held until the engine ends it; it dies with this process at worst.
+      // A start that never reported its session may still run too, and its
+      // lock is keyed by a session this worker never learned: while one
+      // exists, every lock no known session explains stays held.
       const sessions = new Set(deps.lock.held().map((held) => held.sessionId));
+      const unresolved = driver.unresolvedStarts();
       let kept = 0;
+      let unattributed = 0;
       for (const sessionId of sessions) {
         if (driver.running(sessionId)) kept += 1;
+        else if (unresolved > 0 && !attributable(sessionId)) unattributed += 1;
         else await releaseLock(sessionId);
       }
       if (kept > 0)
         deps.log(
           `[ptah-worker] kept the driver lock of ${kept} turn(s) that may still run`,
+        );
+      if (unattributed > 0)
+        deps.log(
+          `[ptah-worker] kept ${unattributed} driver lock(s) that may belong to ${unresolved} start(s) that never reported a session`,
         );
     },
   };
