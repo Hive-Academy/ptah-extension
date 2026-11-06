@@ -1,4 +1,5 @@
 import {
+  afterNextRender,
   Component,
   input,
   computed,
@@ -7,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,
+  DestroyRef,
 } from '@angular/core';
 import type {
   CliOutputSegment,
@@ -27,6 +29,7 @@ import {
   isUsageSegment,
   formatTokens,
 } from './stats-bar.utils';
+import { findScrollingAncestor } from '../../../utils/scroll-parent.utils';
 
 @Component({
   selector: 'ptah-cli-agent-output',
@@ -36,7 +39,9 @@ import {
   template: `
     <div
       #outputContainer
-      class="border-t border-base-content/5 h-full overflow-y-auto"
+      class="border-t border-base-content/5"
+      [class.h-full]="presentation() === 'card'"
+      [class.overflow-y-auto]="presentation() === 'card'"
       [class.!border-0]="presentation() === 'flat'"
     >
       <!-- Stats bar (only shown when stats are available) -->
@@ -207,16 +212,39 @@ export class CliAgentOutputComponent {
   /** Auto-scroll container reference */
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
+  private readonly destroyRef = inject(DestroyRef);
+  private flatScroller: HTMLElement | null = null;
+  private flatPinned = true;
 
   constructor() {
+    afterNextRender(() => {
+      if (this.presentation() !== 'flat') return;
+      const output = this.outputContainer()?.nativeElement;
+      if (!output) return;
+      const scroller = findScrollingAncestor(output);
+      if (!scroller) return;
+      this.flatScroller = scroller;
+      const onScroll = (): void => {
+        this.flatPinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 48;
+      };
+      scroller.addEventListener('scroll', onScroll, { passive: true });
+      this.destroyRef.onDestroy(() => scroller.removeEventListener('scroll', onScroll));
+      scroller.scrollTop = scroller.scrollHeight;
+    });
     effect(() => {
       this.executionNodes();
       this.stdoutSegments();
       this.scrollTrigger();
+      const flat = this.presentation() === 'flat';
       const el = this.outputContainer()?.nativeElement;
       if (el) {
         requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight;
+          if (flat) {
+            if (this.flatPinned && this.flatScroller)
+              this.flatScroller.scrollTop = this.flatScroller.scrollHeight;
+          } else {
+            el.scrollTop = el.scrollHeight;
+          }
         });
       }
     });

@@ -205,20 +205,7 @@ describe('SubagentLaneComponent', () => {
     });
   });
 
-  it('updates a running duration from the shared wall clock after a remount', () => {
-    const first = setup();
-    expect(first.componentInstance['label']()).toContain('4s');
-    first.destroy();
-
-    clockNow.set(9_000);
-    const remounted = setup();
-    expect(remounted.componentInstance['label']()).toContain('8s');
-    clockNow.set(10_000);
-    remounted.detectChanges();
-    expect(remounted.componentInstance['label']()).toContain('9s');
-  });
-
-  it('uses the shared header, an always-visible stats bar, and details facts', () => {
+  it('uses the shared header and an always-visible stats bar', () => {
     const previousPricing = getPricingMap();
     // This tests stats presentation, not unavailable pricing.
     updatePricingMap({
@@ -233,9 +220,6 @@ describe('SubagentLaneComponent', () => {
         usage: { input: 1000, output: 200, model: 'claude-sonnet' },
       });
       const root: HTMLElement = fixture.nativeElement;
-      const row = root.querySelector<HTMLButtonElement>(
-        '[data-test="execution-header-details"]',
-      )!;
       const meta = () =>
         root.querySelector('[data-test="execution-header-meta"]')?.textContent;
       // No tree yet, so no bubble: the control row keeps the record's count.
@@ -252,11 +236,7 @@ describe('SubagentLaneComponent', () => {
         root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
       ).toBe('subagent');
       expect(root.textContent).toContain('Starting agent');
-      // Collapsed header, stats still shown.
-      expect(
-        root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')
-          ?.hidden,
-      ).toBe(true);
+      expect(root.querySelector('[data-test="execution-header-details"]')).toBeNull();
       const stats = root.querySelector('ptah-agent-lane-stats');
       expect(
         stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
@@ -264,13 +244,7 @@ describe('SubagentLaneComponent', () => {
       expect(
         stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
       ).toContain('claude-sonnet');
-      row.click();
-      fixture.detectChanges();
-      const details = root.querySelector('#subagent-lane-details-tool-1')!;
-      expect(details.textContent).not.toContain('Model:');
-      expect(details.textContent).toMatch(/Task:\s*Map the repository/);
-      expect(details.textContent).not.toContain('Reading files');
-      expect(details.textContent).toMatch(/Parent:\s*session-/);
+
     } finally {
       resetPricingMapForTesting();
       updatePricingMap(previousPricing);
@@ -288,7 +262,22 @@ describe('SubagentLaneComponent', () => {
     expect(scroller?.classList).toContain('overflow-y-auto');
   });
 
-  // The control row (stats, meta, Details, actions) renders inline in the
+  it('lets flat lane rows flow through the host scroller', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('presentation', 'flat');
+    fixture.detectChanges();
+    const body = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="lane-scroll"]');
+    expect((fixture.nativeElement as HTMLElement).querySelector('ptah-execution-header')).toBeNull();
+    expect(body?.classList).not.toContain('overflow-y-auto');
+    expect(body?.classList).toContain('flex-none');
+    const composer = (fixture.nativeElement as HTMLElement).querySelector('ptah-subagent-lane-composer');
+    expect(composer?.classList).toContain('sticky');
+    expect(composer?.classList).toContain('mt-auto');
+    expect(composer?.classList).toContain('bottom-0');
+    expect(composer?.classList).toContain('bg-base-100');
+  });
+
+  // The control row (stats, meta, actions) renders inline in the
   // lane, above its transcript, in every host.
   it('renders its control row inside the lane', () => {
     const fixture = setup();
@@ -298,20 +287,7 @@ describe('SubagentLaneComponent', () => {
     expect(lane.firstElementChild).toBe(header);
     const row = header!.querySelector('[data-test="execution-header-row"]');
     expect(row?.querySelector('ptah-agent-lane-stats')).not.toBeNull();
-    const toggle = row!.querySelector<HTMLButtonElement>(
-      '[data-test="execution-header-details"]',
-    )!;
-    const regions = () =>
-      lane.querySelectorAll<HTMLElement>(
-        `#${toggle.getAttribute('aria-controls')}[role="region"]`,
-      );
-    expect(regions()).toHaveLength(1);
-    expect(header!.contains(regions()[0])).toBe(true);
-    expect(regions()[0].hidden).toBe(true);
-    toggle.click();
-    fixture.detectChanges();
-    expect(regions()).toHaveLength(1);
-    expect(regions()[0].hidden).toBe(false);
+    expect(row?.querySelector('[data-test="execution-header-details"]')).toBeNull();
   });
 
   it('leaves the tool count to the transcript bubble once the tree has a tool', () => {
@@ -368,20 +344,6 @@ describe('SubagentLaneComponent', () => {
     } finally {
       treeFor.mockImplementation(() => []);
     }
-  });
-
-  it('hides the Task row when the start carried no task', () => {
-    const fixture = setup({ ...base, description: 'Reading files' });
-    const root: HTMLElement = fixture.nativeElement;
-    root
-      .querySelector<HTMLButtonElement>(
-        '[data-test="execution-header-details"]',
-      )!
-      .click();
-    fixture.detectChanges();
-    expect(
-      root.querySelector('#subagent-lane-details-tool-1')?.textContent,
-    ).not.toContain('Task:');
   });
 
   it('loads the cache info once per agent key', () => {
@@ -701,7 +663,7 @@ describe('SubagentLaneComponent', () => {
       )?.textContent,
     ).toContain('Stop failed');
   });
-  it('hides passive stats while keeping Stop, Background and Details', () => {
+  it('hides passive stats while keeping Stop, Background', () => {
     contexts.set(
       new Map([['tool-1', context({ canBackground: true, stoppable: true })]]),
     );
@@ -714,14 +676,6 @@ describe('SubagentLaneComponent', () => {
     expect(
       root.querySelector('[aria-label="Send Explore to background"]'),
     ).not.toBeNull();
-    root
-      .querySelector<HTMLButtonElement>(
-        '[data-test="execution-header-details"]',
-      )!
-      .click();
-    fixture.detectChanges();
-    expect(
-      root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')?.hidden,
-    ).toBe(false);
+    expect(root.querySelector('[data-test="execution-header-details"]')).toBeNull();
   });
 });
