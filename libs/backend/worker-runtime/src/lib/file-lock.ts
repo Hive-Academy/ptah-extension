@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as net from 'node:net';
+import { realpath } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 const POLL_MS = 25;
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -31,7 +32,7 @@ const tails = new Map<string, Promise<void>>();
 /**
  * Runs `operation` while holding the lock for `file`, shared by every process
  * of this OS user. The lock is a listening endpoint whose name derives from the
- * resolved path: an abstract Unix socket on Linux, a named pipe on Windows.
+ * canonical path (symlinks in the parent resolved): an abstract Unix socket on Linux, a named pipe on Windows.
  * The kernel lets one process bind a name at a time and frees it when that
  * process exits or crashes, so there is no owner record and no stale lock to
  * take over. A live holder keeps its lock however long it runs.
@@ -57,10 +58,31 @@ export async function withFileLock<T>(
   }
 }
 
+/**
+ * `file` with its parent directory's symlinks resolved, so every path that
+ * reaches the same file names the same lock. A missing parent directory has
+ * no file to share yet; its lexical absolute path is used then.
+ */
+async function canonicalFile(file: string): Promise<string> {
+  const absolute = resolve(file);
+  try {
+    return join(await realpath(dirname(absolute)), basename(absolute));
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    )
+      return absolute;
+    throw error;
+  }
+}
+
 /** The OS endpoint name that stands for `file`'s lock. */
-function fileLockEndpoint(file: string): string {
+async function fileLockEndpoint(file: string): Promise<string> {
   const digest = createHash('sha256')
-    .update(resolve(file))
+    .update(await canonicalFile(file))
     .digest('hex')
     .slice(0, 32);
   const name = `ptah-worker-lock-${userKey()}-${digest}`;
@@ -74,7 +96,7 @@ async function locked<T>(
   operation: () => Promise<T>,
   options: FileLockOptions,
 ): Promise<T> {
-  const endpoint = fileLockEndpoint(file);
+  const endpoint = await fileLockEndpoint(file);
   const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const server = await acquireBefore(file, endpoint, deadline);
   let outcome: { ok: true; value: T } | { ok: false; error: unknown };

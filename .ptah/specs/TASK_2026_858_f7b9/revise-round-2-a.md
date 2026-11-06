@@ -91,8 +91,12 @@ third process had just acquired, breaking mutual exclusion.
 
 ## Remaining limits
 
-- Two spellings of one file through a symlink resolve to different lock
-  names (same as the directory lock before, which was also path-based).
+- ~~Two spellings of one file through a symlink resolve to different lock
+  names.~~ Fixed after the round 2 Codex review (`round-2-codex-review.md`
+  defect 1): the endpoint hashes the parent directory's `realpath` plus the
+  file name, and a missing parent falls back to the lexical path. Spec: "gives
+  a symlinked path to the same file the same lock". A symlinked FILE (not its
+  parent) still names a different lock; the worker never symlinks these files.
 - Abstract Unix sockets are scoped to the network namespace: processes in
   different network namespaces (e.g. one in a container with its own netns)
   do not exclude each other. The old directory lock did work across

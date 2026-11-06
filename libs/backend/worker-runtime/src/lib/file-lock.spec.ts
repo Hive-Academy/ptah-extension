@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import * as net from 'node:net';
 import { tmpdir, userInfo } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { FileLockBusyError, withFileLock } from './file-lock';
 
 const linux = process.platform === 'linux' ? it : it.skip;
@@ -22,8 +23,10 @@ afterEach(async () => {
  * change to the naming that would split one file into two locks fails a test.
  */
 function linuxLockName(file: string): string {
+  const absolute = resolve(file);
+  const canonical = join(realpathSync(dirname(absolute)), basename(absolute));
   const digest = createHash('sha256')
-    .update(resolve(file))
+    .update(canonical)
     .digest('hex')
     .slice(0, 32);
   return `ptah-worker-lock-${userInfo().uid}-${digest}`;
@@ -84,6 +87,19 @@ describe('across processes', () => {
       expect(operation).not.toHaveBeenCalled();
     },
   );
+
+  linux('gives a symlinked path to the same file the same lock', async () => {
+    const real = join(directory, 'worker');
+    const alias = join(directory, 'alias');
+    await mkdir(real);
+    await symlink(real, alias, 'dir');
+    child = await holdInChild(join(real, 'tokens.json'));
+    const operation = jest.fn(async () => 'ran');
+    await expect(
+      withFileLock(join(alias, 'tokens.json'), operation, { timeoutMs: 50 }),
+    ).rejects.toBeInstanceOf(FileLockBusyError);
+    expect(operation).not.toHaveBeenCalled();
+  });
 
   linux('is free as soon as the holding process is killed', async () => {
     const file = join(directory, 'tokens.json');
