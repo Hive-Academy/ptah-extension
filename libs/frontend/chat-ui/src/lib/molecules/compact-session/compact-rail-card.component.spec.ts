@@ -183,6 +183,7 @@ describe(CompactRailCardComponent.name, () => {
     f.detectChanges();
     const rules = hoverRules();
     expect(rules.map((rule) => rule.selector)).toEqual([
+      ':host(:hover:not(.rc-focused))',
       ':host(:hover)',
       '.rc-action:hover',
       '.rc-lane-row:hover',
@@ -224,12 +225,12 @@ describe(CompactRailCardComponent.name, () => {
     const f = render();
     const host = f.nativeElement as HTMLElement;
     expect(host.classList.contains('rc-focused')).toBe(false);
-    expect(host.classList.contains('bg-base-200')).toBe(true);
+    expect(host.classList.contains('bg-base-200')).toBe(false);
     expect(host.classList.contains('bg-primary/25')).toBe(false);
     f.componentRef.setInput('focused', true);
     f.detectChanges();
     expect(host.classList.contains('rc-focused')).toBe(true);
-    expect(host.classList.contains('bg-primary/25')).toBe(true);
+    expect(host.classList.contains('bg-primary/25')).toBe(false);
     expect(host.classList.contains('bg-base-200')).toBe(false);
     expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable}px`);
     const selectors = cssRules().map((rule) => rule.selector);
@@ -240,9 +241,10 @@ describe(CompactRailCardComponent.name, () => {
     expect(focused?.declarations.map(([prop]) => prop)).toEqual([
       'border-color',
       'box-shadow',
+      'background-color',
     ]);
     for (const [, value] of focused?.declarations ?? []) {
-      expect(value).toMatch(/var\(--(rc-focus-frame|p)\)/);
+      expect(value).toMatch(/var\(--(rc-focus-frame|rail-active-fill|p)\)/);
       expect(value).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     }
     expect(focused?.declarations).toContainEqual([
@@ -269,7 +271,7 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('focused', false);
     f.detectChanges();
     expect(host.classList.contains('rc-focused')).toBe(false);
-    expect(host.classList.contains('bg-base-200')).toBe(true);
+    expect(host.classList.contains('bg-base-200')).toBe(false);
   });
 
   it('names only the focused card "in focus" on its select button', () => {

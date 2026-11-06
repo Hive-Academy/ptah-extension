@@ -92,6 +92,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     `
       :host {
         --rail-state-ink: var(--state-ink-idle, oklch(var(--bc)));
+        --rail-active-fill: color-mix(in oklch, oklch(var(--p)) 22%, oklch(var(--b3)));
       }
       :host([data-state='running']) {
         --rail-state-ink: var(--state-ink-run, oklch(var(--in)));
@@ -127,6 +128,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       .rail-collapsed:hover {
         border-color: var(--rail-state-ink);
       }
+      .rail-collapsed[aria-current='true'] {
+        background-color: var(--rail-active-fill);
+      }
       .rail-attention-frame {
         --rc-focus-frame: oklch(var(--p));
       }
@@ -136,7 +140,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       .rail-attention-frame:has(.rc-focused) {
         border-color: var(--rc-focus-frame);
         box-shadow: inset 0 0 0 1px var(--rc-focus-frame);
-        background-color: color-mix(in oklch, oklch(var(--p)) 14%, oklch(var(--b2)));
+        background-color: var(--rail-active-fill);
       }
       :host ::ng-deep .rail-attention-frame ptah-compact-rail-card {
         border: 0;
@@ -161,7 +165,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         />
         <button
           type="button"
-          class="rail-collapsed flex h-14 w-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
+          class="rail-collapsed flex h-14 w-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-base-content/10 text-xs"
           [attr.aria-label]="
             current.title + ', ' + (attentionItems().length ? 'Needs input, ' + attentionItems().length : compactRailStateLabel(state())) + (focused() ? ', in focus' : '')
           "
@@ -185,7 +189,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           />
         }
         @if (attentionItems().length) {
-          <div class="rail-attention-frame relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-base-content/10 bg-base-200" data-testid="rail-attention-frame">
+          <div class="rail-attention-frame relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-base-content/10" data-testid="rail-attention-frame">
             <ng-container [ngTemplateOutlet]="expandedCard" />
             <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you" [attr.data-attention-key]="attentionItems()[0].key">
               <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
