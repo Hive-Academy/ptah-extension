@@ -41,6 +41,13 @@ export const PERSISTENCE_TOKENS = {
    * EMBEDDER_WORKER_PATH so both worker paths are registered the same way.
    */
   INTEGRITY_WORKER_PATH: Symbol.for('PtahIntegrityWorkerPath'),
+  /**
+   * SlowStatementSink — host-supplied observer of slow SQLite statements
+   * (useValue). Injected `{ isOptional: true }` into SqliteConnectionService:
+   * a host that registers none (VS Code, the CLI benchmark) gets no observer.
+   * Electron wires it to the main-loop watchdog's hang breadcrumbs.
+   */
+  SQLITE_SLOW_STATEMENT_SINK: Symbol.for('PtahSqliteSlowStatementSink'),
   /** SqliteIntegrityService — owns the due-decision and the worker dispatch. */
   SQLITE_INTEGRITY_SERVICE: Symbol.for('PtahSqliteIntegrityService'),
   /**

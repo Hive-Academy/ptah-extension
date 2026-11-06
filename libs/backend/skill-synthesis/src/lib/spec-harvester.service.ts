@@ -43,6 +43,7 @@ import {
   type HarvestedSpec,
 } from './spec-extractor';
 import type { SpecFindingsPort } from './spec-findings.port';
+import { SpecSkipCache } from './spec-skip-cache';
 import type { SkillRegistryKind } from './skill-registry.store';
 
 const ARCHIVE_DIR = '.archive';
@@ -50,6 +51,7 @@ const DEFAULT_RETENTION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_FINDING_SPECS = 3;
 const MAX_FINDINGS_CHARS = 4000;
+const MAX_SKIP_WARN_ROOTS = 64;
 
 export type SpecStatus = 'active' | 'complete-unharvested' | 'harvested';
 
@@ -86,8 +88,9 @@ const MARKER_VERSION = 2;
 @injectable()
 export class SpecHarvesterService implements SpecFindingsPort {
   private readonly gradeFailures = new Map<string, { digest: string; attempts: number }>();
-  private readonly skippedFolders = new Map<string, string>();
-  private lastSkippedSet = '';
+  private readonly skipCache = new SpecSkipCache();
+  /** Last skipped set warned about, per specs root. */
+  private readonly lastSkippedByRoot = new Map<string, string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -360,42 +363,36 @@ export class SpecHarvesterService implements SpecFindingsPort {
     for (const entry of entries) {
       if (!entry.startsWith('TASK_')) continue;
       const directory = join(root, entry);
-      const cacheKey = `${root}:${entry}`;
-      // A missing carrier changes the directory mtime when it appears. An
-      // existing invalid carrier changes its own mtime/size when edited.
-      // degradation-audit: optional-capability — missing or unreadable folders
-      // and carriers still flow through extractSpec's existing skip behavior.
-      const [folder, carrier] = await Promise.all([
-        lstat(directory).catch(() => null),
-        lstat(join(directory, CARRIER_FILE)).catch(() => null),
-      ]);
-      const signature = `${folder?.mtimeMs ?? -1}:${folder?.size ?? -1}:${carrier?.mtimeMs ?? -1}:${carrier?.size ?? -1}`;
-      if (this.skippedFolders.get(cacheKey) === signature) {
+      // Only a definite carrier miss is remembered (SpecSkipCache); a
+      // carrier that exists but fails to read or parse is re-read every time.
+      if ((await this.skipCache.classify(directory)) === 'skip') {
         skipped.push(entry);
         continue;
       }
       const spec = await extractSpec(directory, root);
-      if (spec) {
-        this.skippedFolders.delete(cacheKey);
-        specs.push(spec);
-      } else {
-        if (this.skippedFolders.size >= 512) {
-          const oldest = this.skippedFolders.keys().next().value;
-          if (oldest !== undefined) this.skippedFolders.delete(oldest);
-        }
-        this.skippedFolders.set(cacheKey, signature);
-        skipped.push(entry);
-      }
+      if (spec) specs.push(spec);
+      else skipped.push(entry);
     }
-    const skippedSet = `${root}:${skipped.sort().join(',')}`;
-    if (options.warnOnSkipped === true && skipped.length > 0 && skippedSet !== this.lastSkippedSet) {
+    if (options.warnOnSkipped === true) this.warnSkippedOnChange(root, skipped);
+    return specs;
+  }
+
+  /** Warn when a root's skipped set differs from the last one warned for it. */
+  private warnSkippedOnChange(root: string, skipped: string[]): void {
+    const skippedSet = [...skipped].sort().join(',');
+    const previous = this.lastSkippedByRoot.get(root);
+    if (skipped.length > 0 && skippedSet !== previous) {
       this.logger.warn(
         `[spec-harvester] skipped ${skipped.length} TASK_* folder(s) with no valid ${CARRIER_FILE} carrier — invisible to harvesting and to the Tasks board`,
         { folders: skipped, carrier: CARRIER_FILE },
       );
     }
-    if (options.warnOnSkipped === true) this.lastSkippedSet = skippedSet;
-    return specs;
+    this.lastSkippedByRoot.delete(root);
+    if (this.lastSkippedByRoot.size >= MAX_SKIP_WARN_ROOTS) {
+      const oldest = this.lastSkippedByRoot.keys().next().value;
+      if (oldest !== undefined) this.lastSkippedByRoot.delete(oldest);
+    }
+    this.lastSkippedByRoot.set(root, skippedSet);
   }
 
   private async writeMarker(

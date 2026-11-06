@@ -689,6 +689,67 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
     expect(log).toEqual(['m:0', 'm:1', 'm:2']);
   });
 
+  it('holds an rpc:response behind a backlog larger than one drain, then replays it in order (R-P8)', () => {
+    const seenByLaterListener: string[][] = [];
+    const rpcClientLike = (event: MessageEvent) => {
+      if ((event.data as { type?: string }).type === 'rpc:response') {
+        seenByLaterListener.push([...log]);
+      }
+    };
+    window.addEventListener('message', rpcClientLike);
+    try {
+      boot([loggingHandler(['push', 'rpc:response'])]);
+      for (let ord = 0; ord < 100; ord++) {
+        fireWindowMessage({ type: 'push', payload: { ord } });
+      }
+      fireWindowMessage({ type: 'rpc:response', payload: { ord: 100 } });
+
+      // The response's own task ran one bounded drain, not the whole backlog,
+      // and the other listener has not seen the response yet.
+      expect(log.length).toBeGreaterThan(0);
+      expect(log.length).toBeLessThan(100);
+      expect(seenByLaterListener).toEqual([]);
+
+      fireWindowMessage({ type: 'push', payload: { ord: 101 } });
+      while (channel.pending()) channel.deliver();
+
+      const throughResponse = [
+        ...Array.from({ length: 100 }, (_, ord) => `push:${ord}`),
+        'rpc:response:100',
+      ];
+      expect(log).toEqual([...throughResponse, 'push:101']);
+      // Replayed exactly once, after every earlier push, before any later one.
+      expect(seenByLaterListener).toEqual([throughResponse]);
+    } finally {
+      window.removeEventListener('message', rpcClientLike);
+    }
+  });
+
+  it('splits a large BATCH across drain tasks without reordering its members', () => {
+    const { run } = boot([loggingHandler(['push', 'after'])]);
+    fireWindowMessage({
+      type: 'batch',
+      payload: {
+        events: Array.from({ length: 200 }, (_, ord) => ({
+          type: 'push',
+          payload: { ord },
+        })),
+      },
+    });
+    fireWindowMessage({ type: 'after', payload: { ord: 200 } });
+
+    channel.deliver();
+    expect(log.length).toBeGreaterThan(0);
+    expect(log.length).toBeLessThan(200);
+
+    while (channel.pending()) channel.deliver();
+    expect(log).toEqual([
+      ...Array.from({ length: 200 }, (_, ord) => `push:${ord}`),
+      'after:200',
+    ]);
+    expect(run.mock.calls.length).toBeGreaterThan(1);
+  });
+
   it('flushes a BATCH carrying an rpc:response synchronously and reports the producer regression once', () => {
     const { run } = boot([loggingHandler(['push', 'rpc:response'])]);
     const batchWithResponse = (base: number) => ({
@@ -821,6 +882,33 @@ describe('MessageRouterService with the real RpcClient (R-P8)', () => {
       }
     },
   );
+
+  it('resumes the caller after a backlog that took several drains, never before it', async () => {
+    bootRouter();
+    const rpc = await loadFreshRpcModule();
+    const { correlationId, resumed } = await startCall(rpc);
+    for (let ord = 0; ord < 150; ord++) {
+      fireWindowMessage({ type: 'push', payload: { ord } });
+    }
+    fireWindowMessage({
+      type: 'rpc:response',
+      correlationId,
+      success: true,
+      data: { ok: true },
+    });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // Held: the real client has not resolved the call yet.
+    expect(order).not.toContain('resumed:true');
+    expect(order.length).toBeLessThan(150);
+
+    while (channel.pending()) channel.deliver();
+    await resumed;
+
+    expect(order).toEqual([
+      ...Array.from({ length: 150 }, (_, ord) => `push:${ord}`),
+      'resumed:true',
+    ]);
+  });
 
   async function deliverScenario(
     correlationId: string,

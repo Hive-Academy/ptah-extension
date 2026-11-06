@@ -40,7 +40,11 @@ export {
   MAX_IN_FLIGHT_OPS,
   DROPPED_TOKEN,
 } from './hang-breadcrumbs';
-export type { HangOpKind, HangBreadcrumbSink } from './hang-breadcrumbs';
+export type {
+  HangOpKind,
+  HangBreadcrumbChange,
+  HangBreadcrumbSink,
+} from './hang-breadcrumbs';
 
 export {
   HangProfiler,

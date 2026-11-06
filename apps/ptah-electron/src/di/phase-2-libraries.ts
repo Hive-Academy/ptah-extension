@@ -17,6 +17,7 @@ import { registerElectronCodexReadinessAndLogin } from './codex-login-compositio
 
 import {
   TOKENS,
+  hangBreadcrumbs,
   type Logger,
   type WorkspaceAwareStateStorage,
 } from '@ptah-extension/vscode-core';
@@ -95,6 +96,7 @@ import {
   resolvePtahDbPath,
   resolveVecPackageName,
   resolveVecBinaryName,
+  type SlowStatementSink,
   type SqliteConnectionService,
   type SqliteVecPathResolver,
 } from '@ptah-extension/persistence-sqlite';
@@ -407,6 +409,16 @@ export function registerPhase2Libraries(
       useValue: new ElectronIntegrityWorkerFactory(integrityWorkerEntry),
     });
 
+    // Slow SQLite statements feed the main-loop watchdog's hang breadcrumbs,
+    // so a freeze inside better-sqlite3 names its SQL. Host composition only:
+    // the persistence lib defaults to no observer (VS Code, CLI benchmark).
+    const slowStatementSink: SlowStatementSink = {
+      noteSlowStatement: (label, durationMs) =>
+        hangBreadcrumbs.noteSlowSql(label, durationMs),
+    };
+    container.register(PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK, {
+      useValue: slowStatementSink,
+    });
     registerPersistenceSqliteServices(container, logger);
     registerReviewCore(container);
     registerReviewGithubServices(container);

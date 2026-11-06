@@ -27,6 +27,7 @@ import {
   REVIEW_LANE_TOKENS,
 } from '@ptah-extension/review-core';
 import { REVIEW_GITHUB_TOKENS } from '@ptah-extension/review-github';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { CODEX_SIGN_IN_QUIT_HANDLE } from './codex-login-composition';
 
 export const EXPECTED_RESOLVABLE = [
@@ -80,6 +81,12 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['CODEX_SIGN_IN_QUIT_HANDLE', CODEX_SIGN_IN_QUIT_HANDLE],
   ['SDK_CODEX_LOGIN', AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN],
   ['SDK_CODEX_READINESS', AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS],
+  // Slow SQLite statements -> hang breadcrumbs; bound in phase 2 before the
+  // persistence registration, optional in the lib (main-loop-sync-blocks).
+  [
+    'SQLITE_SLOW_STATEMENT_SINK',
+    PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK,
+  ],
 ] as const;
 
 /**

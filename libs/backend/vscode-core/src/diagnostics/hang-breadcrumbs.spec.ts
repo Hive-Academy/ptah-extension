@@ -20,7 +20,7 @@ function create(): { crumbs: HangBreadcrumbs; advance: (ms: number) => void } {
 }
 
 describe('HangBreadcrumbs', () => {
-  it('names in-flight RPC and MCP operations with their start time, oldest first', () => {
+  it('names in-flight RPC and MCP operations with their start time, newest first', () => {
     const { crumbs, advance } = create();
     crumbs.begin('rpc', 'chat:continue');
     advance(400);
@@ -29,7 +29,7 @@ describe('HangBreadcrumbs', () => {
 
     expect(crumbs.snapshot()).toEqual({
       [HANG_BREADCRUMB_KEYS.rpc]:
-        'chat:continue@04:16:51.995, provider:getPlanLimits@04:16:52.395',
+        'provider:getPlanLimits@04:16:52.395, chat:continue@04:16:51.995',
       [HANG_BREADCRUMB_KEYS.mcp]: 'ptah_memory_search@04:16:52.395',
       [HANG_BREADCRUMB_KEYS.slowSql]: '',
     });
@@ -60,6 +60,36 @@ describe('HangBreadcrumbs', () => {
       `(+${MAX_IN_FLIGHT_OPS - MAX_OPS_PER_BREADCRUMB} more)`,
     );
     expect(rpc).toContain('[dropped 1]');
+  });
+
+  it('keeps the most recent begin visible behind a full set of long-running RPCs', () => {
+    const { crumbs, advance } = create();
+    for (let i = 0; i < MAX_OPS_PER_BREADCRUMB + 4; i++) {
+      crumbs.begin('rpc', `chat:continue#${i}`);
+      advance(1_000);
+    }
+    crumbs.begin('rpc', 'session:validate');
+
+    const rpc = crumbs.snapshot()[HANG_BREADCRUMB_KEYS.rpc];
+    expect(rpc.startsWith('session:validate@')).toBe(true);
+    expect(rpc).not.toContain('chat:continue#0@');
+    expect(rpc).toContain('(+5 more)');
+  });
+
+  it('tells the sink what changed, so it can post begins at once', () => {
+    const { crumbs } = create();
+    const sink = jest.fn();
+    crumbs.attach(sink);
+
+    const token = crumbs.begin('rpc', 'a');
+    crumbs.end(token);
+    crumbs.noteSlowSql('run INSERT', 60);
+
+    expect(sink.mock.calls.map((call) => call[1])).toEqual([
+      'begin',
+      'end',
+      'slow-sql',
+    ]);
   });
 
   it('clips long operation names', () => {

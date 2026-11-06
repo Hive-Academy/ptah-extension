@@ -12,13 +12,13 @@ import {
   withSlowStatementTiming,
   DEFAULT_SQLITE_SLOW_RATE_WINDOW_MS,
   SQLITE_SLOW_RATE_TABLE_MAX_ENTRIES,
+  type SlowStatementSink,
 } from './slow-statement-timing';
 import type {
   SqliteDatabase,
   SqliteStatement,
 } from './sqlite-connection.service';
 import { createMockLogger, type MockLogger } from './testing/mock-logger';
-import { hangBreadcrumbs } from '@ptah-extension/vscode-core';
 
 class ManualClock {
   value = 1_000;
@@ -123,7 +123,10 @@ class BrandedDatabase {
   }
 }
 
-function setup(thresholdMs = 50): {
+function setup(
+  thresholdMs = 50,
+  sink: SlowStatementSink | null = null,
+): {
   clock: ManualClock;
   real: BrandedDatabase;
   db: SqliteDatabase;
@@ -134,6 +137,7 @@ function setup(thresholdMs = 50): {
   const logger = createMockLogger();
   const db = withSlowStatementTiming(real as unknown as SqliteDatabase, {
     logger,
+    sink,
     thresholdMs,
     now: clock.now,
   });
@@ -192,19 +196,39 @@ describe('withSlowStatementTiming', () => {
     });
   });
 
-  it('leaves the slow statement label (SQL text only) as a hang breadcrumb, even when rate-limited', () => {
-    const { db, real } = setup(50);
+  it('hands every slow statement label (SQL text only) to the injected sink, even when rate-limited', () => {
+    const noteSlowStatement = jest.fn();
+    const { db, real } = setup(50, { noteSlowStatement });
     real.costMs = 80;
 
     db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(42);
     db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(43);
 
-    const label = hangBreadcrumbs.snapshot()['lastSlowSql'];
-    expect(label).toMatch(
-      /^all SELECT a FROM memory_chunks WHERE id = \? 80ms at \d{2}:\d{2}/,
-    );
-    expect(label).not.toContain('42');
-    expect(label).not.toContain('43');
+    expect(noteSlowStatement.mock.calls).toEqual([
+      ['all SELECT a FROM memory_chunks WHERE id = ?', 80],
+      ['all SELECT a FROM memory_chunks WHERE id = ?', 80],
+    ]);
+  });
+
+  it('does not tell the sink about statements under the threshold', () => {
+    const noteSlowStatement = jest.fn();
+    const { db, real } = setup(50, { noteSlowStatement });
+    real.costMs = 10;
+
+    db.prepare('SELECT 1').get();
+
+    expect(noteSlowStatement).not.toHaveBeenCalled();
+  });
+
+  it('keeps the result when the sink throws', () => {
+    const { db, real } = setup(50, {
+      noteSlowStatement: () => {
+        throw new Error('sink down');
+      },
+    });
+    real.costMs = 80;
+
+    expect(() => db.prepare('SELECT 1').get()).not.toThrow();
   });
 
   it('reports changes for run and 0/1 rows for get', () => {

@@ -38,11 +38,14 @@ function loadModule(): FixPathModule {
   return mod;
 }
 
+const mockStdinEnd = jest.fn();
+
 /** Make the next execFile call answer with `stdout` (or an error). */
 function answerShell(stdout: string, error: Error | null = null): void {
   mockExecFile.mockImplementation(
     (_file: string, _args: string[], _opts: object, cb: ExecFileCallback) => {
       setImmediate(() => cb(error, stdout, ''));
+      return { stdin: { end: mockStdinEnd } };
     },
   );
 }
@@ -114,6 +117,12 @@ describe('fixPath', () => {
     expect(merged[0]).toBe('/home/u/.nvm/bin');
     expect(merged.filter((dir) => dir === '/usr/bin')).toHaveLength(1);
     expect(process.env['PATH']).toBe(merged.join(path.delimiter));
+  });
+
+  it('closes the probe shell stdin at once so rc files that read it see EOF', () => {
+    loadModule().fixPath();
+
+    expect(mockStdinEnd).toHaveBeenCalledTimes(1);
   });
 
   it('runs the probe at most once per process', async () => {

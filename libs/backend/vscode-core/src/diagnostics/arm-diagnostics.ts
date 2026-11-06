@@ -216,30 +216,47 @@ function armWatchdog(
   createHangProfiler: HangProfilerFactory,
 ): ArmedWatchdog | null {
   let armed: ArmedWatchdog | null = null;
+  let profiler: HangProfiler | null = null;
   try {
     const watchdog = container.resolve<MainLoopWatchdog>(
       TOKENS.MAIN_LOOP_WATCHDOG,
     );
-    const profiler = isHangProfileEnabled()
+    profiler = isHangProfileEnabled()
       ? armHangProfiler(createHangProfiler({ logger, logsPath }), logger)
       : null;
+    const armedProfiler = profiler;
     watchdog.start(
-      profiler === null
+      armedProfiler === null
         ? { logsPath }
         : {
             logsPath,
             onRecovered: async (details) => ({
-              ...(await profiler.captureHang(details)),
+              ...(await armedProfiler.captureHang(details)),
             }),
           },
     );
-    armed = { watchdog, profiler };
+    armed = { watchdog, profiler: armedProfiler };
   } catch (error: unknown) {
     logger.warn('[diagnostics] main-loop watchdog not armed', {
       reason: error instanceof Error ? error.message : String(error),
     });
+    // No watchdog will ever ask this profiler for a hang, and nothing else
+    // owns it: release its debugger attachment and rotation timer now.
+    disposeOrphanedProfiler(profiler, logger);
   }
   return armed;
+}
+
+function disposeOrphanedProfiler(
+  profiler: HangProfiler | null,
+  logger: Logger,
+): void {
+  if (profiler === null) return;
+  profiler.dispose().catch((error: unknown) => {
+    logger.warn('[diagnostics] orphaned hang profiler did not dispose', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 /**

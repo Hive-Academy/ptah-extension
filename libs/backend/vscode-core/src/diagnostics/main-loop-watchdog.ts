@@ -202,6 +202,9 @@ export class MainLoopWatchdog {
   private degraded = false;
   private detachBreadcrumbs: (() => void) | undefined;
   private onRecovered: HangRecoveryEnricher | undefined;
+  /** Pending coalesced post for `end` changes; see scheduleCoalescedBeat. */
+  private coalescedFlush: ReturnType<typeof setImmediate> | undefined;
+  private coalescedDirty = false;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
@@ -268,12 +271,16 @@ export class MainLoopWatchdog {
 
     // Push, not sample: an operation that begins and then blocks main in the
     // same tick must already be in the worker's hands. See hang-breadcrumbs.ts.
+    // So a `begin` (or a slow-SQL note) posts at once. Only an `end` may wait:
+    // it cannot name a culprit, and a burst of RPC completions in one
+    // macrotask then costs one post instead of one each.
     const source = options.breadcrumbSource ?? hangBreadcrumbs;
-    this.detachBreadcrumbs = source.attach((crumbs) => {
+    this.detachBreadcrumbs = source.attach((crumbs, change) => {
       for (const [key, value] of Object.entries(crumbs)) {
         this.setBreadcrumb(key, value);
       }
-      this.beat();
+      if (change === 'end') this.scheduleCoalescedBeat();
+      else this.beat();
     });
 
     const heartbeat = setInterval(() => {
@@ -435,7 +442,22 @@ export class MainLoopWatchdog {
     }
   }
 
+  /**
+   * At most one deferred post per macrotask for `end` changes. Any immediate
+   * `beat()` before the flush already carried the latest breadcrumbs, so the
+   * flush then posts nothing.
+   */
+  private scheduleCoalescedBeat(): void {
+    this.coalescedDirty = true;
+    if (this.coalescedFlush !== undefined) return;
+    this.coalescedFlush = setImmediate(() => {
+      this.coalescedFlush = undefined;
+      if (this.coalescedDirty) this.beat();
+    });
+  }
+
   private beat(): void {
+    this.coalescedDirty = false;
     const worker = this.worker;
     if (worker === undefined) return;
     const message: HeartbeatMessage = {
@@ -449,6 +471,10 @@ export class MainLoopWatchdog {
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;
+    }
+    if (this.coalescedFlush !== undefined) {
+      clearImmediate(this.coalescedFlush);
+      this.coalescedFlush = undefined;
     }
   }
 }
