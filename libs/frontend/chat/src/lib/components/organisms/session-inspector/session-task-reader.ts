@@ -17,7 +17,9 @@ import {
   rpcCall,
 } from '@ptah-extension/core';
 import {
+  BATCHES_FILE,
   CARRIER_FILE,
+  LEGACY_BATCHES_FILE,
   isDocFile,
   isReadableTaskFolderMarkdownName,
   type SessionTaskLinkSummary,
@@ -89,13 +91,17 @@ function documentsOf(task: TaskSpecDetail): readonly string[] {
 }
 
 export function documentExcerpt(content: string): string {
-  const body = content.replace(/^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
+  const body = content.replace(/^\uFEFF?---[ \t]*\r?\n(?=---[ \t]*(?:\r?\n|$)|[ \t]*[A-Za-z_][\w-]*[ \t]*:)(?:(?![ \t]*\r?\n|#{1,6}[ \t])[^\r\n]*\r?\n)*?---[ \t]*(?:\r?\n|$)/, '').trim();
   if (!body) return 'No content';
   const lines = body.slice(0, 600).split(/\r?\n/);
   return lines.slice(0, 6).join('\n') + (body.length > 600 || lines.length > 6 ? '…' : '');
 }
 
-export function documentProgress(content: string): { done: number; total: number } | null {
+export function documentProgress(content: string, file: string = LEGACY_BATCHES_FILE): { done: number; total: number } | null {
+  if (file === BATCHES_FILE) {
+    const tasks = [...content.matchAll(/^### Task [^\r\n]+? [—-] (PENDING|IN_PROGRESS|IMPLEMENTED|COMPLETE|FAILED)\s*$/gm)];
+    if (tasks.length) return { done: tasks.filter(match => match[1] === 'COMPLETE').length, total: tasks.length };
+  }
   const checkboxes = [...content.matchAll(/^\s*[-*]\s+\[([ xX])\]/gm)];
   if (checkboxes.length) return { done: checkboxes.filter(match => match[1].toLowerCase() === 'x').length, total: checkboxes.length };
   const statuses = [...content.matchAll(/^\s*status:\s*(done|backlog|in_progress|in_review|blocked|cancelled)\s*$/gim)];
@@ -404,8 +410,8 @@ export class SessionTaskReader {
   }
 
   private async loadProgress(link: TaskLink, task: TaskSpecDetail, documents: readonly string[]): Promise<void> {
-    const file = documents.find(name => /(?:^|[\\/])batches\.md$/i.test(name))
-      ?? documents.find(name => /(?:^|[\\/])tasks\.md$/i.test(name));
+    const file = documents.includes(BATCHES_FILE) ? BATCHES_FILE
+      : documents.includes(LEGACY_BATCHES_FILE) ? LEGACY_BATCHES_FILE : null;
     if (!file) { this._progress.set(null); return; }
     const key = linkKey(link);
     const generation = (this.progressGeneration.get(key) ?? 0) + 1;
@@ -420,10 +426,11 @@ export class SessionTaskReader {
       const response = await rpcCall<{ taskId: string; file: string; state: string; content: string | null }>(this.vscode, 'tasks:readFolderMarkdown', {
         workspaceRoot: link.workspaceRoot ?? undefined, taskId: task.id, file,
       });
-      const progress = response.success && response.data?.taskId === task.id && response.data.file === file && response.data.state === 'ready' && response.data.content
-        ? documentProgress(response.data.content) : null;
+      const ready = response.success && response.data?.taskId === task.id && response.data.file === file && response.data.state === 'ready';
+      const progress = ready && response.data?.content !== null && response.data?.content !== undefined
+        ? documentProgress(response.data.content, file) : null;
       if (!this.destroyed && this.isCurrent(key) && this.progressGeneration.get(key) === generation) {
-        this.progressCache.set(cacheKey, progress);
+        if (ready) this.progressCache.set(cacheKey, progress);
         this._progress.set(progress ? { key, ...progress } : null);
       }
     } catch (error: unknown) {

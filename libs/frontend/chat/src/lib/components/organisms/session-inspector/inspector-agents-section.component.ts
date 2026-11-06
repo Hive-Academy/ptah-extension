@@ -226,6 +226,7 @@ let nextSectionId = 0;
         <div
           class="mt-2 grid {{ columns }} border-t border-surface-border py-2 pl-4 pr-9 text-[10.5px] tabular-nums"
           data-testid="agents-total"
+          role="group"
           [attr.title]="total().title"
           [attr.aria-label]="total().ariaLabel"
         >

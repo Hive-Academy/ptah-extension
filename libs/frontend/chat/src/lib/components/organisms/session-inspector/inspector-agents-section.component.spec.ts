@@ -233,6 +233,7 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     expect(total.compareDocumentPosition(root.querySelector('[data-testid="agents-show-more"]') as Node) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     expect(total.getAttribute('title')).toContain('Total of 8 agents');
     expect(total.getAttribute('aria-label')).toContain('Total for all agents');
+    expect(total.getAttribute('role')).toBe('group');
     expect(total.getAttribute('tabindex')).toBeNull();
     expect(root.querySelector('[data-testid="agents-lane-subtotal"]')).toBeNull();
   });
