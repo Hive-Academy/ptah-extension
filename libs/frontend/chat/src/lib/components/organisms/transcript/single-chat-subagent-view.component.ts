@@ -83,12 +83,14 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
         </h2>
       </header>
       <div
-        class="flex-1 min-h-0 overflow-y-auto py-2"
+        class="flex flex-1 min-h-0 flex-col overflow-y-auto py-2"
         data-testid="subagent-view-body"
       >
         @if (record(); as rec) {
+          <!-- flex-1 fills a short lane so the sticky composer sits at the
+               bottom; the lane's min-h-fit lets a long lane scroll. -->
           <ptah-subagent-lane
-            class="block"
+            class="flex-1"
             presentation="flat"
             [record]="rec"
             [sessionId]="rec.parentSessionId ?? null"
