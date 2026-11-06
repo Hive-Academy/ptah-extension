@@ -8,7 +8,14 @@ import {
   viewChild,
   ElementRef,
 } from '@angular/core';
-import type { TaskStatus } from '@ptah-extension/shared';
+import {
+  BATCHES_FILE,
+  CARRIER_FILE,
+  IMPLEMENTATION_PLAN_FILE,
+  LEGACY_BATCHES_FILE,
+  TASK_DESCRIPTION_FILE,
+  type TaskStatus,
+} from '@ptah-extension/shared';
 import {
   TASK_STATUS_INK,
   TASK_STATUS_LABELS,
@@ -37,14 +44,14 @@ const STATUS_ICON: Readonly<Record<TaskStatus, LucideIconData>> = {
   cancelled: CircleX,
 };
 
-const PRIMARY_DOCUMENTS = ['task.md', 'task-description.md', 'implementation-plan.md'] as const;
+const PRIMARY_DOCUMENTS = [CARRIER_FILE, TASK_DESCRIPTION_FILE, IMPLEMENTATION_PLAN_FILE] as const;
 
 function basename(file: string): string { return file.split(/[\\/]/).pop()?.toLowerCase() ?? ''; }
 
 export function groupTaskDocuments(documents: readonly string[]): { primary: string[]; other: string[] } {
   const primary = PRIMARY_DOCUMENTS.flatMap(name => documents.filter(file => basename(file) === name));
-  const list = documents.find(file => basename(file) === 'batches.md')
-    ?? documents.find(file => basename(file) === 'tasks.md');
+  const list = documents.find(file => basename(file) === BATCHES_FILE)
+    ?? documents.find(file => basename(file) === LEGACY_BATCHES_FILE);
   if (list) primary.push(list);
   return { primary, other: documents.filter(file => !primary.includes(file)) };
 }

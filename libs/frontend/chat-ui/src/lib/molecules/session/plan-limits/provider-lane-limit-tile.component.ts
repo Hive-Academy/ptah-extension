@@ -14,6 +14,7 @@ function percent(tile: PlanLimitTileModel): number | null {
     @let p = provider();
     <div class="rounded-lg border border-surface-border bg-surface-1 p-3" [attr.data-provider-id]="p.id">
       @if (primary(); as tile) {
+        <div [attr.data-tile-id]="tile.id">
         <div class="flex items-baseline justify-between gap-2 text-xs">
           <span class="min-w-0 font-semibold text-base-content">{{ p.label }}</span>
           <span class="shrink-0 font-semibold tabular-nums" [class.text-warning]="tone(tile) === 'warning'"
@@ -38,6 +39,7 @@ function percent(tile: PlanLimitTileModel): number | null {
         @if (tile.kind !== 'window') {
           @for (line of tile.detailLines; track $index) { <p class="text-[10.5px] text-base-content-muted">{{ line }}</p> }
         }
+        </div>
       } @else {
         <div class="flex items-center justify-between gap-2 text-xs">
           <span class="font-semibold">{{ p.label }}</span>
@@ -46,7 +48,7 @@ function percent(tile: PlanLimitTileModel): number | null {
         <p class="mt-1 text-[11px] text-base-content-muted" data-testid="provider-limit-message">{{ p.message || 'Limits not tracked' }}</p>
       }
       @for (tile of extras(); track tile.id) {
-        <div class="mt-2 border-t border-surface-border pt-2" [attr.data-testid]="tile.kind === 'window' ? 'plan-extra-window' : 'plan-extra-tile'">
+        <div class="mt-2 border-t border-surface-border pt-2" [attr.data-tile-id]="tile.id" [attr.data-testid]="tile.kind === 'window' ? 'plan-extra-window' : 'plan-extra-tile'">
           <div class="flex justify-between gap-2 text-[11px] text-base-content-muted">
             <span>{{ tile.label }}</span><span class="tabular-nums" [class.text-warning]="tone(tile) === 'warning'"
               [class.text-error]="tone(tile) === 'error'">{{ tile.value }}</span>
