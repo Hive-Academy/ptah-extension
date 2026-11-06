@@ -42,3 +42,18 @@ the mobile PWA, P3 = later.
 | `build-worker-host` copies the banner and externals of sibling targets; `validate-deps` keeps a second hand list. | style S4 |
 | `serve.ts` still 380 lines; extract the readiness probe. Style minors M1–M6. | batch 21, style |
 | Batch 14 state-store specs are thin. | handoff |
+
+## Phase E follow-ups (added 2026-11-06)
+
+| Item | Source |
+| --- | --- |
+| Phase F: add an optional safe `reason` to the shared `machines:state` payload and show it. It covers a different worker on the alias, "re-pair this machine" and a dropped session re-attach. | fix round 1 clarification; re-review N4, N6 |
+| Phase F: a rebind flow for a reinstalled worker. Today the user must remove the machine and add it again. | re-review N4 |
+| Phase F: sanitize the worker-supplied strings in `machines:event` payloads, display names and versions when the Machines view renders them. | security S6 |
+| Shared `RpcUserErrorCode` has no generic internal code. Unknown machine errors map to `MACHINE_UNREACHABLE` (logged). | round 2 N7 |
+| Cross-process lock for `~/.ptah/remote-machines.json` (two Ptah processes can lose an update). | security S9, re-review |
+| `phase-2-libraries.config-home.spec.ts` walks above its `mkdtemp` folder. A stray `/tmp/.ptah` makes it fail. Bound the walk-up in the spec. | batch-22-report.md |
+| `MachineConnection`: serialize `retry()` with `pair()`/`exchange()`. A manual retry during an exchange can lose its transport (`machine-connection.ts:326-345`). | round 2 review, Minor 1 |
+| `exchange()`: move `await client.connect()` inside the `try` so a failed connect closes the client and the transport (`machine-connection.ts:345`). | round 2 review, Minor 2 |
+| A failed explicit re-attach drops the tracked cursor, so auto-reconnect no longer re-attaches that session (`machine-connection.ts:387-405`). Fold into the Phase F reason work. | round 2 review, Minor 3 |
+| A re-pair over a legacy token without a worker ID does not revoke the old token on the worker. | round 2 review, Minor 4 |

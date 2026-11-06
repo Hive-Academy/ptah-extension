@@ -1161,7 +1161,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 - A1 Duplex spec and removal specs pass; verify passes
 
-## Batch 22: C9 Electron host wiring — COMPLETE (Codex; Phase E review pending)
+## Batch 22: C9 Electron host wiring — COMPLETE (Codex; Phase E reviewed: logic + security REVISE → 2 revise rounds → APPROVED 8/10, `phase-e-fix-round-2-review.md`)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
