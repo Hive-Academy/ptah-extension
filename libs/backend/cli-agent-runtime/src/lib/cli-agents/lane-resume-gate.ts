@@ -61,6 +61,8 @@ export interface LaneResumeGateInput {
   readonly cliSessionId: string;
   /** Epoch milliseconds of the lane's last activity, when this host knows it. */
   readonly lastActivityAt?: number;
+  /** A persisted running lane was interrupted by a host restart. */
+  readonly interruptedByHostRestart?: boolean;
   /** The figure recorded from the lane's stream, when there is one. */
   readonly lastRequestContext?: LaneRequestContext;
 }
@@ -105,7 +107,7 @@ export class LaneResumeGate {
         ? null
         : Math.max(0, this.now() - lastActivityAt);
 
-    const decision = decide(figure.tokens, idleMs);
+    const decision = decide(figure.tokens, idleMs, input.interruptedByHostRestart === true);
     const result: LaneResumeDecision = {
       ...decision,
       contextTokens: figure.tokens,
@@ -247,6 +249,7 @@ export async function resolveLaneAccountResume(
 function decide(
   contextTokens: number | null,
   idleMs: number | null,
+  interruptedByHostRestart: boolean,
 ): Pick<LaneResumeDecision, 'decision' | 'reason'> {
   if (
     contextTokens !== null &&
@@ -257,13 +260,18 @@ function decide(
       reason: `last request ${contextTokens} tokens exceeds ${RESUME_GATE_MAX_CONTEXT_TOKENS}`,
     };
   }
-  if (idleMs !== null && idleMs > RESUME_GATE_MAX_IDLE_MS) {
+  if (!interruptedByHostRestart && idleMs !== null && idleMs > RESUME_GATE_MAX_IDLE_MS) {
     return {
       decision: 'fresh',
       reason: `idle ${Math.ceil(idleMs / 1000)}s exceeds ${RESUME_GATE_MAX_IDLE_MS / 1000}s`,
     };
   }
-  return { decision: 'resume', reason: 'within the context and idle limits' };
+  return {
+    decision: 'resume',
+    reason: interruptedByHostRestart
+      ? 'host restart interrupted the lane; resuming its CLI session'
+      : 'within the context and idle limits',
+  };
 }
 
 /** What a handoff carries over from the previous lane's segments. */

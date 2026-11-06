@@ -207,10 +207,8 @@ export interface AgentProcessInfo {
    */
   readonly originalTask?: string;
   /**
-   * Why the host stopped the lane, when it was not the caller
-   * (TASK_2026_597, R9.4). Stamped on the record before the stop, so it is
-   * present on the terminal record and the `agent:exited` payload. Unset when
-   * the lane ended on its own or the caller stopped it.
+   * Why the host stopped or interrupted the lane, when it was not the caller.
+   * Unset when the lane ended on its own or the caller stopped it.
    */
   stopReason?: LaneStopReason;
   /**
@@ -234,7 +232,7 @@ export interface AgentProcessInfo {
  * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
  * tool-call budget; a repeat loop is the only host stop.
  */
-export type LaneStopReason = 'repeat-call';
+export type LaneStopReason = 'repeat-call' | 'host-restart';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -551,6 +549,8 @@ export interface CliSessionReference {
   readonly startedAt: string;
   /** ISO timestamp when the CLI run finished. Absent in older sessions. */
   readonly completedAt?: string;
+  /** Why the host stopped this lane, when known. */
+  readonly stopReason?: LaneStopReason;
   /** Final agent status */
   readonly status: AgentStatus;
   /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */

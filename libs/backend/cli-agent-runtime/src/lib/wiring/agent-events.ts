@@ -521,6 +521,7 @@ export function persistCliSessionReference(
       startedAt: info.startedAt,
       ...(info.turnSeq !== undefined ? { turnSeq: info.turnSeq } : {}),
       ...(info.completedAt ? { completedAt: info.completedAt } : {}),
+      ...(info.stopReason ? { stopReason: info.stopReason } : {}),
       status: info.status,
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }

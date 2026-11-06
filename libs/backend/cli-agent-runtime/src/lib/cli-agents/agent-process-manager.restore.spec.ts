@@ -221,21 +221,28 @@ describe('AgentProcessManager.restoreAgents', () => {
   it("normalizes a ref persisted as 'running' to 'stopped' — its process died with the host", () => {
     const manager = makeManager({ providerRoot: ROOT_A });
 
+    const before = Date.now();
     manager.restoreAgents([makeRef({ status: 'running' })], ROOT_A);
 
     expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).status).toBe(
       'stopped',
     );
+    const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
+    expect(info.stopReason).toBe('host-restart');
+    expect(Date.parse(info.completedAt ?? '')).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(info.completedAt ?? '')).toBeLessThanOrEqual(Date.now());
   });
 
   it.each(['completed', 'failed', 'timeout', 'stopped'] as const)(
     'carries the terminal status %s through unchanged',
     (status) => {
       const manager = makeManager({ providerRoot: ROOT_A });
-      manager.restoreAgents([makeRef({ status })], ROOT_A);
+      manager.restoreAgents([makeRef({ status, completedAt: '2026-09-01T11:00:00.000Z' })], ROOT_A);
       expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).status).toBe(
         status,
       );
+      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).completedAt).toBe('2026-09-01T11:00:00.000Z');
+      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).stopReason).toBeUndefined();
     },
   );
 

@@ -1253,6 +1253,64 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       manager.restoreAgents([ref], '/workspace/root');
     }
 
+    it('passes the explicit interruption marker and resumes after the idle window', async () => {
+      manager.restoreAgents([{
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'interrupted-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        status: 'running',
+      }], '/workspace/root');
+      const previous = manager.getStatus('interrupted-previous') as AgentProcessInfo;
+      if (!previous.completedAt) throw new Error('Expected interruption timestamp');
+      resumeGate.evaluate.mockImplementationOnce(async (input: { interruptedByHostRestart?: boolean }) => ({
+        decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
+        reason: 'host restart interrupted the lane',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 601_000,
+      }));
+
+      const result = await manager.spawn({
+        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+      });
+
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
+        cliSessionId: SESSION,
+        interruptedByHostRestart: true,
+        lastActivityAt: Date.parse(previous.completedAt),
+      }));
+      expect(result.resumeDecision?.decision).toBe('resumed');
+      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBe(SESSION);
+    });
+
+    it('leaves an ordinary stopped lane subject to the idle gate', async () => {
+      manager.restoreAgents([{
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'stopped-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        completedAt: '2026-10-04T08:01:00.000Z',
+        status: 'stopped',
+      }], '/workspace/root');
+      resumeGate.evaluate.mockResolvedValueOnce({
+        decision: 'fresh', reason: 'idle 601s exceeds 600s',
+        contextTokens: null, source: 'estimate', idleMs: 601_000,
+      });
+      const result = await manager.spawn({
+        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+      });
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
+        cliSessionId: SESSION,
+        lastActivityAt: Date.parse('2026-10-04T08:01:00.000Z'),
+      }));
+      expect(resumeGate.evaluate.mock.calls[0][0]).not.toHaveProperty('interruptedByHostRestart');
+      expect(result.resumeDecision?.decision).toBe('fresh');
+      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBeUndefined();
+    });
+
     it('does not inherit an owner from a restored lane when resume omits the owner', async () => {
       restorePreviousLane();
       // Simulate a legacy restored record that retained its old owner.
