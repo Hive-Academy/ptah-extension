@@ -16,6 +16,8 @@ import 'reflect-metadata';
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   CLI_AGENT_RUNTIME_TOKENS: {
     SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
+    AGENT_MESSAGE_COORDINATOR: Symbol.for('AgentMessageCoordinator'),
+    AGENT_LANE_RESUME: Symbol.for('AgentLaneResume'),
   },
   AgentContinueError: class AgentContinueError extends Error {},
   // Same shape as the real class (`lane-resume-gate.ts`): a fixed message
@@ -207,6 +209,16 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     ),
     continueConversation: jest.fn().mockResolvedValue(undefined),
   };
+  const resumeService = {
+    resumeRequest: (request: Parameters<typeof processManager.spawn>[0]) => processManager.spawn(request),
+    prepareSdkResume: (request: Parameters<typeof processManager.prepareSdkHandleSpawn>[0]) => processManager.prepareSdkHandleSpawn(request),
+  };
+  const messageCoordinator = {
+    send: async (request: { agentId: string; message: string }) => {
+      await processManager.continueConversation(request.agentId, request.message);
+      return { mode: 'queued' as const };
+    },
+  };
 
   // Each write yields to the event loop before it lands, the way the file
   // settings store does, so two unserialised calls would interleave.
@@ -253,13 +265,19 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     {
       isRegistered: jest.fn(
         (token: unknown) =>
+          token === Symbol.for('AgentMessageCoordinator') ||
+          token === Symbol.for('AgentLaneResume') ||
           (accountLookup !== undefined && token === ProviderAccountService) ||
           (capabilityResolver !== undefined &&
             token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER) ||
           token === AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
       ),
       resolve: jest.fn((token: unknown) =>
-        token === ProviderAccountService
+        token === Symbol.for('AgentMessageCoordinator')
+          ? messageCoordinator
+          : token === Symbol.for('AgentLaneResume')
+          ? resumeService
+          : token === ProviderAccountService
           ? { lookupBySdkSession: accountLookup }
           : token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER
             ? capabilityResolver
@@ -494,6 +512,7 @@ function expectNoLeak(result: unknown): void {
 }
 
 type ContinueResult = { success: boolean; error?: string; code?: string };
+const CONTINUE_AGENT_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
   it('maps LaneAccountResumeError to account_refused with fixed text', async () => {
@@ -503,7 +522,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     );
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
-      agentId: 'a-1',
+      agentId: CONTINUE_AGENT_ID,
       message: 'next step',
     });
 
@@ -515,7 +534,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     expectNoLeak(result);
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:continue account refused',
-      { agentId: 'a-1', code: 'unavailable-storage' },
+      { agentId: CONTINUE_AGENT_ID, code: 'unavailable-storage' },
     );
     expect(h.logger.error).not.toHaveBeenCalled();
   });
@@ -527,7 +546,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     );
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
-      agentId: 'a-1',
+      agentId: CONTINUE_AGENT_ID,
       message: 'next step',
     });
 
@@ -538,7 +557,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     });
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:continue account refused',
-      { agentId: 'a-1', code: 'identity-unproved' },
+      { agentId: CONTINUE_AGENT_ID, code: 'identity-unproved' },
     );
   });
 
@@ -549,7 +568,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     );
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
-      agentId: 'a-1',
+      agentId: CONTINUE_AGENT_ID,
       message: 'next step',
     });
 
@@ -559,7 +578,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     ).not.toContain('secret');
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:continue account refused',
-      { agentId: 'a-1', code: 'unavailable-storage' },
+      { agentId: CONTINUE_AGENT_ID, code: 'unavailable-storage' },
     );
   });
 
@@ -572,7 +591,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     h.processManager.continueConversation.mockRejectedValueOnce(impostor);
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
-      agentId: 'a-1',
+      agentId: CONTINUE_AGENT_ID,
       message: 'next step',
     });
 
@@ -587,13 +606,13 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     const h = makeHarness();
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
-      agentId: 'a-1',
+      agentId: CONTINUE_AGENT_ID,
       message: 'next step',
     });
 
     expect(result).toEqual({ success: true });
     expect(h.processManager.continueConversation).toHaveBeenCalledWith(
-      'a-1',
+      CONTINUE_AGENT_ID,
       'next step',
     );
   });

@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import {
   AgentSteerInputComponent,
+  LaneComposerComponent,
   agentRunDurationMs,
   type InspectorLaneRunDetail,
   type LaneSubtotalTileModel,
@@ -77,6 +78,7 @@ let nextSectionId = 0;
   standalone: true,
   imports: [
     AgentSteerInputComponent,
+    LaneComposerComponent,
     InspectorAgentActionsMenuComponent,
     InspectorAgentRowComponent,
     InspectorAgentRunDetailComponent,
@@ -194,6 +196,11 @@ let nextSectionId = 0;
                 />
               }
               @if (steerOpenKey() === row.key && row.tray) {
+                @if (row.tray.agentId || parseLaneKey(row.key)?.id; as agentId) {
+                  <ptah-lane-composer class="mb-2 ml-[52px] mr-3 block"
+                    [agentId]="agentId" [laneLabel]="row.name" [cli]="row.agent.cliId || row.secondary"
+                    variant="compact" [stopped]="row.agent.status !== 'running'" />
+                } @else {
                 <ptah-agent-steer-input
                   class="mb-2 ml-[52px] mr-3 block"
                   [steerable]="row.tray.entry.steerable"
@@ -209,6 +216,7 @@ let nextSectionId = 0;
                   >
                     Could not send your message. Try again.
                   </p>
+                }
                 }
               }
             </li>
@@ -236,6 +244,7 @@ let nextSectionId = 0;
   `,
 })
 export class InspectorAgentsSectionComponent {
+  protected readonly parseLaneKey = parseLaneKey;
   private readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly roster = inject(SessionAgentRosterService);

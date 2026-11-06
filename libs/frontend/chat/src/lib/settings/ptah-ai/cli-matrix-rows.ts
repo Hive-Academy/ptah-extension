@@ -10,6 +10,7 @@ import {
   type PtahCliReasoningEffort,
   type PtahCliSummary,
   type SystemCliType,
+  type CliAdapterManifest,
 } from '@ptah-extension/shared';
 import {
   cliPermissionNote,
@@ -75,6 +76,7 @@ interface CliMatrixRowBase {
 
 export interface SystemCliMatrixRow extends CliMatrixRowBase {
   readonly kind: 'system';
+  readonly manifest?: CliAdapterManifest;
   readonly cli: SystemCliType;
   readonly installed: boolean;
   /** Detected version line as the CLI printed it; null when unknown, and for Cursor, whose bundled SDK reports `sdk`. */
@@ -277,7 +279,7 @@ const INSTANCE_STATUS: Readonly<
 };
 const READY: CliMatrixStatus = {
   kind: 'ready',
-  label: 'Ready',
+  label: 'Installed',
   tone: 'success',
 };
 const DISABLED: CliMatrixStatus = {
@@ -291,9 +293,9 @@ const NOT_INSTALLED: CliMatrixStatus = {
   tone: 'neutral',
 };
 const CURSOR_NEEDS_KEY: CliMatrixStatus = {
-  kind: 'needs-key',
-  label: 'Needs API key',
-  tone: 'warning',
+  kind: 'not-installed',
+  label: 'Not installed',
+  tone: 'neutral',
 };
 
 /** Ollama Cloud runs on `ollama signin` when no key is stored (`PtahCliSummary.hasApiKey`). */
@@ -371,6 +373,7 @@ function systemRows(
       : null;
     rows.push({
       kind: 'system',
+      manifest: detected.manifest,
       id: cli,
       cli,
       name: spec.name,

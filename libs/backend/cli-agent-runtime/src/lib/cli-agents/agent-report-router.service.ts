@@ -26,10 +26,12 @@
  * session through it.
  */
 import { inject, injectable } from 'tsyringe';
+import { createHash } from 'node:crypto';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { SessionId } from '@ptah-extension/shared';
 import type { AgentProcessInfo, IAgentAdapter } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 import { SessionChildRegistry } from '../session-children/session-child.registry';
 
 /*
@@ -151,7 +153,10 @@ export type AgentReportInput =
 
 export interface AgentReportDelivery {
   readonly delivered: boolean;
-  /** Present exactly when `delivered` is false. */
+  readonly recorded?: boolean;
+  readonly pending?: boolean;
+  readonly deliveryId?: string;
+  /** Present on a refusal; pending delivery has no refusal reason. */
   readonly reason?: AgentReportRefusalReason;
   /** The session the report reached. Present only on a delivery. */
   readonly parentSessionId?: string;
@@ -254,6 +259,8 @@ export class AgentReportRouter {
      */
     @inject(SessionChildRegistry, { isOptional: true })
     private readonly sessionChildren: SessionChildRegistry | null = null,
+    @inject(ParentDeliveryDrainerService, { isOptional: true })
+    private readonly parentDelivery: ParentDeliveryDrainerService | null = null,
   ) {}
 
   /**
@@ -315,13 +322,21 @@ export class AgentReportRouter {
       });
     }
 
-    if (!this.agentAdapter.isSessionActive(parentSessionId)) {
+    if (!this.parentDelivery && !this.agentAdapter.isSessionActive(parentSessionId)) {
       return this.refuse('parent-session-not-active', agentId, {
         parentSessionId,
       });
     }
 
     const now = Date.now();
+    const hash = createHash('sha256').update(message).digest('hex');
+    const key = `report:${agentId}:${info.turnSeq ?? 0}:${hash}`;
+    const previous = this.parentDelivery?.find(key);
+    if (previous) return {
+      delivered: previous.state === 'delivered', recorded: true,
+      pending: previous.state === 'pending', deliveryId: previous.id,
+      parentSessionId,
+    };
     if (this.recentDeliveryCount(agentId, now) >= AGENT_REPORT_BURST_LIMIT) {
       return this.refuse('rate-limited', agentId, {
         limit: AGENT_REPORT_BURST_LIMIT,
@@ -337,6 +352,27 @@ export class AgentReportRouter {
     }
 
     const envelope = AgentReportRouter.buildEnvelope(info, message, summary);
+    if (this.parentDelivery) {
+      const saved = this.parentDelivery.enqueue({
+        id: `lane-delivery:${key}`, dedupeKey: key, agentId,
+        parentSessionId, kind: 'report', body: envelope, createdAt: now,
+        originName: `${info.cli} · ${agentLabel(info)}`,
+      }, () => {
+        this.remember(agentId, { at: now, message });
+        this.agents.markReportDelivered(agentId);
+        this.agents.recordAgentNote(agentId, {
+          type: 'info',
+          content: `Reported to the spawning session: ${summary?.trim() || firstLine(message, TILE_NOTE_PREVIEW_LENGTH)}`,
+        });
+      });
+      if (!saved) return this.refuse('delivery-failed', agentId, {
+        parentSessionId, detail: 'pending-capacity-exceeded',
+      });
+      await this.parentDelivery.drain(parentSessionId);
+      const delivered = this.parentDelivery.find(key)?.state === 'delivered';
+      return { delivered, recorded: true, pending: !delivered,
+        deliveryId: saved.id, parentSessionId };
+    }
     try {
       await this.agentAdapter.sendMessageToSession(parentSessionId, envelope, {
         origin: {

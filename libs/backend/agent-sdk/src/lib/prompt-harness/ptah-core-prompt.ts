@@ -73,17 +73,17 @@ Every tool call resends the whole thread, so cost is requests × context. Finish
 /**
  * How a caller drives a background CLI lane.
  *
- * Spawn → completion signal → Read, NOT Spawn → Poll → Read: a poll is a full
+ * Spawn → completion signal → Read: a poll is a full
  * request at full context, and polling was measured at 29% of all requests
  * across the Codex lane (`.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md` §0).
- * The runtime pushes `<agent-lane-completed>` when a lane finishes, so there is
- * nothing to wait on manually.
+ * The runtime records `<agent-lane-completed>` and drains pending signals on
+ * parent activity or session-id resolution.
  */
 const CLI_DELEGATION_PATTERN = `**CLI Delegation Pattern (Spawn → completion signal → Read):**
 1. \`ptah_agent_spawn { task: "..." }\` — self-contained prompt, no shared context. Pass the \`cli\` (or \`ptahCliId\`) you took from \`ptah_agent_list\`.
-2. **Wait for the push signal.** The runtime delivers \`<agent-lane-completed>\` into your context when the lane finishes. Do other useful work meanwhile, or tell the user you are waiting — do not poll.
+2. **Wait for \`<agent-lane-completed>\`.** It may be pending until parent activity or session-id resolution. Do useful work meanwhile; do not poll.
 3. \`ptah_agent_read { agentId: "..." }\` — read the result once the signal arrives.
-4. \`ptah_agent_status\` is a ONE-OFF check — to recover a CLI Session ID for resume, or after an unexpectedly long silence. Never call it in a loop.`;
+4. If the signal cannot arrive, check status/read once. If still running, make at most 5 status checks, at least 60 seconds apart. Also use status once to recover a CLI Session ID for resume.`;
 
 /**
  * Ptah Core System Prompt
@@ -115,7 +115,7 @@ You orchestrate Task subagents and CLI lanes via \`ptah_agent_spawn\`. Task suba
 CLI lanes receive \`PTAH_LANE_POLICY\` automatically. Do not paste its tool table into tasks.
 Declare owed files in \`deliverables\`. Judge the completion signal's \`verdict\`: \`delivered\` still needs review. \`no-deliverable\`, \`failed\` and \`unverified\` do not prove completion.
 A spawned lane can call \`ptah_agent_report\` before exit. \`delivered: false\` is a normal result.
-\`ptah_agent_message\` returns the mode used. Read it and check \`ptah_agent_list\` for live messaging capability.
+\`ptah_agent_list\` shows potential manifest support; preview a live lane for effective handle support. Send queues by default. Send now steers or needs \`allowPartialTurnLoss: true\` to interrupt and resume. \`ptah_agent_message\` returns a receipt ID and mode; accepted is not settled. Check \`ptah_agent_message_status\` for settlement. Reports and completion signals may be recorded pending and drain on parent activity; do not retry in a loop.
 
 ${CLI_DELEGATION_PATTERN}
 

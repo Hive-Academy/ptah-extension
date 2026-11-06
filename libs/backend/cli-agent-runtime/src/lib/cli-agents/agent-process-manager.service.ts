@@ -34,6 +34,8 @@ import {
 } from '@ptah-extension/shared';
 import type {
   AgentMessageOutcome,
+  CliAdapterManifest,
+  EffectiveLanePolicy,
   AgentRoleChannel,
   AgentRoleDelivery,
   CliOutputSegment,
@@ -62,7 +64,9 @@ import { CliDetectionService } from './cli-detection.service';
 import {
   AgentMessageError,
   AgentMessageRouter,
+  type MessageRoutableAgent,
 } from './agent-message-router.service';
+import { resolveEffectiveLaneCapabilities } from './messaging/agent-effective-capabilities';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -84,6 +88,7 @@ import {
 import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 import { recordLaneUsageOutcome } from './lane-completion-outcome';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import {
@@ -139,7 +144,7 @@ const LANE_SUCCESS_BILLING: Partial<Record<CliType, PlanLimitBilling>> = {
 type LanePlanLimitLedger = Pick<
   PlanLimitLedgerService,
   'recordWindowEvidence' | 'recordOwnerEvidence' | 'recordSuccess'
->;
+> & Partial<Pick<PlanLimitLedgerService, 'snapshotFor'>>;
 
 export {
   MIN_CONCURRENT_AGENTS,
@@ -181,6 +186,7 @@ export interface AgentRoleStamp {
 }
 
 interface SdkSpawnOptions {
+  readonly effectivePolicy?: ReturnType<AgentSpawnEnvironment['resolveLanePolicy']>;
   readonly accountReference?: LaneAccountReference;
   /** Claude lanes only: the named route to admit; absent means ambient. */
   readonly accountAdmission?: ClaudeAccountAdmissionRequest;
@@ -403,6 +409,8 @@ export class AgentProcessManager {
      */
     @inject(SESSION_USAGE_SINK, { isOptional: true })
     private readonly usageSink?: SessionUsageSink | null,
+    @inject(ParentDeliveryDrainerService, { isOptional: true })
+    private readonly parentDeliveryDrainer?: ParentDeliveryDrainerService,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -475,6 +483,8 @@ export class AgentProcessManager {
     if (!adapter) {
       throw new Error(`No adapter registered for CLI: ${cli}`);
     }
+    // Validate explicit policy before any adapter process or SDK run exists.
+    const effectivePolicy = this.spawnEnvironment.resolveLanePolicy(adapter, request);
 
     this.logger.info('[AgentProcessManager] Adapter resolved', {
       cli,
@@ -527,6 +537,7 @@ export class AgentProcessManager {
       mcpPort,
       expectsMcp: request.attachMcp !== false && adapter.supportsMcp !== false,
       cliVersion: detection.version,
+      effectivePolicy,
     });
   }
 
@@ -899,6 +910,8 @@ export class AgentProcessManager {
       ...roleStamp,
       taskKind: request.taskKind,
       routingSource: request.routingSource,
+      potentialCapabilities: this.cliDetection.getAdapter(cli)?.capabilities(),
+      effectivePolicy: options.effectivePolicy,
     };
 
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
@@ -983,6 +996,8 @@ export class AgentProcessManager {
         projectGuidance: request.projectGuidance,
         reasoningEffort: laneEffort.effort,
         autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
+        permission: request.permission,
+        network: request.network,
         // Minted above, BEFORE the CLI is asked to build its MCP config, so the
         // `/agent/{id}` segment of the URL names this exact record
         // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
@@ -1079,6 +1094,8 @@ export class AgentProcessManager {
       /** First task of the lane chain, from {@link prepareSdkHandleSpawn} on a fresh lane. */
       originalTask?: string;
       accountReference?: LaneAccountReference;
+      potentialCapabilities?: CliAdapterManifest;
+      effectivePolicy?: EffectiveLanePolicy;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
@@ -1115,6 +1132,8 @@ export class AgentProcessManager {
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
         providerId: sdkHandle.providerId,
+        potentialCapabilities: meta.potentialCapabilities,
+        effectivePolicy: meta.effectivePolicy,
         taskKind: meta.taskKind,
         routingSource: meta.routingSource,
         resumedFromAgentId: meta.resumedFromAgentId ?? previous?.agentId,
@@ -1193,6 +1212,12 @@ export class AgentProcessManager {
     }
     const reference = handleReference ?? requestedReference;
     info = { ...info, ...reference };
+    const potential = info.potentialCapabilities ?? this.cliDetection.getAdapter(info.cli)?.capabilities();
+    if (potential) info = {
+      ...info,
+      potentialCapabilities: potential,
+      effectiveCapabilities: resolveEffectiveLaneCapabilities(info, potential, sdkHandle),
+    };
     const inactivityTimeoutMs =
       AgentProcessManager.resolveInactivityTimeout(requestedTimeout);
     const timeoutHandle =
@@ -2074,6 +2099,11 @@ export class AgentProcessManager {
         tracked.info.parentSessionId = realSessionId;
       }
     }
+    void this.parentDeliveryDrainer?.resolveParentSessionId(tabId, realSessionId)
+      .catch((error: unknown) => this.logger.error(
+        '[AgentProcessManager] Parent delivery drain after session resolution failed',
+        error instanceof Error ? error : new Error(String(error)),
+      ));
   }
 
   /**
@@ -2221,7 +2251,9 @@ export class AgentProcessManager {
   async sendToAgent(
     agentId: string,
     message: string,
-    delivery: 'queue' | 'steer' = 'queue',
+    delivery: 'queue' | 'now' | 'steer' = 'queue',
+    messageId?: string,
+    allowPartialTurnLoss = false,
   ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
@@ -2254,11 +2286,16 @@ export class AgentProcessManager {
       );
     }
 
-    return this.messageRouter.route(agentId, tracked, message, this, delivery);
+    return this.messageRouter.route(agentId, tracked, message, this, delivery, messageId, allowPartialTurnLoss);
   }
 
   getAgentMessageStatus(agentId: string, messageId: string) {
     return this.messageRouter.messageStatus(agentId, this.agents.get(agentId), messageId);
+  }
+
+  /** Read-only messaging view for the coordinator; the manager retains ownership. */
+  getMessageRoutableAgent(agentId: string): MessageRoutableAgent | undefined {
+    return this.agents.get(agentId);
   }
 
   /**
@@ -2290,7 +2327,7 @@ export class AgentProcessManager {
    * could apply here, and swapping a live lane for a fresh handoff mid
    * conversation would cost the caller its context for a token saving.
    */
-  async continueConversation(agentId: string, message: string): Promise<void> {
+  async continueConversation(agentId: string, message: string, messageId?: string): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
@@ -2390,6 +2427,8 @@ export class AgentProcessManager {
       completedAt: undefined,
       exitCode: undefined,
       stopReason: undefined,
+      stopResetAt: undefined,
+      failureKind: undefined,
     };
     // Every turn started here carries a caller's message, so the new task
     // gets a fresh call count and repeat history.
@@ -2452,6 +2491,7 @@ export class AgentProcessManager {
       (exitCode) => exitCode,
       () => 1,
     );
+    this.events.emit('agent:turn-started', { ...tracked.info, turnSeq: tracked.info.turnSeq, messageId });
   }
 
   /**
@@ -2498,6 +2538,9 @@ export class AgentProcessManager {
       status: 'stopped',
       completedAt: new Date().toISOString(),
     };
+    this.messageRouter.discardPending(agentId, tracked);
+    this.events.emit('agent:turn-settled', { ...tracked.info, turnSeq: tracked.info.turnSeq });
+    this.events.emit('agent:queue-updated', { agentId });
     this.releaseLaneGuard(agentId);
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
@@ -2863,6 +2906,7 @@ export class AgentProcessManager {
     // Nothing can deliver a queued message once the process is gone. Say so in
     // the log rather than leaving entries that look pending forever.
     this.messageRouter.discardPending(agentId, tracked);
+    this.events.emit('agent:queue-updated', { agentId });
 
     const idleMs = tracked.idleSince ? Date.now() - tracked.idleSince : 0;
     this.clearIdleRelease(tracked);
@@ -2930,31 +2974,49 @@ export class AgentProcessManager {
       // Classified here, BEFORE `outputBuffer.discard` below, while the output
       // is still held. A timeout or a stop never reaches this branch: its
       // status is no longer `running`, so it is never read as a quota failure.
-      const limit =
-        status === 'failed'
-          ? this.classifyLaneFailure(tracked, observedAt)
-          : null;
+      const limit = this.classifyLaneFailure(
+        tracked, observedAt,
+        code === 0 ? this.turnErrorTexts(tracked) : this.laneFailureTexts(tracked),
+      );
+      const rateLimited = this.matchLaneRateLimit(tracked, code);
+      const usageMatched = (code === 0 ? this.turnErrorTexts(tracked) : this.laneFailureTexts(tracked))
+        .some((text) => /\b(?:HTTP\s*)?(?:402|429)\b|\bquota\b|usage balance exhausted|RESOURCE_EXHAUSTED/i.test(text));
+      const authMatched = matchesAuthFailure(
+        code === 0 ? this.turnErrorTexts(tracked) : this.laneFailureTexts(tracked),
+      );
+      const stopReason = limit || rateLimited || usageMatched ? 'usage-limit' : authMatched ? 'auth' : undefined;
+      const owner = tracked.info.quotaOwner;
+      const snapshot = stopReason === 'usage-limit' && owner
+        ? this.planLimits.snapshotFor?.(owner.key)
+        : undefined;
+      const registeredResets = [
+        snapshot?.cooldown?.until,
+        ...(snapshot?.ownerEvidence.map((entry) => entry.resetsAt) ?? []),
+        ...(snapshot?.windows.filter((window) => window.exhaustion)
+          .map((window) => window.exhaustion?.resetsAt ?? window.resetsAt) ?? []),
+      ].filter((value): value is number => value !== undefined && value > observedAt);
       tracked.info = {
         ...tracked.info,
         status,
         exitCode: code ?? undefined,
         completedAt: new Date(observedAt).toISOString(),
         failureKind: limit ? limit.failureKind : undefined,
+        stopReason,
+        stopResetAt: limit?.resetsAt ?? (registeredResets.length > 0 ? Math.min(...registeredResets) : undefined),
       };
       if (status === 'failed') {
-        const texts = this.laneFailureTexts(tracked);
-        tracked.authMatched = matchesAuthFailure(texts);
+        tracked.authMatched = authMatched;
         void this.hostAttention?.presentLaneFailure(
           agentId,
           tracked.info.parentSessionId,
           observedAt,
         );
       } else {
-        tracked.authMatched = false;
+        tracked.authMatched = authMatched;
       }
       // Also before the discard below. A rate limit is not quota: it never
       // sets `failureKind` and never reaches `recordLaneLimits`.
-      tracked.rateLimitMatched = this.matchLaneRateLimit(tracked, code);
+      tracked.rateLimitMatched = rateLimited;
       this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
@@ -2962,6 +3024,7 @@ export class AgentProcessManager {
         completedAt: new Date().toISOString(),
       };
     }
+    this.events.emit('agent:turn-settled', { ...tracked.info, turnSeq: tracked.info.turnSeq });
     this.signalLaneCompletion(tracked);
     this.outputBuffer.discard(agentId);
 
@@ -2998,7 +3061,9 @@ export class AgentProcessManager {
     // can be delivered: the status is now terminal, so `continueConversation`
     // will not refuse it as `busy`. One entry per settle — the turn this
     // starts settles again and drains the next.
-    void this.messageRouter.flushPending(agentId, tracked, this);
+    void this.messageRouter.flushPending(agentId, tracked, this).finally(() => {
+      this.events.emit('agent:queue-updated', { agentId });
+    });
   }
 
   /**
@@ -3010,8 +3075,8 @@ export class AgentProcessManager {
   private classifyLaneFailure(
     tracked: TrackedAgent,
     observedAt: number,
+    texts: readonly string[],
   ): LaneLimitClassification | null {
-    const texts = this.laneFailureTexts(tracked);
     const limit = classifyLaneLimit({
       cliOrProvider: laneLimitWording(
         tracked.info.cli,

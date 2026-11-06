@@ -261,6 +261,24 @@ describe('PtahCliRegistry.spawnAgent — model override resolution', () => {
     expect(harness.getQueryFunction).not.toHaveBeenCalled();
   });
 
+  it('refuses unsupported network policy before creating an SDK query', async () => {
+    const harness = buildHarness(BASE_CONFIG);
+    await expect(harness.registry.spawnAgent(BASE_CONFIG.id, 'do work', {
+      permission: 'plan', network: 'deny',
+    })).rejects.toMatchObject({
+      refusal: { code: 'UNSUPPORTED_LANE_POLICY', field: 'network', cli: 'ptah-cli' },
+    });
+    expect(harness.getQueryFunction).not.toHaveBeenCalled();
+  });
+
+  it('translates an explicit permission into the SDK spawn options', async () => {
+    const harness = buildHarness(BASE_CONFIG);
+    await harness.registry.spawnAgent(BASE_CONFIG.id, 'do work', {
+      permission: 'plan', network: 'allow',
+    });
+    expect(harness.getCapturedOptions()).toMatchObject({ permissionMode: 'plan' });
+  });
+
   it('uses the raw model override over selectedModel AND tier', async () => {
     const harness = buildHarness({
       ...BASE_CONFIG,

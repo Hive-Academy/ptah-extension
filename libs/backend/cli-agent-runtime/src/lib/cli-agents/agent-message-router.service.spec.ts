@@ -22,6 +22,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 
 import {
   AgentMessageRouter,
+  AgentInterruptedDeliveryError,
   MAX_PENDING_MESSAGES,
   type ContinuationDispatcher,
   type MessageRoutableAgent,
@@ -50,7 +51,12 @@ function createDetection(
     getAdapter: jest
       .fn()
       .mockReturnValue(
-        capabilities ? { capabilities: () => capabilities } : undefined,
+        capabilities ? { capabilities: () => ({ messaging: {
+          steer: { state: capabilities.steer ? 'supported' : 'unsupported' },
+          interrupt: { state: capabilities.interrupt ? 'supported' : 'unsupported' },
+          continuation: { state: capabilities.continuation ? 'supported' : 'unsupported' },
+          resume: { state: 'unsupported' },
+        } }) } : undefined,
       ),
   } as unknown as jest.Mocked<CliDetectionService>;
 }
@@ -166,6 +172,18 @@ describe('AgentMessageRouter', () => {
   });
 
   describe('interrupt-resume', () => {
+    it('refuses Send now without loss confirmation before interrupting', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const interrupt = jest.fn().mockResolvedValue(undefined);
+      const tracked = createRecord({ sdkHandle: {
+        supportsInterrupt: () => true, interrupt,
+        supportsContinuation: () => true, continue: jest.fn(),
+      } as unknown as SdkHandle });
+      const outcome = await router.route(AGENT_ID, tracked, 'redirect', createDispatcher(), 'now');
+      expect(outcome.mode).toBe('unsupported');
+      expect(interrupt).not.toHaveBeenCalled();
+    });
+
     it('awaits the turn settle before resuming', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       let settleTurn!: (code: number) => void;
@@ -199,6 +217,9 @@ describe('AgentMessageRouter', () => {
         tracked,
         'redirect',
         dispatcher,
+        'now',
+        undefined,
+        true,
       );
 
       expect(outcome.mode).toBe('interrupt-resume');
@@ -208,7 +229,7 @@ describe('AgentMessageRouter', () => {
       );
     });
 
-    it('reports unsupported when the resume itself fails', async () => {
+    it('reports lost partial work when the resume itself fails', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = createRecord({ currentTurnDone: Promise.resolve(1) });
       tracked.sdkHandle = {
@@ -221,15 +242,15 @@ describe('AgentMessageRouter', () => {
         Promise.reject(new Error('handle is gone')),
       );
 
-      const outcome = await router.route(
+      await expect(router.route(
         AGENT_ID,
         tracked,
         'redirect',
         dispatcher,
-      );
-
-      expect(outcome.mode).toBe('unsupported');
-      expect(outcome.detail).toContain('handle is gone');
+        'now',
+        undefined,
+        true,
+      )).rejects.toThrow(AgentInterruptedDeliveryError);
     });
   });
 
@@ -333,6 +354,7 @@ describe('AgentMessageRouter', () => {
       expect(dispatcher.continueConversation).toHaveBeenCalledWith(
         AGENT_ID,
         'first',
+        'm1',
       );
       expect(tracked.pendingMessages.map((entry) => entry.text)).toEqual(['second']);
     });

@@ -3,7 +3,8 @@ import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2 } from 'lucide-angular';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2, MessageSquareText, CircleCheckBig, CircleX } from 'lucide-angular';
 import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.utils';
 import type { LaneEventRow } from './lane-event-row.types';
 import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type LaneEventMetrics, type LaneEventTone } from './lane-event-row.presentation';
@@ -37,11 +38,27 @@ export class LaneEventRowComponent {
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+  protected readonly monitor = inject(AgentMonitorStore, { optional: true });
   protected readonly expanded = signal(false);
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly ImageIcon = Image;
   protected readonly BranchIcon = GitBranch;
   protected readonly RewindIcon = Undo2;
+  protected readonly ReportIcon = MessageSquareText;
+  protected readonly CompletionIcon = CircleCheckBig;
+  protected readonly FailedIcon = CircleX;
+  protected verdict(value: string | undefined): string {
+    switch (value) {
+      case 'delivered': return 'Deliverables written';
+      case 'no-deliverable': return 'No deliverable';
+      case 'failed': return 'Failed';
+      default: return 'Unverified';
+    }
+  }
+  protected parentSignal(kind: 'report' | 'completion'): string {
+    this.monitor?.parentDelivery();
+    return this.monitor?.parentDeliveryState(this.row().agentId)[kind] ?? 'Waiting for parent';
+  }
   protected readonly latest = computed(() => this.row().events[this.row().events.length - 1]);
   protected readonly completed = computed(() => this.row().events.some(event => event.kind === 'completed'));
   protected readonly lastMessageId = computed(() => this.latest().messageId);
@@ -66,6 +83,7 @@ export class LaneEventRowComponent {
   });
   protected time(timestamp: number): string { return laneEventTime(timestamp); }
   protected iso(timestamp: number): string { return new Date(timestamp).toISOString(); }
+  protected newDateLabel(timestamp: number): string { return new Date(timestamp).toLocaleString(); }
   protected markdown(body: string): string { return toUserMessageMarkdown(body); }
   protected completionFor(body: string) { return parseLaneCompletion(body); }
   protected fileName(path: string): string { return path.split(/[/\\]/).at(-1) || path; }

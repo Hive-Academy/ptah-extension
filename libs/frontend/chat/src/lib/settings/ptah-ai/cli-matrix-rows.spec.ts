@@ -220,10 +220,10 @@ describe('cliMatrixRows', () => {
         ),
       );
 
-    it('shows Ready for an installed, enabled CLI with its model, effort and version', () => {
+    it('shows Installed for an installed, enabled CLI with its model, effort and version', () => {
       expect(row('codex')).toMatchObject({
         name: 'Codex',
-        status: { kind: 'ready', label: 'Ready', tone: 'success' },
+        status: { kind: 'ready', label: 'Installed', tone: 'success' },
         enabled: true,
         interactive: true,
         version: '1.4',
@@ -264,9 +264,9 @@ describe('cliMatrixRows', () => {
       ).toBe('not-installed');
     });
 
-    it('keeps Cursor actionable in the Uninstalled group: Needs API key and the Credentials action', () => {
+    it('keeps Cursor actionable in the Uninstalled group with the Credentials action', () => {
       expect(row('cursor')).toMatchObject({
-        status: { kind: 'needs-key', label: 'Needs API key', tone: 'warning' },
+        status: { kind: 'not-installed', label: 'Not installed', tone: 'neutral' },
         installed: false,
         interactive: false,
         credentialAction: true,

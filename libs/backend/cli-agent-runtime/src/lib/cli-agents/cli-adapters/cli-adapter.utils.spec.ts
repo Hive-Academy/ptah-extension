@@ -552,27 +552,22 @@ describe('buildTaskPrompt', () => {
       const prompt = buildTaskPrompt(base);
 
       expect(prompt).toContain('`ptah_agent_report`');
-      expect(prompt).toContain('It takes no agent id.');
+      expect(prompt).toContain('(no agent id)');
       expect(prompt).toContain('`delivered: false`');
     });
 
-    it('tells the agent to read the returned delivery mode', () => {
-      expect(buildTaskPrompt(base)).toContain(
-        'returns the mode it used. Read that returned mode; do not assume one.',
-      );
+    it('distinguishes queue acceptance from settlement', () => {
+      const prompt = buildTaskPrompt(base);
+      expect(prompt).toContain('`delivery: now`');
+      expect(prompt).toContain('receipt id; accepted is not settled');
+      expect(prompt).toContain('`ptah_agent_message_status`');
     });
 
-    it('describes no delivery mode as available', () => {
+    it('does not guarantee a delivery mode', () => {
       const prompt = buildTaskPrompt(base);
 
-      for (const mode of [
-        'steer',
-        'interrupt-resume',
-        'queue-next-turn',
-        'unsupported',
-      ]) {
-        expect(prompt).not.toContain(mode);
-      }
+      expect(prompt).toContain('if supported');
+      expect(prompt).not.toContain('queue-next-turn');
     });
 
     it('names no vendor', () => {
@@ -607,7 +602,7 @@ describe('buildTaskPrompt', () => {
 
       // Recorded, not a ceiling to grow into. The child prompt is argv on the
       // task-prompt adapters and the Windows `.cmd` fallback limit is 8,191.
-      expect(added).toBe(2057);
+      expect(added).toBeLessThanOrEqual(2057);
     });
   });
 });

@@ -131,6 +131,7 @@ import type { HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
   AgentProcessInfo,
+  CliAdapterManifest,
   AgentRoleDefinition,
   CliDetectionResult,
   CliOutputSegment,
@@ -244,9 +245,15 @@ function createSdkAdapter(
       version: '1.0.0',
       messagingMode: 'queue',
     }),
-    capabilities: jest
-      .fn()
-      .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
+    capabilities: jest.fn().mockReturnValue({
+      messaging: {
+        steer: { state: 'unsupported' }, interrupt: { state: 'unsupported' },
+        continuation: { state: 'supported' }, resume: { state: 'supported' },
+      },
+      roleChannel: 'developer-instructions', permissionModes: {},
+      networkModes: { allow: { state: 'supported' }, deny: { state: 'unsupported' } },
+      limitReader: { state: 'no-reliable-source' }, mcp: { state: 'supported' },
+    } satisfies CliAdapterManifest),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
       .fn<Promise<SdkHandle>, []>()
@@ -362,6 +369,7 @@ interface PlanLimitsStub {
   recordWindowEvidence: jest.Mock;
   recordOwnerEvidence: jest.Mock;
   recordSuccess: jest.Mock;
+  snapshotFor: jest.Mock;
 }
 
 interface ManagerHarness {
@@ -423,6 +431,7 @@ function createManager(deps: {
     recordWindowEvidence: jest.fn(),
     recordOwnerEvidence: jest.fn(),
     recordSuccess: jest.fn(),
+    snapshotFor: jest.fn(),
   };
   const manager = new AgentProcessManager(
     deps.logger,
@@ -2232,7 +2241,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     it('flags an exit-0 turn with a provider 429 wording in an error segment', async () => {
       const emit = attachSegments(sdkControls);
-      await spawnCodex();
+      const agentId = await spawnCodex();
 
       emit({ type: 'error', content: 'API Error: Request rejected (429)' });
       sdkControls.resolve(0);
@@ -2240,6 +2249,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'usage-limit');
     });
 
     it('does not read stdout on exit 0', async () => {
@@ -2344,6 +2354,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(contextOf(0)).toMatchObject({ authMatched: true });
+      expect(manager.getStatus(agentId)).toHaveProperty('stopReason', 'auth');
 
       await manager.continueConversation(agentId, 'second turn');
       const stopped = manager.stop(agentId);
@@ -2544,6 +2555,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(manager.getStatus(agentId)).toMatchObject({
         status: 'failed',
         failureKind: 'quota',
+        stopReason: 'usage-limit',
+        stopResetAt: expect.any(Number),
       });
       expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
         codexAccount,
@@ -2557,6 +2570,28 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
         failureKind: 'quota',
       });
+    });
+
+    it('classifies generic HTTP 402 usage exhaustion without claiming a plan window', async () => {
+      const agentId = await spawnLane('codex');
+      sdkControls.emitOutput('HTTP 402: usage balance exhausted\n');
+      sdkControls.resolve(1);
+      await settle();
+      expect(manager.getStatus(agentId)).toMatchObject({ status: 'failed', stopReason: 'usage-limit' });
+      expect(manager.findAgentInfo(agentId)?.stopResetAt).toBeUndefined();
+    });
+
+    it('uses a known limit ledger reset when the rate-limit error has no reset text', async () => {
+      const reset = Date.now() + 60_000;
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      planLimits.snapshotFor.mockReturnValue({ owner: codexAccount, windows: [], ownerEvidence: [],
+        cooldown: { until: reset, observedAt: Date.now() } });
+      const agentId = await spawnLane('codex');
+      sdkControls.emitOutput('HTTP 429 Too Many Requests\n');
+      sdkControls.resolve(1);
+      await settle();
+      expect(manager.getStatus(agentId)).toMatchObject({ stopReason: 'usage-limit', stopResetAt: reset });
+      expect(planLimits.snapshotFor).toHaveBeenCalledWith(codexAccount.key);
     });
 
     it('classifies from an error segment the adapter emitted', async () => {
@@ -3006,7 +3041,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'change direction');
+      const outcome = await manager.sendToAgent(agentId, 'change direction', 'now', undefined, true);
 
       expect(interrupt).toHaveBeenCalledTimes(1);
       expect(outcome.mode).toBe('interrupt-resume');
@@ -3025,7 +3060,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'change direction');
+      const outcome = await manager.sendToAgent(agentId, 'change direction', 'now', undefined, true);
 
       expect(outcome.mode).toBe('unsupported');
       expect(outcome.detail).toContain('cancel failed');
@@ -3060,17 +3095,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const outcome = await manager.sendToAgent(agentId, 'a brand new turn');
 
-      expect(outcome.mode).toBe('queue-next-turn');
+      expect(outcome.mode).toBe('start-turn');
       expect(outcome.detail).toMatch(/new turn/i);
       expect(controls.continueMessages).toEqual(['a brand new turn']);
     });
 
     it('refuses with unsupported when the handle offers no mechanism at all', async () => {
-      sdkAdapter.capabilities.mockReturnValue({
-        steer: false,
-        interrupt: false,
-        continuation: false,
-      });
+      const capabilities = sdkAdapter.capabilities();
+      sdkAdapter.capabilities.mockReturnValue({ ...capabilities, messaging: {
+        ...capabilities.messaging,
+        steer: { state: 'unsupported' }, interrupt: { state: 'unsupported' },
+        continuation: { state: 'unsupported' }, resume: { state: 'unsupported' },
+      } });
       const agentId = await spawnWithHandle(sdkControls.handle);
 
       const outcome = await manager.sendToAgent(agentId, 'anything');

@@ -493,10 +493,10 @@ describe('CliOrchestrationMatrixComponent', () => {
 
   describe('cells', () => {
     it('shows only detection states for system CLIs (D11) and the instance status, with its last latency on the card (#43)', () => {
-      expect(statusOf('codex')).toBe('Ready');
+      expect(statusOf('codex')).toBe('Installed');
       expect(statusOf('copilot')).toBe('Disabled');
       expect(statusOf('pi')).toBe('Not installed');
-      expect(statusOf('cursor')).toBe('Needs API key');
+      expect(statusOf('cursor')).toBe('Not installed');
       expect(statusOf('glm-1')).toBe('Ready');
       expect(element().textContent?.toLowerCase()).not.toContain('quota');
       state.cliTest.set(

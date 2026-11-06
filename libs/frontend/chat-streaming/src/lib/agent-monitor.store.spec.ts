@@ -84,6 +84,29 @@ describe('AgentMonitorStore', () => {
     mockActiveTab.set(null);
   });
 
+  it('routes preview, send and cancel through ClaudeRpcService', async () => {
+    const preview = { agentId: '00000000-0000-4000-8000-000000000001', delivery: 'queue', mode: 'queue-next-turn', supported: true, usesResume: false, effectiveCapabilities: { agentId: '00000000-0000-4000-8000-000000000001', resolvedAt: 1, source: 'live-handle', messaging: 'queue', mcp: { supported: true } } };
+    const receipt = { id: 'message-1', agentId: '00000000-0000-4000-8000-000000000001', state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1 };
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess(preview));
+    await store.previewMessage('00000000-0000-4000-8000-000000000001', 'queue');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:previewMessage', { agentId: '00000000-0000-4000-8000-000000000001', delivery: 'queue' });
+    expect(store.composerState('00000000-0000-4000-8000-000000000001').queue?.supported).toBe(true);
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess({ mode: 'queue-next-turn', receipt }));
+    await store.sendMessage('00000000-0000-4000-8000-000000000001', 'hello', 'queue');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:sendMessage', { agentId: '00000000-0000-4000-8000-000000000001', message: 'hello', delivery: 'queue', allowPartialTurnLoss: undefined });
+    expect(store.receipt('00000000-0000-4000-8000-000000000001', 'message-1')?.state).toBe('accepted');
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ...receipt, state: 'failed', reason: 'cancelled-by-user' }));
+    await store.cancelMessage('00000000-0000-4000-8000-000000000001', 'message-1');
+    expect(rpcMock.call).toHaveBeenCalledWith('agent:cancelMessage', { agentId: '00000000-0000-4000-8000-000000000001', messageId: 'message-1' });
+  });
+
+  it('bounds receipt and parent delivery projections', () => {
+    for (let i = 0; i < 40; i++) store.onMessageReceipt({ id: `message-${i}`, agentId: AgentId.from('00000000-0000-4000-8000-000000000001'), state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: i, updatedAt: i });
+    expect(store.receipts().get('00000000-0000-4000-8000-000000000001')).toHaveLength(32);
+    store.onParentDelivery({ agentId: AgentId.from('00000000-0000-4000-8000-000000000001'), kind: 'report', state: 'pending' });
+    expect(store.parentDelivery().get('00000000-0000-4000-8000-000000000001')?.[0].state).toBe('pending');
+  });
+
   it('includes the owning session in a child cache query', async () => {
     store.onAgentStart({
       id: 'native-child',

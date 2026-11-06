@@ -152,6 +152,17 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('marks a usage-limit stop failed despite a fresh skeleton deliverable', async () => {
+    const h = createHarness({ files: { '/ws/report.md': 10 } });
+    const result = await h.notifier.signal(createInfo({
+      deliverables: ['report.md'],
+      stopReason: 'usage-limit',
+      stopResetAt: Date.parse('2026-09-21T12:00:00.000Z'),
+    }));
+    expect(result.signal?.verdict).toBe('failed');
+    expect(h.envelope()).toContain('stop-reason="usage-limit"');
+    expect(h.envelope()).toContain('reset-at="2026-09-21T12:00:00.000Z"');
+  });
   it('records orphan lane usage with its workspace and execution host', () => {
     const recordUsage = jest.fn();
     const sink: SessionUsageSink = { recordUsage };

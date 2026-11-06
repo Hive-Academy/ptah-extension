@@ -1725,6 +1725,28 @@ export interface RpcMethodRegistry
     params: void;
     result: { clis: import('./agent-process.types').CliDetectionResult[] };
   };
+  'agent:previewMessage': {
+    params: import('./agent-process.types').AgentMessagePreviewRequest;
+    result: import('./agent-process.types').AgentMessagePreview;
+  };
+  'agent:sendMessage': {
+    params: import('./agent-process.types').AgentMessageRequest;
+    result: import('./agent-process.types').AgentMessageOutcome;
+  };
+  'agent:getMessageReceipt': {
+    params: {
+      agentId: import('./agent-process.types').AgentId;
+      messageId: string;
+    };
+    result: import('./agent-process.types').AgentDeliveryReceipt;
+  };
+  'agent:cancelMessage': {
+    params: {
+      agentId: import('./agent-process.types').AgentId;
+      messageId: string;
+    };
+    result: import('./agent-process.types').AgentDeliveryReceipt;
+  };
   'agent:listCliModels': {
     params: void;
     result: AgentListCliModelsResult;
@@ -3666,6 +3688,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:getClaudeBuiltins': true,
   'agent:setClaudeBuiltin': true,
   'agent:detectClis': true,
+  'agent:previewMessage': true,
+  'agent:sendMessage': true,
+  'agent:getMessageReceipt': true,
+  'agent:cancelMessage': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:e2eSeedPermission': true, // TEST-ONLY seam, PTAH_E2E-gated (TASK_2026_264)

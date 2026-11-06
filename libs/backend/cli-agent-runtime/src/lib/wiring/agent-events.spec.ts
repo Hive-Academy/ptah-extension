@@ -24,10 +24,13 @@ import { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-perm
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   AgentId,
+  AgentDeliveryReceipt,
   AgentProcessInfo,
   CliSessionReference,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
+import type { ParentDeliveryEnvelope } from '../cli-agents/parent-delivery/parent-envelope-store.service';
 import {
   persistCliSessionReference,
   wireAgentEventListeners,
@@ -82,8 +85,47 @@ function buildContainer(
   return {
     isRegistered: (token: symbol) => registry.has(token),
     resolve: (token: symbol) => registry.get(token),
+    registerInstance: (token: symbol, instance: unknown) => {
+      registry.set(token, instance);
+    },
   } as unknown as DependencyContainer;
 }
+
+describe('agent delivery push sinks', () => {
+  it('broadcasts receipt and parent-delivery changes on the monitor channel', async () => {
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const container = buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter(), findAgentInfo: () => undefined }],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+    ]);
+    wireAgentEventListeners(container, {
+      logger: Object.assign(Object.create(null) as Logger, createMockLogger()),
+      platform: 'electron',
+    });
+    const receipt: AgentDeliveryReceipt = {
+      id: 'message-1', agentId: 'agent-1' as AgentId, state: 'accepted',
+      mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1,
+    };
+    const envelope: ParentDeliveryEnvelope = {
+      id: 'lane-delivery:completion-1', parentSessionId: PARENT_SESSION,
+      agentId: 'agent-1', kind: 'completion', dedupeKey: 'completion-1',
+      body: 'Done', createdAt: 1, state: 'delivered', attempts: 1,
+    };
+    container.resolve<{ changed(receipt: AgentDeliveryReceipt): void }>(
+      CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK,
+    ).changed(receipt);
+    container.resolve<{ emit(envelope: ParentDeliveryEnvelope): void }>(
+      CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK,
+    ).emit(envelope);
+    expect(broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, { receipt },
+    );
+    expect(broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
+      { agentId: 'agent-1', kind: 'completion', state: 'delivered', deliveryId: envelope.id },
+    );
+  });
+});
 
 describe('persistCliSessionReference — missing parent session', () => {
   it('warns and names the agent instead of dropping it silently', () => {

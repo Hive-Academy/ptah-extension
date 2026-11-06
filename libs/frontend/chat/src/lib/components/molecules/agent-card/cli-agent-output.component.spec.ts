@@ -77,7 +77,7 @@ describe('unified CLI agent output', () => {
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         {
           provide: AgentMonitorStore,
-          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+          useValue: { tick: signal(0), agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },
         },
         {
           provide: ClaudeRpcService,
@@ -149,7 +149,6 @@ describe('unified CLI agent output', () => {
     expect(el.querySelector('[aria-label="Lane usage"]')).toBeNull();
     expect(el.querySelector('[aria-label="Agent usage"]')).not.toBeNull();
     expect(el.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
-    expect(el.textContent).not.toContain('Worker Alpha');
     expect(el.textContent).not.toContain('Reported total:');
     expect(el.textContent).not.toContain('↑');
     row.click();

@@ -129,6 +129,71 @@ export type AgentRoleChannel =
   | 'system-prompt'
   | 'agent-selection';
 
+export type LanePermissionMode = 'plan' | 'ask' | 'auto-edit' | 'yolo';
+export type LaneNetworkMode = 'allow' | 'deny';
+export type LaneSupportState = 'supported' | 'unsupported';
+
+export interface LaneCapabilitySupport {
+  readonly state: LaneSupportState;
+  /** Required for unsupported. Never infer support from this text. */
+  readonly reason?: string;
+}
+
+export interface LanePermissionCapability extends LaneCapabilitySupport {
+  /** Diagnostic native name, for example "workspace-write". */
+  readonly nativeMode?: string;
+  /** Network modes valid with this permission mode. */
+  readonly networkModes: readonly LaneNetworkMode[];
+}
+
+export interface LaneLimitReaderCapability {
+  readonly state: 'available' | 'no-reliable-source';
+  /** Present only for an implemented reader. */
+  readonly source?: string;
+  readonly reason?: string;
+}
+
+export interface CliAdapterManifest {
+  readonly messaging: {
+    readonly steer: LaneCapabilitySupport;
+    readonly interrupt: LaneCapabilitySupport;
+    readonly continuation: LaneCapabilitySupport;
+    readonly resume: LaneCapabilitySupport;
+  };
+  readonly roleChannel: AgentRoleChannel;
+  readonly permissionModes: Readonly<
+    Partial<Record<LanePermissionMode, LanePermissionCapability>>
+  >;
+  readonly networkModes: Readonly<
+    Record<LaneNetworkMode, LaneCapabilitySupport>
+  >;
+  readonly limitReader: LaneLimitReaderCapability;
+  readonly mcp: LaneCapabilitySupport;
+}
+
+export interface EffectiveLaneCapabilities {
+  readonly agentId: AgentId;
+  readonly resolvedAt: number;
+  readonly source: 'live-handle' | 'restored-record';
+  readonly messaging: CliAdapterManifest['messaging'];
+  readonly mcp: LaneCapabilitySupport;
+}
+
+export interface EffectiveLanePolicy {
+  /** Omitted means the adapter's pre-existing default. */
+  readonly permission?: LanePermissionMode;
+  readonly network?: LaneNetworkMode;
+  readonly nativeDescription?: string;
+}
+
+export interface LaneSpawnPolicyRefusal {
+  readonly code: 'UNSUPPORTED_LANE_POLICY';
+  readonly field: 'permission' | 'network' | 'combination';
+  readonly cli: CliType | 'ptah-cli';
+  readonly requested: EffectiveLanePolicy;
+  readonly reason: string;
+}
+
 export interface AgentProcessInfo {
   /** Ptah MCP attachment warning, when the lane could not use its report tool. */
   mcpAttachmentWarning?: string;
@@ -167,6 +232,12 @@ export interface AgentProcessInfo {
   readonly resumedFromAgentId?: string;
   /** Whether the agent's handle can continue the same conversation with a follow-up. */
   readonly supportsContinuation?: boolean;
+  /** Adapter-declared capabilities available before session setup. */
+  readonly potentialCapabilities?: CliAdapterManifest;
+  /** Live capabilities resolved after session setup. */
+  readonly effectiveCapabilities?: EffectiveLaneCapabilities;
+  /** Spawn policy requested for this lane; omitted fields use adapter defaults. */
+  readonly effectivePolicy?: EffectiveLanePolicy;
   /** Workspace role name the agent was spawned as. */
   readonly role?: string;
   /** How the role was delivered (only set when `role` is set). */
@@ -207,12 +278,12 @@ export interface AgentProcessInfo {
    */
   readonly originalTask?: string;
   /**
-   * Why the host stopped the lane, when it was not the caller
-   * (TASK_2026_597, R9.4). Stamped on the record before the stop, so it is
-   * present on the terminal record and the `agent:exited` payload. Unset when
-   * the lane ended on its own or the caller stopped it.
+   * Why the lane ended: a host repeat-call guard or a classified provider
+   * limit/auth error. Unset for ordinary completion and caller stops.
    */
   stopReason?: LaneStopReason;
+  /** Known provider reset time, in Unix milliseconds, for a usage-limit exit. */
+  stopResetAt?: number;
   /**
    * Task kind this lane was routed for (TASK_2026_646, Req 5.2, SC-6).
    * Copied from the spawn request; the outcome record keeps `null` when the
@@ -234,7 +305,7 @@ export interface AgentProcessInfo {
  * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
  * tool-call budget; a repeat loop is the only host stop.
  */
-export type LaneStopReason = 'repeat-call';
+export type LaneStopReason = 'repeat-call' | 'usage-limit' | 'auth';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -342,6 +413,10 @@ export interface SpawnAgentRequest {
    * selection. Absent means the caller sent none.
    */
   readonly accountSelection?: ProviderAccountSelection;
+  /** Per-spawn native permission mode. Omit to preserve the adapter default. */
+  readonly permission?: LanePermissionMode;
+  /** Per-spawn network policy. `deny` requires native enforcement. */
+  readonly network?: LaneNetworkMode;
 }
 
 export interface AgentOutput {
@@ -395,7 +470,11 @@ export interface SpawnAgentResult {
  * - `unsupported` — nothing was delivered; `detail` carries the reason.
  */
 export type AgentMessagingMode =
-  'steer' | 'interrupt-resume' | 'queue-next-turn' | 'unsupported';
+  | 'steer'
+  | 'interrupt-resume'
+  | 'queue-next-turn'
+  | 'start-turn'
+  | 'unsupported';
 
 /**
  * The best mechanism a CLI can offer, as reported by agent listings.
@@ -404,6 +483,70 @@ export type AgentMessagingMode =
  * {@link AgentMessagingMode} for the latter.
  */
 export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
+
+export type AgentMessageDelivery = 'queue' | 'now';
+/** MCP compatibility input. `steer` never selects interrupt-resume. */
+export type AgentMessageRequestDelivery = AgentMessageDelivery | 'steer';
+export type AgentMessagePreviewMode =
+  | 'steer'
+  | 'queue-next-turn'
+  | 'interrupt-resume'
+  | 'start-turn'
+  | 'unsupported';
+
+export interface AgentMessageRequest {
+  readonly agentId: AgentId;
+  readonly message: string;
+  readonly delivery?: AgentMessageRequestDelivery; // Default: queue.
+  /** Required only when the selected plan is interrupt-resume. */
+  readonly allowPartialTurnLoss?: boolean;
+}
+
+export interface AgentMessagePreviewRequest {
+  readonly agentId: AgentId;
+  readonly delivery?: AgentMessageDelivery;
+}
+
+export interface AgentMessagePreview {
+  readonly agentId: AgentId;
+  readonly delivery: AgentMessageDelivery;
+  readonly mode: AgentMessagePreviewMode;
+  readonly supported: boolean;
+  readonly reason?: string;
+  readonly usesResume: boolean;
+  readonly lossDisclosure?: {
+    readonly kind: 'partial-turn-work-lost';
+    readonly confirmationRequired: true;
+    readonly text: string;
+  };
+  readonly effectiveCapabilities: EffectiveLaneCapabilities;
+}
+
+export type AgentDeliveryReceiptState =
+  | 'accepted'
+  | 'started'
+  | 'settled'
+  | 'failed'
+  | 'expired'
+  | 'interrupted-undelivered';
+
+export interface AgentDeliveryReceipt {
+  readonly id: string;
+  readonly agentId: AgentId;
+  readonly state: AgentDeliveryReceiptState;
+  readonly mode: AgentMessagePreviewMode;
+  readonly delivery: AgentMessageDelivery;
+  readonly sender?: 'user' | 'parent';
+  readonly preview?: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly turnSeq?: number;
+  readonly cliSessionId?: string;
+  readonly reason?: string;
+  readonly partialTurnLost?: boolean;
+  /** Turn outcome is separate from delivery outcome. */
+  readonly turnOutcome?: 'completed' | 'failed' | 'stopped';
+}
 
 /**
  * What actually happened to a message aimed at a live agent.
@@ -416,6 +559,8 @@ export interface AgentMessageOutcome {
   readonly mode: AgentMessagingMode;
   readonly detail?: string;
   readonly messageId?: string;
+  /** Optional until the legacy router migrates to receipt-producing sends. */
+  readonly receipt?: AgentDeliveryReceipt;
 }
 
 export interface CliDetectionResult {
@@ -458,6 +603,8 @@ export interface CliDetectionResult {
   readonly roleDelivery?: AgentRoleDelivery;
   /** Adapter channel this CLI uses to carry a role. */
   readonly roleChannel?: AgentRoleChannel;
+  /** Full adapter-declared lane capabilities for management and spawn preview. */
+  readonly manifest?: CliAdapterManifest;
 }
 
 /**

@@ -20,6 +20,7 @@ import { LucideAngularModule, Play, Square, X } from 'lucide-angular';
 import { ClaudeRpcService, injectWallClock } from '@ptah-extension/core';
 import { type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
+import { AgentContinueInputComponent } from '../agent-continue-input/agent-continue-input.component';
 import {
   AgentCardHeaderComponent,
   laneAccountText,
@@ -53,6 +54,7 @@ import {
     CliLaneUsageSummaryComponent,
     AgentLaneStatsComponent,
     CliAgentOutputComponent,
+    AgentContinueInputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -117,7 +119,7 @@ import {
             } @else if (agent().cliSessionId) {
               <button
                 type="button"
-                class="btn btn-ghost btn-xs btn-square"
+                class="btn btn-primary btn-xs"
                 [disabled]="isResuming()"
                 [attr.aria-label]="'Resume ' + laneName() + ' session'"
                 (click)="resumeAgent($event)"
@@ -127,9 +129,10 @@ import {
                 } @else {
                   <lucide-angular
                     [img]="PlayIcon"
-                    class="h-3 w-3 text-success"
+                    class="h-3 w-3"
                     aria-hidden="true"
                   />
+                  Resume
                 }
               </button>
             }
@@ -250,6 +253,7 @@ import {
             [presentation]="presentation()"
           />
         }
+        <ptah-agent-continue-input class="block px-2 pb-2" [agent]="agent()" [variant]="presentation() === 'flat' ? 'composer' : 'panel'" />
       }
     </div>
   `,

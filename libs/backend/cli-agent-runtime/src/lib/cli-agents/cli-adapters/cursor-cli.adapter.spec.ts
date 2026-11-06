@@ -861,11 +861,12 @@ describe('CursorCliAdapter', () => {
 
   describe('capabilities() / parseOutput()', () => {
     it('reports interrupt and continuation, but no mid-turn steer', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: true,
-        continuation: true,
+      expect(adapter.capabilities().messaging).toMatchObject({
+        steer: { state: 'unsupported' },
+        interrupt: { state: 'supported' },
+        continuation: { state: 'supported' },
       });
+      expect(adapter.capabilities().limitReader.state).toBe('no-reliable-source');
     });
 
     it('strips ANSI escape codes', () => {

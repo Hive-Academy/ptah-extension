@@ -24,6 +24,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
+import type { AgentMessageCoordinator } from '@ptah-extension/cli-agent-runtime';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
@@ -671,6 +672,9 @@ export class PtahAPIBuilder {
       ),
       agent: (builtAgent = this.buildNamespaceSafe('agent', () =>
         buildAgentNamespace({
+          getMessageCoordinator: () => this.container?.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR, true)
+            ? this.container.resolve<AgentMessageCoordinator>(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR)
+            : undefined,
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),

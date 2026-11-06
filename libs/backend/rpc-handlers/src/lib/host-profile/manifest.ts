@@ -30,6 +30,7 @@ import type { Capability } from './capabilities';
 import {
   AttentionRpcHandlers,
   AgentRpcHandlers,
+  AgentMessageRpcHandlers,
   AgentOutcomeRpcHandlers,
   AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
@@ -146,6 +147,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AgentRpcHandlers.METHODS,
     requires: [],
     handler: AgentRpcHandlers,
+  },
+  {
+    key: 'agentMessage',
+    methods: AgentMessageRpcHandlers.METHODS,
+    requires: [],
+    handler: AgentMessageRpcHandlers,
   },
   {
     // Agents-tab read (TASK_2026_646 B7). Every host serves it. An

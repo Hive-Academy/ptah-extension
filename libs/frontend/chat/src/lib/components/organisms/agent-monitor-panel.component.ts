@@ -58,7 +58,6 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
-import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
 import { SubagentLaneComponent } from './subagent-lane/subagent-lane.component';
 import {
   groupAgentsByWorkflowRun,
@@ -184,7 +183,6 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     AgentLaneGridComponent,
     LucideAngularModule,
     AgentCardComponent,
-    AgentContinueInputComponent,
     SubagentLaneComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -546,7 +544,6 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
           />
         </div>
 
-        <ptah-agent-continue-input [agent]="agent" />
       </ng-template>
       <div #panelBody class="flex-1 min-h-0 min-w-0 overflow-hidden">
         @if (lanesMode()) {

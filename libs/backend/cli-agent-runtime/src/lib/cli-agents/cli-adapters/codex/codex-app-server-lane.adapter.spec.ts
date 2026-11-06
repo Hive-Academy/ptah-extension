@@ -611,7 +611,7 @@ describe('CodexAppServerLaneAdapter', () => {
     jest.useFakeTimers();
     try {
       const h = harness();
-      expect(h.adapter.capabilities()).toEqual({ steer: true, interrupt: false, continuation: true });
+      expect(h.adapter.capabilities().messaging.steer.state).toBe('supported');
       const handle = await h.adapter.runSdk(options());
       handle.abort.abort();
       expect(await handle.done).toBe(1);

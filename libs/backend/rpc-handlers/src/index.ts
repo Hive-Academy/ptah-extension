@@ -10,6 +10,7 @@ export { SessionDriverLockCoordinator } from './lib/chat/session/session-driver-
 
 export {
   AgentRpcHandlers,
+  AgentMessageRpcHandlers,
   AgentOutcomeRpcHandlers,
   AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,

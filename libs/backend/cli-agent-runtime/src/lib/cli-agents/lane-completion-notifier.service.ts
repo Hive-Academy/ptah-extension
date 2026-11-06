@@ -46,6 +46,7 @@ import {
 } from '@ptah-extension/lane-outcomes';
 import { enqueueLaneCompletionOutcome } from './lane-completion-outcome';
 import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 import { readReviewDeliverables } from './review-deliverable.reader';
 import type {
   AgentProcessInfo,
@@ -328,6 +329,7 @@ export class LaneCompletionNotifier {
       | (Pick<LaneOutcomeRecorder, 'recordLaneCompletion'> &
           Partial<Pick<LaneOutcomeRecorder, 'captureReview'>>)
       | null = () => null,
+    private readonly parentDelivery: ParentDeliveryDrainerService | null = null,
   ) {}
 
   /**
@@ -340,7 +342,11 @@ export class LaneCompletionNotifier {
   async signal(
     info: AgentProcessInfo,
     context: LaneCompletionContext = { reportsDelivered: 0 },
-  ): Promise<LaneCompletionDelivery> {
+  ): Promise<LaneCompletionDelivery & {
+    readonly recorded?: boolean;
+    readonly pending?: boolean;
+    readonly deliveryId?: string;
+  }> {
     if (info.status === 'running') {
       // Not a modelled refusal: a caller that reaches here has a bug, and the
       // orchestrator must never be told a running lane finished.
@@ -353,10 +359,20 @@ export class LaneCompletionNotifier {
 
     const completedAt = info.completedAt ?? new Date().toISOString();
     const key = `${info.agentId}:${completedAt}`;
-    if (this.signalledKeys.includes(key)) {
+    const existing = this.parentDelivery?.find(key);
+    if (existing) return {
+      delivered: existing.state === 'delivered',
+      parentSessionId: existing.parentSessionId,
+      recorded: true,
+      pending: existing.state === 'pending',
+      deliveryId: existing.id,
+    };
+    if (this.signalledKeys.includes(key) &&
+      (!this.parentDelivery || !SessionId.safeParse(info.parentSessionId?.trim()))) {
       return { delivered: false, reason: 'already-signalled' };
     }
-    this.remember(key);
+    const firstSignal = !this.signalledKeys.includes(key);
+    if (firstSignal) this.remember(key);
 
     const signal = await this.buildSignal(info, completedAt, context);
     const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
@@ -364,7 +380,7 @@ export class LaneCompletionNotifier {
       parentSessionId && this.agentAdapter?.isSessionActive(parentSessionId)
         ? parentSessionId
         : null;
-    enqueueLaneCompletionOutcome(
+    if (firstSignal) enqueueLaneCompletionOutcome(
       this.outcomeRecorder,
       this.logger,
       info,
@@ -403,6 +419,29 @@ export class LaneCompletionNotifier {
       });
     }
 
+    if (this.parentDelivery) {
+      const saved = this.parentDelivery.enqueue({
+        id: `lane-delivery:${key}`,
+        dedupeKey: key,
+        agentId: info.agentId,
+        parentSessionId,
+        kind: 'completion',
+        body: this.completionEnvelope(signal, info),
+        originName: `${signal.cli} · ${signal.agentLabel}`,
+        createdAt: Date.now(),
+      });
+      if (!saved) return this.refuse('delivery-failed', signal, {
+        parentSessionId, detail: 'pending-capacity-exceeded',
+      });
+      await this.parentDelivery.drain(parentSessionId);
+      const delivered = this.parentDelivery.find(key)?.state === 'delivered';
+      queueReviewCapture();
+      return {
+        delivered, recorded: true, pending: !delivered,
+        deliveryId: saved.id, parentSessionId, signal,
+      };
+    }
+
     if (!activeParentSessionId) {
       queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
@@ -413,7 +452,7 @@ export class LaneCompletionNotifier {
     try {
       await this.agentAdapter.sendMessageToSession(
         parentSessionId,
-        buildLaneCompletionEnvelope(signal),
+        this.completionEnvelope(signal, info),
         {
           origin: {
             kind: 'peer',
@@ -625,6 +664,7 @@ export class LaneCompletionNotifier {
         info.stopReason,
         deliverables,
         context.rateLimited ?? false,
+        context.reportsDelivered,
       ),
       reportsDelivered: context.reportsDelivered,
       ...(info.mcpAttachmentWarning
@@ -699,7 +739,10 @@ export class LaneCompletionNotifier {
     stopReason: AgentProcessInfo['stopReason'],
     deliverables: readonly LaneDeliverableCheck[],
     rateLimited: boolean,
+    reportsDelivered = 0,
   ): LaneCompletionVerdict {
+    if ((stopReason === 'usage-limit' || stopReason === 'auth') && reportsDelivered === 0)
+      return 'failed';
     const hostStopped = status === 'stopped' && stopReason !== undefined;
     if (status !== 'completed' && !hostStopped) return 'failed';
     const allFresh =
@@ -713,6 +756,16 @@ export class LaneCompletionNotifier {
     if (rateLimited && !allFresh) return 'failed';
     if (deliverables.length === 0) return 'unverified';
     return allFresh ? 'delivered' : 'no-deliverable';
+  }
+
+  private completionEnvelope(signal: LaneCompletionSignal, info: AgentProcessInfo): string {
+    const body = buildLaneCompletionEnvelope(signal);
+    if (info.stopReason !== 'usage-limit' && info.stopReason !== 'auth') return body;
+    const reset = info.stopResetAt !== undefined
+      ? ` reset-at="${new Date(info.stopResetAt).toISOString()}"`
+      : '';
+    return body.replace('<agent-lane-completed ',
+      `<agent-lane-completed stop-reason="${info.stopReason}"${reset} `);
   }
 
   /**

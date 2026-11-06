@@ -51,6 +51,7 @@ import {
   provideSurfaceActiveTesting,
 } from '@ptah-extension/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { createExecutionNode, type ExecutionNode } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
@@ -107,6 +108,7 @@ describe('LaneTranscriptComponent', () => {
       // fix ToolCallItemComponent required both, so every tool row in a lane
       // failed to create (NG0201) and left an empty node.
       providers: [
+        { provide: AgentMonitorStore, useValue: { agentsById: signal(new Map()), receipts: signal(new Map()), receiptLabel: () => 'Queued' } },
         provideSurfaceActiveTesting(),
         {
           provide: VSCodeService,

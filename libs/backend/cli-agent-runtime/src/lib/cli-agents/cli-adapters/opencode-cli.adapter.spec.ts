@@ -700,6 +700,34 @@ describe('OpencodeCliAdapter', () => {
       expect(output.join('')).toContain('Hello');
     });
 
+    it('ignores interleaved events from another session', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      for (const [sessionID, text] of [
+        ['ses_own', 'mine'], ['ses_other', 'foreign'], ['ses_own', ' again'],
+      ]) currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID, part: { id: `part_${sessionID}`, text },
+      }) + '\n');
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getSessionId?.()).toBe('ses_own');
+      expect(segments.filter((s) => s.type === 'text').map((s) => s.content))
+        .toEqual(['mine', ' again']);
+    });
+
+    it('fails a resume whose first event names another session', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, resumeSessionId: 'ses_expected' });
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID: 'ses_foreign', part: { id: 'part_1', text: 'foreign' },
+      }) + '\n');
+      currentChild?.emitClose(0);
+      expect(await handle.done).toBe(1);
+      expect(currentChild?.kill).toHaveBeenCalled();
+      expect(segments.some((s) => s.type === 'error' && s.content.includes('session-mismatch'))).toBe(true);
+      expect(segments.some((s) => s.type === 'text')).toBe(false);
+    });
+
     it('emits only the appended delta for repeated text on the same part id', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
@@ -1455,11 +1483,8 @@ describe('OpencodeCliAdapter', () => {
 
   describe('capabilities() / parseOutput() / supportsMcp', () => {
     it('reports continuation (queue) only, and supportsMcp true', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.continuation.state).toBe('supported');
+      expect(adapter.capabilities().permissionModes.plan?.state).toBe('supported');
       expect(bestMessagingCapability(adapter.capabilities())).toBe('queue');
       expect(adapter.supportsMcp).toBe(true);
     });

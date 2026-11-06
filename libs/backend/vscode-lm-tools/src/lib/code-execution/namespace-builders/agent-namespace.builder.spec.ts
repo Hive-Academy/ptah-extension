@@ -419,6 +419,20 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — spawn (ptahCliId)', () => {
+  it('forwards permission and network to the provider before SDK spawn', async () => {
+    const { deps, mocks } = makeDeps();
+    const handle: SdkHandle = { abort: new AbortController(), done: Promise.resolve(0), onOutput: jest.fn() };
+    mocks.registry?.spawnAgent.mockResolvedValue({
+      handle,
+      agentName: 'MyAgent', setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({ agentId: 'spawned-1' } as SpawnAgentResult);
+    await buildAgentNamespace(deps).spawn({ task: 'work', ptahCliId: 'agent-a',
+      permission: 'plan', network: 'allow' });
+    expect(mocks.registry?.spawnAgent).toHaveBeenCalledWith('agent-a', expect.any(String),
+      expect.objectContaining({ permission: 'plan', network: 'allow' }));
+  });
+
   it('forwards taskKind and routingSource to the SDK handle spawn', async () => {
     const { deps, mocks } = makeDeps();
     mocks.registry?.spawnAgent.mockResolvedValue({
