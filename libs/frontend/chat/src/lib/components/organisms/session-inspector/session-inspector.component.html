@@ -182,15 +182,6 @@
       </div>
     }
 
-    @if (linkedSessions().length > 0) {
-      <ptah-inspector-linked-sessions
-        class="block"
-        [entries]="linkedSessions()"
-        [currentSessionId]="m.sessionId"
-        (openSession)="openLinkedSession($event)"
-      />
-    }
-
     <ptah-inspector-agents-section
       data-inspector-section="agents"
       tabindex="-1"
@@ -239,6 +230,14 @@
       [style.--i]="afterAgentsIndex() + 3"
       [tabId]="tabId()"
     />
+    @if (linkedSessions().length > 0) {
+      <ptah-inspector-linked-sessions
+        class="block"
+        [entries]="linkedSessions()"
+        [currentSessionId]="m.sessionId"
+        (openSession)="openLinkedSession($event)"
+      />
+    }
   </div>
 
   <p role="status" aria-live="polite" class="sr-only">{{ announcement() }}</p>

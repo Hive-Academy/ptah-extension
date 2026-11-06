@@ -33,6 +33,7 @@ export interface AgentListRow {
   /** Second line: the model, or the kind (`CLI lane`) when no model is known. */
   readonly secondary: string;
   readonly secondaryTitle: string | null;
+  readonly startedAtTitle: string | null;
   readonly statusText: string;
   readonly statusInk: string;
   readonly tokens: string;
@@ -125,6 +126,7 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
     name,
     secondary: input.secondary,
     secondaryTitle: input.secondaryTitle,
+    startedAtTitle: agent.startedAt === null ? null : `Started: ${new Date(agent.startedAt).toLocaleString()}`,
     statusText: agent.status ?? NOT_REPORTED_VALUE,
     statusInk: agent.status
       ? STATUS_INK[agent.status]

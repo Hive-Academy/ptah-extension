@@ -150,6 +150,8 @@ describe(InspectorSessionStatsComponent.name, () => {
     const toggle = root.querySelector<HTMLButtonElement>('button[aria-label="Context details"]');
     expect(toggle?.textContent?.trim()).toBe('Context');
     expect(toggle?.classList.contains('decoration-dotted')).toBe(true);
+      expect(toggle?.classList.contains('self-start')).toBe(true);
+      expect(toggle?.classList.contains('text-left')).toBe(true);
     const tooltip = toggle?.getAttribute('title') ?? '';
     expect(tooltip.length).toBeGreaterThan(0);
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('10');
@@ -194,8 +196,8 @@ describe(InspectorSessionStatsComponent.name, () => {
       ),
     ];
     expect(cells).toHaveLength(6);
-    for (const cell of cells) {
-      expect(cell.classList.contains('min-h-[3.75rem]')).toBe(true);
+    for (const [index, cell] of cells.entries()) {
+      expect(cell.classList.contains(index < 3 ? 'min-h-[4rem]' : 'min-h-[3.75rem]')).toBe(true);
       expect(cell.classList.contains('flex-col')).toBe(true);
     }
     // The Plan limits section shows the limit notice; the stats do not repeat it.

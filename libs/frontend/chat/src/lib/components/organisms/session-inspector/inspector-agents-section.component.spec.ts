@@ -147,17 +147,15 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       row.getAttribute('data-agent-key'),
     );
 
-  it('expands run facts independently of row selection', () => {
+  it('shows the CLI lane summary without a details disclosure', () => {
     const fixture = mount([agent()]);
     fixture.componentRef.setInput('laneRuns', [detail]);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.textContent).toContain('Codex · backend-developer');
     expect(root.querySelector('[data-testid="agent-run-detail"]')).toBeNull();
-    const toggle = root.querySelector<HTMLButtonElement>('[aria-label="Expand Codex · backend-developer details"]');
-    toggle?.click();
-    fixture.detectChanges();
-    expect(root.querySelector('[data-testid="agent-run-detail"]')?.textContent).toContain('Unknown owner');
+    expect(root.querySelector('[aria-label*="details"]')).toBeNull();
+    expect(root.textContent).not.toContain('Details');
     expect(root.querySelector('[data-testid="agent-row-time"]')?.textContent).toBeTruthy();
   });
 

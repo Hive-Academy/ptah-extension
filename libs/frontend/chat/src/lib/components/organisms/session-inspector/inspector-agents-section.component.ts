@@ -47,7 +47,6 @@ import {
 } from './inspector-agent-row.component';
 import { laneUsage } from './inspector-agent-usage';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
-import { InspectorAgentRunDetailComponent } from './inspector-agent-run-detail.component';
 
 /** Rows shown before "Show N more". */
 export const AGENTS_VISIBLE_LIMIT = 6;
@@ -79,7 +78,6 @@ let nextSectionId = 0;
     AgentSteerInputComponent,
     InspectorAgentActionsMenuComponent,
     InspectorAgentRowComponent,
-    InspectorAgentRunDetailComponent,
     InspectorRequestLinesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -129,7 +127,7 @@ let nextSectionId = 0;
         <div
           class="mt-2 grid {{
             columns
-          }} pb-1 pl-3 pr-8 text-[10.5px] text-base-content-muted"
+          }} pb-1 pl-3 pr-9 text-[10.5px] text-base-content-muted"
           aria-hidden="true"
         >
           <span class="pl-8">Agent</span>
@@ -157,9 +155,6 @@ let nextSectionId = 0;
                 <ptah-inspector-agent-row
                   class="min-w-0 flex-1"
                   [row]="row"
-                  [expandable]="runDetail(row.key) !== null"
-                  [expanded]="expandedKeys().has(row.key)"
-                  (expansionToggled)="toggleExpansion(row.key)"
                   (selected)="select(row)"
                 />
                 <span class="flex w-8 shrink-0 justify-center pr-1">
@@ -174,11 +169,6 @@ let nextSectionId = 0;
                   }
                 </span>
               </div>
-              @if (runDetail(row.key); as detail) {
-                @if (expandedKeys().has(row.key)) {
-                  <ptah-inspector-agent-run-detail [detail]="detail" [tokens]="row.tokens" [cost]="row.cost" />
-                }
-              }
               @if (row.requests.length > 0) {
                 <ptah-inspector-request-lines
                   class="mb-2 ml-[52px] mr-3 block"
@@ -226,9 +216,9 @@ let nextSectionId = 0;
           </button>
         }
         @if (laneSubtotal(); as subtotal) {
-          <div class="mx-3 mt-2 border-t border-surface-border pt-2 text-[11px] text-base-content-muted" data-testid="agents-lane-subtotal">
+          <div class="mx-3 mt-2 truncate border-t border-surface-border pt-2 text-[11px] text-base-content-muted" data-testid="agents-lane-subtotal" title="Lane subtotal; not included in session totals">
             <span class="font-semibold">Σ lane</span> · {{ subtotal.tokensText }} · {{ subtotal.costValue || 'Cost unknown' }}
-            <span class="block">lane · not in totals</span>
+            <span> · not in totals</span>
           </div>
         }
       }
@@ -277,15 +267,9 @@ export class InspectorAgentsSectionComponent {
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
   protected readonly steerErrorKey = signal<string | null>(null);
-  protected readonly expandedKeys = signal<ReadonlySet<string>>(new Set());
   protected runDetail(key: string): InspectorLaneRunDetail | null {
     if (!key.startsWith('cli:')) return null;
     return this.laneRuns().find(run => run.runId === key.slice(4)) ?? null;
-  }
-  protected toggleExpansion(key: string): void {
-    const next = new Set(this.expandedKeys());
-    if (next.has(key)) next.delete(key); else next.add(key);
-    this.expandedKeys.set(next);
   }
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);

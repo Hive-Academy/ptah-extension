@@ -39,12 +39,12 @@ const chainOnB: readonly InspectorLinkedSessionEntry[] = [
 ];
 
 describe(InspectorLinkedSessionsComponent.name, () => {
-  it('labels the section by its "Linked sessions" heading', () => {
+  it('labels the section with the inspector heading style', () => {
     const { root } = render(chainOnB, B);
     const section = root.querySelector('section');
     const heading = root.querySelector('h3');
-    expect(text(heading)).toBe('Linked sessions');
-    expect(heading?.classList).not.toContain('uppercase');
+    expect(text(heading)).toBe('LINKED SESSIONS');
+    expect(heading?.classList).toContain('uppercase');
     expect(section?.getAttribute('aria-labelledby')).toBe(heading?.id);
   });
 

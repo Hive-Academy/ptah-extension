@@ -79,15 +79,15 @@ let nextSectionId = 0;
   `,
   template: `
     <section
-      class="border-t border-surface-border px-3 pb-3 pt-3"
+      class="border-t border-surface-border p-4"
       data-testid="inspector-linked-sessions"
       [attr.aria-labelledby]="headingId"
     >
-      <h3 [id]="headingId" class="sec-label text-[10.5px] font-semibold">
-        Linked sessions
+      <h3 [id]="headingId" class="sec-label mb-2 text-[10.5px] font-semibold uppercase">
+        LINKED SESSIONS
       </h3>
       <ul
-        class="mt-2 max-h-[10.5rem] overflow-y-auto"
+        class="max-h-[10.5rem] overflow-y-auto"
         role="list"
         data-testid="inspector-linked-sessions-list"
       >
@@ -95,7 +95,7 @@ let nextSectionId = 0;
           <li>
             <button
               type="button"
-              class="linked-session-button relative grid min-h-8 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors duration-[120ms] hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              class="linked-session-button relative grid min-h-8 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2 py-1 text-left transition-colors duration-[120ms] hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               data-testid="inspector-linked-session"
               [attr.data-session-id]="row.sessionId"
               [class.bg-surface-2]="row.current"
@@ -112,14 +112,14 @@ let nextSectionId = 0;
                 ></span>
               }
               <span
-                class="min-w-0 truncate text-[13px] leading-[18px]"
+                class="min-w-0 truncate text-[11.5px] leading-[18px]"
                 data-testid="inspector-linked-session-title"
                 [class.text-base-content-muted]="row.fallback"
                 [attr.title]="row.title"
                 >{{ row.title }}</span
               >
               <span
-                class="shrink-0 whitespace-nowrap text-[11px] font-normal leading-4 text-base-content-muted"
+                class="shrink-0 whitespace-nowrap text-[10.5px] font-normal leading-4 text-base-content-muted"
                 data-testid="inspector-linked-session-relation"
                 >{{ row.relationText }}</span
               >
