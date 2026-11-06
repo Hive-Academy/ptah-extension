@@ -658,6 +658,7 @@ export interface AgentSetConfigParams {
  */
 export type AgentContinueErrorCode =
   | 'not_found'
+  | 'invalid_params'
   | 'unsupported'
   | 'busy'
   /**

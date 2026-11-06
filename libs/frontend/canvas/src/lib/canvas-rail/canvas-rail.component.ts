@@ -33,6 +33,7 @@ import {
   SPLIT_ALREADY_FOCUSED_REASON,
 } from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
+import { CanvasRailFlip } from './canvas-rail-flip';
 import {
   groupRailTiles,
   neighbouringVisibleId,
@@ -213,6 +214,7 @@ const CHIP_STATES = [
       </header>
       <div
         class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        data-rail-scroll
         [class.rail-scroll-collapsed]="collapsed()"
         (scroll)="onScroll($event)"
       >
@@ -243,7 +245,7 @@ const CHIP_STATES = [
         }
         <div (keydown)="onKeydown($event)">
           @for (group of grouped().groups; track group.key; let firstGroup = $first) {
-            <section [attr.aria-label]="group.label" [class.mt-2]="!firstGroup">
+            <section [attr.aria-label]="group.label" [attr.data-rail-group]="group.key" [class.mt-2]="!firstGroup">
               @if (!collapsed()) {
                 @if (group.key === 'finished') {
                   <button type="button" class="flex min-h-7 w-full items-center gap-1 px-2 text-left text-xs font-semibold"
@@ -331,6 +333,7 @@ const CHIP_STATES = [
 export class CanvasRailComponent {
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly tabs = inject(TabManagerService);
   private readonly notifications = inject(NotificationService);
   private readonly dispatcher = inject(ATTENTION_ACTION_DISPATCHER, { optional: true });
@@ -395,6 +398,12 @@ export class CanvasRailComponent {
   });
   constructor() {
     inject(DestroyRef).onDestroy(() => this.suppressSnackbars(new Set()));
+    this.destroyRef.onDestroy(() => this.flip?.cancel());
+    afterNextRender(() => {
+      const container = this.host.nativeElement.querySelector<HTMLElement>('[data-rail-scroll]');
+      if (container) this.flip ??= new CanvasRailFlip(container);
+      this.flipReady = true;
+    }, { injector: this.injector });
   }
   private suppressSnackbars(shown: ReadonlySet<string>): void {
     for (const key of this.railSuppressed) if (!shown.has(key)) this.notifications.setSnackbarSuppressed(key, false, 'rail');
@@ -502,6 +511,45 @@ export class CanvasRailComponent {
     { equal: sameTileOrder },
   );
   readonly grouped = computed(() => groupRailTiles(this.orderedTiles(), this.states()));
+  /**
+   * What the rail's motion follows: group keys, their card order, and the
+   * folded finished list. A new `states`/`tiles` identity with the same
+   * layout keeps the same string, so running slides are not restarted.
+   */
+  private readonly railLayout = computed(() =>
+    `${this.isFinishedExpanded()}|` +
+    this.grouped().groups.map((group) => `${group.key}:${group.tiles.map((tile) => tile.tabId).join(',')}`).join(';'));
+  private flip: CanvasRailFlip | null = null;
+  private flipReady = false;
+  private flipGeneration = 0;
+  private previousCollapsed: boolean | null = null;
+  /**
+   * FLIP. A component effect runs during change detection before this view
+   * refreshes, so `capture()` reads the old layout; the after-render hook
+   * reads the new one and plays the difference.
+   */
+  private readonly animateGroupChanges = effect(() => {
+    this.railLayout();
+    const collapsed = this.collapsed();
+    const canAnimate = this.flipReady && this.previousCollapsed === collapsed &&
+      !this.document.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (this.previousCollapsed !== collapsed) this.flip?.cancel();
+    this.previousCollapsed = collapsed;
+    const container = this.host.nativeElement.querySelector<HTMLElement>('[data-rail-scroll]');
+    if (!container) return;
+    const flip = (this.flip ??= new CanvasRailFlip(container));
+    const first = untracked(() => flip.capture());
+    const generation = ++this.flipGeneration;
+    afterNextRender({
+      earlyRead: () => flip.measure(first),
+      write: (moves) => {
+        // A later layout change owns the motion; an empty rail before (an
+        // async restore) has nothing to move from, so nothing fades in.
+        if (canAnimate && generation === this.flipGeneration && first.size > 0) flip.play(moves);
+        this.flipReady = true;
+      },
+    }, { injector: this.injector });
+  });
   readonly finishedExpanded = signal(false);
   readonly finishedChoiceMade = signal(false);
   readonly keyboardFocusTabId = signal<string | null>(null);

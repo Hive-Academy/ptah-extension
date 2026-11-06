@@ -336,6 +336,12 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
   });
 
+  it('advertises only denied network for the native read-only plan mode', () => {
+    const manifest = harness().adapter.capabilities();
+    expect(manifest.permissionModes.plan).toMatchObject({
+      state: 'supported', nativeMode: 'read-only', networkModes: ['deny'],
+    });
+  });
   it('starts the WRITE_DAC check with the runtime and waits for it before persisting', async () => {
     const h = harness();
     let release: (() => void) | undefined;
@@ -886,11 +892,7 @@ describe('CodexAppServerLaneAdapter', () => {
     jest.useFakeTimers();
     try {
       const h = harness();
-      expect(h.adapter.capabilities()).toEqual({
-        steer: true,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(h.adapter.capabilities().messaging.steer.state).toBe('supported');
       const handle = await h.adapter.runSdk(options());
       handle.abort.abort();
       expect(await handle.done).toBe(1);

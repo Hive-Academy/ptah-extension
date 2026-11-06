@@ -94,6 +94,9 @@ describe('Electron RPC surface', () => {
   });
 
   it('serves every method owned by the live manifest except the pending host.remoteMachines methods', () => {
+    expect(surface.registered).toEqual(expect.arrayContaining([
+      'agent:previewMessage', 'agent:sendMessage', 'agent:getMessageReceipt', 'agent:cancelMessage',
+    ]));
     expect(surface.registered).toEqual(
       manifestMethods.filter((method) => !pendingRemoteMachines.has(method)),
     );

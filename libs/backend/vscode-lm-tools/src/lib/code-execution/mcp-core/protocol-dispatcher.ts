@@ -40,6 +40,7 @@ import {
 import {
   AgentMessageError,
   AgentRoleError,
+  LaneSpawnPolicyError,
   CliCommandLineTooLongError,
   MAX_AGENT_REPORT_LENGTH,
 } from '@ptah-extension/cli-agent-runtime';
@@ -762,7 +763,8 @@ const AgentMessageArgsSchema = z
   .object({
     agentId: z.string().min(1),
     message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
-    delivery: z.enum(['queue', 'steer']).optional(),
+    delivery: z.enum(['queue', 'now', 'steer']).optional(),
+    allowPartialTurnLoss: z.boolean().optional(),
   })
   .strict();
 
@@ -1333,12 +1335,15 @@ async function handleIndividualTool(
             // Already refused above unless omitted or ambient on a `claude`
             // lane (`agentSpawnAccountRefusal`), so forwarding admits nothing.
             accountSelection: spawnArgs.accountSelection,
+            permission: spawnArgs.permission,
+            network: spawnArgs.network,
           });
         } catch (error: unknown) {
           // Any other failure keeps its pre-existing path: re-thrown to the
           // generic tool error handler, with no limit lookup.
           if (
             !(error instanceof AgentRoleError) &&
+            !(error instanceof LaneSpawnPolicyError) &&
             !(error instanceof CliCommandLineTooLongError)
           ) {
             throw error;
@@ -1354,6 +1359,9 @@ async function handleIndividualTool(
               request,
               `Error: ptah_agent_spawn role ${error.code}: ${error.message}${limitBlock}`,
             );
+          }
+          if (error instanceof LaneSpawnPolicyError) {
+            return toolErrorResponse(request, JSON.stringify(error.refusal));
           }
           return toolErrorResponse(
             request,
@@ -1450,6 +1458,7 @@ async function handleIndividualTool(
             parsed.data.agentId,
             parsed.data.message,
             parsed.data.delivery,
+            parsed.data.allowPartialTurnLoss,
           );
           return await createToolSuccessResponse(
             request,

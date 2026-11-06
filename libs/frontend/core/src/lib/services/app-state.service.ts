@@ -1039,10 +1039,10 @@ export class AppStateManager implements MessageHandler {
   setConnected(connected: boolean): void {
     this._isConnected.set(connected);
     if (connected) {
-      this.setStatusMessage('Connected to VS Code');
+      this.setStatusMessage('Connected');
       this.setLoading(false);
     } else {
-      this.setStatusMessage('Disconnected from VS Code');
+      this.setStatusMessage('Disconnected');
     }
   }
 

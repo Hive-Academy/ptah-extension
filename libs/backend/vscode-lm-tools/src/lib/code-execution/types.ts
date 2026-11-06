@@ -365,8 +365,8 @@ export interface AgentNamespace {
    * @param agentId - Agent ID
    * @param message - Text to deliver to the agent
    */
-  message: (agentId: string, message: string, delivery?: 'queue' | 'steer') => Promise<AgentMessageOutcome>;
-  messageStatus: (agentId: string, messageId: string) => Promise<{ status: 'pending' | 'delivered' | 'failed' | 'unknown'; reason?: string }>;
+  message: (agentId: string, message: string, delivery?: 'queue' | 'now' | 'steer', allowPartialTurnLoss?: boolean) => Promise<AgentMessageOutcome>;
+  messageStatus: (agentId: string, messageId: string) => Promise<import('@ptah-extension/shared').AgentDeliveryReceipt | { status: 'pending' | 'delivered' | 'failed' | 'unknown'; reason?: string }>;
 
   /**
    * Deliver a report to the session that started the reporter.

@@ -38,11 +38,11 @@
  * - result                    -> info (final stats); resolves done promise
  */
 import type {
+  CliAdapterManifest,
   CliDetectionResult,
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
-  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
@@ -50,6 +50,10 @@ import type {
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import {
+  applyLaneArgvPolicy,
+  translateLaneSpawnPolicy,
+} from '../lane-spawn-policy';
 import {
   stripAnsiCodes,
   buildArgvTaskPrompt,
@@ -233,8 +237,28 @@ export class CopilotSdkAdapter implements CliAdapter {
    * abort that keeps the agent addressable. `continue` resumes the captured
    * session, so a message is delivered as the next full turn.
    */
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: true };
+  capabilities(): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'Copilot uses a fresh process for each turn.' },
+        interrupt: { state: 'unsupported', reason: 'Stopping a turn ends its process and keeps no live run.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: '--mode plan', networkModes: ['allow'] },
+        ask: { state: 'unsupported', reason: 'Noninteractive Copilot approvals have no Ptah session route.', networkModes: [] },
+        'auto-edit': { state: 'supported', nativeMode: 'write-tool allowlist', networkModes: ['allow'] },
+        yolo: { state: 'supported', nativeMode: '--allow-all', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'URL filters do not enforce general network denial.' },
+      },
+      limitReader: { state: 'no-reliable-source', reason: 'No reliable noninteractive plan-limit source exists.' },
+      mcp: { state: 'supported' },
+    };
   }
 
   parseOutput(raw: string): string {
@@ -262,6 +286,10 @@ export class CopilotSdkAdapter implements CliAdapter {
    * spawn via spawnCli, line-buffered JSONL parsing).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const lanePolicy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
+    const argvPolicy = lanePolicy.cli === 'copilot'
+      ? lanePolicy.argv
+      : { addArgs: [], removeArgs: [] };
     const abortController = new AbortController();
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
@@ -370,13 +398,11 @@ export class CopilotSdkAdapter implements CliAdapter {
         args.push('--additional-mcp-config', mcpConfig);
       }
 
-      assertCommandLineWithinLimit(spawnDescriptor.command, [
-        ...spawnDescriptor.prefixArgs,
-        ...args,
-      ]);
+      const translatedArgs = applyLaneArgvPolicy(args, argvPolicy);
+      assertCommandLineWithinLimit(spawnDescriptor.command, [...spawnDescriptor.prefixArgs, ...translatedArgs]);
       const child = spawnCli(
         spawnDescriptor.command,
-        [...spawnDescriptor.prefixArgs, ...args],
+        [...spawnDescriptor.prefixArgs, ...translatedArgs],
         {
           cwd: options.workingDirectory,
           needsConsole: true,

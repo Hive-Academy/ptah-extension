@@ -13,12 +13,13 @@ import {
   type CodexTurnReceipt,
 } from '@ptah-extension/codex-runtime';
 import type {
+  CliAdapterManifest,
   CliDetectionResult,
   CliOutputSegment,
+  CodexSandboxMode,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
-  type AgentMessagingCapabilities,
   type CliAdapter,
   type CliCommandOptions,
   type CliModelInfo,
@@ -26,6 +27,7 @@ import {
   type SdkHandle,
 } from '../cli-adapter.interface';
 import { bestMessagingCapability } from '../cli-adapter.interface';
+import { translateLaneSpawnPolicy } from '../../lane-spawn-policy';
 import {
   buildTaskPrompt,
   createBufferedEmitter,
@@ -176,8 +178,28 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     > = new CodexLaneWriteDacPreflight(logger),
   ) {}
 
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: true, interrupt: false, continuation: true };
+  capabilities(): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'supported' },
+        interrupt: { state: 'unsupported', reason: 'App Server steer keeps the turn alive; no run-scoped interrupt is exposed.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: 'read-only', networkModes: ['deny'] },
+        ask: { state: 'unsupported', reason: 'Codex lanes force approvalPolicy never; no Ptah approval route exists.', networkModes: [] },
+        'auto-edit': { state: 'supported', nativeMode: 'workspace-write', networkModes: ['allow', 'deny'] },
+        yolo: { state: 'supported', nativeMode: 'danger-full-access', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'supported' },
+      },
+      limitReader: { state: 'available', source: 'openai-codex' },
+      mcp: { state: 'supported' },
+    };
   }
 
   async detect(): Promise<CliDetectionResult> {
@@ -248,6 +270,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
   }
 
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const lanePolicy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
     const binary = await this.binary.resolve(options.binaryPath);
     if (!binary) throw new Error('Codex executable is unavailable');
     const resolved = await this.profiles.resolve(
@@ -268,10 +291,30 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     const requestedEffort =
       options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
     const reasoningEffort = validatedEffort(requestedEffort);
-    const selectedModel =
-      options.model || resolved.lane.identity.model || undefined;
+    const selectedModel = options.model || resolved.lane.identity.model || undefined;
+    const policySandboxMode = lanePolicy.cli === 'codex'
+      ? lanePolicy.sandboxMode
+      : undefined;
+    const codexSandboxMode: CodexSandboxMode | undefined =
+      policySandboxMode === 'workspace-write'
+        ? lanePolicy.cli === 'codex' && lanePolicy.networkAccess === false
+          ? 'workspace-write-no-network'
+          : options.network === 'allow' ||
+              resolved.lane.codexSandboxMode === 'workspace-write-network' ||
+              resolved.lane.codexSandboxMode === 'danger-full-access'
+            ? 'workspace-write-network'
+            : 'workspace-write-no-network'
+        : policySandboxMode;
+    if (options.network === 'allow' &&
+      (codexSandboxMode === 'read-only' || codexSandboxMode === 'workspace-write-no-network' ||
+        (!codexSandboxMode && (resolved.lane.codexSandboxMode === 'read-only' ||
+          resolved.lane.codexSandboxMode === 'workspace-write-no-network')))) {
+      throw new Error('The configured Codex sandbox cannot provide network access.');
+    }
     const projected = buildCodexLaneProfileSettings({
       ...resolved.lane,
+      ...(codexSandboxMode ? { codexSandboxMode } : {}),
+      permissionLevel: options.permission ?? resolved.lane.permissionLevel,
       mcpToken: options.mcpToken,
       identity: {
         ...resolved.lane.identity,

@@ -20,7 +20,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
@@ -28,6 +28,7 @@ import type {
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { validateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -271,8 +272,29 @@ export class CursorCliAdapter implements CliAdapter {
    * mid-turn steer — but the run is cancellable without ending the agent, which
    * makes interrupt-then-resume on the SAME agent id the best mechanism here.
    */
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: true, continuation: true };
+  capabilities(): CliAdapterManifest {
+    const unverified = (reason: string) => ({ state: 'unsupported' as const, reason, networkModes: [] });
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'Cursor SDK has no live steer channel.' },
+        interrupt: { state: 'supported' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: unverified('Cursor SDK policy binding is unverified.'),
+        ask: unverified('Cursor SDK policy binding is unverified.'),
+        'auto-edit': unverified('Cursor SDK policy binding is unverified.'),
+        yolo: unverified('Cursor SDK policy binding is unverified.'),
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified general network sandbox exists.' },
+      },
+      limitReader: { state: 'no-reliable-source', reason: 'No reliable noninteractive limit source exists.' },
+      mcp: { state: 'supported' },
+    };
   }
 
   parseOutput(raw: string): string {
@@ -328,6 +350,7 @@ export class CursorCliAdapter implements CliAdapter {
    * run's typed SDKMessage stream. Abort cancels the in-flight run.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    validateLaneSpawnPolicy(this.name, this.capabilities(), options);
     // This handle has no record of what an external resumed thread received.
     const taskPrompt = buildTaskPrompt(
       { ...options, lanePolicyDelivery: 'task-prompt' },

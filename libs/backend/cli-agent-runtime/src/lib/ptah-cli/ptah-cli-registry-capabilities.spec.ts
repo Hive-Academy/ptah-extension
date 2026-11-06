@@ -70,6 +70,22 @@ import type {
   PtahCliConfig,
 } from '@ptah-extension/shared';
 import { PtahCliRegistry } from './ptah-cli-registry';
+
+describe('Ptah CLI provider manifest', () => {
+  const registry = Object.create(PtahCliRegistry.prototype) as PtahCliRegistry;
+
+  it('uses Claude SDK permission mappings and refuses network denial', () => {
+    const manifest = registry.capabilities('claude-cli');
+    expect(manifest.permissionModes.plan?.nativeMode).toBe('plan');
+    expect(manifest.permissionModes.yolo?.nativeMode).toBe('bypassPermissions');
+    expect(manifest.networkModes.deny.state).toBe('unsupported');
+    expect(manifest.limitReader.state).toBe('available');
+  });
+
+  it('marks providers without an owner reader as having no reliable source', () => {
+    expect(registry.capabilities('z-ai').limitReader.state).toBe('no-reliable-source');
+  });
+});
 import { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 

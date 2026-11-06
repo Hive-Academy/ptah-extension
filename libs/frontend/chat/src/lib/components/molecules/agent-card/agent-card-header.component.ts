@@ -144,7 +144,7 @@ export function laneAccountText(
       @if (agent().status === 'running') {
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
+          class="btn btn-error btn-outline btn-xs ml-auto flex-shrink-0"
           [disabled]="isStopping()"
           title="Stop agent"
           (click)="stopAgent.emit($event)"
@@ -153,7 +153,7 @@ export function laneAccountText(
           @if (isStopping()) {
             <span class="loading loading-spinner loading-xs"></span>
           } @else {
-            <lucide-angular [img]="SquareIcon" class="w-3 h-3 text-error" />
+            <lucide-angular [img]="SquareIcon" class="w-3 h-3" />
           }
         </button>
       }
@@ -162,7 +162,7 @@ export function laneAccountText(
       @if (agent().status !== 'running' && agent().cliSessionId) {
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
+          class="btn btn-ghost btn-xs ml-auto flex-shrink-0"
           [disabled]="isResuming()"
           title="Resume session"
           (click)="resumeAgent.emit($event)"
@@ -171,7 +171,7 @@ export function laneAccountText(
           @if (isResuming()) {
             <span class="loading loading-spinner loading-xs"></span>
           } @else {
-            <lucide-angular [img]="PlayIcon" class="w-3 h-3 text-success" />
+            <lucide-angular [img]="PlayIcon" class="w-3 h-3" aria-hidden="true" /> Resume
           }
         </button>
       }
@@ -208,6 +208,14 @@ export function laneAccountText(
         </button>
       }
     </div>
+    @if (agent().potentialCapabilities || agent().effectiveCapabilities || agent().effectivePolicy) {
+      <div class="flex flex-wrap gap-1 px-2 pb-1.5" title="Permission and network chosen by the parent at spawn.">
+        <span class="badge badge-outline badge-xs">Messaging: {{ messagingLabel() }}</span>
+        <span class="badge badge-outline badge-xs">Permission: {{ permissionLabel() }}</span>
+        <span class="badge badge-outline badge-xs">Network: {{ networkLabel() }}</span>
+        <span class="badge badge-outline badge-xs">Limit: {{ limitLabel() }}</span>
+      </div>
+    }
   `,
 })
 export class AgentCardHeaderComponent {
@@ -234,6 +242,30 @@ export class AgentCardHeaderComponent {
   );
 
   private readonly injector = inject(Injector);
+
+  protected readonly messagingLabel = computed(() => {
+    const messaging = this.agent().effectiveCapabilities?.messaging;
+    if (!messaging) return this.agent().potentialCapabilities ? 'pending' : 'unavailable';
+    if (messaging.steer.state === 'supported') return 'steer';
+    if (messaging.interrupt.state === 'supported') return 'interrupt + resume';
+    if (messaging.continuation.state === 'supported' || messaging.resume.state === 'supported') return 'queue';
+    return 'unavailable';
+  });
+  protected readonly permissionLabel = computed(() => {
+    if (!this.agent().effectiveCapabilities && this.agent().potentialCapabilities) return 'pending';
+    const value = this.agent().effectivePolicy?.permission;
+    return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Adapter default';
+  });
+  protected readonly networkLabel = computed(() => {
+    if (!this.agent().effectiveCapabilities && this.agent().potentialCapabilities) return 'pending';
+    const value = this.agent().effectivePolicy?.network;
+    return value === 'allow' ? 'allowed' : value === 'deny' ? 'denied' : 'Adapter default';
+  });
+  protected readonly limitLabel = computed(() => {
+    if (!this.agent().effectiveCapabilities && this.agent().potentialCapabilities) return 'pending';
+    const reader = this.agent().potentialCapabilities?.limitReader;
+    return reader ? reader.state === 'available' ? 'tracked' : 'no reliable source' : 'pending';
+  });
 
   /** Shown once the lane has left `running` with a host budget stop reason. */
   protected readonly stopText = computed(() =>

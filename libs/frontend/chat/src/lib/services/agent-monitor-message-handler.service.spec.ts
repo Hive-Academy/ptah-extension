@@ -22,6 +22,8 @@ type StoreSlice = Pick<
   | 'onAgentExpired'
   | 'onPermissionRequest'
   | 'reparentAgents'
+  | 'onMessageReceipt'
+  | 'onParentDelivery'
 >;
 
 describe('AgentMonitorMessageHandler', () => {
@@ -37,6 +39,8 @@ describe('AgentMonitorMessageHandler', () => {
       onAgentExpired: jest.fn(),
       onPermissionRequest: jest.fn(),
       reparentAgents: jest.fn(),
+      onMessageReceipt: jest.fn(),
+      onParentDelivery: jest.fn(),
     } as jest.Mocked<StoreSlice>;
 
     TestBed.configureTestingModule({
@@ -53,7 +57,7 @@ describe('AgentMonitorMessageHandler', () => {
     TestBed.resetTestingModule();
   });
 
-  it('declares the six AGENT_MONITOR_* message types', () => {
+  it('declares the eight AGENT_MONITOR_* message types', () => {
     expect(handler.handledMessageTypes).toEqual([
       MESSAGE_TYPES.AGENT_MONITOR_SPAWNED,
       MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
@@ -61,7 +65,25 @@ describe('AgentMonitorMessageHandler', () => {
       MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
       MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
       MESSAGE_TYPES.AGENT_MONITOR_REPARENTED,
+      MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT,
+      MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
     ]);
+  });
+
+  it('routes valid parent delivery and rejects malformed payloads', () => {
+    const payload = { agentId: '11111111-1111-4111-8111-111111111111', kind: 'report', state: 'pending' };
+    handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY, payload });
+    expect(store.onParentDelivery).toHaveBeenCalledWith(payload);
+    handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY, payload: { ...payload, state: 'unknown' } });
+    expect(store.onParentDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes validated receipt updates without exposing message text', () => {
+    const receipt = { id: 'message-1', agentId: '11111111-1111-4111-8111-111111111111', state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1 };
+    handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, payload: { receipt } });
+    expect(store.onMessageReceipt).toHaveBeenCalledWith(receipt);
+    handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, payload: { receipt: { ...receipt, message: 'private' } } });
+    expect(store.onMessageReceipt).toHaveBeenCalledTimes(1);
   });
 
   describe('agent-monitor:reparented (TASK_2026_876)', () => {

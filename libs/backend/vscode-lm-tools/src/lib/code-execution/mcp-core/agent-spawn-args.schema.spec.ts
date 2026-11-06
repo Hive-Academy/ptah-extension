@@ -81,6 +81,12 @@ describe('AgentSpawnArgsSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('validates optional lane permission and network policy', () => {
+    expect(AgentSpawnArgsSchema.safeParse({ task: 't', permission: 'ask', network: 'deny' }).success).toBe(true);
+    expect(AgentSpawnArgsSchema.safeParse({ task: 't', permission: 'unrestricted' }).success).toBe(false);
+    expect(AgentSpawnArgsSchema.safeParse({ task: 't', network: 'open' }).success).toBe(false);
+  });
+
   it('accepts only a boolean force override', () => {
     expect(
       AgentSpawnArgsSchema.safeParse({ task: 't', force: true }).success,

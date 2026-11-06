@@ -59,6 +59,8 @@ import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directi
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { ClaudeLaneAccountCellComponent } from './claude-lane-account-cell.component';
 import { PtahCliInstancesComponent } from './ptah-cli-instances.component';
+import { CliCapabilityCellsComponent } from './cli-capability-cells.component';
+import { CliCapabilityDetailComponent } from './cli-capability-detail.component';
 
 /** Which popover of which row is open; one at a time. */
 type OpenCell = {
@@ -167,6 +169,8 @@ const SAVE_SCOPE = 'global';
     CliTierMappingModalComponent,
     ClaudeLaneAccountCellComponent,
     PtahCliInstancesComponent,
+    CliCapabilityCellsComponent,
+    CliCapabilityDetailComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -194,6 +198,8 @@ const SAVE_SCOPE = 'global';
           >Click model or effort cells to reassign in place</span
         >
       </div>
+
+      <p class="text-xs text-base-content-muted">These are CLI capabilities. A running lane may offer fewer actions.</p>
 
       <ptah-agent-orchestration-config />
 
@@ -314,6 +320,14 @@ const SAVE_SCOPE = 'global';
                     ) {
                       <ptah-claude-lane-account-cell />
                     }
+                    <ptah-cli-capability-cells [manifest]="row.manifest" />
+                    <button type="button" class="btn btn-ghost btn-xs mt-1 gap-1 text-base-content"
+                      [attr.aria-expanded]="capabilityOpen() === row.id"
+                      [attr.aria-controls]="'cli-capability-' + row.id"
+                      (click)="toggleCapability(row.id)">
+                      <lucide-angular [img]="capabilityOpen() === row.id ? ChevronIcon : ChevronRightIcon" class="h-3 w-3" aria-hidden="true" />
+                      {{ capabilityOpen() === row.id ? 'Hide capabilities' : 'Show capabilities' }}
+                    </button>
                     <!-- Narrow containers (Electron beside the shell sidebar) show the provider and status here instead of their columns. -->
                     <!-- One line in the narrow layout (Electron fold): the badge keeps its size; the provider truncates, full in its title. -->
                     <div
@@ -728,6 +742,13 @@ const SAVE_SCOPE = 'global';
                       </div>
                   </td>
                 </tr>
+                @if (capabilityOpen() === row.id) {
+                  <tr [id]="'cli-capability-' + row.id" class="border-b border-base-content/10">
+                    <td colspan="8" class="bg-base-200/40 px-4 py-3">
+                      <ptah-cli-capability-detail [manifest]="row.manifest" />
+                    </td>
+                  </tr>
+                }
               } @empty {
                 @if (group.id === 'installed') {
                   <tr>
@@ -884,6 +905,10 @@ export class CliOrchestrationMatrixComponent {
   );
 
   protected readonly state = inject(ProvidersSettingsStateService);
+  protected readonly capabilityOpen = signal<string | null>(null);
+  protected toggleCapability(id: string): void {
+    this.capabilityOpen.update((open) => open === id ? null : id);
+  }
   private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);

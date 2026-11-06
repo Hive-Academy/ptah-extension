@@ -26,6 +26,7 @@ import {
   CLI_MATRIX_FOCUS,
 } from './cli-matrix-styles';
 import { CliModelEffortPopoverComponent } from './cli-model-effort-popover.component';
+import { CliCapabilityCellsComponent } from './cli-capability-cells.component';
 
 /** The three tiers of an instance's mapping, in the tier modal's order. */
 const TIERS: readonly Pick<CliTierBadge, 'tier' | 'label'>[] = [
@@ -61,6 +62,7 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
     ProviderMarkComponent,
     SettingsBusyDisabledDirective,
     CliModelEffortPopoverComponent,
+    CliCapabilityCellsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -164,12 +166,16 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
                       <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + dot[row.status.tone]" aria-hidden="true"></span>
                       {{ row.status.label }}
                     </span>
+                    @if (row.runtimeStatus) {
+                      <span class="badge badge-outline badge-sm whitespace-nowrap border-warning text-warning" data-testid="cli-matrix-runtime-status">{{ row.runtimeStatus }}</span>
+                    }
                     <span
                       [class]="'badge badge-outline badge-sm whitespace-nowrap text-xs text-base-content ' + keyBadge[row.keyStatus.kind]"
                       data-testid="cli-matrix-key-status"
                       >{{ row.keyStatus.label }}</span
                     >
                   </div>
+                  <ptah-cli-capability-cells [manifest]="row.manifest" />
                 </div>
 
                 <div class="ml-auto flex shrink-0 items-center gap-1">

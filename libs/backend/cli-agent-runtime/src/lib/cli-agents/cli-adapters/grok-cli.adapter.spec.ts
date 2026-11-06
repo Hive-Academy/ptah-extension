@@ -147,11 +147,8 @@ describe('GrokCliAdapter', () => {
       expect(adapter.displayName).toBe('Grok');
       expect(adapter.roleChannel).toBe('task-prompt');
       expect(adapter.supportsMcp).toBe(true);
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.continuation.state).toBe('supported');
+      expect(adapter.capabilities().permissionModes.plan?.state).toBe('unsupported');
     });
 
     it('strips ANSI codes from raw output', () => {

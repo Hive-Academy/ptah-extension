@@ -22,6 +22,7 @@ import type {
 import {
   wireSdkCallbacks,
   wireAgentEventListeners,
+  registerAgentDeliveryPushSinks,
 } from '@ptah-extension/cli-agent-runtime';
 import { wireSessionMetadataEvents } from '@ptah-extension/agent-sdk';
 import {
@@ -143,6 +144,7 @@ export function registerRpcSurface(
   }
 
   installNullImplementations(container, profile);
+  registerAgentDeliveryPushSinks(container, logger, profile.platform);
   registerHandlers(container, profile, logger, tag);
   wireBridges(container, profile, logger);
 

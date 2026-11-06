@@ -92,7 +92,7 @@ flowchart LR
 
 ![Execution tree with sub-agent delegation, tokens, and cost](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/chat-execution-tree.png)
 
-- **CLI lanes.** Supervised processes include `claude`, `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `grok`, and `pi`, plus API providers such as Kimi, GLM, MiniMax, Qwen, DeepSeek, OpenRouter, and Ollama. ACP-capable lanes can be steered mid-turn, queued, or interrupted. Some lanes report steer as unsupported.
+- **CLI lanes.** Supervised processes include `claude`, `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `grok`, and `pi`, plus API providers such as Kimi, GLM, MiniMax, Qwen, DeepSeek, OpenRouter, and Ollama. Adapter manifests show potential messaging support in list rows; a live lane resolves what its current handle can actually do. Send queues during a running turn. Send now steers when supported, or offers interrupt and resume with explicit consent to lose partial work. Each accepted message has a receipt that tracks delivery through settlement.
 - **Child chats.** A parent can open up to three child sessions. Each child gets its own git worktree and branch and its own tab. That cap is separate from the rail’s nine running sessions.
 - **Handoff.** When context fills, a new top-level chat can adopt in-flight lanes and child sessions. The previous tab closes only when adoption succeeds and `sessionBudget.closeSourceAfterAutoHandoff` is on.
 - **Named Claude accounts.** A personal account is certified before launch or resume (binary fingerprint, managed-policy scan, stripped environment, per-account config). The first init message is checked so the live subscription is the one that was supposed to run.

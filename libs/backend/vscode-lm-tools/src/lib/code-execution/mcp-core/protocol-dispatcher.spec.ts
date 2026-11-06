@@ -3427,11 +3427,7 @@ describe('protocol-handlers › ptah_agent_message', () => {
       }),
     );
 
-    expect(message).toHaveBeenCalledWith(
-      'a-1',
-      'use the other branch',
-      undefined,
-    );
+    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch', undefined, undefined);
     const { text, isError } = agentToolResult(res);
     expect(isError).toBeUndefined();
     expect(text).toMatch(/Mode:\*\* interrupt-resume/);
@@ -3442,18 +3438,8 @@ describe('protocol-handlers › ptah_agent_message', () => {
     const message = jest.fn().mockResolvedValue({ mode: 'steer' });
     const messageStatus = jest.fn().mockResolvedValue({ status: 'delivered' });
     const agent = { message, messageStatus };
-    await handleMCPRequest(
-      makeRequest({
-        id: 'am-steer',
-        method: 'tools/call',
-        params: {
-          name: 'ptah_agent_message',
-          arguments: { agentId: 'a-1', message: 'go', delivery: 'steer' },
-        },
-      }),
-      buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }),
-    );
-    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer');
+    await handleMCPRequest(makeRequest({ id: 'am-steer', method: 'tools/call', params: { name: 'ptah_agent_message', arguments: { agentId: 'a-1', message: 'go', delivery: 'steer' } } }), buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }));
+    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer', undefined);
     const id = '11111111-1111-4111-8111-111111111111';
     const res = await handleMCPRequest(
       makeRequest({

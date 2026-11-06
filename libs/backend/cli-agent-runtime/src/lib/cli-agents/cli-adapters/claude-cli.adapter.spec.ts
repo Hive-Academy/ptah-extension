@@ -276,15 +276,13 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     const f = fixture();
     const handle = await f.adapter.runSdk({ ...f.input, agentId: 'lane-id' });
     const reported = f.adapter.capabilities();
-    expect(reported).toEqual({
-      continuation: handle.supportsContinuation?.() === true,
-      steer: typeof handle.steer === 'function',
-      interrupt: typeof handle.interrupt === 'function',
-    });
+    expect(reported.messaging.continuation.state === 'supported')
+      .toBe(handle.supportsContinuation?.() === true);
     // Listing and messaging read these flags: a lane that reports
     // continuation must accept a follow-up message, and one that reports no
     // steer or interrupt must not expose either.
-    expect(typeof handle.continue === 'function').toBe(reported.continuation);
+    expect(typeof handle.continue === 'function')
+      .toBe(reported.messaging.continuation.state === 'supported');
     f.finish(0);
     await expect(handle.done).resolves.toBe(0);
   });

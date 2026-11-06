@@ -9,8 +9,217 @@ import {
   CLAUDE_REASONING_EFFORT_VALUES,
   PI_REASONING_EFFORT_VALUES,
 } from '@ptah-extension/shared';
-import type { CliType } from '@ptah-extension/shared';
+import type {
+  CliAdapterManifest,
+  CliType,
+  EffectiveLanePolicy,
+  LaneNetworkMode,
+  LanePermissionMode,
+  LaneSpawnPolicyRefusal,
+} from '@ptah-extension/shared';
 import type { LaneModelSource } from './cli-adapters/cli-adapter.interface';
+
+export class LaneSpawnPolicyError extends Error {
+  readonly refusal: LaneSpawnPolicyRefusal;
+
+  constructor(refusal: LaneSpawnPolicyRefusal) {
+    super(refusal.reason);
+    this.name = 'LaneSpawnPolicyError';
+    this.refusal = refusal;
+  }
+}
+
+export interface LaneArgvPolicyTranslation {
+  readonly addArgs: readonly string[];
+  readonly removeArgs: readonly string[];
+}
+
+export type LaneSpawnPolicyTranslation = {
+  readonly requested: EffectiveLanePolicy;
+  readonly nativeDescription?: string;
+} & (
+  | {
+      readonly cli: 'codex';
+      readonly sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
+      readonly networkAccess?: boolean;
+    }
+  | {
+      readonly cli: 'claude' | 'ptah-cli';
+      readonly permissionMode?: 'plan' | 'default' | 'acceptEdits' | 'bypassPermissions';
+      readonly allowDangerouslySkipPermissions?: boolean;
+    }
+  | {
+      readonly cli: 'copilot' | 'antigravity' | 'opencode';
+      readonly argv: LaneArgvPolicyTranslation;
+    }
+  | { readonly cli: 'cursor' | 'grok' | 'pi' }
+);
+
+/** Validate an explicit spawn policy against the adapter's declared manifest. */
+export function validateLaneSpawnPolicy(
+  cli: CliType,
+  manifest: CliAdapterManifest,
+  requested: EffectiveLanePolicy,
+): EffectiveLanePolicy {
+  const permission = requested.permission;
+  const network = requested.network;
+  const permissionCapability = permission
+    ? manifest.permissionModes[permission]
+    : undefined;
+  if (permission && permissionCapability?.state !== 'supported') {
+    refuse(cli, 'permission', requested,
+      permissionCapability?.reason ?? `The ${permission} permission mode is not declared.`);
+  }
+  const networkCapability = network
+    ? manifest.networkModes[network]
+    : undefined;
+  if (network && networkCapability?.state !== 'supported') {
+    refuse(cli, 'network', requested,
+      networkCapability?.reason ?? `The ${network} network mode is not declared.`);
+  }
+  if (
+    permission && network &&
+    !permissionCapability?.networkModes.includes(network)
+  ) {
+    refuse(cli, 'combination', requested,
+      `${permission} with network ${network} is unsupported: ${permissionCapability?.nativeMode ?? permission} does not enforce that combination.`);
+  }
+  if (network === 'deny' && !permission) {
+    refuse(cli, 'combination', requested,
+      'Network denial requires an explicit permission mode with native network enforcement.');
+  }
+  const nativeDescription = [
+    permissionCapability?.nativeMode,
+    network === 'deny' ? 'network disabled' : undefined,
+  ].filter((part): part is string => part !== undefined).join(', ');
+  return nativeDescription
+    ? { ...requested, nativeDescription }
+    : requested;
+}
+
+/** Translate only values that the manifest and Tier 1 evidence support. */
+export function translateLaneSpawnPolicy(
+  cli: CliType,
+  manifest: CliAdapterManifest,
+  requested: EffectiveLanePolicy,
+): LaneSpawnPolicyTranslation {
+  const validated = validateLaneSpawnPolicy(cli, manifest, requested);
+  const nativeDescription = validated.nativeDescription;
+  switch (cli) {
+    case 'codex':
+      return {
+        cli,
+        requested: validated,
+        nativeDescription,
+        sandboxMode: codexSandboxMode(validated.permission),
+        networkAccess: validated.network === 'deny' ? false : undefined,
+      };
+    case 'claude':
+    case 'ptah-cli':
+      return {
+        cli,
+        requested: validated,
+        nativeDescription,
+        permissionMode: claudePermissionMode(validated.permission),
+        allowDangerouslySkipPermissions:
+          validated.permission === 'yolo' ? true : undefined,
+      };
+    case 'copilot':
+      return { cli, requested: validated, nativeDescription, argv: copilotArgv(validated.permission) };
+    case 'antigravity':
+      return { cli, requested: validated, nativeDescription, argv: antigravityArgv(validated.permission) };
+    case 'opencode':
+      return { cli, requested: validated, nativeDescription, argv: opencodeArgv(validated.permission) };
+    case 'cursor':
+    case 'grok':
+    case 'pi':
+      return { cli, requested: validated, nativeDescription };
+  }
+}
+
+function refuse(
+  cli: CliType,
+  field: LaneSpawnPolicyRefusal['field'],
+  requested: EffectiveLanePolicy,
+  reason: string,
+): never {
+  throw new LaneSpawnPolicyError({
+    code: 'UNSUPPORTED_LANE_POLICY', field, cli, requested, reason,
+  });
+}
+
+function codexSandboxMode(
+  permission: LanePermissionMode | undefined,
+): 'read-only' | 'workspace-write' | 'danger-full-access' | undefined {
+  switch (permission) {
+    case 'plan': return 'read-only';
+    case 'auto-edit': return 'workspace-write';
+    case 'yolo': return 'danger-full-access';
+    default: return undefined;
+  }
+}
+
+function claudePermissionMode(
+  permission: LanePermissionMode | undefined,
+): 'plan' | 'default' | 'acceptEdits' | 'bypassPermissions' | undefined {
+  switch (permission) {
+    case 'plan': return 'plan';
+    case 'ask': return 'default';
+    case 'auto-edit': return 'acceptEdits';
+    case 'yolo': return 'bypassPermissions';
+    default: return undefined;
+  }
+}
+
+function copilotArgv(permission: LanePermissionMode | undefined): LaneArgvPolicyTranslation {
+  if (!permission) return { addArgs: [], removeArgs: [] };
+  const removeArgs = ['--allow-all-tools', '--allow-all'];
+  switch (permission) {
+    case 'plan':
+      return { addArgs: ['--mode', 'plan'], removeArgs };
+    case 'auto-edit':
+      return {
+        addArgs: [
+          '--allow-tool=write_file', '--allow-tool=edit', '--allow-tool=replace',
+          '--allow-tool=create_file', '--allow-tool=patch_file', '--allow-tool=write',
+          '--allow-tool=insert',
+        ],
+        removeArgs,
+      };
+    case 'yolo':
+      return { addArgs: ['--allow-all'], removeArgs };
+    default:
+      return { addArgs: [], removeArgs };
+  }
+}
+
+function antigravityArgv(permission: LanePermissionMode | undefined): LaneArgvPolicyTranslation {
+  if (!permission) return { addArgs: [], removeArgs: [] };
+  const removeArgs = ['--dangerously-skip-permissions'];
+  switch (permission) {
+    case 'plan': return { addArgs: ['--mode', 'plan'], removeArgs };
+    case 'auto-edit': return { addArgs: ['--mode', 'accept-edits'], removeArgs };
+    case 'yolo': return { addArgs: ['--dangerously-skip-permissions'], removeArgs };
+    default: return { addArgs: [], removeArgs };
+  }
+}
+
+function opencodeArgv(permission: LanePermissionMode | undefined): LaneArgvPolicyTranslation {
+  return permission === 'plan'
+    ? { addArgs: ['--agent', 'plan'], removeArgs: ['--auto'] }
+    : { addArgs: [], removeArgs: [] };
+}
+
+/** Apply a pure argv translation without changing the default argument order. */
+export function applyLaneArgvPolicy(
+  args: readonly string[],
+  translation: LaneArgvPolicyTranslation,
+): string[] {
+  if (translation.addArgs.length === 0 && translation.removeArgs.length === 0)
+    return [...args];
+  const removed = new Set(translation.removeArgs);
+  return [...args.filter((arg) => !removed.has(arg)), ...translation.addArgs];
+}
 
 /** Models known to loop when run as a lane; a spawn naming one is refused. */
 export const BLOCKED_LANE_MODELS: readonly string[] = ['mimo-v2.6-flash-free'];

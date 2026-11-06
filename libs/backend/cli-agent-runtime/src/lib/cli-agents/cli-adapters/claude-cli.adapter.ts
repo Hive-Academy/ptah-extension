@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { SessionId } from '@ptah-extension/shared';
 import type {
+  CliAdapterManifest,
   EffectiveCapabilitySet,
   CliOutputSegment,
   FlatStreamEventUnion,
@@ -31,7 +33,10 @@ import {
 import type { PtahCliSpawnOptions } from '../../ptah-cli/helpers/ptah-cli-spawn-options.service';
 import { createPromptMailbox } from '../../ptah-cli/helpers/ptah-cli-prompt-mailbox';
 import type { ISdkProcessSpawner } from '../../spawn/sdk-process-spawner.port';
-import { isReviewerOrTester } from '../lane-spawn-policy';
+import {
+  isReviewerOrTester,
+  translateLaneSpawnPolicy,
+} from '../lane-spawn-policy';
 import { stripAnsiCodes } from './cli-adapter.utils';
 import type {
   ClaudeCliAdapterContract,
@@ -89,8 +94,28 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     );
   }
 
-  capabilities() {
-    return { continuation: true, steer: false, interrupt: false };
+  capabilities(): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'unsupported', reason: 'The SDK prompt mailbox starts turns; it has no mid-turn steer.' },
+        interrupt: { state: 'unsupported', reason: 'The SDK handle exposes no run-scoped interrupt.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: 'plan', networkModes: ['allow'] },
+        ask: { state: 'supported', nativeMode: 'default', networkModes: ['allow'] },
+        'auto-edit': { state: 'supported', nativeMode: 'acceptEdits', networkModes: ['allow'] },
+        yolo: { state: 'supported', nativeMode: 'bypassPermissions', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'The Claude SDK has no verified general network sandbox.' },
+      },
+      limitReader: { state: 'available', source: 'anthropic' },
+      mcp: { state: 'supported' },
+    };
   }
 
   async detect(): ReturnType<ClaudeCliAdapterContract['detect']> {
@@ -127,6 +152,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
   }
 
   async runSdk(input: ClaudeCliCommandOptions): Promise<SdkHandle> {
+    const lanePolicy = translateLaneSpawnPolicy(this.name, this.capabilities(), input);
     const abortController = new AbortController();
     const named = await this.prepareNamed(input, abortController);
     // Fixed word for the host step a named refusal happened in; the
@@ -181,6 +207,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           : undefined,
       );
       const agentIdHolder = { value: input.agentId };
+      const routingId = `claude:${randomUUID()}`;
       const options = buildClaudeSdkLaneOptions({
         assembly,
         authEnv: {},
@@ -192,7 +219,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         cwd: input.workingDirectory,
         agentName: input.role?.name ?? this.displayName,
         agentId: input.agentId,
-        routingId: `claude:${randomUUID()}`,
+        routingId,
         resumeSessionId: input.resumeSessionId,
         parentSessionId: input.parentSessionId,
         cliAgentResolver: () => agentIdHolder.value,
@@ -201,6 +228,27 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         processSpawner: this.deps.processSpawner,
         executable,
       });
+      if (lanePolicy.cli === 'claude' && lanePolicy.permissionMode) {
+        options.permissionMode = lanePolicy.permissionMode;
+        delete options.allowDangerouslySkipPermissions;
+        if (lanePolicy.requested.permission === 'yolo') {
+          options.allowDangerouslySkipPermissions = true;
+          delete options.canUseTool;
+        } else if (
+          (lanePolicy.requested.permission === 'ask' ||
+            lanePolicy.requested.permission === 'auto-edit') &&
+          !options.canUseTool
+        ) {
+          const permissionRoutingId = input.resumeSessionId ?? input.parentSessionId ?? routingId;
+          options.canUseTool = this.deps.permissionHandler.createCallback(
+            SessionId.safeParse(permissionRoutingId) ?? undefined,
+            () => agentIdHolder.value,
+            undefined,
+            undefined,
+            permissionRoutingId,
+          );
+        }
+      }
       // An unresolved native model is the SDK default, never a tier alias.
       if (!model) delete options.model;
       if (named) {

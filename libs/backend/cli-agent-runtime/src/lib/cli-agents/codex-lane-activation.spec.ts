@@ -24,6 +24,7 @@ import type { CodexLaneBinaryProbe } from './cli-adapters/codex/codex-app-server
 import type { CodexLaneCredentialProbe } from './cli-adapters/codex/codex-app-server-lane-auth';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { LaneResumeGate } from './lane-resume-gate';
+import { manifestFixture } from './testing/manifest.fixture';
 
 const ROOT = resolve(tmpdir(), 'ptah-native-lane-activation');
 const PARENT = '11111111-2222-4333-8444-555555555555';
@@ -95,7 +96,7 @@ function activationHarness(adapterOverride?: CliAdapter): ActivationHarness {
       cli: 'codex', installed: true, path: resolve(ROOT, 'codex-stub'),
       version: '0.165.0', messagingMode: 'queue',
     }),
-    capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    capabilities: () => manifestFixture({ roleChannel: 'developer-instructions' }),
     parseOutput: (raw) => raw,
     runSdk: jest.fn(async () => {
       const next = fakeHandle();
