@@ -20,6 +20,7 @@ import {
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { SearchFlight } from './search-flight';
 import { scopedVectorCandidates } from './scoped-vector-search';
+import { BudgetExceededError, remainingMs, withinBudget } from './search-deadline';
 import { MEMORY_TOKENS } from './di/tokens';
 import type { ISqliteSearchWorker } from './search-worker.port';
 
@@ -732,11 +733,15 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     query: string,
     topK = 10,
     workspaceRoot?: string,
+    deadlineMs?: number,
   ): Promise<CodeSymbolHitPage> {
     if (this.searchWorker) return this.searchWorker.searchSymbols(query, topK, workspaceRoot);
     const changes = this.connection.db.prepare('SELECT total_changes() AS n').get() as { n: number };
     const key = JSON.stringify([query.trim(), topK, workspaceRoot, changes.n]);
-    return this.searchFlight.run(key, () => this.searchSymbolsInner(query, topK, workspaceRoot));
+    const search = () => this.searchSymbolsInner(query, topK, workspaceRoot, deadlineMs);
+    if (deadlineMs === undefined) return this.searchFlight.run(key, search);
+    // Deadline-bound (the search worker): see MemorySearchService.searchRich.
+    return this.searchFlight.run(`${key}|${Math.floor(deadlineMs / 1_000)}`, search, { serialize: false });
   }
 
   getRevision(): number {
@@ -746,7 +751,8 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   private async searchSymbolsInner(
     query: string,
     topK: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | undefined,
+    deadlineMs: number | undefined,
   ): Promise<CodeSymbolHitPage> {
     const limit = Math.max(1, Math.min(CODE_SEARCH_MAX_TOP_K, topK));
     const trimmed = query.trim();
@@ -758,10 +764,11 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     let bm25Only = !this.reconcileOrphanVecRows();
     if (!bm25Only) {
       try {
-        vecRows = await this.vecSearchSymbols(
-          trimmed,
-          100,
-          workspaceRoot,
+        // Bounded by the request deadline, so the BM25 rows always answer in time.
+        vecRows = await withinBudget(
+          this.vecSearchSymbols(trimmed, 100, workspaceRoot, deadlineMs),
+          remainingMs(deadlineMs) - 200,
+          'symbol vector search',
         );
       } catch (err: unknown) {
         this.logger.warn(
@@ -945,10 +952,13 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   private async vecSearchSymbols(
     query: string,
     limit: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | undefined,
+    deadlineMs: number | undefined,
   ): Promise<CodeSymbolHitRow[]> {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
+    // The caller stopped waiting: skip the synchronous KNN it no longer needs.
+    if (remainingMs(deadlineMs) <= 0) throw new BudgetExceededError('symbol vector search', 0);
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const distRows = workspaceRoot

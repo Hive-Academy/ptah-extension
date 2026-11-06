@@ -115,6 +115,10 @@ export class SearchWorkerRuntime {
       this.logger.warn('[sqlite-search-worker] ignoring a second init');
       return;
     }
+    // Boot stage timings, so a slow boot shows where its time went. Uptime
+    // covers the fork and the bundle load before `init` was handled.
+    const startedAt = Date.now();
+    const uptimeMs = Math.round(process.uptime() * 1000);
     let db: SqliteDatabase;
     try {
       db = this.options.openReadOnly(message.dbPath);
@@ -127,7 +131,9 @@ export class SearchWorkerRuntime {
       this.options.post({ kind: 'init-failed', message: text });
       return;
     }
+    const openedAt = Date.now();
     const vecLoaded = this.loadVec(db, message.vecPath);
+    const vecAt = Date.now();
     const logger = this.logger;
     const connection: SqliteDbProvider = {
       db,
@@ -161,6 +167,14 @@ export class SearchWorkerRuntime {
       memorySearch: this.createMemorySearch(partial),
       dataVersion: this.readDataVersion(db),
     };
+    const readyAt = Date.now();
+    this.logger.info('[sqlite-search-worker] init stages', {
+      uptimeBeforeInitMs: uptimeMs,
+      openMs: openedAt - startedAt,
+      vecLoadMs: vecAt - openedAt,
+      setupMs: readyAt - vecAt,
+      initMs: readyAt - startedAt,
+    });
     this.options.post({ kind: 'ready', vecLoaded });
   }
 
@@ -211,6 +225,12 @@ export class SearchWorkerRuntime {
       this.options.post({ kind: 'error', id: query.id, message: 'search worker not initialized' });
       return;
     }
+    if (query.deadlineMs !== undefined && Date.now() >= query.deadlineMs) {
+      // The host has already answered this request degraded and logged it;
+      // starting its synchronous SQL now would only delay the requests behind.
+      this.options.post({ kind: 'error', id: query.id, message: 'request deadline passed before it started' });
+      return;
+    }
     try {
       const result = await this.run(state, query);
       this.options.post({ kind: 'result', id: query.id, result });
@@ -232,7 +252,9 @@ export class SearchWorkerRuntime {
         return state.memorySearch.searchRich(query.query, query.topK, query.workspaceRoot, query.deadlineMs);
       }
       case 'symbols':
-        return state.symbols.searchSymbols(query.query, query.topK, query.workspaceRoot);
+        return state.symbols.searchSymbols(query.query, query.topK, query.workspaceRoot, query.deadlineMs);
+      // The remaining kinds are single synchronous statements: once started
+      // they cannot be interrupted, so the deadline is only checked above.
       case 'symbol-page':
         return state.symbols.search(query.params);
       case 'list':

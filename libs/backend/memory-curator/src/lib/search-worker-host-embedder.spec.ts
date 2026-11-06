@@ -1,4 +1,4 @@
-import { HostBridgeEmbedder } from './search-worker-host-embedder';
+import { HostBridgeEmbedder, HostCallSkippedError } from './search-worker-host-embedder';
 import type { SearchWorkerOutbound } from './search-worker.protocol';
 
 function makeBridge(canRerank: boolean): { bridge: HostBridgeEmbedder; posted: SearchWorkerOutbound[] } {
@@ -9,7 +9,6 @@ function makeBridge(canRerank: boolean): { bridge: HostBridgeEmbedder; posted: S
     canRerank,
     post: (message) => posted.push(message),
     callTimeoutMs: 50,
-    coldCallTimeoutMs: 200,
   });
   return { bridge, posted };
 }
@@ -30,8 +29,8 @@ describe('HostBridgeEmbedder', () => {
     jest.useFakeTimers();
     const { bridge } = makeBridge(false);
     const pending = bridge.embed(['needle']);
-    jest.advanceTimersByTime(200);
-    await expect(pending).rejects.toThrow('host embed timed out after 200 ms');
+    jest.advanceTimersByTime(50);
+    await expect(pending).rejects.toThrow('host embed timed out after 50 ms');
     expect(bridge.pendingCalls).toBe(0);
     // A late reply for the expired call is ignored.
     bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
@@ -45,38 +44,32 @@ describe('HostBridgeEmbedder', () => {
     await expect(pending).rejects.toThrow('model unavailable');
   });
 
-  it('gives a cold embedder the longer first-call budget, then the warm one', async () => {
+  it('lets a warm embed wait past the old 2 s bound, up to the request-budget backstop', async () => {
     jest.useFakeTimers();
-    const { bridge } = makeBridge(false);
-    // Model still loading: 50 ms passes, the call is still waiting.
-    const first = bridge.embed(['needle']);
-    jest.advanceTimersByTime(150);
-    expect(bridge.pendingCalls).toBe(1);
-    bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
-    expect(await first).toEqual([Float32Array.from([1, 2, 3])]);
-    // Warm now: the 50 ms budget applies.
-    const second = bridge.embed(['needle']);
-    jest.advanceTimersByTime(50);
-    await expect(second).rejects.toThrow('host embed timed out after 50 ms');
-  });
-
-  it('uses the cold budget after idle teardown or a failed warm call', async () => {
-    jest.useFakeTimers();
-    const { bridge } = makeBridge(false);
+    const bridge = new HostBridgeEmbedder({ dim: 3, modelId: 'm', canRerank: false, post: () => undefined });
     const first = bridge.embed(['a']);
     bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
     await first;
-    jest.advanceTimersByTime(5 * 60 * 1000);
-    const afterIdle = bridge.embed(['a']);
-    jest.advanceTimersByTime(50);
+    // Warm: queued behind another query's embed and rerank for 4.9 s.
+    const second = bridge.embed(['b']);
+    jest.advanceTimersByTime(4_900);
     expect(bridge.pendingCalls).toBe(1);
-    bridge.settle({ kind: 'host-call-failed', id: 2, message: 'restarting' });
-    await expect(afterIdle).rejects.toThrow('restarting');
-    const retry = bridge.embed(['a']);
-    jest.advanceTimersByTime(50);
-    expect(bridge.pendingCalls).toBe(1);
-    bridge.settle({ kind: 'embed-result', id: 3, vectors: [[1, 2, 3]] });
-    await retry;
+    bridge.settle({ kind: 'embed-result', id: 2, vectors: [[3, 2, 1]] });
+    expect(await second).toEqual([Float32Array.from([3, 2, 1])]);
+    const third = bridge.embed(['c']);
+    jest.advanceTimersByTime(5_000);
+    await expect(third).rejects.toThrow('host embed timed out after 5000 ms');
+  });
+
+  it('rejects a shed rerank with HostCallSkippedError, a failed one with a plain Error', async () => {
+    const { bridge } = makeBridge(true);
+    const shed = bridge.rerank('q', [{ id: '1', text: 'a' }], 1);
+    bridge.settle({ kind: 'host-call-failed', id: 1, message: 'host reranker busy', busy: true });
+    await expect(shed).rejects.toBeInstanceOf(HostCallSkippedError);
+    const failed = bridge.rerank('q', [{ id: '1', text: 'a' }], 1);
+    bridge.settle({ kind: 'host-call-failed', id: 2, message: 'onnx failed' });
+    await expect(failed).rejects.toThrow('onnx failed');
+    await expect(failed).rejects.not.toBeInstanceOf(HostCallSkippedError);
   });
 
   it('rejects rerank without a host reranker, so search keeps the RRF order', async () => {

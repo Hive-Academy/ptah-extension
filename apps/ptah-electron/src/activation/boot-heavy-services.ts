@@ -26,6 +26,7 @@ import {
 import type { BootCoordinator } from './boot-coordinator';
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import { startReviewWorker } from './review-worker.activation';
+import { startSearchWorkerAfterMigrations } from './search-worker-prestart';
 import { REVIEW_CORE_TOKENS } from '@ptah-extension/review-core';
 
 /**
@@ -220,6 +221,8 @@ export function createHeavyServicesBooter(
     coordinator.markPersistenceSettled({
       sqliteOpen: thoth.sqliteConnection?.isOpen ?? false,
     });
+    // Migrated: fork the read-only search worker now, not on the first search.
+    if (thoth.sqliteConnection?.isOpen) startSearchWorkerAfterMigrations(container);
     coordinator.setPhase('harness', 'Syncing skills and agents');
     refs.memoryCurator = thoth.memoryCurator;
     refs.memoryTrigger = thoth.memoryTrigger;

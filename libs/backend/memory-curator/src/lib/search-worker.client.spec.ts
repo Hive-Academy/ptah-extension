@@ -11,8 +11,12 @@ class FakeProcess implements ISearchWorkerProcess {
   exitOnKill = true;
   private messageHandler: (message: unknown) => void = () => undefined;
   private exitHandler: (code: number | null) => void = () => undefined;
+  /** Report `ready` as soon as `init` arrives, like a worker that boots at once. */
+  constructor(private readonly autoReady: boolean) {}
   postMessage(message: unknown): void {
     this.sent.push(message);
+    const isInit = typeof message === 'object' && message !== null && Reflect.get(message, 'kind') === 'init';
+    if (isInit && this.autoReady) this.messageHandler({ kind: 'ready', vecLoaded: true });
   }
   on(event: 'message', callback: (message: unknown) => void): void;
   on(event: 'exit', callback: (code: number | null) => void): void;
@@ -52,10 +56,10 @@ function makeEmbedder(embed?: IEmbedder['embed']): IEmbedder {
   };
 }
 
-function makeFactory(children: FakeProcess[]): ISearchWorkerFactory {
+function makeFactory(children: FakeProcess[], autoReady = true): ISearchWorkerFactory {
   return {
     spawn: () => {
-      const child = new FakeProcess();
+      const child = new FakeProcess(autoReady);
       children.push(child);
       return child;
     },
@@ -96,7 +100,9 @@ describe('SearchWorkerClient', () => {
       embedderModelId: 'test-model',
       rerankAvailable: false,
     });
-    expect(child.queries).toEqual([{ kind: 'symbols', id: 1, query: 'foo', topK: 3, workspaceRoot: '/work' }]);
+    expect(child.queries).toEqual([
+      { kind: 'symbols', id: 1, query: 'foo', topK: 3, workspaceRoot: '/work', deadlineMs: expect.any(Number) },
+    ]);
     child.reply({ kind: 'result', id: 1, result: { hits: [symbolHit], bm25Only: false } });
     expect(await response).toEqual({ hits: [symbolHit], bm25Only: false });
   });
@@ -167,6 +173,8 @@ describe('SearchWorkerClient', () => {
     // One timeout is not a stall: the worker is only killed after 300 ms of silence.
     expect(children[0].killed).toBe(false);
     jest.advanceTimersByTime(200);
+    // The liveness timer defers its final check to the next event-loop turn.
+    jest.advanceTimersByTime(1);
     expect(children[0].killed).toBe(true);
     // Inside the backoff window: answered at once, nothing spawned or queued.
     expect(await client.searchSymbols('Foo', 5)).toEqual({ hits: [], bm25Only: true });
@@ -415,6 +423,7 @@ describe('SearchWorkerClient', () => {
     expect(await second).toEqual([]);
     expect(children[0].killed).toBe(false);
     jest.advanceTimersByTime(150);
+    jest.advanceTimersByTime(1);
     expect(children[0].killed).toBe(true);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('unresponsive'),
@@ -430,6 +439,7 @@ describe('SearchWorkerClient', () => {
     const children: FakeProcess[] = [];
     const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger(), {
       timeoutMs: 100,
+      queueTimeoutMs: 100,
       maxInFlight: 1,
       livenessMs: 10_000,
     });
@@ -439,7 +449,7 @@ describe('SearchWorkerClient', () => {
     expect(await running).toEqual([]);
     expect(await queued).toEqual([]);
     // The worker still owes id 1, so nothing else was dispatched.
-    expect(children[0].queries).toEqual([{ kind: 'chunks', id: 1, memoryId: 'a' }]);
+    expect(children[0].queries).toEqual([{ kind: 'chunks', id: 1, memoryId: 'a', deadlineMs: expect.any(Number) }]);
     children[0].reply({ kind: 'result', id: 1, result: [] });
     expect(children[0].queries).toHaveLength(1);
   });
@@ -452,6 +462,212 @@ describe('SearchWorkerClient', () => {
     void client.getChunks('b');
     expect(embed).toHaveBeenCalledTimes(1);
     expect(embed).toHaveBeenCalledWith(['warmup']);
+    void client.dispose();
+  });
+
+  it('start() forks the worker before any request and leaves the embedder warm-up to the first request', async () => {
+    const children: FakeProcess[] = [];
+    const embed = jest.fn<Promise<Float32Array[]>, [readonly string[]]>(async () => []);
+    const logger = makeLogger();
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(embed), logger);
+    client.start();
+    expect(children).toHaveLength(1);
+    expect(children[0].sent[0]).toEqual(expect.objectContaining({ kind: 'init' }));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('forked'), { reason: 'boot' });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('ready'),
+      expect.objectContaining({ sinceForkMs: expect.any(Number) }),
+    );
+    expect(embed).not.toHaveBeenCalled();
+    client.start();
+    expect(children).toHaveLength(1);
+    const response = client.getChunks('m1');
+    expect(embed).toHaveBeenCalledWith(['warmup']);
+    expect(children[0].queries).toHaveLength(1);
+    children[0].reply({ kind: 'result', id: 1, result: [] });
+    expect(await response).toEqual([]);
+    void client.getChunks('m2');
+    expect(embed).toHaveBeenCalledTimes(1);
+    void client.dispose();
+  });
+
+  it('sends a deadline with every request kind', async () => {
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    void client.listMemories('/ws', 4);
+    void client.getChunks('m1');
+    void client.searchSymbolPage({ workspaceRoot: '/work', query: 'Foo', limit: 20, offset: 0 });
+    for (const query of children[0].queries) {
+      expect(query).toEqual(expect.objectContaining({ deadlineMs: expect.any(Number) }));
+    }
+    expect(children[0].queries).toHaveLength(3);
+    void client.dispose();
+  });
+
+  it('dispatches nothing before ready, and starts the timeout and deadline at ready', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const logger = makeLogger();
+    const client = new SearchWorkerClient(makeFactory(children, false), makeEmbedder(), logger);
+    const response = client.searchMemory('needle', 5, '/work');
+    // A slow cold boot: 4 s pass before the worker is ready.
+    jest.advanceTimersByTime(4_000);
+    expect(children[0].queries).toEqual([]);
+    const readyAt = Date.now();
+    children[0].reply({ kind: 'ready', vecLoaded: true });
+    expect(children[0].queries).toEqual([expect.objectContaining({ id: 1, deadlineMs: readyAt + 4_500 })]);
+    // 4.9 s after ready (8.9 s after the request) the answer still counts.
+    jest.advanceTimersByTime(4_900);
+    const hit = { hits: [], bm25Only: true };
+    children[0].reply({ kind: 'result', id: 1, result: hit });
+    expect(await response).toEqual(hit);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('lets a request wait 15 s host-side for a slow boot before it degrades', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const logger = makeLogger();
+    const client = new SearchWorkerClient(makeFactory(children, false), makeEmbedder(), logger);
+    const response = client.getChunks('m1');
+    let settled = false;
+    void response.then(() => { settled = true; });
+    jest.advanceTimersByTime(14_999);
+    await flush();
+    expect(settled).toBe(false);
+    jest.advanceTimersByTime(1);
+    expect(await response).toEqual([]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('timed out'),
+      expect.objectContaining({ phase: 'queued', timeoutMs: 15_000 }),
+    );
+    void client.dispose();
+  });
+
+  it('restarts a worker that never reports ready', () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const logger = makeLogger();
+    const client = new SearchWorkerClient(makeFactory(children, false), makeEmbedder(), logger);
+    void client.getChunks('m1');
+    jest.advanceTimersByTime(30_000);
+    expect(children[0].killed).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('not ready'), expect.anything());
+    jest.advanceTimersByTime(250);
+    void client.getChunks('m1');
+    expect(children).toHaveLength(2);
+    void client.dispose();
+  });
+
+  it('backs off exponentially across an init-failed loop; ready and log messages do not reset it', () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    for (const backoffMs of [250, 500, 1_000, 2_000]) {
+      void client.getChunks('m1');
+      const child = children[children.length - 1];
+      child.reply({ kind: 'log', level: 'info', message: 'opening' });
+      child.reply({ kind: 'init-failed', message: 'SQLITE_CANTOPEN' });
+      const spawned = children.length;
+      jest.advanceTimersByTime(backoffMs - 1);
+      void client.getChunks('m1');
+      expect(children).toHaveLength(spawned);
+      jest.advanceTimersByTime(1);
+    }
+    void client.dispose();
+  });
+
+  it('resets the backoff only after a valid result', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    void client.getChunks('a');
+    children[0].crash();
+    jest.advanceTimersByTime(250);
+    void client.getChunks('b');
+    children[1].crash();
+    // Second failure: 500 ms.
+    jest.advanceTimersByTime(499);
+    void client.getChunks('c');
+    expect(children).toHaveLength(2);
+    jest.advanceTimersByTime(1);
+    const ok = client.getChunks('d');
+    children[2].reply({ kind: 'result', id: 3, result: [] });
+    expect(await ok).toEqual([]);
+    void client.getChunks('e');
+    children[2].crash();
+    // Reset by the result: back to 250 ms.
+    jest.advanceTimersByTime(250);
+    void client.getChunks('f');
+    expect(children).toHaveLength(4);
+    void client.dispose();
+  });
+
+  it('restarts a worker that hangs again, with a growing backoff (no unreachable cap)', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger(), {
+      timeoutMs: 100,
+      livenessMs: 300,
+    });
+    for (const [index, backoffMs] of [250, 500, 1_000].entries()) {
+      void client.getChunks('m1');
+      jest.advanceTimersByTime(300);
+      jest.advanceTimersByTime(1);
+      expect(children[index].killed).toBe(true);
+      jest.advanceTimersByTime(backoffMs - 1);
+      void client.getChunks('m1');
+      expect(children).toHaveLength(index + 1);
+      jest.advanceTimersByTime(1);
+    }
+    void client.dispose();
+  });
+
+  it('re-checks liveness after queued messages before restarting a worker', () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger(), {
+      timeoutMs: 10_000,
+      livenessMs: 300,
+    });
+    void client.getChunks('m1');
+    // The watchdog timer fires...
+    jest.advanceTimersToNextTimer();
+    // ...but a worker message that was queued behind it is handled first.
+    children[0].reply({ kind: 'log', level: 'debug', message: 'still scanning' });
+    jest.advanceTimersToNextTimer();
+    expect(children[0].killed).toBe(false);
+    // Silent for a whole window after that message: now it is restarted.
+    jest.advanceTimersByTime(300);
+    expect(children[0].killed).toBe(true);
+    void client.dispose();
+  });
+
+  it('does not let an invalid host-call message degrade the query with the same id', async () => {
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    const response = client.getChunks('m1');
+    children[0].reply({ kind: 'embed', id: 1, texts: 'not-an-array' });
+    children[0].reply({ kind: 'result', id: 1, result: [] });
+    expect(await response).toEqual([]);
+    expect(children[0].killed).toBe(false);
+    const second = client.listMemories('/ws', 4);
+    children[0].reply({ kind: 'result', id: 2, result: { memories: [], total: 9 } });
+    expect((await second).total).toBe(9);
+  });
+
+  it('logs a late error for a request that already timed out at debug, once', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const logger = makeLogger();
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), logger, { timeoutMs: 100 });
+    const response = client.getChunks('m1');
+    jest.advanceTimersByTime(100);
+    expect(await response).toEqual([]);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    children[0].reply({ kind: 'error', id: 1, message: 'request deadline passed before it started' });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('late error'), expect.anything());
     void client.dispose();
   });
 

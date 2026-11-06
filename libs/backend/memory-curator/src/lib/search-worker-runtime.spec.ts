@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import type { SqliteDatabase, SqliteStatement } from '@ptah-extension/persistence-sqlite';
 import { SearchWorkerRuntime } from './search-worker-runtime';
+import { CodeSymbolStore } from './code-symbol.store';
 import {
   createSearchWorkerResultSchemas,
   searchWorkerOutboundSchema,
@@ -168,6 +169,49 @@ describe('SearchWorkerRuntime', () => {
     runtime.handle(init);
     expect(state.pragmas).toContain('query_only = ON');
     expect(posted).toContainEqual({ kind: 'ready', vecLoaded: false });
+  });
+
+  it('logs how long each boot stage took before reporting ready', () => {
+    const { runtime, posted } = setup();
+    runtime.handle(init);
+    const stages = posted.find((m) => m.kind === 'log' && m.message.includes('init stages'));
+    expect(stages).toEqual(expect.objectContaining({
+      level: 'info',
+      context: expect.objectContaining({
+        uptimeBeforeInitMs: expect.any(Number),
+        openMs: expect.any(Number),
+        vecLoadMs: expect.any(Number),
+        setupMs: expect.any(Number),
+        initMs: expect.any(Number),
+      }),
+    }));
+    expect(posted.indexOf(stages ?? posted[0])).toBeLessThan(posted.findIndex((m) => m.kind === 'ready'));
+  });
+
+  it('does not start a request whose deadline passed while it waited', async () => {
+    const { runtime, posted } = setup();
+    runtime.handle(init);
+    runtime.handle({ kind: 'chunks', id: 9, memoryId: 'm1', deadlineMs: Date.now() - 1 });
+    await flush();
+    expect(posted).toContainEqual({ kind: 'error', id: 9, message: 'request deadline passed before it started' });
+    expect(posted.some((m) => m.kind === 'result')).toBe(false);
+  });
+
+  it('passes the request deadline to the symbol search', async () => {
+    const searchSymbols = jest
+      .spyOn(CodeSymbolStore.prototype, 'searchSymbols')
+      .mockResolvedValue({ hits: [], bm25Only: true });
+    try {
+      const { runtime, posted } = setup();
+      runtime.handle(init);
+      const deadlineMs = Date.now() + 4_500;
+      runtime.handle({ kind: 'symbols', id: 3, query: 'Foo', topK: 5, workspaceRoot: '/work', deadlineMs });
+      await flush();
+      expect(searchSymbols).toHaveBeenCalledWith('Foo', 5, '/work', deadlineMs);
+      expect(resultFor(posted, 3)).toEqual({ hits: [], bm25Only: true });
+    } finally {
+      searchSymbols.mockRestore();
+    }
   });
 
   it('answers chunk lookups with rows the host schema accepts', async () => {
