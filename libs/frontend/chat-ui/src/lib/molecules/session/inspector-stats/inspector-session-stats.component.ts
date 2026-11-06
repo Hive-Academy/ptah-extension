@@ -43,7 +43,7 @@ let nextSessionId = 0;
   template: `
     @let s = stats();
     <section
-      class="px-3 py-3"
+      class="px-4 py-3"
       data-testid="inspector-session-stats"
       aria-label="Session statistics"
     >
@@ -264,7 +264,7 @@ let nextSessionId = 0;
           @if (modelNames().length >= 2) {
             <button
               type="button"
-              class="cursor-pointer text-[10.5px] text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+              class="block w-fit self-start cursor-pointer text-left text-[10.5px] leading-4 text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
               [attr.aria-expanded]="isOpen('sd-models')"
               [attr.aria-controls]="modelsPanelId"
               [title]="

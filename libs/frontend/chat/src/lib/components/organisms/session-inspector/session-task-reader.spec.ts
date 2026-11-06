@@ -268,3 +268,137 @@ describe('SessionTaskReader organization cache', () => {
     expect(reader.state()).toBeNull();
   });
 });
+
+describe('SessionTaskReader async document and progress reads', () => {
+  const link = (taskId: string): SessionTaskLinkSummary => ({
+    taskId, role: 'primary', source: 'user', createdAt: 1, missing: false,
+  });
+  const task = (taskId: string): TaskSpecDetail => ({
+    id: taskId, folderName: taskId, artifacts: ['context.md', 'batches.md'],
+  } as TaskSpecDetail);
+  type Pending = {
+    method: string;
+    resolve: (value: Awaited<ReturnType<typeof rpcCall>>) => void;
+    reject: (reason: Error) => void;
+  };
+  let pending: Pending[];
+  let reader: SessionTaskReader;
+  let tabId: WritableSignal<string>;
+  let changes: WritableSignal<{ seq: number; change: { workspaceRoot: string; folderNames: string[] } } | null>;
+  let logger: { error: jest.Mock };
+
+  const take = (method: string): Pending => {
+    const index = pending.findIndex(call => call.method === method);
+    expect(index).toBeGreaterThanOrEqual(0);
+    return pending.splice(index, 1)[0];
+  };
+  const ok = (data: object): Awaited<ReturnType<typeof rpcCall>> => ({ success: true, data });
+  const finishTask = async (taskId: string): Promise<void> => {
+    take('tasks:get').resolve(ok({ task: task(taskId) }));
+    await settle();
+  };
+  const markdown = (taskId: string, file: string, content: string): Awaited<ReturnType<typeof rpcCall>> =>
+    ok({ taskId, file, state: 'ready', content });
+
+  beforeEach(() => {
+    pending = [];
+    tabId = signal('tab-a');
+    changes = signal<{ seq: number; change: { workspaceRoot: string; folderNames: string[] } } | null>(null);
+    logger = { error: jest.fn() };
+    const sessions = signal([
+      { id: 'session-a', organization: { tasks: [link('TASK_A')] } },
+      { id: 'session-b', organization: { tasks: [link('TASK_B')] } },
+    ]);
+    jest.mocked(rpcCall).mockImplementation((_vscode, method) => new Promise((resolve, reject) => {
+      pending.push({ method, resolve, reject });
+    }));
+    TestBed.configureTestingModule({ providers: [
+      SessionTaskReader,
+      { provide: ChatStore, useValue: { organizationAvailable: () => true, sessions } },
+      { provide: LoggingService, useValue: logger },
+      { provide: TabManagerService, useValue: { findTabByIdAcrossWorkspaces: (id: string) => ({
+        tab: { claudeSessionId: id === 'tab-a' ? 'session-a' : 'session-b' }, workspacePath: 'C:/ws',
+      }) } },
+      { provide: AppStateManager, useValue: { workspaceInfo: () => null } },
+      { provide: VSCodeService, useValue: {} },
+      { provide: TasksChangedFeed, useValue: { changes } },
+      { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+    ] });
+    reader = TestBed.inject(SessionTaskReader);
+    reader.bind(tabId);
+    TestBed.tick();
+  });
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('drops a late preview rejection after a tab and lead switch', async () => {
+    await finishTask('TASK_A');
+    const oldPreview = reader.previewDocument('context.md');
+    const oldRead = take('tasks:getArtifact');
+    tabId.set('tab-b');
+    TestBed.tick();
+    expect(reader.preview()).toBeNull();
+    oldRead.reject(new Error('old task failed'));
+    await oldPreview;
+    expect(reader.preview()).toBeNull();
+    await finishTask('TASK_B');
+    const nextPreview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').resolve(ok({ file: 'context.md', content: 'New task' }));
+    await nextPreview;
+    expect(reader.preview()?.content).toBe('New task');
+    expect(logger.error).not.toHaveBeenCalledWith('SessionTaskReader', 'Could not preview task document', expect.anything());
+  });
+
+  it('keeps the newest progress when reads finish in reverse order', async () => {
+    await finishTask('TASK_A');
+    const older = take('tasks:readFolderMarkdown');
+    reader.retry();
+    await finishTask('TASK_A');
+    const newer = take('tasks:readFolderMarkdown');
+    newer.resolve(markdown('TASK_A', 'batches.md', '- [x] New\n- [ ] Next'));
+    await settle();
+    older.resolve(markdown('TASK_A', 'batches.md', '- [ ] Old'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 2 });
+  });
+
+  it('invalidates changed task content under the same filenames', async () => {
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', 'batches.md', '- [ ] First'));
+    await settle();
+    const firstPreview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').resolve(ok({ file: 'context.md', content: 'Before change' }));
+    await firstPreview;
+    changes.set({ seq: 1, change: { workspaceRoot: 'C:/ws', folderNames: ['TASK_A'] } });
+    TestBed.tick();
+    const nextPreview = take('tasks:getArtifact');
+    nextPreview.resolve(ok({ file: 'context.md', content: 'After change' }));
+    await settle();
+    expect(reader.preview()?.content).toBe('After change');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await settle();
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', 'batches.md', '- [x] Changed'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+  });
+
+  it('logs progress and preview RPC rejections while retaining the previous progress', async () => {
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', 'batches.md', '- [x] Done'));
+    await settle();
+    changes.set({ seq: 1, change: { workspaceRoot: 'C:/ws', folderNames: ['TASK_A'] } });
+    TestBed.tick();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await settle();
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').reject(new Error('progress offline'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+    expect(logger.error).toHaveBeenCalledWith('SessionTaskReader', 'Could not load task progress', expect.objectContaining({ message: 'progress offline' }));
+    const preview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').reject(new Error('preview offline'));
+    await preview;
+    expect(reader.preview()?.status).toBe('error');
+    expect(logger.error).toHaveBeenCalledWith('SessionTaskReader', 'Could not preview task document', expect.objectContaining({ message: 'preview offline' }));
+  });
+});

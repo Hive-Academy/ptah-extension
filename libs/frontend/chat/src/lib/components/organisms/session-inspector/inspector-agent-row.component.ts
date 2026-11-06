@@ -32,7 +32,7 @@ export const AGENT_ROW_COLUMNS =
       type="button"
       class="grid w-full {{
         columns
-      }} items-center py-1.5 pl-3 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
+      }} items-center py-1.5 pl-4 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
       [attr.data-agent-key]="r.key"
       [attr.aria-label]="r.ariaLabel"
       [attr.title]="r.startedAtTitle"

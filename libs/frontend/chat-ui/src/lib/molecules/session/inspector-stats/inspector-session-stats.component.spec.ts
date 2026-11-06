@@ -110,6 +110,38 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(value.classList.contains('font-semibold')).toBe(true);
   });
 
+  it('left aligns the Models button when two models are present', () => {
+    TestBed.configureTestingModule({
+      imports: [InspectorSessionStatsComponent],
+      providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
+    const stats: SessionStatsInputs = {
+      sessionId: 'session-1', cache: null, liveModelStats: null,
+      compactionCount: 0, limits: null, budget: null,
+      context: { hasLive: false, known: false, percent: null, label: '—', usedTokens: null },
+      limitSummary: { state: 'none', text: null, extra: 0, source: null, fullText: null },
+      snapshot: {
+        sessionId: 'session-1', model: 'model-a', totalCost: 0, knownCost: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        tokenCount: 0, messageCount: 0, agentSessionCount: 0,
+        modelUsageList: [
+          { model: 'model-a', inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, costUSD: 0 },
+          { model: 'model-b', inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, costUSD: 0 },
+        ],
+        status: 'ok', pricingCoverage: 'full', scope: 'session', revision: 1,
+      },
+    };
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+    const button = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')]
+      .find((element) => element.textContent?.trim() === 'Models');
+    expect(button).toBeTruthy();
+    for (const className of ['block', 'w-fit', 'self-start', 'text-left', 'leading-4']) {
+      expect(button?.classList.contains(className)).toBe(true);
+    }
+  });
+
   it('keeps the context bar on the cell bottom edge when the session has compactions', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],

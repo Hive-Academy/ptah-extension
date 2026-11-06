@@ -12,11 +12,14 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AppStateManager,
   FILE_LINK_OPENER,
+  LoggingService,
   VSCodeService,
   rpcCall,
 } from '@ptah-extension/core';
 import {
   CARRIER_FILE,
+  isDocFile,
+  isReadableTaskFolderMarkdownName,
   type SessionTaskLinkSummary,
   type TaskSpecDetail,
 } from '@ptah-extension/shared';
@@ -85,6 +88,20 @@ function documentsOf(task: TaskSpecDetail): readonly string[] {
   );
 }
 
+export function documentExcerpt(content: string): string {
+  const body = content.replace(/^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
+  if (!body) return 'No content';
+  const lines = body.slice(0, 600).split(/\r?\n/);
+  return lines.slice(0, 6).join('\n') + (body.length > 600 || lines.length > 6 ? '…' : '');
+}
+
+export function documentProgress(content: string): { done: number; total: number } | null {
+  const checkboxes = [...content.matchAll(/^\s*[-*]\s+\[([ xX])\]/gm)];
+  if (checkboxes.length) return { done: checkboxes.filter(match => match[1].toLowerCase() === 'x').length, total: checkboxes.length };
+  const statuses = [...content.matchAll(/^\s*status:\s*(done|backlog|in_progress|in_review|blocked|cancelled)\s*$/gim)];
+  return statuses.length ? { done: statuses.filter(match => match[1].toLowerCase() === 'done').length, total: statuses.length } : null;
+}
+
 /**
  * Reads the TASK section's data: resolves the session's lead task link from
  * the session organization, reads it with `tasks:get`, refreshes it on
@@ -103,6 +120,7 @@ export class SessionTaskReader {
   private readonly vscode = inject(VSCodeService);
   private readonly feed = inject(TasksChangedFeed);
   private readonly opener = inject(FILE_LINK_OPENER, { optional: true });
+  private readonly logger = inject(LoggingService);
 
   private readonly tabIdSource = signal<Signal<string> | null>(null);
   private readonly result = signal<{
@@ -110,6 +128,22 @@ export class SessionTaskReader {
     readonly state: SectionState<TaskSectionData>;
   } | null>(null);
   private readonly _openError = signal<{ readonly file: string } | null>(null);
+  private readonly _preview = signal<{ file: string; status: 'loading' | 'ready' | 'error'; content: string } | null>(null);
+  readonly preview = computed(() => {
+    const link = this.link();
+    return (link ? linkKey(link) : null) === this.previewTaskKey ? this._preview() : null;
+  });
+  private readonly previewCache = new Map<string, string>();
+  private readonly progressCache = new Map<string, { done: number; total: number } | null>();
+  private readonly _progress = signal<{ key: string; done: number; total: number } | null>(null);
+  readonly progress = computed(() => {
+    const link = this.link();
+    const value = this._progress();
+    return link && value?.key === linkKey(link) ? value : null;
+  });
+  private previewSequence = 0;
+  private previewTaskKey: string | null = null;
+  private readonly progressGeneration = new Map<string, number>();
 
   private inFlight = false;
   private dirty = false;
@@ -170,7 +204,13 @@ export class SessionTaskReader {
   constructor() {
     // Re-read on every change of the resolved link (lead, root).
     effect(() => {
-      if (this.link()) untracked(() => void this.read());
+      const link = this.link();
+      const key = link ? linkKey(link) : null;
+      if (key !== this.previewTaskKey) {
+        this.previewTaskKey = key;
+        this.closePreview();
+      }
+      if (link) untracked(() => void this.read());
     });
 
     // Live refresh on `tasks:changed` for this workspace and task folder.
@@ -192,6 +232,16 @@ export class SessionTaskReader {
           : null;
         if (change.folderNames && folder && !change.folderNames.includes(folder))
           return;
+        const key = linkKey(link);
+        for (const cacheKey of this.previewCache.keys()) {
+          if (cacheKey.startsWith(`${key}\0`)) this.previewCache.delete(cacheKey);
+        }
+        for (const cacheKey of this.progressCache.keys()) {
+          if (cacheKey.startsWith(`${key}\0`)) this.progressCache.delete(cacheKey);
+        }
+        this.progressGeneration.set(key, (this.progressGeneration.get(key) ?? 0) + 1);
+        const previewFile = this._preview()?.file;
+        if (previewFile) void this.previewDocument(previewFile);
         this.scheduleRefresh();
       });
     });
@@ -212,6 +262,53 @@ export class SessionTaskReader {
     void this.read();
   }
 
+  closePreview(): void {
+    this.previewSequence++;
+    this._preview.set(null);
+  }
+
+  async previewDocument(file: string): Promise<void> {
+    const link = this.link();
+    const task = this.state()?.data?.task;
+    if (!link || !task || !this.state()?.data?.documents.includes(file) ||
+      (!isDocFile(file) && !isReadableTaskFolderMarkdownName(file))) return;
+    const key = `${linkKey(link)}\0${file}`;
+    const sequence = ++this.previewSequence;
+    const cached = this.previewCache.get(key);
+    if (cached !== undefined) {
+      this._preview.set({ file, status: 'ready', content: cached });
+      return;
+    }
+    this._preview.set({ file, status: 'loading', content: '' });
+    try {
+      let content: string | null = null;
+      if (isDocFile(file)) {
+        const response = await rpcCall<{ file: string; content: string | null }>(this.vscode, 'tasks:getArtifact', {
+          workspaceRoot: link.workspaceRoot ?? undefined, taskId: task.id, file,
+        });
+        if (!response.success || response.data?.file !== file) throw new Error('Document unavailable');
+        content = response.data.content;
+      } else {
+        const response = await rpcCall<{ taskId: string; file: string; state: string; content: string | null }>(this.vscode, 'tasks:readFolderMarkdown', {
+          workspaceRoot: link.workspaceRoot ?? undefined, taskId: task.id, file,
+        });
+        if (!response.success || response.data?.taskId !== task.id || response.data?.file !== file || response.data.state !== 'ready') throw new Error('Document unavailable');
+        content = response.data.content;
+      }
+      if (content === null) throw new Error('Document unavailable');
+      const excerpt = documentExcerpt(content);
+      if (!this.destroyed && sequence === this.previewSequence && this.isCurrent(linkKey(link))) {
+        this.previewCache.set(key, excerpt);
+        this._preview.set({ file, status: 'ready', content: excerpt });
+      }
+    } catch (error: unknown) {
+      if (!this.destroyed && sequence === this.previewSequence && this.isCurrent(linkKey(link))) {
+        this.logger.error('SessionTaskReader', 'Could not preview task document', error instanceof Error ? error : new Error(String(error)));
+        this._preview.set({ file, status: 'error', content: '' });
+      }
+    }
+  }
+
   /**
    * Open one document of the read task. Only files the folder listed (or the
    * carrier) are opened: a traversal guard, as on the Tasks board. A
@@ -229,7 +326,7 @@ export class SessionTaskReader {
     try {
       await this.opener.open({ path, origin });
     } catch (error: unknown) {
-      console.error('[SessionInspector] Could not open a task document', error);
+      this.logger.error('SessionTaskReader', 'Could not open a task document', error instanceof Error ? error : new Error(String(error)));
       if (!this.destroyed) this._openError.set({ file });
     }
   }
@@ -292,8 +389,9 @@ export class SessionTaskReader {
           related: this.relatedOf(link),
         },
       });
+      if (task) void this.loadProgress(link, task, documents);
     } catch (error: unknown) {
-      console.error('[SessionInspector] Could not load the task', error);
+      this.logger.error('SessionTaskReader', 'Could not load the task', error instanceof Error ? error : new Error(String(error)));
       if (!this.destroyed && this.isCurrent(key))
         this.setError(key, 'Could not load the task');
     } finally {
@@ -302,6 +400,35 @@ export class SessionTaskReader {
         this.dirty = false;
         void this.read();
       }
+    }
+  }
+
+  private async loadProgress(link: TaskLink, task: TaskSpecDetail, documents: readonly string[]): Promise<void> {
+    const file = documents.find(name => /(?:^|[\\/])batches\.md$/i.test(name))
+      ?? documents.find(name => /(?:^|[\\/])tasks\.md$/i.test(name));
+    if (!file) { this._progress.set(null); return; }
+    const key = linkKey(link);
+    const generation = (this.progressGeneration.get(key) ?? 0) + 1;
+    this.progressGeneration.set(key, generation);
+    const cacheKey = `${key}\0${file}`;
+    if (this.progressCache.has(cacheKey)) {
+      const cached = this.progressCache.get(cacheKey);
+      this._progress.set(cached ? { key, ...cached } : null);
+      return;
+    }
+    try {
+      const response = await rpcCall<{ taskId: string; file: string; state: string; content: string | null }>(this.vscode, 'tasks:readFolderMarkdown', {
+        workspaceRoot: link.workspaceRoot ?? undefined, taskId: task.id, file,
+      });
+      const progress = response.success && response.data?.taskId === task.id && response.data.file === file && response.data.state === 'ready' && response.data.content
+        ? documentProgress(response.data.content) : null;
+      if (!this.destroyed && this.isCurrent(key) && this.progressGeneration.get(key) === generation) {
+        this.progressCache.set(cacheKey, progress);
+        this._progress.set(progress ? { key, ...progress } : null);
+      }
+    } catch (error: unknown) {
+      if (!this.destroyed && this.isCurrent(key) && this.progressGeneration.get(key) === generation)
+        this.logger.error('SessionTaskReader', 'Could not load task progress', error instanceof Error ? error : new Error(String(error)));
     }
   }
 

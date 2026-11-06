@@ -297,7 +297,6 @@ describe('SessionInspectorComponent presentation', () => {
       'session-stats',
       'agents-section',
       'task-section',
-      'todos-section',
       'git-section',
     ]) {
       expect(element.querySelector(`ptah-inspector-${section}`)).not.toBeNull();

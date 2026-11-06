@@ -159,6 +159,38 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     expect(root.querySelector('[data-testid="agent-row-time"]')?.textContent).toBeTruthy();
   });
 
+  it.each([
+    { startedAt: 0, expected: true },
+    { startedAt: 1000, expected: true },
+    { startedAt: null, expected: false },
+    { startedAt: NaN, expected: false },
+    { startedAt: Infinity, expected: false },
+  ])('exposes a valid start time accessibly for $startedAt', ({ startedAt, expected }) => {
+    const root = mount([agent({ startedAt })]).nativeElement as HTMLElement;
+    const row = root.querySelector('[data-agent-key="cli:lane-1"]') as HTMLButtonElement;
+    expect(row.hasAttribute('title')).toBe(expected);
+    expect(row.getAttribute('aria-label')?.includes('Started:')).toBe(expected);
+    if (expected) {
+      expect(row.getAttribute('aria-label')).toContain(row.getAttribute('title'));
+      expect(row.getAttribute('title')).not.toContain('Invalid Date');
+    }
+  });
+
+  it('renders one accessible total after show more, including hidden rows', () => {
+    const lanes = Array.from({ length: 7 }, (_, index) =>
+      agent({ key: `cli:lane-${index}` }, { inputTokens: 100, outputTokens: 0, costUsd: 0.1 }),
+    );
+    const root = mount(lanes).nativeElement as HTMLElement;
+    const total = root.querySelector('[data-testid="agents-total"]') as HTMLElement;
+    expect(total).not.toBeNull();
+    expect(root.querySelector('[data-testid="agents-show-more"]')).not.toBeNull();
+    expect(total.compareDocumentPosition(root.querySelector('[data-testid="agents-show-more"]') as Node) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(total.getAttribute('title')).toContain('Total of 8 agents');
+    expect(total.getAttribute('aria-label')).toContain('Total for all agents');
+    expect(total.getAttribute('tabindex')).toBeNull();
+    expect(root.querySelector('[data-testid="agents-lane-subtotal"]')).toBeNull();
+  });
+
   it('lists every agent with running first, then the Orchestrator, then the rest', () => {
     const el: HTMLElement = mount([
       agent({ key: 'cli:done', status: 'done' }),
