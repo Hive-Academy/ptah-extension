@@ -38,6 +38,10 @@ export class TranscriptMotionDirective implements OnChanges {
     // Read the old DOM before Angular reconciles the descendant @for.
     const nextIds = this.messages().map((message) => message.id);
     const nextSet = new Set(nextIds);
+    const previousSet = new Set(this.previousIds);
+    const addedCount = nextIds.filter((id) => !previousSet.has(id)).length;
+    const removedCount = this.previousIds.filter((id) => !nextSet.has(id)).length;
+    const largeReplacement = removedCount > 0 && addedCount + removedCount > ENTRANCE_CAP;
     const active = this.active();
     // A first open batch may land on the activation edge. Catch-up appends to
     // an already populated tab still stay quiet.
@@ -47,7 +51,7 @@ export class TranscriptMotionDirective implements OnChanges {
       !nextIds.some((id) => this.previousIds.includes(id));
     // During a pane switch only history stays still (the open batch and replay
     // pages). A live message that arrives in the window still enters once.
-    const suppressed = this.suppressed() || !active || activationCatchUp ||
+    const suppressed = this.suppressed() || !active || activationCatchUp || largeReplacement ||
       (this.paneSwitching() && (openBatch || this.historyReplaying()));
     const next = planEntrance({
       previousIds: this.previousIds,
@@ -68,7 +72,6 @@ export class TranscriptMotionDirective implements OnChanges {
 
     const removed = new Set(this.previousIds.filter((id) => !nextSet.has(id)));
     if (removed.size > 0) {
-      const previousSet = new Set(this.previousIds);
       const replacement = nextIds.length > 0 && !nextIds.some((id) => previousSet.has(id));
       const cutAll = replacement || isTailSwap(this.previousIds, nextIds) ||
         suppressed || removed.size > ENTRANCE_CAP;

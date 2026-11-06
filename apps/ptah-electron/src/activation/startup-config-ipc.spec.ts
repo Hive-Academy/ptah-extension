@@ -15,6 +15,7 @@ const ipcMainListeners = new Map<
 >();
 
 jest.mock('electron', () => ({
+  app: { getGPUFeatureStatus: () => ({ gpu_compositing: 'enabled' }) },
   ipcMain: {
     on: (channel: string, listener: (...args: unknown[]) => unknown) => {
       const arr = ipcMainListeners.get(channel) ?? [];
@@ -86,6 +87,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: '',
       workspaceName: '',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
   });
 
@@ -104,6 +106,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: join('/tmp', 'demo-workspace'),
       workspaceName: 'demo-workspace',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
   });
 
@@ -122,6 +125,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: '',
       workspaceName: '',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
     jest.restoreAllMocks();
   });

@@ -3151,6 +3151,27 @@ END OF ANUBIS DESIGN SYSTEM
 }
 :root[data-glass='on'] :is(.dropdown-content) { border-radius: var(--glass-radius-inner); padding: 0.375rem; }
 
+/* Keep the glass palette while removing backdrop sampling for accessibility,
+   the user's preference, or software GPU composition. */
+:root[data-glass-effects='off'] [data-glass-surface]::after,
+:root[data-glass-effects='off'] :is(.modal-box, .dropdown-content)::after,
+:root[data-gpu-compositing='software'] [data-glass-surface]::after,
+:root[data-gpu-compositing='software'] :is(.modal-box, .dropdown-content)::after,
+:root[data-gpu-compositing='disabled'] [data-glass-surface]::after,
+:root[data-gpu-compositing='disabled'] :is(.modal-box, .dropdown-content)::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: oklch(var(--b1) / 0.96) !important;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root [data-glass-surface]::after,
+  :root :is(.modal-box, .dropdown-content)::after {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: oklch(var(--b1) / 0.96) !important;
+  }
+}
+
 /* bar: chrome recipe with a denser under-scrim, for text-dense strips (app header, toolbars). Same single blur, still on ::after. */
 :root[data-glass='on'] [data-glass-surface='bar'] {
   background: transparent;
