@@ -17,6 +17,13 @@ export interface GenericAstNode {
   isNamed: boolean;
   fieldName: string | null; // Field name in the parent node
   children: GenericAstNode[];
+  /**
+   * Set only on a `parse` result bounded for transport from the tree-sitter
+   * worker: `text` was cut to `MAX_TRANSPORT_NODE_TEXT_CHARS`.
+   */
+  textTruncated?: true;
+  /** Set only on a bounded `parse` result: some children were left out. */
+  childrenTruncated?: true;
 }
 
 /**

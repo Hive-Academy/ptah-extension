@@ -410,6 +410,7 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
+  nonFatal('Tree-sitter worker dispose', () => refs.treeSitterParser?.dispose());
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
   // Captured pre-window beside `cliRegistry`, so disposed beside it. Nothing
   // consumes it yet (Batch 11 moves the git watcher onto it, and that consumer

@@ -15,6 +15,7 @@ import {
   QueryCapture,
 } from './tree-sitter-parser.service';
 import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
+import type { TreeSitterRequestOptions } from './tree-sitter-request-options';
 import {
   extractExportsFromMatches,
   moduleStringValue,
@@ -155,12 +156,14 @@ export class AstAnalysisService {
    * @param content The source code content to analyze
    * @param language The language of the source code
    * @param filePath Optional file path for logging
+   * @param options Worker priority; bulk callers pass `background`.
    * @returns A Result containing the extracted CodeInsights on success, or an Error on failure.
    */
   async analyzeSource(
     content: string,
     language: SupportedLanguage,
     filePath?: string,
+    options?: TreeSitterRequestOptions,
   ): Promise<Result<CodeInsights, Error>> {
     const logPath = filePath || '<inline>';
 
@@ -192,6 +195,7 @@ export class AstAnalysisService {
         content,
         language,
         queryEntries,
+        options,
       );
 
       if (multiResult.isErr()) {

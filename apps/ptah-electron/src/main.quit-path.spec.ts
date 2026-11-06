@@ -124,6 +124,8 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'agentProcessManager',
   'sqliteConnection',
   'disposeVoiceWorker',
+  // The tree-sitter utility process: a parser, it writes nothing.
+  'treeSitterParser',
   'cliRegistry',
   // The watch host (TASK_2026_437 C8): captured pre-window beside
   // `cliRegistry`, killed after its consumer stopped; writes nothing.
@@ -211,6 +213,7 @@ function makeFullRefs(order: string[]): BootRefs {
     },
   };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
+  refs.treeSitterParser = { dispose: record('treeSitterParser') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
   refs.searchWorker = {
     dispose: async () => {

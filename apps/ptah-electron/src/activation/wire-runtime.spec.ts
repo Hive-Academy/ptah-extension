@@ -68,6 +68,23 @@ describe('shutdown handle capture', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       '[Ptah Electron] SDK adapter eager resolve failed (non-fatal)', failure);
   });
+
+  it('captures the tree-sitter parser phase 2 already built, without building another', () => {
+    const logger = { warn: jest.fn() };
+    const parser = { dispose: jest.fn() };
+    const container = rootContainer.createChildContainer();
+    container.register(TOKENS.TREE_SITTER_PARSER_SERVICE, { useValue: parser });
+    const coordinator = new BootCoordinator();
+    captureShutdownHandles(container, coordinator, logger);
+    expect(coordinator.refs.treeSitterParser).toBe(parser);
+    expect(parser.dispose).not.toHaveBeenCalled();
+  });
+
+  it('leaves the tree-sitter ref null when no parser is registered', () => {
+    const coordinator = new BootCoordinator();
+    captureShutdownHandles(rootContainer.createChildContainer(), coordinator, { warn: jest.fn() });
+    expect(coordinator.refs.treeSitterParser).toBeNull();
+  });
 });
 
 function buildTestContainer(): DependencyContainer {

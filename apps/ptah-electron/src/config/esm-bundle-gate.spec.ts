@@ -156,6 +156,7 @@ const EXPECTED_ESM_TARGETS = [
   'build-integrity-worker',
   'build-search-worker',
   'build-state-storage-worker',
+  'build-tree-sitter-worker',
   'build-voice-worker',
   'build-workspace-watch-host',
 ] as const;
@@ -249,6 +250,7 @@ describe('worker wiring (three-place rule)', () => {
     'build-voice-worker',
     'build-integrity-worker',
     'build-search-worker',
+    'build-tree-sitter-worker',
     'build-state-storage-worker',
     'build-workspace-watch-host',
   ];
@@ -332,6 +334,8 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'voice-worker.ts must be run as an Electron utilityProcess (no parentPort)',
   'build-search-worker':
     'search-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+  'build-tree-sitter-worker':
+    'tree-sitter-worker.ts must be run as an Electron utilityProcess (no parentPort)',
   'build-state-storage-worker':
     'Electron state storage worker requires a worker_threads parent port',
   'build-workspace-watch-host':

@@ -191,6 +191,13 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   searchWorker: { dispose: () => Promise<void> } | null;
   /**
+   * `TOKENS.TREE_SITTER_PARSER_SERVICE`, the instance phase 2 already built
+   * (its registration resolves it). `dispose()` stops the tree-sitter
+   * `utilityProcess` and settles every waiting parse with an error; it
+   * writes nothing. Captured after DI so quit never builds a new parser.
+   */
+  treeSitterParser: { dispose: () => void } | null;
+  /**
    * Window-bounds persistence storage. Not a disposable — `app.on('activate')`
    * needs it to recreate the window on macOS.
    */
@@ -228,6 +235,7 @@ export function createEmptyBootRefs(): BootRefs {
     integrityService: null,
     workspaceWatcher: null,
     searchWorker: null,
+    treeSitterParser: null,
     resolvedStateStorage: null,
   };
 }

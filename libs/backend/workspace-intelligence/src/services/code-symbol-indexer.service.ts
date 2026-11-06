@@ -41,6 +41,7 @@ import {
   recognisedSourceExtensions,
   supportedLanguagesFor,
 } from '../ast/language-registry';
+import { BACKGROUND_PARSE } from '../ast/tree-sitter-request-options';
 
 export interface CodeSymbolIndexerOptions {
   /** Number of files to process per batch before yielding. Default: 20 */
@@ -1426,10 +1427,12 @@ export class CodeSymbolIndexer {
       };
     }
 
+    // Indexing is bulk work: it queues behind interactive parses.
     const result = await this.astAnalysis.analyzeSource(
       content,
       language,
       normalizedFilePath,
+      BACKGROUND_PARSE,
     );
     if (result.isErr()) {
       if (!this.astAnalysis.isRuntimeUnavailable())

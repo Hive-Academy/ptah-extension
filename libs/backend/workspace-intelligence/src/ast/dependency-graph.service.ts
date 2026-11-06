@@ -41,6 +41,7 @@ import {
   buildResolverContext,
   type ResolverContext,
 } from './import-resolution/resolver-context';
+import { BACKGROUND_PARSE } from './tree-sitter-request-options';
 
 /** A node in the dependency graph representing a single file */
 export interface FileNode {
@@ -727,10 +728,12 @@ export class DependencyGraphService {
 
     let analysisResult: Result<CodeInsights, Error>;
     try {
+      // A graph build parses many files: bulk work, behind interactive parses.
       analysisResult = await this.astAnalysis.analyzeSource(
         content,
         language,
         normalizedPath,
+        BACKGROUND_PARSE,
       );
     } catch (error: unknown) {
       // degradation-audit: reported — the file stays out of the graph and is

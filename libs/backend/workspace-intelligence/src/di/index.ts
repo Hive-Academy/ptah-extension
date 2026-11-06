@@ -7,3 +7,4 @@ export {
   registerTypeScriptDiagnosticsProvider,
   CODE_SYMBOL_INDEXER,
 } from './register';
+export { WORKSPACE_INTELLIGENCE_TOKENS } from './tokens';
