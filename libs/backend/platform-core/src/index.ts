@@ -160,6 +160,13 @@ export type {
 } from './interfaces/mcp-server-status.interface';
 export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
 export type {
+  IMcpCallerCredentials,
+  McpCallerBinding,
+  McpCallerBindingKind,
+  McpCallerCapability,
+  McpCallerToolProfile,
+} from './interfaces/mcp-caller-credentials.interface';
+export type {
   IMcpSubagentRootRegistrar,
   McpSubagentRootRetention,
 } from './interfaces/mcp-subagent-root-registrar.interface';

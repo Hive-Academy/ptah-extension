@@ -64,6 +64,7 @@ interface Harness {
 function makeHarness(
   getCompactionConfig: (() => CompactionConfig) | null = null,
   onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
+  revokeMcpSubject: ((tabId: string) => void) | null = null,
 ): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
@@ -98,6 +99,7 @@ function makeHarness(
     sessionEndRegistry,
     getCompactionConfig,
     onTurnTerminal,
+    revokeMcpSubject,
   );
 
   return {
@@ -110,39 +112,87 @@ function makeHarness(
   };
 }
 
-describe('SessionControl unavailable settings', () => {
-  it.each([false, true])('reports typed unavailability (registered=%s)', async (registered) => {
-    const h = makeHarness();
-    if (registered) h.registry.register(KEY, makeConfig(), new AbortController());
-    for (const apply of [
-      () => h.control.setSessionModel(KEY_ID, 'model'),
-      () => h.control.setSessionPermissionLevel(KEY_ID, 'ask'),
-      () => h.control.setSessionEffort(KEY_ID, 'high'),
-    ]) {
-      await expect(apply()).rejects.toMatchObject({
-        name: 'SessionUnavailableError', code: 'session-unavailable',
-      });
-    }
+describe('SessionControl MCP credential teardown', () => {
+  it('revokes the routing tab on endSession', async () => {
+    const revoke = jest.fn();
+    const h = makeHarness(null, null, revoke);
+    h.registry.register(KEY, makeConfig(), new AbortController());
+    await h.control.endSession(KEY_ID);
+    expect(revoke).toHaveBeenCalledWith(KEY);
   });
+
+  it('revokes the routing tab when interrupt failure retires the record', async () => {
+    const revoke = jest.fn();
+    const h = makeHarness(null, null, revoke);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.query = {
+      interrupt: jest.fn().mockRejectedValue(new Error('interrupt failed')),
+    } as unknown as typeof rec.query;
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(false);
+    expect(revoke).toHaveBeenCalledWith(KEY);
+    expect(h.registry.find(KEY)).toBeUndefined();
+  });
+
+  it('revokes every snapshotted tab on disposeAllSessions', async () => {
+    const revoke = jest.fn();
+    const h = makeHarness(null, null, revoke);
+    h.registry.register(KEY, makeConfig(), new AbortController());
+    await h.control.disposeAllSessions();
+    expect(revoke).toHaveBeenCalledWith(KEY);
+  });
+});
+
+describe('SessionControl unavailable settings', () => {
+  it.each([false, true])(
+    'reports typed unavailability (registered=%s)',
+    async (registered) => {
+      const h = makeHarness();
+      if (registered)
+        h.registry.register(KEY, makeConfig(), new AbortController());
+      for (const apply of [
+        () => h.control.setSessionModel(KEY_ID, 'model'),
+        () => h.control.setSessionPermissionLevel(KEY_ID, 'ask'),
+        () => h.control.setSessionEffort(KEY_ID, 'high'),
+      ]) {
+        await expect(apply()).rejects.toMatchObject({
+          name: 'SessionUnavailableError',
+          code: 'session-unavailable',
+        });
+      }
+    },
+  );
 });
 
 describe('SessionControl.interruptCurrentTurn', () => {
   it('case 19: captures P before waking Q and keeps queued metadata', async () => {
-    let observed: { retirement: string | null; current: string | null; awaiting: number | null } | undefined;
+    let observed:
+      | {
+          retirement: string | null;
+          current: string | null;
+          awaiting: number | null;
+        }
+      | undefined;
     const h = makeHarness(null, () => {
       const record = h.registry.find(KEY);
-      observed = record ? {
-        retirement: record.interruptRetirement,
-        current: record.currentTurnClientMessageId,
-        awaiting: record.interruptAwaitingResultYieldSequence,
-      } : undefined;
+      observed = record
+        ? {
+            retirement: record.interruptRetirement,
+            current: record.currentTurnClientMessageId,
+            awaiting: record.interruptAwaitingResultYieldSequence,
+          }
+        : undefined;
     });
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
     rec.currentTurnClientMessageId = 'P';
     rec.turnInFlight = true;
-    const held = { message: { uuid: 'q', origin: { kind: 'human' } }, clientMessageId: 'Q' } as never;
+    const held = {
+      message: { uuid: 'q', origin: { kind: 'human' } },
+      clientMessageId: 'Q',
+    } as never;
     rec.messageQueue.push(held);
-    rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
+    rec.query = {
+      interrupt: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof rec.query;
     await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
     expect(observed).toEqual({ retirement: 'P', current: null, awaiting: 0 });
     expect(rec.messageQueue).toEqual([held]);
@@ -169,7 +219,12 @@ describe('SessionControl.interruptCurrentTurn', () => {
     rec.currentTurnClientMessageId = 'P';
     rec.turnInFlight = true;
     let resolveInterrupt: (() => void) | undefined;
-    rec.query = { interrupt: () => new Promise<void>((resolve) => { resolveInterrupt = resolve; }) } as unknown as typeof rec.query;
+    rec.query = {
+      interrupt: () =>
+        new Promise<void>((resolve) => {
+          resolveInterrupt = resolve;
+        }),
+    } as unknown as typeof rec.query;
     const interruption = h.control.interruptCurrentTurn(KEY_ID);
     rec.resultCount = 1;
     rec.currentTurnClientMessageId = null;
@@ -185,7 +240,9 @@ describe('SessionControl.interruptCurrentTurn', () => {
     const terminal = jest.fn();
     const h = makeHarness(null, terminal);
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
-    rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
+    rec.query = {
+      interrupt: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof rec.query;
     await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
     expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
     expect(rec.interruptRetirement).toBeNull();
@@ -196,7 +253,9 @@ describe('SessionControl.interruptCurrentTurn', () => {
     const terminal = jest.fn();
     const h = makeHarness(null, terminal);
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
-    rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
+    rec.query = {
+      interrupt: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof rec.query;
     rec.turnInFlight = true;
     rec.currentTurnClientMessageId = null;
     await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);

@@ -100,6 +100,32 @@ describe('LaneResumeGate', () => {
       expect(result.reason).toBe('idle 601s exceeds 600s');
     });
 
+    it('resumes an explicitly interrupted CLI session beyond 10 minutes', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        lastActivityAt: NOW - RESUME_GATE_MAX_IDLE_MS - 1,
+        interruptedByHostRestart: true,
+        lastRequestContext: { tokens: 1_000, source: 'estimate' },
+      });
+      expect(result).toMatchObject({ decision: 'resume', idleMs: 600_001 });
+      expect(result.reason).toContain('host restart');
+    });
+
+    it('keeps the context limit for an interrupted session', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        lastActivityAt: NOW - RESUME_GATE_MAX_IDLE_MS - 1,
+        interruptedByHostRestart: true,
+        lastRequestContext: { tokens: RESUME_GATE_MAX_CONTEXT_TOKENS + 1, source: 'estimate' },
+      });
+      expect(result.decision).toBe('fresh');
+      expect(result.reason).toContain('tokens exceeds');
+    });
+
     it('uses the rollout modification time when the host knows no activity time', async () => {
       const { gate } = gateWith(rollout(1_000, NOW - 11 * 60_000));
 

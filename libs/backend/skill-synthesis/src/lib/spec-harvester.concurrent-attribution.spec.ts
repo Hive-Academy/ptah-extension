@@ -1,20 +1,15 @@
 /**
- * TASK_2026_158 Batch 7 (QA) — end-to-end concurrent-task attribution.
+ * End-to-end concurrent-task attribution at task level (TASK_2026_878 P3/P4).
  *
- * Closes a coverage gap between two existing suites:
- *  - `skill-candidate.store.spec.ts` R4.3 proves the STORE never cross-attributes
- *    two task_id-stamped rows for the same slug, using hand-constructed
- *    `reconcileSubagentEvent` calls against a real (in-memory) better-sqlite3 DB.
- *  - `spec-harvester.service.spec.ts` "real-store reconciliation provenance"
- *    proves the HARVESTER threads `spec.taskId` correctly end-to-end, but only
- *    ever exercises ONE spec folder per `harvest()` call.
- *
- * Neither test drives the harvester over TWO real `.ptah/specs/TASK_*` fixture
- * folders — same executor slug, overlapping file-mtime windows, distinct
- * task ids — in a SINGLE `harvest()` pass. That is the exact real-world shape
- * of R4.3 (two concurrent orchestrated tasks delegating to the same agent) and
- * the scenario this file adds, wired through the real `SkillInvocationEventStore`
- * against a real (in-memory) SQLite connection — no mocks on the store side.
+ * Drives the harvester over TWO real `.ptah/specs/TASK_*` fixture folders that
+ * share an executor slug and overlapping file-mtime windows, wired through the
+ * real `SkillInvocationEventStore` on an in-memory SQLite connection (no mocks
+ * on the store side). It proves:
+ *  - each task's events take exactly that task's verdict (by task id, never by
+ *    time window), across every event source;
+ *  - unstamped (NULL task) and other-workspace events are never claimed;
+ *  - repeated and overlapping harvests (manual and auto at once) reconcile
+ *    each event exactly once.
  */
 import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
@@ -110,30 +105,35 @@ function rowByTask(
   db: BetterSqliteDb,
   slug: string,
   taskId: string,
+  workspaceRoot: string,
 ): VerdictRow {
   return db
     .prepare(
       `SELECT succeeded, is_error, reconciled_at, verdict_source
-       FROM skill_invocation_events WHERE skill_slug = ? AND task_id = ?`,
+       FROM skill_invocation_events
+       WHERE skill_slug = ? AND task_id = ? AND workspace_root = ?`,
     )
-    .get(slug, taskId) as VerdictRow;
+    .get(slug, taskId, workspaceRoot) as VerdictRow;
 }
 
-function recordSubagentRun(
+function recordRun(
   store: SkillInvocationEventStore,
   slug: string,
   invokedAt: number,
   taskId: string | null,
+  workspaceRoot: string | null,
+  source = 'subagent',
 ): void {
   store.recordSkillEvent({
     skillSlug: slug,
     sessionId: `sess-${slug}-${taskId ?? 'legacy'}-${invokedAt}`,
     contextId: null,
-    source: 'subagent',
+    source,
     succeeded: true, // optimistic, as onSubagentStop records it
     isError: false,
     invokedAt,
     taskId,
+    workspaceRoot,
   });
 }
 
@@ -153,36 +153,51 @@ Example body for ${id}.
 `;
 }
 
-/** Write a completed spec folder whose sole batch is run by `slug`. */
+/**
+ * Write a finished spec folder whose final work review carries `verdict`, with
+ * a batch run by `slug` and file mtimes spanning [mtimeStart, mtimeEnd].
+ */
 async function writeSpecForSlug(
   specsRoot: string,
   taskId: string,
   slug: string,
-  status: 'COMPLETE' | 'FAILED',
+  verdict: 'APPROVED' | 'REJECTED',
   mtimeStart: number,
   mtimeEnd: number,
+  status: 'done' | 'cancelled' = 'done',
 ): Promise<void> {
   const dir = join(specsRoot, taskId);
   await mkdir(dir, { recursive: true });
   const taskMdPath = join(dir, 'task.md');
-  const tasksMdPath = join(dir, 'tasks.md');
-  await writeFile(taskMdPath, taskMd(taskId, 'done'), 'utf8');
+  const batchesPath = join(dir, 'batches.md');
+  const reviewPath = join(dir, 'code-logic-review.md');
+  await writeFile(taskMdPath, taskMd(taskId, status), 'utf8');
   await writeFile(
-    tasksMdPath,
-    `## Batch 1: Delegated work — ${status}\n\n**Recommended Executor**: ${slug}\n`,
+    batchesPath,
+    `## Batch 1: Delegated work — COMPLETE\n\n**Recommended Executor**: ${slug}\n`,
     'utf8',
   );
-  // windowStart/windowEnd derive from file mtimes (spec-extractor's readWindow).
+  await writeFile(reviewPath, `Verdict: ${verdict}`, 'utf8');
   await utimes(taskMdPath, new Date(mtimeStart), new Date(mtimeStart));
-  await utimes(tasksMdPath, new Date(mtimeEnd), new Date(mtimeEnd));
+  await utimes(batchesPath, new Date(mtimeStart), new Date(mtimeStart));
+  await utimes(reviewPath, new Date(mtimeEnd), new Date(mtimeEnd));
 }
 
-describe('SpecHarvesterService — end-to-end concurrent-task attribution (R4.3)', () => {
+describe('SpecHarvesterService — end-to-end concurrent-task attribution (task level)', () => {
+  const slug = 'backend-developer';
   let root: string;
   let specsRoot: string;
   let db: BetterSqliteDb;
   let store: SkillInvocationEventStore;
   let svc: SpecHarvesterService;
+
+  function harvester(): SpecHarvesterService {
+    return new SpecHarvesterService(
+      makeLogger() as never,
+      { getWorkspaceRoot: () => root } as never,
+      store as never,
+    );
+  }
 
   beforeEach(async () => {
     if (!nativeAvailable) return;
@@ -191,11 +206,7 @@ describe('SpecHarvesterService — end-to-end concurrent-task attribution (R4.3)
     await mkdir(specsRoot, { recursive: true });
     db = createEventsDb();
     store = makeRealStore(db);
-    svc = new SpecHarvesterService(
-      makeLogger() as never,
-      { getWorkspaceRoot: () => root } as never,
-      store as never,
-    );
+    svc = harvester();
   });
 
   afterEach(async () => {
@@ -205,111 +216,93 @@ describe('SpecHarvesterService — end-to-end concurrent-task attribution (R4.3)
   });
 
   maybe(
-    'two overlapping-window specs, same executor slug, distinct task_ids -> no cross-attribution',
+    'two overlapping-window tasks, same slug, distinct task ids -> each takes its own verdict',
     async () => {
-      const slug = 'backend-developer';
       // Overlapping windows: 401 = [1_000, 3_000], 402 = [2_000, 4_000].
-      // Any window-only (legacy) heuristic would be unable to disambiguate
-      // events recorded in [2_000, 3_000] between the two tasks — the exact
-      // (slug, task_id) pass must be what resolves them.
-      await writeSpecForSlug(
-        specsRoot,
-        'TASK_2026_401',
-        slug,
-        'COMPLETE',
-        1_000,
-        3_000,
-      );
-      await writeSpecForSlug(
-        specsRoot,
-        'TASK_2026_402',
-        slug,
-        'FAILED',
-        2_000,
-        4_000,
-      );
+      await writeSpecForSlug(specsRoot, 'TASK_2026_401', slug, 'APPROVED', 1_000, 3_000);
+      await writeSpecForSlug(specsRoot, 'TASK_2026_402', slug, 'REJECTED', 2_000, 4_000);
 
-      // Both events land in the overlap zone [2_000, 3_000] — only task_id
-      // stamping (not window) can tell them apart.
-      recordSubagentRun(store, slug, 2_100, 'TASK_2026_401');
-      recordSubagentRun(store, slug, 2_200, 'TASK_2026_402');
-      // A legacy (unstamped) event also in the overlap zone — must be
-      // reachable only by window fallback, and must not be stolen by the
-      // exact pass for either task.
-      recordSubagentRun(store, slug, 2_300, null);
+      // Every event lands in the overlap zone [2_000, 3_000]; only the task id
+      // can tell them apart.
+      recordRun(store, slug, 2_100, 'TASK_2026_401', root);
+      recordRun(store, 'some-skill', 2_150, 'TASK_2026_401', root, 'tool-use');
+      recordRun(store, slug, 2_200, 'TASK_2026_402', root);
+      // Never claimed: an unstamped legacy event and the same task id in
+      // another workspace.
+      recordRun(store, slug, 2_300, null, root);
+      recordRun(store, slug, 2_400, 'TASK_2026_401', join(tmpdir(), 'another-repo'));
 
       const result = await svc.harvest();
 
-      // 2 batches (one per spec) reconciled by exact pass; the harvester does
-      // not touch the legacy row (no exact task_id match for either spec).
-      expect(result.harvested).toBe(2);
-      expect(result.reconciled).toBe(2);
-
-      const row401 = rowByTask(db, slug, 'TASK_2026_401');
-      const row402 = rowByTask(db, slug, 'TASK_2026_402');
-
-      // Each stamped row carries EXACTLY its own task's verdict — the bug
-      // R4 fixes is one task's verdict leaking onto the other's row.
-      expect(row401.verdict_source).toBe('spec:TASK_2026_401');
-      expect(row401.succeeded).toBe(1); // COMPLETE
-      expect(row402.verdict_source).toBe('spec:TASK_2026_402');
-      expect(row402.succeeded).toBe(0); // FAILED
-      // Reconciliation preserves the event's seeded is_error value.
-      expect(row402.is_error).toBe(0);
-
-      // The legacy row is untouched by the exact passes (still unreconciled) —
-      // proving the window-restricted fallback (task_id IS NULL only) is the
-      // only path that could ever claim it, and exact passes never touch rows
-      // stamped for a different task.
-      const legacy = db
+      expect(result).toMatchObject({ harvested: 2, reconciled: 3 });
+      expect(rowByTask(db, slug, 'TASK_2026_401', root)).toMatchObject({
+        succeeded: 1, verdict_source: 'spec:TASK_2026_401',
+      });
+      expect(rowByTask(db, 'some-skill', 'TASK_2026_401', root)).toMatchObject({
+        succeeded: 1, verdict_source: 'spec:TASK_2026_401',
+      });
+      expect(rowByTask(db, slug, 'TASK_2026_402', root)).toMatchObject({
+        succeeded: 0, is_error: 0, verdict_source: 'spec:TASK_2026_402',
+      });
+      const untouched = db
         .prepare(
-          `SELECT verdict_source, reconciled_at FROM skill_invocation_events
-           WHERE skill_slug = ? AND task_id IS NULL`,
+          `SELECT reconciled_at, verdict_source FROM skill_invocation_events
+           WHERE task_id IS NULL OR workspace_root <> ?`,
         )
-        .get(slug) as {
-        verdict_source: string | null;
-        reconciled_at: number | null;
-      };
-      expect(legacy.reconciled_at).toBeNull();
-      expect(legacy.verdict_source).toBeNull();
+        .all(root);
+      expect(untouched).toEqual([
+        { reconciled_at: null, verdict_source: null },
+        { reconciled_at: null, verdict_source: null },
+      ]);
     },
   );
 
-  maybe(
-    'reconciling twice across both concurrent specs stays idempotent',
-    async () => {
-      const slug = 'backend-developer';
-      await writeSpecForSlug(
-        specsRoot,
-        'TASK_2026_411',
-        slug,
-        'COMPLETE',
-        1_000,
-        3_000,
-      );
-      await writeSpecForSlug(
-        specsRoot,
-        'TASK_2026_412',
-        slug,
-        'FAILED',
-        2_000,
-        4_000,
-      );
-      recordSubagentRun(store, slug, 2_100, 'TASK_2026_411');
-      recordSubagentRun(store, slug, 2_200, 'TASK_2026_412');
+  maybe('a cancelled task fails its events even with an approving review', async () => {
+    await writeSpecForSlug(specsRoot, 'TASK_2026_421', slug, 'APPROVED', 1_000, 3_000, 'cancelled');
+    recordRun(store, slug, 2_100, 'TASK_2026_421', root);
 
-      const first = await svc.harvest();
-      expect(first.reconciled).toBe(2);
+    expect(await svc.harvest()).toMatchObject({ reconciled: 1 });
+    expect(rowByTask(db, slug, 'TASK_2026_421', root)).toMatchObject({
+      succeeded: 0, verdict_source: 'spec:TASK_2026_421',
+    });
+  });
 
-      const second = await svc.harvest();
-      // Both specs now carry `.harvested.json` markers — nothing left to do.
-      expect(second.harvested).toBe(0);
-      expect(second.reconciled).toBe(0);
+  maybe('reconciling twice across both concurrent specs stays idempotent', async () => {
+    await writeSpecForSlug(specsRoot, 'TASK_2026_411', slug, 'APPROVED', 1_000, 3_000);
+    await writeSpecForSlug(specsRoot, 'TASK_2026_412', slug, 'REJECTED', 2_000, 4_000);
+    recordRun(store, slug, 2_100, 'TASK_2026_411', root);
+    recordRun(store, slug, 2_200, 'TASK_2026_412', root);
 
-      const row411 = rowByTask(db, slug, 'TASK_2026_411');
-      const row412 = rowByTask(db, slug, 'TASK_2026_412');
-      expect(row411.verdict_source).toBe('spec:TASK_2026_411');
-      expect(row412.verdict_source).toBe('spec:TASK_2026_412');
-    },
-  );
+    expect(await svc.harvest()).toMatchObject({ reconciled: 2 });
+    const before = [rowByTask(db, slug, 'TASK_2026_411', root), rowByTask(db, slug, 'TASK_2026_412', root)];
+
+    expect(await svc.harvest()).toMatchObject({ harvested: 0, reconciled: 0 });
+    expect([rowByTask(db, slug, 'TASK_2026_411', root), rowByTask(db, slug, 'TASK_2026_412', root)]).toEqual(before);
+  });
+
+  maybe('overlapping manual and auto harvests reconcile each event exactly once', async () => {
+    await writeSpecForSlug(specsRoot, 'TASK_2026_431', slug, 'APPROVED', 1_000, 3_000);
+    await writeSpecForSlug(specsRoot, 'TASK_2026_432', slug, 'REJECTED', 2_000, 4_000);
+    for (let i = 0; i < 5; i++) {
+      recordRun(store, slug, 2_100 + i, 'TASK_2026_431', root);
+      recordRun(store, slug, 2_200 + i, 'TASK_2026_432', root);
+    }
+
+    const [manual, auto] = await Promise.all([
+      svc.harvest(undefined, { trigger: 'manual' }),
+      harvester().harvest(undefined, { trigger: 'auto' }),
+    ]);
+
+    expect(manual.reconciled + auto.reconciled).toBe(10);
+    const counts = db
+      .prepare(
+        `SELECT task_id, succeeded, COUNT(*) AS n FROM skill_invocation_events
+         WHERE reconciled_at IS NOT NULL GROUP BY task_id, succeeded ORDER BY task_id`,
+      )
+      .all();
+    expect(counts).toEqual([
+      { task_id: 'TASK_2026_431', succeeded: 1, n: 5 },
+      { task_id: 'TASK_2026_432', succeeded: 0, n: 5 },
+    ]);
+  });
 });

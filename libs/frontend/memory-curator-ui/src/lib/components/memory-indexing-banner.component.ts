@@ -6,7 +6,10 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
+import type {
+  IndexingActionMessage,
+  IndexingUiState,
+} from '@ptah-extension/workspace-indexing';
 
 @Component({
   selector: 'ptah-memory-indexing-banner',
@@ -14,6 +17,21 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
   template: `
+    @let message = actionMessage();
+    @if (message) {
+      <div
+        class="mb-2 rounded-xl border px-4 py-2 text-sm"
+        [class]="
+          message.tone === 'error'
+            ? 'border-error/40 bg-error/5 text-error'
+            : 'border-info/40 bg-info/5'
+        "
+        role="alert"
+        data-testid="memory-banner-action-message"
+      >
+        {{ message.text }}
+      </div>
+    }
     @let banner = state();
     @switch (banner.kind) {
       @case ('never-indexed') {
@@ -146,7 +164,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
           data-testid="memory-banner-error"
         >
           <span class="flex-1 text-sm text-error">
-            Indexing failed: {{ banner.message }}
+            Indexing failed. See the logs for details.
           </span>
           <button
             type="button"
@@ -164,6 +182,8 @@ export class MemoryIndexingBannerComponent {
   public readonly state = input.required<IndexingUiState>();
   public readonly hasWorkspace = input<boolean>(false);
   public readonly busy = input<boolean>(false);
+  /** Result sentence of the last indexing action (fixed text, never raw). */
+  public readonly actionMessage = input<IndexingActionMessage | null>(null);
 
   public readonly indexNow = output<void>();
   public readonly resumeIndex = output<void>();

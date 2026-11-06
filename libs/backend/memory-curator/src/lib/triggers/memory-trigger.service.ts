@@ -39,6 +39,7 @@ import {
   MemoryCuratorService,
   type CuratorRunStats,
 } from '../memory-curator.service';
+import { curatorRunMessage } from '../curator-llm/curator-activity-log';
 import {
   ObservationQueueStore,
   type ObservationDraftRow,
@@ -48,6 +49,7 @@ import { BootScanRunner } from './boot-scan-runner';
 import { BootScanFailureLedger } from './boot-scan-failure-ledger';
 import { BootScanScheduler } from './boot-scan-scheduler';
 import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
+import { redactSecrets } from './redact-secrets';
 import {
   MEMORY_TRIGGER_DEFAULTS,
   MEMORY_TRIGGER_KEYS,
@@ -61,6 +63,8 @@ const COALESCE_WINDOW_MS = 5000;
 /** The curate rate limiter's window, as `CuratorRateLimitService` buckets it. */
 const HOUR_MS = 60 * 60 * 1000;
 const TOOL_FAILURE_SNIPPET = 140;
+/** Raw failure text scanned for secrets before the snippet is cut (bounds regex work). */
+const TOOL_FAILURE_REDACT_SCAN = 4096;
 /**
  * Consecutive `'failed'` passes per session whose drained observations are
  * kept unprocessed for a retry (TASK_2026_621). The pass after the last retry
@@ -494,13 +498,23 @@ export class MemoryTriggerService {
       payload.toolName,
       payload.error,
     );
+    // The raw failure text goes to the log only; the UI event carries a
+    // redacted one-line snippet (tool output can hold tokens or URLs).
+    this.logger.debug('[memory-trigger] tool failure', {
+      sessionId: payload.sessionId,
+      tool: payload.toolName,
+      error: payload.error,
+    });
     this.curator.pushEvent({
       kind: 'tool-failure',
       timestamp: payload.timestamp,
       sessionId: payload.sessionId,
       stats: {
         tool: payload.toolName,
-        error: snippetOneLine(payload.error, TOOL_FAILURE_SNIPPET),
+        error: snippetOneLine(
+          redactSecrets((payload.error ?? '').slice(0, TOOL_FAILURE_REDACT_SCAN)),
+          TOOL_FAILURE_SNIPPET,
+        ),
       },
     });
   }
@@ -900,9 +914,18 @@ export class MemoryTriggerService {
     return Math.max(0, limit - used);
   }
 
-  /** Give back the hourly slot of a pass the network back-off deferred at dispatch. */
-  private refundIfNetworkDeferred(stats: CuratorRunStats): void {
-    if (stats.deferral === 'network-backoff') {
+  /**
+   * Give back the hourly slot of a pass that sent no query: the network
+   * back-off deferred it at dispatch, or the configured curator provider can
+   * never run it (`provider-unsupported`). Charging the unsupported passes
+   * would leave no slots for real curation once the user picks a provider
+   * that works.
+   */
+  private refundUndispatched(stats: CuratorRunStats): void {
+    if (
+      stats.deferral === 'network-backoff' ||
+      stats.reason === 'provider-unsupported'
+    ) {
       this.rateLimiter.refund(RATE_LIMIT_KEY);
     }
   }
@@ -979,7 +1002,7 @@ export class MemoryTriggerService {
         salienceBoost,
       });
       if (stats.outcome === 'stalled') {
-        this.refundIfNetworkDeferred(stats);
+        this.refundUndispatched(stats);
         if (detachedEpisode && source !== 'session-end') {
           this.episodes.reattach(sessionId, detachedEpisode);
         }
@@ -1023,11 +1046,13 @@ export class MemoryTriggerService {
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      // Fixed sentence on the event; the raw message, which can carry
+      // provider text, stays in the log line below (TASK_2026_878).
       this.curator.pushEvent({
         kind: 'error',
         timestamp: Date.now(),
         sessionId,
-        error: message,
+        error: curatorRunMessage('curator-error'),
       });
       this.logger.warn('[memory-curator] trigger curate failed', {
         source,
@@ -1176,7 +1201,7 @@ export class MemoryTriggerService {
           // curated nothing from it, so recording it as scanned would lose it
           // the moment the next boot filters on `mtime > watermark`.
           if (stats.outcome === 'stalled') {
-            this.refundIfNetworkDeferred(stats);
+            this.refundUndispatched(stats);
             return 'stalled';
           }
           // A failed pass curated nothing either; the runner records it in
@@ -1201,10 +1226,11 @@ export class MemoryTriggerService {
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      // Fixed sentence on the event; the raw message stays in the log.
       this.curator.pushEvent({
         kind: 'error',
         timestamp: Date.now(),
-        error: message,
+        error: curatorRunMessage('curator-error'),
       });
       this.logger.warn('[memory-curator] boot-scan failed', { error: message });
     } finally {

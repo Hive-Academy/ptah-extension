@@ -147,6 +147,14 @@ function makeBuilder(): SdkQueryOptionsBuilder {
     noopHooks,
     noopHooks,
     noopHooks,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 }
 

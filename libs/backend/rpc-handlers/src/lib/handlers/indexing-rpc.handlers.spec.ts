@@ -19,6 +19,8 @@ import { IndexingRpcHandlers } from './indexing-rpc.handlers';
 function makeStatus(overrides: Partial<IndexingStatus> = {}): IndexingStatus {
   return {
     state: 'never-indexed',
+    running: null,
+    lastRun: null,
     workspaceFingerprint: 'fp-abc',
     gitHeadSha: null,
     currentGitHeadSha: null,
@@ -69,6 +71,7 @@ function makeIndexingControlService(statusOverride?: Partial<IndexingStatus>) {
   return {
     getStatus: jest.fn().mockResolvedValue(makeStatus(statusOverride)),
     start: jest.fn().mockResolvedValue(undefined),
+    isRunning: jest.fn().mockReturnValue(false),
     pause: jest.fn(),
     resume: jest.fn().mockResolvedValue(undefined),
     cancel: jest.fn(),
@@ -174,6 +177,38 @@ describe('IndexingRpcHandlers', () => {
       expect(result.status).not.toHaveProperty('fileCount');
     });
 
+    it('maps running and lastRun onto the wire status', async () => {
+      const { rpcHandler, indexingControl } = buildHandlers();
+      const running = {
+        origin: 'background' as const,
+        startedAt: 10,
+        force: false,
+        joinedBackground: true,
+        processed: 3,
+        total: 9,
+      };
+      const lastRun = {
+        origin: 'manual' as const,
+        outcome: 'succeeded' as const,
+        startedAt: 1,
+        finishedAt: 5,
+        durationMs: 4,
+        filesScanned: 9,
+        symbolsIndexed: 90,
+        errors: 0,
+      };
+      indexingControl.getStatus.mockResolvedValueOnce(
+        makeStatus({ state: 'indexing', running, lastRun }),
+      );
+
+      const result = (await rpcHandler.call('indexing:getStatus', {
+        workspaceRoot: '/workspace',
+      })) as { status: Record<string, unknown> };
+
+      expect(result.status['running']).toEqual(running);
+      expect(result.status['lastRun']).toEqual(lastRun);
+    });
+
     it('returns empty status when workspaceRoot is missing', async () => {
       const { rpcHandler } = buildHandlers();
       const result = await rpcHandler.call('indexing:getStatus', {});
@@ -244,19 +279,88 @@ describe('IndexingRpcHandlers', () => {
       );
     });
 
-    it('returns accepted:false when runDeps not set', async () => {
+    it('refuses with indexer-not-ready when runDeps not set', async () => {
       const { rpcHandler } = buildHandlers();
       // handlers.setRunDeps is NOT called
       const result = await rpcHandler.call('indexing:start', {
         workspaceRoot: '/workspace',
       });
-      expect(result).toMatchObject({ accepted: false });
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'indexer-not-ready',
+        state: 'never-indexed',
+      });
     });
 
-    it('returns accepted:false when workspaceRoot is missing', async () => {
+    it('refuses with no-workspace when workspaceRoot is missing', async () => {
       const { rpcHandler } = buildHandlers();
       const result = await rpcHandler.call('indexing:start', {});
-      expect(result).toMatchObject({ accepted: false });
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'no-workspace',
+        state: 'never-indexed',
+      });
+    });
+
+    it('refuses with already-running while a manual run is active', async () => {
+      const { rpcHandler, indexingControl, handlers } = buildHandlers();
+      handlers.setRunDeps({
+        runSymbols: jest.fn().mockResolvedValue(undefined),
+      });
+      indexingControl.isRunning.mockReturnValue(true);
+
+      const result = await rpcHandler.call('indexing:start', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'already-running',
+        state: 'indexing',
+      });
+      expect(indexingControl.start).not.toHaveBeenCalled();
+    });
+
+    it('accepts a start during a background-only run (it joins the census)', async () => {
+      const { rpcHandler, indexingControl, handlers } = buildHandlers();
+      handlers.setRunDeps({
+        runSymbols: jest.fn().mockResolvedValue(undefined),
+      });
+      indexingControl.isRunning.mockReturnValue(false);
+      indexingControl.getStatus.mockResolvedValueOnce(
+        makeStatus({
+          state: 'indexing',
+          running: { origin: 'background', startedAt: 1, force: false },
+        }),
+      );
+
+      const result = await rpcHandler.call('indexing:start', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toEqual({ accepted: true, state: 'indexing' });
+      expect(indexingControl.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses with setup-failed when the status read throws', async () => {
+      const { rpcHandler, indexingControl, handlers } = buildHandlers();
+      handlers.setRunDeps({
+        runSymbols: jest.fn().mockResolvedValue(undefined),
+      });
+      indexingControl.getStatus.mockRejectedValueOnce(
+        new Error('sqlite closed at /home/user/.ptah/db'),
+      );
+
+      const result = await rpcHandler.call('indexing:start', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'setup-failed',
+        state: 'error',
+      });
+      expect(JSON.stringify(result)).not.toContain('sqlite closed');
     });
   });
 
@@ -298,18 +402,63 @@ describe('IndexingRpcHandlers', () => {
       expect(result).toMatchObject({ accepted: true, state: 'indexing' });
     });
 
-    it('returns accepted:false when runDeps not set', async () => {
+    it('refuses with indexer-not-ready when runDeps not set', async () => {
       const { rpcHandler } = buildHandlers();
       const result = await rpcHandler.call('indexing:resume', {
         workspaceRoot: '/workspace',
       });
-      expect(result).toMatchObject({ accepted: false });
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'indexer-not-ready',
+        state: 'paused',
+      });
     });
 
-    it('returns accepted:false when workspaceRoot is missing', async () => {
+    it('refuses with no-workspace when workspaceRoot is missing', async () => {
       const { rpcHandler } = buildHandlers();
       const result = await rpcHandler.call('indexing:resume', {});
-      expect(result).toMatchObject({ accepted: false });
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'no-workspace',
+        state: 'paused',
+      });
+    });
+
+    it('refuses with already-running while a manual run is active', async () => {
+      const { rpcHandler, indexingControl, handlers } = buildHandlers();
+      handlers.setRunDeps({
+        runSymbols: jest.fn().mockResolvedValue(undefined),
+      });
+      indexingControl.isRunning.mockReturnValue(true);
+
+      const result = await rpcHandler.call('indexing:resume', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'already-running',
+        state: 'indexing',
+      });
+      expect(indexingControl.resume).not.toHaveBeenCalled();
+    });
+
+    it('refuses with setup-failed when the status read throws', async () => {
+      const { rpcHandler, indexingControl, handlers } = buildHandlers();
+      handlers.setRunDeps({
+        runSymbols: jest.fn().mockResolvedValue(undefined),
+      });
+      indexingControl.getStatus.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await rpcHandler.call('indexing:resume', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toEqual({
+        accepted: false,
+        reason: 'setup-failed',
+        state: 'error',
+      });
     });
   });
 

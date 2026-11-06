@@ -1,0 +1,22 @@
+## Verdict
+
+**REVISE — 7/10.** The six requested round 2 items are resolved in the inspected paths, but the new ordering guard can overwrite a newer `lastRun` written by another service instance. This was a read-only review; I did not run tests, Nx, or verify.
+
+## Finding status
+
+1. **Phase A #1 — RESOLVED.** The UI event receives `redactSecrets` before `snippetOneLine`, while raw text remains in the backend log (`libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts:501-517`). The quoted rule consumes spaced values through the closing quote, and the separate unquoted rule handles tokens (`libs/backend/memory-curator/src/lib/triggers/redact-secrets.ts:50-68`).
+2. **Phase B/C #3 — RESOLVED.** `!isDocumentReview(review.file)` now gates all three attribution branches before a review can feed a grade (`libs/backend/skill-synthesis/src/lib/spec-harvester.service.ts:210-236`).
+3. **Phase B/C #5 — RESOLVED.** A fingerprint failure sends one background `INDEXING_FAILED` without a fingerprint and writes no `lastRun`; a SHA failure uses the fingerprint to record failed `lastRun` (`libs/backend/memory-curator/src/lib/control/indexing-control.service.ts:644-661,698-733`). The shared event type permits the absent field (`libs/shared/src/lib/types/rpc/rpc-indexing.types.ts:133-139`).
+4. **Previous new #1 — RESOLVED.** The quoted key-value pattern consumes spaces and escaped quotes until the closing quote or end of input (`libs/backend/memory-curator/src/lib/triggers/redact-secrets.ts:50-59`); sentinel cases cover both (`redact-secrets.spec.ts:27-38`). The URL scheme is bounded (`redact-secrets.ts:33-38`), and the patterns have no apparent nested ambiguous repetition on long inputs. The roughly 100 KB timing cases are in `redact-secrets.spec.ts:46-58`. Ordinary error text is checked at :60-64.
+5. **Previous new #2 — RESOLVED.** `trackBackgroundRun` reserves sequence and start time before awaiting either derivation and passes that attempt to the failure recorder (`libs/backend/memory-curator/src/lib/control/indexing-control.service.ts:630-660,698-721`). A delayed SHA rejection therefore cannot acquire a later sequence than a census opened while it waited.
+6. **Previous new #3 — RESOLVED for same-instance clock rollback.** Once this instance has written the row, `persistLastRun` compares sequence rather than wall time (`libs/backend/memory-curator/src/lib/control/indexing-control.service.ts:946-969`); the rollback case is covered at `indexing-control.service.spec.ts:1645-1659`. Cross-instance ordering has a separate new defect below.
+
+## New findings
+
+1. **Serious — a local sequence can overwrite another instance's newer row.** `libs/backend/memory-curator/src/lib/control/indexing-control.service.ts:951-968`: once `newestPersistedSeq` contains a fingerprint, the code never reads the stored row again. Interleaving: instance A writes census A1; A opens A2; instance B writes a newer census B1 to the same row; A2 settles. A's local sequence is greater than A1's, so it unconditionally replaces B1, even when A2 started before B1. The test at `indexing-control.service.spec.ts:1661-1675` covers only B's first write after A and misses this path. **Fix:** retain and compare a durable per-row revision or writer identity on each conditional write, then distinguish local ordering from a row another instance has replaced. Add this three-census interleaving test.
+
+## Decisions
+
+- A settled census calls `persistLastRun` once and chooses at most one terminal push (`libs/backend/memory-curator/src/lib/control/indexing-control.service.ts:853-935`). A pause has no selected outcome, so it writes no `lastRun` (:859-870). Registry removal remains identity checked (:835-843).
+- The frontend consumers tolerate an absent failure fingerprint: the activity mapper reads `failedAt` and shows fixed text (`libs/frontend/core/src/lib/services/back-office-activity.service.ts:502-513`); workspace indexing reads `workspaceRoot` to reload status (`libs/frontend/workspace-indexing/src/lib/workspace-indexing.service.ts:277-282`). A search of `libs/frontend` found no other `IndexingFailedEvent` or `INDEXING_FAILED` consumers.
+- The implementer reports scoped verification and one unrelated intermittent memory-curator test failure that passed on retry (`reports/review-fixes-report.md:208-223`). I did not independently run tests or verification, per the read-only scope.

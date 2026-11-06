@@ -10,6 +10,22 @@ import type {
 
 import { MemoryRpcService } from './memory-rpc.service';
 
+/** Outcome of the last successful memory search index rebuild. */
+export interface MemoryRebuildOutcome {
+  /** Epoch-ms when the rebuild finished. */
+  readonly at: number;
+  readonly rebuiltFts: boolean;
+  readonly rebuiltVec: boolean;
+}
+
+/**
+ * Fixed sentence for a failed rebuild. Matches the backend's user error; it is
+ * used for every failure (including transport timeouts) so no raw error text
+ * reaches the tab.
+ */
+export const MEMORY_REBUILD_FAILED_MESSAGE =
+  'Could not rebuild the memory search index. See the logs for details.';
+
 /** UI-side filter for the tier selector (adds an "all" sentinel). */
 export type MemoryTierFilter = 'all' | MemoryTierWire;
 
@@ -55,6 +71,9 @@ export class MemoryStateService {
   private readonly _stats = signal<MemoryStatsResult | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _rebuilding = signal<boolean>(false);
+  private readonly _rebuildResult = signal<MemoryRebuildOutcome | null>(null);
+  private readonly _rebuildError = signal<string | null>(null);
   private readonly _symbolQuery = signal<string>('');
   private readonly _symbolItems = signal<readonly CodeSymbolListItem[]>([]);
   private readonly _symbolTotal = signal<number>(0);
@@ -84,6 +103,15 @@ export class MemoryStateService {
   public readonly stats = this._stats.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  /** True while `memory:rebuildIndex` is in flight (separate from `loading`). */
+  public readonly rebuilding = this._rebuilding.asReadonly();
+  /** Result of the last successful rebuild (or `null`). */
+  public readonly rebuildResult = this._rebuildResult.asReadonly();
+  /**
+   * Fixed failure sentence of the last rebuild (or `null`). Kept apart from
+   * `error()`, which list and stats loads clear and rewrite.
+   */
+  public readonly rebuildError = this._rebuildError.asReadonly();
   public readonly symbolQuery = this._symbolQuery.asReadonly();
   public readonly symbolItems = this._symbolItems.asReadonly();
   public readonly symbolTotal = this._symbolTotal.asReadonly();
@@ -191,7 +219,7 @@ export class MemoryStateService {
       this._entries.set(result.memories);
     } catch (err) {
       if (seq !== this.entriesReqSeq) return;
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('list', err));
     } finally {
       if (seq === this.entriesReqSeq) this._loading.set(false);
     }
@@ -228,7 +256,7 @@ export class MemoryStateService {
       this._entries.set(result.hits.map((hit) => hit.memory));
     } catch (err) {
       if (seq !== this.entriesReqSeq) return;
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('search', err));
     } finally {
       if (seq === this.entriesReqSeq) this._loading.set(false);
     }
@@ -244,7 +272,7 @@ export class MemoryStateService {
         );
       }
     } catch (err) {
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('pin', err));
     }
   }
 
@@ -258,7 +286,7 @@ export class MemoryStateService {
         );
       }
     } catch (err) {
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('pin', err));
     }
   }
 
@@ -270,19 +298,27 @@ export class MemoryStateService {
         this._entries.update((list) => list.filter((m) => m.id !== id));
       }
     } catch (err) {
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('forget', err));
     }
   }
 
   public async rebuildIndex(): Promise<void> {
-    this._loading.set(true);
-    this._error.set(null);
+    if (this._rebuilding()) return;
+    this._rebuilding.set(true);
+    this._rebuildResult.set(null);
+    this._rebuildError.set(null);
     try {
-      await this.rpcService.rebuildIndex('both');
+      const result = await this.rpcService.rebuildIndex('both');
+      this._rebuildResult.set({
+        at: Date.now(),
+        rebuiltFts: result.rebuiltFts,
+        rebuiltVec: result.rebuiltVec,
+      });
     } catch (err) {
-      this._error.set(toErrorMessage(err));
+      console.warn('[memory-state] rebuildIndex failed', err);
+      this._rebuildError.set(MEMORY_REBUILD_FAILED_MESSAGE);
     } finally {
-      this._loading.set(false);
+      this._rebuilding.set(false);
     }
   }
 
@@ -304,7 +340,7 @@ export class MemoryStateService {
       this._stats.set(stats);
     } catch (err) {
       if (seq !== this.statsReqSeq) return;
-      this._error.set(toErrorMessage(err));
+      this._error.set(failureMessage('stats', err));
     }
   }
 
@@ -359,7 +395,7 @@ export class MemoryStateService {
       this._symbolTotal.set(result.total);
     } catch (err) {
       if (seq !== this.symbolsReqSeq) return;
-      this._symbolError.set(toErrorMessage(err));
+      this._symbolError.set(failureMessage('symbols', err));
     } finally {
       if (seq === this.symbolsReqSeq) this._symbolLoading.set(false);
     }
@@ -375,8 +411,27 @@ export class MemoryStateService {
 const NO_WORKSPACE_FOR_SCOPED_RPC =
   'No workspace is open — switch to "All workspaces" to see cross-workspace memories.';
 
-function toErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  return 'Unknown memory error';
+/**
+ * One fixed sentence per failed action. Rendered errors never carry backend
+ * or transport text; that detail goes to the console log only.
+ */
+const FAILURE_MESSAGES = {
+  list: 'Could not load memories. Try again.',
+  search: 'Could not search memories. Try again.',
+  pin: 'Could not change the memory pin. Try again.',
+  forget: 'Could not forget the memory. Try again.',
+  stats: 'Could not load memory stats. Try again.',
+  symbols: 'Could not load the indexed code symbols. Try again.',
+} as const;
+
+export type MemoryStateFailure = keyof typeof FAILURE_MESSAGES;
+
+function failureMessage(action: MemoryStateFailure, err: unknown): string {
+  console.warn(`[memory-state] ${action} failed`, err);
+  return FAILURE_MESSAGES[action];
+}
+
+/** The fixed sentence a failed action shows (exported for specs). */
+export function memoryFailureMessage(action: MemoryStateFailure): string {
+  return FAILURE_MESSAGES[action];
 }

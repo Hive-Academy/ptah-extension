@@ -33,10 +33,8 @@ import { ProviderAccountsStateService } from '@ptah-extension/core';
 export function laneGuardStopText(
   reason: LaneStopReason | undefined,
 ): string | null {
-  if (reason === 'host-restarted') {
-    return 'Interrupted: Ptah host restarted; resume to continue';
-  }
   if (reason === 'repeat-call') return 'Stopped: repeated the same tool call';
+  if (reason === 'host-restart') return 'Interrupted by host restart';
   return null;
 }
 

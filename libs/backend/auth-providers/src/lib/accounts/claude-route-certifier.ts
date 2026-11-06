@@ -200,7 +200,7 @@ export class ClaudeRouteCertifier {
   /** Re-runs steps 1-2 (S9 signals included) before a settings-reading auth child. */
   async checkCoverage(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeCoverageOutcome> {
     const entry = claudePolicyCoverage(this.platform);
-    if (!entry || entry.id !== context.policy.coverage) return refuse('unsupported-source', true);
+    if (entry.id !== context.policy.coverage) return refuse('unsupported-source', true);
     const scan = await this.scan(context.cwd, context.canonicalDir, entry, signal, context.executable.version);
     return scan.ok ? { ok: true } : scan;
   }
@@ -249,7 +249,7 @@ export class ClaudeRouteCertifier {
   private async recheckFailure(launch: ClaudeCertifiedLaunchContext,
     route: CanonicalProviderAccountRoute): Promise<'coverage' | 'env' | 'executable' | 'remote-signals' | 'route' | undefined> {
     const entry = claudePolicyCoverage(this.platform);
-    if (!entry || entry.id !== launch.policy.coverage || !claudeCoverageAcceptsVersion(entry, launch.executable.version)) {
+    if (entry.id !== launch.policy.coverage || !claudeCoverageAcceptsVersion(entry, launch.executable.version)) {
       return 'coverage';
     }
     let step: 'env' | 'executable' | 'remote-signals' | 'route' = 'env';
@@ -332,7 +332,7 @@ export class ClaudeRouteCertifier {
   async checkLaunch(launch: ClaudeCertifiedLaunchContext, signal: AbortSignal): Promise<ClaudeLaunchBoundaryOutcome> {
     if (launch.accountClass !== 'personal') return { ok: false, code: 'unsupported-source', terminated: true };
     const entry = claudePolicyCoverage(this.platform);
-    if (!entry || entry.id !== launch.policy.coverage) return { ok: false, code: 'unsupported-source', terminated: true };
+    if (entry.id !== launch.policy.coverage) return { ok: false, code: 'unsupported-source', terminated: true };
     const canonicalDir = launch.env['CLAUDE_CONFIG_DIR'];
     if (!canonicalDir) return { ok: false, code: 'identity-unproved', terminated: true };
 
@@ -362,8 +362,6 @@ export class ClaudeRouteCertifier {
   private async prepare(cwd: string, route: CanonicalProviderAccountRoute, signal: AbortSignal): Promise<ClaudeAuthContextOutcome> {
     const canonicalDir = route.canonicalPath;
     const entry = claudePolicyCoverage(this.platform);
-    if (!entry) return refuse('unsupported-source', true);
-
     const scan = await this.scan(cwd, canonicalDir, entry, signal);
     if (!scan.ok) return scan;
 

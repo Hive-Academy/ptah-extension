@@ -664,14 +664,14 @@ describe('AppStateManager', () => {
       service.setConnected(true);
       expect(service.isConnected()).toBe(true);
       expect(service.isLoading()).toBe(false);
-      expect(service.statusMessage()).toBe('Connected to VS Code');
+      expect(service.statusMessage()).toBe('Connected');
     });
 
     it('setConnected(false) updates status to disconnected', () => {
       const service = createService();
       service.setConnected(false);
       expect(service.isConnected()).toBe(false);
-      expect(service.statusMessage()).toBe('Disconnected from VS Code');
+      expect(service.statusMessage()).toBe('Disconnected');
     });
   });
 

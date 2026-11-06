@@ -30,7 +30,7 @@ function harness(enabled = true) {
     extractor as never,
   );
   service.start();
-  return { service, callbacks, recorder, harvester };
+  return { service, callbacks, recorder, harvester, logger };
 }
 
 describe('SkillTriggerService retained hooks', () => {
@@ -104,7 +104,23 @@ describe('SkillTriggerService retained hooks', () => {
     h.callbacks.stop?.({ workspaceRoot: '/ws', sessionId: 'session' } as never);
     jest.advanceTimersByTime(90_000);
     await Promise.resolve();
-    expect(h.harvester.harvest).toHaveBeenCalledWith('/ws');
+    expect(h.harvester.harvest).toHaveBeenCalledWith('/ws', { trigger: 'auto' });
+    h.service.stop();
+    jest.useRealTimers();
+  });
+
+  it('logs a failed auto harvest at warn', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.harvester.harvest.mockRejectedValueOnce(new Error('specs unreadable'));
+    h.callbacks.stop?.({ workspaceRoot: '/ws', sessionId: 'session' } as never);
+    jest.advanceTimersByTime(90_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.logger.warn).toHaveBeenCalledWith('[skill-synthesis] spec harvest failed', {
+      error: 'specs unreadable',
+    });
+    expect(h.logger.debug).not.toHaveBeenCalledWith('[skill-synthesis] spec harvest failed', expect.anything());
     h.service.stop();
     jest.useRealTimers();
   });

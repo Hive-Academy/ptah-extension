@@ -38,7 +38,7 @@ export class ElectronPlatformCommands implements IPlatformCommands {
       const { BrowserWindow } = await import('electron');
       const win =
         BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-      if (win) {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
         win.webContents.reload();
       } else {
         this.logger.warn(

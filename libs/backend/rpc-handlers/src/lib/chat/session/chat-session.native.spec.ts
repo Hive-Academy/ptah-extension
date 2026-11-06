@@ -309,6 +309,12 @@ describe('chat native session preparation', () => {
         readSavedPermissionLevel: () => 'ask',
         broadcaster: { streamEventsToWebview: jest.fn() },
         tabId: () => 'tab',
+        // Production wires the caller-credential port; without it Codex chat
+        // starts without Ptah MCP (fail closed).
+        mcpCredentials: {
+          issue: jest.fn(() => 't'.repeat(43)),
+          revokeSubject: jest.fn(),
+        },
       };
       const ports = createCodexChatHostPorts(deps);
       const broadcastMessage = jest.mocked(
@@ -486,12 +492,19 @@ describe('chat native session preparation', () => {
             ]
           : []),
       ]);
+      // The Ptah MCP caller token travels as a secret, never in the profile.
+      const ptahToken = 't'.repeat(43);
+      expect(startedProfile.profile.mcpServers[0]).toMatchObject({
+        authReference: 'mcp.ptah.authorization',
+      });
+      expect(JSON.stringify(startedProfile.profile)).not.toContain(ptahToken);
       if (ambient) {
         expect(startedProfile.secrets).toEqual(
           new Map([
             ['mcp.smithery.url', smitheryUrl],
             ['mcp.smithery.header.0', 'Bearer secret-token-x'],
             ['mcp.oauth.header.0', 'Bearer secret-token-y'],
+            ['mcp.ptah.authorization', ptahToken],
           ]),
         );
         const profileJson = JSON.stringify(startedProfile.profile);
@@ -515,7 +528,9 @@ describe('chat native session preparation', () => {
           },
         );
       } else {
-        expect(startedProfile.secrets).toBeUndefined();
+        expect(startedProfile.secrets).toEqual(
+          new Map([['mcp.ptah.authorization', ptahToken]]),
+        );
       }
       // No MCP notice line any more: only the output-style line remains.
       expectNotice("Codex chat: output style 'Explanatory' is not applied");

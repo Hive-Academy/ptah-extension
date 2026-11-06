@@ -88,7 +88,7 @@ export const AgentMonitorParentDeliveryPayloadSchema = z.object({
   createdAt: z.number().int().nonnegative().optional(),
   preview: z.string().max(160).optional(),
   verdict: z.enum(['delivered', 'no-deliverable', 'failed', 'unverified']).optional(),
-  stopReason: z.enum(['host-restarted', 'repeat-call', 'usage-limit', 'auth', 'session-mismatch']).optional(),
+  stopReason: z.enum(['repeat-call', 'usage-limit', 'auth', 'session-mismatch', 'host-restart']).optional(),
 }).strict();
 
 /**

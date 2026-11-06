@@ -37,7 +37,7 @@ export function restoreLaneLifecycle(
       status: 'stopped',
       completedAt: interruptedAt,
       lastActivityAt: interruptedAt,
-      stopReason: 'host-restarted',
+      stopReason: 'host-restart',
     };
   }
 

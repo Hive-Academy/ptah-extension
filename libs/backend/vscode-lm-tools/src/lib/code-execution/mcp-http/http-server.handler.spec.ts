@@ -39,6 +39,15 @@ import {
   startHttpServer,
   stopHttpServer,
 } from './http-server.handler';
+import { McpCallerTokenRegistry } from './mcp-caller-token-registry';
+import {
+  MCP_AUTH_REQUIRED_MESSAGE,
+  MCP_CALLER_FORBIDDEN_MESSAGE,
+  MCP_CONTENT_TYPE_MESSAGE,
+  MCP_TOOL_DENIED_MESSAGE,
+  type McpHttpAuthInput,
+  type McpRequestAuth,
+} from '../mcp-core/mcp-caller-auth.types';
 import type { MCPRequest, MCPResponse } from '../types';
 import { mcpAttachmentObserver } from './mcp-attachment-observer';
 
@@ -75,6 +84,7 @@ async function fetchPath(
   method: string,
   path: string,
   body?: string,
+  headers?: http.OutgoingHttpHeaders,
 ): Promise<{
   status: number;
   body: string;
@@ -87,7 +97,10 @@ async function fetchPath(
         port,
         method,
         path,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: {
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...headers,
+        },
       },
       (res) => {
         let data = '';
@@ -325,15 +338,43 @@ describe('HTTP request handling', () => {
 
   it('records successful initialize by URL agent id and bound port', async () => {
     const waiting = mcpAttachmentObserver.waitFor('lane-a', port, 1000);
-    await fetchPath(port, 'POST', '/agent/lane-a', JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }));
-    expect(await waiting).toMatchObject({ agentId: 'lane-a', port, method: 'initialize' });
+    await fetchPath(
+      port,
+      'POST',
+      '/agent/lane-a',
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }),
+    );
+    expect(await waiting).toMatchObject({
+      agentId: 'lane-a',
+      port,
+      method: 'initialize',
+    });
     expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
-    await fetchPath(port, 'POST', '/agent/bad%2Fid', JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'initialize' }));
+    await fetchPath(
+      port,
+      'POST',
+      '/agent/bad%2Fid',
+      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'initialize' }),
+    );
     expect(mcpAttachmentObserver.get('bad/id', port)).toBeUndefined();
-    await fetchPath(port, 'POST', '/agent/lane-b', JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call' }));
+    await fetchPath(
+      port,
+      'POST',
+      '/agent/lane-b',
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call' }),
+    );
     expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
-    onMCPRequest.mockResolvedValueOnce({ jsonrpc: '2.0', id: 3, error: { code: -1, message: 'bad' } });
-    await fetchPath(port, 'POST', '/agent/lane-b', JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize' }));
+    onMCPRequest.mockResolvedValueOnce({
+      jsonrpc: '2.0',
+      id: 3,
+      error: { code: -1, message: 'bad' },
+    });
+    await fetchPath(
+      port,
+      'POST',
+      '/agent/lane-b',
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize' }),
+    );
     expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
     mcpAttachmentObserver.clear();
   });
@@ -363,12 +404,13 @@ describe('HTTP request handling', () => {
     }
   });
 
-  it('sets CORS headers and handles OPTIONS preflight with 204', async () => {
-    const { status, headers } = await fetchPath(port, 'OPTIONS', '/');
-    expect(status).toBe(204);
-    expect(headers['access-control-allow-origin']).toBe('http://localhost');
-    expect(headers['access-control-allow-methods']).toContain('POST');
-    expect(headers['access-control-allow-headers']).toContain('Content-Type');
+  it('rejects OPTIONS with 403 and sets no CORS headers', async () => {
+    const { status, body, headers } = await fetchPath(port, 'OPTIONS', '/');
+    expect(status).toBe(403);
+    expect(body).toBe('');
+    expect(headers['access-control-allow-origin']).toBeUndefined();
+    expect(headers['access-control-allow-methods']).toBeUndefined();
+    expect(headers['access-control-allow-headers']).toBeUndefined();
   });
 
   it('responds 200 with status ok on GET /health', async () => {
@@ -463,6 +505,29 @@ describe('HTTP request handling', () => {
     expect(parsed.error).toBeDefined();
     expect(parsed.error?.code).toBe(-32700);
     expect(parsed.error?.message).toBe('Parse error');
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a JSON scalar', '42'],
+    ['a missing method', JSON.stringify({ jsonrpc: '2.0', id: 1 })],
+    [
+      'a non-string method',
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 7 }),
+    ],
+    [
+      'the wrong JSON-RPC version',
+      JSON.stringify({ jsonrpc: '1.0', id: 1, method: 'tools/list' }),
+    ],
+  ])('returns a fixed Invalid Request response for %s', async (_case, input) => {
+    const { status, body } = await fetchPath(port, 'POST', '/', input);
+
+    expect(status).toBe(400);
+    expect(JSON.parse(body)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32600, message: 'Invalid Request' },
+    });
     expect(onMCPRequest).not.toHaveBeenCalled();
   });
 
@@ -894,5 +959,316 @@ describe('request abort on early close', () => {
     );
     expect(seen).toBeInstanceOf(AbortSignal);
     expect((seen as AbortSignal).aborted).toBe(false);
+  });
+});
+
+describe('HTTP caller authentication', () => {
+  let server: http.Server | null = null;
+  let port = 0;
+  const logger = createLogger();
+  const state = createStateStorage();
+  let onMCPRequest: jest.Mock<Promise<MCPResponse>, [MCPRequest]>;
+  const credentialLogger = {
+    debug(): void {
+      return undefined;
+    },
+    info(): void {
+      return undefined;
+    },
+    warn(): void {
+      return undefined;
+    },
+    error(): void {
+      return undefined;
+    },
+  };
+  const jsonBody = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 9,
+    method: 'initialize',
+  });
+
+  beforeEach(() => {
+    onMCPRequest = jest.fn(async (request: MCPRequest) => ({
+      jsonrpc: '2.0' as const,
+      id: request.id,
+      result: { method: request.method },
+    }));
+  });
+
+  afterEach(async () => {
+    if (server) {
+      await stopHttpServer(server, state, logger);
+      server = null;
+    }
+  });
+
+  async function listen(
+    authenticate?: (input: McpHttpAuthInput) => McpRequestAuth,
+  ): Promise<void> {
+    const result = await startHttpServer({
+      port: 0,
+      logger,
+      workspaceState: state,
+      onMCPRequest,
+      ...(authenticate === undefined ? {} : { authenticate }),
+    });
+    server = result.server;
+    port = result.port;
+  }
+
+  function seenRequest(): MCPRequest {
+    const request = onMCPRequest.mock.calls[0]?.[0];
+    if (request === undefined) {
+      throw new Error('expected an MCP request');
+    }
+    return request;
+  }
+
+  it('rejects a non-loopback Host with an empty 403 and no CORS', async () => {
+    await listen();
+    const { status, body, headers } = await fetchPath(
+      port,
+      'POST',
+      '/',
+      jsonBody,
+      { host: 'evil.example' },
+    );
+    expect(status).toBe(403);
+    expect(body).toBe('');
+    expect(headers['access-control-allow-origin']).toBeUndefined();
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a loopback Host that names a different port', async () => {
+    await listen();
+    const { status, body } = await fetchPath(port, 'POST', '/', jsonBody, {
+      host: '127.0.0.1:1',
+    });
+    expect(status).toBe(403);
+    expect(body).toBe('');
+  });
+
+  it('rejects a present Origin with an empty 403 and no CORS', async () => {
+    await listen();
+    const { status, body, headers } = await fetchPath(
+      port,
+      'POST',
+      '/',
+      jsonBody,
+      { origin: 'http://evil.example' },
+    );
+    expect(status).toBe(403);
+    expect(body).toBe('');
+    expect(headers['access-control-allow-origin']).toBeUndefined();
+    expect(headers['access-control-allow-methods']).toBeUndefined();
+  });
+
+  it('rejects OPTIONS with an empty 403', async () => {
+    await listen();
+    const { status, body, headers } = await fetchPath(port, 'OPTIONS', '/');
+    expect(status).toBe(403);
+    expect(body).toBe('');
+    expect(headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('rejects a non-json content type with 415', async () => {
+    await listen();
+    const { status, body } = await fetchPath(port, 'POST', '/', jsonBody, {
+      'content-type': 'text/plain',
+    });
+    expect(status).toBe(415);
+    expect(JSON.parse(body)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32001, message: MCP_CONTENT_TYPE_MESSAGE },
+    });
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it('accepts application/json with a charset on the grace path', async () => {
+    await listen();
+    const { status } = await fetchPath(port, 'POST', '/', jsonBody, {
+      'content-type': 'application/json; charset=utf-8',
+    });
+    expect(status).toBe(200);
+    expect(seenRequest()._callerCapability).toBe('read-only');
+  });
+
+  it('returns 401 for an unknown, expired, or revoked token', async () => {
+    const clock = { now: 5_000 };
+    const registry = new McpCallerTokenRegistry({
+      logger: credentialLogger,
+      now: () => clock.now,
+    });
+    const live = registry.issue(
+      { kind: 'agent', agentId: 'lane-a', capability: 'privileged' },
+      'lane-a',
+      60_000,
+    );
+    const expired = registry.issue(
+      { kind: 'agent', agentId: 'lane-a', capability: 'privileged' },
+      'lane-old',
+      -1,
+    );
+    const laneReport = registry.issue(
+      { kind: 'agent', agentId: 'lane-report', capability: 'lane-report' },
+      'lane-report',
+      60_000,
+    );
+    registry.revokeSubject('lane-report');
+    registry.revokeSubject('lane-a');
+    await listen((input) => registry.authorize(input));
+
+    for (const token of ['c'.repeat(43), expired, live, laneReport]) {
+      const { status, body } = await fetchPath(
+        port,
+        'POST',
+        '/agent/lane-a',
+        jsonBody,
+        { authorization: `Bearer ${token}` },
+      );
+      expect(status).toBe(401);
+      expect(body).not.toContain(token);
+      expect(JSON.parse(body)).toEqual({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32001, message: MCP_AUTH_REQUIRED_MESSAGE },
+      });
+    }
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when a valid token is presented on another identity', async () => {
+    const registry = new McpCallerTokenRegistry({ logger: credentialLogger });
+    const token = registry.issue(
+      { kind: 'agent', agentId: 'lane-a', capability: 'privileged' },
+      'lane-a',
+      60_000,
+    );
+    await listen((input) => registry.authorize(input));
+    const { status, body } = await fetchPath(
+      port,
+      'POST',
+      '/agent/other',
+      jsonBody,
+      { authorization: `Bearer ${token}` },
+    );
+    expect(status).toBe(403);
+    expect(body).not.toContain(token);
+    expect(JSON.parse(body)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32003, message: MCP_CALLER_FORBIDDEN_MESSAGE },
+    });
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when a lane-report token names another agent', async () => {
+    const registry = new McpCallerTokenRegistry({ logger: credentialLogger });
+    const token = registry.issue(
+      { kind: 'agent', agentId: 'lane-a', capability: 'lane-report' },
+      'lane-a',
+      60_000,
+    );
+    await listen((input) => registry.authorize(input));
+    const reportBody = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'ptah_agent_report', arguments: { message: 'report' } },
+    });
+    const { status, body } = await fetchPath(
+      port,
+      'POST',
+      '/agent/lane-b',
+      reportBody,
+      { authorization: `Bearer ${token}` },
+    );
+    expect(status).toBe(403);
+    expect(JSON.parse(body).error.code).toBe(-32003);
+    expect(onMCPRequest).not.toHaveBeenCalled();
+  });
+
+  it('strips /auth/{token} and stamps the session from the remaining path', async () => {
+    const registry = new McpCallerTokenRegistry({ logger: credentialLogger });
+    const token = registry.issue(
+      { kind: 'session', sessionId: 'tab-1', capability: 'read-only' },
+      'tab-1',
+      60_000,
+    );
+    await listen((input) => registry.authorize(input));
+    const { status } = await fetchPath(
+      port,
+      'POST',
+      `/auth/${token}/session/tab-1`,
+      jsonBody,
+    );
+    expect(status).toBe(200);
+    const request = seenRequest();
+    expect(request._callerSessionId).toBe('tab-1');
+    expect(request._callerCapability).toBe('read-only');
+    expect(request._callerBinding).toMatchObject({
+      kind: 'session',
+      sessionId: 'tab-1',
+      capability: 'read-only',
+    });
+  });
+
+  it('does not authenticate a token that is only in the query string', async () => {
+    const registry = new McpCallerTokenRegistry({ logger: credentialLogger });
+    const token = registry.issue(
+      { kind: 'session', sessionId: 'tab-1', capability: 'privileged' },
+      'tab-1',
+      60_000,
+    );
+    await listen((input) => registry.authorize(input));
+    const { status } = await fetchPath(
+      port,
+      'POST',
+      `/session/tab-1?token=${token}`,
+      jsonBody,
+    );
+    expect(status).toBe(200);
+    const request = seenRequest();
+    expect(request._callerCapability).toBe('read-only');
+    expect(request._callerSessionId).toBe('tab-1');
+    expect(request._callerBinding?.capability).toBe('read-only');
+  });
+
+  it('accepts a legacy caller as read-only, including /agent and /profile/admin', async () => {
+    await listen();
+    const agent = await fetchPath(port, 'POST', '/agent/lane-a', jsonBody);
+    expect(agent.status).toBe(200);
+    expect(seenRequest()._callerCapability).toBe('read-only');
+    expect(seenRequest()._callerAgentId).toBe('lane-a');
+    expect(seenRequest()._callerBinding).toMatchObject({
+      kind: 'agent',
+      capability: 'read-only',
+      agentId: 'lane-a',
+    });
+
+    const admin = await fetchPath(port, 'POST', '/profile/admin', jsonBody);
+    expect(admin.status).toBe(200);
+    expect(onMCPRequest.mock.calls[1]?.[0]?._callerToolProfile).toBe('admin');
+    expect(onMCPRequest.mock.calls[1]?.[0]?._callerCapability).toBe(
+      'read-only',
+    );
+  });
+
+  it('maps a tool-permission JSON-RPC error to HTTP 403 and echoes the id', async () => {
+    await listen();
+    onMCPRequest.mockResolvedValue({
+      jsonrpc: '2.0',
+      id: 7,
+      error: { code: -32003, message: MCP_TOOL_DENIED_MESSAGE },
+    });
+    const { status, body } = await fetchPath(port, 'POST', '/', jsonBody);
+    expect(status).toBe(403);
+    expect(JSON.parse(body)).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      error: { code: -32003, message: MCP_TOOL_DENIED_MESSAGE },
+    });
   });
 });

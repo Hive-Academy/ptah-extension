@@ -418,4 +418,55 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect.any(Object),
     );
   });
+
+  describe('curator on an unsupported provider (Codex)', () => {
+    const optionValues = (id: BackgroundConsumerId) =>
+      Array.from(providerSelect(id).options).map((o) => o.value);
+
+    it('does not offer Codex to the curator, but still to Enhancement', async () => {
+      await openRow('memory-curator');
+      expect(optionValues('memory-curator')).not.toContain('openai-codex');
+      expect(query(fixture, 'readiness-alert-memory-curator')).toBeNull();
+      component['cancelEdit']();
+      await settle();
+      await openRow('enhancement');
+      expect(optionValues('enhancement')).toContain('openai-codex');
+    });
+
+    it('keeps a saved Codex value, labels it and blocks it without a setup action', async () => {
+      mockState.memoryStore.set({
+        status: 'ready',
+        data: { curatorProvider: 'openai-codex', curatorModel: '' },
+        error: null,
+      });
+      await openRow('memory-curator');
+      const select = providerSelect('memory-curator');
+      expect(select.value).toBe('openai-codex');
+      const option = Array.from(select.options).find((o) => o.value === 'openai-codex');
+      expect(option?.textContent?.trim()).toBe('OpenAI Codex (not supported here)');
+      const alert = query(fixture, 'readiness-alert-memory-curator');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(query(fixture, 'readiness-message-memory-curator')?.textContent?.trim()).toBe(
+        'Memory curation cannot run on OpenAI Codex. Choose another provider. Not saved.',
+      );
+      expect(query(fixture, 'readiness-setup-memory-curator')).toBeNull();
+    });
+
+    it('refuses to save a model change while the curator stays on Codex', async () => {
+      mockState.memoryStore.set({
+        status: 'ready',
+        data: { curatorProvider: 'openai-codex', curatorModel: '' },
+        error: null,
+      });
+      await openRow('memory-curator');
+      await choose(modelSelect('memory-curator'), 'claude-3-5-sonnet');
+      expect(mockState.saveSettings).not.toHaveBeenCalled();
+      // Moving off Codex saves as usual.
+      await choose(providerSelect('memory-curator'), 'anthropic');
+      expect(mockState.saveSettings).toHaveBeenCalledWith(
+        { memory: { curatorProvider: 'anthropic', curatorModel: '' } },
+        expect.any(Object),
+      );
+    });
+  });
 });

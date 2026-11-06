@@ -621,7 +621,7 @@ describe('AgentMonitorStore', () => {
           completedAt: interruptedAt,
           lastActivityAt: interruptedAt,
           status: 'stopped',
-          stopReason: 'host-restarted',
+          stopReason: 'host-restart',
         },
       ],
       'session-1',
@@ -631,7 +631,7 @@ describe('AgentMonitorStore', () => {
       store.agents().find((agent) => agent.agentId === interruptedId),
     ).toMatchObject({
       status: 'stopped',
-      stopReason: 'host-restarted',
+      stopReason: 'host-restart',
       completedAt: Date.parse(interruptedAt),
       restored: true,
     });

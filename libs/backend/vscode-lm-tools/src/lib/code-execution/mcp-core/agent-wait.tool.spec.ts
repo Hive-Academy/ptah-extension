@@ -340,7 +340,7 @@ describe('runAgentWait', () => {
             state: 'exited',
             info: info('lane-1', {
               status: 'stopped',
-              stopReason: 'host-restarted',
+              stopReason: 'host-restart',
             }),
           },
         ],

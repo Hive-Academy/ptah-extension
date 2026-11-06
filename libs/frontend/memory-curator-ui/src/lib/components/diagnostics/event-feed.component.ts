@@ -7,6 +7,7 @@ import {
 import {
   assertNever,
   type MemoryCuratorEventWire,
+  type MemoryCuratorRunReason,
 } from '@ptah-extension/shared';
 
 interface FeedRow {
@@ -18,6 +19,25 @@ interface FeedRow {
 }
 
 const MAX_ROWS = 10;
+
+/**
+ * Short feed text for a pass a gate stopped before the model answered. A
+ * `Record` so a new reason fails to compile until it has text.
+ */
+const GATE_TEXT: Readonly<Record<MemoryCuratorRunReason, string>> = {
+  'provider-cooling-down': 'Skipped: the provider is rate-limited',
+  'provider-unreachable': 'Skipped: the provider could not be reached',
+  'provider-unsupported': 'Skipped: the provider cannot run the curator',
+  'auth-required': 'Skipped: the provider is not signed in',
+  'concurrency-slot-timeout': 'Skipped: no free model slot in time',
+  'curator-queue-wait-timeout': 'Skipped: waited too long in the queue',
+  'caller-aborted': 'Skipped: cancelled before it started',
+  'network-backoff': 'Skipped: pausing after network failures',
+  'host-shutdown': 'Skipped: the app is shutting down',
+  'no-output': 'Finished without a result',
+  'curator-error': 'The curator run failed',
+};
+const GATE_FALLBACK = 'Skipped by a gate';
 
 @Component({
   selector: 'ptah-event-feed',
@@ -173,9 +193,7 @@ function formatRateLimited(stats: MemoryCuratorEventWire['stats']): string {
   const limit = stats?.['limit'];
   const resetAt = stats?.['resetAt'];
   const limitText =
-    typeof limit === 'number'
-      ? `Limit ${limit}/hour reached`
-      : 'Rate limit reached';
+    typeof limit === 'number' ? `Limit ${limit}/hour reached` : gateText(stats);
   if (typeof resetAt === 'number' && Number.isFinite(resetAt)) {
     const time = new Date(resetAt).toLocaleTimeString([], {
       hour: '2-digit',
@@ -186,13 +204,27 @@ function formatRateLimited(stats: MemoryCuratorEventWire['stats']): string {
   return limitText;
 }
 
+/** Reason-based text for a curator-llm or deferral stall (no hourly limit). */
+function gateText(stats: MemoryCuratorEventWire['stats']): string {
+  const reason = stats?.['reason'];
+  if (typeof reason === 'string' && Object.hasOwn(GATE_TEXT, reason)) {
+    return GATE_TEXT[reason as MemoryCuratorRunReason];
+  }
+  return GATE_FALLBACK;
+}
+
 function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
   switch (ev.kind) {
     case 'error':
     case 'curator-error':
       return 'error';
+    case 'manual-run': {
+      const outcome = ev.stats?.['outcome'];
+      if (outcome === 'failed') return 'error';
+      if (outcome === 'stalled') return 'warning';
+      return 'success';
+    }
     case 'curator-run':
-    case 'manual-run':
       return 'success';
     case 'idle-trigger':
     case 'turn-trigger':

@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import {
   WorkspaceIndexingService,
+  type IndexingActionMessage,
   type IndexingUiState,
 } from '@ptah-extension/workspace-indexing';
 
@@ -27,12 +28,14 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
     setMemoryEnabled: jest.fn(() => Promise.resolve()),
     triggers: signal(null).asReadonly(),
     lastRun: signal(null).asReadonly(),
+    lastManualRun: signal(null).asReadonly(),
     recentEvents: signal([]).asReadonly(),
     dbHealth: signal(null).asReadonly(),
     storage: signal(null).asReadonly(),
     loading: signal(false).asReadonly(),
     error: signal(null).asReadonly(),
     hasActiveSession: signal(false).asReadonly(),
+    curatorRunning: signal(false).asReadonly(),
     startPolling: jest.fn(),
     stopPolling: jest.fn(),
     refresh: jest.fn(() => Promise.resolve()),
@@ -43,6 +46,7 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
 
 function indexingServiceStub(
   uiState: IndexingUiState,
+  actionMessage: IndexingActionMessage | null = null,
 ): Partial<WorkspaceIndexingService> {
   return {
     uiState: signal(
@@ -65,6 +69,11 @@ function indexingServiceStub(
     setPipelineEnabled: jest.fn(() => Promise.resolve()),
     dismissStale: jest.fn(() => Promise.resolve()),
     acknowledgeDisclosure: jest.fn(() => Promise.resolve()),
+    isBusy: signal(false).asReadonly(),
+    starting: signal(false).asReadonly(),
+    runningOrigin: signal(null).asReadonly(),
+    lastRun: signal(null).asReadonly(),
+    actionMessage: signal(actionMessage).asReadonly(),
   } as unknown as Partial<WorkspaceIndexingService>;
 }
 
@@ -108,6 +117,9 @@ describe('MemoryCuratorTabComponent', () => {
       unpin: jest.fn(() => Promise.resolve()),
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: jest.fn(() => false),
+      rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -169,7 +181,7 @@ describe('MemoryCuratorTabComponent', () => {
     expect(codeTab).toBeDefined();
     codeTab.click();
     fixture.detectChanges();
-    expect(root.textContent ?? '').toContain('Rebuild index');
+    expect(root.textContent ?? '').toContain('Rebuild memory search index');
   });
 
   it('puts the Memory switch at the top of the tab and re-emits its pausedChange', () => {
@@ -274,6 +286,9 @@ describe('MemoryCuratorTabComponent', () => {
       unpin: jest.fn(() => Promise.resolve()),
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: jest.fn(() => false),
+      rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -346,6 +361,9 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
       unpin: jest.fn(() => Promise.resolve()),
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: jest.fn(() => false),
+      rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -543,7 +561,10 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
       fixture.detectChanges();
 
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text).toContain('store unavailable');
+      expect(text).toContain(
+        'Could not delete the matching memories. See the logs for details.',
+      );
+      expect(text).not.toContain('store unavailable');
     } finally {
       confirmSpy.mockRestore();
     }
@@ -664,6 +685,9 @@ describe('MemoryCuratorTabComponent — workspace switch', () => {
       unpin: jest.fn(() => Promise.resolve()),
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: jest.fn(() => false),
+      rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -807,6 +831,9 @@ describe('MemoryCuratorTabComponent — indexing banner three-state predicate', 
       unpin: jest.fn(() => Promise.resolve()),
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: jest.fn(() => false),
+      rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -906,5 +933,215 @@ describe('MemoryCuratorTabComponent — indexing banner three-state predicate', 
     expect(
       root.querySelector('[data-testid="memory-banner-code-only"]'),
     ).toBeNull();
+  });
+});
+
+describe('MemoryCuratorTabComponent — rebuild state and banner action message', () => {
+  const rebuilding = signal(false);
+  const rebuildResult = signal<{
+    at: number;
+    rebuiltFts: boolean;
+    rebuiltVec: boolean;
+  } | null>(null);
+  const error = signal<string | null>(null);
+  const rebuildError = signal<string | null>(null);
+
+  function buildStateMock(): jest.Mocked<MemoryStateService> {
+    return {
+      entries: jest.fn(() => []),
+      query: jest.fn(() => ''),
+      tierFilter: jest.fn(() => 'all'),
+      scopeFilter: jest.fn(() => 'workspace'),
+      stats: jest.fn(() => null),
+      loading: jest.fn(() => false),
+      error: error.asReadonly(),
+      filteredEntries: jest.fn(() => []),
+      totalsByTier: jest.fn(() => ({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        total: 0,
+      })),
+      setQuery: jest.fn(),
+      setTierFilter: jest.fn(),
+      setScopeFilter: jest.fn(),
+      refresh: jest.fn(() => Promise.resolve()),
+      search: jest.fn(() => Promise.resolve()),
+      pin: jest.fn(() => Promise.resolve()),
+      unpin: jest.fn(() => Promise.resolve()),
+      forget: jest.fn(() => Promise.resolve()),
+      rebuildIndex: jest.fn(() => Promise.resolve()),
+      rebuilding: rebuilding.asReadonly(),
+      rebuildResult: rebuildResult.asReadonly(),
+      rebuildError: rebuildError.asReadonly(),
+      loadStats: jest.fn(() => Promise.resolve()),
+      symbolQuery: jest.fn(() => ''),
+      symbolItems: jest.fn(() => []),
+      symbolTotal: jest.fn(() => 0),
+      symbolLoading: jest.fn(() => false),
+      symbolError: jest.fn(() => null),
+      symbolOffset: jest.fn(() => 0),
+      symbolLimit: jest.fn(() => 50),
+      setSymbolQuery: jest.fn(),
+      setSymbolPage: jest.fn(),
+      loadSymbols: jest.fn(() => Promise.resolve()),
+    } as unknown as jest.Mocked<MemoryStateService>;
+  }
+
+  function render(
+    uiState: IndexingUiState = { kind: 'indexed', lastIndexedAt: 1, isNonGit: false },
+    actionMessage: IndexingActionMessage | null = null,
+  ) {
+    TestBed.resetTestingModule();
+    const state = buildStateMock();
+    const indexing = indexingServiceStub(uiState, actionMessage);
+    TestBed.configureTestingModule({
+      imports: [MemoryCuratorTabComponent],
+      providers: [
+        { provide: MemoryStateService, useValue: state },
+        {
+          provide: MemoryRpcService,
+          useValue: {
+            listCorpora: jest.fn().mockResolvedValue({ corpora: [] }),
+            searchIndex: jest
+              .fn()
+              .mockResolvedValue({ rows: [], bm25Only: false }),
+            timeline: jest.fn().mockResolvedValue({ rows: [], anchorIndex: 0 }),
+          },
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        {
+          provide: MemoryDiagnosticsStateService,
+          useValue: diagnosticsStateStub(),
+        },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: signal({ name: 'w', path: '/ws', type: 'workspace' }),
+          },
+        },
+        { provide: WorkspaceIndexingService, useValue: indexing },
+      ],
+    });
+    const fixture = TestBed.createComponent(MemoryCuratorTabComponent);
+    fixture.detectChanges();
+    return { fixture, state, indexing };
+  }
+
+  function openCodeView(root: HTMLElement): void {
+    const codeTab = Array.from(root.querySelectorAll('button')).find(
+      (b) =>
+        b.getAttribute('role') === 'tab' &&
+        (b.textContent ?? '').trim() === 'Code index',
+    ) as HTMLButtonElement;
+    codeTab.click();
+  }
+
+  beforeEach(() => {
+    rebuilding.set(false);
+    rebuildResult.set(null);
+    error.set(null);
+    rebuildError.set(null);
+  });
+
+  it('labels the rebuild button and binds busy to rebuilding()', () => {
+    const { fixture, state } = render();
+    const root = fixture.nativeElement as HTMLElement;
+    openCodeView(root);
+    fixture.detectChanges();
+    const button = root.querySelector(
+      '[data-testid="memory-rebuild-index"]',
+    ) as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).toBe('Rebuild memory search index');
+    expect(button.textContent?.trim()).toBe('Rebuild memory search index');
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(state.rebuildIndex).toHaveBeenCalled();
+
+    rebuilding.set(true);
+    fixture.detectChanges();
+    expect(button.disabled).toBe(true);
+    expect(button.querySelector('.loading-spinner')).not.toBeNull();
+  });
+
+  it.each([
+    [true, true, 'Memory search index rebuilt (full-text: yes, vectors: yes)'],
+    [
+      true,
+      false,
+      'Memory search index rebuilt (full-text: yes, vectors: unavailable)',
+    ],
+  ])('renders the rebuild result (fts %s, vec %s)', (fts, vec, text) => {
+    const { fixture } = render();
+    const root = fixture.nativeElement as HTMLElement;
+    openCodeView(root);
+    rebuildResult.set({ at: 1, rebuiltFts: fts, rebuiltVec: vec });
+    fixture.detectChanges();
+    const line = root.querySelector('[data-testid="memory-rebuild-result"]');
+    expect(line?.getAttribute('role')).toBe('status');
+    expect(line?.textContent?.trim()).toBe(text);
+  });
+
+  it('does not show the shared list/stats error() in the code view', () => {
+    const { fixture } = render();
+    const root = fixture.nativeElement as HTMLElement;
+    openCodeView(root);
+    error.set('Could not load memories. Try again.');
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="memory-code-error"]')).toBeNull();
+  });
+
+  it('shows a rebuild failure from rebuildError() as an alert in the code view', () => {
+    const { fixture } = render();
+    const root = fixture.nativeElement as HTMLElement;
+    openCodeView(root);
+    rebuildError.set('Could not rebuild the memory search index. See the logs for details.');
+    fixture.detectChanges();
+    const alert = root.querySelector('[data-testid="memory-code-error"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent?.trim()).toBe(
+      'Could not rebuild the memory search index. See the logs for details.',
+    );
+  });
+
+  it('passes the indexing action message to the banner as role="alert"', () => {
+    const { fixture } = render(
+      { kind: 'never-indexed' },
+      {
+        tone: 'error',
+        text: 'The code indexer is not ready yet. Open a workspace folder and try again.',
+      },
+    );
+    const message = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="memory-banner-action-message"]',
+    );
+    expect(message?.getAttribute('role')).toBe('alert');
+    expect(message?.textContent?.trim()).toBe(
+      'The code indexer is not ready yet. Open a workspace folder and try again.',
+    );
+  });
+
+  it('renders the banner error with a fixed sentence, not the raw message', () => {
+    const { fixture } = render({
+      kind: 'error',
+      message: 'SQLITE_BUSY at /home/secret/db',
+    });
+    const banner = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="memory-banner-error"]',
+    );
+    expect(banner?.textContent).toContain(
+      'Indexing failed. See the logs for details.',
+    );
+    expect(banner?.textContent).not.toContain('SQLITE_BUSY');
+  });
+
+  it('banner Index now calls the indexing service start directly', () => {
+    const { fixture, indexing } = render({ kind: 'never-indexed' });
+    const button = (fixture.nativeElement as HTMLElement).querySelector(
+      '[aria-label="Index workspace now"]',
+    ) as HTMLButtonElement;
+    button.click();
+    expect(indexing.start).toHaveBeenCalledWith('/ws', false);
   });
 });

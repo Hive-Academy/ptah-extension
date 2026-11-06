@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import type { EventEmitter } from 'node:events';
 
 /**
  * Start-up step markers for the path from `app.whenReady` to the renderer load
@@ -18,7 +19,7 @@ export const RENDERER_LOADED_STEP = 'renderer did-finish-load';
 
 const bootStartedAt = Date.now();
 let lastStep = '(none)';
-let guards: { goal: string; dispose: () => void } | null = null;
+let guards: { goal: string; dispose: () => void; onGoal?: () => void } | null = null;
 
 function writeStderr(line: string): void {
   try {
@@ -39,7 +40,9 @@ export function bootStep(step: string): void {
   lastStep = step;
   writeStderr(`[Ptah Boot +${Date.now() - bootStartedAt}ms] ${step}`);
   if (guards !== null && guards.goal === step) {
+    const onGoal = guards.onGoal;
     disarmBootGuards();
+    onGoal?.();
   }
 }
 
@@ -68,7 +71,7 @@ export function reportBootFailure(context: string, error: unknown): void {
 }
 
 /** The slice of `process` the crash handlers attach to. Injectable for specs. */
-export type BootProcessEvents = Pick<NodeJS.Process, 'on' | 'off'>;
+export type BootProcessEvents = Pick<EventEmitter, 'on' | 'off'>;
 
 export interface BootGuardOptions {
   /** The step whose `bootStep` call ends the boot window. */
@@ -85,6 +88,8 @@ export interface BootGuardOptions {
   exit: (code: number) => void;
   /** Defaults to the real `process`. */
   processEvents?: BootProcessEvents;
+  /** Called after the boot handlers are removed at the renderer-ready step. */
+  onGoal?: () => void;
 }
 
 /**
@@ -92,10 +97,9 @@ export interface BootGuardOptions {
  *
  * Scoped to the boot on purpose. The handlers exist so a failure between
  * `whenReady` and the renderer is never silent; left armed for the process's
- * lifetime they would replace Electron's default crash behaviour (and stop
- * Sentry's `OnUncaughtException` from exiting) for every later error too. They
- * come off at `bootStep(goal)` or {@link disarmBootGuards}, after which the
- * defaults apply again.
+ * lifetime they would apply the boot-only fatal policy to every later error.
+ * They come off at `bootStep(goal)` or {@link disarmBootGuards}; the goal may
+ * install a separate post-boot error policy after removal.
  *
  * - Watchdog: prints the last reached step if `goal` is not reached in
  *   `timeoutMs`. Diagnostics only, and `unref`'d so it never holds a quitting
@@ -137,6 +141,7 @@ export function armBootGuards(options: BootGuardOptions): void {
 
   guards = {
     goal,
+    onGoal: options.onGoal,
     dispose: () => {
       clearTimeout(timer);
       events.off('unhandledRejection', onRejection);

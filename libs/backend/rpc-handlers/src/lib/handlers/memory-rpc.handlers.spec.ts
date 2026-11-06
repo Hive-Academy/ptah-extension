@@ -22,7 +22,17 @@ import {
   ALLOWED_METHOD_PREFIXES,
 } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MEMORY_TOKENS, MemoryStore } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_TOKENS,
+  MemoryCuratorService,
+  MemoryStore,
+  curatorRunMessage,
+  type ICuratorLLM,
+} from '@ptah-extension/memory-curator';
+import type {
+  ICompactionCallbackRegistry,
+  ITranscriptReader,
+} from '@ptah-extension/memory-contracts';
 import {
   MIGRATIONS,
   type IEmbedder,
@@ -957,7 +967,7 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
     expect(curator.curate).not.toHaveBeenCalled();
   });
 
-  it('returns error envelope (not throw) when curator throws — message preserved internally only', async () => {
+  it('returns error envelope (not throw) when curator throws — raw message in the log only', async () => {
     const { rpcHandler, curator, logger } = buildHandlers([
       '/workspace/project',
     ]);
@@ -971,12 +981,14 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
     expect(result).toMatchObject({
       success: false,
       stats: null,
+      outcome: 'failed',
+      reason: 'curator-error',
+      error: curatorRunMessage('curator-error'),
+    });
+    expect(JSON.stringify(result)).not.toContain('LLM rate limit');
+    expect(logger.error).toHaveBeenCalledWith('[memory] runNow failed', {
       error: 'LLM rate limit',
     });
-    expect(logger.error).toHaveBeenCalledWith(
-      '[memory] runNow failed',
-      expect.objectContaining({ error: expect.any(String) }),
-    );
   });
 
   it('rejects unauthorized workspace', async () => {
@@ -2208,5 +2220,202 @@ describe('MemoryRpcHandlers — memory pause switch', () => {
 
     expect(curator.curate).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ success: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_878 — honest curator results: outcome, reason and fixed sentence
+// ---------------------------------------------------------------------------
+
+const SENTINEL = 'upstream 401 key=sk-SENTINEL-7f3a https://internal.example';
+
+describe('MemoryRpcHandlers — memory:runNow outcome, reason and sentence', () => {
+  const zero = { extracted: 0, merged: 0, created: 0, skipped: 0 };
+  const params = {
+    sessionId: 'sess-878',
+    workspaceRoot: '/workspace/project',
+  };
+
+  it('a failed pass reports success:false with outcome, reason and the sentence', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    curator.curate.mockResolvedValue({
+      outcome: 'failed',
+      ...zero,
+      reason: 'auth-required',
+      error: curatorRunMessage('auth-required'),
+    });
+
+    const result = await rpcHandler.call('memory:runNow', params);
+
+    expect(result).toMatchObject({
+      success: false,
+      outcome: 'failed',
+      reason: 'auth-required',
+      error: curatorRunMessage('auth-required'),
+      stats: { outcome: 'failed', reason: 'auth-required' },
+    });
+  });
+
+  it('an unsupported provider reports success:false although the pass only stalled', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    curator.curate.mockResolvedValue({
+      outcome: 'stalled',
+      ...zero,
+      reason: 'provider-unsupported',
+      error: curatorRunMessage('provider-unsupported'),
+    });
+
+    const result = await rpcHandler.call('memory:runNow', params);
+
+    expect(result).toMatchObject({
+      success: false,
+      outcome: 'stalled',
+      reason: 'provider-unsupported',
+      error: curatorRunMessage('provider-unsupported'),
+    });
+  });
+
+  it('a transient stall keeps success:true and carries its reason', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    curator.curate.mockResolvedValue({
+      outcome: 'stalled',
+      ...zero,
+      reason: 'provider-cooling-down',
+      error: curatorRunMessage('provider-cooling-down'),
+    });
+
+    const result = await rpcHandler.call('memory:runNow', params);
+
+    expect(result).toMatchObject({
+      success: true,
+      outcome: 'stalled',
+      reason: 'provider-cooling-down',
+    });
+  });
+
+  it('a pass that ran reports success:true with no reason or error', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    curator.curate.mockResolvedValue({ outcome: 'ran', ...zero, created: 2 });
+
+    const result = (await rpcHandler.call('memory:runNow', params)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result).toMatchObject({ success: true, outcome: 'ran' });
+    expect(result).not.toHaveProperty('reason');
+    expect(result).not.toHaveProperty('error');
+  });
+
+  it('a curator that throws the sentinel never returns it', async () => {
+    const { rpcHandler, curator, logger } = buildHandlers([
+      '/workspace/project',
+    ]);
+    curator.curate.mockRejectedValue(
+      new Error(SENTINEL, { cause: new Error(SENTINEL) }),
+    );
+
+    const result = await rpcHandler.call('memory:runNow', params);
+
+    expect(JSON.stringify(result)).not.toContain('sk-SENTINEL');
+    expect(result).toMatchObject({
+      success: false,
+      error: curatorRunMessage('curator-error'),
+    });
+    expect(JSON.stringify(logger.error.mock.calls)).toContain(SENTINEL);
+  });
+});
+
+describe('MemoryRpcHandlers — memory:diagnostics carries the run outcome', () => {
+  /** A real curator, so the activity log behind it records the failure. */
+  function realCuratorAfterSentinelFailure(): MemoryCuratorService {
+    const llm = {
+      extract: jest.fn().mockRejectedValue(
+        Object.assign(
+          new Error('curator query failed', { cause: new Error(SENTINEL) }),
+          { name: 'CuratorLlmQueryError' },
+        ),
+      ),
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+    } as unknown as MemoryStore;
+    return new MemoryCuratorService(
+      makeLogger() as unknown as Logger,
+      { register: jest.fn(() => jest.fn()) } as unknown as ICompactionCallbackRegistry,
+      store,
+      { read: jest.fn() } as unknown as ITranscriptReader,
+      llm,
+    );
+  }
+
+  it('forwards outcome, reason and the sentence, and never the sentinel', async () => {
+    const real = realCuratorAfterSentinelFailure();
+    const stats = await real.curate({
+      sessionId: 'sess-diag',
+      transcript: 'USER: hello\n\nASSISTANT: hi',
+    });
+    expect(stats.outcome).toBe('failed');
+    const lastRun = real.lastRunInfo();
+
+    const { rpcHandler, diagnostics } = buildHandlers(['/workspace/project']);
+    const base = await diagnostics.getSnapshot();
+    diagnostics.getSnapshot.mockResolvedValue({
+      ...base,
+      lastRunAt: lastRun.at,
+      lastRunStats: lastRun.stats,
+      recentEvents: real.recentEvents(50),
+    });
+
+    const result = await rpcHandler.call('memory:diagnostics', {});
+
+    expect(result).toMatchObject({
+      lastRunStats: {
+        outcome: 'failed',
+        reason: 'curator-error',
+        error: curatorRunMessage('curator-error'),
+      },
+    });
+    const text = JSON.stringify(result);
+    expect(text).not.toContain('sk-SENTINEL');
+    expect(text).not.toContain('internal.example');
+  });
+});
+
+describe('MemoryRpcHandlers — memory:rebuildIndex', () => {
+  it('returns the store result on success', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+
+    await expect(rpcHandler.call('memory:rebuildIndex', {})).resolves.toEqual({
+      rebuiltFts: true,
+      rebuiltVec: true,
+    });
+  });
+
+  it('throws a user error with a fixed message when the store throws', async () => {
+    const { rpcHandler, store, logger } = buildHandlers(['/workspace/project']);
+    store.rebuildIndex.mockRejectedValue(new Error(SENTINEL));
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('memory:rebuildIndex', {});
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    expect(thrown).toMatchObject({
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+      message:
+        'Could not rebuild the memory search index. See the logs for details.',
+    });
+    expect(logger.warn).toHaveBeenCalledWith('[memory] rebuildIndex failed', {
+      error: SENTINEL,
+    });
   });
 });

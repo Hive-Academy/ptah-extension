@@ -2877,6 +2877,10 @@ export interface SkillSynthesisHarvestSpecsResult {
   scanned: number;
   harvested: number;
   reconciled: number;
+  /** Scanned specs not yet done or cancelled. Optional for older hosts. */
+  pending?: number;
+  /** TASK_* folders skipped because they have no valid task.md. Optional. */
+  skippedFolders?: number;
 }
 export interface SkillSynthesisClearStaleSpecsParams {
   retentionDays?: number;

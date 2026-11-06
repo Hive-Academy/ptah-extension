@@ -80,22 +80,22 @@ Assumptions:
 - `ws` 8.21.0 and `@types/ws` 8.18.1 are already in `package-lock.json` as transitive packages —
   verified; Task 1.2 only records the root declaration.
 
-| Risk | Severity | Mitigation |
-| ---- | -------- | ---------- |
-| R-A. Plan defect (C4c file list): making `CodexChatAdapterPorts.driver` required breaks `createCodexChatHostPorts`, because `CodexChatHostPorts extends CodexChatAdapterPorts` (`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts:85`) and the factory returns that type (:222-224, object at :242) without `driver`. Also used by `chat-session.native.spec.ts:235` and the two `codex-chat-host-ports*.spec.ts`. None is in C4c's list | HIGH | Task 13.2: `CodexChatHostPorts extends Omit<CodexChatAdapterPorts, 'driver'>`; Electron composition adds `driver` next to `sessions` (the plan already puts the wiring there). Decision D-3 |
-| R-B. Plan defect (C2): adding `'machines'` to `ViewType`/`SURFACE_ROUTE_IDS` before a route exists fails `libs/shared/src/lib/types/webview-surface.types.spec.ts:27` (exact list) and the per-ID route loops in `apps/ptah-extension-webview/src/app/webview-routing.spec.ts:83-86`. Neither spec is in C2's files | HIGH | The `webview-surface.types.ts` edit and its spec move from C2 to Batch 26 (with the route and shell). Decision D-4 |
-| R-C. Plan defect (C3): the new manifest entry `host.remoteMachines` requires `remoteMachines`, which Electron sets only in C9. `apps/ptah-electron/src/di/rpc-surface.spec.ts:41-43` ("excludes nothing") and :78 fail from C3 until C9, yet C3's verify includes `ptah-electron` | HIGH | Task 7.3 adds an interim expectation (the `host.remoteMachines` methods are the only exclusion, comment names Batch 22); Task 22.1 removes it. Decision D-5 |
-| R-D. Declaring `ws`/`@types/ws` in the root `package.json` changes `package-lock.json` `packages[""]`; the lockfile is not in C0's list, so `npm ci` would fail in CI | MEDIUM | Task 1.2 updates the lockfile with `node scripts/verify.mjs --exec --task lockfile -- npm install --package-lock-only --ignore-scripts`; the lockfile diff must touch only the root entry |
-| R-E. The plan's verify table omits dependent apps: `mcp-bench` and `ptah-video-studio` depend on platform-core, vscode-core, agent-sdk, rpc-handlers (and cli-engine for mcp-bench); `ptah-landing-page` and `ptah-license-server` depend on `libs/shared` (Nx graph at 8ca24c134) | MEDIUM | Added to each affected batch's verify command. Decision D-2 |
-| R-F. The new commit scopes must exist before the first batch commit that uses them, including `process-sampler` for P0-1 | LOW | Task 1.2 adds `worker-protocol`, `worker-runtime`, `remote-machines`, `machines-ui`, `process-sampler`; Batch 1 runs before Batch 2 |
-| R-G. `ws` in `apps/ptah-electron/package.json` depends on `apps/ptah-electron/scripts/validate-deps.js` (it checks external imports against declared dependencies, :122-175). C8 is the first Electron-main `ws` importer, so a wrong C0 call only shows at the pre-push gate | MEDIUM | Task 1.2 decides with evidence and reports it; Task 22.2 re-confirms; the pre-push gate after Batch 22 is the final check |
-| R-H. Fail-closed lock blocks local chat on a host that refuses the lock endpoint (AR4) | MEDIUM | Batches 8, 9, 11 (readiness self-test, refusal names cause and fix); Phase C review checks it |
-| R-I. A native Codex open or close path that bypasses the gate (AR11) | HIGH | Task 13.1 call-order and exactly-once-release specs; Phase C review |
-| R-J. Worker drives a native Codex session | MEDIUM | Task 17.2 capability-limit refusal from `codexExecution.runtime` |
-| R-K. A3 false (history incomplete after release) (AR6) | MEDIUM | Task 17.1 fixture spec; AR6 fallback in the plan |
-| R-L. Single worktree: concurrent batches would verify each other's half-done edits | MEDIUM | Batches run sequentially (see Execution order) |
-| R-M. C10 design 4.9 and screen 9 still show an answerable permission block, which conflicts with Q1 (a) watch-only (`design-spec.md:109`, revision log :194) | HIGH | Gated step G-D: designer revision plus a review before Batch 23 starts |
-| R-N. Security exposure of the worker (R9) | HIGH | Phase D and Phase E reviews include `review-security` before Phase 1 ships |
+| Risk                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Severity | Mitigation                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R-A. Plan defect (C4c file list): making `CodexChatAdapterPorts.driver` required breaks `createCodexChatHostPorts`, because `CodexChatHostPorts extends CodexChatAdapterPorts` (`libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts:85`) and the factory returns that type (:222-224, object at :242) without `driver`. Also used by `chat-session.native.spec.ts:235` and the two `codex-chat-host-ports*.spec.ts`. None is in C4c's list | HIGH     | Task 13.2: `CodexChatHostPorts extends Omit<CodexChatAdapterPorts, 'driver'>`; Electron composition adds `driver` next to `sessions` (the plan already puts the wiring there). Decision D-3 |
+| R-B. Plan defect (C2): adding `'machines'` to `ViewType`/`SURFACE_ROUTE_IDS` before a route exists fails `libs/shared/src/lib/types/webview-surface.types.spec.ts:27` (exact list) and the per-ID route loops in `apps/ptah-extension-webview/src/app/webview-routing.spec.ts:83-86`. Neither spec is in C2's files                                                                                                                                                | HIGH     | The `webview-surface.types.ts` edit and its spec move from C2 to Batch 26 (with the route and shell). Decision D-4                                                                          |
+| R-C. Plan defect (C3): the new manifest entry `host.remoteMachines` requires `remoteMachines`, which Electron sets only in C9. `apps/ptah-electron/src/di/rpc-surface.spec.ts:41-43` ("excludes nothing") and :78 fail from C3 until C9, yet C3's verify includes `ptah-electron`                                                                                                                                                                                  | HIGH     | Task 7.3 adds an interim expectation (the `host.remoteMachines` methods are the only exclusion, comment names Batch 22); Task 22.1 removes it. Decision D-5                                 |
+| R-D. Declaring `ws`/`@types/ws` in the root `package.json` changes `package-lock.json` `packages[""]`; the lockfile is not in C0's list, so `npm ci` would fail in CI                                                                                                                                                                                                                                                                                              | MEDIUM   | Task 1.2 updates the lockfile with `node scripts/verify.mjs --exec --task lockfile -- npm install --package-lock-only --ignore-scripts`; the lockfile diff must touch only the root entry   |
+| R-E. The plan's verify table omits dependent apps: `mcp-bench` and `ptah-video-studio` depend on platform-core, vscode-core, agent-sdk, rpc-handlers (and cli-engine for mcp-bench); `ptah-landing-page` and `ptah-license-server` depend on `libs/shared` (Nx graph at 8ca24c134)                                                                                                                                                                                 | MEDIUM   | Added to each affected batch's verify command. Decision D-2                                                                                                                                 |
+| R-F. The new commit scopes must exist before the first batch commit that uses them, including `process-sampler` for P0-1                                                                                                                                                                                                                                                                                                                                           | LOW      | Task 1.2 adds `worker-protocol`, `worker-runtime`, `remote-machines`, `machines-ui`, `process-sampler`; Batch 1 runs before Batch 2                                                         |
+| R-G. `ws` in `apps/ptah-electron/package.json` depends on `apps/ptah-electron/scripts/validate-deps.js` (it checks external imports against declared dependencies, :122-175). C8 is the first Electron-main `ws` importer, so a wrong C0 call only shows at the pre-push gate                                                                                                                                                                                      | MEDIUM   | Task 1.2 decides with evidence and reports it; Task 22.2 re-confirms; the pre-push gate after Batch 22 is the final check                                                                   |
+| R-H. Fail-closed lock blocks local chat on a host that refuses the lock endpoint (AR4)                                                                                                                                                                                                                                                                                                                                                                             | MEDIUM   | Batches 8, 9, 11 (readiness self-test, refusal names cause and fix); Phase C review checks it                                                                                               |
+| R-I. A native Codex open or close path that bypasses the gate (AR11)                                                                                                                                                                                                                                                                                                                                                                                               | HIGH     | Task 13.1 call-order and exactly-once-release specs; Phase C review                                                                                                                         |
+| R-J. Worker drives a native Codex session                                                                                                                                                                                                                                                                                                                                                                                                                          | MEDIUM   | Task 17.2 capability-limit refusal from `codexExecution.runtime`                                                                                                                            |
+| R-K. A3 false (history incomplete after release) (AR6)                                                                                                                                                                                                                                                                                                                                                                                                             | MEDIUM   | Task 17.1 fixture spec; AR6 fallback in the plan                                                                                                                                            |
+| R-L. Single worktree: concurrent batches would verify each other's half-done edits                                                                                                                                                                                                                                                                                                                                                                                 | MEDIUM   | Batches run sequentially (see Execution order)                                                                                                                                              |
+| R-M. C10 design 4.9 and screen 9 still show an answerable permission block, which conflicts with Q1 (a) watch-only (`design-spec.md:109`, revision log :194)                                                                                                                                                                                                                                                                                                       | HIGH     | Gated step G-D: designer revision plus a review before Batch 23 starts                                                                                                                      |
+| R-N. Security exposure of the worker (R9)                                                                                                                                                                                                                                                                                                                                                                                                                          | HIGH     | Phase D and Phase E reviews include `review-security` before Phase 1 ships                                                                                                                  |
 
 Edge cases:
 
@@ -116,19 +116,19 @@ Edge cases:
 
 ## Decisions
 
-| # | Decision | Options | Evidence | Reversible |
-| - | -------- | ------- | -------- | ---------- |
-| D-1 | File cap counts production files; co-located specs and one-line barrel exports ride with their source. Batches that must change several projects atomically (C0, C3, the C4a host bindings, C4c, the shell/route batch) carry a stated exception to the 2-project cap | strict count / production-file count | Splitting those batches would commit a red tree (surface baselines, DI smoke specs, required-port compile) | yes |
-| D-2 | Verify commands extend the plan's table with every dependent app from the Nx graph | plan table / graph | R-E; CLAUDE.md "each host project that depends on it" | yes |
-| D-3 | `CodexChatHostPorts` omits `driver`; Electron composition supplies it | add `driver` to `CodexChatHostPortsDeps` / omit in host ports | Plan C4c: "Electron composition passes `driver` next to `sessions`"; `sessions` is also added only at composition (`codex-runtime-composition.ts:602`) | yes |
-| D-4 | `'machines'` route ID lands with its route in Batch 26, not in C2 | C2 with a placeholder route / with the route | R-B; a placeholder route would be a stub | yes |
-| D-5 | Interim Electron surface expectation from Batch 7 to Batch 22 | merge C3 into C9 / set Electron `remoteMachines` early without handlers / interim spec | C6 needs C3's host profile long before C9; an early capability flag would advertise methods with no handler | yes |
-| D-6 | All batches sequential in one worktree | parallel lanes in one worktree / separate worktrees / sequential | R-L; separate worktrees would need extra merges the team-leader cannot verify per batch | yes |
-| D-7 | Phase 0 measurement is an orchestrator step (G-M), not a batch | batch / step | The plan says it is not a verification and the Horus run needs a fleet machine | yes |
-| D-8 (R6) | Verify lists name only existing projects; dependents taken from the Nx graph at this branch (plan R6.5) | keep removed names / graph | `npx nx graph`; removed hosts are not Nx projects | yes |
-| D-9 (R6) | Batch 11 drops the vscode-core null default and the VS Code smoke file | keep / drop | Only Electron and cli-engine call `registerVsCodeCorePlatformAgnostic` (plan R6.1, AD-30) | yes |
-| D-10 (R6) | Batch 19 becomes the worker host lib + desktop packaging (4 tasks, D-1 exception) | split into 19a/19b / one batch | Numbering stays stable; the lib, its bundle target and the launcher must land together | yes |
-| D-11 (R6) | `WORKER_REMOTE_COMMAND` lands in Batch 20 (worker-protocol), not Batch 19 | 19 / 20 | Batch 20 is its first code consumer; Batch 19 uses the literal name in usage text | yes |
+| #         | Decision                                                                                                                                                                                                                                                              | Options                                                                                | Evidence                                                                                                                                               | Reversible |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| D-1       | File cap counts production files; co-located specs and one-line barrel exports ride with their source. Batches that must change several projects atomically (C0, C3, the C4a host bindings, C4c, the shell/route batch) carry a stated exception to the 2-project cap | strict count / production-file count                                                   | Splitting those batches would commit a red tree (surface baselines, DI smoke specs, required-port compile)                                             | yes        |
+| D-2       | Verify commands extend the plan's table with every dependent app from the Nx graph                                                                                                                                                                                    | plan table / graph                                                                     | R-E; CLAUDE.md "each host project that depends on it"                                                                                                  | yes        |
+| D-3       | `CodexChatHostPorts` omits `driver`; Electron composition supplies it                                                                                                                                                                                                 | add `driver` to `CodexChatHostPortsDeps` / omit in host ports                          | Plan C4c: "Electron composition passes `driver` next to `sessions`"; `sessions` is also added only at composition (`codex-runtime-composition.ts:602`) | yes        |
+| D-4       | `'machines'` route ID lands with its route in Batch 26, not in C2                                                                                                                                                                                                     | C2 with a placeholder route / with the route                                           | R-B; a placeholder route would be a stub                                                                                                               | yes        |
+| D-5       | Interim Electron surface expectation from Batch 7 to Batch 22                                                                                                                                                                                                         | merge C3 into C9 / set Electron `remoteMachines` early without handlers / interim spec | C6 needs C3's host profile long before C9; an early capability flag would advertise methods with no handler                                            | yes        |
+| D-6       | All batches sequential in one worktree                                                                                                                                                                                                                                | parallel lanes in one worktree / separate worktrees / sequential                       | R-L; separate worktrees would need extra merges the team-leader cannot verify per batch                                                                | yes        |
+| D-7       | Phase 0 measurement is an orchestrator step (G-M), not a batch                                                                                                                                                                                                        | batch / step                                                                           | The plan says it is not a verification and the Horus run needs a fleet machine                                                                         | yes        |
+| D-8 (R6)  | Verify lists name only existing projects; dependents taken from the Nx graph at this branch (plan R6.5)                                                                                                                                                               | keep removed names / graph                                                             | `npx nx graph`; removed hosts are not Nx projects                                                                                                      | yes        |
+| D-9 (R6)  | Batch 11 drops the vscode-core null default and the VS Code smoke file                                                                                                                                                                                                | keep / drop                                                                            | Only Electron and cli-engine call `registerVsCodeCorePlatformAgnostic` (plan R6.1, AD-30)                                                              | yes        |
+| D-10 (R6) | Batch 19 becomes the worker host lib + desktop packaging (4 tasks, D-1 exception)                                                                                                                                                                                     | split into 19a/19b / one batch                                                         | Numbering stays stable; the lib, its bundle target and the launcher must land together                                                                 | yes        |
+| D-11 (R6) | `WORKER_REMOTE_COMMAND` lands in Batch 20 (worker-protocol), not Batch 19                                                                                                                                                                                             | 19 / 20                                                                                | Batch 20 is its first code consumer; Batch 19 uses the literal name in usage text                                                                      | yes        |
 
 ## Round 6 revision (2026-11-04)
 
@@ -157,10 +157,10 @@ Plan: implementation-plan.md "Round 6 — headless Electron worker host".
   on a CLI lane (opposite execution side, document-gate protocol); output appended to
   `design-spec-review.md`. Batch 23 starts only on an APPROVED verdict. Can start now.
 - **G-M — Phase 0 measurement run (after Batch 2).** amun-PC: `node
-  tools/process-sampler/src/sampler.js --duration 1800 --out <file>` under normal work. Horus
+tools/process-sampler/src/sampler.js --duration 1800 --out <file>` under normal work. Horus
   run (Q4 consent, decisions.md row 10): Round 6 — no Node or CLI install; the sampler can run
   under the desktop's bundled runtime (`ELECTRON_RUN_AS_NODE=1 /opt/Ptah/ptah-desktop
-  sampler.js …`), and the worker measurement needs a desktop build with worker mode. Before
+sampler.js …`), and the worker measurement needs a desktop build with worker mode. Before
   installing, back up what is replaced and check that Ptah is not running (`pgrep -f /opt/Ptah/ptah-desktop`).
   Writes `.ptah/specs/TASK_2026_858_f7b9/phase-0-measurement.md`. Not blocking for Phase 1 code;
   B1-B3 resource budget numbers come from it.
@@ -176,14 +176,14 @@ Plan: implementation-plan.md "Round 6 — headless Electron worker host".
 
 ## Phases and reviews
 
-| Phase | Batches | Phase review (cross-family) |
-| ----- | ------- | --------------------------- |
-| A Scaffold and measurement tool | 1-2 | none (workspace config and measurement tooling only) |
-| B Contracts and engine hooks | 3-7 | code-logic + style (new public API: `worker-protocol`, `rpc-machines.types.ts`) |
-| C Driver lock (both runtimes) | 8-13 | code-logic + style (new platform-core port, new required agent-sdk port) |
-| D Worker runtime and headless worker host (Round 6) | 14-19 | code-logic + style + `review-security` (R9) |
-| E Electron client and wiring | 20-22 | code-logic + `review-security` (R9) |
-| F Machines view | 23-26 (after G-D) | code-logic + style + visual (Electron, dark and light, against the revised prototype) |
+| Phase                                               | Batches           | Phase review (cross-family)                                                           |
+| --------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------- |
+| A Scaffold and measurement tool                     | 1-2               | none (workspace config and measurement tooling only)                                  |
+| B Contracts and engine hooks                        | 3-7               | code-logic + style (new public API: `worker-protocol`, `rpc-machines.types.ts`)       |
+| C Driver lock (both runtimes)                       | 8-13              | code-logic + style (new platform-core port, new required agent-sdk port)              |
+| D Worker runtime and headless worker host (Round 6) | 14-19             | code-logic + style + `review-security` (R9)                                           |
+| E Electron client and wiring                        | 20-22             | code-logic + `review-security` (R9)                                                   |
+| F Machines view                                     | 23-26 (after G-D) | code-logic + style + visual (Electron, dark and light, against the revised prototype) |
 
 Reviewer family must differ from the implementer family; the team-leader records both in the
 phase summary.
@@ -235,7 +235,7 @@ phase summary.
   `engines` change; scopes `worker-protocol`, `worker-runtime`, `remote-machines`, `machines-ui`,
   `process-sampler` in `.commitlintrc.json`
 - Validation notes: R-D (lockfile via `node scripts/verify.mjs --exec --task lockfile -- npm
-  install --package-lock-only --ignore-scripts`; diff only in the root entry); R-F; R-G (read
+install --package-lock-only --ignore-scripts`; diff only in the root entry); R-F; R-G (read
   `apps/ptah-electron/scripts/validate-deps.js` and report whether Electron needs `ws` declared,
   with the evidence line)
 - Implementation details: no CI Node < 22 exists (verified, see Plan validation); report that
@@ -441,7 +441,7 @@ phase summary.
 - Files: W/`libs/backend/rpc-handlers/src/lib/host-profile/{capabilities.ts,manifest.ts,host-profile.ts}`,
   W/`libs/backend/vscode-core/src/messaging/rpc-handler.ts`,
   W/`libs/shared/src/lib/types/rpc.types.ts` (D-B5-1: `RpcMethodRegistry extends
-  MachinesRpcMethodRegistry` and `MACHINES_RPC_METHOD_NAMES` in `RPC_METHOD_ENTRIES`; add
+MachinesRpcMethodRegistry` and `MACHINES_RPC_METHOD_NAMES` in `RPC_METHOD_ENTRIES`; add
   `@ptah-extension/shared` and its Batch 5 dependents to the verify list)
 - Plan reference: C3 :985-1000
 - Pattern to follow: an existing `host.*` manifest entry with `requires`
@@ -591,7 +591,7 @@ phase summary.
 - Pattern to follow: existing registry event surface
 - Quality requirements: `onRecordRemoved` from every removal point; `onRealSessionIdBound` from
   `bindRealSessionId`; `onRealSessionIdRebound({ tabId, oldSessionId, newSessionId,
-  ownerToken })` from the `'rebound'` branch (`session-registry.service.ts:380-394`, re-read);
+ownerToken })` from the `'rebound'` branch (`session-registry.service.ts:380-394`, re-read);
   re-exposed on `SessionLifecycleManager`; listener exceptions caught per listener
 - Validation notes: fires for `claude-sdk` records only (native is Batch 13); spec per removal
   path
@@ -782,7 +782,7 @@ phase summary.
 
 ---
 
-## Batch 14: C6a worker state stores — PENDING
+## Batch 14: C6a worker state stores — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -794,7 +794,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 14.1: Paths, workspace registry, tokens, pairing window, admin key, redaction — PENDING
+### Task 14.1: Paths, workspace registry, tokens, pairing window, admin key, redaction — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{paths,workspace-registry,token-store,pairing-window,admin-key,redact}.ts`
   (+ specs), W/`libs/backend/worker-runtime/src/index.ts`
@@ -809,7 +809,7 @@ phase summary.
 
 - Pairing and grant specs pass; verify passes
 
-## Batch 15: C6b event log and fan-out — PENDING
+## Batch 15: C6b event log and fan-out — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -821,7 +821,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 15.1: Event capture, writer, log, fan-out — PENDING
+### Task 15.1: Event capture, writer, log, fan-out — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{event-capture,session-log-writer,session-event-log,fan-out}.ts`
   (+ specs), W/`libs/backend/worker-runtime/src/index.ts`
@@ -836,7 +836,7 @@ phase summary.
 
 - The two bold W7 specs exist and pass; verify passes
 
-## Batch 16: C6c in-process RPC, method table, authorizer, capabilities (revised Round 6) — PENDING
+## Batch 16: C6c in-process RPC, method table, authorizer, capabilities (revised Round 6) — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -848,7 +848,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 16.1: Methods, authorizer, session index, in-process RPC — PENDING
+### Task 16.1: Methods, authorizer, session index, in-process RPC — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{worker-methods,worker-authorizer,worker-session-index,in-process-rpc}.ts` (+ specs)
 - Plan reference: W6 :288-317, W12 :873-894; C6 :1145-1153; AD-19
@@ -858,7 +858,7 @@ phase summary.
 - Validation notes: R-N
 - Implementation details: none
 
-### Task 16.2: Worker host profile and capability document — PENDING
+### Task 16.2: Worker host profile and capability document — COMPLETE
 
 - Depends on: Task 16.1
 - Files: W/`libs/backend/worker-runtime/src/lib/worker-host-profile.ts`,
@@ -879,7 +879,7 @@ phase summary.
 
 - Drift and outside-grant specs pass; verify passes
 
-## Batch 17: C6d session driver, approvals, transcript (revised Round 6) — PENDING
+## Batch 17: C6d session driver, approvals, transcript (revised Round 6) — COMPLETE (Codex; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -891,7 +891,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 17.1: Session driver and transcript — PENDING
+### Task 17.1: Session driver and transcript — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{session-driver,transcript}.ts` (+ specs)
 - Plan reference: W8 :374-436; C6 :1154-1158, :1160-1161; AD-18, AD-22
@@ -902,7 +902,7 @@ phase summary.
 - Validation notes: A3 / R-K fixture JSONL spec; W8 attach cases
 - Implementation details: snapshot via `CHAT_TOKENS.HISTORY_READ` → `readForResume`
 
-### Task 17.2: Pending permissions and native capability limit — PENDING
+### Task 17.2: Pending permissions and native capability limit — COMPLETE
 
 - Depends on: Task 17.1
 - Files: W/`libs/backend/worker-runtime/src/lib/pending-permissions.ts` (+ spec),
@@ -921,7 +921,7 @@ phase summary.
 
 - Approval, turn, transcript and native-limit specs pass; verify passes
 
-## Batch 18: C6e server, connection, readiness, service (revised Round 6) — PENDING
+## Batch 18: C6e server, connection, readiness, service (revised Round 6) — COMPLETE (Codex 18.1-18.2, Claude 18.3; review at Batch 19)
 
 - Recommended executor: CLI lane backend capability (security specs pinned by a test-capability lane, Task 18.3)
 - Execution mode: sequential
@@ -933,7 +933,7 @@ phase summary.
 - Phase: D | Phase review: at Batch 19
 - Verify: `npm run verify -- -p @ptah-extension/worker-runtime`
 
-### Task 18.1: Server, connection state machine, readiness — PENDING
+### Task 18.1: Server, connection state machine, readiness — COMPLETE
 
 - Files: W/`libs/backend/worker-runtime/src/lib/{worker-server,connection,readiness}.ts` (+ specs)
 - Plan reference: W2 :228-238; C6 :1142-1144, :1162-1170; AD-4, AD-14
@@ -949,7 +949,7 @@ phase summary.
 - Validation notes: `EADDRINUSE` names the port
 - Implementation details: none
 
-### Task 18.2: Worker service — PENDING
+### Task 18.2: Worker service — COMPLETE
 
 - Depends on: Task 18.1
 - Files: W/`libs/backend/worker-runtime/src/lib/worker-service.ts` (+ spec),
@@ -960,7 +960,7 @@ phase summary.
 - Validation notes: A2 spec
 - Implementation details: `createWorkerServer` is consumed by Batch 21's A1 spec
 
-### Task 18.3: Security spec suite — PENDING
+### Task 18.3: Security spec suite — COMPLETE
 
 - Depends on: Task 18.2
 - File: W/`libs/backend/worker-runtime/src/lib/worker-security.spec.ts` (create)
@@ -993,7 +993,7 @@ R6.3 components 1-2, AD-26 … AD-29.
 - Never run `build`, `build-worker-host`, `serve` or `package` targets; the packaged behaviour is
   checked in G-R (A10).
 
-### Task 19.1: `@ptah-extension/worker-host` project scaffold — PENDING
+### Task 19.1: `@ptah-extension/worker-host` project scaffold — COMPLETE
 
 - Files: W/`libs/backend/worker-host/{project.json,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json,jest.config.ts,eslint.config.mjs,src/index.ts}`,
   W/`tsconfig.base.json` (alias `@ptah-extension/worker-host`), W/`nx.json` (lint/test include
@@ -1006,7 +1006,7 @@ R6.3 components 1-2, AD-26 … AD-29.
 - Validation notes: A11 (implicit dependency added in 19.3)
 - Implementation details: none
 
-### Task 19.2: Commands, engine composition and entry — PENDING
+### Task 19.2: Commands, engine composition and entry — COMPLETE (3 rounds; known limits in batch-19.2-report.md)
 
 - Depends on: Task 19.1
 - Files: W/`libs/backend/worker-host/src/lib/**` (argv dispatch, one file per command group:
@@ -1024,7 +1024,7 @@ R6.3 components 1-2, AD-26 … AD-29.
   (no new dependency); `serve`: `fixPath()`, refuse `--auto-approve` / `PTAH_AUTO_APPROVE=true`
   (`with-engine.ts:366`), refuse on Node < 22 or `better-sqlite3` failure, then
   `withEngine({}, { mode: 'full', thoth: 'off', hostProfile: createWorkerRpcHostProfile(),
-  pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `createWorkerServer`
+pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `createWorkerServer`
   until SIGTERM/SIGINT; Ptah version from the `package.json` beside the bundle, passed to
   worker-runtime; `locks` via platform-core `listLocalDriverLocks`/`requestRelease` (Batch 9);
   `locks release` confirms, refuses without `--yes` in non-TTY; no service → "worker service is
@@ -1035,7 +1035,7 @@ R6.3 components 1-2, AD-26 … AD-29.
 - Implementation details: `serve` integration spec with a stub bootstrap and a real `ws`
   client; auto-approve and Node/`better-sqlite3` refusal specs (injected)
 
-### Task 19.3: Desktop packaging — bundle target, launcher, systemd unit — PENDING
+### Task 19.3: Desktop packaging — bundle target, launcher, systemd unit — COMPLETE
 
 - Depends on: Task 19.2
 - Files: W/`apps/ptah-electron/project.json` (target `build-worker-host`; `build.dependsOn` and
@@ -1061,7 +1061,7 @@ R6.3 components 1-2, AD-26 … AD-29.
   `inputs` instead and report it
 - Implementation details: Linux deb only (AppImage, Windows, macOS: no launcher)
 
-### Task 19.4: `docs/worker.md` — PENDING
+### Task 19.4: `docs/worker.md` — COMPLETE
 
 - Depends on: Task 19.3
 - File: W/`libs/backend/worker-host/docs/worker.md` (create) (+ spec in worker-host comparing its
@@ -1107,7 +1107,7 @@ R6.3 components 1-2, AD-26 … AD-29.
   `shell: false`, `--`; 15 s timeout; zod-parsed output; atomic registry write; tokens via
   `ISecretStorage`
 - Validation notes: AR5 plain-text keyring warning. Round 6: `WORKER_REMOTE_COMMAND =
-  '/opt/Ptah/resources/bin/ptah-worker'` exported from worker-protocol; remote argv
+'/opt/Ptah/resources/bin/ptah-worker'` exported from worker-protocol; remote argv
   `['-o','BatchMode=yes','-o','ConnectTimeout=10','--', alias, WORKER_REMOTE_COMMAND, 'status'|'pair', '--json']`;
   remote exit 127 or "not found" → `version-mismatch` "This Ptah build on <Machine> has no
   worker mode. Update the Ptah desktop app there." (never `ptah worker …`)
@@ -1175,7 +1175,7 @@ R6.3 components 1-2, AD-26 … AD-29.
   (or the quit/dispose site it uses)
 - Plan reference: C9 :1276-1287
 - Quality requirements: `remoteMachines: true`; `hostHandlers['host.remoteMachines']:
-  MachinesRpcHandlers`; `MachinesService` disposed on quit; "excludes nothing" restored (R-C)
+MachinesRpcHandlers`; `MachinesService` disposed on quit; "excludes nothing" restored (R-C)
 - Validation notes: registration failure only warns (`register-rpc-surface.ts:183-196`)
 - Implementation details: none
 

@@ -155,9 +155,10 @@ export class SkillTriggerService {
   private async fireHarvest(workspaceRoot: string): Promise<void> {
     // Capture task specs independently of invocation telemetry.
     try {
-      await this.harvester.harvest(workspaceRoot);
+      await this.harvester.harvest(workspaceRoot, { trigger: 'auto' });
     } catch (error: unknown) {
-      this.logger.debug('[skill-synthesis] spec harvest failed', {
+      // degradation-audit: reported - logged at warn; the next Stop schedules another harvest.
+      this.logger.warn('[skill-synthesis] spec harvest failed', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

@@ -10,6 +10,7 @@ export {
 } from './lib/code-execution/ptah-api-builder.service';
 export {
   CodeExecutionMCP,
+  type IMcpExternalCallerAccessUpdater,
   type McpRegistrationFailure,
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';

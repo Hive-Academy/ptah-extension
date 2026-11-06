@@ -7,6 +7,7 @@
  *
  * All writes route through {@link SettingsSaveFeedbackService.saveGeneric}:
  * - Port save (A30): S-explicit with Undo restoring the previous port and persistent restart note.
+ * - External caller access: immediate selection with Undo restoring the previous access level.
  * - Tool namespaces (A31): S-sel with Undo restoring the previous disabled array.
  * - Allow localhost (A32): Enabling requires inline confirmation (S-confirm, P8); disabling is immediate with Undo (S-sel).
  * - Host error text is never surfaced to visible text or toasts (D15).
@@ -35,12 +36,14 @@ import {
   AlertCircle,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type { McpExternalCallerAccess } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export const COULD_NOT_SAVE_PORT = 'Could not save the MCP port.';
 export const COULD_NOT_UPDATE_NAMESPACES = 'Could not update MCP tool namespaces.';
 export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost setting.';
+export const COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS = 'Could not update external MCP caller access.';
 export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser settings.';
 
 @Component({
@@ -124,6 +127,32 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
           <span>{{ err }}</span>
         </div>
       }
+
+      <!-- External MCP caller access -->
+      <div class="mb-3 text-xs">
+        <label for="mcp-external-caller-access" class="block font-bold text-base-content">
+          External MCP callers
+        </label>
+        <select
+          id="mcp-external-caller-access"
+          class="select select-bordered select-xs mt-1 w-full max-w-xs text-base-content"
+          [ngModel]="externalCallerAccess()"
+          (ngModelChange)="onExternalCallerAccessChange($event)"
+          [ptahBusyDisabled]="saving() || !loaded()"
+          data-testid="mcp-external-caller-access"
+        >
+          <option value="read-only">Read-only (recommended)</option>
+          <option value="full">Full access</option>
+        </select>
+        <p
+          class="mt-1 text-xs"
+          [class.text-warning]="externalCallerAccess() === 'full'"
+          [class.text-base-content-muted]="externalCallerAccess() === 'read-only'"
+          data-testid="mcp-external-caller-access-hint"
+        >
+          External tools stay read-only until you select Full access. Full access lets other local tools call privileged Ptah tools, including execute_code, but cannot cross workspaces.
+        </p>
+      </div>
 
       <!-- Namespaces & browser matrix (P4, rows A31-A32) -->
       <div class="overflow-x-auto">
@@ -265,6 +294,10 @@ export class McpPortConfigComponent implements OnInit {
   /** A failed port write. Separate from validation, so Save stays enabled for a retry (Moderate 5). */
   readonly saveError = signal<string | null>(null);
 
+  /** External MCP caller access. Read-only is the default when the setting is absent. */
+  readonly externalCallerAccess = signal<McpExternalCallerAccess>('read-only');
+  readonly savedExternalCallerAccess = signal<McpExternalCallerAccess>('read-only');
+
   /** Namespace toggle state */
   readonly disabledNamespaces = signal<string[]>([]);
   readonly savedDisabledNamespaces = signal<string[]>([]);
@@ -327,6 +360,10 @@ export class McpPortConfigComponent implements OnInit {
         const allowLocalhost = result.data.browserAllowLocalhost ?? false;
         this.browserAllowLocalhost.set(allowLocalhost);
         this.savedBrowserAllowLocalhost.set(allowLocalhost);
+        const externalCallerAccess =
+          result.data.mcpExternalCallerAccess ?? 'read-only';
+        this.externalCallerAccess.set(externalCallerAccess);
+        this.savedExternalCallerAccess.set(externalCallerAccess);
         this.loadState.set('loaded');
         return;
       }
@@ -396,6 +433,62 @@ export class McpPortConfigComponent implements OnInit {
           return { ok: false, message: COULD_NOT_SAVE_PORT };
         } catch {
           return { ok: false, message: COULD_NOT_SAVE_PORT };
+        }
+      },
+    });
+  }
+
+  async onExternalCallerAccessChange(
+    value: McpExternalCallerAccess,
+  ): Promise<void> {
+    if (this.saving() || !this.loaded()) return;
+    const previous = this.savedExternalCallerAccess();
+    if (value === previous) return;
+
+    this.externalCallerAccess.set(value);
+    await this.feedback.saveGeneric({
+      label: 'External MCP caller access',
+      write: async () => {
+        try {
+          const result = await this.rpcService.call('agent:setConfig', {
+            mcpExternalCallerAccess: value,
+          });
+          if (result.isSuccess() && result.data?.success === true) {
+            this.savedExternalCallerAccess.set(value);
+            return { ok: true };
+          }
+          this.externalCallerAccess.set(previous);
+          return {
+            ok: false,
+            message: COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
+          };
+        } catch {
+          this.externalCallerAccess.set(previous);
+          return {
+            ok: false,
+            message: COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
+          };
+        }
+      },
+      undo: async () => {
+        try {
+          const result = await this.rpcService.call('agent:setConfig', {
+            mcpExternalCallerAccess: previous,
+          });
+          if (result.isSuccess() && result.data?.success === true) {
+            this.externalCallerAccess.set(previous);
+            this.savedExternalCallerAccess.set(previous);
+            return { ok: true };
+          }
+          return {
+            ok: false,
+            message: COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
+          };
+        } catch {
+          return {
+            ok: false,
+            message: COULD_NOT_UPDATE_EXTERNAL_CALLER_ACCESS,
+          };
         }
       },
     });

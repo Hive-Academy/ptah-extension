@@ -113,13 +113,13 @@ describe('BackgroundAgentStore — entries whose session never resolved', () => 
     store = TestBed.inject(BackgroundAgentStore);
   });
 
-  function started(agentId: string, sessionId: string) {
+  function started(agentId: string, sessionId: string, timestamp = Date.now()) {
     store.onStarted({
       agentId,
       toolCallId: `toolu_${agentId}`,
       agentType: 'general-purpose',
       sessionId,
-      timestamp: Date.now(),
+      timestamp,
     } as BackgroundAgentStartedEvent);
   }
 
@@ -129,11 +129,13 @@ describe('BackgroundAgentStore — entries whose session never resolved', () => 
   });
 
   it('keeps an ownerless entry in the unscoped list only', () => {
-    started('a1', '');
-    started('a2', OTHER_SESSION);
+    // Fixed timestamps: agents() is newest first, and two Date.now() calls
+    // may or may not fall in the same millisecond.
+    started('a1', '', 1_000);
+    started('a2', OTHER_SESSION, 2_000);
 
     expect(store.agentsForSession(REAL_SESSION)).toEqual([]);
-    expect(store.agents().map((a) => a.agentId)).toEqual(['a1', 'a2']);
+    expect(store.agents().map((a) => a.agentId)).toEqual(['a2', 'a1']);
   });
 
   it('clears an ownerless entry through the completed sweep', () => {

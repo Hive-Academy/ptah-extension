@@ -394,7 +394,10 @@ describe('HarnessReconcilerService — retirement outcomes (D-2)', () => {
       (t1.removedRetired ?? []).map((row) =>
         harnessPathIdentity(first.workspaceRoot, row.relPath),
       ),
-    ).toEqual([`${ws}/${RETIRED_SKILL}`, `${ws}/${frag(KEY_REMOVED)}`]);
+    ).toEqual([
+      harnessPathIdentity(ws, RETIRED_SKILL),
+      harnessPathIdentity(ws, frag(KEY_REMOVED)),
+    ]);
 
     // Disk: deleted only what was proven; kept copies untouched.
     expect(existsSync(join(ws, ...RETIRED_SKILL.split('/')))).toBe(false);
@@ -464,8 +467,8 @@ describe('HarnessReconcilerService — retirement outcomes (D-2)', () => {
       harnessPathIdentity(health.workspaceRoot, RETIRED_SKILL),
     );
     expect(identities).toEqual([
-      `${wsA}/${RETIRED_SKILL}`,
-      `${wsB}/${RETIRED_SKILL}`,
+      harnessPathIdentity(wsA, RETIRED_SKILL),
+      harnessPathIdentity(wsB, RETIRED_SKILL),
     ]);
   });
 

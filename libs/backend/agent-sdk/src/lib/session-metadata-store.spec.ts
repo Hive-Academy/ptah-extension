@@ -1801,7 +1801,7 @@ describe('SessionMetadataStore', () => {
         const [first] = await hostB.getCliSessionsForRestore('sess-1');
         expect(first).toMatchObject({
           status: 'stopped',
-          stopReason: 'host-restarted',
+          stopReason: 'host-restart',
           completedAt: new Date(firstRestoreAt).toISOString(),
           lastActivityAt: new Date(firstRestoreAt).toISOString(),
         });
@@ -1825,7 +1825,7 @@ describe('SessionMetadataStore', () => {
 
         expect(read).toMatchObject({
           status: 'stopped',
-          stopReason: 'host-restarted',
+          stopReason: 'host-restart',
         });
         expect(storage.__state.entries.has(HOST_RUN_LEASE_KEY)).toBe(false);
       });
@@ -1877,7 +1877,7 @@ describe('SessionMetadataStore', () => {
 
       expect(read).toMatchObject({
         status: 'stopped',
-        stopReason: 'host-restarted',
+        stopReason: 'host-restart',
       });
     });
 

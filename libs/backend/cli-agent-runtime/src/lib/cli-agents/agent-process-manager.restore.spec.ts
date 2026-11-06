@@ -236,7 +236,7 @@ describe('AgentProcessManager.restoreAgents', () => {
     const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
     expect(info).toMatchObject({
       status: 'stopped',
-      stopReason: 'host-restarted',
+      stopReason: 'host-restart',
       completedAt: lastActivityAt,
       lastActivityAt,
     });
@@ -251,10 +251,14 @@ describe('AgentProcessManager.restoreAgents', () => {
 
     const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
     expect(info.status).toBe('stopped');
-    expect(info.stopReason).toBe('host-restarted');
+    expect(info.stopReason).toBe('host-restart');
     expect(Date.parse(info.lastActivityAt ?? '')).toBeGreaterThanOrEqual(
       beforeRestore,
     );
+    expect(Date.parse(info.completedAt ?? '')).toBeGreaterThanOrEqual(
+      beforeRestore,
+    );
+    expect(Date.parse(info.completedAt ?? '')).toBeLessThanOrEqual(Date.now());
     expect(info.completedAt).toBe(info.lastActivityAt);
   });
 
@@ -290,6 +294,7 @@ describe('AgentProcessManager.restoreAgents', () => {
       expect.objectContaining({
         cliSessionId: 'cli-session-1',
         lastActivityAt: Date.parse(lastActivityAt),
+        interruptedByHostRestart: true,
       }),
     );
     expect(gated.resumeDecision).toEqual({
@@ -299,7 +304,7 @@ describe('AgentProcessManager.restoreAgents', () => {
     });
   });
 
-  it('refuses resume through the real gate after the idle limit', async () => {
+  it('resumes an interrupted lane through the real gate past the idle limit', async () => {
     const now = Date.now();
     const output: IOutputChannel = {
       name: 'Ptah',
@@ -337,8 +342,8 @@ describe('AgentProcessManager.restoreAgents', () => {
     );
 
     expect(gated.resumeDecision).toEqual({
-      decision: 'fresh',
-      reason: 'idle 601s exceeds 600s',
+      decision: 'resumed',
+      reason: 'host restart interrupted the lane; resuming its CLI session',
       sessionKnown: true,
     });
   });
@@ -390,8 +395,8 @@ describe('AgentProcessManager.restoreAgents', () => {
         new Date(now).toISOString(),
       );
       expect(gated.resumeDecision).toEqual({
-        decision: 'fresh',
-        reason: 'idle 601s exceeds 600s',
+        decision: 'resumed',
+        reason: 'host restart interrupted the lane; resuming its CLI session',
         sessionKnown: true,
       });
     } finally {
@@ -437,6 +442,7 @@ describe('AgentProcessManager.restoreAgents', () => {
       const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
       expect(info.status).toBe(status);
       expect(info.completedAt).toBe('2026-09-01T10:05:00.000Z');
+      expect(info.stopReason).toBeUndefined();
     },
   );
 

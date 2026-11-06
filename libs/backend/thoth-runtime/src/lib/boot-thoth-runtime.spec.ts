@@ -1,9 +1,13 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_TOKENS,
+  type IndexingRunDeps,
+} from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { IndexingRpcHandlers } from '@ptah-extension/rpc-handlers';
@@ -430,27 +434,41 @@ describe('bootThothRuntime', () => {
   });
 
   it('leaves the skill trigger ref null when starting it fails', async () => {
-    const skillTrigger = { start: jest.fn(() => { throw new Error('boom'); }) };
+    const skillTrigger = {
+      start: jest.fn(() => {
+        throw new Error('boom');
+      }),
+    };
     const onSkillTriggerStarted = jest.fn();
-    const refs = await bootThothRuntime(makeContainer([
-      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
-      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
-      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
-    ]), { workspaceRoot: '/ws', onSkillTriggerStarted });
+    const refs = await bootThothRuntime(
+      makeContainer([
+        [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+        [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+        [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+      ]),
+      { workspaceRoot: '/ws', onSkillTriggerStarted },
+    );
 
     expect(refs.skillTrigger).toBeNull();
     expect(onSkillTriggerStarted).not.toHaveBeenCalled();
   });
 
-  it('injects symbol run-deps into IndexingRpcHandlers and broadcasts indexing progress', async () => {
+  it('injects symbol run-deps that resolve the indexer stats and report progress through onProgress', async () => {
     const webviewManager = makeWebviewManager();
+    const stats = {
+      filesScanned: 10,
+      symbolsIndexed: 80,
+      errors: 0,
+      durationMs: 12,
+    };
     const symbolIndexer = {
       indexWorkspace: jest.fn(
         async (
           _root: string,
           opts?: { onProgress?: (p: unknown) => void; userInitiated?: boolean },
-        ): Promise<void> => {
+        ) => {
           opts?.onProgress?.({ filesScanned: 5, totalFiles: 10 });
+          return stats;
         },
       ),
     };
@@ -465,41 +483,41 @@ describe('bootThothRuntime', () => {
     await bootThothRuntime(container, { workspaceRoot: '/ws' });
 
     expect(setRunDeps).toHaveBeenCalledTimes(1);
-    const runDeps = setRunDeps.mock.calls[0][0] as {
-      runSymbols: (root: string) => Promise<void>;
-    };
-    await runDeps.runSymbols('/ws');
+    const runDeps = setRunDeps.mock.calls[0][0] as IndexingRunDeps;
+    const onProgress = jest.fn();
+    await expect(runDeps.runSymbols('/ws', { onProgress })).resolves.toBe(
+      stats,
+    );
 
+    expect(onProgress).toHaveBeenCalledWith({
+      filesScanned: 5,
+      totalFiles: 10,
+    });
     // Boot starts one governed run (no userInitiated). The click is the second.
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(2);
     // These deps only serve `indexing:start` / `indexing:resume` — a click —
     // so the run never waits on the background-work governor (TASK_2026_437).
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
       '/ws',
-      expect.objectContaining({ userInitiated: true }),
+      expect.objectContaining({ userInitiated: true, onProgress }),
     );
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
       '/ws',
       expect.not.objectContaining({ userInitiated: true }),
     );
-    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+    // Progress pushes belong to the indexing control service now.
+    expect(webviewManager.broadcastMessage).not.toHaveBeenCalledWith(
       MESSAGE_TYPES.INDEXING_PROGRESS,
-      expect.objectContaining({
-        pipeline: 'symbols',
-        percent: 50,
-        currentLabel: '5/10 files',
-        totalKnown: true,
-        processed: 5,
-        total: 10,
-      }),
+      expect.anything(),
     );
   });
 
-  it('swallows AbortError from the symbol indexer but rethrows other failures', async () => {
+  it('passes AbortError and other failures through unchanged for the control service to classify', async () => {
     const setRunDeps = jest.fn();
     const abortError = new Error('aborted');
     abortError.name = 'AbortError';
-    const scripted = [abortError, new Error('real failure')];
+    const realFailure = new Error('real failure');
+    const scripted = [abortError, realFailure];
     const symbolIndexer = {
       indexWorkspace: jest.fn(
         async (
@@ -520,12 +538,95 @@ describe('bootThothRuntime', () => {
     ]);
 
     await bootThothRuntime(container, { workspaceRoot: '/ws' });
-    const runDeps = setRunDeps.mock.calls[0][0] as {
-      runSymbols: (root: string) => Promise<void>;
-    };
+    const runDeps = setRunDeps.mock.calls[0][0] as IndexingRunDeps;
 
-    await expect(runDeps.runSymbols('/ws')).resolves.toBeUndefined();
-    await expect(runDeps.runSymbols('/ws')).rejects.toThrow('real failure');
+    await expect(runDeps.runSymbols('/ws')).rejects.toBe(abortError);
+    await expect(runDeps.runSymbols('/ws')).rejects.toBe(realFailure);
+  });
+
+  it('routes the lifecycle full run through trackBackgroundRun and passes reindexFile through', async () => {
+    const progress = { filesScanned: 1, totalFiles: 2 };
+    const symbolIndexer = {
+      indexWorkspace: jest.fn(
+        async (
+          _root: string,
+          opts?: { onProgress?: (p: unknown) => void; signal?: AbortSignal },
+        ) => {
+          opts?.onProgress?.(progress);
+          return undefined;
+        },
+      ),
+      reindexFile: jest.fn().mockResolvedValue(undefined),
+      deleteFileSymbols: jest.fn().mockReturnValue(0),
+    };
+    const recordProgress = jest.fn();
+    let joinedSynchronously = false;
+    const indexingControl = {
+      getStatus: jest.fn().mockResolvedValue({ memoryEnabled: true }),
+      trackBackgroundRun: jest.fn(
+        async (
+          _root: string,
+          run: (onProgress: (p: unknown) => void) => Promise<unknown>,
+        ) => {
+          const before = symbolIndexer.indexWorkspace.mock.calls.length;
+          const pending = run(recordProgress);
+          joinedSynchronously =
+            symbolIndexer.indexWorkspace.mock.calls.length === before + 1;
+          return pending;
+        },
+      ),
+    };
+    let emit: ((batch: unknown) => void) | undefined;
+    const watcher = {
+      watch: jest.fn(
+        (_root: string, _opts: unknown, cb: (batch: unknown) => void) => {
+          emit = cb;
+          return { dispose: jest.fn() };
+        },
+      ),
+    };
+    const memoryCurator = { start: jest.fn(), onEvent: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [MEMORY_TOKENS.INDEXING_CONTROL, indexingControl],
+      [CODE_SYMBOL_INDEXER, symbolIndexer],
+      [PLATFORM_TOKENS.WORKSPACE_WATCHER, watcher],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(indexingControl.trackBackgroundRun).toHaveBeenCalledTimes(1);
+    expect(indexingControl.trackBackgroundRun).toHaveBeenCalledWith(
+      '/ws',
+      expect.any(Function),
+    );
+    expect(joinedSynchronously).toBe(true);
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
+      '/ws',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        onProgress: recordProgress,
+      }),
+    );
+    expect(recordProgress).toHaveBeenCalledWith(progress);
+
+    emit?.({
+      root: '/ws',
+      changes: [{ path: '/ws/src/a.ts', kind: 'update' }],
+      overflow: false,
+      truncated: false,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 650));
+
+    expect(symbolIndexer.reindexFile).toHaveBeenCalledWith(
+      '/ws/src/a.ts',
+      '/ws',
+    );
+    expect(indexingControl.trackBackgroundRun).toHaveBeenCalledTimes(1);
+    await refs.symbolWatcher?.close();
   });
 
   it('does not wire the symbol indexer when the connection is closed', async () => {

@@ -1,94 +1,116 @@
 # HANDOFF — TASK_2026_858_f7b9 (Ptah remote workers)
 
-Written 2026-11-04 by the orchestrator session (updated after Phase C). Supersedes the 2026-11-02 HANDOFF.
+Written 2026-11-05 by the orchestrator session (75M tokens used). Supersedes every earlier HANDOFF.md.
 
 ## Goal
 
 Control Ptah on the LAN machines Horus, Anubis and Chappie from the Electron desktop (later a
-mobile PWA). The worker exposes WS `/rpc` on port 41873, reached through an `ssh -W` client;
-JSONL event log. Libs: worker-protocol, worker-runtime, remote-machines, machines-ui
-(+ Round 6: worker-host). Gatsby only serves the d3:4b decision model (tunnel 127.0.0.1:11435).
-
-## Branch and worktree
-
-- ACTIVE: `feat/remote-workers-v2`, worktree `.claude-worktrees/remote-workers-v2`, base main
-  c5e5c704b (decision row 18). The 9 Batch 1–7 commits were cherry-picked from the old branch.
-- BACKUP: `feat/remote-workers` (worktree `.claude-worktrees/remote-workers`) — untouched, unpushed.
-- The v2 worktree has a `node_modules` symlink to the main checkout (needed by the `marked`
-  mapping in `jest.preset.js`).
-
-## User decisions (decisions.md)
-
-- Rows 12–17 as before (Gate 2, Round 5 plan, native Codex lock, watch-only Phase 1, G-D).
-- Row 18 fresh branch + cherry-pick. Row 19 worker = headless Electron (Round 6: desktop binary in
-  Node mode via a `ptah-worker` launcher + new `scope:cli` lib `worker-host` on cli-engine).
-- Row 20 decision model timeout 60 s. Row 21 workers use provider CLI logins (no key storage).
-  Row 22 systemd user service + `loginctl enable-linger` on Horus, Anubis, Chappie (Phase F).
-- Row 23 draft PR with one open Major defect, fixed first in Phase C as Batch 7.9.
-- Fleet ops O1–O5 and G-M (Horus): still UNANSWERED. Ask first; back up; confirm Ptah not running.
+mobile PWA). The worker exposes WS `/rpc` on loopback port 41873, reached through an `ssh -W`
+client; JSONL event log. Libs: worker-protocol, worker-runtime, remote-machines, machines-ui,
+worker-host (headless Electron worker = desktop binary in Node mode via the `ptah-worker`
+launcher). User decisions: `decisions.md` rows 12–24 (row 21: provider CLI logins only on
+workers; row 22: systemd user unit + `loginctl enable-linger`).
 
 ## Done
 
-PR #927 (draft): https://github.com/Hive-Academy/PtahCode/pull/927 — branch `feat/remote-workers-v2`.
+- PR #927 (Phases A–C) MERGED into main (7e0b461c8).
+- PR #928 https://github.com/Hive-Academy/PtahCode/pull/928 — DRAFT, branch
+  `feat/remote-workers-phase-d`, base `main`. Worktree
+  `/home/amun/ptah-extension/.claude-worktrees/remote-workers-phase-d`. Pushed head **e8d5a89b9**,
+  **CI success** (run 41917824789). Commits since the last handoff:
+  - 941a66adc merge origin/main
+  - 52d50c3a3 Task 19.2 round 2 (real lock status, file locks)
+  - d125b68fc Task 19.2 round 3 (remote session composition, Claude)
+  - 3b7fbb05c Task 19.3 packaging (`build-worker-host`, launcher, systemd unit, validate-deps)
+  - d1d527ef7 Task 19.4 `libs/backend/worker-host/docs/worker.md` + Phase D review records
+  - aeda764fb fix plan + handoff
+  - 9ef234807 Batch 20 turn-lifecycle fixes (Claude)
+  - e8d5a89b9 Batch 21 security/store fixes (Claude): autopilot-level refusal, `grants revoke`,
+    live revocation, shared file lock + atomic writes, connection cap 64, admin identity check,
+    admin handlers split out of serve.ts
+- Last orchestrator verify at e8d5a89b9: worker-protocol 186, worker-runtime 127, worker-host 43
+  tests pass; lint/typecheck pass; degradation audit exit 0. ptah-electron 1623 tests passed at
+  3b7fbb05c (not re-run since; Batches 20–21 did not touch apps/).
+- Phase D reviews: `phase-d-code-logic-review.md`, `phase-d-code-style-review.md`,
+  `phase-d-security-review.md`, `phase-d-codex-review.md` → `phase-d-fix-plan.md`.
+- Codex re-review of Batches 20–21: `phase-d-fixes-codex-review.md` (UNCOMMITTED file) —
+  CHANGES REQUESTED 5/10, six new findings (1 High live lock theft after 60 s; 2 High revocation
+  misses a connection in auth; 3 High shutdown releases lock after refused abort; 4 Moderate
+  held permission lost on late-resolved start; 5 Moderate admin key sent to any listener with
+  the machine ID → challenge-response HMAC; 6 Low `lastUsedAt` debounce set before write).
 
-| Item | Commit(s) | Review |
-| ---- | --------- | ------ |
-| Batches 1–7 (cherry-picked) + Phase B fixes + 7.9 | c9e71a634 … 17ade5466 | Codex; 7.9 APPROVED 8/10 |
-| Round 6 plan (headless Electron worker) | dda41e36c | orchestrator spot-check |
-| Batch 8 driver lock port, kernel/null lock | e9874ed73 | Phase C |
-| Batch 9 control endpoint, local lock client | e7d767ddf | Phase C |
-| Batch 10 registry lifecycle notifications | 88f2a7721 | Phase C |
-| Batch 11 host lock bindings | 0ca2270d6 | Phase C |
-| Audit fix | 3f0d133a7 | — |
-| Batch 12 lock coordinator + call sites | d7e3871ef | Phase C |
-| Batch 13 native Codex driver gate | 446c5f38b | Phase C |
-| Phase C fixes (2 Codex rounds + Claude spec correction) | c50e62b4d, 8cdb176b7 | style APPROVED 8/10; logic REVISE 7/10 → N1 |
-| CI fix (lock spec log folder) | c95822034 | in Batch 13.9 review |
-| Batch 13.9 (N1 + lock races) | 03dfe507b, 518cb5d17 | Codex APPROVED 8/10 |
+## In progress — revise round 1 (of max 2), PARTIAL and UNCOMMITTED
 
-Phase C implementers: Codex lanes (they cannot run Nx or sockets in their sandbox; the orchestrator
-ran every verify). Phase C reviewers: Claude subagents. Batch 13.9: Claude implementer, Codex reviewer.
+A Claude backend-developer subagent was fixing findings 1–6 and was stopped by Ptah's subagent
+budget monitor (not the user). Its last note: "Now the admin client (finding 5)". Uncommitted
+edits (not reviewed, not verified):
 
-Open minor follow-ups (decision row 24): `console.warn` in `create-session-driver-lock.ts`, temp-home
-leak on spawn error in `spawn-driver-lock-holder.ts`, shared ChatSessionService spec factory,
-`SessionRegistry` exported from the agent-sdk barrel only for a spec.
+- libs/worker-protocol/src/lib/methods.ts, methods.spec.ts
+- libs/backend/worker-runtime/src/lib/{admin-key,connection,file-lock,process-state,token-store}.ts
+  and specs admin-key, file-lock, token-store
+- libs/backend/worker-host/src/lib/commands/admin-client.ts, admin-client.spec.ts (and possibly
+  serve.spec.ts — it changed on disk at the end)
 
-Known load flakes (pass alone): mcp-bench `snapshot-audits`, platform-core `file-settings-manager.bench`
-and `agent-pack-download` A2, ptah-electron `git-watcher.real-git`.
+Likely state: findings 1, 6 and part of 2 and 5 in progress; 3 and 4 (remote-sessions.ts,
+session-driver.ts) probably not started. Confirm with `git diff`.
 
-Temporary worktree `.claude-worktrees/rw2-ci-merge` (detached, uncommitted merge of origin/main for an
-e2e check): waits for the user's permission to remove it.
+The Ptah subagent handoff record
+`/home/amun/ptah-extension/.ptah/subagent-handoffs/20261104T214520753Z-4d26cf529e2bbba2-toolu_01MPtGuaLU9F4kZs3VESYbBz-906e2f7d.handoff.md`
+is still `status: pending`. Its "original task" is Batch 21, which is already committed; the
+unfinished work is revise round 1 (brief below). Set it to `consumed` when you continue.
 
-## Decision model (Gatsby)
+Revise round 1 brief (give it to a fresh backend-developer with the rules below): fix findings
+1–6 of `phase-d-fixes-codex-review.md`: (1) never steal a live owner's lock; owner identity that
+survives PID reuse (PID + /proc start time, or nonce lease); release only your own lock; specs
+for slow live owner and PID reuse. (2) recheck token state after the `recordUse` await; revoke
+and grant-refresh scans cover connections in auth; spec. (3) shutdown keeps the driver lock of a
+turn whose `chat:abort` failed; spec. (4) keep held tab-only permissions while a timed-out start
+can still resolve; bind on late `session:id-resolved`; spec. (5) admin auth by challenge-response
+HMAC-SHA256(adminKey, nonce + context), constant-time compare, key never on the wire; keep
+PID/machine-ID early refusal; update worker-protocol schemas and docs/worker.md; spec with a fake
+listener. (6) set the `lastUsedAt` debounce only after a successful write; spec. Also look for a
+cause of the intermittent serve.spec.ts SIGTERM/SIGINT failure (2/43 once under load). Append a
+"Revise round 1" section to `batch-21-report.md`.
 
-Ptah 2.0.0 reaches Gatsby; probes pass; a direct valid request answers in ~14 s. Live calls
-timed out at 30 s. `~/.ptah/settings.json` now says 60000 (backup
-`settings.json.bak-20261104-timeout`), but the running app did NOT reload the external edit
-(calls at 05:38–05:48 UTC still 30000). The user must set the timeout in the Ptah UI
-(Settings → Providers → Decision model). Do not restart Ptah only for this (row 15).
+## Open problems and decisions
 
-## PR state (checked 2026-11-04, end of session)
+- Fleet ops O1–O5 and G-M on Horus — unanswered; ask the user before Phase F.
+- Decision-model 60 s permission timeout in the Ptah UI not confirmed (docs say `timeoutAt: 0`
+  waits indefinitely, plan 6.3).
+- Revise cap: after round 1, one Codex review. If it still finds defects, report them to the user
+  and stop (no third round).
+- Subagent budget: a subagent that accumulates ~3M weighted tokens is killed. Keep briefs narrow;
+  split round 1 into two subagents if needed (findings 1, 2, 5, 6 in worker-runtime/protocol/
+  admin-client; findings 3, 4 in remote-sessions.ts/session-driver.ts) — run them sequentially or
+  ensure file-disjoint scopes.
 
-- PR #927 draft, head 5b71f8bfa (docs commit with this HANDOFF on top), 38 commits over main.
-  CI 18 pass / 4 skipped / 0 fail. mergeable=MERGEABLE, mergeStateStatus=BLOCKED (draft +
-  review required). 0 reviews; one CodeRabbit "Draft PR not reviewed" comment.
-- origin/main is 67 commits ahead; `git merge-tree --write-tree HEAD origin/main` is clean.
-- No lanes, subagents or child sessions are running.
+## Key files (task folder `/home/amun/ptah-extension/.claude-worktrees/remote-workers-phase-d/.ptah/specs/TASK_2026_858_f7b9/`)
 
-## Open question to the user (asked, NOT yet answered)
+- `phase-d-fixes-codex-review.md` — the six findings of round 1 (uncommitted; commit it).
+- `phase-d-fix-plan.md` — Batches 20/21 items and the deferred list.
+- `future-enhancements.md` — prioritized follow-ups (uncommitted; commit it).
+- `batch-20-report.md`, `batch-21-report.md` — what each fix batch did and its known limits.
+- `batches.md` — Batches 14–19 COMPLETE.
+- `decisions.md` — user decisions.
+- `libs/backend/worker-host/docs/worker.md` (in the worktree) — operator guide; keep it in sync.
 
-The user asked "the pr is a draft, where are we now?". I offered two options:
-1. Keep PR #927 a draft and continue Phase D on the same branch (handoff plan).
-2. Mark PR #927 ready now (Phases A–C add no user-visible behavior; CodeRabbit then reviews),
-   and start Phase D on a new branch from main.
-Wait for the answer before doing either. Also still waiting: decision-model UI timeout (user
-action), permission to remove `.claude-worktrees/rw2-ci-merge`, fleet ops O1–O5 and G-M.
+## Background work
+
+None running. No CI lanes, child sessions or watchers. The Codex review lane (CLI session
+01a1a87e-fd51-7c03-8a4d-e52f456d4597) completed; resume it with `resume_session_id` to review the
+round 1 changes.
 
 ## Next steps
 
-1. Get the user's answer to the question above. Watch PR #927 CI and reviews
-   (`gh pr view 927 --json statusCheckRollup,reviews,comments`); fix task-related failures.
-   If option 2: `gh pr ready 927`, then watch CodeRabbit and address findings.
-2. Phase D (Batches 14–19) per batches.md (Round 6), one executor at a time; Phase D review after
-   Batch 19 by a different family than the implementer. Ask the user before starting Phase D.
-3. Fleet operations O1–O5 and G-M: still unanswered; ask before any fleet change.
+1. In the worktree: `git status -s` and `git diff` to see the partial round 1 edits.
+2. Spawn a fresh `backend-developer` with the round 1 brief above, telling it to continue from the
+   existing edits and not redo finished work. Set the Ptah handoff record to `consumed`.
+3. Verify: `npm run verify -- -p @ptah-extension/worker-host,@ptah-extension/worker-runtime,@ptah-extension/worker-protocol -- --output-style=static --skip-nx-cache`
+   and `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` (exit 0).
+4. Commit (foreground, explicit paths, include `phase-d-fixes-codex-review.md` and
+   `future-enhancements.md`); push in the background; watch CI with `gh run watch`.
+5. Codex review of the round 1 commit (resume session 01a1a87e-fd51-7c03-8a4d-e52f456d4597).
+   Defects left → report to the user and stop.
+6. Update the PR #928 body (`## Summary`, `## Test plan` with real results, link
+   `future-enhancements.md`), `gh pr ready 928`, watch CI and CodeRabbit; fix task findings.
+7. Before Phase F: ask the user about fleet ops O1–O5 and G-M.

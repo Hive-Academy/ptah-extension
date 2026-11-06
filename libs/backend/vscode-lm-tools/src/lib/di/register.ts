@@ -19,6 +19,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  type IMcpCallerCredentials,
   type IMcpServerStatus,
   type IMcpSubagentRootRegistrar,
 } from '@ptah-extension/platform-core';
@@ -110,6 +111,27 @@ export function registerVsCodeLmToolsServices(
   container.register(PLATFORM_TOKENS.MCP_SERVER_STATUS, {
     useValue: mcpStatusShim,
   });
+  // Resolved inside each call, like the status shim. Constructing the MCP
+  // server here would start its workspace subscription before the host is ready.
+  const resolveCallerCredentials = (): CodeExecutionMCP | null =>
+    container.isRegistered(TOKENS.CODE_EXECUTION_MCP)
+      ? container.resolve<CodeExecutionMCP>(TOKENS.CODE_EXECUTION_MCP)
+      : null;
+  const mcpCallerCredentials: IMcpCallerCredentials = {
+    issue: (binding, subject, ttlMs) => {
+      const credentials = resolveCallerCredentials();
+      if (credentials === null) {
+        throw new Error('MCP caller credentials are unavailable');
+      }
+      return credentials.issue(binding, subject, ttlMs);
+    },
+    revokeSubject: (subject) => {
+      resolveCallerCredentials()?.revokeSubject(subject);
+    },
+  };
+  container.register(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, {
+    useValue: mcpCallerCredentials,
+  });
   // Resolved on every call, like the status shim above, so the consumer
   // (cli-agent-runtime's spawner) never constructs the MCP server at its own
   // construction time. The port promises never to reject: a missing or
@@ -197,6 +219,7 @@ export function registerVsCodeLmToolsServices(
       'PTAH_API_BUILDER',
       'CODE_EXECUTION_MCP',
       'MCP_SERVER_STATUS',
+      'MCP_CALLER_CREDENTIALS',
       'PERMISSION_PROMPT_SERVICE',
     ],
   });

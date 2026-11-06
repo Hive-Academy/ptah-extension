@@ -17,7 +17,11 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
 import { MemoryRpcService } from './memory-rpc.service';
-import { MemoryStateService } from './memory-state.service';
+import {
+  MEMORY_REBUILD_FAILED_MESSAGE,
+  MemoryStateService,
+  memoryFailureMessage,
+} from './memory-state.service';
 
 describe('MemoryStateService — scopeFilter', () => {
   let service: MemoryStateService;
@@ -476,5 +480,114 @@ describe('MemoryStateService — loadSymbols', () => {
     expect(searchSymbolsMock).toHaveBeenCalledTimes(1);
     expect(searchSymbolsMock.mock.calls[0][0].scope).toBe('all');
     expect(service.symbolError()).toBeNull();
+  });
+});
+
+describe('MemoryStateService — rebuildIndex', () => {
+  let service: MemoryStateService;
+  let rebuildMock: jest.Mock;
+  let listMock: jest.Mock;
+  let statsMock: jest.Mock;
+
+  beforeEach(() => {
+    rebuildMock = jest.fn();
+    listMock = jest.fn().mockResolvedValue({ memories: [] });
+    statsMock = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        MemoryStateService,
+        {
+          provide: MemoryRpcService,
+          useValue: { rebuildIndex: rebuildMock, list: listMock, stats: statsMock },
+        },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: signal({ path: 'D:/ws', name: 'ws', type: 'workspace' }),
+          },
+        },
+      ],
+    });
+    service = TestBed.inject(MemoryStateService);
+  });
+
+  it('tracks rebuilding separately from loading and stores the result', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    rebuildMock.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const pending = service.rebuildIndex();
+    expect(service.rebuilding()).toBe(true);
+    expect(service.loading()).toBe(false);
+    release({ rebuiltFts: true, rebuiltVec: false });
+    await pending;
+    expect(rebuildMock).toHaveBeenCalledWith('both');
+    expect(service.rebuilding()).toBe(false);
+    expect(service.rebuildResult()).toEqual({
+      at: expect.any(Number),
+      rebuiltFts: true,
+      rebuiltVec: false,
+    });
+    expect(service.rebuildError()).toBeNull();
+  });
+
+  it('ignores a second rebuild while one is in flight', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    rebuildMock.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const first = service.rebuildIndex();
+    await service.rebuildIndex();
+    expect(rebuildMock).toHaveBeenCalledTimes(1);
+    release({ rebuiltFts: true, rebuiltVec: true });
+    await first;
+  });
+
+  it('surfaces a failure through error() with the fixed sentence only', async () => {
+    rebuildMock.mockRejectedValue(
+      new Error('SQLITE_CORRUPT: /home/secret/ptah.sqlite'),
+    );
+    await service.rebuildIndex();
+    expect(service.rebuildError()).toBe(MEMORY_REBUILD_FAILED_MESSAGE);
+    expect(service.error()).toBeNull();
+    expect(service.rebuildError()).toBe(
+      'Could not rebuild the memory search index. See the logs for details.',
+    );
+    expect(service.rebuildResult()).toBeNull();
+    expect(service.rebuilding()).toBe(false);
+    expect(service.loading()).toBe(false);
+  });
+
+  it('keeps the rebuild error when a stats load starts or fails meanwhile', async () => {
+    rebuildMock.mockRejectedValue(new Error('x'));
+    statsMock.mockRejectedValue(new Error('SQLITE_IOERR /home/secret'));
+    await service.rebuildIndex();
+    await service.loadStats();
+    expect(service.rebuildError()).toBe(MEMORY_REBUILD_FAILED_MESSAGE);
+    expect(service.error()).toBe(memoryFailureMessage('stats'));
+    expect(service.error()).not.toContain('SQLITE');
+  });
+
+  it('shows a fixed sentence for a list failure and logs the detail', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      listMock.mockRejectedValue(new Error('ECONNRESET raw'));
+      await service.refresh();
+      expect(service.error()).toBe('Could not load memories. Try again.');
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps the rebuild result across a refresh', async () => {
+    rebuildMock.mockResolvedValue({ rebuiltFts: true, rebuiltVec: true });
+    await service.rebuildIndex();
+    await service.refresh();
+    expect(service.rebuildResult()?.rebuiltVec).toBe(true);
   });
 });

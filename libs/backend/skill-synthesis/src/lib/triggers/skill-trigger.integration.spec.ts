@@ -183,7 +183,7 @@ describe('SkillTriggerService retained hook integration', () => {
     });
     await jest.advanceTimersByTimeAsync(90_000);
     expect(h.harvest).toHaveBeenCalledTimes(1);
-    expect(h.harvest).toHaveBeenCalledWith('/ws');
+    expect(h.harvest).toHaveBeenCalledWith('/ws', { trigger: 'auto' });
     h.service.stop();
   });
 });

@@ -82,7 +82,9 @@ export class SessionControl {
      */
     private readonly getCompactionConfig:
       (() => CompactionConfig) | null = null,
-    private readonly onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
+    private readonly onTurnTerminal:
+      ((sessionId: SessionId) => void) | null = null,
+    private readonly revokeMcpSubject: ((tabId: string) => void) | null = null,
   ) {}
 
   /**
@@ -144,8 +146,12 @@ export class SessionControl {
         // Keep the interrupted turn's identity after Q is yielded so only a
         // result positively naming P can be suppressed.
         rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
-        rec.interruptedTurnUserMessageUuid = rec.currentTurnUserMessageUuid ?? null;
-        if (interruptedId !== null && rec.currentTurnClientMessageId === interruptedId) {
+        rec.interruptedTurnUserMessageUuid =
+          rec.currentTurnUserMessageUuid ?? null;
+        if (
+          interruptedId !== null &&
+          rec.currentTurnClientMessageId === interruptedId
+        ) {
           rec.interruptRetirement = interruptedId;
           rec.currentTurnClientMessageId = null;
           rec.retirementWake?.();
@@ -231,7 +237,10 @@ export class SessionControl {
     try {
       rec.abortController.abort();
     } finally {
-      if (this.registry.find(rec.tabId) === rec) this.registry.remove(rec);
+      if (this.registry.find(rec.tabId) === rec) {
+        this.registry.remove(rec);
+        this.revokeMcpSubject?.(rec.tabId);
+      }
       if (current) attempt(() => this.subagentRegistry.endSessionTeardown(id));
     }
   }
@@ -324,6 +333,7 @@ export class SessionControl {
       deregistered = true;
       rec.abortController.abort();
       this.registry.remove(rec);
+      this.revokeMcpSubject?.(rec.tabId);
     };
 
     try {
@@ -391,6 +401,9 @@ export class SessionControl {
     this.logger.info('[SessionLifecycle] Disposing all active sessions...');
 
     const records = Array.from(this.registry.entries()).map(([, rec]) => rec);
+    for (const rec of records) {
+      this.revokeMcpSubject?.(rec.tabId);
+    }
 
     // Scope the permission cleanup to the sessions actually being disposed.
     // The no-arg (global) form walks EVERY pending request in the process and
@@ -553,7 +566,9 @@ export class SessionControl {
     }
 
     if (!session.query) {
-      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(
+        `Session query not initialized: ${sessionId}`,
+      );
     }
 
     this.logger.info(
@@ -596,7 +611,9 @@ export class SessionControl {
     }
 
     if (!session.query) {
-      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(
+        `Session query not initialized: ${sessionId}`,
+      );
     }
     const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
@@ -640,7 +657,9 @@ export class SessionControl {
     }
 
     if (!session.query) {
-      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(
+        `Session query not initialized: ${sessionId}`,
+      );
     }
 
     const flagEffort: FlagEffortLevel =

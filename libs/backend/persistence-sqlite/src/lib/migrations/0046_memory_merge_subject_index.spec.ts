@@ -46,8 +46,10 @@ describe('migration 0046_memory_merge_subject_index', () => {
     // 67 since TASK_2026_873 appended 0067_review_failure_records.
     // 68 since TASK_2026_873 appended the failed-head backoff migration.
     // 69 since TASK_2026_873 appended 0069_review_attempt_dry_run.
+    // 70 since TASK_2026_878 appended 0070_indexing_last_run.
+    // 71 since TASK_2026_878 appended 0071_skill_inv_events_task_unreconciled.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      69,
+      71,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

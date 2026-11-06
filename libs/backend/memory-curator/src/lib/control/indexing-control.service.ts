@@ -37,6 +37,9 @@ import {
   type SymbolsCursor,
   type IndexingProgressEvent,
   type IndexingCompleteEvent,
+  type IndexingFailedEvent,
+  type IndexingRunWire,
+  type IndexingLastRunWire,
 } from '@ptah-extension/shared';
 
 export type { IndexingState, IndexingPipeline, SymbolsCursor };
@@ -44,6 +47,10 @@ export type { IndexingProgressEvent, IndexingCompleteEvent };
 
 export interface IndexingStatus {
   state: IndexingState;
+  /** The live census for this root (manual, joined or background); null when idle. */
+  running: IndexingRunWire | null;
+  /** Summary of the last settled census for this workspace; null when none or unreadable. */
+  lastRun: IndexingLastRunWire | null;
   workspaceFingerprint: string;
   gitHeadSha: string | null;
   currentGitHeadSha: string | null;
@@ -70,15 +77,168 @@ export interface IndexingStatus {
   };
 }
 
+/** Structural copy of the code-symbol indexer's per-run stats. */
+export interface IndexingRunStats {
+  filesScanned: number;
+  symbolsIndexed: number;
+  errors: number;
+  durationMs: number;
+}
+
+/** One batch boundary reported by the code-symbol indexer. */
+export interface IndexingRunProgress {
+  filesScanned: number;
+  totalFiles: number;
+}
+
 /** Callable dependencies injected at start() call time (avoids workspace-intelligence import cycle). */
 export interface IndexingRunDeps {
-  /** Runs the code-symbol indexer for the given workspace, honoring abort signal. */
+  /**
+   * Runs the code-symbol indexer for the given workspace, honoring the abort
+   * signal and reporting batch progress through `onProgress`. Resolves with
+   * the indexer's stats; rejects with an `AbortError` when aborted.
+   */
   runSymbols: (
     workspaceRoot: string,
-    options?: { signal?: AbortSignal },
-  ) => Promise<void>;
+    options?: {
+      signal?: AbortSignal;
+      onProgress?: (progress: IndexingRunProgress) => void;
+    },
+  ) => Promise<IndexingRunStats | void>;
   /** Runs memory curation pass (optional; curator lifecycle is managed separately). */
   runMemory?: (workspaceRoot: string) => Promise<void>;
+}
+
+type CensusOrigin = 'manual' | 'background';
+
+/** Why an abort happened: the user's pause, the user's cancel, or anything else. */
+type AbortCause = 'pause' | 'cancel' | 'other';
+
+type ParticipantOutcome =
+  | { readonly kind: 'succeeded'; readonly stats: IndexingRunStats | null }
+  | { readonly kind: 'failed'; readonly error: unknown }
+  | { readonly kind: 'aborted'; readonly cause: AbortCause };
+
+/**
+ * One full symbols census for one normalized root, shared by every manual or
+ * background caller that joins it before it closes. It settles exactly once,
+ * when its last participant releases.
+ */
+interface CensusRecord {
+  readonly rootKey: string;
+  readonly workspaceRoot: string;
+  readonly fp: string;
+  readonly gitHeadSha: string | null;
+  readonly origin: CensusOrigin;
+  readonly startedAt: number;
+  /** Monotonic open order; a lower value is an older census. */
+  readonly seq: number;
+  readonly force: boolean;
+  /** Joinable. False once any symbols phase settled without an abort. */
+  open: boolean;
+  /** Live (not yet released) participants. */
+  readonly participants: Set<CensusParticipant>;
+  /** Released outcomes, in release order. */
+  readonly outcomes: Array<{
+    readonly origin: CensusOrigin;
+    readonly outcome: ParticipantOutcome;
+  }>;
+  lastProgress: IndexingRunProgress | null;
+  /** The one progress handler every participant's indexer call receives. */
+  readonly onProgress: (progress: IndexingRunProgress) => void;
+}
+
+/** Order and start time reserved when a background attempt begins. */
+interface SetupAttempt {
+  readonly seq: number;
+  readonly startedAt: number;
+}
+
+interface CensusParticipant {
+  readonly record: CensusRecord;
+  readonly origin: CensusOrigin;
+  released: boolean;
+}
+
+/**
+ * Compare-and-set attempts for one lastRun write. Each miss means another
+ * process wrote the row in between, so three misses in a row is rare.
+ */
+const LAST_RUN_WRITE_ATTEMPTS = 3;
+
+const LAST_RUN_ORIGINS: ReadonlySet<unknown> = new Set([
+  'manual',
+  'background',
+]);
+const LAST_RUN_OUTCOMES: ReadonlySet<unknown> = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || isFiniteNumber(value);
+}
+
+/** Hand-written guard for the persisted `last_run_json` value (this lib has no zod). */
+function isLastRunWire(value: unknown): value is IndexingLastRunWire {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    LAST_RUN_ORIGINS.has(v['origin']) &&
+    LAST_RUN_OUTCOMES.has(v['outcome']) &&
+    isFiniteNumber(v['startedAt']) &&
+    isFiniteNumber(v['finishedAt']) &&
+    isFiniteNumber(v['durationMs']) &&
+    isOptionalFiniteNumber(v['filesScanned']) &&
+    isOptionalFiniteNumber(v['symbolsIndexed']) &&
+    isOptionalFiniteNumber(v['errors'])
+  );
+}
+
+/** Picks the indexer stats out of an untyped run result, or null. */
+function toRunStats(value: unknown): IndexingRunStats | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    isFiniteNumber(v['filesScanned']) &&
+    isFiniteNumber(v['symbolsIndexed']) &&
+    isFiniteNumber(v['errors']) &&
+    isFiniteNumber(v['durationMs'])
+  ) {
+    return {
+      filesScanned: v['filesScanned'],
+      symbolsIndexed: v['symbolsIndexed'],
+      errors: v['errors'],
+      durationMs: v['durationMs'],
+    };
+  }
+  return null;
+}
+
+/**
+ * Structural: a `DOMException` is not always `instanceof Error` (it can come
+ * from another realm), so only the `name` is checked.
+ */
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const name = (error as { name?: unknown }).name;
+  return name === 'AbortError' || name === 'DOMException';
+}
+
+/** Log-only text for an unknown failure; never pushed or returned over RPC. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function abortCauseOf(signal: AbortSignal): AbortCause {
+  return signal.reason === 'pause' || signal.reason === 'cancel'
+    ? signal.reason
+    : 'other';
 }
 
 interface IndexingStateRow {
@@ -91,6 +251,8 @@ interface IndexingStateRow {
   disclosure_acknowledged_at: number | null;
   last_dismissed_stale_sha: string | null;
   last_error: string | null;
+  /** JSON `IndexingLastRunWire` (migration 0070). */
+  last_run_json: string | null;
 }
 
 /** SQLite stores booleans as 0/1. */
@@ -131,6 +293,33 @@ export class IndexingControlService {
   private readonly progressListeners: Array<
     (event: IndexingProgressEvent) => void
   > = [];
+  /** Joinable census records, keyed by `normalizeWorkspaceRoot(root)`. */
+  private readonly openCensuses = new Map<string, CensusRecord>();
+  /** Every record with a live participant, open or closed. */
+  private readonly liveCensuses = new Set<CensusRecord>();
+  /**
+   * A manual start between its synchronous controller claim and its census
+   * join (the setup reads run in between). Status reports it as a live
+   * manual run, so a status read right after `indexing:start` sees the run.
+   * Valid only while `controller` is still the active one.
+   */
+  private pendingManual: {
+    readonly controller: AbortController;
+    readonly rootKey: string;
+    readonly startedAt: number;
+    readonly force: boolean;
+  } | null = null;
+  /** Source of `CensusRecord.seq` and of background setup-failure attempts. */
+  private censusSeq = 0;
+  /**
+   * Per fingerprint: the `seq` and the exact JSON of the newest lastRun this
+   * instance persisted. The JSON tells whether the row is still ours or
+   * another instance has replaced it since.
+   */
+  private readonly newestPersisted = new Map<
+    string,
+    { readonly seq: number; readonly json: string }
+  >();
 
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -183,9 +372,13 @@ export class IndexingControlService {
         : {}),
     };
 
+    const running = this.runningView(workspaceRoot);
+
     if (!row) {
       return {
-        state: 'never-indexed',
+        state: running ? 'indexing' : 'never-indexed',
+        running,
+        lastRun: null,
         workspaceFingerprint: fp,
         gitHeadSha: null,
         currentGitHeadSha: currentSha,
@@ -204,7 +397,7 @@ export class IndexingControlService {
       };
     }
 
-    const state = deriveStateFromRow(row, currentSha);
+    const state = running ? 'indexing' : deriveStateFromRow(row, currentSha);
     let symbolsCursor: SymbolsCursor | null = null;
     if (row.symbols_cursor) {
       try {
@@ -216,6 +409,8 @@ export class IndexingControlService {
 
     return {
       state,
+      running,
+      lastRun: this.readLastRun(row.last_run_json),
       workspaceFingerprint: fp,
       gitHeadSha: row.git_head_sha,
       currentGitHeadSha: currentSha,
@@ -325,86 +520,689 @@ export class IndexingControlService {
     options?: { force?: boolean },
   ): Promise<void> {
     if (this.activeAbortController) {
-      this.logger.debug(
-        '[indexing-control] start() called while already running — ignored',
-      );
+      this.logger.info('[indexing-control] start ignored — already running');
       return;
     }
-    this.activeAbortController = new AbortController();
-    const { signal } = this.activeAbortController;
-
-    const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
-    this.logger.info('[indexing-control] start', {
-      workspaceRoot,
-      fingerprint: fp,
-    });
-    const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
-    const row = this.readRow(fp);
-    this.preIndexState = row
-      ? deriveStateFromRow(row, currentSha)
-      : 'never-indexed';
-    this.activeWorkspaceFp = fp;
-    if (signal.aborted) return;
-
-    const runSymbols =
-      !pipeline || pipeline === 'symbols' || pipeline === 'both';
-    const runMemory = !pipeline || pipeline === 'memory' || pipeline === 'both';
-    const startedAt = Date.now();
-    this.upsertRow(fp, {
-      last_error: null,
-      symbols_cursor: null,
-    });
+    const controller = new AbortController();
+    this.activeAbortController = controller;
+    this.pendingManual = {
+      controller,
+      rootKey: normalizeWorkspaceRoot(workspaceRoot),
+      startedAt: Date.now(),
+      force: options?.force === true,
+    };
+    const { signal } = controller;
+    // Set once this run has joined (or opened) its census record; the
+    // `finally` releases it exactly once with `outcome`.
+    let participant: CensusParticipant | null = null;
+    let outcome: ParticipantOutcome | null = null;
+    let fp: string | null = null;
 
     try {
-      if (runSymbols && (row?.symbols_enabled !== 0 || options?.force)) {
-        await this.runSymbolsIndexWithProgress(
+      fp = (await deriveWorkspaceFingerprint(workspaceRoot, this.fs)).fp;
+      this.logger.info('[indexing-control] start', {
+        workspaceRoot,
+        fingerprint: fp,
+      });
+      const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
+      const row = this.readRow(fp);
+      if (this.activeAbortController === controller) {
+        this.preIndexState = row
+          ? deriveStateFromRow(row, currentSha)
+          : 'never-indexed';
+        this.activeWorkspaceFp = fp;
+      }
+      if (signal.aborted) return; // aborted before joining: nothing to release
+
+      const runSymbols =
+        !pipeline || pipeline === 'symbols' || pipeline === 'both';
+      const runMemory =
+        !pipeline || pipeline === 'memory' || pipeline === 'both';
+      const force = options?.force === true;
+      const symbolsPhase = runSymbols && (row?.symbols_enabled !== 0 || force);
+      this.upsertRow(fp, {
+        last_error: null,
+        symbols_cursor: null,
+      });
+
+      // Joined synchronously right before the indexer call: no `await`
+      // between here and `deps.runSymbols`. A run without a symbols phase
+      // opens a closed record of its own that nobody can join.
+      participant = this.joinCensus(
+        workspaceRoot,
+        fp,
+        currentSha,
+        'manual',
+        force,
+        symbolsPhase,
+      );
+      this.clearPendingManual(controller);
+
+      let stats: IndexingRunStats | null = null;
+      if (symbolsPhase) {
+        const symbols = await this.runSymbolsIndexWithProgress(
           workspaceRoot,
           deps,
-          startedAt,
+          participant.record,
+          fp,
           signal,
         );
-        if (signal.aborted) return; // paused or cancelled — state handled by pause()/cancel()
+        if (symbols.kind === 'aborted') {
+          outcome = symbols;
+          return; // paused or cancelled — state handled by pause()/cancel()
+        }
+        stats = symbols.stats;
       }
 
       if (
         runMemory &&
-        (row?.memory_enabled !== 0 || options?.force) &&
-        (options?.force || this.readMemoryEnabled())
+        (row?.memory_enabled !== 0 || force) &&
+        (force || this.readMemoryEnabled())
       ) {
         if (deps.runMemory) {
           await deps.runMemory(workspaceRoot);
         }
       }
 
-      if (!signal.aborted) {
-        this.upsertRow(fp, {
-          git_head_sha: currentSha,
-          last_indexed_at: Date.now(),
-          last_error: null,
-          symbols_cursor: null,
-        });
-        const completeEvent: IndexingCompleteEvent = {
-          workspaceRoot,
-          workspaceFingerprint: fp,
-          completedAt: Date.now(),
-          gitHeadSha: currentSha,
-          elapsedMs: Date.now() - startedAt,
-        };
-        void this.webviewManager.broadcastMessage(
-          MESSAGE_TYPES.INDEXING_COMPLETE,
-          completeEvent,
-        );
+      if (signal.aborted) {
+        outcome = { kind: 'aborted', cause: abortCauseOf(signal) };
+        return;
+      }
+      this.upsertRow(fp, {
+        git_head_sha: currentSha,
+        last_indexed_at: Date.now(),
+        last_error: null,
+        symbols_cursor: null,
+      });
+      this.logger.info('[indexing-control] complete', {
+        workspaceRoot,
+        ...(stats ?? {}),
+      });
+      outcome = { kind: 'succeeded', stats };
+    } catch (error: unknown) {
+      if (participant === null) {
+        // Setup failed before the run joined a census: no run state to
+        // settle, so the caller (the RPC handler) receives the error.
+        throw error;
+      }
+      if (signal.aborted) {
+        outcome = { kind: 'aborted', cause: abortCauseOf(signal) };
+        return; // pause() / cancel() already handled the state
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (fp !== null) this.upsertRow(fp, { last_error: message });
+      // The census settle logs the warn and pushes INDEXING_FAILED once.
+      outcome = { kind: 'failed', error };
+    } finally {
+      this.clearPendingManual(controller);
+      if (this.activeAbortController?.signal === signal) {
         this.activeAbortController = null;
         this.activeWorkspaceFp = null;
       }
-    } catch (error: unknown) {
-      if (signal.aborted) return; // pause() / cancel() already handled the state
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.debug('[indexing-control] indexing error', { message });
-      this.upsertRow(fp, { last_error: message });
-      this.activeAbortController = null;
-      this.activeWorkspaceFp = null;
+      if (participant !== null) {
+        this.releaseParticipant(
+          participant,
+          outcome ?? { kind: 'aborted', cause: abortCauseOf(signal) },
+        );
+      }
     }
+  }
+
+  private clearPendingManual(controller: AbortController): void {
+    if (this.pendingManual?.controller === controller) {
+      this.pendingManual = null;
+    }
+  }
+
+  /** The pending manual start for `rootKey`, while its controller is active. */
+  private pendingManualFor(rootKey: string): {
+    readonly startedAt: number;
+    readonly force: boolean;
+  } | null {
+    const pending = this.pendingManual;
+    if (pending === null || pending.rootKey !== rootKey) return null;
+    if (this.activeAbortController !== pending.controller) return null;
+    return pending;
+  }
+
+  /** True while a manual (user-started) run is active. */
+  isRunning(): boolean {
+    return this.activeAbortController !== null;
+  }
+
+  /**
+   * Run a background (lifecycle / watcher) full index for `workspaceRoot`
+   * inside the shared census registry. `run` receives the record's progress
+   * handler and its resolution or rejection is returned unchanged. This never
+   * writes `last_indexed_at` or `last_error`; the record's single settle
+   * writes `lastRun` and pushes complete/failed.
+   */
+  async trackBackgroundRun<T>(
+    workspaceRoot: string,
+    run: (onProgress: (progress: IndexingRunProgress) => void) => Promise<T>,
+  ): Promise<T> {
+    // Reserved when the attempt starts, so a setup failure that is handled
+    // late still ranks behind any census opened while it was pending.
+    const attempt: SetupAttempt = {
+      seq: ++this.censusSeq,
+      startedAt: Date.now(),
+    };
+    const [fpResult, shaResult] = await Promise.allSettled([
+      deriveWorkspaceFingerprint(workspaceRoot, this.fs),
+      deriveGitHeadSha(workspaceRoot, this.fs),
+    ]);
+    if (fpResult.status === 'rejected') {
+      this.recordBackgroundSetupFailure(
+        workspaceRoot,
+        null,
+        attempt,
+        fpResult.reason,
+      );
+      throw fpResult.reason;
+    }
+    const { fp } = fpResult.value;
+    if (shaResult.status === 'rejected') {
+      this.recordBackgroundSetupFailure(
+        workspaceRoot,
+        fp,
+        attempt,
+        shaResult.reason,
+      );
+      throw shaResult.reason;
+    }
+    const gitHeadSha = shaResult.value;
+    // No `await` between joining and calling `run`.
+    const participant = this.joinCensus(
+      workspaceRoot,
+      fp,
+      gitHeadSha,
+      'background',
+      false,
+      true,
+    );
+    let result: T;
+    try {
+      result = await run(participant.record.onProgress);
+    } catch (error: unknown) {
+      this.releaseParticipant(
+        participant,
+        isAbortError(error)
+          ? { kind: 'aborted', cause: 'other' }
+          : { kind: 'failed', error },
+      );
+      throw error;
+    }
+    this.releaseParticipant(participant, {
+      kind: 'succeeded',
+      stats: toRunStats(result),
+    });
+    return result;
+  }
+
+  /**
+   * A background run whose setup failed: it never joined a census, so record
+   * one failed background attempt and push INDEXING_FAILED once. The raw
+   * error goes to the log only. Without a fingerprint there is no
+   * `indexing_state` row to hold a lastRun, so only the push is sent.
+   */
+  private recordBackgroundSetupFailure(
+    workspaceRoot: string,
+    fp: string | null,
+    attempt: SetupAttempt,
+    error: unknown,
+  ): void {
+    const finishedAt = Date.now();
+    const elapsedMs = Math.max(0, finishedAt - attempt.startedAt);
+    if (fp === null) {
+      this.logger.warn(
+        '[indexing-control] background index setup failed before a workspace fingerprint was derived',
+        { error: describeError(error) },
+      );
+    } else {
+      this.logger.warn('[indexing-control] background index setup failed', {
+        error: describeError(error),
+      });
+      this.persistLastRun(fp, attempt.seq, {
+        origin: 'background',
+        outcome: 'failed',
+        startedAt: attempt.startedAt,
+        finishedAt,
+        durationMs: elapsedMs,
+      });
+    }
+    const failedEvent: IndexingFailedEvent = {
+      workspaceRoot,
+      ...(fp === null ? {} : { workspaceFingerprint: fp }),
+      failedAt: finishedAt,
+      elapsedMs,
+      origin: 'background',
+    };
+    void this.webviewManager.broadcastMessage(
+      MESSAGE_TYPES.INDEXING_FAILED,
+      failedEvent,
+    );
+  }
+
+  /**
+   * Join the open census record for the root, or open a new one whose
+   * origin, start time and force flag come from this caller. A manual caller
+   * never shares a record with another live manual participant (a paused or
+   * cancelled run that is still unwinding): it opens a newer record instead.
+   */
+  private joinCensus(
+    workspaceRoot: string,
+    fp: string,
+    gitHeadSha: string | null,
+    origin: CensusOrigin,
+    force: boolean,
+    joinable: boolean,
+  ): CensusParticipant {
+    const rootKey = normalizeWorkspaceRoot(workspaceRoot);
+    const open = joinable ? this.openCensuses.get(rootKey) : undefined;
+    const canJoin =
+      open !== undefined && !(origin === 'manual' && this.hasLiveManual(open));
+    const record = canJoin
+      ? open
+      : this.openRecord(rootKey, workspaceRoot, fp, gitHeadSha, origin, force);
+    if (!canJoin) {
+      if (joinable) this.openCensuses.set(rootKey, record);
+      else record.open = false;
+    }
+    const participant: CensusParticipant = {
+      record,
+      origin,
+      released: false,
+    };
+    record.participants.add(participant);
+    return participant;
+  }
+
+  private openRecord(
+    rootKey: string,
+    workspaceRoot: string,
+    fp: string,
+    gitHeadSha: string | null,
+    origin: CensusOrigin,
+    force: boolean,
+  ): CensusRecord {
+    const startedAt = Date.now();
+    const record: CensusRecord = {
+      rootKey,
+      workspaceRoot,
+      fp,
+      gitHeadSha,
+      origin,
+      startedAt,
+      seq: ++this.censusSeq,
+      force,
+      open: true,
+      participants: new Set(),
+      outcomes: [],
+      lastProgress: null,
+      onProgress: (progress) => {
+        // A late indexer callback after the final release must not make a
+        // settled census look active again.
+        if (!this.liveCensuses.has(record)) return;
+        const last = record.lastProgress;
+        if (
+          last !== null &&
+          last.filesScanned === progress.filesScanned &&
+          last.totalFiles === progress.totalFiles
+        ) {
+          return; // the same batch, reported to another participant
+        }
+        record.lastProgress = {
+          filesScanned: progress.filesScanned,
+          totalFiles: progress.totalFiles,
+        };
+        this.emitProgress(this.toProgressEvent(progress, startedAt));
+      },
+    };
+    this.liveCensuses.add(record);
+    return record;
+  }
+
+  /** A symbols phase settled without an abort: later callers open a new census. */
+  private closeRecord(record: CensusRecord): void {
+    record.open = false;
+    if (this.openCensuses.get(record.rootKey) === record) {
+      this.openCensuses.delete(record.rootKey);
+    }
+  }
+
+  private releaseParticipant(
+    participant: CensusParticipant,
+    outcome: ParticipantOutcome,
+  ): void {
+    if (participant.released) return;
+    participant.released = true;
+    const { record } = participant;
+    record.participants.delete(participant);
+    record.outcomes.push({ origin: participant.origin, outcome });
+    if (outcome.kind !== 'aborted') this.closeRecord(record);
+    if (record.participants.size > 0) return;
+
+    // Last participant released (A-F6): the record leaves the registry
+    // whatever the outcome, identity-checked so a newer record for the same
+    // root is never removed, then settles exactly once.
+    record.open = false;
+    if (this.openCensuses.get(record.rootKey) === record) {
+      this.openCensuses.delete(record.rootKey);
+    }
+    this.liveCensuses.delete(record);
+    this.settleCensus(record);
+  }
+
+  /**
+   * Settle rules (first that applies):
+   * 1. the manual participant ended without an abort → its outcome;
+   * 2. the first background outcome that is not an abort;
+   * 3. the manual participant was cancelled → `cancelled`, no push;
+   * 4. otherwise (pause, background-only abort) → nothing recorded.
+   */
+  private settleCensus(record: CensusRecord): void {
+    const manual = record.outcomes.find((o) => o.origin === 'manual');
+    const background = record.outcomes.find(
+      (o) => o.origin === 'background' && o.outcome.kind !== 'aborted',
+    );
+    let decided: ParticipantOutcome | null = null;
+    if (manual && manual.outcome.kind !== 'aborted') {
+      decided = manual.outcome;
+    } else if (background) {
+      decided = background.outcome;
+    } else if (
+      manual &&
+      manual.outcome.kind === 'aborted' &&
+      manual.outcome.cause === 'cancel'
+    ) {
+      decided = manual.outcome;
+    }
+    if (decided === null) return;
+
+    const finishedAt = Date.now();
+    const durationMs = finishedAt - record.startedAt;
+    const stats = decided.kind === 'succeeded' ? decided.stats : null;
+    const lastRun: IndexingLastRunWire = {
+      origin: record.origin,
+      outcome:
+        decided.kind === 'aborted'
+          ? 'cancelled'
+          : decided.kind === 'failed'
+            ? 'failed'
+            : 'succeeded',
+      startedAt: record.startedAt,
+      finishedAt,
+      durationMs,
+      ...(stats
+        ? {
+            filesScanned: stats.filesScanned,
+            symbolsIndexed: stats.symbolsIndexed,
+            errors: stats.errors,
+          }
+        : {}),
+    };
+    const write = this.persistLastRun(record.fp, record.seq, lastRun);
+    // A newer census already persisted its own run and sent its own push:
+    // this older outcome must not report a recovery (or a failure) over it.
+    // The newer push may have arrived while this census was still live, so
+    // the panel can still show it running: a status-only refresh tells it to
+    // re-read the persisted (newer) state.
+    if (write === 'stale-skipped') {
+      const refreshEvent: IndexingCompleteEvent = {
+        workspaceRoot: record.workspaceRoot,
+        workspaceFingerprint: record.fp,
+        completedAt: finishedAt,
+        gitHeadSha: record.gitHeadSha,
+        elapsedMs: durationMs,
+        refreshOnly: true,
+      };
+      void this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.INDEXING_COMPLETE,
+        refreshEvent,
+      );
+      return;
+    }
+    const persisted = write === 'written';
+    if (!persisted && decided.kind !== 'failed') {
+      this.logger.warn('[indexing-control] last run could not be saved', {
+        origin: record.origin,
+        outcome: lastRun.outcome,
+      });
+    }
+
+    if (decided.kind === 'succeeded' && persisted) {
+      const completeEvent: IndexingCompleteEvent = {
+        workspaceRoot: record.workspaceRoot,
+        workspaceFingerprint: record.fp,
+        completedAt: finishedAt,
+        gitHeadSha: record.gitHeadSha,
+        elapsedMs: durationMs,
+      };
+      void this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.INDEXING_COMPLETE,
+        completeEvent,
+      );
+    } else if (decided.kind !== 'aborted') {
+      // A failed census, or a succeeded census whose required lastRun write
+      // failed: a success push would show a run that a refresh cannot find.
+      if (decided.kind === 'failed') {
+        this.logger.warn('[indexing-control] indexing failed', {
+          origin: record.origin,
+          error: describeError(decided.error),
+        });
+      }
+      const failedEvent: IndexingFailedEvent = {
+        workspaceRoot: record.workspaceRoot,
+        workspaceFingerprint: record.fp,
+        failedAt: finishedAt,
+        elapsedMs: durationMs,
+        origin: record.origin,
+      };
+      void this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.INDEXING_FAILED,
+        failedEvent,
+      );
+    }
+  }
+
+  /**
+   * The single lastRun write of one census. A census older than the one
+   * already persisted for `fp` skips the write, so a long manual memory
+   * phase never overwrites a newer census's summary. The stored row is read
+   * on every write. While it still holds the JSON this instance wrote last,
+   * order is the in-memory `seq` alone (immune to a clock rollback). When the
+   * row holds anything else (another instance or process replaced it, or
+   * this instance never wrote it), the persisted `startedAt` decides.
+   * The write is a compare-and-set on the value that was read, so a second
+   * process that writes the row between the read and the write makes the
+   * write miss; the row is then read again and the order decided again.
+   * A failed read never writes: the order cannot be decided without it.
+   * Returns 'failed' when the read or the write failed, or the row kept
+   * changing for every attempt; 'stale-skipped' when a newer run is kept.
+   */
+  private persistLastRun(
+    fp: string,
+    seq: number,
+    lastRun: IndexingLastRunWire,
+  ): 'written' | 'stale-skipped' | 'failed' {
+    const json = JSON.stringify(lastRun);
+    for (let attempt = 0; attempt < LAST_RUN_WRITE_ATTEMPTS; attempt++) {
+      const read = this.readRowResult(fp);
+      if (!read.ok) {
+        this.logger.warn(
+          '[indexing-control] indexing_state read failed; last run not written',
+          { error: describeError(read.error) },
+        );
+        return 'failed';
+      }
+      const storedJson = read.row?.last_run_json ?? null;
+      const ours = this.newestPersisted.get(fp);
+      let stale: boolean;
+      if (ours !== undefined && storedJson === ours.json) {
+        stale = ours.seq > seq;
+      } else {
+        const stored = this.readLastRun(storedJson);
+        stale = stored !== null && stored.startedAt > lastRun.startedAt;
+      }
+      if (stale) {
+        this.logger.debug(
+          '[indexing-control] older census settled after a newer one; last run kept',
+        );
+        return 'stale-skipped';
+      }
+      const outcome = this.compareAndSetLastRun(fp, storedJson, json);
+      if (outcome === 'failed') return 'failed';
+      if (outcome === 'written') {
+        this.newestPersisted.set(fp, { seq, json });
+        return 'written';
+      }
+      // 'conflict': another writer replaced the row after the read.
+    }
+    this.logger.warn(
+      '[indexing-control] indexing_state last run kept changing; last run not written',
+      { attempts: LAST_RUN_WRITE_ATTEMPTS },
+    );
+    return 'failed';
+  }
+
+  /**
+   * Writes `json` only while the row still holds `expectedJson`.
+   * 'conflict' means another writer changed the row after it was read.
+   */
+  private compareAndSetLastRun(
+    fingerprint: string,
+    expectedJson: string | null,
+    json: string,
+  ): 'written' | 'conflict' | 'failed' {
+    try {
+      const now = Date.now();
+      this.sqlite.db
+        .prepare(
+          `INSERT OR IGNORE INTO indexing_state (workspace_fingerprint, created_at, updated_at) VALUES (?, ?, ?)`,
+        )
+        .run(fingerprint, now, now);
+      const result = this.sqlite.db
+        .prepare(
+          `UPDATE indexing_state SET updated_at = ?, last_run_json = ? WHERE workspace_fingerprint = ? AND last_run_json IS ?`,
+        )
+        .run(now, json, fingerprint, expectedJson);
+      return result.changes > 0 ? 'written' : 'conflict';
+    } catch (error: unknown) {
+      // degradation-audit: reported - the write failure is warn-logged and
+      // returned; settleCensus turns a failed lastRun write into a failed push.
+      this.logger.warn('[indexing-control] indexing_state write failed', {
+        error: describeError(error),
+      });
+      return 'failed';
+    }
+  }
+
+  private hasLiveManual(record: CensusRecord): boolean {
+    for (const p of record.participants) {
+      if (p.origin === 'manual') return true;
+    }
+    return false;
+  }
+
+  /**
+   * The running view for a root. With two live records (a closed manual
+   * record in its memory phase and a newer background record), the one with
+   * the live manual participant wins; otherwise the newest.
+   */
+  private runningView(workspaceRoot: string): IndexingRunWire | null {
+    const rootKey = normalizeWorkspaceRoot(workspaceRoot);
+    let chosen: CensusRecord | null = null;
+    for (const record of this.liveCensuses) {
+      if (record.rootKey !== rootKey) continue;
+      if (
+        chosen === null ||
+        this.hasLiveManual(record) ||
+        !this.hasLiveManual(chosen)
+      ) {
+        chosen = record;
+      }
+    }
+    const pending = this.pendingManualFor(rootKey);
+    if (chosen === null) {
+      // A manual start still in its setup reads: report it as running.
+      return pending
+        ? { origin: 'manual', startedAt: pending.startedAt, force: pending.force }
+        : null;
+    }
+    // A pending manual start joins the open record once its setup ends.
+    const manualLive =
+      this.hasLiveManual(chosen) || (pending !== null && chosen.open);
+    return {
+      origin: chosen.origin,
+      startedAt: chosen.startedAt,
+      force: chosen.force,
+      ...(chosen.origin === 'background' && manualLive
+        ? { joinedBackground: true }
+        : {}),
+      ...(chosen.lastProgress
+        ? {
+            processed: chosen.lastProgress.filesScanned,
+            total: chosen.lastProgress.totalFiles,
+          }
+        : {}),
+    };
+  }
+
+  private toProgressEvent(
+    progress: IndexingRunProgress,
+    startedAt: number,
+  ): IndexingProgressEvent {
+    const percent =
+      progress.totalFiles > 0
+        ? Math.min(
+            100,
+            Math.round((progress.filesScanned / progress.totalFiles) * 100),
+          )
+        : 0;
+    return {
+      pipeline: 'symbols',
+      percent,
+      currentLabel: `${progress.filesScanned}/${progress.totalFiles} files`,
+      elapsedMs: Date.now() - startedAt,
+      totalKnown: true,
+      processed: progress.filesScanned,
+      total: progress.totalFiles,
+    };
+  }
+
+  /** The one progress fan-out: in-process listeners and the webview. */
+  private emitProgress(event: IndexingProgressEvent): void {
+    for (const listener of this.progressListeners) {
+      listener(event);
+    }
+    void this.webviewManager.broadcastMessage(
+      MESSAGE_TYPES.INDEXING_PROGRESS,
+      event,
+    );
+  }
+
+  /** Invalid or absent `last_run_json` → null (debug-logged when invalid). */
+  private readLastRun(
+    raw: string | null | undefined,
+  ): IndexingLastRunWire | null {
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error: unknown) {
+      // degradation-audit: reported - an unreadable last-run summary is debug-logged and shown as "no last run"; the run state itself is unaffected.
+      this.logger.debug('[indexing-control] last_run_json unreadable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+    if (!isLastRunWire(parsed)) {
+      this.logger.debug(
+        '[indexing-control] last_run_json has an invalid shape',
+      );
+      return null;
+    }
+    return parsed;
   }
 
   private readMemoryEnabled(): boolean {
@@ -423,7 +1221,7 @@ export class IndexingControlService {
       this.logger.debug('[indexing-control] pause() — no active run');
       return;
     }
-    this.activeAbortController.abort();
+    this.activeAbortController.abort('pause');
     this.activeAbortController = null;
     this.logger.debug('[indexing-control] paused');
   }
@@ -461,7 +1259,7 @@ export class IndexingControlService {
    */
   cancel(): void {
     if (this.activeAbortController) {
-      this.activeAbortController.abort();
+      this.activeAbortController.abort('cancel');
       this.activeAbortController = null;
     }
 
@@ -532,46 +1330,31 @@ export class IndexingControlService {
   /**
    * Internal symbol-indexing loop with progress events and cooperative abort.
    *
-   * Passes abort signal to deps.runSymbols so each batch boundary is
-   * checkable. On abort, persists the cursor before returning.
+   * Passes the abort signal and the census record's progress handler to
+   * deps.runSymbols. A settlement that is not an abort closes the record. On
+   * abort, persists the cursor (except for a cancel, which clears it) and
+   * reports the abort cause.
    */
   private async runSymbolsIndexWithProgress(
     workspaceRoot: string,
     deps: IndexingRunDeps,
-    startedAt: number,
+    record: CensusRecord,
+    fp: string,
     signal: AbortSignal,
-  ): Promise<void> {
-    const fp = this.activeWorkspaceFp;
-
-    const progressHandler = (event: IndexingProgressEvent): void => {
-      for (const listener of this.progressListeners) {
-        listener(event);
-      }
-      void this.webviewManager.broadcastMessage(
-        MESSAGE_TYPES.INDEXING_PROGRESS,
-        event,
-      );
-    };
+  ): Promise<
+    | { readonly kind: 'succeeded'; readonly stats: IndexingRunStats | null }
+    | { readonly kind: 'aborted'; readonly cause: AbortCause }
+  > {
+    let result: IndexingRunStats | void;
     try {
-      await deps.runSymbols(workspaceRoot, { signal });
-
-      if (!signal.aborted) {
-        const elapsedMs = Date.now() - startedAt;
-        progressHandler({
-          pipeline: 'symbols',
-          percent: 100,
-          currentLabel: 'Done',
-          elapsedMs,
-          totalKnown: true,
-        });
-      }
+      result = await deps.runSymbols(workspaceRoot, {
+        signal,
+        onProgress: record.onProgress,
+      });
     } catch (error: unknown) {
-      const isDomAbort =
-        error instanceof Error &&
-        (error.name === 'AbortError' || error.name === 'DOMException');
-
-      if (isDomAbort || signal.aborted) {
-        if (fp) {
+      if (isAbortError(error) || signal.aborted) {
+        const cause = signal.aborted ? abortCauseOf(signal) : 'other';
+        if (cause !== 'cancel') {
           const cursor: SymbolsCursor = {
             remainingFiles: [],
             processed: 0,
@@ -580,21 +1363,49 @@ export class IndexingControlService {
           };
           this.upsertRow(fp, { symbols_cursor: JSON.stringify(cursor) });
         }
-        return;
+        return { kind: 'aborted', cause };
       }
+      this.closeRecord(record);
       throw error;
     }
+
+    this.closeRecord(record);
+    if (signal.aborted) return { kind: 'aborted', cause: abortCauseOf(signal) };
+    this.emitProgress({
+      pipeline: 'symbols',
+      percent: 100,
+      currentLabel: 'Done',
+      elapsedMs: Date.now() - record.startedAt,
+      totalKnown: true,
+    });
+    return { kind: 'succeeded', stats: toRunStats(result) };
   }
 
-  /** Synchronous SQLite read — returns null if no row exists. */
+  /**
+   * Synchronous SQLite read — null if no row exists or the read failed.
+   * Status reads show defaults on a failed read; writes that depend on the
+   * stored row use readRowResult so they can tell "no row" from "no read".
+   */
   private readRow(fingerprint: string): IndexingStateRow | null {
+    const read = this.readRowResult(fingerprint);
+    return read.ok ? read.row : null;
+  }
+
+  private readRowResult(
+    fingerprint: string,
+  ):
+    | { readonly ok: true; readonly row: IndexingStateRow | null }
+    | { readonly ok: false; readonly error: unknown } {
     try {
       const stmt = this.sqlite.db.prepare(
         'SELECT * FROM indexing_state WHERE workspace_fingerprint = ?',
       );
-      return (stmt.get(fingerprint) as IndexingStateRow | undefined) ?? null;
-    } catch {
-      return null;
+      const row = (stmt.get(fingerprint) as IndexingStateRow | undefined) ?? null;
+      return { ok: true, row };
+    } catch (error: unknown) {
+      // degradation-audit: reported - the error is returned to the caller;
+      // persistLastRun warn-logs it and fails the write.
+      return { ok: false, error };
     }
   }
 
@@ -612,9 +1423,10 @@ export class IndexingControlService {
         | 'disclosure_acknowledged_at'
         | 'last_dismissed_stale_sha'
         | 'last_error'
+        | 'last_run_json'
       >
     >,
-  ): void {
+  ): boolean {
     try {
       const now = Date.now();
       const setClauses: string[] = ['updated_at = ?'];
@@ -652,6 +1464,10 @@ export class IndexingControlService {
         setClauses.push('last_error = ?');
         values.push(fields.last_error ?? null);
       }
+      if ('last_run_json' in fields) {
+        setClauses.push('last_run_json = ?');
+        values.push(fields.last_run_json ?? null);
+      }
 
       values.push(fingerprint);
       const insertStmt = this.sqlite.db.prepare(
@@ -663,10 +1479,14 @@ export class IndexingControlService {
         `UPDATE indexing_state SET ${setClauses.join(', ')} WHERE workspace_fingerprint = ?`,
       );
       updateStmt.run(...values);
+      return true;
     } catch (error: unknown) {
-      this.logger.debug('[indexing-control] upsertRow failed', {
-        error: error instanceof Error ? error.message : String(error),
+      // degradation-audit: reported - the write failure is warn-logged and
+      // returned; settleCensus turns a failed lastRun write into a failed push.
+      this.logger.warn('[indexing-control] indexing_state write failed', {
+        error: describeError(error),
       });
+      return false;
     }
   }
 }

@@ -5,5 +5,9 @@ export { SdkError } from './sdk.error';
 export { SessionNotActiveError } from './session-not-active.error';
 export { SessionAdmissionRefusedError } from './session-admission-refused.error';
 export { ModelNotAvailableError } from './model-not-available.error';
-export { AuthRequiredError } from './auth-required.error';
+export {
+  AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+  isCodexNativeRuntimeRefusal,
+} from './auth-required.error';
 export { InternalQueryQueueTimeoutError } from './internal-query-queue-timeout.error';

@@ -2147,7 +2147,7 @@ export class AgentMonitorStore implements OnDestroy {
 
         const ts = new Date(ref.startedAt).getTime();
         // The backend restore read already turned a lane left running by an
-        // earlier host run into `stopped`/`host-restarted` with a bounded
+        // earlier host run into `stopped`/`host-restart` with a bounded
         // instant. A `running` ref here names a lane live in this host run.
         const completedAt =
           ref.completedAt === undefined ? NaN : Date.parse(ref.completedAt);

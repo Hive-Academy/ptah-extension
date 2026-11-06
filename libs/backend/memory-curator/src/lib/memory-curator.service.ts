@@ -48,6 +48,7 @@ import { MergeCandidateCollector } from './curator-llm/merge-candidate-collector
 import type { MemorySearchService } from './memory-search.service';
 import {
   CuratorActivityLog,
+  curatorRunMessage,
   type CuratorRunStats,
   type MemoryCuratorEventListener,
 } from './curator-llm/curator-activity-log';
@@ -321,11 +322,12 @@ export class MemoryCuratorService {
           },
         )
         .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
+          // The event gets the fixed sentence; the raw error, which can hold
+          // provider text, goes to the log line below only (TASK_2026_878).
           this.pushEvent({
             kind: 'error',
             timestamp: Date.now(),
-            error: message,
+            error: curatorRunMessage('curator-error'),
           });
           this.logger.error(
             '[memory-curator] curate() failed',

@@ -26,6 +26,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IMcpServerStatus,
+  type IMcpCallerCredentials,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
@@ -61,6 +62,7 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
+import { issueLaneMcpToken } from '../../cli-agents/cli-adapters/lane-mcp-credentials';
 import {
   renderRoleBlock,
   PTAH_LANE_POLICY,
@@ -183,6 +185,8 @@ export class PtahCliSpawnOptions {
      */
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
     private readonly workspace?: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, { isOptional: true })
+    private readonly mcpCredentials?: IMcpCallerCredentials,
   ) {}
 
   /**
@@ -302,8 +306,11 @@ export class PtahCliSpawnOptions {
       policy,
       builtinPolicy,
     );
+    const mcpToken = mcpServerRunning
+      ? issueLaneMcpToken(this.mcpCredentials, this.logger, agentId, cwd)
+      : undefined;
     const builtMcpServers: Record<string, McpHttpServerConfig> =
-      mcpServerRunning
+      mcpServerRunning && mcpToken
         ? {
             ptah: {
               type: 'http' as const,
@@ -311,6 +318,7 @@ export class PtahCliSpawnOptions {
               // calls to the right workspace (TASK_2026_364), and to the agent
               // id so it attributes them to the right agent (TASK_2026_402).
               url: ptahMcpServerUrl(mcpPort, cwd, agentId),
+              headers: { Authorization: `Bearer ${mcpToken}` },
             },
           }
         : {};
