@@ -31,6 +31,10 @@ const COLUMNS = [PLATFORMS.macos, PLATFORMS.windows, PLATFORMS.linux];
         <header class="dl-head">
           <p class="dl-eyebrow"><span class="cue-line" aria-hidden="true"></span><span>Releases</span><span class="cue-line" aria-hidden="true"></span></p>
           <h2 class="dl-title" id="releases-title">Downloads</h2>
+          <p class="dl-subline">
+            Choose your installer on the latest GitHub release page. Direct downloads appear below when
+            release details load.
+          </p>
         </header>
 
         @if (loading()) {

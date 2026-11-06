@@ -9,26 +9,25 @@ import {
 } from '@angular/core';
 import { GitHubReleaseService, SeoService } from '@ptah-web/core';
 import { FooterComponent, NavigationComponent } from '@ptah-web/ui';
-import { DownloadHeroComponent } from './download-hero/download-hero.component';
-import { PlatformCardsComponent } from './platform-cards/platform-cards.component';
+import { DownloadStageComponent } from './download-stage/download-stage.component';
 import { DesktopOs, NavigatorHints, detectDesktopOs } from './platforms';
 import { ReleaseListComponent } from './release-list/release-list.component';
 
 /**
- * The /download route: the Lightfall hero with the primary download, the
- * platform cards, and the release history from the GitHub release API.
+ * The /download route in two sections: the one-screen Lightfall stage, whose
+ * beam lands on the platform downloads, and the release history from the
+ * GitHub release API.
  */
 @Component({
   selector: 'ptah-download-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NavigationComponent, FooterComponent, DownloadHeroComponent, PlatformCardsComponent, ReleaseListComponent],
+  imports: [NavigationComponent, FooterComponent, DownloadStageComponent, ReleaseListComponent],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
       <ptah-navigation />
       <main>
-        <ptah-download-hero [os]="os()" [latest]="latest()" />
-        <ptah-platform-cards [os]="os()" [latest]="latest()" />
+        <ptah-download-stage [os]="os()" [latest]="latest()" />
         <ptah-release-list
           [releases]="releases()"
           [loading]="loading()"

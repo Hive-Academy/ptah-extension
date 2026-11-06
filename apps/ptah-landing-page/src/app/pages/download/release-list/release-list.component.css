@@ -16,9 +16,7 @@
   font-size: 0.875rem;
 }
 
-.rl-state p {
-  margin: 0;
-}
+.rl-state p { margin: 0; }
 
 .rl-spinner {
   width: 2.5rem;
@@ -68,9 +66,7 @@
   cursor: pointer;
 }
 
-.rl-toggle:focus-visible {
-  outline-offset: -3px;
-}
+.rl-toggle:focus-visible { outline-offset: -3px; }
 
 .rl-label {
   color: #a9adb5;
@@ -148,9 +144,7 @@
   text-decoration: none;
 }
 
-.rl-notes:hover {
-  color: #ffbb4d;
-}
+.rl-notes:hover { color: #ffbb4d; }
 
 .rl-notes-icon {
   width: 0.8rem;

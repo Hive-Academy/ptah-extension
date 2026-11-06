@@ -34,6 +34,17 @@ describe('PlatformCardsComponent', () => {
     expect(cards[1].textContent).toContain('This device');
   });
 
+  it('makes the detected card the primary download', () => {
+    const root = render('linux', null);
+    const primary = root.querySelectorAll<HTMLAnchorElement>('[data-testid="download-primary"]');
+
+    expect(primary).toHaveLength(1);
+    expect(primary[0].textContent?.trim()).toBe('Download for Linux');
+    expect(primary[0].href).toBe('https://github.com/Hive-Academy/PtahCode/releases/latest');
+    expect(primary[0].getAttribute('rel')).toBe('noopener noreferrer');
+    expect(primary[0].classList).toContain('is-solid');
+  });
+
   it('lists the latest installers, the Store for Windows, and missing builds', () => {
     const details = Array.from(render(null, release).querySelectorAll('.dl-detail')).map((p) => p.textContent?.trim());
 

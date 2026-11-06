@@ -113,16 +113,18 @@ describe('DownloadPageComponent hero and release details', () => {
     expect(service.fetchReleases).toHaveBeenCalledWith(3);
   });
 
-  it('points the hero download at the latest release, outside the platform list', () => {
+  it('renders two sections: the stage with the platform downloads, then the releases', () => {
     const root = renderDownloadPage({ loading: true }).fixture.nativeElement as HTMLElement;
-    const primary = root.querySelector<HTMLAnchorElement>('[data-testid="download-primary"]');
+    const sections = Array.from(root.querySelectorAll('main > * > section'));
+    const stage = root.querySelector('section[aria-labelledby="download-title"]');
 
+    expect(sections.map((section) => section.getAttribute('aria-labelledby'))).toEqual(['download-title', 'releases-title']);
     expect(root.querySelector('h1')?.textContent?.trim()).toBe('Download PtahCode');
-    expect(primary?.href).toBe(latestReleaseUrl);
-    expect(primary?.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(primary?.closest('[aria-label="Download platforms"]')).toBeNull();
-    expect(root.querySelector('a[href="#releases"]')).not.toBeNull();
-    expect(root.querySelector('#releases')).not.toBeNull();
+    expect(stage?.querySelector('[aria-label="Download platforms"]')).not.toBeNull();
+    expect(stage?.querySelector('ptah-lightfall')).not.toBeNull();
+    expect(stage?.querySelector('img[src$="command-center.jpg"]')).toBeNull();
+    expect(stage?.querySelector('a[href="#releases"]')).not.toBeNull();
+    expect(root.querySelector('#releases')?.textContent).toContain('Choose your installer on the latest GitHub release page.');
   });
 
   it('shows the latest version in the hero once releases load', () => {
