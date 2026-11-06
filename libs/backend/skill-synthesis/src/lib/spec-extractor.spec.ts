@@ -1,13 +1,16 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   detectStatus,
   extractSpec,
+  isDocumentReview,
   normalizeExecutor,
   parseReviewVerdict,
   parseBatchVerdicts,
+  taskVerdict,
   HARVEST_MARKER_FILE,
+  type SpecReviewVerdict,
 } from './spec-extractor';
 
 const TASKS_MD = `# Development Tasks - TASK_2026_001
@@ -45,10 +48,10 @@ Example body for ${id}.
 
 describe('spec-extractor pure parsers', () => {
   it('accepts only explicit terminal review verdicts', () => {
-    expect(parseReviewVerdict('judge-round-1.json', '{"verdict":"approved","run_id":"r1"}', 'digest')).toEqual(expect.objectContaining({ verdict: 'pass', runId: 'r1' }));
-    expect(parseReviewVerdict('judge-round-2.json', '{"pass":false,"taskId":"TASK_2026_001"}', 'digest')).toEqual(expect.objectContaining({ verdict: 'fail' }));
-    expect(parseReviewVerdict('judge-round-1.json', '{broken', 'digest')).toBeNull();
-    expect(parseReviewVerdict('code-style-review.md', 'Some tests passed.', 'digest')).toBeNull();
+    expect(parseReviewVerdict('judge-round-1.json', '{"verdict":"approved","run_id":"r1"}', 'digest', 0)).toEqual(expect.objectContaining({ verdict: 'pass', runId: 'r1' }));
+    expect(parseReviewVerdict('judge-round-2.json', '{"pass":false,"taskId":"TASK_2026_001"}', 'digest', 0)).toEqual(expect.objectContaining({ verdict: 'fail' }));
+    expect(parseReviewVerdict('judge-round-1.json', '{broken', 'digest', 0)).toBeNull();
+    expect(parseReviewVerdict('code-style-review.md', 'Some tests passed.', 'digest', 0)).toBeNull();
   });
   it('parses the repository review verdict formats', () => {
     const samples = [
@@ -64,8 +67,74 @@ describe('spec-extractor pure parsers', () => {
       ['code-logic-review.md', '## Verdict\n\nAPPROVED\n', 'pass'],
     ] as const;
     for (const [file, content, verdict] of samples) {
-      expect(parseReviewVerdict(file, content, 'digest')?.verdict).toBe(verdict);
+      expect(parseReviewVerdict(file, content, 'digest', 0)?.verdict).toBe(verdict);
     }
+  });
+  it('parses bold verdict forms around the label, the value or both', () => {
+    const samples = [
+      ['Verdict: **APPROVED**', 'pass'],
+      ['**Verdict:** REVISE', 'fail'],
+      ['**Verdict: REVISE**', 'fail'],
+      ['Verdict: **NEEDS_REVISION**', 'fail'],
+      ['- **Verdict**: **PASS**', 'pass'],
+      ['**Verdict:**APPROVED', 'pass'],
+      ['## Verdict\n\n**REJECTED**\n', 'fail'],
+    ] as const;
+    for (const [content, verdict] of samples) {
+      expect(parseReviewVerdict('code-logic-review.md', content, 'digest', 7)).toEqual(
+        expect.objectContaining({ verdict, modifiedAt: 7 }),
+      );
+    }
+    expect(parseReviewVerdict('code-logic-review.md', '**Verdict:** pending', 'digest', 0)).toBeNull();
+  });
+  it('classifies planning-document reviews apart from work reviews', () => {
+    for (const file of ['implementation-plan-review.md', 'plan-review.md', 'architecture-review.md',
+      'design-spec-review.md', 'task-description-review.md']) {
+      expect(isDocumentReview(file)).toBe(true);
+    }
+    for (const file of ['code-logic-review.md', 'code-logic-review-phase-a.md', 'visual-review-home.md',
+      'test-report.md', 'judge-round-1.json', 'code-style-review-planner.md']) {
+      expect(isDocumentReview(file)).toBe(false);
+    }
+  });
+  describe('taskVerdict', () => {
+    const review = (file: string, verdict: 'pass' | 'fail', modifiedAt: number): SpecReviewVerdict => ({
+      file, digest: 'd', verdict, runId: null, sessionId: null, batch: null, taskId: null, modifiedAt,
+    });
+    it('fails a cancelled task regardless of reviews', () => {
+      expect(taskVerdict({ taskStatus: 'cancelled', reviews: [] })).toBe('failed');
+      expect(taskVerdict({ taskStatus: 'cancelled', reviews: [review('code-logic-review.md', 'pass', 1)] })).toBe('failed');
+    });
+    it('uses the latest work review of a done task', () => {
+      expect(taskVerdict({ taskStatus: 'done', reviews: [review('code-logic-review.md', 'pass', 5)] })).toBe('succeeded');
+      expect(taskVerdict({ taskStatus: 'done', reviews: [review('code-logic-review.md', 'fail', 5)] })).toBe('failed');
+      // REVISE first, APPROVED later -> succeeded.
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-logic-review.md', 'fail', 1), review('code-logic-review-phase-b.md', 'pass', 9),
+      ] })).toBe('succeeded');
+      // APPROVED first, a later rejecting test report -> failed.
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-style-review.md', 'pass', 1), review('test-report.md', 'fail', 9),
+      ] })).toBe('failed');
+    });
+    it('ignores document reviews and leaves a done task without a work review unreconciled', () => {
+      expect(taskVerdict({ taskStatus: 'done', reviews: [] })).toBeNull();
+      expect(taskVerdict({ taskStatus: 'done', reviews: [review('implementation-plan-review.md', 'pass', 9)] })).toBeNull();
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-logic-review.md', 'fail', 1), review('implementation-plan-review.md', 'pass', 9),
+      ] })).toBe('failed');
+    });
+    it('leaves ambiguous ties and unfinished tasks unreconciled', () => {
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-logic-review.md', 'pass', 4), review('code-style-review.md', 'fail', 4),
+      ] })).toBeNull();
+      expect(taskVerdict({ taskStatus: 'done', reviews: [
+        review('code-logic-review.md', 'pass', 4), review('code-style-review.md', 'pass', 4),
+      ] })).toBe('succeeded');
+      for (const taskStatus of ['backlog', 'in_progress', 'in_review', 'blocked'] as const) {
+        expect(taskVerdict({ taskStatus, reviews: [review('code-logic-review.md', 'pass', 1)] })).toBeNull();
+      }
+    });
   });
   describe('normalizeExecutor', () => {
     it('reduces a decorated executor to a single slug', () => {
@@ -142,6 +211,7 @@ describe('extractSpec', () => {
     const spec = await extractSpec(specDir);
     expect(spec).not.toBeNull();
     expect(spec?.taskId).toBe('TASK_2026_001');
+    expect(spec?.taskStatus).toBe('done');
     expect(spec?.completed).toBe(true);
     expect(spec?.harvested).toBe(false);
     expect(spec?.batches).toHaveLength(2);
@@ -157,6 +227,8 @@ describe('extractSpec', () => {
     );
     const spec = await extractSpec(specDir);
     expect(spec?.completed).toBe(true);
+    expect(spec?.taskStatus).toBe('cancelled');
+    expect(spec && taskVerdict(spec)).toBe('failed');
   });
 
   it('treats an in-progress task.md as not completed', async () => {
@@ -173,6 +245,7 @@ describe('extractSpec', () => {
     );
     const spec = await extractSpec(specDir);
     expect(spec?.completed).toBe(false);
+    expect(spec?.taskStatus).toBe('in_progress');
   });
 
   it('skips a folder with no task.md carrier', async () => {
@@ -300,6 +373,32 @@ describe('extractSpec', () => {
     const spec = await extractSpec(specDir);
     expect(spec?.diagnostics).toEqual(['code-logic-review.md: invalid or missing terminal verdict']);
     expect(spec?.diagnostics.join(' ')).not.toContain('Sensitive');
+  });
+
+  it('reads suffixed review files with their mtimes and derives the task verdict', async () => {
+    const specDir = await makeSpec('TASK_2026_303');
+    await writeFile(join(specDir, 'task.md'), taskMd('TASK_2026_303', 'done'), 'utf8');
+    const files: Array<[string, string, number]> = [
+      ['code-logic-review-phase-a.md', '**Verdict:** REVISE', 1_000],
+      ['visual-review-home.md', 'Verdict: **APPROVED**', 2_000],
+      ['test-report-batch-2.md', '**Verdict: PASS**', 3_000],
+      ['implementation-plan-review.md', 'Verdict: REJECTED', 9_000],
+      ['research-report.md', 'Verdict: REJECTED', 9_500],
+    ];
+    for (const [file, content, seconds] of files) {
+      await writeFile(join(specDir, file), content, 'utf8');
+      await utimes(join(specDir, file), seconds, seconds);
+    }
+    const spec = await extractSpec(specDir);
+    expect(spec?.reviews.map((review) => [review.file, review.verdict, review.modifiedAt])).toEqual([
+      ['code-logic-review-phase-a.md', 'fail', 1_000_000],
+      ['implementation-plan-review.md', 'fail', 9_000_000],
+      ['test-report-batch-2.md', 'pass', 3_000_000],
+      ['visual-review-home.md', 'pass', 2_000_000],
+    ]);
+    expect(spec?.reviewFindings).not.toContain('research-report.md');
+    // The plan review is newest but is a document review; the test report decides.
+    expect(spec && taskVerdict(spec)).toBe('succeeded');
   });
 
   it('rejects a task folder outside the supplied specs root', async () => {
