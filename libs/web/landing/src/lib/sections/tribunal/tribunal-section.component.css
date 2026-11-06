@@ -166,7 +166,7 @@
   }
 
   .tb-clip {
-    width: min(66vw, calc(76vh * 1.6));
+    width: min(74vw, calc(84vh * 1.6));
     margin-left: auto;
   }
 

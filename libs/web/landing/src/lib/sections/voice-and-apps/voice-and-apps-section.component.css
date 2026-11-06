@@ -104,12 +104,12 @@
 }
 
 @media (min-width: 1024px) {
-  /* Uneven grid: clip 47vw, a 6rem bolt gutter, the copy takes the rest. */
+  /* Uneven grid: clip 55vw, a 5rem bolt gutter, the copy takes the rest. */
   .va-stage {
-    grid-template-columns: minmax(0, min(47vw, calc(66vh * 1.6))) 6rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, min(55vw, calc(76vh * 1.6))) 5rem minmax(0, 1fr);
     align-items: start;
     gap: 0;
-    width: min(100%, 86rem);
+    width: min(100%, 96rem);
     margin: 0 auto;
     padding-left: clamp(2.5rem, 4vw, 4.5rem);
   }
