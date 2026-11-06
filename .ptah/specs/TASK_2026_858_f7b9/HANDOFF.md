@@ -31,6 +31,12 @@ Libs: worker-protocol, worker-runtime, remote-machines, machines-ui, worker-host
   green (remote-machines 63 tests, ptah-electron 1662 passed / 8 skipped). Batch 20 also verified
   worker-protocol 188, worker-runtime 142, worker-host 48.
 
+- PR #962 https://github.com/Hive-Academy/PtahCode/pull/962 (base `main`, not merged). After the
+  reviews: a1f988d8c di-lint `@inject`, 20879e200 degradation-audit annotations, e437a801c the
+  eight CodeRabbit fixes (re-review `pr962-coderabbit-round-1-review.md` APPROVED 8/10), and
+  a933b55bd a merge of main (rpc-surface.spec.ts conflict). CI passes in all jobs at 61c45fa1d,
+  and all CodeRabbit threads are resolved. The PR waits for the user's review and merge.
+
 ## Environment notes
 
 - The worktree needs `node_modules -> /home/amun/ptah-extension/node_modules` (git-ignored), or
@@ -48,5 +54,5 @@ Libs: worker-protocol, worker-runtime, remote-machines, machines-ui, worker-host
 
 ## Next steps
 
-1. Watch the Phase E PR (CI and CodeRabbit); fix task findings; do not merge.
+1. PR #962: the user reviews and merges it (do not merge it yourself). Fix new findings.
 2. After the merge and the user's answers: Phase F from `batches.md` Batch 23.
