@@ -229,6 +229,32 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(service.hasActiveSession()).toBe(true);
   });
 
+  it('runNow() stays busy through a poll refresh and ignores a duplicate run', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    runNowMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = service.runNow();
+    expect(service.curatorRunning()).toBe(true);
+    await service.refresh();
+    expect(service.loading()).toBe(false);
+    expect(service.curatorRunning()).toBe(true);
+    await service.runNow();
+    expect(runNowMock).toHaveBeenCalledTimes(1);
+    release({ success: true, startedAt: 0, completedAt: 1, stats: null });
+    await first;
+    expect(service.curatorRunning()).toBe(false);
+  });
+
+  it('runNow() clears curatorRunning when the run fails', async () => {
+    runNowMock.mockRejectedValue(new Error('down'));
+    await service.runNow();
+    expect(service.curatorRunning()).toBe(false);
+  });
+
   it('setTriggers() updates the triggers signal from RPC response', async () => {
     await service.setTriggers({ idleMs: 0 });
 

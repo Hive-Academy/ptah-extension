@@ -500,6 +500,69 @@ describe('WorkspaceIndexingService — running state, action messages, failed pu
     expect(service.handledMessageTypes).toContain('indexing:failed');
   });
 
+  it('loadStatus resolves false on a failed read and keeps the last status', async () => {
+    routeRpc(baseStatus({ state: 'indexed' }));
+    await expect(service.loadStatus('/ws')).resolves.toBe(true);
+    rpcCall.mockResolvedValue(makeRpcResult(false, undefined));
+    await expect(service.loadStatus('/ws')).resolves.toBe(false);
+    expect(service.uiState().kind).toBe('indexed');
+  });
+
+  it('an accepted start whose status read fails shows a fixed sentence, not the join or start error', async () => {
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:getStatus') {
+        const failed = makeRpcResult(false, undefined);
+        failed.error = 'SQLITE_BUSY /home/secret';
+        return Promise.resolve(failed);
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: 'indexing' }),
+      );
+    });
+    await service.start('/ws', true);
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Indexing started, but its status could not be read. Reopen this view to check it.',
+    });
+    await service.resume('/ws');
+    expect(service.actionMessage()?.text).toBe(
+      'Indexing started, but its status could not be read. Reopen this view to check it.',
+    );
+  });
+
+  it('indexing:failed with a failed reload drops the stale running view and shows a fixed error', async () => {
+    routeRpc(
+      baseStatus({
+        state: 'indexing',
+        running: { origin: 'manual', startedAt: 1, force: true },
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.isBusy()).toBe(true);
+    rpcCall.mockRejectedValue(new Error('ECONNRESET'));
+    service.handleMessage({
+      type: 'indexing:failed',
+      payload: {
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp',
+        failedAt: 5,
+        elapsedMs: 4,
+        origin: 'manual',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.isBusy()).toBe(false);
+    expect(service.runningOrigin()).toBeNull();
+    expect(service.uiState()).toEqual({
+      kind: 'error',
+      message: 'Indexing failed. See the logs.',
+    });
+    expect(service.actionMessage()).toEqual({
+      tone: 'error',
+      text: 'Indexing failed. See the logs.',
+    });
+  });
+
   it('cancel clears the last progress event', async () => {
     routeRpc(baseStatus({ state: 'indexed' }));
     service.handleMessage({

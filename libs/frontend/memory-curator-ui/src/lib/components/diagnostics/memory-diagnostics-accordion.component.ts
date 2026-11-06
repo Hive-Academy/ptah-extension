@@ -220,13 +220,17 @@ import { EventFeedComponent } from './event-feed.component';
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          [disabled]="loading() || !hasActiveSession() || paused()"
+          [disabled]="curatorRunning() || !hasActiveSession() || paused()"
+          [attr.aria-busy]="curatorRunning()"
           [title]="runNowTitle()"
           (click)="onRunCuratorNow()"
           data-testid="run-curator-now"
         >
-          @if (loading()) {
-            <span class="loading loading-spinner loading-xs"></span>
+          @if (curatorRunning()) {
+            <span
+              class="loading loading-spinner loading-xs"
+              aria-hidden="true"
+            ></span>
           }
           Run curator now
         </button>
@@ -303,6 +307,8 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly dbHealth = this.state.dbHealth;
   protected readonly storage = this.state.storage;
   protected readonly loading = this.state.loading;
+  /** Manual run in flight; a poll or Refresh never changes it. */
+  protected readonly curatorRunning = this.state.curatorRunning;
   protected readonly error = this.state.error;
   protected readonly hasActiveSession = this.state.hasActiveSession;
   protected readonly paused = this.state.memoryPaused;

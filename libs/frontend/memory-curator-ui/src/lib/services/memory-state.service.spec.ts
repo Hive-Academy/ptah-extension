@@ -20,6 +20,7 @@ import { MemoryRpcService } from './memory-rpc.service';
 import {
   MEMORY_REBUILD_FAILED_MESSAGE,
   MemoryStateService,
+  memoryFailureMessage,
 } from './memory-state.service';
 
 describe('MemoryStateService — scopeFilter', () => {
@@ -486,16 +487,18 @@ describe('MemoryStateService — rebuildIndex', () => {
   let service: MemoryStateService;
   let rebuildMock: jest.Mock;
   let listMock: jest.Mock;
+  let statsMock: jest.Mock;
 
   beforeEach(() => {
     rebuildMock = jest.fn();
     listMock = jest.fn().mockResolvedValue({ memories: [] });
+    statsMock = jest.fn();
     TestBed.configureTestingModule({
       providers: [
         MemoryStateService,
         {
           provide: MemoryRpcService,
-          useValue: { rebuildIndex: rebuildMock, list: listMock },
+          useValue: { rebuildIndex: rebuildMock, list: listMock, stats: statsMock },
         },
         {
           provide: AppStateManager,
@@ -527,7 +530,7 @@ describe('MemoryStateService — rebuildIndex', () => {
       rebuiltFts: true,
       rebuiltVec: false,
     });
-    expect(service.error()).toBeNull();
+    expect(service.rebuildError()).toBeNull();
   });
 
   it('ignores a second rebuild while one is in flight', async () => {
@@ -549,13 +552,36 @@ describe('MemoryStateService — rebuildIndex', () => {
       new Error('SQLITE_CORRUPT: /home/secret/ptah.sqlite'),
     );
     await service.rebuildIndex();
-    expect(service.error()).toBe(MEMORY_REBUILD_FAILED_MESSAGE);
-    expect(service.error()).toBe(
+    expect(service.rebuildError()).toBe(MEMORY_REBUILD_FAILED_MESSAGE);
+    expect(service.error()).toBeNull();
+    expect(service.rebuildError()).toBe(
       'Could not rebuild the memory search index. See the logs for details.',
     );
     expect(service.rebuildResult()).toBeNull();
     expect(service.rebuilding()).toBe(false);
     expect(service.loading()).toBe(false);
+  });
+
+  it('keeps the rebuild error when a stats load starts or fails meanwhile', async () => {
+    rebuildMock.mockRejectedValue(new Error('x'));
+    statsMock.mockRejectedValue(new Error('SQLITE_IOERR /home/secret'));
+    await service.rebuildIndex();
+    await service.loadStats();
+    expect(service.rebuildError()).toBe(MEMORY_REBUILD_FAILED_MESSAGE);
+    expect(service.error()).toBe(memoryFailureMessage('stats'));
+    expect(service.error()).not.toContain('SQLITE');
+  });
+
+  it('shows a fixed sentence for a list failure and logs the detail', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      listMock.mockRejectedValue(new Error('ECONNRESET raw'));
+      await service.refresh();
+      expect(service.error()).toBe('Could not load memories. Try again.');
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('keeps the rebuild result across a refresh', async () => {

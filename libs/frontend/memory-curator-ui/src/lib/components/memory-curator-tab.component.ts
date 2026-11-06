@@ -50,6 +50,12 @@ interface ViewChip {
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+/** Fixed purge failure sentences; the raw detail goes to the console log. */
+export const PURGE_FAILED_MESSAGE =
+  'Could not delete the matching memories. See the logs for details.';
+export const PURGE_JUNK_FAILED_MESSAGE =
+  'Could not clean the code-index junk. See the logs for details.';
+
 @Component({
   selector: 'ptah-memory-curator-tab',
   standalone: true,
@@ -165,13 +171,13 @@ const SEARCH_DEBOUNCE_MS = 300;
               {{ summary }}
             </div>
           }
-          @if (error()) {
+          @if (rebuildError(); as rebuildMessage) {
             <div
               class="rounded-xl border border-error/40 bg-error/5 px-4 py-3"
               role="alert"
               data-testid="memory-code-error"
             >
-              <span class="text-sm text-error">{{ error() }}</span>
+              <span class="text-sm text-error">{{ rebuildMessage }}</span>
             </div>
           }
         }
@@ -367,6 +373,7 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
   protected readonly rebuilding = this.state.rebuilding;
+  protected readonly rebuildError = this.state.rebuildError;
   /** Result line of the last successful memory search index rebuild. */
   protected readonly rebuildSummary = computed<string | null>(() => {
     const result = this.state.rebuildResult();
@@ -549,9 +556,8 @@ export class MemoryCuratorTabComponent implements OnInit {
       await this.state.refresh();
       await this.state.loadStats();
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'memory:purgeJunk failed';
-      this.purgeError.set(message);
+      console.warn('[memory-tab] purgeJunk failed', error);
+      this.purgeError.set(PURGE_JUNK_FAILED_MESSAGE);
     } finally {
       this.purgingJunk.set(false);
     }
@@ -642,11 +648,8 @@ export class MemoryCuratorTabComponent implements OnInit {
       await this.state.refresh();
       await this.state.loadStats();
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'memory:purgeBySubjectPattern failed';
-      this.purgeError.set(message);
+      console.warn('[memory-tab] purgeBySubjectPattern failed', error);
+      this.purgeError.set(PURGE_FAILED_MESSAGE);
     } finally {
       this.purging.set(false);
     }

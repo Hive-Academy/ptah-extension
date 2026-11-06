@@ -109,6 +109,16 @@ const JOINED_BACKGROUND_MESSAGE: IndexingActionMessage = {
   text: 'Joined the scan already in progress. Progress appears after its next batch.',
 };
 const START_FAILED_MESSAGE = REFUSAL_MESSAGES['setup-failed'];
+/** A start or resume was accepted, but the follow-up status read failed. */
+const STATUS_AFTER_START_FAILED_MESSAGE: IndexingActionMessage = {
+  tone: 'error',
+  text: 'Indexing started, but its status could not be read. Reopen this view to check it.',
+};
+/** An `indexing:failed` push arrived and the follow-up status read failed. */
+const INDEXING_FAILED_MESSAGE: IndexingActionMessage = {
+  tone: 'error',
+  text: 'Indexing failed. See the logs.',
+};
 const PAUSE_FAILED_MESSAGE: IndexingActionMessage = {
   tone: 'error',
   text: 'Could not pause indexing. See the logs.',
@@ -278,8 +288,32 @@ export class WorkspaceIndexingService implements MessageHandler {
       const payload = message.payload as IndexingFailedEvent | undefined;
       if (!payload) return;
       this._progress.set(null);
-      void this.loadStatus(payload.workspaceRoot).catch(() => undefined);
+      void this.refreshAfterFailure(payload.workspaceRoot);
     }
+  }
+
+  /**
+   * After a failure push the persisted status normally shows the error. When
+   * that read fails, the last `running` view is stale: drop it (and a stale
+   * `indexing` row becomes `error`) so the panel leaves the indexing state and
+   * stops counting as busy, and show a fixed failure sentence.
+   */
+  private async refreshAfterFailure(workspaceRoot: string): Promise<void> {
+    if (await this.tryLoadStatus(workspaceRoot)) return;
+    this._status.update((status) =>
+      status
+        ? {
+            ...status,
+            running: null,
+            state: status.state === 'indexing' ? 'error' : status.state,
+            errorMessage:
+              status.state === 'indexing'
+                ? INDEXING_FAILED_MESSAGE.text
+                : status.errorMessage,
+          }
+        : status,
+    );
+    this._actionMessage.set(INDEXING_FAILED_MESSAGE);
   }
 
   /**
@@ -338,12 +372,29 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
   }
 
-  /** Fetch the current backend status for `workspaceRoot`. */
-  async loadStatus(workspaceRoot: string): Promise<void> {
+  /**
+   * Fetch the current backend status for `workspaceRoot`. Resolves `true`
+   * when the status was read, `false` when the RPC returned a failure (the
+   * last status stays). A transport failure still rejects.
+   */
+  async loadStatus(workspaceRoot: string): Promise<boolean> {
     this._hasWorkspace.set(true);
     const result = await this.rpc.call('indexing:getStatus', { workspaceRoot });
-    if (result.isSuccess()) {
-      this._status.set(result.data.status);
+    if (!result.isSuccess()) {
+      console.warn('[workspace-indexing] getStatus failed', result.error);
+      return false;
+    }
+    this._status.set(result.data.status);
+    return true;
+  }
+
+  /** `loadStatus` that never rejects: `false` for any failed read. */
+  private async tryLoadStatus(workspaceRoot: string): Promise<boolean> {
+    try {
+      return await this.loadStatus(workspaceRoot);
+    } catch (error: unknown) {
+      console.warn('[workspace-indexing] getStatus failed', error);
+      return false;
     }
   }
 
@@ -426,10 +477,12 @@ export class WorkspaceIndexingService implements MessageHandler {
             START_FAILED_MESSAGE,
         );
       }
-      await this.loadStatus(workspaceRoot);
-      if (
+      const refreshed = await this.tryLoadStatus(workspaceRoot);
+      if (data.accepted === false) return;
+      if (!refreshed) {
+        this._actionMessage.set(STATUS_AFTER_START_FAILED_MESSAGE);
+      } else if (
         reportJoin &&
-        data.accepted !== false &&
         this._status()?.running?.joinedBackground === true
       ) {
         this._actionMessage.set(JOINED_BACKGROUND_MESSAGE);

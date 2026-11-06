@@ -77,6 +77,7 @@ export class MemoryDiagnosticsStateService {
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
   private readonly _lastManualRun = signal<ManualRunResult | null>(null);
+  private readonly _curatorRunning = signal<boolean>(false);
 
   public readonly triggers = this._triggers.asReadonly();
   public readonly lastRun = this._lastRun.asReadonly();
@@ -87,6 +88,11 @@ export class MemoryDiagnosticsStateService {
   public readonly error = this._error.asReadonly();
   /** Last manual run result; `refresh()` and the poll never clear it. */
   public readonly lastManualRun = this._lastManualRun.asReadonly();
+  /**
+   * True while a manual curator run is in flight. Separate from `loading`,
+   * which the 30 s poll and Refresh toggle on their own.
+   */
+  public readonly curatorRunning = this._curatorRunning.asReadonly();
 
   public readonly hasActiveSession = computed<boolean>(() => {
     const tab = this.tabManager.activeTab();
@@ -208,6 +214,7 @@ export class MemoryDiagnosticsStateService {
   }
 
   public async runNow(): Promise<void> {
+    if (this._curatorRunning()) return;
     const root = this.appState.workspaceInfo()?.path;
     if (!root) {
       this._error.set('No workspace is open.');
@@ -222,7 +229,7 @@ export class MemoryDiagnosticsStateService {
       this._pausedNotice.set(MEMORY_PAUSED_NOTICE);
       return;
     }
-    this._loading.set(true);
+    this._curatorRunning.set(true);
     this._error.set(null);
     this._pausedNotice.set(null);
     this._lastManualRun.set(null);
@@ -243,7 +250,8 @@ export class MemoryDiagnosticsStateService {
       } else {
         this._error.set(CURATOR_UNREACHABLE_MESSAGE);
       }
-      this._loading.set(false);
+    } finally {
+      this._curatorRunning.set(false);
     }
   }
 

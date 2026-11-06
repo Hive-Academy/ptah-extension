@@ -82,6 +82,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   });
   const storage = signal<MemoryStorageHealthDto | null>(null);
   const loading = signal<boolean>(false);
+  const curatorRunning = signal<boolean>(false);
   const error = signal<string | null>(null);
   const hasActiveSession = signal<boolean>(true);
   const memoryPaused = signal<boolean>(false);
@@ -117,6 +118,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     });
     storage.set(null);
     loading.set(false);
+    curatorRunning.set(false);
     error.set(null);
     hasActiveSession.set(true);
     memoryPaused.set(false);
@@ -163,6 +165,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
             dbHealth,
             storage,
             loading,
+            curatorRunning,
             error,
             hasActiveSession,
             memoryPaused,
@@ -448,6 +451,25 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     ) as HTMLButtonElement;
     btn.click();
     expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it('keeps Run curator now disabled during a manual run while a poll refresh ends', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const button = () =>
+      root.querySelector<HTMLButtonElement>('[data-testid="run-curator-now"]');
+    curatorRunning.set(true);
+    loading.set(true);
+    fixture.detectChanges();
+    loading.set(false);
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(true);
+    curatorRunning.set(false);
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(false);
   });
 
   it('renders the loading placeholder when triggers is null', () => {

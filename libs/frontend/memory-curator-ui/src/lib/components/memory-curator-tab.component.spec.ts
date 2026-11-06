@@ -35,6 +35,7 @@ function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
     loading: signal(false).asReadonly(),
     error: signal(null).asReadonly(),
     hasActiveSession: signal(false).asReadonly(),
+    curatorRunning: signal(false).asReadonly(),
     startPolling: jest.fn(),
     stopPolling: jest.fn(),
     refresh: jest.fn(() => Promise.resolve()),
@@ -118,6 +119,7 @@ describe('MemoryCuratorTabComponent', () => {
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: jest.fn(() => false),
       rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -286,6 +288,7 @@ describe('MemoryCuratorTabComponent', () => {
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: jest.fn(() => false),
       rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -360,6 +363,7 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: jest.fn(() => false),
       rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -557,7 +561,10 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
       fixture.detectChanges();
 
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text).toContain('store unavailable');
+      expect(text).toContain(
+        'Could not delete the matching memories. See the logs for details.',
+      );
+      expect(text).not.toContain('store unavailable');
     } finally {
       confirmSpy.mockRestore();
     }
@@ -680,6 +687,7 @@ describe('MemoryCuratorTabComponent — workspace switch', () => {
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: jest.fn(() => false),
       rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -825,6 +833,7 @@ describe('MemoryCuratorTabComponent — indexing banner three-state predicate', 
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: jest.fn(() => false),
       rebuildResult: jest.fn(() => null),
+      rebuildError: jest.fn(() => null),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -935,6 +944,7 @@ describe('MemoryCuratorTabComponent — rebuild state and banner action message'
     rebuiltVec: boolean;
   } | null>(null);
   const error = signal<string | null>(null);
+  const rebuildError = signal<string | null>(null);
 
   function buildStateMock(): jest.Mocked<MemoryStateService> {
     return {
@@ -964,6 +974,7 @@ describe('MemoryCuratorTabComponent — rebuild state and banner action message'
       rebuildIndex: jest.fn(() => Promise.resolve()),
       rebuilding: rebuilding.asReadonly(),
       rebuildResult: rebuildResult.asReadonly(),
+      rebuildError: rebuildError.asReadonly(),
       loadStats: jest.fn(() => Promise.resolve()),
       symbolQuery: jest.fn(() => ''),
       symbolItems: jest.fn(() => []),
@@ -1031,6 +1042,7 @@ describe('MemoryCuratorTabComponent — rebuild state and banner action message'
     rebuilding.set(false);
     rebuildResult.set(null);
     error.set(null);
+    rebuildError.set(null);
   });
 
   it('labels the rebuild button and binds busy to rebuilding()', () => {
@@ -1071,11 +1083,20 @@ describe('MemoryCuratorTabComponent — rebuild state and banner action message'
     expect(line?.textContent?.trim()).toBe(text);
   });
 
-  it('shows a rebuild failure from error() as an alert in the code view', () => {
+  it('does not show the shared list/stats error() in the code view', () => {
     const { fixture } = render();
     const root = fixture.nativeElement as HTMLElement;
     openCodeView(root);
-    error.set('Could not rebuild the memory search index. See the logs for details.');
+    error.set('Could not load memories. Try again.');
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="memory-code-error"]')).toBeNull();
+  });
+
+  it('shows a rebuild failure from rebuildError() as an alert in the code view', () => {
+    const { fixture } = render();
+    const root = fixture.nativeElement as HTMLElement;
+    openCodeView(root);
+    rebuildError.set('Could not rebuild the memory search index. See the logs for details.');
     fixture.detectChanges();
     const alert = root.querySelector('[data-testid="memory-code-error"]');
     expect(alert?.getAttribute('role')).toBe('alert');
