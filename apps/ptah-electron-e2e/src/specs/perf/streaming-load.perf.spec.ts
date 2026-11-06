@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect } from '@playwright/test';
-import { launchPtah } from '../../support/electron-launcher';
+import { launchPtah, resolveElectronEntry } from '../../support/electron-launcher';
 
 /**
  * Streaming-load evaluation for the Electron main-loop freeze
@@ -34,12 +34,16 @@ import { launchPtah } from '../../support/electron-launcher';
  * the plan. Environment:
  *   PTAH_PERF_SESSIONS     concurrent sessions (default 4)
  *   PTAH_PERF_DURATION_MS  measured window (default 120000; evaluation: 900000)
+ *   PTAH_PERF_ROOTS        explicit session roots separated by ';' (first one is opened)
  *   PTAH_PERF_REPO         git repo whose worktrees are the session roots
  *                          (default: a throwaway scratch repo + worktrees)
  *   PTAH_PERF_DB_SOURCE    sqlite file copied as the app database; without it
  *                          the database is empty and the vector scan is NOT
  *                          representative
  *   PTAH_PERF_OUT          output directory (default <tmp>/ptah-perf-<time>)
+ *   PTAH_PERF_MEMORY_ROOTS memory/symbol scoping roots (';' list, cycled over sessions)
+ *   PTAH_PERF_MEMORY_QUERY / PTAH_PERF_SYMBOL_QUERY  canary queries that must match DB rows
+ *   PTAH_PERF_EXPECT_SEARCH_WORKER  "1" requires the search worker to start cleanly (fix builds)
  *   PTAH_PERF_ENFORCE      "0" reports without failing the test
  */
 
@@ -59,12 +63,23 @@ interface LoadStats {
   readonly probeMs: number[];
   readonly frameGapsMs: number[];
   readonly driverTimeouts: Record<string, number>;
+  /** RPCs that answered with `success: false`; the load is only valid if these are understood. */
+  readonly rpcErrors: Record<string, { count: number; first: string }>;
+  /** Canary searches (a query known to match rows in the DB copy): replies with and without results. */
+  readonly canary: Record<string, { nonEmpty: number; empty: number }>;
+  /** `memory:search` replies that fell back to BM25 only (embedder unavailable): no vector scan ran. */
+  bm25OnlyReplies: number;
+  vectorReplies: number;
 }
 
 interface LoadArgs {
   readonly roots: string[];
   readonly durationMs: number;
   readonly probeIntervalMs: number;
+  /** Workspace roots used for memory/symbol scoping (cycled over sessions). */
+  readonly memoryRoots: string[];
+  readonly memoryQuery: string;
+  readonly symbolQuery: string;
 }
 
 function pct(values: readonly number[], p: number): number {
@@ -80,6 +95,15 @@ function git(cwd: string, ...args: string[]): string {
 
 /** Session roots: real worktrees of PTAH_PERF_REPO, else a scratch repo + worktrees. */
 function resolveRoots(sessions: number): { main: string; roots: string[] } {
+  const explicit = process.env['PTAH_PERF_ROOTS'];
+  if (explicit) {
+    const roots = explicit.split(';').filter((r) => r.length > 0).slice(0, sessions);
+    if (roots.length < sessions) {
+      throw new Error(`PTAH_PERF_ROOTS lists ${roots.length} roots; need ${sessions}`);
+    }
+    // The first root is the workspace the app opens; the rest must be worktrees of it.
+    return { main: roots[0] ?? '', roots };
+  }
   const repo = process.env['PTAH_PERF_REPO'];
   if (repo) {
     const listed = git(repo, 'worktree', 'list', '--porcelain')
@@ -127,21 +151,30 @@ async function driveLoad(args: LoadArgs): Promise<LoadStats> {
     probeMs: [],
     frameGapsMs: [],
     driverTimeouts: {},
+    rpcErrors: {},
+    canary: {},
+    bm25OnlyReplies: 0,
+    vectorReplies: 0,
   };
   let seq = 0;
-  const call = (method: string, params: unknown, timeoutMs = 60_000): Promise<void> =>
-    new Promise<void>((resolve) => {
+  const call = (method: string, params: unknown, timeoutMs = 60_000): Promise<unknown> =>
+    new Promise<unknown>((resolve) => {
       const id = `perf-${Date.now()}-${seq++}`;
       const started = performance.now();
       const timer = setTimeout(() => {
         pending.delete(id);
         stats.driverTimeouts[method] = (stats.driverTimeouts[method] ?? 0) + 1;
-        resolve();
+        resolve(undefined);
       }, timeoutMs);
-      pending.set(id, () => {
+      pending.set(id, (reply: unknown) => {
         clearTimeout(timer);
         (stats.rpc[method] ??= []).push(performance.now() - started);
-        resolve();
+        const r = reply as { success?: boolean; error?: string } | undefined;
+        if (r?.success === false && method !== 'e2e:rpc-ready-probe') {
+          const e = (stats.rpcErrors[method] ??= { count: 0, first: String(r.error ?? '') });
+          e.count += 1;
+        }
+        resolve(reply);
       });
       w.vscode.postMessage({
         type: 'rpc:call',
@@ -182,19 +215,44 @@ async function driveLoad(args: LoadArgs): Promise<LoadStats> {
         call('git:lastCommit', { workspaceRoot: root }),
       ]);
     };
+    // Even rounds (turn % 16 === 0) are canaries: a query known to match rows in the DB copy,
+    // whose replies must be non-empty. A search backend that failed to start returns EMPTY
+    // results silently, so only a non-empty canary proves the search path really ran.
+    const memoryRoot = args.memoryRoots[index % args.memoryRoots.length] ?? root;
+    const hasResults = (reply: unknown, key: string): boolean => {
+      const data = (reply as { data?: Record<string, unknown> } | undefined)?.data;
+      const list = data?.[key];
+      return Array.isArray(list) && list.length > 0;
+    };
+    const record = (method: string, ok: boolean): void => {
+      const c = (stats.canary[method] ??= { nonEmpty: 0, empty: 0 });
+      if (ok) c.nonEmpty += 1;
+      else c.empty += 1;
+    };
     const memory = async (turn: number): Promise<void> => {
-      await Promise.all([
+      const canary = turn % 16 === 0;
+      const [memReply, symReply] = await Promise.all([
         call('memory:search', {
-          query: `how does session ${index} turn ${turn} handle streaming and git state`,
+          query: canary
+            ? args.memoryQuery
+            : `how does session ${index} turn ${turn} handle streaming and git state`,
           topK: 10,
-          workspaceRoot: root,
+          workspaceRoot: memoryRoot,
         }),
         call('memory:searchSymbols', {
-          workspaceRoot: root,
-          query: `stream session ${turn}`,
+          workspaceRoot: memoryRoot,
+          query: canary ? args.symbolQuery : `stream session ${turn}`,
           limit: 20,
         }),
       ]);
+      const mem = (memReply as { data?: { bm25Only?: boolean } } | undefined)?.data;
+      if (mem?.bm25Only === true) stats.bm25OnlyReplies += 1;
+      else if (mem?.bm25Only === false) stats.vectorReplies += 1;
+      if (canary) {
+        // Only the root that holds memories can answer the memory canary.
+        if (memoryRoot === args.memoryRoots[0]) record('memory:search', hasResults(memReply, 'hits'));
+        record('memory:searchSymbols', hasResults(symReply, 'items'));
+      }
     };
     // Stagger like four tabs opened in quick succession, not simultaneously.
     await sleep(index * 750);
@@ -239,6 +297,18 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
           fs.copyFileSync(dbSource + suffix, dbPath + suffix);
         }
       }
+    }
+
+    // The embedder loads its model from <HOME>/.ptah/models. HOME is isolated, so copy the one
+    // model the memory search needs; without it every search silently falls back to BM25 and the
+    // vector scan (the 8 s main-thread block) never runs.
+    const modelSource =
+      process.env['PTAH_PERF_EMBEDDER_MODEL_SOURCE'] ??
+      path.join(os.homedir(), '.ptah', 'models', 'Xenova', 'bge-small-en-v1.5');
+    if (dbSource && fs.existsSync(modelSource)) {
+      fs.cpSync(modelSource, path.join(home, '.ptah', 'models', 'Xenova', 'bge-small-en-v1.5'), {
+        recursive: true,
+      });
     }
 
     const { main, roots } = resolveRoots(SESSIONS);
@@ -318,11 +388,18 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
       },
     );
 
+    const memoryRoots = (process.env['PTAH_PERF_MEMORY_ROOTS'] ?? '')
+      .split(';')
+      .filter((r) => r.length > 0);
+    if (memoryRoots.length === 0) memoryRoots.push(...roots);
     const fromIso = new Date().toISOString();
     const stats = await page.evaluate(driveLoad, {
       roots,
       durationMs: DURATION_MS,
       probeIntervalMs: PROBE_INTERVAL_MS,
+      memoryRoots,
+      memoryQuery: process.env['PTAH_PERF_MEMORY_QUERY'] ?? 'model tier alias mapping',
+      symbolQuery: process.env['PTAH_PERF_SYMBOL_QUERY'] ?? 'MemorySearchService',
     });
     const toIso = new Date().toISOString();
     await app.evaluate(() => {
@@ -352,8 +429,35 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
         ]),
       ),
       driverTimeouts: stats.driverTimeouts,
+      rpcErrors: stats.rpcErrors,
+      canary: stats.canary,
+      bm25OnlyReplies: stats.bm25OnlyReplies,
+      vectorReplies: stats.vectorReplies,
     };
-    fs.writeFileSync(path.join(out, 'driver-stats.json'), JSON.stringify(driver, null, 2));
+    // Search-worker evidence from the app's own log (fix builds run searches in a utility process).
+    const logsDirEarly = path.join(userDataDir, 'logs');
+    const workerLines: string[] = [];
+    if (fs.existsSync(logsDirEarly)) {
+      for (const name of fs.readdirSync(logsDirEarly)) {
+        if (!/^Ptah Electron-.*\.log$/.test(name)) continue;
+        for (const line of fs.readFileSync(path.join(logsDirEarly, name), 'utf8').split(/\r?\n/)) {
+          if (line.includes('sqlite-search-worker')) workerLines.push(line);
+        }
+      }
+    }
+    const workerFile = path.resolve(path.dirname(resolveElectronEntry()), 'search-worker.mjs');
+    const worker = {
+      builtFilePresent: fs.existsSync(workerFile),
+      readyLines: workerLines.filter((l) => / ready/.test(l)).length,
+      // WARN/ERROR lines other than the worker's own "slow query" timings: start failures,
+      // request timeouts ("answering degraded"), restarts and backoff all land here.
+      problemLines: workerLines.filter(
+        (l) => /\[(WARN|ERROR)\s*\]/.test(l) && !l.includes('slow query'),
+      ),
+      allLines: workerLines.slice(0, 40),
+    };
+    fs.writeFileSync(path.join(out, 'search-worker-evidence.json'), JSON.stringify(worker, null, 2));
+    fs.writeFileSync(path.join(out, 'driver-stats.json'), JSON.stringify({ ...driver, searchWorker: worker }, null, 2));
 
     // Log-based verdict from the app's own logs.
     const logsDir = path.join(userDataDir, 'logs');
@@ -363,8 +467,10 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
     const collectorArgs = [
       path.resolve(__dirname, '../../../../../scripts/perf/streaming-load-metrics.mjs'),
       ...logs.flatMap((n) => ['--log', path.join(logsDir, n)]),
-      '--hang-log',
-      path.join(logsDir, 'ptah-hang.log'),
+      // The watchdog only creates ptah-hang.log on the first hang; no file means no hang.
+      ...(fs.existsSync(path.join(logsDir, 'ptah-hang.log'))
+        ? ['--hang-log', path.join(logsDir, 'ptah-hang.log')]
+        : []),
       '--from',
       fromIso,
       '--to',
@@ -388,6 +494,21 @@ test.describe('Streaming load (main-loop freeze evaluation)', () => {
       expect(driver.probe.p99, 'no-op RPC p99 round trip (ms)').toBeLessThan(PROBE_P99_MS);
       expect(driver.longFrames.max, 'worst renderer frame gap (ms)').toBeLessThan(FRAME_GAP_MAX_MS);
       expect(Object.keys(driver.driverTimeouts), 'RPCs that never answered').toEqual([]);
+      expect(driver.rpcErrors, 'RPCs that answered success:false').toEqual({});
+      if (dbSource) {
+        expect(driver.bm25OnlyReplies, 'memory:search replies without the vector path (embedder unavailable)').toBe(0);
+        expect(driver.vectorReplies, 'memory:search replies that used the vector path').toBeGreaterThan(0);
+        for (const method of ['memory:search', 'memory:searchSymbols']) {
+          const c = driver.canary[method];
+          expect(c?.nonEmpty ?? 0, `${method} canary replies with results`).toBeGreaterThan(0);
+          expect(c?.empty ?? 0, `${method} canary replies that were EMPTY (search backend not working)`).toBe(0);
+        }
+      }
+      if (process.env['PTAH_PERF_EXPECT_SEARCH_WORKER'] === '1') {
+        expect(worker.builtFilePresent, 'dist search-worker.mjs present').toBe(true);
+        expect(worker.readyLines, 'search worker logged ready').toBeGreaterThan(0);
+        expect(worker.problemLines, 'search worker WARN/ERROR lines (start failure, backoff)').toEqual([]);
+      }
     }
   });
 });

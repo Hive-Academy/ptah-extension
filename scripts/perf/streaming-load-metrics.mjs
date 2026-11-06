@@ -94,7 +94,9 @@ function resolveInputs(args, fromMs, toMs) {
     }
   }
   if (hangLogs.length === 0) {
-    const f = join(dir, 'ptah-hang.log');
+    // With explicit --log files the hang log is the one beside them, never the default profile's.
+    const hangDir = args.logs.length > 0 ? dirname(args.logs[0]) : dir;
+    const f = join(hangDir, 'ptah-hang.log');
     if (existsSync(f)) hangLogs = [f];
   }
   return { logs, hangLogs };
