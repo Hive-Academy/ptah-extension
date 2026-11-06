@@ -1,0 +1,20 @@
+{
+  "_comment": "Pass/fail limits for 4 concurrent streaming sessions over a 15 min window. See .ptah/specs/main-loop-sync-blocks/perf-eval-plan.md for the justification of each limit.",
+  "watchdog.hangEvents": { "max": 0, "note": "No >5 s main-loop block. The user-visible freeze." },
+  "watchdog.blockedPct": { "max": 0, "note": "Share of the window spent blocked by a watchdog hang." },
+  "watchdog.unrecoveredHangs": { "max": 0, "note": "App must never stay hung until killed." },
+  "eventLoop.maxMs": { "max": 500, "note": "Worst single lag. The main process only logs lags >= ~250 ms, so this means: no logged lag above 500 ms." },
+  "eventLoop.maxOfP99Ms": { "max": 100, "note": "p99 lag reported by any warning interval." },
+  "eventLoop.over1s": { "max": 0, "note": "No lag warning above 1 s." },
+  "rpcTimeouts.total": { "max": 0, "note": "No renderer-seen RPC timeout." },
+  "gitGate.maxWaitMs": { "max": 30000, "note": "A git slot is never waited on longer than 30 s." },
+  "gitGate.saturatedEvents": { "max": 5, "note": "Occasional saturation tolerated, not a stacked queue." },
+  "sqlite.maxMs": { "max": 1000, "note": "No slow statement above 1 s on the main thread." },
+  "rpc.git:watchRoots.maxMs": { "max": 30000, "note": "Required by the evaluation brief." },
+  "rpc.git:info.maxMs": { "max": 30000, "note": "git probes must not stack behind the gate." },
+  "rpc.memory:search.maxMs": { "max": 5000, "note": "Handler latency only: the loop-lag limits above are what prove it no longer blocks." },
+  "rpc.memory:searchSymbols.maxMs": { "max": 5000, "note": "Handler latency only; see memory:search." },
+  "slowRpc.maxMs": { "max": 30000, "note": "No RPC handler of any method above 30 s." },
+  "rendererFrames.maxMs": { "max": 250, "note": "Only meaningful once the RendererFrame diagnostic lands; 0 observed counts as pass." },
+  "logVolume.stormMinutes": { "max": 0, "note": "No minute above the storm threshold (500 lines/min by default)." }
+}
