@@ -56,7 +56,7 @@ it('relays stdout to the Duplex reader and Duplex writes to stdin', async () => 
   stream.destroy();
 });
 
-it('includes captured stderr on nonzero exit', async () => {
+it('keeps captured stderr separate from error text on nonzero exit', async () => {
   const child = fakeChild();
   const stream = createSshStdioTransport(
     'remote',
@@ -66,7 +66,7 @@ it('includes captured stderr on nonzero exit', async () => {
   const error = new Promise<Error>((resolve) => stream.once('error', resolve));
   child.stderr.write('forward refused');
   child.emit('close', 255);
-  await expect(error).resolves.toThrow('forward refused');
+  await expect(error).resolves.toMatchObject({ stderr: 'forward refused' });
 });
 
 it('ends the readable side on exit zero', async () => {

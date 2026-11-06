@@ -169,3 +169,19 @@ it('uses display name for version mismatch copy', async () => {
       'This Ptah build on Office Mac has no worker mode. Update the Ptah desktop app there.',
   });
 });
+
+it.each(['a;b', '$(x)', '`x`', 'a b', 'a\nb'])(
+  'rejects shell syntax in a workspace option: %p',
+  async (workspace) => {
+    const spawn = jest.fn();
+    await expect(
+      runSshWorkerCommand(
+        'remote',
+        'pair',
+        { workspaces: [workspace] },
+        spawn as never,
+      ),
+    ).rejects.toThrow('Invalid workspace option');
+    expect(spawn).not.toHaveBeenCalled();
+  },
+);

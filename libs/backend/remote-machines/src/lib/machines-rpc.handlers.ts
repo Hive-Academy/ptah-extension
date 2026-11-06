@@ -10,12 +10,34 @@ import {
   type MachinesRpcMethodName,
 } from '@ptah-extension/shared';
 import { WorkerClientError } from '@ptah-extension/worker-protocol';
+import { SshWorkerCommandError } from './ssh-worker-commands';
+import { MachineServiceError } from './machines-service';
 import { MachinesService } from './machines-service';
 
+const USER_TEXT = {
+  MACHINE_VERSION_MISMATCH: 'The worker version is incompatible.',
+  MACHINE_NOT_FOUND_OR_FORBIDDEN:
+    'The machine or session was not found or access is denied.',
+  MACHINE_PAIRING_REJECTED: 'The worker rejected pairing.',
+  SESSION_DRIVEN_ELSEWHERE: 'This session is driven elsewhere.',
+  SESSION_DRIVER_LOCK_UNAVAILABLE: 'The session driver lock is unavailable.',
+  MACHINE_UNREACHABLE: 'The machine is unreachable.',
+} as const;
+type MachineCode = keyof typeof USER_TEXT;
+function userError(code: MachineCode): RpcUserError {
+  return new RpcUserError(USER_TEXT[code], code);
+}
 export function mapMachineError(error: unknown): Error {
   if (error instanceof RpcUserError) return error;
+  if (error instanceof MachineServiceError) return userError(error.code);
+  if (error instanceof SshWorkerCommandError)
+    return userError(
+      error.code === 'version-mismatch' || error.code === 'invalid-output'
+        ? 'MACHINE_VERSION_MISMATCH'
+        : 'MACHINE_UNREACHABLE',
+    );
   if (error instanceof WorkerClientError) {
-    const code =
+    const code: MachineCode =
       error.code === 'VERSION_MISMATCH'
         ? 'MACHINE_VERSION_MISMATCH'
         : error.code === 'NOT_FOUND_OR_FORBIDDEN'
@@ -27,9 +49,9 @@ export function mapMachineError(error: unknown): Error {
               : error.code === 'DRIVER_LOCK_UNAVAILABLE'
                 ? 'SESSION_DRIVER_LOCK_UNAVAILABLE'
                 : 'MACHINE_UNREACHABLE';
-    return new RpcUserError(error.message, code);
+    return userError(code);
   }
-  return error instanceof Error ? error : new Error('Machine operation failed');
+  return userError('MACHINE_UNREACHABLE');
 }
 
 @injectable()

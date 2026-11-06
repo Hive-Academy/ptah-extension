@@ -13,6 +13,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 import { MACHINES_RPC_METHOD_NAMES } from '@ptah-extension/shared';
 import { WorkerClientError } from '@ptah-extension/worker-protocol';
 import { MachinesRpcHandlers, mapMachineError } from './machines-rpc.handlers';
+import { SshWorkerCommandError } from './ssh-worker-commands';
 import { MachinesService } from './machines-service';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
 
@@ -136,4 +137,18 @@ describe('renderer result hygiene', () => {
       expect(JSON.stringify(result)).not.toContain(token);
     }
   });
+});
+
+it('uses fixed text for worker errors and maps SSH failures', () => {
+  const secret = 'hostile worker message';
+  const mapped = mapMachineError(
+    new WorkerClientError('PAIRING_REJECTED', { detail: secret }),
+  );
+  expect(mapped.message).not.toContain(secret);
+  expect(mapped).toMatchObject({ errorCode: 'MACHINE_PAIRING_REJECTED' });
+  const ssh = mapMachineError(
+    new SshWorkerCommandError('invalid-output', secret),
+  );
+  expect(ssh).toMatchObject({ errorCode: 'MACHINE_VERSION_MISMATCH' });
+  expect(ssh.message).not.toContain(secret);
 });

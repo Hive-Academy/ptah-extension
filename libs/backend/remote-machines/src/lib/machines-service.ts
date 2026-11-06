@@ -37,6 +37,17 @@ export interface MachinesServiceOptions {
   sshAliases?: () => Promise<string[]>;
   sshCommand?: typeof runSshWorkerCommand;
 }
+export class MachineServiceError extends Error {
+  constructor(
+    readonly code:
+      | 'MACHINE_NOT_FOUND_OR_FORBIDDEN'
+      | 'MACHINE_PAIRING_REJECTED'
+      | 'MACHINE_UNREACHABLE',
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export class MachinesService {
   private readonly connections = new Map<string, MachineConnection>();
   private mutation: Promise<unknown> = Promise.resolve();
@@ -49,32 +60,43 @@ export class MachinesService {
   }
   private connection(machineId: string): MachineConnection {
     const connection = this.connections.get(machineId);
-    if (!connection) throw new Error('Machine not found');
+    if (!connection)
+      throw new MachineServiceError(
+        'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+        'Machine not found',
+      );
     return connection;
   }
   private async create(
     machineId: string,
     alias: string,
+    workerMachineId?: string,
   ): Promise<MachineConnection> {
+    if (this.disposed)
+      throw new MachineServiceError('MACHINE_UNREACHABLE', 'Service disposed');
+    const existing = this.connections.get(machineId);
+    if (existing) return existing;
     const token = await this.options.tokens.get(machineId);
+    if (this.disposed)
+      throw new MachineServiceError('MACHINE_UNREACHABLE', 'Service disposed');
     const connection = (
       this.options.createConnection ?? ((opts) => new MachineConnection(opts))
     )({
       machineId,
       alias,
       token,
+      workerMachineId,
+      onTokenRejected: () => this.options.tokens.delete(machineId),
       ptahVersion: this.options.ptahVersion,
       onEvent: (event) => {
-        void this.options.webviewManager.broadcastMessage(
-          MESSAGE_TYPES.MACHINES_EVENT,
-          event,
-        );
+        void this.options.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.MACHINES_EVENT, event)
+          .catch(() => undefined);
       },
       onState: (state) => {
-        void this.options.webviewManager.broadcastMessage(
-          MESSAGE_TYPES.MACHINES_STATE,
-          state,
-        );
+        void this.options.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.MACHINES_STATE, state)
+          .catch(() => undefined);
       },
     });
     this.connections.set(machineId, connection);
@@ -95,15 +117,26 @@ export class MachinesService {
     };
   }
   async list(): Promise<{ machines: MachineSummary[] }> {
-    const data = await this.options.registry.read();
-    const machines: MachineSummary[] = [];
-    for (const entry of data.machines) {
-      const connection =
-        this.connections.get(entry.machineId) ??
-        (await this.create(entry.machineId, entry.alias));
-      machines.push(this.summary(connection, entry.displayName));
-    }
-    return { machines };
+    return this.serialize(async () => {
+      if (this.disposed)
+        throw new MachineServiceError(
+          'MACHINE_UNREACHABLE',
+          'Service disposed',
+        );
+      const data = await this.options.registry.read();
+      const machines: MachineSummary[] = [];
+      for (const entry of data.machines) {
+        const connection =
+          this.connections.get(entry.machineId) ??
+          (await this.create(
+            entry.machineId,
+            entry.alias,
+            entry.workerMachineId,
+          ));
+        machines.push(this.summary(connection, entry.displayName));
+      }
+      return { machines };
+    });
   }
   async sshAliases(): Promise<{ aliases: string[] }> {
     return { aliases: await (this.options.sshAliases ?? listSshAliases)() };
@@ -112,10 +145,17 @@ export class MachinesService {
     validateSshAlias(alias);
     return this.serialize(async () => {
       const aliases = await (this.options.sshAliases ?? listSshAliases)();
-      if (!aliases.includes(alias)) throw new Error('SSH alias not found');
+      if (!aliases.includes(alias))
+        throw new MachineServiceError(
+          'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+          'SSH alias not found',
+        );
       const data = await this.options.registry.read();
       if (data.machines.some((entry) => entry.alias === alias))
-        throw new Error('Machine already added');
+        throw new MachineServiceError(
+          'MACHINE_PAIRING_REJECTED',
+          'Machine already added',
+        );
       const machineId = randomUUID();
       await this.options.registry.write({
         machines: [...data.machines, { machineId, alias }],
@@ -130,27 +170,63 @@ export class MachinesService {
     return this.serialize(async () => {
       const data = await this.options.registry.read();
       const entry = data.machines.find((item) => item.machineId === machineId);
-      if (!entry) throw new Error('Machine not found');
+      if (!entry)
+        throw new MachineServiceError(
+          'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+          'Machine not found',
+        );
       const connection = this.connection(machineId);
-      // Pair exchange is allowed before authentication; open the transport first.
+      if (connection.state === 'connected')
+        throw new MachineServiceError(
+          'MACHINE_PAIRING_REJECTED',
+          'Disconnect before pairing again',
+        );
       const result = await connection.exchange(code);
-      if (result.grant.machineId !== machineId)
-        throw new Error('Pairing returned a different machine');
-      connection.setToken(result.token);
+      if (
+        result.grant.machineId !== result.workerMachineId ||
+        (entry.workerMachineId &&
+          entry.workerMachineId !== result.workerMachineId)
+      )
+        throw new MachineServiceError(
+          'MACHINE_PAIRING_REJECTED',
+          'Pairing returned a different worker',
+        );
       try {
-        await connection.connect();
         await this.options.tokens.set(machineId, result.token);
+        await this.options.registry.write({
+          machines: data.machines.map((item) =>
+            item.machineId === machineId
+              ? { ...item, workerMachineId: result.workerMachineId }
+              : item,
+          ),
+        });
       } catch (error) {
+        connection.setToken(result.token);
+        connection.setWorkerMachineId(result.workerMachineId);
+        try {
+          await connection.connect();
+          await connection.call('token.revokeSelf', {});
+        } catch {
+          /* best effort */
+        }
         connection.clearToken();
+        await this.options.tokens.delete(machineId).catch(() => undefined);
         throw error;
       }
+      connection.setWorkerMachineId(result.workerMachineId);
+      connection.setToken(result.token);
+      await connection.connect();
       return { machine: this.summary(connection, entry.displayName) };
     });
   }
   async pairViaSsh(machineId: string): Promise<{ machine: MachineSummary }> {
     const data = await this.options.registry.read();
     const entry = data.machines.find((item) => item.machineId === machineId);
-    if (!entry) throw new Error('Machine not found');
+    if (!entry)
+      throw new MachineServiceError(
+        'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+        'Machine not found',
+      );
     const result = await (this.options.sshCommand ?? runSshWorkerCommand)(
       entry.alias,
       'pair',
@@ -165,7 +241,10 @@ export class MachinesService {
     return this.serialize(async () => {
       const data = await this.options.registry.read();
       if (!data.machines.some((entry) => entry.machineId === machineId))
-        throw new Error('Machine not found');
+        throw new MachineServiceError(
+          'MACHINE_NOT_FOUND_OR_FORBIDDEN',
+          'Machine not found',
+        );
       const connection = this.connections.get(machineId);
       let revokedOnWorker = false;
       if (connection?.state === 'connected') {
@@ -187,14 +266,17 @@ export class MachinesService {
           if (timer) clearTimeout(timer);
         }
       }
-      await this.options.tokens.delete(machineId);
-      await this.options.registry.write({
-        machines: data.machines.filter(
-          (entry) => entry.machineId !== machineId,
-        ),
-      });
-      connection?.dispose();
-      this.connections.delete(machineId);
+      try {
+        await this.options.registry.write({
+          machines: data.machines.filter(
+            (entry) => entry.machineId !== machineId,
+          ),
+        });
+        await this.options.tokens.delete(machineId);
+      } finally {
+        connection?.dispose();
+        this.connections.delete(machineId);
+      }
       return { removed: true, revokedOnWorker };
     });
   }
@@ -206,8 +288,13 @@ export class MachinesService {
   async readiness(machineId: string): Promise<MachinesReadinessResult> {
     const connection = this.connection(machineId);
     let remote = null;
-    if (connection.state === 'connected')
-      remote = (await connection.call('machine.info', {})).readiness;
+    if (connection.state === 'connected') {
+      try {
+        remote = (await connection.call('machine.info', {})).readiness;
+      } catch {
+        remote = null;
+      }
+    }
     return { machineId, remote, local: await localLockReadiness() };
   }
   async call<M extends WorkerMethod>(

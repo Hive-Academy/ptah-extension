@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -7,15 +8,18 @@ import { validateSshAlias } from './ssh-alias';
 
 export const MachineRegistrySchema = z
   .object({
-    machines: z.array(
-      z
-        .object({
-          machineId: z.string().min(1).max(256),
-          alias: z.string().regex(MACHINE_SSH_ALIAS_PATTERN),
-          displayName: z.string().min(1).max(256).optional(),
-        })
-        .strict(),
-    ),
+    machines: z
+      .array(
+        z
+          .object({
+            machineId: z.string().min(1).max(256),
+            alias: z.string().regex(MACHINE_SSH_ALIAS_PATTERN),
+            displayName: z.string().min(1).max(256).optional(),
+            workerMachineId: z.string().min(1).max(256).optional(),
+          })
+          .strict(),
+      )
+      .max(256),
   })
   .strict();
 export type MachineRegistryData = z.infer<typeof MachineRegistrySchema>;
@@ -31,7 +35,10 @@ export class MachineRegistry {
   async read(): Promise<MachineRegistryData> {
     let source: string;
     try {
-      source = await this.io.readFile(this.path, 'utf8');
+      const bytes = await this.io.readFile(this.path);
+      if (bytes.byteLength > 256 * 1024)
+        throw new Error('Machine registry exceeds 256 KiB');
+      source = bytes.toString('utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
         return { machines: [] };
@@ -53,10 +60,7 @@ export class MachineRegistry {
     await this.read();
     const dir = dirname(this.path);
     await this.io.mkdir(dir, { recursive: true, mode: 0o700 });
-    const temp = join(
-      dir,
-      `.remote-machines-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
+    const temp = join(dir, `.remote-machines-${randomUUID()}.tmp`);
     let created = false;
     let renamed = false;
     try {

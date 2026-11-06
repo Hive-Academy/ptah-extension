@@ -42,7 +42,10 @@ export async function runSshWorkerCommand(
   ];
   if (command === 'pair') {
     for (const workspace of options.workspaces ?? []) {
-      if (!workspace || workspace.startsWith('-'))
+      if (
+        !/^[A-Za-z0-9_./:@-]{1,256}$/.test(workspace) ||
+        workspace.startsWith('-')
+      )
         throw new Error('Invalid workspace option');
       args.push('--workspace', workspace);
     }

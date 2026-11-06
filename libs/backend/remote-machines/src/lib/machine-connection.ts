@@ -4,6 +4,7 @@ import {
   WorkerClient,
   WorkerClientError,
   SUPPORTED_PROTOCOL_RANGE,
+  WORKER_LIMITS,
   type WorkerMethod,
   type WorkerMethodParams,
   type WorkerMethodResult,
@@ -24,9 +25,15 @@ export interface MachineConnectionOptions {
   machineId: string;
   alias: string;
   token?: string;
+  workerMachineId?: string;
+  onTokenRejected?: () => Promise<void>;
   ptahVersion: string;
   port?: number;
   createTransport?: (alias: string) => Duplex;
+  createWebSocket?: (
+    url: string,
+    options: WebSocket.ClientOptions,
+  ) => WebSocket;
   createClient?: (callbacks: {
     onEvent(frame: EventFrame): void;
     onClose(code: number): void;
@@ -43,7 +50,11 @@ export class MachineConnection {
   readonly machineId: string;
   readonly alias: string;
   private token?: string;
-  private client: WorkerClient;
+  private client?: WorkerClient;
+  private generation = 0;
+  private closing = false;
+  private workerMachineId?: string;
+  reason?: string;
   private transport?: Duplex;
   private timer?: Timer;
   private attempts = 0;
@@ -63,31 +74,23 @@ export class MachineConnection {
     this.alias = options.alias;
     this.token = options.token;
     this.state = options.token ? 'offline' : 'unpaired';
-    this.client =
-      options.createClient?.({
-        onEvent: (frame) => this.event(frame),
-        onClose: (code) => this.closed(code),
-      }) ??
-      new WorkerClient({
-        createSocket: () => this.socket(),
-        callbacks: {
-          onEvent: (frame) => this.event(frame),
-          onClose: (close) => this.closed(close.code),
-        },
-      });
+    this.workerMachineId = options.workerMachineId;
   }
 
-  private socket(): WebSocketLike {
+  private socket(generation: number): WebSocketLike {
     const transport = this.options.createTransport
       ? this.options.createTransport(this.alias)
       : createSshStdioTransport(this.alias, this.options.port ?? 41873);
     this.transport = transport;
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${this.options.port ?? 41873}/rpc`,
-      {
-        createConnection: () => transport,
-      },
-    );
+    const url = `ws://127.0.0.1:${this.options.port ?? 41873}/rpc`;
+    // ws accepts the SSH Duplex at runtime; its declaration restricts this hook to net.Socket.
+    const socketOptions = {
+      createConnection: () => transport,
+      maxPayload: WORKER_LIMITS.maxPayloadBytes,
+    } as unknown as WebSocket.ClientOptions;
+    const ws = this.options.createWebSocket
+      ? this.options.createWebSocket(url, socketOptions)
+      : new WebSocket(url, socketOptions);
     const socket: WebSocketLike = {
       onopen: null,
       onmessage: null,
@@ -102,10 +105,15 @@ export class MachineConnection {
     ws.on('message', (data) => socket.onmessage?.({ data: data.toString() }));
     ws.on('close', (code, reason) => {
       transport.destroy();
-      socket.onclose?.({ code, reason: reason.toString() });
+      if (generation === this.generation)
+        socket.onclose?.({ code, reason: reason.toString() });
     });
-    ws.on('error', (error) => socket.onerror?.(error));
-    ws.on('pong', () => socket.onpong?.());
+    ws.on('error', (error) => {
+      if (generation === this.generation) socket.onerror?.(error);
+    });
+    ws.on('pong', () => {
+      if (generation === this.generation) socket.onpong?.();
+    });
     return socket;
   }
 
@@ -124,10 +132,30 @@ export class MachineConnection {
     this.timer = undefined;
     this.nextRetryAt = undefined;
   }
+  private makeClient(generation: number): WorkerClient {
+    const callbacks = {
+      onEvent: (frame: EventFrame) => {
+        if (generation === this.generation && !this.disposed) this.event(frame);
+      },
+      onClose: (code: number) => {
+        if (generation === this.generation) this.closed(code);
+      },
+    };
+    return (
+      this.options.createClient?.(callbacks) ??
+      new WorkerClient({
+        createSocket: () => this.socket(generation),
+        callbacks: {
+          onEvent: callbacks.onEvent,
+          onClose: (close) => callbacks.onClose(close.code),
+        },
+      })
+    );
+  }
   private closed(code: number): void {
+    if (this.closing || this.disposed) return;
     this.transport?.destroy();
     this.transport = undefined;
-    if (this.disposed) return;
     if (code === 4409) {
       this.cancelTimer();
       this.state = 'version-mismatch';
@@ -135,12 +163,17 @@ export class MachineConnection {
       return;
     }
     if (code === 4401 || code === 4410) {
-      this.cancelTimer();
-      this.state = 'unpaired';
-      this.emit();
+      this.rejectToken();
       return;
     }
-    this.schedule();
+    if (!this.connecting) this.schedule();
+  }
+  private rejectToken(): void {
+    this.token = undefined;
+    this.cancelTimer();
+    this.state = 'unpaired';
+    this.emit();
+    void this.options.onTokenRejected?.().catch(() => undefined);
   }
   private schedule(): void {
     if (
@@ -163,12 +196,12 @@ export class MachineConnection {
     this.emit();
   }
   private event(frame: EventFrame): void {
+    if (this.disposed) return;
     this.lastSeenAt = (this.options.now ?? Date.now)();
     const previous = this.sessions.get(frame.sessionId);
-    if (
-      previous &&
-      (previous.epoch !== frame.epoch || frame.seq > previous.seq)
-    )
+    if (previous && previous.epoch === frame.epoch && frame.seq <= previous.seq)
+      return;
+    if (previous)
       this.sessions.set(frame.sessionId, {
         epoch: frame.epoch,
         seq: frame.seq,
@@ -182,26 +215,37 @@ export class MachineConnection {
       payload: frame.payload,
     });
   }
-  async connect(): Promise<void> {
-    if (this.disposed || !this.token) return;
+  connect(): Promise<void> {
     if (this.connecting) return this.connecting;
+    if (this.disposed || !this.token) return Promise.resolve();
     this.cancelTimer();
     this.state = 'reconnecting';
     this.emit();
-    this.connecting = this.open();
-    try {
-      await this.connecting;
-    } finally {
-      this.connecting = undefined;
-    }
+    const attempt = this.open();
+    const tracked = attempt.finally(() => {
+      if (this.connecting === tracked) this.connecting = undefined;
+    });
+    this.connecting = tracked;
+    return tracked;
   }
   private async open(): Promise<void> {
+    const generation = ++this.generation;
+    const client = this.makeClient(generation);
+    this.client = client;
+    this.versions = {
+      local: {
+        ptahVersion: this.options.ptahVersion,
+        protocol: SUPPORTED_PROTOCOL_RANGE,
+      },
+    };
     try {
-      await this.client.connect();
-      const hello = await this.client.call('hello', {
+      await client.connect();
+      if (this.disposed) return;
+      const hello = await client.call('hello', {
         protocol: SUPPORTED_PROTOCOL_RANGE,
         client: { name: 'Ptah Electron', version: this.options.ptahVersion },
       });
+      if (this.disposed) return;
       this.versions = {
         local: {
           ptahVersion: this.options.ptahVersion,
@@ -212,63 +256,96 @@ export class MachineConnection {
           protocol: { min: hello.protocol, max: hello.protocol },
         },
       };
+      if (
+        this.workerMachineId &&
+        hello.worker.machineId !== this.workerMachineId
+      ) {
+        this.reason = `A different worker answers on ${this.alias}.`;
+        this.state = 'unpaired';
+        throw new WorkerClientError('PAIRING_REJECTED');
+      }
       const token = this.token;
       if (!token) throw new WorkerClientError('NOT_CONNECTED');
-      await this.client.call('auth', { token });
+      await client.call('auth', { token });
+      if (this.disposed) return;
+      for (const [sessionId, cursor] of this.sessions) {
+        try {
+          await client.call('session.attach', {
+            sessionId,
+            afterSeq: cursor.seq,
+            ...(cursor.epoch ? { epoch: cursor.epoch } : {}),
+          });
+        } catch {
+          this.sessions.delete(sessionId);
+        }
+        if (this.disposed) return;
+      }
       this.state = 'connected';
       this.attempts = 0;
       this.lastSeenAt = (this.options.now ?? Date.now)();
       this.emit();
-      for (const [sessionId, cursor] of this.sessions)
-        await this.client.call('session.attach', {
-          sessionId,
-          afterSeq: cursor.seq,
-          ...(cursor.epoch ? { epoch: cursor.epoch } : {}),
-        });
     } catch (error) {
-      if (
-        error instanceof WorkerClientError &&
-        error.code === 'VERSION_MISMATCH'
-      ) {
-        this.state = 'version-mismatch';
-        this.cancelTimer();
-        this.emit();
-      } else if (
-        error instanceof WorkerClientError &&
-        error.code === 'PAIRING_REJECTED'
-      ) {
-        this.state = 'unpaired';
-        this.cancelTimer();
-        this.emit();
-      } else if (this.state !== 'version-mismatch' && this.state !== 'unpaired')
-        this.schedule();
-      this.client.close();
+      if (!this.disposed) {
+        if (
+          error instanceof WorkerClientError &&
+          error.code === 'VERSION_MISMATCH'
+        ) {
+          this.state = 'version-mismatch';
+          this.cancelTimer();
+          this.emit();
+        } else if (
+          error instanceof WorkerClientError &&
+          error.code === 'PAIRING_REJECTED'
+        ) {
+          this.state = 'unpaired';
+          this.cancelTimer();
+          this.emit();
+        } else if (
+          this.state !== 'version-mismatch' &&
+          this.state !== 'unpaired'
+        )
+          this.schedule();
+      }
+      this.closing = true;
+      client.close();
       this.transport?.destroy();
+      this.closing = false;
       throw error;
     }
   }
   async exchange(code: string) {
+    const generation = ++this.generation;
+    const client = this.makeClient(generation);
+    this.client = client;
     this.cancelTimer();
-    await this.client.connect();
+    await client.connect();
     try {
-      await this.client.call('hello', {
+      const hello = await client.call('hello', {
         protocol: SUPPORTED_PROTOCOL_RANGE,
         client: { name: 'Ptah Electron', version: this.options.ptahVersion },
       });
-      return await this.client.call('pair.exchange', {
+      const result = await client.call('pair.exchange', {
         code,
         clientName: 'Ptah Electron',
       });
+      return { ...result, workerMachineId: hello.worker.machineId };
     } finally {
-      this.client.close();
+      this.closing = true;
+      client.close();
       this.transport?.destroy();
+      this.closing = false;
     }
+  }
+  setWorkerMachineId(id: string): void {
+    this.workerMachineId = id;
   }
   clearToken(): void {
     this.token = undefined;
     this.cancelTimer();
     this.state = 'unpaired';
-    this.client.close();
+    this.closing = true;
+    this.client?.close();
+    this.closing = false;
     this.transport?.destroy();
     this.emit();
   }
@@ -279,6 +356,7 @@ export class MachineConnection {
     this.emit();
   }
   retry(): Promise<void> {
+    if (this.connecting) return this.connecting;
     this.state = this.token ? 'offline' : 'unpaired';
     this.attempts = 0;
     return this.connect();
@@ -289,13 +367,28 @@ export class MachineConnection {
   ): Promise<WorkerMethodResult<M>> {
     if (this.state !== 'connected')
       throw new WorkerClientError('NOT_CONNECTED');
+    if (!this.client) throw new WorkerClientError('NOT_CONNECTED');
     return this.client.call(method, params);
   }
   async attach(sessionId: string, afterSeq = 0) {
-    const result = await this.call('session.attach', { sessionId, afterSeq });
-    if (result.mode === 'log')
-      this.sessions.set(sessionId, { epoch: result.epoch, seq: afterSeq });
-    return result;
+    const previous = this.sessions.get(sessionId);
+    this.sessions.set(sessionId, {
+      epoch: previous?.epoch,
+      seq: Math.max(afterSeq, previous?.seq ?? 0),
+    });
+    try {
+      const result = await this.call('session.attach', { sessionId, afterSeq });
+      const current = this.sessions.get(sessionId);
+      if (result.mode === 'log')
+        this.sessions.set(sessionId, {
+          epoch: result.epoch,
+          seq: Math.max(afterSeq, current?.seq ?? 0),
+        });
+      return result;
+    } catch (error) {
+      this.sessions.delete(sessionId);
+      throw error;
+    }
   }
   detach(sessionId: string): Promise<unknown> {
     this.sessions.delete(sessionId);
@@ -305,7 +398,9 @@ export class MachineConnection {
     if (this.disposed) return;
     this.disposed = true;
     this.cancelTimer();
-    this.client.close();
+    this.closing = true;
+    this.client?.close();
+    this.closing = false;
     this.transport?.destroy();
   }
 }

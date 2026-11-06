@@ -52,11 +52,9 @@ export function createSshStdioTransport(
   child.stderr.on('data', (chunk: string) => {
     stderr = (stderr + chunk).slice(-4096);
   });
-  const streamFailed = (part: string) => (error: Error) => {
+  const streamFailed = (part: string) => (_error: Error) => {
     if (!transport.destroyed)
-      transport.destroy(
-        new Error(`SSH ${part} failed for ${alias}: ${error.message}`),
-      );
+      transport.destroy(new Error(`SSH ${part} failed for ${alias}.`));
   };
   child.stdin.on('error', streamFailed('stdin'));
   child.stdout.on('error', streamFailed('stdout'));
@@ -69,8 +67,9 @@ export function createSshStdioTransport(
     if (code === 0) transport.push(null);
     else
       transport.destroy(
-        new Error(
-          `SSH transport closed for ${alias}: ${stderr.trim() || `exit ${code}`}`,
+        Object.assign(
+          new Error(`SSH transport closed for ${alias} (exit ${code}).`),
+          { stderr: stderr.trim() },
         ),
       );
   });

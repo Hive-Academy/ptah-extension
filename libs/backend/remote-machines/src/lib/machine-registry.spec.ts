@@ -85,3 +85,20 @@ it('removes the temp file when rename fails', async () => {
   ).rejects.toThrow('rename failed');
   expect(io.unlink).toHaveBeenCalledWith(expect.stringMatching(/\.tmp$/));
 });
+
+it('caps registry input and machine count', async () => {
+  const io = { readFile: async () => Buffer.alloc(256 * 1024 + 1) };
+  await expect(
+    new MachineRegistry('/tmp/remote-machines.json', io as never).read(),
+  ).rejects.toThrow('256 KiB');
+  const many = {
+    machines: Array.from({ length: 257 }, (_, n) => ({
+      machineId: String(n),
+      alias: 'host',
+    })),
+  };
+  const io2 = { readFile: async () => JSON.stringify(many) };
+  await expect(
+    new MachineRegistry('/tmp/remote-machines.json', io2 as never).read(),
+  ).rejects.toThrow('corrupt');
+});

@@ -51,6 +51,7 @@ it('connects over a real Duplex, round-trips a call, then schedules retry on ser
     machineId: 'm',
     alias: 'host',
     token: issued.token,
+    workerMachineId: 'm',
     ptahVersion: 'test-version',
     port,
     createTransport: () => netConnect(port, '127.0.0.1'),
@@ -59,6 +60,19 @@ it('connects over a real Duplex, round-trips a call, then schedules retry on ser
   await connection.connect();
   expect(connection.state).toBe('connected');
   expect(await connection.call('workspaces.list', {})).toEqual([]);
+  const wrong = new MachineConnection({
+    machineId: 'local',
+    alias: 'host',
+    token: issued.token,
+    workerMachineId: 'different-worker',
+    ptahVersion: 'test-version',
+    port,
+    createTransport: () => netConnect(port, '127.0.0.1'),
+  });
+  await expect(wrong.connect()).rejects.toThrow();
+  expect(wrong.state).toBe('unpaired');
+  expect(wrong.reason).toContain('different worker answers on host');
+  wrong.dispose();
   await server.close();
   server = undefined;
   for (let i = 0; i < 30 && connection.state === 'connected'; i++)
