@@ -1,0 +1,988 @@
+/**
+ * The in-process web-tree-sitter engine: WASM runtime and grammar loading,
+ * parsing, queries and the incremental tree cache.
+ *
+ * It has no DI and no host imports, so the same class runs on a host thread
+ * (`TreeSitterParserService`, its injectable subclass) and inside the
+ * tree-sitter utility process (`worker/tree-sitter-worker.ts`), where its
+ * synchronous WASM work cannot block the Electron main loop.
+ */
+import { Result } from '@ptah-extension/shared';
+import {
+  SupportedLanguage,
+  LANGUAGE_QUERIES_MAP,
+  GRAMMAR_FILE_MAP,
+} from './tree-sitter.config';
+import { GenericAstNode } from './ast.types';
+import type { ParseQuality } from './ast-analysis.interfaces';
+import { resolveWasmPath } from './wasm-bundle-dir';
+import {
+  MAX_PARSE_BYTES,
+  ParserRefusalError,
+  exceedsParseLimit,
+} from './parser-refusal';
+import {
+  Parser,
+  Language,
+  Query,
+  Edit,
+  type Node as SyntaxNode,
+  type Tree,
+  type QueryCapture as TsQueryCapture,
+  type QueryMatch as TsQueryMatch,
+} from 'web-tree-sitter';
+
+/**
+ * Public interface representing an edit delta for incremental parsing.
+ * Consumers (e.g., VS Code extension layer) use this to describe text changes
+ * so the parser can incrementally re-parse only the affected region.
+ */
+export interface EditDelta {
+  startIndex: number;
+  oldEndIndex: number;
+  newEndIndex: number;
+  startPosition: { row: number; column: number };
+  oldEndPosition: { row: number; column: number };
+  newEndPosition: { row: number; column: number };
+}
+
+/** Cache entry for storing parsed tree-sitter trees keyed by file path. */
+interface TreeCacheEntry {
+  tree: Tree;
+  language: SupportedLanguage;
+  lastAccessed: number;
+  filePath: string;
+}
+
+/**
+ * Represents a capture from a tree-sitter query match.
+ */
+export interface QueryCapture {
+  /** The name of the capture (e.g., 'function.name', 'class.declaration') */
+  name: string;
+  /** The captured node converted to GenericAstNode */
+  node: GenericAstNode;
+  /** The text content of the captured node */
+  text: string;
+  /** Start position */
+  startPosition: { row: number; column: number };
+  /** End position */
+  endPosition: { row: number; column: number };
+}
+
+/** How deep a capture's node is converted: 3 levels, except a declarator. */
+const CAPTURE_DEPTH = 3;
+/**
+ * A C/C++ declarator capture (`@….declarator`) keeps its whole chain, since
+ * its declared name can sit any number of pointer, parenthesis, function and
+ * scope levels down (`int (*needle())(int)`); `cDeclaratorName` walks it.
+ */
+const DECLARATOR_CAPTURE_DEPTH = 64;
+
+function captureDepth(captureName: string): number {
+  return captureName === 'declarator' || captureName.endsWith('.declarator')
+    ? DECLARATOR_CAPTURE_DEPTH
+    : CAPTURE_DEPTH;
+}
+
+/**
+ * Represents a single match from a tree-sitter query.
+ */
+export interface QueryMatch {
+  /** The pattern index that matched */
+  pattern: number;
+  /** All captures in this match */
+  captures: QueryCapture[];
+}
+
+/** Metadata belongs to this parse, never to mutable service-wide state. */
+export type QueryResults = Map<string, QueryMatch[]> & Partial<ParseQuality>;
+
+/**
+ * The logging the engine needs. The host `Logger` satisfies it; the
+ * tree-sitter worker supplies one that forwards to the host.
+ */
+export interface TreeSitterLogger {
+  debug(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, error?: Error): void;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** One language's loaded grammar and the long-lived parser bound to it. */
+interface LoadedLanguage {
+  readonly grammar: Language;
+  readonly parser: Parser;
+}
+
+function parseQuality(root: SyntaxNode): ParseQuality {
+  let errorNodeCount = 0;
+  const pending = [root];
+  while (pending.length > 0 && errorNodeCount < 20) {
+    const node = pending.pop();
+    if (!node) break;
+    if (node.type === 'ERROR' || node.isMissing) errorNodeCount++;
+    // Clean subtrees cannot contain ERROR or MISSING nodes.
+    if (node.hasError !== false) {
+      for (const child of node.children) pending.push(child);
+    }
+  }
+  return {
+    parseStatus: root.hasError || errorNodeCount > 0 ? 'recovered' : 'ok',
+    errorNodeCount,
+    errorNodeCountCapped: errorNodeCount === 20,
+  };
+}
+
+export const TREE_SITTER_RETRY_INITIAL_MS = 60_000;
+export const TREE_SITTER_RETRY_MAX_MS = 1_800_000;
+
+export class TreeSitterEngine {
+  /**
+   * Per-language latch: the first use of a language starts its load and
+   * every later or concurrent use awaits the same promise, so a grammar loads
+   * at most once. A failed load stays failed (for that language only) until
+   * `dispose()`, instead of re-reading a broken grammar for every file.
+   */
+  private readonly languageLoads: Map<
+    SupportedLanguage,
+    Promise<Result<LoadedLanguage, Error>>
+  > = new Map();
+  /** Loaded languages, so `dispose()` can free their parsers synchronously. */
+  private readonly loadedLanguages: Map<SupportedLanguage, LoadedLanguage> =
+    new Map();
+  private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
+  private readonly treeCacheMaxSize = 100;
+  /**
+   * Service lifetime, bumped by `dispose()`. Work records the generation it
+   * started in and never publishes into a later one.
+   */
+  private generation = 0;
+  private isInitialized = false;
+  private initPromise: Promise<Result<void, Error>> | null = null;
+  private runtimeFailure: Error | null = null;
+  private nextRetryAt = 0;
+  private retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
+  private now: () => number = Date.now;
+
+  constructor(protected readonly logger: TreeSitterLogger) {
+    this.logger.info(
+      'TreeSitterParserService created. Initialization required.',
+    );
+  }
+
+  /** Clock seam for deterministic retry tests. */
+  setClock(now: () => number): void {
+    this.now = now;
+  }
+
+  /**
+   * Loads the web-tree-sitter WASM runtime. Idempotent: concurrent callers
+   * share one promise, and a failure allows a retry on the next call.
+   *
+   * Grammars are not loaded here. Each one loads on its language's first use
+   * behind a per-language latch ({@link loadLanguage}), so a host that never
+   * parses a language never pays for its grammar, and a grammar that fails to
+   * load disables only its own language.
+   *
+   * @returns A Result indicating success or failure of the runtime load.
+   */
+  async initialize(): Promise<Result<void, Error>> {
+    if (this.isInitialized) {
+      return Result.ok(undefined);
+    }
+
+    if (this.initPromise) {
+      this.logger.debug(
+        'Initialization already in progress. Returning existing promise.',
+      );
+      return this.initPromise;
+    }
+
+    const failure = this.latchedFailure();
+    if (failure) return Result.err(failure);
+
+    this.initPromise = this._doInitialize(this.generation);
+    return this.initPromise;
+  }
+
+  isRuntimeUnavailable(): boolean {
+    return this.latchedFailure() !== null;
+  }
+
+  private latchedFailure(): Error | null {
+    return this.runtimeFailure !== null && this.now() < this.nextRetryAt
+      ? this.runtimeFailure
+      : null;
+  }
+
+  runtimeRetryInMs(): number {
+    return this.runtimeFailure === null
+      ? 0
+      : Math.max(0, this.nextRetryAt - this.now());
+  }
+
+  /**
+   * Loads the runtime for service `generation`. Work that began before a
+   * `dispose()` never publishes into the new lifetime: a late success does not
+   * mark the service initialized, and a late failure does not clear the latch
+   * of an initialization started after the dispose.
+   */
+  private async _doInitialize(
+    generation: number,
+  ): Promise<Result<void, Error>> {
+    this.logger.info('Initializing web-tree-sitter WASM runtime...');
+    const located: string[] = [];
+    try {
+      await Parser.init({
+        locateFile: (file: string) => {
+          const wasmPath = resolveWasmPath(file);
+          located.push(wasmPath);
+          return wasmPath;
+        },
+      });
+      if (generation !== this.generation) {
+        return Result.err(this.disposedError('the WASM runtime'));
+      }
+      this.isInitialized = true;
+      if (this.runtimeFailure !== null) {
+        this.runtimeFailure = null;
+        this.retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
+        this.logger.info('TreeSitterParserService WASM runtime recovered.');
+      } else {
+        this.logger.info('web-tree-sitter WASM runtime initialized.');
+      }
+      return Result.ok(undefined);
+    } catch (error: unknown) {
+      if (generation === this.generation) {
+        this.isInitialized = false;
+        this.initPromise = null;
+      }
+      // Without the runtime no grammar can load: every language is unavailable.
+      const refusal = new ParserRefusalError(
+        'grammar-unavailable',
+        messageOf(error),
+        { cause: error },
+      );
+      if (generation === this.generation) {
+        if (this.runtimeFailure === null) {
+          this.logger.error(
+            `TreeSitterParserService WASM runtime initialization failed (located: ${located.join(', ') || 'none'})`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        } else {
+          const nextDelayMs = Math.min(
+            this.retryDelayMs * 2,
+            TREE_SITTER_RETRY_MAX_MS,
+          );
+          this.logger.warn(
+            `TreeSitterParserService WASM runtime retry failed; next retry in ${nextDelayMs}ms`,
+          );
+          this.retryDelayMs = nextDelayMs;
+        }
+        this.runtimeFailure = refusal;
+        this.nextRetryAt = this.now() + this.retryDelayMs;
+      }
+      return Result.err(refusal);
+    }
+  }
+
+  /**
+   * The runtime, then `language`'s grammar and parser, loaded once, for the
+   * caller that started in service `generation`. A runtime failure is returned
+   * without touching the latch, so it is retried; a grammar failure is latched
+   * for that language only. A caller from before a `dispose()` is refused
+   * before it can start or join any work of the new lifetime.
+   */
+  private async loadLanguage(
+    language: SupportedLanguage,
+    generation: number,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    if (generation !== this.generation) {
+      return Result.err(this.disposedError(`the ${language} grammar`));
+    }
+    const initResult = await this.initialize();
+    if (generation !== this.generation) {
+      return Result.err(this.disposedError(`the ${language} grammar`));
+    }
+    if (initResult.isErr()) {
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    }
+    let load = this.languageLoads.get(language);
+    if (!load) {
+      load = this._loadLanguage(language, generation);
+      this.languageLoads.set(language, load);
+    }
+    return load;
+  }
+
+  private async _loadLanguage(
+    language: SupportedLanguage,
+    generation: number,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    const grammarPath = resolveWasmPath(GRAMMAR_FILE_MAP[language]);
+    let parser: Parser | undefined;
+    try {
+      const grammar = await Language.load(grammarPath);
+      parser = new Parser();
+      parser.setLanguage(grammar);
+      if (generation !== this.generation) {
+        // dispose() ran while the grammar loaded: nothing may keep it alive.
+        parser.delete();
+        return Result.err(this.disposedError(`the ${language} grammar`));
+      }
+      const loaded: LoadedLanguage = { grammar, parser };
+      this.loadedLanguages.set(language, loaded);
+      this.logger.info(`Loaded tree-sitter grammar for ${language}.`);
+      return Result.ok(loaded);
+    } catch (error: unknown) {
+      parser?.delete();
+      return Result.err(
+        this._handleAndLogError(
+          `Grammar for ${language} is unavailable (${grammarPath}); other languages are unaffected`,
+          new ParserRefusalError('grammar-unavailable', messageOf(error), {
+            cause: error,
+          }),
+        ),
+      );
+    }
+  }
+
+  /**
+   * Everything a parse of `content` needs, or the refusal: `too-large` over
+   * {@link MAX_PARSE_BYTES} (checked before any load), `grammar-unavailable`
+   * when the runtime or the language's grammar cannot load. The generation
+   * is read synchronously, at the call, so a `dispose()` during any of the
+   * awaits below refuses this call.
+   */
+  private async prepare(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    if (exceedsParseLimit(content)) {
+      return Result.err(
+        new ParserRefusalError(
+          'too-large',
+          `Source for ${language} is larger than ${MAX_PARSE_BYTES} bytes; not parsed`,
+        ),
+      );
+    }
+    return this.loadLanguage(language, this.generation);
+  }
+
+  /**
+   * `prepared`, unless `dispose()` freed its parser between the preparation
+   * and the caller resuming: every caller checks this right after its await.
+   */
+  private live(
+    prepared: Result<LoadedLanguage, Error>,
+    language: SupportedLanguage,
+  ): Result<LoadedLanguage, Error> {
+    const loaded = prepared.value;
+    if (!loaded || this.loadedLanguages.get(language) === loaded) {
+      return prepared;
+    }
+    return Result.err(this.disposedError(`the ${language} grammar`));
+  }
+
+  private disposedError(what: string): Error {
+    return new Error(
+      `TreeSitterParserService was disposed while preparing ${what}`,
+    );
+  }
+
+  /**
+   * Recursively converts a Tree-sitter SyntaxNode to a GenericAstNode.
+   * Includes an optional depth limit to prevent excessive recursion.
+   * @param node The Tree-sitter node to convert.
+   * @param currentDepth The current recursion depth.
+   * @param maxDepth The maximum recursion depth allowed (null for no limit).
+   * @returns The converted GenericAstNode.
+   * @private
+   */
+  private _convertNodeToGenericAst(
+    node: SyntaxNode,
+    currentDepth = 0,
+    maxDepth: number | null = null, // Optional depth limit
+  ): GenericAstNode {
+    if (maxDepth !== null && currentDepth > maxDepth) {
+      return {
+        type: node.type,
+        text: '... [Max Depth Reached]', // Indicate truncation
+        startPosition: {
+          row: node.startPosition.row,
+          column: node.startPosition.column,
+        },
+        endPosition: {
+          row: node.endPosition.row,
+          column: node.endPosition.column,
+        },
+        isNamed: node.isNamed,
+        fieldName: null, // web-tree-sitter SyntaxNode does not expose fieldName
+        children: [], // No children beyond max depth
+      };
+    }
+    const children = node.children ?? [];
+
+    return {
+      type: node.type,
+      text: node.text, // Be mindful of large text nodes, potential optimization later if needed
+      startPosition: {
+        row: node.startPosition.row,
+        column: node.startPosition.column,
+      },
+      endPosition: {
+        row: node.endPosition.row,
+        column: node.endPosition.column,
+      },
+      isNamed: node.isNamed,
+      fieldName: null, // web-tree-sitter SyntaxNode does not expose fieldName
+      children: children.map((child: SyntaxNode) =>
+        this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth),
+      ),
+    };
+  }
+
+  async parse(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<GenericAstNode, Error>> {
+    this.logger.info(
+      `Parsing content for language: ${language} to generate generic AST`,
+    );
+
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
+    }
+    const { parser } = prepared.value;
+
+    let tree: Tree | null = null;
+    try {
+      tree = parser.parse(content);
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+      this.logger.debug(
+        `Successfully created syntax tree for language: ${language}. Root node type: ${tree.rootNode.type}`,
+      );
+      const genericAstRoot = this._convertNodeToGenericAst(
+        tree.rootNode,
+        0,
+        null,
+      );
+      this.logger.info(
+        `Successfully converted AST to generic JSON format for language: ${language}.`,
+      );
+      return Result.ok(genericAstRoot);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during Tree-sitter parsing or AST conversion for ${language}`,
+          error,
+        ),
+      );
+    } finally {
+      tree?.delete();
+    }
+  }
+
+  /**
+   * Executes a tree-sitter query on the parsed content.
+   * This is the recommended way to extract specific code structures.
+   *
+   * @param content The source code content to parse
+   * @param language The language of the source code
+   * @param queryString The tree-sitter query in S-expression format
+   * @returns A Result containing an array of QueryMatch objects
+   */
+  async query(
+    content: string,
+    language: SupportedLanguage,
+    queryString: string,
+  ): Promise<Result<QueryMatch[], Error>> {
+    this.logger.debug(`Running query for language: ${language}`);
+
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
+    }
+    const { parser, grammar } = prepared.value;
+
+    let tree: Tree | null = null;
+    let tsQuery: Query | undefined;
+    try {
+      tree = parser.parse(content);
+
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+      tsQuery = new Query(grammar, queryString);
+      const matches = tsQuery.matches(tree.rootNode);
+      const results: QueryMatch[] = matches.map((match: TsQueryMatch) => ({
+        pattern: match.patternIndex,
+        captures: match.captures.map((capture: TsQueryCapture) => ({
+          name: capture.name,
+          node: this._convertNodeToGenericAst(
+            capture.node,
+            0,
+            captureDepth(capture.name),
+          ),
+          text: capture.node.text,
+          startPosition: {
+            row: capture.node.startPosition.row,
+            column: capture.node.startPosition.column,
+          },
+          endPosition: {
+            row: capture.node.endPosition.row,
+            column: capture.node.endPosition.column,
+          },
+        })),
+      }));
+
+      this.logger.debug(
+        `Query returned ${results.length} matches for language: ${language}`,
+      );
+      return Result.ok(results);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during tree-sitter query for ${language}`,
+          error,
+        ),
+      );
+    } finally {
+      tsQuery?.delete();
+      tree?.delete();
+    }
+  }
+
+  /**
+   * Executes the pre-configured function query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for functions, methods, and arrow functions
+   */
+  async queryFunctions(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<QueryMatch[], Error>> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.functionQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.functionQuery);
+  }
+
+  /**
+   * Executes the pre-configured class query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for class declarations
+   */
+  async queryClasses(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<QueryMatch[], Error>> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.classQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.classQuery);
+  }
+
+  /**
+   * Executes the pre-configured import query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for import statements
+   */
+  async queryImports(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<QueryMatch[], Error>> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.importQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.importQuery);
+  }
+
+  /**
+   * Executes the pre-configured export query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for export statements
+   */
+  async queryExports(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<QueryMatch[], Error>> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.exportQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.exportQuery);
+  }
+
+  /**
+   * Executes multiple tree-sitter queries over a single parse of the content.
+   * Parses the source exactly once and runs all provided queries against the
+   * resulting tree, returning a Map keyed by each entry's `key` field.
+   *
+   * This is significantly more efficient than calling `query()` N times when
+   * all queries operate on the same source file, as the WASM parse cost is
+   * paid only once.
+   *
+   * @param content The source code content to parse
+   * @param language The language of the source code
+   * @param queries An array of { key, queryString } entries to execute
+   * @returns A Result containing a Map<key, QueryMatch[]> on success, or an Error on failure.
+   *          Parse quality is attached even when no query entries are requested.
+   *          Empty content is a clean empty parse without allocating a tree.
+   */
+  async queryMulti(
+    content: string,
+    language: SupportedLanguage,
+    queries: { key: string; queryString: string }[],
+  ): Promise<Result<QueryResults, Error>> {
+    if (!content) {
+      return Result.ok(
+        Object.assign(new Map<string, QueryMatch[]>(), {
+          parseStatus: 'ok' as const,
+          errorNodeCount: 0,
+          errorNodeCountCapped: false,
+        }),
+      );
+    }
+
+    this.logger.debug(
+      `Running queryMulti for language: ${language} with ${queries.length} queries`,
+    );
+
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
+    }
+    const { parser, grammar } = prepared.value;
+
+    let tree: Tree | null = null;
+    const createdQueries: (Query | undefined)[] = [];
+
+    try {
+      tree = parser.parse(content);
+
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+
+      const resultMap = Object.assign(
+        new Map<string, QueryMatch[]>(),
+        parseQuality(tree.rootNode),
+      );
+
+      for (const entry of queries) {
+        const tsQuery = new Query(grammar, entry.queryString);
+        createdQueries.push(tsQuery);
+
+        const matches = tsQuery.matches(tree.rootNode);
+
+        const queryMatches: QueryMatch[] = matches.map(
+          (match: TsQueryMatch) => ({
+            pattern: match.patternIndex,
+            captures: match.captures.map((capture: TsQueryCapture) => ({
+              name: capture.name,
+              node: this._convertNodeToGenericAst(
+                capture.node,
+                0,
+                captureDepth(capture.name),
+              ),
+              text: capture.node.text,
+              startPosition: {
+                row: capture.node.startPosition.row,
+                column: capture.node.startPosition.column,
+              },
+              endPosition: {
+                row: capture.node.endPosition.row,
+                column: capture.node.endPosition.column,
+              },
+            })),
+          }),
+        );
+
+        resultMap.set(entry.key, queryMatches);
+      }
+
+      return Result.ok(resultMap);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during queryMulti for ${language}`,
+          error,
+        ),
+      );
+    } finally {
+      for (const tsQuery of createdQueries) {
+        tsQuery?.delete();
+      }
+      tree?.delete();
+    }
+  }
+
+  /**
+   * Parses source code and caches the raw tree-sitter tree for future incremental re-parses.
+   * Use this instead of `parse()` when you intend to later call `parseIncremental()` on the same file.
+   *
+   * @param filePath - Absolute path used as the cache key for the tree.
+   * @param content - The full source code content to parse.
+   * @param language - The language of the source code.
+   * @returns A Result containing the GenericAstNode root or an Error.
+   */
+  async parseAndCache(
+    filePath: string,
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<GenericAstNode, Error>> {
+    this.logger.debug(
+      `parseAndCache: Parsing and caching tree for ${filePath} (${language})`,
+    );
+
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      // The cached tree describes older content; never reuse it after a refusal.
+      this.deleteCachedTree(filePath);
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
+    }
+    const { parser } = prepared.value;
+
+    try {
+      const tree = parser.parse(content);
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+      this.evictLRUTreeCache();
+      const previousEntry = this.treeCache.get(filePath);
+      if (previousEntry?.tree) {
+        previousEntry.tree.delete();
+      }
+      this.treeCache.set(filePath, {
+        tree,
+        language,
+        lastAccessed: Date.now(),
+        filePath,
+      });
+
+      const genericAstRoot = this._convertNodeToGenericAst(
+        tree.rootNode,
+        0,
+        null,
+      );
+
+      this.logger.debug(
+        `parseAndCache: Successfully parsed and cached tree for ${filePath}`,
+      );
+      return Result.ok(genericAstRoot);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during parseAndCache for ${filePath} (${language})`,
+          error,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Incrementally re-parses a file using a previously cached tree and an edit delta.
+   * If no cached tree exists for the file, falls back to a full `parseAndCache()`.
+   *
+   * Incremental parsing is significantly faster for small edits (e.g., single-line changes)
+   * because tree-sitter only re-parses the affected region of the syntax tree.
+   *
+   * @param filePath - Absolute path used as the cache key.
+   * @param content - The full source code content AFTER the edit has been applied.
+   * @param language - The language of the source code.
+   * @param editDelta - Describes where and how the text changed (byte offsets and positions).
+   * @returns A Result containing the GenericAstNode root or an Error.
+   */
+  async parseIncremental(
+    filePath: string,
+    content: string,
+    language: SupportedLanguage,
+    editDelta: EditDelta,
+  ): Promise<Result<GenericAstNode, Error>> {
+    const cachedEntry = this.treeCache.get(filePath);
+
+    if (!cachedEntry) {
+      this.logger.debug(
+        `parseIncremental: Cache miss for ${filePath}, falling back to full parse`,
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+    if (cachedEntry.language !== language) {
+      this.logger.debug(
+        `parseIncremental: Language mismatch for ${filePath} (cached: ${cachedEntry.language}, requested: ${language}), falling back to full parse`,
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+
+    this.logger.debug(
+      `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`,
+    );
+
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      this.deleteCachedTree(filePath);
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
+    }
+    const { parser } = prepared.value;
+
+    try {
+      cachedEntry.tree.edit(
+        new Edit({
+          startIndex: editDelta.startIndex,
+          oldEndIndex: editDelta.oldEndIndex,
+          newEndIndex: editDelta.newEndIndex,
+          startPosition: editDelta.startPosition,
+          oldEndPosition: editDelta.oldEndPosition,
+          newEndPosition: editDelta.newEndPosition,
+        }),
+      );
+      const newTree = parser.parse(content, cachedEntry.tree);
+      if (!newTree?.rootNode) {
+        throw new Error(
+          'Incremental parsing resulted in an undefined tree or rootNode.',
+        );
+      }
+      cachedEntry.tree.delete();
+      this.treeCache.set(filePath, {
+        tree: newTree,
+        language,
+        lastAccessed: Date.now(),
+        filePath,
+      });
+
+      const genericAstRoot = this._convertNodeToGenericAst(
+        newTree.rootNode,
+        0,
+        null,
+      );
+
+      this.logger.debug(
+        `parseIncremental: Successfully performed incremental re-parse for ${filePath}`,
+      );
+      return Result.ok(genericAstRoot);
+    } catch (error: unknown) {
+      const corruptedEntry = this.treeCache.get(filePath);
+      if (corruptedEntry?.tree) {
+        corruptedEntry.tree.delete();
+      }
+      this.treeCache.delete(filePath);
+      this.logger.warn(
+        `parseIncremental: Incremental parse failed for ${filePath}, falling back to full parse`,
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+  }
+
+  private deleteCachedTree(filePath: string): void {
+    this.treeCache.get(filePath)?.tree.delete();
+    this.treeCache.delete(filePath);
+  }
+
+  /**
+   * Evicts the least-recently-used entry from the tree cache when it exceeds the max size.
+   * Uses the `lastAccessed` timestamp to determine the oldest entry.
+   */
+  private evictLRUTreeCache(): void {
+    if (this.treeCache.size < this.treeCacheMaxSize) {
+      return;
+    }
+
+    let oldestKey: string | undefined;
+    let oldestTime = Infinity;
+
+    for (const [key, entry] of this.treeCache) {
+      if (entry.lastAccessed < oldestTime) {
+        oldestTime = entry.lastAccessed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      this.logger.debug(
+        `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`,
+      );
+      const evicted = this.treeCache.get(oldestKey);
+      if (evicted?.tree) {
+        evicted.tree.delete();
+      }
+      this.treeCache.delete(oldestKey);
+    }
+  }
+
+  /**
+   * Clears all cached trees, freeing their WASM heap memory.
+   * Parsers are retained since they are long-lived singletons per language.
+   */
+  clearCache(): void {
+    for (const [, entry] of this.treeCache) {
+      entry.tree.delete();
+    }
+    this.treeCache.clear();
+    this.logger.debug(
+      'clearCache: All cached trees deleted and cache cleared.',
+    );
+  }
+
+  /**
+   * Disposes of all WASM resources held by this service.
+   * Must be called when the extension deactivates or the service is no longer needed.
+   * After calling dispose(), the service must be re-initialized before use.
+   */
+  dispose(): void {
+    this.logger.info(
+      'Disposing TreeSitterParserService: freeing all WASM resources.',
+    );
+    for (const [, entry] of this.treeCache) {
+      entry.tree.delete();
+    }
+    this.treeCache.clear();
+    for (const [, loaded] of this.loadedLanguages) {
+      loaded.parser.delete();
+    }
+    this.loadedLanguages.clear();
+    // Loads still in flight see the new generation and free their parser.
+    this.languageLoads.clear();
+    this.generation++;
+
+    this.isInitialized = false;
+    this.initPromise = null;
+    this.runtimeFailure = null;
+    this.retryDelayMs = TREE_SITTER_RETRY_INITIAL_MS;
+
+    this.logger.info('TreeSitterParserService disposed.');
+  }
+
+  /**
+   * Handles and logs an error, ensuring a proper Error object is created.
+   * @param context A string describing the context where the error occurred.
+   * @param error The caught error object (unknown type).
+   * @returns The processed Error object.
+   * @private
+   */
+  private _handleAndLogError(context: string, error: unknown): Error {
+    const processedError =
+      error instanceof Error
+        ? error
+        : new Error(String(error) || 'Unknown error');
+    const message = `${context}: ${processedError.message}`;
+    this.logger.error(message, processedError);
+    processedError.message = message;
+    return processedError;
+  }
+}

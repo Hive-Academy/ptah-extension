@@ -735,6 +735,28 @@ export function captureShutdownHandles(
     );
     coordinator.refs.workspaceWatcher = null;
   }
+
+  // Phase 2 already built the parser (its registration resolves it), so this
+  // returns that singleton; `will-quit` then stops the tree-sitter worker it
+  // owns without ever constructing a parser mid-teardown.
+  try {
+    coordinator.refs.treeSitterParser = container.isRegistered(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+    )
+      ? container.resolve<{ dispose: () => void }>(
+          TOKENS.TREE_SITTER_PARSER_SERVICE,
+        )
+      : null;
+  } catch (treeSitterError: unknown) {
+    // degradation-audit: reported - quit then leaves the worker to process exit.
+    logger.warn(
+      '[Ptah Electron] Tree-sitter parser eager resolve failed (non-fatal)',
+      treeSitterError instanceof Error
+        ? treeSitterError
+        : new Error(String(treeSitterError)),
+    );
+    coordinator.refs.treeSitterParser = null;
+  }
 }
 
 /**

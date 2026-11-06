@@ -14,6 +14,7 @@ import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import { resolve } from 'node:path';
 import { resolveReviewRootsForPath } from '../services/review/resolve-review-roots-for-path';
 import { registerElectronCodexReadinessAndLogin } from './codex-login-composition';
+import { registerElectronTreeSitterWorker } from './tree-sitter-worker-composition';
 
 import {
   TOKENS,
@@ -215,6 +216,9 @@ export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  // Before workspace-intelligence: its registration resolves the parser,
+  // which reads the optional worker factory once, at construction.
+  registerElectronTreeSitterWorker(container, logger);
   registerWorkspaceIntelligenceServices(container, logger);
   // Override the Phase 0 diagnostics stub with the real TypeScript compiler
   // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is

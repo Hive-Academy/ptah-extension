@@ -13,6 +13,19 @@ import type { BackgroundWorkAdmission } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import { CodeSymbolIndexer } from './code-symbol-indexer.service';
 import { Result } from '@ptah-extension/shared';
+import { AstAnalysisService as RealAstAnalysisService } from '../ast/ast-analysis.service';
+import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import {
+  FakeWorkerFactory,
+  emptyQueryMultiReply,
+} from '../testing/tree-sitter-worker-fakes';
+
+// The real parser service is used by the worker-outage suite; its WASM
+// bundle-dir resolver reads `import.meta.url`, which Jest's CJS runtime rejects.
+jest.mock('../ast/wasm-bundle-dir', () => ({
+  BUNDLE_DIR: '/mock/bundle/dir',
+  resolveWasmPath: (filename: string) => `/mock/bundle/dir/wasm/${filename}`,
+}));
 
 // ---------------------------------------------------------------------------
 // Minimal mock helpers
@@ -1724,6 +1737,43 @@ describe('CodeSymbolIndexer', () => {
       await service.indexWorkspace(ROOT);
       expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
       expect(sink.purgeMissing.mock.calls[0][1]).toEqual(files);
+    });
+  });
+
+  describe('indexWorkspace — tree-sitter worker outage', () => {
+    it('skips and retries, rather than completing, when the worker enters its cooldown mid-batch', async () => {
+      const files = fakeTsFiles(8);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('const x = 1;');
+      // Two files parse, then the worker dies on every request: the third
+      // consecutive crash starts the client's cooldown.
+      const factory = new FakeWorkerFactory();
+      let answered = 0;
+      factory.autoReply = (request) =>
+        answered++ < 2
+          ? { kind: 'reply', message: emptyQueryMultiReply(request) }
+          : { kind: 'exit', code: 1 };
+      const parser = new TreeSitterParserService(logger, factory);
+      const ast = new RealAstAnalysisService(logger, parser);
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+
+      await expect(service.indexWorkspace('/workspace')).rejects.toThrow(
+        /tree-sitter runtime unavailable — skipped 3 files; next retry in \d+ms/,
+      );
+      // 2 answered + 3 crashed; the 3 files after the cooldown were never sent.
+      const sent = factory.workers.flatMap((worker) => worker.requests());
+      expect(sent).toHaveLength(5);
+      expect(sent.every((request) => request.op === 'queryMulti')).toBe(true);
+      expect(parser.isRuntimeUnavailable()).toBe(true);
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(
+        '[CodeSymbolIndexer] Workspace indexing complete',
+        expect.anything(),
+      );
+      parser.dispose();
     });
   });
 });

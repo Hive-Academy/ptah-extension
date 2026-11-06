@@ -604,3 +604,50 @@ describe('will-quit — main-chat sessions release leases before SQLite close', 
     );
   });
 });
+
+describe('will-quit — the tree-sitter worker', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    kill.mockReset().mockResolvedValue(undefined);
+    pids.mockReset().mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('disposes the captured parser: its pending parse settles and its child is killed', async () => {
+    // The parser's contract (pinned in workspace-intelligence's
+    // tree-sitter-parser.service.worker.spec.ts): dispose() kills the child and
+    // answers every waiting request with an error.
+    const child = { killed: false };
+    let settle: (outcome: string) => void = () => undefined;
+    const pending = new Promise<string>((resolve) => {
+      settle = resolve;
+    });
+    const order: string[] = [];
+    const refs = minimalRefs(order);
+    refs.treeSitterParser = {
+      dispose: () => {
+        order.push('treeSitterParser');
+        child.killed = true;
+        settle('terminated');
+      },
+    };
+    const deps = quitDeps(refs);
+    deps.disposeVoiceWorker.mockImplementation(() => { order.push('voice'); });
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    await expect(pending).resolves.toBe('terminated');
+    expect(child.killed).toBe(true);
+    expect(order.indexOf('treeSitterParser')).toBe(order.indexOf('voice') + 1);
+  });
+
+  it('continues the quit when no parser was captured', async () => {
+    const order: string[] = [];
+    const deps = quitDeps(minimalRefs(order));
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toContain('diagnostics');
+  });
+});

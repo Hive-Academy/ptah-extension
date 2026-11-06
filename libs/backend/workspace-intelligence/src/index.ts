@@ -144,7 +144,17 @@ export {
   registerWorkspaceIntelligenceServices,
   registerTypeScriptDiagnosticsProvider,
   CODE_SYMBOL_INDEXER,
+  WORKSPACE_INTELLIGENCE_TOKENS,
 } from './di';
+export type {
+  ITreeSitterWorkerFactory,
+  ITreeSitterWorkerProcess,
+} from './ast/worker/tree-sitter-worker.port';
+export {
+  BACKGROUND_PARSE,
+  type TreeSitterPriority,
+  type TreeSitterRequestOptions,
+} from './ast/tree-sitter-request-options';
 export { TypeScriptDiagnosticsProvider } from './diagnostics/type-script-diagnostics-provider';
 // Batch 25b's end-to-end spec drives the real provider over a fake inner one.
 export {
