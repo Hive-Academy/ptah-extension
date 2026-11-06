@@ -14,6 +14,7 @@ import {
   type MatrixLoadInput,
   type MatrixOutcomeQuery,
 } from '../matrix/capability-matrix.store';
+import { EMPTY_OUTCOME_FIGURES } from '../matrix/outcome-figures';
 import { NEUTRAL_SCORE } from '../routing-constants';
 import { FAMILY_PROFILE_MODEL } from '../matrix/matrix.types';
 import {
@@ -285,6 +286,7 @@ async function loadMatrix(
 
 function neutralSnapshot(): CapabilityMatrixSnapshot {
   return {
+    outcomeFigures: EMPTY_OUTCOME_FIGURES,
     reasons: [
       `${MATRIX_INVALID_PREFIX} capability-matrix.json (unreadable)`,
       OUTCOMES_UNAVAILABLE_REASON,

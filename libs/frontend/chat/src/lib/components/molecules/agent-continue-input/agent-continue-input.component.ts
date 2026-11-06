@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   signal,
   computed,
   effect,
@@ -8,7 +9,8 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { ArrowUp, LucideAngularModule, SendHorizontal, X } from 'lucide-angular';
+import { ArrowUp, LucideAngularModule, Play, SendHorizontal, Square, X } from 'lucide-angular';
+import { laneGuardStopText } from '../agent-card/agent-card-header.component';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
   COMPOSER_CARD_BORDER_CLASS,
@@ -28,9 +30,10 @@ import {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (visible() && variant() === 'composer') {
+    @if (variant() === 'composer' && (visible() || agent().status === 'running' || terminalStatus())) {
       <!-- A canvas lane: the main chat composer's card, hint below it. -->
       <div class="flex flex-col gap-1 pb-2">
+        @if (visible() || agent().status === 'running') {
         <div
           [class]="composerCardClass"
           data-glass-surface="tile"
@@ -38,6 +41,7 @@ import {
         >
           <!-- The main chat composer's shape: textarea, then a bottom row
                with its send button. No model or mode toolbar. -->
+          @if (visible()) {
           <textarea
             style="field-sizing: content"
             rows="2"
@@ -49,7 +53,18 @@ import {
             (input)="onInput($event)"
             (keydown.enter)="onEnter($event)"
           ></textarea>
+          }
           <div [class]="toolbarClass">
+            @if (agent().status === 'running') {
+              <button type="button" [class]="stopButtonClass" aria-label="Stop generating" title="Stop generating" [disabled]="stopPending()" (click)="stopRequested.emit($event)">
+                <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            } @else if (agent().cliSessionId) {
+              <button type="button" [class]="stopButtonClass" [attr.aria-label]="'Resume '+agent().cli+' session'" title="Resume session" [disabled]="resumePending()" (click)="resumeRequested.emit($event)">
+                <lucide-angular [img]="PlayIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            }
+            @if (visible()) {
             <button
               type="button"
               [class]="sendButtonClass"
@@ -68,11 +83,16 @@ import {
                 />
               }
             </button>
+            }
           </div>
         </div>
+        }
+        @if (terminalStatus(); as message) { <span class="px-1 text-[11px] text-warning">{{ message }}</span> }
+        @if (visible() && agent().status !== 'running') {
         <span class="px-1 text-[11px] text-base-content-muted">
           {{ subtitle() }}
         </span>
+        }
         @if (queued(); as pending) {
           <button
             type="button"
@@ -152,6 +172,19 @@ export class AgentContinueInputComponent {
   private readonly followUps = inject(AgentFollowUpQueueService);
 
   readonly agent = input.required<MonitoredAgent>();
+  readonly stopPending = input(false);
+  readonly resumePending = input(false);
+  readonly stopRequested = output<Event>();
+  readonly resumeRequested = output<Event>();
+  protected readonly SquareIcon = Square;
+  protected readonly PlayIcon = Play;
+  protected readonly stopButtonClass = 'inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
+  protected readonly terminalStatus = computed(() => {
+    const agent = this.agent();
+    const status = agent.status === 'failed' ? 'Failed' : agent.status === 'timeout' ? 'Timed out' : agent.status === 'stopped' ? 'Stopped' : '';
+    const reason = laneGuardStopText(agent.stopReason);
+    return agent.status === 'running' ? '' : [status, reason].filter(Boolean).join(' · ');
+  });
   /** `panel` in the agent monitor; `composer` in a canvas lane's column. */
   readonly variant = input<'panel' | 'composer'>('panel');
   protected readonly composerCardClass = `${COMPOSER_CARD_CLASS} ${COMPOSER_CARD_BORDER_CLASS}`;

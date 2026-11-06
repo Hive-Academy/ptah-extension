@@ -84,6 +84,14 @@ describe('SubagentLaneComposerComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
+  it('places Stop and Background in the composer actions', () => {
+    const original = context(true);
+    const ctx = { ...original, entry: { ...original.entry, stoppable: true, canBackground: true } };
+    const fixture = setup({ ...record, status: 'running' }, ctx);
+    expect(root(fixture).querySelector('[data-testid="steer-composer-card"] [aria-label="Stop generating"]')).not.toBeNull();
+    expect(root(fixture).querySelector('[data-testid="steer-composer-card"] [aria-label="Send to background"]')).not.toBeNull();
+  });
+
   it('picks the mode from the tray context and the owning session', () => {
     expect(
       setup(

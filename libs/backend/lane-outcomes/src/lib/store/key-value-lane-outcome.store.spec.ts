@@ -36,6 +36,28 @@ function storage() {
   };
 }
 
+/**
+ * holdReport prunes with the wall clock, and the fixture holds expire one
+ * second after `now`. Freezing only Date keeps a slow run from expiring them.
+ */
+function freezeDate(nowMs: number): void {
+  jest.useFakeTimers({
+    now: nowMs,
+    doNotFake: [
+      'nextTick',
+      'queueMicrotask',
+      'setImmediate',
+      'clearImmediate',
+      'setTimeout',
+      'clearTimeout',
+      'setInterval',
+      'clearInterval',
+      'hrtime',
+      'performance',
+    ],
+  });
+}
+
 describe('KeyValueLaneOutcomeStore', () => {
   it('persists guarded classification and null-only joins across reload', async () => {
     const memory = storage();
@@ -263,18 +285,25 @@ describe('KeyValueLaneOutcomeStore', () => {
   it('expires holds including markers and keeps the 497 plus one capacity case', async () => {
     const store = new KeyValueLaneOutcomeStore(storage().state, testLogger());
     const now = Date.now();
-    for (let i = 0; i < 500; i++)
-      await store.holdReport(heldReport(i, now, i < 3));
-    expect(await store.countHeldReports(now)).toBe(497);
-    await store.holdReport(heldReport(500, now));
-    expect(await store.countHeldReports(now)).toBe(498);
-    expect(
-      (await store.listHeldReports(now)).some((r) => r.reportId === 'report-0'),
-    ).toBe(false);
-    await store.markBudgetStopped('marker', now);
-    const expired = await store.expireHeldReports(now + 86_400_001);
-    expect(expired).toHaveLength(499);
-    expect(expired.some((r) => r.kind === 'budget-stop')).toBe(true);
+    freezeDate(now);
+    try {
+      for (let i = 0; i < 500; i++)
+        await store.holdReport(heldReport(i, now, i < 3));
+      expect(await store.countHeldReports(now)).toBe(497);
+      await store.holdReport(heldReport(500, now));
+      expect(await store.countHeldReports(now)).toBe(498);
+      expect(
+        (await store.listHeldReports(now)).some(
+          (r) => r.reportId === 'report-0',
+        ),
+      ).toBe(false);
+      await store.markBudgetStopped('marker', now);
+      const expired = await store.expireHeldReports(now + 86_400_001);
+      expect(expired).toHaveLength(499);
+      expect(expired.some((r) => r.kind === 'budget-stop')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('evicts the oldest row with its receipt and flag above 2000 rows', async () => {

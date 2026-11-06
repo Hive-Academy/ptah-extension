@@ -158,6 +158,7 @@ export interface SkillSynthesisApplyProposalParams {
 export interface SkillSynthesisApplyProposalResult {
   applied: boolean;
   historyTs: string | null;
+  skipReason: string | null;
 }
 
 /**

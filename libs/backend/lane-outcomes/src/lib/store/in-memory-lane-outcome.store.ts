@@ -2,6 +2,14 @@ import type {
   LaneOutcomeRecord,
   OutcomeTaskKind,
 } from '@ptah-extension/shared';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
+
+function workspaceMatches(recorded: string | null | undefined, active?: string | null): boolean {
+  if (active == null || recorded == null) return true;
+  const root = normalizeWorkspaceRoot(active);
+  const lane = normalizeWorkspaceRoot(recorded);
+  return lane === root || lane.startsWith(`${root}/`);
+}
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
 import { applyOutcomeEffect, heldReportJoinsRow } from './lane-outcome.store';
 import type {
@@ -13,6 +21,13 @@ import type {
 } from './lane-outcome.store';
 
 export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
+  async listRecent(sinceMs: number, workspaceRoot?: string | null): Promise<readonly LaneOutcomeRow[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.endedAt >= sinceMs && workspaceMatches(row.workspaceRoot, workspaceRoot))
+      .sort((a, b) => b.endedAt - a.endedAt)
+      .slice(0, 2000)
+      .map((row) => this.row(row));
+  }
   protected readonly rows = new Map<string, LaneOutcomeRecord>();
   protected readonly receipts = new Map<string, OutcomeReceipt>();
   protected readonly held = new Map<string, HeldOutcomeReport>();
@@ -201,9 +216,10 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
   async listByLane(
     laneId: string,
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]> {
     return [...this.rows.values()]
-      .filter((r) => r.laneId === laneId && r.endedAt >= sinceMs)
+      .filter((r) => r.laneId === laneId && r.endedAt >= sinceMs && workspaceMatches(r.workspaceRoot, workspaceRoot))
       .sort((a, b) => b.endedAt - a.endedAt)
       .slice(0, 2000)
       .map((r) => this.row(r));
@@ -211,11 +227,12 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
   async listByRoles(
     slugs: readonly string[],
     sinceMs: number,
+    workspaceRoot?: string | null,
   ): Promise<readonly LaneOutcomeRow[]> {
     const names = new Set(slugs);
     return [...this.rows.values()]
       .filter(
-        (r) => r.role !== null && names.has(r.role) && r.endedAt >= sinceMs,
+        (r) => r.role !== null && names.has(r.role) && r.endedAt >= sinceMs && workspaceMatches(r.workspaceRoot, workspaceRoot),
       )
       .sort((a, b) => b.endedAt - a.endedAt)
       .slice(0, 2000)

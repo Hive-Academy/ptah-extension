@@ -123,7 +123,57 @@ describe('unified CLI agent output', () => {
     return fixture;
   }
 
-  it('shows the lane stats bar while collapsed and task details on expand in flat presentation', () => {
+  it('lets flat output flow and keeps card output scrollable', () => {
+    const fixture = TestBed.createComponent(CliAgentOutputComponent);
+    fixture.componentRef.setInput('agentId', 'scroll-agent');
+    fixture.componentRef.setInput('presentation', 'flat');
+    fixture.detectChanges();
+    const output = (fixture.nativeElement as HTMLElement).querySelector('div')!;
+    expect(output.classList).not.toContain('h-full');
+    expect(output.classList).not.toContain('overflow-y-auto');
+
+    fixture.componentRef.setInput('presentation', 'card');
+    fixture.detectChanges();
+    expect(output.classList).toContain('h-full');
+    expect(output.classList).toContain('overflow-y-auto');
+  });
+
+  it('follows flat output only while the reader is near the bottom', () => {
+    const frame = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    try {
+      const scroller = document.createElement('div');
+      scroller.style.overflowY = 'auto';
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, value: 500 },
+        clientHeight: { configurable: true, value: 100 },
+      });
+      const fixture = TestBed.createComponent(CliAgentOutputComponent);
+      scroller.appendChild(fixture.nativeElement as HTMLElement);
+      fixture.componentRef.setInput('agentId', 'follow-agent');
+      fixture.componentRef.setInput('presentation', 'flat');
+      fixture.detectChanges();
+
+      scroller.scrollTop = 370; // 30px from the bottom.
+      scroller.dispatchEvent(new Event('scroll'));
+      fixture.componentRef.setInput('scrollTrigger', 1);
+      fixture.detectChanges();
+      expect(scroller.scrollTop).toBe(500);
+
+      scroller.scrollTop = 100;
+      scroller.dispatchEvent(new Event('scroll'));
+      fixture.componentRef.setInput('scrollTrigger', 2);
+      fixture.detectChanges();
+      expect(scroller.scrollTop).toBe(100);
+      fixture.destroy();
+    } finally {
+      frame.mockRestore();
+    }
+  });
+
+  it('omits the lane stats bar in flat presentation', () => {
     const fixture = renderCard(
       agent({
         expanded: false,
@@ -141,26 +191,14 @@ describe('unified CLI agent output', () => {
       'flat',
     );
     const el = fixture.nativeElement as HTMLElement;
-    const row = el.querySelector<HTMLButtonElement>(
-      '[data-test="execution-header-details"]',
-    )!;
-    const detailsId = row.getAttribute('aria-controls')!;
-    expect(row.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('[data-test="execution-header-details"]')).toBeNull();
     expect(el.querySelector('[aria-label="Lane usage"]')).toBeNull();
-    expect(el.querySelector('[aria-label="Agent usage"]')).not.toBeNull();
+    expect(el.querySelector('[aria-label="Agent usage"]')).toBeNull();
     expect(el.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
     expect(el.textContent).not.toContain('Worker Alpha');
     expect(el.textContent).not.toContain('Reported total:');
     expect(el.textContent).not.toContain('↑');
-    row.click();
-    fixture.detectChanges();
-    const details = el.querySelector<HTMLElement>(
-      `[id="${detailsId}"][role="region"]`,
-    );
-    expect(row.getAttribute('aria-expanded')).toBe('true');
-    expect(details?.querySelector('[aria-label="Lane usage"]')).toBeNull();
-    expect(details?.textContent).toContain('session-123');
-    expect(details?.textContent).toContain('Inspect files');
+    expect(el.querySelector('#cli-lane-details-agent-1')).toBeNull();
   });
 
   it.each<CliType>([

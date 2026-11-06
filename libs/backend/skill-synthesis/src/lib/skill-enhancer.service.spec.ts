@@ -4,6 +4,8 @@ import {
   ProposalNotFoundError,
   PROPOSAL_TTL_MS,
   MAX_CACHED_PROPOSALS,
+  MIN_INVOCATIONS_TO_ENHANCE,
+  ENHANCE_COOLDOWN_MS,
 } from './skill-enhancer.service';
 import { type SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
@@ -105,7 +107,7 @@ interface Harness {
   internalQuery: { execute: jest.Mock };
   repropagation: { repropagate: jest.Mock };
   specFindings: { getRecentFindings: jest.Mock };
-  scorecard: { getScorecards: jest.Mock };
+  scorecard: { getScorecards: jest.Mock; getInvocationStats: jest.Mock };
   authResolver?: { resolve: jest.Mock } | null;
   workspaceProvider: {
     getConfiguration: jest.Mock;
@@ -123,6 +125,10 @@ function makeHarness(opts: {
   scorecardCard?: AgentScorecard;
   /** When true, the scorecard service is not injected (dependency absent). */
   scorecardAbsent?: boolean;
+  /** Telemetry count the enhance gate reads. Defaults to the 5-use floor. */
+  invocationCount?: number;
+  /** When true, `getInvocationStats` throws and the gate fails closed. */
+  statsThrows?: boolean;
   /**
    * Settings this workspace has stored. Unseeded keys read `''`, which is what
    * every pre-existing case in this file relied on.
@@ -194,6 +200,18 @@ function makeHarness(opts: {
         record[s] = opts.scorecardCard ?? emptyScorecard(s);
       }
       return record;
+    }),
+    getInvocationStats: jest.fn(() => {
+      if (opts.statsThrows) throw new Error('stats down');
+      const invocationCount = opts.invocationCount ?? MIN_INVOCATIONS_TO_ENHANCE;
+      return {
+        total: invocationCount,
+        succeeded: invocationCount,
+        failed: 0,
+        distinctContexts: 1,
+        invocationCount,
+        successRate: 1,
+      };
     }),
   };
 
@@ -679,6 +697,163 @@ describe('SkillEnhancerService â€” preview-before-apply', () => {
     expect(h.judge.judge).not.toHaveBeenCalled();
   });
 
+  it('manual preview with 4 invocations returns below-threshold and does not call the judge', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      invocationCount: MIN_INVOCATIONS_TO_ENHANCE - 1,
+    });
+    const result = await h.svc.generateProposal('deep-research', makeSettings(), {
+      manual: true,
+    });
+
+    expect(result.proposed).toBe(false);
+    expect(result.skipReason).toBe('below-threshold');
+    expect(result.proposalId).toBeNull();
+    expect(h.judge.judge).not.toHaveBeenCalled();
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('manual preview inside the cooldown returns cooldown and does not call the judge', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      invocationCount: MIN_INVOCATIONS_TO_ENHANCE,
+      lastEnhancedAt: Date.now(),
+    });
+    const result = await h.svc.generateProposal('deep-research', makeSettings(), {
+      manual: true,
+    });
+
+    expect(result.skipReason).toBe('cooldown');
+    expect(h.judge.judge).not.toHaveBeenCalled();
+  });
+
+  it.each(['unscored', 'disabled'] as const)(
+    'manual preview after the cooldown with %s returns judge-rejected and caches nothing',
+    async (status) => {
+      const h = makeHarness({
+        judgeDecision: {
+          status,
+          score: null,
+          criteria: null,
+          reason: status === 'disabled' ? 'judge-disabled' : 'judge-no-json-in-response',
+        },
+        candidateText: IMPROVED,
+        invocationCount: MIN_INVOCATIONS_TO_ENHANCE,
+        lastEnhancedAt: Date.now() - ENHANCE_COOLDOWN_MS - 1,
+      });
+      const result = await h.svc.generateProposal('deep-research', makeSettings(), {
+        manual: true,
+      });
+
+      expect(result.proposed).toBe(false);
+      expect(result.skipReason).toBe('judge-rejected');
+      expect(result.proposalId).toBeNull();
+      expect(h.judge.judge).toHaveBeenCalled();
+      await expect(
+        h.svc.applyProposal('skill', 'deep-research', 'missing'),
+      ).rejects.toBeInstanceOf(ProposalNotFoundError);
+    },
+  );
+
+  it('manual preview at score 6 after the cooldown caches a proposal', async () => {
+    const h = makeHarness({
+      judgeDecision: {
+        status: 'scored',
+        score: 6,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
+      candidateText: IMPROVED,
+      invocationCount: MIN_INVOCATIONS_TO_ENHANCE,
+      lastEnhancedAt: Date.now() - ENHANCE_COOLDOWN_MS - 1,
+    });
+    const result = await h.svc.generateProposal('deep-research', makeSettings(), {
+      manual: true,
+    });
+
+    expect(result.proposed).toBe(true);
+    expect(result.proposalId).toMatch(UUID_RE);
+    expect(result.judgeScore).toBe(6);
+  });
+
+  it('applyProposal inside the cooldown does not write and keeps the proposal', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal('deep-research', makeSettings());
+    h.registry.getBySlug.mockReturnValue({
+      slug: 'deep-research',
+      kind: 'skill',
+      lastEnhancedAt: Date.now(),
+    });
+
+    const applied = await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(applied.applied).toBe(false);
+    expect(applied.skipReason).toBe('cooldown');
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+
+    h.registry.getBySlug.mockReturnValue({
+      slug: 'deep-research',
+      kind: 'skill',
+      lastEnhancedAt: null,
+    });
+    const retry = await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+    expect(retry.applied).toBe(true);
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it('applyProposal of a cached unscored proposal does not write', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal('deep-research', makeSettings());
+    const bag: unknown = Reflect.get(h.svc, 'proposals');
+    if (!(bag instanceof Map)) throw new Error('proposals map missing');
+    const stored: unknown = bag.get(proposal.proposalId);
+    if (typeof stored !== 'object' || stored === null) {
+      throw new Error('cached proposal missing');
+    }
+    Object.assign(stored, { judgeScore: null });
+
+    const applied = await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(applied.applied).toBe(false);
+    expect(applied.skipReason).toBe('judge-rejected');
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('a thrown stats read returns error and does not call the judge', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      statsThrows: true,
+    });
+    const result = await h.svc.generateProposal('deep-research', makeSettings(), {
+      manual: true,
+    });
+
+    expect(result.skipReason).toBe('error');
+    expect(h.judge.judge).not.toHaveBeenCalled();
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('reports usage-stats-unavailable when manual enhancement has no scorecard', async () => {
+    const h = makeHarness({ scorecardAbsent: true, judgeDecision: PASS, candidateText: IMPROVED });
+    const result = await h.svc.generateProposal('deep-research', makeSettings(), { manual: true });
+    expect(result.skipReason).toBe('usage-stats-unavailable');
+    expect(h.judge.judge).not.toHaveBeenCalled();
+  });
 
   it('enhance() composes both halves: one LLM call, one write, one repropagate', async () => {
     const h = passingHarness();

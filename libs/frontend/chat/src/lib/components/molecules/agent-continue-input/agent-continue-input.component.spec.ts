@@ -63,6 +63,18 @@ describe('AgentContinueInputComponent', () => {
     fixture.detectChanges();
   }
 
+  it('shows Stop without a text input while running and Resume when stopped', () => {
+    const running = makeAgent({ status: 'running', supportsContinuation: false });
+    setup(running);
+    fixture.componentRef.setInput('variant', 'composer');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Stop generating"]')).not.toBeNull();
+    publish({ ...running, status: 'stopped', cliSessionId: 'cli-1' });
+    expect(fixture.nativeElement.querySelector('[aria-label="Resume codex session"]')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Stopped');
+  });
+
   it('renders nothing when supportsContinuation is not true', () => {
     setup(makeAgent({ supportsContinuation: false }));
     expect(fixture.nativeElement.querySelector('textarea')).toBeNull();

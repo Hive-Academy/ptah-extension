@@ -50,6 +50,7 @@ export function enqueueLaneCompletionOutcome(
       laneId: info.ptahCliId ?? info.cli,
       agentId: info.agentId,
       parentSessionId: resolvedParentSessionId,
+      workspaceRoot: info.workingDirectory ? normalizeWorkspaceRoot(info.workingDirectory) : null,
       family: laneFamilyOf({
         cli: info.cli,
         ptahCliId: info.ptahCliId,
