@@ -48,6 +48,7 @@ export const searchWorkerQuerySchema = z.discriminatedUnion('kind', [
     query: z.string().max(MAX_QUERY_CHARS),
     topK: z.number().int().min(1).max(50),
     workspaceRoot: z.string().nullable().optional(),
+    deadlineMs: z.number().int().positive().optional(),
   }),
   z.object({
     kind: z.literal('symbols'),

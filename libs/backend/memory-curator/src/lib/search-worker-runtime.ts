@@ -229,7 +229,7 @@ export class SearchWorkerRuntime {
           state.memorySearch = this.createMemorySearch(state);
           state.dataVersion = version;
         }
-        return state.memorySearch.searchRich(query.query, query.topK, query.workspaceRoot);
+        return state.memorySearch.searchRich(query.query, query.topK, query.workspaceRoot, query.deadlineMs);
       }
       case 'symbols':
         return state.symbols.searchSymbols(query.query, query.topK, query.workspaceRoot);

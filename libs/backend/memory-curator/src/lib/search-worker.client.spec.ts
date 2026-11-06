@@ -77,7 +77,7 @@ const symbolHit = {
 
 /** Let queued microtasks (async host-call handlers) run. */
 async function flush(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
 describe('SearchWorkerClient', () => {
@@ -128,6 +128,31 @@ describe('SearchWorkerClient', () => {
     expect(await response).toEqual([]);
   });
 
+  it('releases an identifiable invalid result so the next queued request runs', async () => {
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger(), { maxInFlight: 1 });
+    const first = client.getChunks('a');
+    const second = client.getChunks('b');
+    expect(children[0].queries).toHaveLength(1);
+    children[0].reply({ kind: 'error', id: 1, message: 42 });
+    expect(await first).toEqual([]);
+    expect(children[0].queries).toHaveLength(2);
+    children[0].reply({ kind: 'result', id: 2, result: [] });
+    await second;
+  });
+
+  it('dispatches a memory deadline before its client timeout', async () => {
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger());
+    const before = Date.now();
+    const response = client.searchMemory('needle', 5);
+    expect(children[0].queries[0]).toEqual(expect.objectContaining({ deadlineMs: expect.any(Number) }));
+    const query = children[0].queries[0] as { deadlineMs: number };
+    expect(query.deadlineMs - before).toBeLessThan(5_000);
+    children[0].reply({ kind: 'result', id: 1, result: { hits: [], bm25Only: true } });
+    await response;
+  });
+
   it('degrades a hung worker, kills it after the liveness window, and respawns only after the backoff', async () => {
     jest.useFakeTimers();
     const children: FakeProcess[] = [];
@@ -136,6 +161,7 @@ describe('SearchWorkerClient', () => {
       livenessMs: 300,
     });
     const pending = client.searchSymbols('Foo', 5);
+    children[0].reply({ kind: 'ready', vecLoaded: true });
     jest.advanceTimersByTime(100);
     expect(await pending).toEqual({ hits: [], bm25Only: true });
     // One timeout is not a stall: the worker is only killed after 300 ms of silence.
@@ -308,6 +334,21 @@ describe('SearchWorkerClient', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('did not exit'), { waitedMs: 2_000 });
   });
 
+  it('dispose waits for an old child after reset cleared the process field', async () => {
+    jest.useFakeTimers();
+    const children: FakeProcess[] = [];
+    const client = new SearchWorkerClient(makeFactory(children), makeEmbedder(), makeLogger(), { exitWaitMs: 100 });
+    void client.getChunks('a');
+    children[0].exitOnKill = false;
+    children[0].reply({ kind: 'init-failed', message: 'database unavailable' });
+    let settled = false;
+    const disposed = client.dispose().then(() => { settled = true; });
+    await flush();
+    expect(settled).toBe(false);
+    jest.advanceTimersByTime(100);
+    await disposed;
+  });
+
   it('times a request from its dispatch, so requests queued behind slow ones still answer', async () => {
     jest.useFakeTimers();
     const children: FakeProcess[] = [];
@@ -368,6 +409,7 @@ describe('SearchWorkerClient', () => {
     });
     const first = client.listMemories('/ws', 4);
     const second = client.getChunks('m1');
+    children[0].reply({ kind: 'ready', vecLoaded: true });
     jest.advanceTimersByTime(100);
     expect(await first).toEqual({ memories: [], total: 0 });
     expect(await second).toEqual([]);

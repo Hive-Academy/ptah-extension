@@ -335,10 +335,11 @@ export class MemorySearchService implements IMemoryReader {
     query: string,
     topK = 10,
     workspaceRoot?: string | null,
+    deadlineMs?: number,
   ): Promise<MemorySearchResponse> {
     if (this.searchWorker) return this.searchWorker.searchMemory(query, topK, workspaceRoot);
     const key = this.makeCacheKey(query.trim(), workspaceRoot, Math.max(1, Math.min(50, topK)));
-    return this.searchFlight.run(key, () => this.searchRichTracked(query, topK, workspaceRoot, key));
+    return this.searchFlight.run(key, () => this.searchRichTracked(query, topK, workspaceRoot, key, deadlineMs));
   }
 
   private async searchRichTracked(
@@ -346,11 +347,12 @@ export class MemorySearchService implements IMemoryReader {
     topK: number,
     workspaceRoot: string | null | undefined,
     cacheKey: string,
+    deadlineMs?: number,
   ): Promise<MemorySearchResponse> {
     return this.tracer.startSpan(
       'memory.searchRich',
       { op: 'db.query', topK, queryLength: query.length },
-      () => this.searchRichInner(query, topK, workspaceRoot, cacheKey),
+      () => this.searchRichInner(query, topK, workspaceRoot, cacheKey, deadlineMs),
     );
   }
 
@@ -359,6 +361,7 @@ export class MemorySearchService implements IMemoryReader {
     topK: number,
     workspaceRoot: string | null | undefined,
     cacheKey: string,
+    deadlineMs?: number,
   ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
@@ -378,7 +381,23 @@ export class MemorySearchService implements IMemoryReader {
     let degraded = false;
     if (!bm25Only) {
       try {
-        vecRows = await this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot);
+        const remaining = deadlineMs === undefined ? Infinity : deadlineMs - Date.now();
+        if (remaining <= 250) throw new Error('vector deadline exhausted');
+        const vector = this.vecSearch(trimmed, Math.min(100, limit * 2), workspaceRoot);
+        if (Number.isFinite(remaining)) {
+          const vectorBudgetMs = Math.max(1, remaining - 200);
+          // degradation-audit: optional-capability - a vector call may finish after
+          // the deadline; the BM25 response has already been returned.
+          void vector.catch(() => undefined);
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            vecRows = await Promise.race([vector, new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('vector deadline exhausted')), vectorBudgetMs);
+            })]);
+          } finally {
+            clearTimeout(timer);
+          }
+        } else vecRows = await vector;
       } catch (err) {
         this.logger.warn(
           '[memory-curator] vec search failed; falling back to BM25',
@@ -394,7 +413,7 @@ export class MemorySearchService implements IMemoryReader {
     const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
     const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
     let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
-    if (fused.length >= 5) {
+    if (!degraded && fused.length >= 5 && (deadlineMs === undefined || deadlineMs - Date.now() > 2_200)) {
       const reranker = this.reranker;
       if (reranker !== null) {
         try {
@@ -526,7 +545,7 @@ export class MemorySearchService implements IMemoryReader {
     workspaceRoot: string | null | undefined,
   ): Promise<Array<FtsRow & { distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
-    if (!vec || vec.length !== this.embedder.dim) return [];
+    if (!vec || vec.length !== this.embedder.dim) throw new Error('embedder returned missing or wrong-size vector');
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const scope = searchScopePredicate(workspaceRoot);
@@ -535,6 +554,7 @@ export class MemorySearchService implements IMemoryReader {
           this.connection, 'memory_chunks_vec', buf, limit,
           'JOIN memory_chunks mc ON mc.rowid = candidates.rowid JOIN memories m ON m.id = mc.memory_id',
           `${ACTIVE_MEMORY} ${scope.sql}`, scope.params, this.logger,
+          () => { throw new Error('scoped vector candidates capped'); },
         )
       : this.connection.db.prepare(`
           SELECT rowid AS rowid, distance AS distance FROM memory_chunks_vec
@@ -1032,7 +1052,7 @@ export class MemorySearchService implements IMemoryReader {
     workspaceRoot?: string,
   ): Promise<Array<{ rowid: number; memory_id: string; distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
-    if (!vec || vec.length !== this.embedder.dim) return [];
+    if (!vec || vec.length !== this.embedder.dim) throw new Error('embedder returned missing or wrong-size vector');
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const distRows = workspaceRoot

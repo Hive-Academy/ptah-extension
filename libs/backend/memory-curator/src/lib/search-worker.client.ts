@@ -24,12 +24,13 @@
  * - `dispose()` kills the process, stops respawns and waits (bounded) for the
  *   exit, so the host can close SQLite after the reader is gone (app quit).
  */
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import type { CodeSymbolHitPage, MemoryListPage } from '@ptah-extension/memory-contracts';
 import type { MemoryChunk, MemorySearchResponse } from './memory.types';
 import type { CodeSymbolSearchParams, CodeSymbolSearchResult } from './code-symbol.store';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
+import { SearchWorkerHostCalls } from './search-worker-host-calls';
 import type { ISearchWorkerFactory, ISearchWorkerProcess, ISqliteSearchWorker } from './search-worker.port';
 import {
   createSearchWorkerResultSchemas,
@@ -87,6 +88,11 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   /** Ids posted to the current process that it has not answered yet (timed out or not). */
   private readonly owed = new Set<number>();
   private lastActivityAt = 0;
+  private ready = false;
+  private spawnedAt = 0;
+  private watchdogRestarts = 0;
+  private watchdogCapLogged = false;
+  private restartResumeAt = 0;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private nextId = 1;
   private failures = 0;
@@ -100,6 +106,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   private readonly livenessMs: number;
   private readonly exitWaitMs: number;
   private readonly reranker: EmbedderWorkerClient | null;
+  private readonly hostCalls: SearchWorkerHostCalls;
   private readonly schemas: SearchWorkerResultSchemas;
 
   constructor(
@@ -115,6 +122,7 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.livenessMs = options.livenessMs ?? 10_000;
     this.exitWaitMs = options.exitWaitMs ?? 2_000;
     this.reranker = embedder instanceof EmbedderWorkerClient ? embedder : null;
+    this.hostCalls = new SearchWorkerHostCalls(embedder);
     this.schemas = createSearchWorkerResultSchemas((report) => this.reportDroppedRows(report));
   }
 
@@ -161,9 +169,8 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
   async dispose(): Promise<void> {
     this.disposed = true;
     const child = this.process;
-    if (!child) return;
     const exited = this.processExited;
-    this.resetProcess(child, false);
+    if (child) this.resetProcess(child, false);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => {
       timer = setTimeout(() => {
@@ -249,7 +256,9 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     this.owed.add(id);
     this.armWatchdog();
     try {
-      child.postMessage(slot.message);
+      child.postMessage(slot.message.kind === 'memory'
+        ? { ...slot.message, deadlineMs: Date.now() + Math.max(1, this.timeoutMs - 500) }
+        : slot.message);
     } catch (error: unknown) {
       this.logger.warn(`${LOG_PREFIX} request send failed`, { error: errorMessage(error) });
       this.resetProcess(child, true);
@@ -281,6 +290,8 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       return null;
     }
     this.process = child;
+    this.ready = false;
+    this.spawnedAt = Date.now();
     let markExited: () => void = () => undefined;
     this.processExited = new Promise<void>((resolve) => {
       markExited = resolve;
@@ -329,13 +340,25 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
       this.logger.warn(`${LOG_PREFIX} rejected an invalid worker message`, {
         issue: parsed.error.issues[0]?.message,
       });
+      const identifiable = z.object({ id: z.number().int().positive() }).safeParse(raw);
+      if (identifiable.success) {
+        this.owed.delete(identifiable.data.id);
+        this.takePending(identifiable.data.id)?.degrade();
+        this.pump();
+      }
       return;
     }
     const message = parsed.data;
+    this.failures = 0;
+    if (message.kind === 'result' || message.kind === 'ready') {
+      this.watchdogRestarts = 0;
+      this.watchdogCapLogged = false;
+      this.restartResumeAt = 0;
+    }
     switch (message.kind) {
       case 'ready':
-        // Backoff resets on the first good result, not here: a worker that
-        // starts but crashes on every query must keep backing off.
+        this.ready = true;
+        this.lastActivityAt = Date.now();
         this.logger.info(`${LOG_PREFIX} ready`, { vecLoaded: message.vecLoaded });
         return;
       case 'init-failed':
@@ -404,10 +427,10 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     let reply: SearchWorkerInbound;
     try {
       if (message.kind === 'embed') {
-        const vectors = await this.embedder.embed(message.texts);
+        const vectors = await this.hostCalls.embed(message.texts);
         reply = { kind: 'embed-result', id: message.id, vectors: vectors.map((v) => Array.from(v)) };
       } else if (this.reranker) {
-        const ranked = await this.reranker.rerank(message.query, message.candidates, message.topK);
+        const ranked = await this.hostCalls.rerank(message.query, message.candidates, message.topK);
         reply = { kind: 'rerank-result', id: message.id, ranked: ranked.map((r) => ({ id: r.id, score: r.score })) };
       } else {
         reply = { kind: 'host-call-failed', id: message.id, message: 'reranker unavailable' };
@@ -455,10 +478,26 @@ export class SearchWorkerClient implements ISqliteSearchWorker {
     const child = this.process;
     if (!child || this.owed.size === 0) return;
     const silentMs = Date.now() - this.lastActivityAt;
-    if (silentMs < this.livenessMs) {
+    if (!this.ready && Date.now() - this.spawnedAt < 30_000) {
+      this.lastActivityAt = Date.now();
       this.armWatchdog();
       return;
     }
+    if (this.watchdogRestarts >= 2 && Date.now() >= this.restartResumeAt) {
+      this.watchdogRestarts = 0;
+      this.watchdogCapLogged = false;
+    }
+    if (silentMs < this.livenessMs || this.watchdogRestarts >= 2) {
+      this.lastActivityAt = Date.now();
+      if (this.watchdogRestarts >= 2 && !this.watchdogCapLogged) {
+        this.watchdogCapLogged = true;
+        this.restartResumeAt = Date.now() + MAX_BACKOFF_MS;
+        this.logger.warn(`${LOG_PREFIX} restart cap reached; keeping worker under observation`);
+      }
+      this.armWatchdog();
+      return;
+    }
+    this.watchdogRestarts++;
     this.logger.warn(`${LOG_PREFIX} worker unresponsive; restarting`, {
       silentMs,
       owed: this.owed.size,

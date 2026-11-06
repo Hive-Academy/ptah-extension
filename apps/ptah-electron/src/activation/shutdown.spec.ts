@@ -459,6 +459,13 @@ describe('will-quit — main-chat sessions release leases before SQLite close', 
     expect(handleWillQuit(quitDeps(refs))).toBe(false);
   });
 
+  it('defers the quit when the search worker is the only asynchronous ref', () => {
+    const refs = minimalRefs([]);
+    refs.searchWorker = { dispose: async () => undefined } as BootRefs['searchWorker'];
+    expect(requiresDeferredDisposal(refs)).toBe(true);
+    expect(handleWillQuit(quitDeps(refs))).toBe(false);
+  });
+
   it('waits for SDK teardown before draining usage and closing SQLite', async () => {
     const order: string[] = [];
     let finish!: () => void;

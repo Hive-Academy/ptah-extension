@@ -13,6 +13,7 @@
  * forks this process); after that, `callTimeoutMs`.
  */
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
+const EMBEDDER_IDLE_MS = 5 * 60 * 1000;
 import {
   MAX_EMBED_TEXTS,
   MAX_RERANK_CANDIDATES,
@@ -54,6 +55,7 @@ export class HostBridgeEmbedder implements IEmbedder {
   private readonly callTimeoutMs: number;
   private readonly coldCallTimeoutMs: number;
   private warm = false;
+  private lastSuccessAt = 0;
   private readonly calls = new Map<number, PendingCall>();
   private nextId = 1;
 
@@ -79,10 +81,12 @@ export class HostBridgeEmbedder implements IEmbedder {
       );
     }
     const id = this.nextId++;
+    if (Date.now() - this.lastSuccessAt >= EMBEDDER_IDLE_MS) this.warm = false;
     const timeoutMs = this.warm ? this.callTimeoutMs : this.coldCallTimeoutMs;
     return new Promise<Float32Array[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
+        this.warm = false;
         reject(new Error(`host embed timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       this.calls.set(id, { kind: 'embed', resolve, reject, timer });
@@ -117,14 +121,19 @@ export class HostBridgeEmbedder implements IEmbedder {
     if (call.kind === 'embed') {
       if (reply.kind === 'embed-result') {
         this.warm = true;
+        this.lastSuccessAt = Date.now();
         call.resolve(reply.vectors.map((v) => Float32Array.from(v)));
       } else {
+        this.warm = false;
         call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
       }
       return;
     }
     if (reply.kind === 'rerank-result') call.resolve(reply.ranked);
-    else call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
+    else {
+      this.warm = false;
+      call.reject(new Error(reply.kind === 'host-call-failed' ? reply.message : 'unexpected host reply'));
+    }
   }
 
   async dispose(): Promise<void> {

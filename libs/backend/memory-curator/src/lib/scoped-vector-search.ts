@@ -38,6 +38,7 @@ export function scopedVectorCandidates(
   predicate: string,
   params: readonly unknown[],
   logger: Pick<CuratorLogger, 'debug'>,
+  onCapped?: () => void,
 ): VectorCandidate[] {
   const target = Math.max(1, Math.min(limit, 100));
   // The outer LEFT JOIN always yields one row, so the inspected count is
@@ -70,6 +71,7 @@ export function scopedVectorCandidates(
   }
   if (rows.length < target && inspected >= MAX_SCOPED_VECTOR_CANDIDATES) {
     reportCapReached(logger, table, params, rows.length, target);
+    onCapped?.();
   }
   return rows;
 }

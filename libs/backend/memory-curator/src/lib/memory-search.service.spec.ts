@@ -483,7 +483,7 @@ describe('MemorySearchService.searchRich — degraded vector branch', () => {
     const embed = jest
       .fn<Promise<Float32Array[]>, [readonly string[]]>()
       .mockRejectedValueOnce(new Error('host embed timed out after 4000 ms'))
-      .mockResolvedValue([]);
+      .mockResolvedValue([new Float32Array(384)]);
     const embedder: IEmbedder = {
       embed,
       dim: 384,
@@ -509,6 +509,27 @@ describe('MemorySearchService.searchRich — degraded vector branch', () => {
 
     await service.searchRich('hello world', 10);
     expect(embed).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers before the worker deadline when embedding stalls', async () => {
+    jest.useFakeTimers();
+    try {
+      const embedder: IEmbedder = {
+        embed: () => new Promise<Float32Array[]>(() => undefined),
+        dim: 384,
+        modelId: 'test-model',
+        dispose: async () => undefined,
+      };
+      const service = new MemorySearchService(
+        makeLogger(), makeConnection(), embedder, makeStore(), makeObservationQueue(), makeVecStatus(true),
+      );
+      const pending = service.searchRich('hello world', 10, undefined, Date.now() + 500);
+      await Promise.resolve();
+      jest.advanceTimersByTime(300);
+      expect((await pending).bm25Only).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -2080,7 +2101,7 @@ describe('MemorySearchService.searchRich — scoped vector candidate cap', () =>
 
     const result = await service.searchRich('lexical match', 5, '/tiny-workspace');
 
-    expect(result.bm25Only).toBe(false);
+    expect(result.bm25Only).toBe(true);
     expect(result.hits.map((hit) => hit.chunk.text)).toEqual([
       'lexical match 1',
       'lexical match 2',
@@ -2088,6 +2109,8 @@ describe('MemorySearchService.searchRich — scoped vector candidate cap', () =>
     ]);
     // Hard bound held: one KNN pass, at the cap.
     expect(knnK).toEqual([2048]);
+    await service.searchRich('lexical match', 5, '/tiny-workspace');
+    expect(knnK).toEqual([2048, 2048]);
     expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('candidate cap'),
       expect.objectContaining({ table: 'memory_chunks_vec', scopedHits: 0 }),

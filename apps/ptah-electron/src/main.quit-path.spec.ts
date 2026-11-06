@@ -372,6 +372,7 @@ describe('will-quit — LIFO disposal order', () => {
     refs.messagingGateway = null;
     refs.agentProcessManager = null;
     refs.chatSessions = null;
+    refs.searchWorker = null;
     const deferQuit = jest.fn();
     const quit = jest.fn();
 
@@ -388,7 +389,8 @@ describe('will-quit — LIFO disposal order', () => {
         (name) =>
           name !== 'messagingGateway' &&
           name !== 'agentProcessManager' &&
-          name !== 'chatSessions',
+          name !== 'chatSessions' &&
+          name !== 'searchWorker',
       ),
     );
     expect(deferQuit).not.toHaveBeenCalled();
@@ -613,6 +615,7 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
 
     refs.agentProcessManager = null;
     refs.chatSessions = null;
+    refs.searchWorker = null;
     expect(requiresDeferredDisposal(refs)).toBe(false);
 
     refs.messagingGateway = {

@@ -60,6 +60,25 @@ describe('HostBridgeEmbedder', () => {
     await expect(second).rejects.toThrow('host embed timed out after 50 ms');
   });
 
+  it('uses the cold budget after idle teardown or a failed warm call', async () => {
+    jest.useFakeTimers();
+    const { bridge } = makeBridge(false);
+    const first = bridge.embed(['a']);
+    bridge.settle({ kind: 'embed-result', id: 1, vectors: [[1, 2, 3]] });
+    await first;
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    const afterIdle = bridge.embed(['a']);
+    jest.advanceTimersByTime(50);
+    expect(bridge.pendingCalls).toBe(1);
+    bridge.settle({ kind: 'host-call-failed', id: 2, message: 'restarting' });
+    await expect(afterIdle).rejects.toThrow('restarting');
+    const retry = bridge.embed(['a']);
+    jest.advanceTimersByTime(50);
+    expect(bridge.pendingCalls).toBe(1);
+    bridge.settle({ kind: 'embed-result', id: 3, vectors: [[1, 2, 3]] });
+    await retry;
+  });
+
   it('rejects rerank without a host reranker, so search keeps the RRF order', async () => {
     const { bridge, posted } = makeBridge(false);
     await expect(bridge.rerank('q', [{ id: '1', text: 'a' }], 3)).rejects.toThrow('host reranker unavailable');

@@ -575,6 +575,7 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     refs.reviewWorker !== null ||
+    refs.searchWorker !== null ||
     refs.chatSessions !== null ||
     runningCheckPids().length > 0
   );
