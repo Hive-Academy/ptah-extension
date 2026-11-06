@@ -1012,6 +1012,44 @@ describe('wireAgentEventListeners — running activity checkpoints', () => {
       jest.useRealTimers();
     }
   });
+
+  it('lets later output retry a checkpoint that failed after its retries', async () => {
+    jest.useFakeTimers();
+    try {
+      const firstActivity = '2026-10-17T12:00:00.000Z';
+      const { addCliSession, durable, attemptsReached } = createWriteLog(
+        (ref) => ref.lastActivityAt === firstActivity,
+      );
+      let current = buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        lastActivityAt: firstActivity,
+      });
+      const events = wireCheckpointLane(addCliSession, () => current);
+
+      events.emit('agent:output', { agentId: current.agentId });
+      // One attempt plus three retries, every backoff elapsed.
+      await jest.advanceTimersByTimeAsync(20_000);
+      await attemptsReached(4);
+      expect(addCliSession).toHaveBeenCalledTimes(4);
+      expect(durable).toEqual([]);
+
+      // One second later: inside the throttle window of the failed stamp.
+      current = { ...current, lastActivityAt: '2026-10-17T12:00:01.000Z' };
+      events.emit('agent:output', { agentId: current.agentId });
+      await attemptsReached(5);
+
+      expect(durable).toHaveLength(1);
+      expect(durable[0]).toMatchObject({
+        status: 'running',
+        lastActivityAt: '2026-10-17T12:00:01.000Z',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('wireAgentEventListeners — the drop reaches the log', () => {

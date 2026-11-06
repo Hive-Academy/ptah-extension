@@ -325,6 +325,8 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Lanes a restore skipped because another live host run owns them. */
+  private readonly foreignLiveAgentIds = new Set<string>();
   /** Recent tab resolutions cover lanes spawned after session open. */
   private readonly resolvedParentSessions = new Map<string, string>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
@@ -1634,7 +1636,15 @@ export class AgentProcessManager {
    * The `Agent not found: <id>` PREFIX is load-bearing: callers and specs match
    * on it. Extend this message, never re-word its opening.
    */
-  private static noSuchAgentMessage(agentId: string): string {
+  private noSuchAgentMessage(agentId: string): string {
+    if (this.foreignLiveAgentIds.has(agentId)) {
+      return (
+        `Agent not found: ${agentId}. The lane is running under another live ` +
+        `Ptah host that shares this session, so this host cannot read, ` +
+        `message or stop it. Check it from that host; do not spawn or resume ` +
+        `a duplicate.`
+      );
+    }
     return (
       `Agent not found: ${agentId}. This host holds no record under that id — ` +
       `neither a live agent nor one restored from persisted session state. ` +
@@ -1698,12 +1708,14 @@ export class AgentProcessManager {
       if (ref.status === 'running') {
         // The store returns `running` only for a live host run. This run's own
         // lanes are already in memory; a foreign live lane belongs to its host.
+        this.foreignLiveAgentIds.add(agentId);
         this.logger.debug(
           '[AgentProcessManager] Skipped a live lane owned by another host run',
           { agentId, cliSessionId: ref.cliSessionId, workingDirectory },
         );
         continue;
       }
+      this.foreignLiveAgentIds.delete(agentId);
 
       const stdout = ref.stdout ?? '';
       const info: AgentProcessInfo = {
@@ -1796,7 +1808,7 @@ export class AgentProcessManager {
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
-        throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+        throw new Error(this.noSuchAgentMessage(agentId));
       }
       if (
         !this.spawnEnvironment.isWithinScope(
@@ -2062,7 +2074,7 @@ export class AgentProcessManager {
   readOutput(agentId: string, tail?: number, offset?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+      throw new Error(this.noSuchAgentMessage(agentId));
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
@@ -2310,7 +2322,7 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new AgentMessageError(
         'not_found',
-        AgentProcessManager.noSuchAgentMessage(agentId),
+        this.noSuchAgentMessage(agentId),
       );
     }
 

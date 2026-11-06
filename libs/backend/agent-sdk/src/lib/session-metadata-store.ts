@@ -47,6 +47,7 @@ import {
   omitJsonPaths,
   packJsonSequencePage,
   type IAsyncStateStorage,
+  type IHostRunLeaseRepository,
   type ISessionBlobStore,
   type ISessionRecordRepository,
   type ISessionStoreGate,
@@ -60,6 +61,10 @@ import {
 import { SdkError } from './errors';
 import { currentHostRunId } from './host-run-id';
 import { HostRunLease } from './host-run-lease';
+import {
+  repositoryLeaseStore,
+  stateStorageLeaseStore,
+} from './host-run-lease-stores';
 import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import {
@@ -1125,14 +1130,23 @@ export class SessionMetadataStore {
      */
     @inject(SESSION_USAGE_SINK, { isOptional: true })
     private readonly usageSink?: SessionUsageSink | null,
+    /**
+     * Host-run leases beside the session records (Electron, CLI), visible to
+     * every host that shares them. Absent on VS Code, which keeps one
+     * heartbeat key per run in workspace state.
+     */
+    @inject(PLATFORM_TOKENS.HOST_RUN_LEASE_REPOSITORY, { isOptional: true })
+    leaseRepository?: IHostRunLeaseRepository,
   ) {
     LIVE_STORES.add(new WeakRef(this));
     this.hostLease = new HostRunLease(
-      {
-        read: (key) => this.readStorage<unknown>(key),
-        write: (key, value) => this.storage.update(key, value),
-        keys: () => this.storage.keys(),
-      },
+      leaseRepository
+        ? repositoryLeaseStore(leaseRepository)
+        : stateStorageLeaseStore({
+            read: (key) => this.readStorage<unknown>(key),
+            write: (key, value) => this.storage.update(key, value),
+            keys: () => this.storage.keys(),
+          }),
       this.logger,
     );
   }
@@ -2249,10 +2263,32 @@ export class SessionMetadataStore {
     const entries = await Promise.all(
       [...hostRunIds].map(
         async (hostRunId) =>
-          [hostRunId, await this.hostLease.isLive(hostRunId, now)] as const,
+          [hostRunId, await this.readOneHostRunLiveness(hostRunId, now)] as const,
       ),
     );
     return new Map(entries);
+  }
+
+  /**
+   * An unreadable lease proves nothing about its owner. Treating it as live
+   * keeps the lane `running` with no durable rewrite, so the session's other
+   * references still restore and a later read decides again.
+   */
+  private async readOneHostRunLiveness(
+    hostRunId: string,
+    now: number,
+  ): Promise<boolean> {
+    try {
+      return await this.hostLease.isLive(hostRunId, now);
+    } catch (error: unknown) {
+      // degradation-audit: reported - warned with the Error; the lane is left
+      // running, never stopped on an unreadable lease.
+      this.logger.warn(
+        '[SessionMetadataStore] Could not read a host run lease; keeping its lanes running',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return true;
+    }
   }
 
   /**

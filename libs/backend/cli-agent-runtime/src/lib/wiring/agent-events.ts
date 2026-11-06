@@ -306,8 +306,16 @@ function wireAgentMonitorListeners(
         (previousCheckpoint === undefined ||
           activityAt - previousCheckpoint >= ACTIVITY_CHECKPOINT_INTERVAL_MS)
       ) {
-        activityCheckpoints.set(String(delta.agentId), activityAt);
-        persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
+        const agentKey = String(delta.agentId);
+        activityCheckpoints.set(agentKey, activityAt);
+        // The stamp guards the checkpoint in flight. A failed one releases
+        // only its own stamp, so later output retries it; a spawn or exit
+        // reset, or a newer stamp, is left alone.
+        persistCliSessionReference(container, logger, tag, info, getSdkSessionId, () => {
+          if (activityCheckpoints.get(agentKey) === activityAt) {
+            activityCheckpoints.delete(agentKey);
+          }
+        });
       }
     }
   });
@@ -466,7 +474,8 @@ function wireCopilotPermissionForwarding(
 
 /**
  * Persist a CLI session reference to the parent session's metadata store.
- * Fire-and-forget with retry — errors are logged, never thrown.
+ * Fire-and-forget with retry — errors are logged, never thrown. `onFailed`
+ * runs once when the reference could not be persisted.
  *
  * Exported so `sdk-callbacks.ts` can re-persist exited agents once their
  * parent session IDs resolve from tab ID to real SDK UUID.
@@ -477,6 +486,7 @@ export function persistCliSessionReference(
   tag: string,
   info: AgentProcessInfo,
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
+  onFailed?: () => void,
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
@@ -680,6 +690,7 @@ export function persistCliSessionReference(
           }
         })
         .catch((error) => {
+          onFailed?.();
           const msg = error instanceof Error ? error.message : String(error);
           if (msg.includes('Parent session not found')) {
             logger.debug(
@@ -716,6 +727,7 @@ export function persistCliSessionReference(
         });
     }
   } catch (error) {
+    onFailed?.();
     logger.warn(
       `${tag} Could not persist CLI session reference`,
       error instanceof Error ? error : new Error(String(error)),

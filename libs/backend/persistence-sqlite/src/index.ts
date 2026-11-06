@@ -100,6 +100,7 @@ export { registerPersistenceSqliteServices } from './lib/di/register';
 
 export { SessionStoreDatabase } from './lib/session-store/session-store-database';
 export { SqliteSessionRecordRepository } from './lib/session-store/sqlite-session-record-repository';
+export { SqliteHostRunLeaseRepository } from './lib/session-store/sqlite-host-run-lease-repository';
 export {
   SessionStatsRepository,
   sessionUsageContributionSchema,

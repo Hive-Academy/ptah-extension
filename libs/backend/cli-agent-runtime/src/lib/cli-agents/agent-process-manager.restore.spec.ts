@@ -243,6 +243,11 @@ describe('AgentProcessManager.restoreAgents', () => {
 
     expect(count).toBe(0);
     expect(manager.findAgentInfo(RESTORED_ID)).toBeUndefined();
+    // The tools learn the lane belongs to a live host, not to spawn a duplicate.
+    expect(() => manager.readOutput(RESTORED_ID)).toThrow(
+      /^Agent not found: .*running under another live Ptah host/,
+    );
+    expect(() => manager.readOutput(RESTORED_ID)).not.toThrow(/spawn a new agent/);
     await manager['gateResume']('Continue', 'cli-session-1', 'codex');
     expect(evaluateResume).toHaveBeenCalledWith(
       expect.not.objectContaining({ interruptedByHostRestart: true }),
