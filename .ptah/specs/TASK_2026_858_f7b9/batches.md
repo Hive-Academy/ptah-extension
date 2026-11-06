@@ -974,7 +974,7 @@ ownerToken })` from the `'rebound'` branch (`session-registry.service.ts:380-394
 
 - Security suite passes; verify passes
 
-## Batch 19: C7 headless worker host — `worker-host` lib and desktop packaging (revised Round 6) — PENDING
+## Batch 19: C7 headless worker host — `worker-host` lib and desktop packaging (revised Round 6) — COMPLETE (PR #928, merged e9ca7046c)
 
 Replaces the Round 5 batch (`apps/ptah-cli` command group, removed on main). Plan: Round 6 R6.2,
 R6.3 components 1-2, AD-26 … AD-29.
@@ -1084,7 +1084,12 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 ---
 
-## Batch 20: C8a SSH transport, registry, token store (revised Round 6) — PENDING
+> Numbering note (2026-11-06): the Phase D review fix batches were also numbered 20 and 21
+> (`phase-d-fix-plan.md`). Their reports are renamed `phase-d-fix-20-report.md` and
+> `phase-d-fix-21-report.md`. The names `batch-20-report.md` … `batch-22-report.md` now belong to
+> the Phase E batches below.
+
+## Batch 20: C8a SSH transport, registry, token store (revised Round 6) — COMPLETE (Codex; review at Batch 22)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1096,7 +1101,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E | Phase review: at Batch 22
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,@ptah-extension/worker-host`
 
-### Task 20.1: Alias, ssh commands, stdio transport, registry, token store — PENDING
+### Task 20.1: Alias, ssh commands, stdio transport, registry, token store — COMPLETE
 
 - Files: W/`libs/backend/remote-machines/src/lib/{ssh-alias,ssh-worker-commands,ssh-stdio-transport,machine-registry,machine-token-store}.ts`
   (+ specs), W/`libs/backend/remote-machines/src/index.ts`,

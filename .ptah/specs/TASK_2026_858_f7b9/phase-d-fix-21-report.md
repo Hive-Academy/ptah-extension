@@ -1,4 +1,4 @@
-# Batch 21 report: security and stores (Claude backend-developer)
+# Phase D fix batch 21 report: security and stores (Claude backend-developer)
 
 Base: `9ef234807`. Worktree `.claude-worktrees/remote-workers-phase-d`. Nothing is committed and no
 git command changed the index. The orchestrator commits.

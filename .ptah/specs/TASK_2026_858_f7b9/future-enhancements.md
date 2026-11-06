@@ -1,6 +1,6 @@
 # Future enhancements — Ptah remote workers (after Phase D)
 
-Sources: `phase-d-fix-plan.md` "Deferred", `batch-20-report.md` and `batch-21-report.md` "Not
+Sources: `phase-d-fix-plan.md` "Deferred", `phase-d-fix-20-report.md` and `phase-d-fix-21-report.md` "Not
 done", and the Phase D reviews. Priority: P1 = before the fleet rollout (Phase F), P2 = before
 the mobile PWA, P3 = later.
 

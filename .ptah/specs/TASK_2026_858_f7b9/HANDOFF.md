@@ -70,7 +70,7 @@ HMAC-SHA256(adminKey, nonce + context), constant-time compare, key never on the 
 PID/machine-ID early refusal; update worker-protocol schemas and docs/worker.md; spec with a fake
 listener. (6) set the `lastUsedAt` debounce only after a successful write; spec. Also look for a
 cause of the intermittent serve.spec.ts SIGTERM/SIGINT failure (2/43 once under load). Append a
-"Revise round 1" section to `batch-21-report.md`.
+"Revise round 1" section to `phase-d-fix-21-report.md`.
 
 ## Open problems and decisions
 
@@ -89,7 +89,7 @@ cause of the intermittent serve.spec.ts SIGTERM/SIGINT failure (2/43 once under 
 - `phase-d-fixes-codex-review.md` — the six findings of round 1 (uncommitted; commit it).
 - `phase-d-fix-plan.md` — Batches 20/21 items and the deferred list.
 - `future-enhancements.md` — prioritized follow-ups (uncommitted; commit it).
-- `batch-20-report.md`, `batch-21-report.md` — what each fix batch did and its known limits.
+- `phase-d-fix-20-report.md`, `phase-d-fix-21-report.md` — what each fix batch did and its known limits.
 - `batches.md` — Batches 14–19 COMPLETE.
 - `decisions.md` — user decisions.
 - `libs/backend/worker-host/docs/worker.md` (in the worktree) — operator guide; keep it in sync.
