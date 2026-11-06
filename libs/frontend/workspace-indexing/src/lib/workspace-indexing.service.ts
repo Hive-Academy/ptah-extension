@@ -19,8 +19,12 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   type IndexingCompleteEvent,
+  type IndexingFailedEvent,
+  type IndexingLastRunWire,
   type IndexingPipeline,
   type IndexingProgressEvent,
+  type IndexingRefusalReason,
+  type IndexingRunWire,
   type IndexingStatusWire,
 } from '@ptah-extension/shared';
 import type { MessageHandler } from '@ptah-extension/core';
@@ -44,6 +48,10 @@ export type IndexingUiState =
       readonly label: string;
       readonly elapsedMs: number;
       readonly totalKnown: boolean;
+      /** Files scanned so far, when the backend reported it. */
+      readonly processed?: number;
+      /** Files this run will scan, paired with `processed`. */
+      readonly total?: number;
     }
   | {
       readonly kind: 'paused';
@@ -65,8 +73,61 @@ export type IndexingUiState =
       readonly message: string;
     };
 
+/**
+ * Result of the last user action (start, resume, pause, cancel). The text is
+ * always one of the fixed sentences below, never backend error text.
+ */
+export interface IndexingActionMessage {
+  readonly tone: 'error' | 'info';
+  readonly text: string;
+}
+
 const INDEXING_PROGRESS_MESSAGE_TYPE = MESSAGE_TYPES.INDEXING_PROGRESS;
 const INDEXING_COMPLETE_MESSAGE_TYPE = MESSAGE_TYPES.INDEXING_COMPLETE;
+const INDEXING_FAILED_MESSAGE_TYPE = MESSAGE_TYPES.INDEXING_FAILED;
+
+const REFUSAL_MESSAGES: Readonly<
+  Record<IndexingRefusalReason, IndexingActionMessage>
+> = {
+  'already-running': {
+    tone: 'info',
+    text: 'A full index is already running.',
+  },
+  'indexer-not-ready': {
+    tone: 'error',
+    text: 'The code indexer is not ready yet. Open a workspace folder and try again.',
+  },
+  'no-workspace': { tone: 'error', text: 'Open a workspace folder to index it.' },
+  'setup-failed': {
+    tone: 'error',
+    text: 'Could not start indexing. See the logs.',
+  },
+};
+
+const JOINED_BACKGROUND_MESSAGE: IndexingActionMessage = {
+  tone: 'info',
+  text: 'Joined the scan already in progress. Progress appears after its next batch.',
+};
+const START_FAILED_MESSAGE = REFUSAL_MESSAGES['setup-failed'];
+const PAUSE_FAILED_MESSAGE: IndexingActionMessage = {
+  tone: 'error',
+  text: 'Could not pause indexing. See the logs.',
+};
+const CANCEL_FAILED_MESSAGE: IndexingActionMessage = {
+  tone: 'error',
+  text: 'Could not cancel indexing. See the logs.',
+};
+
+/** Fields of `indexing:start` and `indexing:resume` results this service reads. */
+interface StartLikeResult {
+  readonly accepted: boolean;
+  readonly reason?: IndexingRefusalReason;
+}
+/** The part of an RPC result a start-like action reads. */
+interface StartLikeRpcResult {
+  isSuccess(): boolean;
+  readonly data?: StartLikeResult;
+}
 
 @Injectable({ providedIn: 'root' })
 export class WorkspaceIndexingService implements MessageHandler {
@@ -76,6 +137,8 @@ export class WorkspaceIndexingService implements MessageHandler {
   private readonly _progress = signal<IndexingProgressEvent | null>(null);
   private readonly _completedAt = signal<number | null>(null);
   private readonly _hasWorkspace = signal<boolean>(true);
+  private readonly _starting = signal<boolean>(false);
+  private readonly _actionMessage = signal<IndexingActionMessage | null>(null);
 
   /** Latest status snapshot from the backend. `null` until first load. */
   readonly status = this._status.asReadonly();
@@ -83,6 +146,34 @@ export class WorkspaceIndexingService implements MessageHandler {
   readonly progress = this._progress.asReadonly();
   /** Epoch-ms timestamp of the most recent `indexing:complete` push (or `null`). */
   readonly completedAt = this._completedAt.asReadonly();
+  /** Result sentence of the last start/resume/pause/cancel (or `null`). */
+  readonly actionMessage = this._actionMessage.asReadonly();
+  /** True while a start or resume request is in flight. */
+  readonly starting = this._starting.asReadonly();
+
+  /** The run in progress for this workspace, if any. */
+  private readonly running = computed<IndexingRunWire | null>(
+    () => this._status()?.running ?? null,
+  );
+  /** Origin of the run in progress (`null` when nothing runs). */
+  readonly runningOrigin = computed<'manual' | 'background' | null>(
+    () => this.running()?.origin ?? null,
+  );
+  /** The last finished run recorded by the backend (or `null`). */
+  readonly lastRun = computed<IndexingLastRunWire | null>(
+    () => this._status()?.lastRun ?? null,
+  );
+  /**
+   * True while a start is in flight or a manual run is live (a manual start
+   * that joined a background scan counts). A background-only run is not busy:
+   * a click on Re-index joins it.
+   */
+  readonly isBusy = computed<boolean>(() => {
+    if (this._starting()) return true;
+    const run = this.running();
+    if (run === null) return false;
+    return run.origin === 'manual' || run.joinedBackground === true;
+  });
 
   /**
    * Derived UI state. Order matters — checks `error` and `indexing` first so
@@ -97,12 +188,20 @@ export class WorkspaceIndexingService implements MessageHandler {
       return { kind: 'loading' };
     }
 
+    // A live run (manual or background) or an unfinished progress push means
+    // indexing, whatever the persisted state says. Paused keeps its own view:
+    // its last progress push is below 100 by definition.
+    const p = this._progress();
+    const running = status.running ?? null;
+    if (
+      status.state !== 'paused' &&
+      (running !== null || (p !== null && p.percent < 100))
+    ) {
+      return this.buildIndexingState(p, running);
+    }
+
     switch (status.state) {
       case 'never-indexed': {
-        const p = this._progress();
-        if (p !== null && p.percent < 100) {
-          return this.buildIndexingState(p);
-        }
         const codeSymbolCount = status.codeSymbolCount ?? 0;
         const memoryChunkCount = status.memoryChunkCount ?? 0;
         if (codeSymbolCount > 0 && memoryChunkCount === 0) {
@@ -111,7 +210,7 @@ export class WorkspaceIndexingService implements MessageHandler {
         return { kind: 'never-indexed' };
       }
       case 'indexing':
-        return this.buildIndexingState(this._progress());
+        return this.buildIndexingState(p, running);
       case 'paused': {
         const p = this._progress();
         return { kind: 'paused', percent: p?.percent ?? 0 };
@@ -157,6 +256,7 @@ export class WorkspaceIndexingService implements MessageHandler {
   readonly handledMessageTypes = [
     INDEXING_PROGRESS_MESSAGE_TYPE,
     INDEXING_COMPLETE_MESSAGE_TYPE,
+    INDEXING_FAILED_MESSAGE_TYPE,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -172,16 +272,56 @@ export class WorkspaceIndexingService implements MessageHandler {
       this._progress.set(null);
       this._completedAt.set(payload.completedAt);
       void this.loadStatus(payload.workspaceRoot).catch(() => undefined);
+      return;
+    }
+    if (message.type === INDEXING_FAILED_MESSAGE_TYPE) {
+      const payload = message.payload as IndexingFailedEvent | undefined;
+      if (!payload) return;
+      this._progress.set(null);
+      void this.loadStatus(payload.workspaceRoot).catch(() => undefined);
     }
   }
 
-  private buildIndexingState(p: IndexingProgressEvent | null): IndexingUiState {
+  /**
+   * Progress comes from the latest push. Until the first push of a run
+   * arrives, `processed/total` come from the status `running` view; with
+   * neither, the bar is indeterminate.
+   */
+  private buildIndexingState(
+    p: IndexingProgressEvent | null,
+    running: IndexingRunWire | null,
+  ): IndexingUiState {
+    if (p !== null) {
+      return {
+        kind: 'indexing',
+        percent: p.percent,
+        label: p.currentLabel,
+        elapsedMs: p.elapsedMs,
+        totalKnown: p.totalKnown,
+        ...(p.processed !== undefined && p.total !== undefined
+          ? { processed: p.processed, total: p.total }
+          : {}),
+      };
+    }
+    const processed = running?.processed;
+    const total = running?.total;
+    if (processed !== undefined && total !== undefined && total > 0) {
+      return {
+        kind: 'indexing',
+        percent: Math.min(100, Math.round((processed / total) * 100)),
+        label: '',
+        elapsedMs: 0,
+        totalKnown: true,
+        processed,
+        total,
+      };
+    }
     return {
       kind: 'indexing',
-      percent: p?.percent ?? 0,
-      label: p?.currentLabel ?? '',
-      elapsedMs: p?.elapsedMs ?? 0,
-      totalKnown: p?.totalKnown ?? false,
+      percent: 0,
+      label: '',
+      elapsedMs: 0,
+      totalKnown: false,
     };
   }
 
@@ -194,6 +334,7 @@ export class WorkspaceIndexingService implements MessageHandler {
     if (!hasWorkspace) {
       this._status.set(null);
       this._progress.set(null);
+      this._actionMessage.set(null);
     }
   }
 
@@ -206,36 +347,98 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
   }
 
+  /**
+   * Starts a run. Never rejects: a refusal or a transport failure becomes
+   * `actionMessage`. A start during a background-only scan joins that scan.
+   */
   async start(workspaceRoot: string, force = false): Promise<void> {
-    const result = await this.rpc.call('indexing:start', {
+    await this.runStartLike(
       workspaceRoot,
-      force,
-    });
-    if (result.isSuccess()) {
-      await this.loadStatus(workspaceRoot);
-    }
+      () => this.rpc.call('indexing:start', { workspaceRoot, force }),
+      true,
+    );
   }
 
   /**
    * Pauses the active indexing run. `workspaceRoot` is optional — if provided,
    * the service issues a `loadStatus()` after the RPC so callers can rely on
-   * the `status` signal converging without a manual refresh.
+   * the `status` signal converging without a manual refresh. Never rejects.
    */
   async pause(workspaceRoot?: string): Promise<void> {
-    await this.rpc.call('indexing:pause', {});
-    if (workspaceRoot) {
-      await this.loadStatus(workspaceRoot);
+    this._actionMessage.set(null);
+    try {
+      const result = await this.rpc.call('indexing:pause', {});
+      if (!result.isSuccess()) {
+        this._actionMessage.set(PAUSE_FAILED_MESSAGE);
+      }
+      if (workspaceRoot) {
+        await this.loadStatus(workspaceRoot);
+      }
+    } catch {
+      this._actionMessage.set(PAUSE_FAILED_MESSAGE);
     }
   }
 
+  /** Resumes a paused run. Never rejects; refusals become `actionMessage`. */
   async resume(workspaceRoot: string): Promise<void> {
-    await this.rpc.call('indexing:resume', { workspaceRoot });
-    await this.loadStatus(workspaceRoot);
+    await this.runStartLike(
+      workspaceRoot,
+      () => this.rpc.call('indexing:resume', { workspaceRoot }),
+      false,
+    );
   }
 
+  /** Cancels the active run. Never rejects. */
   async cancel(workspaceRoot: string): Promise<void> {
-    await this.rpc.call('indexing:cancel', {});
-    await this.loadStatus(workspaceRoot);
+    this._actionMessage.set(null);
+    try {
+      const result = await this.rpc.call('indexing:cancel', {});
+      if (result.isSuccess()) {
+        // No push follows a cancel, so drop the last progress event here.
+        this._progress.set(null);
+      } else {
+        this._actionMessage.set(CANCEL_FAILED_MESSAGE);
+      }
+      await this.loadStatus(workspaceRoot);
+    } catch {
+      this._actionMessage.set(CANCEL_FAILED_MESSAGE);
+    }
+  }
+
+  private async runStartLike(
+    workspaceRoot: string,
+    send: () => Promise<StartLikeRpcResult>,
+    reportJoin: boolean,
+  ): Promise<void> {
+    if (this._starting()) return;
+    this._starting.set(true);
+    this._actionMessage.set(null);
+    try {
+      const result = await send();
+      const data = result.isSuccess() ? result.data : undefined;
+      if (data === undefined) {
+        this._actionMessage.set(START_FAILED_MESSAGE);
+        return;
+      }
+      if (data.accepted === false) {
+        this._actionMessage.set(
+          REFUSAL_MESSAGES[data.reason ?? 'setup-failed'] ??
+            START_FAILED_MESSAGE,
+        );
+      }
+      await this.loadStatus(workspaceRoot);
+      if (
+        reportJoin &&
+        data.accepted !== false &&
+        this._status()?.running?.joinedBackground === true
+      ) {
+        this._actionMessage.set(JOINED_BACKGROUND_MESSAGE);
+      }
+    } catch {
+      this._actionMessage.set(START_FAILED_MESSAGE);
+    } finally {
+      this._starting.set(false);
+    }
   }
 
   async setPipelineEnabled(

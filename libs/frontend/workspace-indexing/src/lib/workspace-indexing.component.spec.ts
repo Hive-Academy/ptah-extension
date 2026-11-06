@@ -425,3 +425,240 @@ describe('WorkspaceIndexingComponent', () => {
     });
   });
 });
+
+describe('WorkspaceIndexingComponent — busy state, last run, messages', () => {
+  const NOW = 10_000_000;
+
+  async function render(status: IndexingStatusWire, startResult?: unknown) {
+    const rpcCall = jest.fn((method: string) => {
+      if (method === 'indexing:getStatus') {
+        return Promise.resolve(makeRpcResult(true, { status }));
+      }
+      if (method === 'indexing:start' && startResult !== undefined) {
+        return Promise.resolve(startResult);
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { accepted: true, state: status.state }),
+      );
+    });
+    TestBed.configureTestingModule({
+      imports: [WorkspaceIndexingComponent],
+      providers: [
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: signal({ name: 'ws', path: '/ws', type: 'folder' }),
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(WorkspaceIndexingComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return { fixture, rpcCall };
+  }
+
+  function query(fixture: { nativeElement: HTMLElement }, sel: string) {
+    return fixture.nativeElement.querySelector(sel) as HTMLElement | null;
+  }
+
+  beforeEach(() => {
+    jest
+      .useFakeTimers({
+        doNotFake: [
+          'setTimeout',
+          'clearTimeout',
+          'setImmediate',
+          'queueMicrotask',
+          'nextTick',
+          'requestAnimationFrame',
+          'cancelAnimationFrame',
+        ],
+      })
+      .setSystemTime(NOW);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('disables Re-index with a spinner while a manual start is in flight', async () => {
+    const { fixture, rpcCall } = await render(baseStatus({ state: 'indexed' }));
+    let release: (value: unknown) => void = () => undefined;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'indexing:start') {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return Promise.resolve(
+        makeRpcResult(true, { status: baseStatus({ state: 'indexed' }) }),
+      );
+    });
+    const button = query(
+      fixture,
+      '[aria-label="Re-index workspace"]',
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    const pending = fixture.componentInstance.onStart(true);
+    fixture.detectChanges();
+    expect(button.disabled).toBe(true);
+    expect(button.querySelector('.loading-spinner')).not.toBeNull();
+    release(makeRpcResult(true, { accepted: true, state: 'indexed' }));
+    await pending;
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
+
+  it('shows the manual header and no Re-index while a manual run is live', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'indexing',
+        running: { origin: 'manual', startedAt: 1, force: true },
+      }),
+    );
+    expect(query(fixture, '[data-testid="indexing-header"]')?.textContent).toContain(
+      'Indexing workspace…',
+    );
+    expect(query(fixture, '[data-testid="indexing-join-background"]')).toBeNull();
+  });
+
+  it('shows the background header with an enabled Re-index during a background-only run', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'indexing',
+        running: {
+          origin: 'background',
+          startedAt: 1,
+          force: false,
+          processed: 10,
+          total: 40,
+        },
+      }),
+    );
+    expect(
+      query(fixture, '[data-testid="indexing-header"]')?.textContent?.trim(),
+    ).toBe('Background scan in progress (startup or file changes)');
+    const join = query(
+      fixture,
+      '[data-testid="indexing-join-background"]',
+    ) as HTMLButtonElement;
+    expect(join.disabled).toBe(false);
+    expect(query(fixture, '[data-testid="state-indexing"]')?.textContent).toContain(
+      '10 of 40 files',
+    );
+  });
+
+  it('renders the last manual run summary with counts and duration', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'indexed',
+        lastIndexedAt: NOW - 120_000,
+        lastRun: {
+          origin: 'manual',
+          outcome: 'succeeded',
+          startedAt: NOW - 120_000 - 8_700_000,
+          finishedAt: NOW - 120_000,
+          durationMs: 8_700_000,
+          filesScanned: 3806,
+          symbolsIndexed: 41371,
+          errors: 16,
+        },
+      }),
+    );
+    expect(
+      query(fixture, '[data-testid="last-run-summary"]')?.textContent?.trim(),
+    ).toBe(
+      'Last manual run 2 minutes ago: 3806 files, 41371 symbols, 16 errors, 2h 25m',
+    );
+  });
+
+  it('renders a failed background scan with the fixed sentence and no raw error', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'error',
+        errorMessage: 'SQLITE_BUSY at /home/secret/db',
+        lastRun: {
+          origin: 'background',
+          outcome: 'failed',
+          startedAt: NOW - 5_000,
+          finishedAt: NOW - 1_000,
+          durationMs: 4_000,
+        },
+      }),
+    );
+    expect(
+      query(fixture, '[data-testid="last-run-summary"]')?.textContent?.trim(),
+    ).toBe('Last background scan just now failed. See the logs for details.');
+    expect(
+      query(fixture, '[data-testid="callout-error"]')?.textContent?.trim(),
+    ).toBe('Indexing failed. See the logs for details.');
+    expect(fixture.nativeElement.textContent).not.toContain('SQLITE_BUSY');
+  });
+
+  it('renders the last run line in the stale block', async () => {
+    const { fixture } = await render(
+      baseStatus({
+        state: 'stale',
+        gitHeadSha: 'aaa1111',
+        currentGitHeadSha: 'bbb2222',
+        lastRun: {
+          origin: 'background',
+          outcome: 'cancelled',
+          startedAt: NOW - 5_000,
+          finishedAt: NOW - 1_000,
+          durationMs: 4_000,
+        },
+      }),
+    );
+    expect(
+      query(fixture, '[data-testid="last-run-summary"]')?.textContent?.trim(),
+    ).toBe('Last background scan just now was cancelled.');
+  });
+
+  it('renders a refusal as role="alert" and an info message as role="status"', async () => {
+    const { fixture, rpcCall } = await render(
+      baseStatus({ state: 'indexed' }),
+      makeRpcResult(true, {
+        accepted: false,
+        reason: 'indexer-not-ready',
+        state: 'indexed',
+      }),
+    );
+    await fixture.componentInstance.onStart(true);
+    fixture.detectChanges();
+    let message = query(fixture, '[data-testid="indexing-action-message"]');
+    expect(message?.getAttribute('role')).toBe('alert');
+    expect(message?.textContent?.trim()).toBe(
+      'The code indexer is not ready yet. Open a workspace folder and try again.',
+    );
+
+    rpcCall.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'indexing:getStatus'
+          ? makeRpcResult(true, { status: baseStatus({ state: 'indexed' }) })
+          : makeRpcResult(true, {
+              accepted: false,
+              reason: 'already-running',
+              state: 'indexing',
+            }),
+      ),
+    );
+    await fixture.componentInstance.onStart(true);
+    fixture.detectChanges();
+    message = query(fixture, '[data-testid="indexing-action-message"]');
+    expect(message?.getAttribute('role')).toBe('status');
+    expect(message?.textContent?.trim()).toBe('A full index is already running.');
+  });
+
+  it('renders the how-it-works text verbatim', async () => {
+    const { fixture } = await render(baseStatus({ state: 'indexed' }));
+    const text = query(fixture, '[data-testid="indexing-how-it-works"]')
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim();
+    expect(text).toBe(
+      'Ptah parses the source files in this workspace into symbols and stores them in a local database, then keeps them current as files change. Re-index runs a full scan; on a large repository this can take a long time, and progress shows here while you can pause or cancel. If a startup or file-change scan is already running, Re-index joins it. Code search tools and memory search read this index.',
+    );
+  });
+});

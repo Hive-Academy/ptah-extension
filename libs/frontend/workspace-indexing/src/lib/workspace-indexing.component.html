@@ -18,6 +18,27 @@
       </h2>
     </div>
 
+    @let message = actionMessage();
+    @if (message) {
+      @if (message.tone === 'error') {
+        <div
+          class="alert alert-error text-xs p-2"
+          role="alert"
+          data-testid="indexing-action-message"
+        >
+          {{ message.text }}
+        </div>
+      } @else {
+        <div
+          class="alert alert-info text-xs p-2"
+          role="status"
+          data-testid="indexing-action-message"
+        >
+          {{ message.text }}
+        </div>
+      }
+    }
+
     @let state = uiState();
     @switch (state.kind) {
       <!-- =========================================================== -->
@@ -59,8 +80,14 @@
               class="btn btn-primary btn-xs gap-1"
               (click)="onStart(false)"
               aria-label="Index now"
+              [disabled]="isBusy()"
+              [attr.aria-busy]="isBusy()"
             >
-              <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+              @if (isBusy()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+              }
               <span>Index now</span>
             </button>
             <button
@@ -93,9 +120,21 @@
       <!-- =========================================================== -->
       @case ('indexing') {
         <div class="state-block" data-testid="state-indexing">
-          <h3 class="text-sm font-semibold mb-1">Indexing workspace…</h3>
+          @if (backgroundOnly()) {
+            <h3 class="text-sm font-semibold mb-1" data-testid="indexing-header">
+              Background scan in progress (startup or file changes)
+            </h3>
+          } @else {
+            <h3 class="text-sm font-semibold mb-1" data-testid="indexing-header">
+              Indexing workspace…
+            </h3>
+          }
           <p class="text-xs text-base-content-muted mb-2">
-            {{ state.percent }}% — {{ state.label || 'preparing…' }}
+            {{ state.percent }}%
+            @if (state.processed !== undefined && state.total !== undefined) {
+              ({{ state.processed }} of {{ state.total }} files)
+            }
+            — {{ state.label || 'preparing…' }}
           </p>
 
           <!-- Progress bar — determinate when total is known, indeterminate otherwise -->
@@ -114,6 +153,18 @@
           }
 
           <div class="flex flex-wrap gap-2 mb-2">
+            @if (backgroundOnly()) {
+              <button
+                type="button"
+                class="btn btn-primary btn-xs gap-1"
+                (click)="onStart(true)"
+                aria-label="Re-index workspace"
+                data-testid="indexing-join-background"
+              >
+                <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+                <span>Re-index</span>
+              </button>
+            }
             <button
               type="button"
               class="btn btn-primary btn-xs gap-1"
@@ -194,6 +245,14 @@
             {{ formatRelativeTime(state.lastIndexedAt) }}. Workspace is up
             to date.
           </p>
+          @if (lastRunSummary(); as summary) {
+            <p
+              class="text-xs text-base-content-muted mb-3"
+              data-testid="last-run-summary"
+            >
+              {{ summary }}
+            </p>
+          }
 
           <div class="flex flex-wrap gap-2 mb-2">
             <button
@@ -201,8 +260,14 @@
               class="btn btn-primary btn-xs gap-1"
               (click)="onStart(true)"
               aria-label="Re-index workspace"
+              [disabled]="isBusy()"
+              [attr.aria-busy]="isBusy()"
             >
-              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              @if (isBusy()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              }
               <span>Re-index</span>
             </button>
           </div>
@@ -235,6 +300,14 @@
             <code>{{ shortSha(state.currentSha) }}</code
             >.
           </p>
+          @if (lastRunSummary(); as summary) {
+            <p
+              class="text-xs text-base-content-muted mb-3"
+              data-testid="last-run-summary"
+            >
+              {{ summary }}
+            </p>
+          }
 
           <div class="flex flex-wrap gap-2 mb-2">
             <button
@@ -242,8 +315,14 @@
               class="btn btn-primary btn-xs gap-1"
               (click)="onStart(true)"
               aria-label="Re-index workspace"
+              [disabled]="isBusy()"
+              [attr.aria-busy]="isBusy()"
             >
-              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              @if (isBusy()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              }
               <span>Re-index</span>
             </button>
             <button
@@ -275,8 +354,17 @@
         <div class="state-block" data-testid="state-error">
           <h3 class="text-sm font-semibold mb-1">Indexing failed</h3>
           <p class="text-xs text-base-content-muted mb-3">
-            {{ state.message }}. Your previous index is still available.
+            The last index run did not finish. Your previous index is still
+            available.
           </p>
+          @if (lastRunSummary(); as summary) {
+            <p
+              class="text-xs text-base-content-muted mb-3"
+              data-testid="last-run-summary"
+            >
+              {{ summary }}
+            </p>
+          }
 
           <div class="flex flex-wrap gap-2 mb-2">
             <button
@@ -284,8 +372,14 @@
               class="btn btn-primary btn-xs gap-1"
               (click)="onStart(true)"
               aria-label="Try indexing again"
+              [disabled]="isBusy()"
+              [attr.aria-busy]="isBusy()"
             >
-              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              @if (isBusy()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              }
               <span>Try again</span>
             </button>
             <button
@@ -303,11 +397,23 @@
             class="alert alert-error text-xs p-2"
             data-testid="callout-error"
           >
-            {{ state.message }}
+            Indexing failed. See the logs for details.
           </div>
         </div>
       }
     }
+
+    <details class="text-xs" data-testid="indexing-how-it-works-toggle">
+      <summary class="cursor-pointer font-medium">How this works</summary>
+      <p class="text-base-content-muted mt-1" data-testid="indexing-how-it-works">
+        Ptah parses the source files in this workspace into symbols and stores
+        them in a local database, then keeps them current as files change.
+        Re-index runs a full scan; on a large repository this can take a long
+        time, and progress shows here while you can pause or cancel. If a
+        startup or file-change scan is already running, Re-index joins it. Code
+        search tools and memory search read this index.
+      </p>
+    </details>
 
     <!-- =========================================================== -->
     <!-- Per-pipeline toggle row (always visible)                    -->
