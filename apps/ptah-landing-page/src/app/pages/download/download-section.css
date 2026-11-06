@@ -1,0 +1,163 @@
+/*
+ * The landing's section vocabulary for the download page (copied, not imported:
+ * the landing keeps these styles private to its sections). Tokens: ink #08090c,
+ * window #0e1015, hairline #262a33, amber #f5a524 / #ffbb4d, core #fff9eb.
+ */
+:host {
+  display: block;
+  color: #e9ebef;
+}
+
+.dl-section {
+  position: relative;
+  isolation: isolate;
+  padding: clamp(4rem, 7vw, 6.5rem) 1.5rem;
+  border-top: 1px solid #262a33;
+  background: #08090c;
+}
+
+.dl-section::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  opacity: 0.14;
+  background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgb(255 255 255 / 10%) 3px, transparent 4px);
+}
+
+.dl-shell {
+  width: min(100%, 68rem);
+  margin: 0 auto;
+}
+
+.dl-head {
+  width: min(100%, 48rem);
+  margin: 0 auto clamp(2rem, 4vw, 3rem);
+  text-align: center;
+}
+
+.dl-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 0 0 clamp(0.75rem, 1.4vw, 1.15rem);
+  color: #ffbb4d;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: clamp(0.8rem, 1.05vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.cue-line {
+  display: inline-block;
+  width: 2.25rem;
+  height: 1px;
+  background: #f5a524;
+  opacity: 0.85;
+}
+
+.dl-title {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2rem, 3.8vw, 3.25rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.dl-subline {
+  width: min(100%, 56ch);
+  margin: clamp(1rem, 2vw, 1.4rem) auto 0;
+  color: #c5cad3;
+  font-size: clamp(0.98rem, 1.15vw, 1.075rem);
+  line-height: 1.6;
+  text-wrap: balance;
+}
+
+/* An app-style card: the window token with the gold hairline on its top edge. */
+.dl-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid #262a33;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #12151b, #0e1015);
+  box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 45%);
+}
+
+.dl-card::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 1px;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 8%, rgb(255 187 77 / 45%) 50%, transparent 92%);
+}
+
+.dl-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid rgb(245 165 36 / 30%);
+  border-radius: 0.6rem;
+  color: #ffbb4d;
+  background: radial-gradient(circle at 50% 30%, rgb(245 165 36 / 18%), rgb(245 165 36 / 4%));
+}
+
+.dl-glyph svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+/* The amber CTA of the landing hero, as a full-width card button. */
+.dl-button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid rgb(245 165 36 / 45%);
+  border-radius: 0.5rem;
+  color: #ffbb4d;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.dl-button:hover {
+  border-color: #ffbb4d;
+  background: rgb(245 165 36 / 10%);
+}
+
+.dl-button.is-solid {
+  border-color: #f5a524;
+  color: #08090c;
+  background: #f5a524;
+}
+
+.dl-button.is-solid:hover {
+  background: #ffbb4d;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid #ffbb4d;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-button {
+    transition: none;
+  }
+}

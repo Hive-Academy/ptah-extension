@@ -1,0 +1,89 @@
+/* The stage (the app window and the Lightfall layer whose beam lands on its top edge) and the hero's responsive rules. */
+.dl-stage {
+  position: relative;
+  padding-top: var(--stage-pad);
+}
+
+.dl-light {
+  position: absolute;
+  z-index: 0;
+  right: -35%;
+  bottom: calc(100% - var(--stage-pad) - var(--lf-origin) * var(--lf-h));
+  left: -35%;
+  height: var(--lf-h);
+}
+
+.dl-window {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid #3a2f1c;
+  border-radius: 0.6rem;
+  background: #0e1015;
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 65%), 0 -1rem 5rem rgb(245 165 36 / 16%);
+}
+
+.dl-window::before,
+.dl-window::after {
+  position: absolute;
+  z-index: 2;
+  content: '';
+  pointer-events: none;
+}
+
+.dl-window::before {
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 4%, rgb(255 214 140 / 90%) 50%, transparent 96%);
+}
+
+/* Where the beam lands, the light spills onto the window. */
+.dl-window::after {
+  inset: 0;
+  mix-blend-mode: screen;
+  background: radial-gradient(ellipse 45% 28% at 50% 0%, rgb(255 187 77 / 26%), transparent 75%);
+}
+
+.dl-window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+
+/* Responsive rules for the whole hero (same component scope as download-hero.component.css). */
+@media (min-width: 1024px) {
+  .dl-hero-inner {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
+    align-items: end;
+  }
+
+  .dl-copy { padding-bottom: clamp(1rem, 4vh, 3rem); }
+}
+
+@media (max-width: 1023px) {
+  .dl-hero { --stage-pad: clamp(5rem, 14vh, 8rem); --lf-h: min(40rem, 110vh); }
+  .dl-copy { text-align: center; }
+  .dl-hero-eyebrow, .dl-actions, .dl-meta { justify-content: center; }
+  .dl-lead { margin-inline: auto; }
+  .dl-scrim {
+    background:
+      linear-gradient(0deg, #08090c 2%, rgb(8 9 12 / 30%) 40%, rgb(8 9 12 / 70%) 70%, rgb(8 9 12 / 90%));
+  }
+  /* The beam fades out before it reaches the copy above the window. */
+  .dl-light { mask-image: linear-gradient(0deg, #000 0 30%, transparent 75%); }
+  .dl-symbol.is-ankh { left: -1.5rem; }
+  .dl-symbol.is-eye { right: -1.5rem; }
+  .dl-symbol.is-sun { display: none; }
+}
+
+@media (max-width: 479px) {
+  .dl-actions { flex-direction: column; gap: 0.25rem; }
+  .dl-primary { width: min(100%, 20rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-actions a { transition: none; }
+  .dl-primary:hover { transform: none; }
+}

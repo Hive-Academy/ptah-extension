@@ -8,35 +8,60 @@ import { DownloadPageComponent } from './download-page.component';
 
 const latestReleaseUrl = 'https://github.com/Hive-Academy/PtahCode/releases/latest';
 
+function makeRelease(overrides: Partial<ParsedRelease> = {}): ParsedRelease {
+  return {
+    version: '1.0.0',
+    tagName: 'electron-v1.0.0',
+    name: 'PtahCode 1.0.0',
+    publishedAt: '2026-10-01T12:00:00Z',
+    releaseUrl: 'https://github.com/Hive-Academy/PtahCode/releases/tag/electron-v1.0.0',
+    windows: [{
+      label: 'Windows Installer (.exe)',
+      fileName: 'PtahCode.exe',
+      downloadUrl: 'https://github.com/Hive-Academy/PtahCode/releases/download/electron-v1.0.0/PtahCode.exe',
+      size: '100 MB',
+    }],
+    macos: [],
+    linux: [],
+    ...overrides,
+  };
+}
+
 function renderDownloadPage(options: {
   loading: boolean;
   error?: string;
   releases?: ParsedRelease[];
-}): ComponentFixture<DownloadPageComponent> {
+}): { fixture: ComponentFixture<DownloadPageComponent>; service: { fetchReleases: jest.Mock }; seo: { setPage: jest.Mock } } {
+  const service = {
+    releases: signal(options.releases ?? []),
+    loading: signal(options.loading),
+    error: signal(options.error ?? null),
+    fetchReleases: jest.fn(),
+  };
+  const seo = { setPage: jest.fn() };
   TestBed.configureTestingModule({
     imports: [DownloadPageComponent],
     providers: [
       provideRouter([]),
       { provide: PLATFORM_ID, useValue: 'server' },
-      {
-        provide: GitHubReleaseService,
-        useValue: {
-          releases: signal(options.releases ?? []),
-          loading: signal(options.loading),
-          error: signal(options.error ?? null),
-          fetchReleases: jest.fn(),
-        },
-      },
-      { provide: SeoService, useValue: { setPage: jest.fn() } },
+      { provide: GitHubReleaseService, useValue: service },
+      { provide: SeoService, useValue: seo },
     ],
   });
   const fixture = TestBed.createComponent(DownloadPageComponent);
   fixture.detectChanges();
-  return fixture;
+  return { fixture, service, seo };
 }
 
 function platformLinks(root: HTMLElement): HTMLAnchorElement[] {
   return Array.from(root.querySelectorAll<HTMLAnchorElement>('[aria-label="Download platforms"] a'));
+}
+
+function expandRelease(fixture: ComponentFixture<DownloadPageComponent>, version: string): void {
+  const root = fixture.nativeElement as HTMLElement;
+  const button = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes(version));
+  button?.click();
+  fixture.detectChanges();
 }
 
 describe('DownloadPageComponent release fallback', () => {
@@ -47,7 +72,7 @@ describe('DownloadPageComponent release fallback', () => {
     { loading: false, error: 'GitHub API rate limit reached.', label: 'API error' },
     { loading: false, label: 'empty API response' },
   ])('keeps a platform destination in the $label', ({ loading, error }) => {
-    const root = renderDownloadPage({ loading, error }).nativeElement as HTMLElement;
+    const root = renderDownloadPage({ loading, error }).fixture.nativeElement as HTMLElement;
     const links = platformLinks(root);
 
     expect(links.map((link) => link.textContent?.trim())).toEqual([
@@ -63,31 +88,81 @@ describe('DownloadPageComponent release fallback', () => {
   });
 
   it('keeps direct asset links when the API returns a release', () => {
-    const release: ParsedRelease = {
-      version: '1.0.0',
-      tagName: 'electron-v1.0.0',
-      name: 'PtahCode 1.0.0',
-      publishedAt: '2026-10-01T00:00:00Z',
-      releaseUrl: latestReleaseUrl,
-      windows: [{
-        label: 'Windows Installer (.exe)',
-        fileName: 'PtahCode.exe',
-        downloadUrl: 'https://github.com/Hive-Academy/PtahCode/releases/download/electron-v1.0.0/PtahCode.exe',
-        size: '100 MB',
-      }],
-      macos: [],
-      linux: [],
-    };
-    const fixture = renderDownloadPage({ loading: false, releases: [release] });
+    const release = makeRelease();
+    const { fixture } = renderDownloadPage({ loading: false, releases: [release] });
     const root = fixture.nativeElement as HTMLElement;
-    const versionButton = Array.from(root.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('1.0.0'),
-    );
-    versionButton?.click();
-    fixture.detectChanges();
+    expandRelease(fixture, '1.0.0');
     const asset = root.querySelector<HTMLAnchorElement>('a[href$="PtahCode.exe"]');
 
     expect(platformLinks(root)).toHaveLength(3);
     expect(asset?.href).toBe(release.windows[0].downloadUrl);
+  });
+});
+
+describe('DownloadPageComponent hero and release details', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('sets the page SEO and fetches three releases after render', async () => {
+    const { fixture, seo, service } = renderDownloadPage({ loading: true });
+    await fixture.whenStable();
+
+    expect(seo.setPage).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Download PtahCode — AI Coding Agent for Windows, macOS & Linux',
+      url: 'https://ptah.live/download',
+    }));
+    expect(service.fetchReleases).toHaveBeenCalledWith(3);
+  });
+
+  it('points the hero download at the latest release, outside the platform list', () => {
+    const root = renderDownloadPage({ loading: true }).fixture.nativeElement as HTMLElement;
+    const primary = root.querySelector<HTMLAnchorElement>('[data-testid="download-primary"]');
+
+    expect(root.querySelector('h1')?.textContent?.trim()).toBe('Download PtahCode');
+    expect(primary?.href).toBe(latestReleaseUrl);
+    expect(primary?.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(primary?.closest('[aria-label="Download platforms"]')).toBeNull();
+    expect(root.querySelector('a[href="#releases"]')).not.toBeNull();
+    expect(root.querySelector('#releases')).not.toBeNull();
+  });
+
+  it('shows the latest version in the hero once releases load', () => {
+    const root = renderDownloadPage({ loading: false, releases: [makeRelease()] }).fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('.dl-meta')?.textContent).toContain('Latest 1.0.0');
+  });
+
+  it('offers the Microsoft Store when a release has no Windows asset', () => {
+    const { fixture } = renderDownloadPage({ loading: false, releases: [makeRelease({ windows: [] })] });
+    expandRelease(fixture, '1.0.0');
+    const root = fixture.nativeElement as HTMLElement;
+    const store = root.querySelector<HTMLAnchorElement>('[data-testid="microsoft-store-link"]');
+
+    expect(store?.href).toBe('https://apps.microsoft.com/detail/9N80K3HFX0JT');
+    expect(root.textContent).toContain('No macOS builds');
+    expect(root.textContent).toContain('No Linux builds');
+  });
+
+  it('links the expanded release to its notes and collapses on a second click', () => {
+    const release = makeRelease();
+    const { fixture } = renderDownloadPage({ loading: false, releases: [release] });
+    const root = fixture.nativeElement as HTMLElement;
+    expandRelease(fixture, '1.0.0');
+
+    const notes = Array.from(root.querySelectorAll<HTMLAnchorElement>('a')).find((a) => a.textContent?.includes('View release notes'));
+    expect(notes?.href).toBe(release.releaseUrl);
+    expect(root.querySelector('.rl-toggle')?.getAttribute('aria-expanded')).toBe('true');
+
+    expandRelease(fixture, '1.0.0');
+    expect(root.querySelector('.rl-toggle')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('retries the fetch from the error state', () => {
+    const { fixture, service } = renderDownloadPage({ loading: false, error: 'GitHub API rate limit reached.' });
+    const root = fixture.nativeElement as HTMLElement;
+    service.fetchReleases.mockClear();
+    Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes('Try Again'))?.click();
+
+    expect(root.textContent).toContain('GitHub API rate limit reached.');
+    expect(service.fetchReleases).toHaveBeenCalledWith(3);
   });
 });
