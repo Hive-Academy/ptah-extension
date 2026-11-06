@@ -26,9 +26,6 @@ import {
   type CliOutputSegment,
   type CliSessionReference,
   type FlatStreamEventUnion,
-  type AgentDeliveryReceipt,
-  AgentMonitorMessageReceiptPayloadSchema,
-  AgentMonitorParentDeliveryPayloadSchema,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
@@ -36,8 +33,11 @@ import {
   type ISessionOrganizationRecorder,
 } from '@ptah-extension/platform-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
-import type { ParentDeliveryEnvelope } from '../cli-agents/parent-delivery/parent-envelope-store.service';
 import type { ISessionHandoffChain } from '../session-children/session-handoff-chain.port';
+
+import { registerAgentDeliveryPushSinks } from './agent-delivery-push-sinks-registration';
+
+export { registerAgentDeliveryPushSinks };
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
@@ -111,53 +111,6 @@ export interface WireAgentEventListenersContext {
   readonly logger: Logger;
   readonly platform: AgentEventPlatform;
   readonly options?: WireAgentEventListenersOptions;
-}
-
-/** Install push sinks before any service resolving the receipt store or drainer. */
-export function registerAgentDeliveryPushSinks(
-  container: DependencyContainer,
-  logger: Logger,
-  platform: AgentEventPlatform,
-): void {
-  if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) return;
-  const tag = `[${platform} RPC]`;
-  if (!container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK, true)) {
-    container.registerInstance(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK, {
-      changed: (receipt: AgentDeliveryReceipt) => {
-        const payload = AgentMonitorMessageReceiptPayloadSchema.safeParse({ receipt });
-        if (!payload.success) {
-          logger.warn(`${tag} Invalid message receipt push payload`);
-          return;
-        }
-        const webview = container.resolve<WebviewManagerLike>(TOKENS.WEBVIEW_MANAGER);
-        void webview.broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, payload.data)
-          .catch((error: unknown) => logger.warn(`${tag} Failed to push message receipt`,
-            error instanceof Error ? error : new Error(String(error))));
-      },
-    });
-  }
-  if (!container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK, true)) {
-    container.registerInstance(CLI_AGENT_RUNTIME_TOKENS.PARENT_DELIVERY_EVENT_SINK, {
-      emit: (envelope: ParentDeliveryEnvelope) => {
-        const payload = AgentMonitorParentDeliveryPayloadSchema.safeParse({
-          agentId: envelope.agentId, kind: envelope.kind, state: envelope.state,
-          deliveryId: envelope.id,
-          createdAt: envelope.createdAt,
-          verdict: envelope.verdict,
-          stopReason: envelope.stopReason,
-          preview: envelope.kind === 'report' ? envelope.body.replace(/\s+/g, ' ').trim().slice(0, 160) : undefined,
-        });
-        if (!payload.success) {
-          logger.warn(`${tag} Invalid parent delivery push payload`);
-          return;
-        }
-        const webview = container.resolve<WebviewManagerLike>(TOKENS.WEBVIEW_MANAGER);
-        void webview.broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY, payload.data)
-          .catch((error: unknown) => logger.warn(`${tag} Failed to push parent delivery`,
-          error instanceof Error ? error : new Error(String(error))));
-      },
-    });
-  }
 }
 
 /**

@@ -48,7 +48,7 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
         </div>
       }
       </div>
-      <p class="min-h-4 text-xs text-base-content/70" aria-live="polite">{{ hint() }}</p>
+      <p class="min-h-4 text-xs text-base-content-muted" aria-live="polite">{{ hint() }}</p>
       @if (error(); as message) { <p class="min-h-4 text-xs text-error" role="alert">{{ message }}</p> }
       @if (!state().queue || !state().now) { <button type="button" class="btn btn-ghost btn-xs" (click)="refreshPreviews()">Retry message options</button> }
 
@@ -63,7 +63,7 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
       }
 
       @if (queuedReceipts().length > 0) {
-        <div class="border-t border-base-content/20 pt-1 text-xs text-base-content/70" aria-live="polite">
+        <div class="border-t border-base-content/20 pt-1 text-xs text-base-content-muted" aria-live="polite">
           {{ queuedReceipts().length }} queued · last: {{ lastReceiptLabel() }}
           @for (receipt of queuedReceipts(); track receipt.id) {
             <button type="button" class="btn btn-ghost btn-xs ml-1" [disabled]="sending()"
