@@ -67,6 +67,8 @@ export async function runSshWorkerCommand(
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch {
+      // degradation-audit: reported - the caller receives the spawn failure as a
+      // typed 'unreachable' rejection; `return` only stops this executor.
       reject(
         new SshWorkerCommandError(
           'unreachable',

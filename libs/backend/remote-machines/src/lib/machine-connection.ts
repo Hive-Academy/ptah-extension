@@ -176,6 +176,8 @@ export class MachineConnection {
     this.cancelTimer();
     this.state = 'unpaired';
     this.emit();
+    // degradation-audit: reported - the machine is already 'unpaired' and the state
+    // push reports it; a failed keyring delete leaves only a token the worker rejected.
     void this.options.onTokenRejected?.().catch(() => undefined);
   }
   private schedule(): void {
@@ -194,6 +196,8 @@ export class MachineConnection {
     this.nextRetryAt = (this.options.now ?? Date.now)() + delay;
     this.timer = (this.options.setTimer ?? setTimeout)(() => {
       this.timer = undefined;
+      // degradation-audit: reported - connect() moves the state to offline and schedules
+      // the next retry itself; the machines:state push reports the failure.
       void this.connect().catch(() => undefined);
     }, delay);
     this.emit();

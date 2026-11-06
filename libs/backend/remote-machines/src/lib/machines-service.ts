@@ -55,6 +55,8 @@ export class MachinesService {
   constructor(private readonly options: MachinesServiceOptions) {}
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.mutation.then(operation, operation);
+    // degradation-audit: reported - the caller receives the rejection through `next`;
+    // only the chain tail ignores it so one failure does not block later operations.
     this.mutation = next.catch(() => undefined);
     return next;
   }
@@ -89,11 +91,15 @@ export class MachinesService {
       onTokenRejected: () => this.options.tokens.delete(machineId),
       ptahVersion: this.options.ptahVersion,
       onEvent: (event) => {
+        // degradation-audit: reported - no window may be open; the renderer replays
+        // session events with machines:session.replay when it attaches.
         void this.options.webviewManager
           .broadcastMessage(MESSAGE_TYPES.MACHINES_EVENT, event)
           .catch(() => undefined);
       },
       onState: (state) => {
+        // degradation-audit: reported - no window may be open; machines:list returns the
+        // current state when the Machines view opens.
         void this.options.webviewManager
           .broadcastMessage(MESSAGE_TYPES.MACHINES_STATE, state)
           .catch(() => undefined);
@@ -210,6 +216,8 @@ export class MachinesService {
           /* best effort */
         }
         connection.clearToken();
+        // degradation-audit: reported - the persistence error is rethrown below; this only
+        // cleans up a token that may not have been stored.
         await this.options.tokens.delete(machineId).catch(() => undefined);
         throw error;
       }

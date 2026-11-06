@@ -93,6 +93,8 @@ export class MachineRegistry {
       }
     } catch (error) {
       if (created && !renamed)
+        // degradation-audit: reported - the original write error is rethrown below; a
+        // leftover temp file is harmless and has a unique name.
         await this.io.unlink(temp).catch(() => undefined);
       throw error;
     }
