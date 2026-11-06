@@ -265,14 +265,17 @@ function settingsGetResolver(params: unknown): {
   return PTAH_CLI_AGENTS_SETTING_FIXTURE;
 }
 
-/** `memory:getTriggers` — memory-curator background role (BRIEF:60-61). */
+/**
+ * `memory:getTriggers` — memory-curator background role (BRIEF:60-61). The curator cannot run on `openai-codex`
+ * (TASK_2026_878 decision 9; Settings no longer offers it), so the fixture assigns a supported, connected provider.
+ */
 export const MEMORY_TRIGGERS_FIXTURE = {
   triggers: {
     idleMs: 60000,
     turnThreshold: 8,
     bootScan: true,
-    curatorProvider: 'openai-codex',
-    curatorModel: 'gpt-5.6-luna',
+    curatorProvider: 'kimi-code',
+    curatorModel: 'kimi-for-coding',
   },
 };
 
