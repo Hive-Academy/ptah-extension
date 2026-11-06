@@ -8,7 +8,7 @@ Two batches, sequential (both edit `serve.ts`). Implementer: Claude `backend-dev
 Reviewer: Codex (different family). The orchestrator runs every verify:
 `npm run verify -- -p @ptah-extension/worker-host,@ptah-extension/worker-runtime`.
 
-## Batch 20 — turn lifecycle (remote-sessions.ts, session-driver.ts, connection.ts, serve.ts shutdown)
+## Batch 20 (Phase D fix; report `phase-d-fix-20-report.md`) — turn lifecycle (remote-sessions.ts, session-driver.ts, connection.ts, serve.ts shutdown)
 
 | #    | Finding                                                                                                    | Source                  |
 | ---- | ---------------------------------------------------------------------------------------------------------- | ----------------------- |
@@ -25,7 +25,7 @@ Reviewer: Codex (different family). The orchestrator runs every verify:
 Each item needs a regression spec (delayed or missing `session:id-resolved`, end during start and
 continue, failed abort, tab-only permission request, shutdown with a pending start).
 
-## Batch 21 — security and stores (serve.ts admin, token-store, file-lock, connection, worker-server)
+## Batch 21 (Phase D fix; report `phase-d-fix-21-report.md`) — security and stores (serve.ts admin, token-store, file-lock, connection, worker-server)
 
 | #    | Finding                                                                                                                                | Source                |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
