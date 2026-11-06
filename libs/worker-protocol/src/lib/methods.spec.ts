@@ -121,8 +121,10 @@ describe('parseMethodParams', () => {
 
   it('accepts either auth form but not both or neither', () => {
     expect(parseMethodParams('auth', { token: 'ptw1.abc.def' }).ok).toBe(true);
-    expect(parseMethodParams('auth', { admin: 'key' }).ok).toBe(true);
-    expect(parseMethodParams('auth', { token: 't', admin: 'k' }).ok).toBe(
+    expect(parseMethodParams('auth', { adminProof: 'hmac' }).ok).toBe(true);
+    // The raw-key form is gone: the key never goes on the wire.
+    expect(parseMethodParams('auth', { admin: 'key' }).ok).toBe(false);
+    expect(parseMethodParams('auth', { token: 't', adminProof: 'k' }).ok).toBe(
       false,
     );
     expect(parseMethodParams('auth', {}).ok).toBe(false);
@@ -178,6 +180,21 @@ describe('parseMethodParams', () => {
     expect(
       parseMethodParams('admin.grants.add', { tokenId: 't-1', workspaces: [] })
         .ok,
+    ).toBe(false);
+  });
+
+  it('carries an optional admin challenge in the hello result', () => {
+    const worker = { machineId: 'm', displayName: 'd', ptahVersion: '1' };
+    expect(parseResult('hello', { protocol: 1, worker }).ok).toBe(true);
+    expect(
+      parseResult('hello', {
+        protocol: 1,
+        worker,
+        adminChallenge: 'c'.repeat(43),
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseResult('hello', { protocol: 1, worker, adminChallenge: 'short' }).ok,
     ).toBe(false);
   });
 

@@ -143,8 +143,28 @@ export class SessionDriver {
   admittingTab(tabId: string): boolean {
     return this.byTab(tabId) !== undefined;
   }
+  /**
+   * True while a start on this tab has no session ID yet, including one that
+   * timed out and still waits for `session:id-resolved` as an orphan.
+   */
+  awaitingSession(tabId: string): boolean {
+    for (const admission of this.admissions.values())
+      if (admission.tabId === tabId && !admission.sessionId) return true;
+    return false;
+  }
   driving(sessionId: string): boolean {
     return this.turns.has(sessionId);
+  }
+  /**
+   * True while an engine turn of this session may still run: a registered
+   * turn, a start being admitted, or an orphan whose abort was refused.
+   * Its driver lock must stay held until the engine reports it ended.
+   */
+  running(sessionId: string): boolean {
+    if (this.turns.has(sessionId)) return true;
+    for (const admission of this.admissions.values())
+      if (admission.sessionId === sessionId) return true;
+    return false;
   }
   forgetTab(tabId: string): void {
     this.tabs.delete(tabId);
@@ -174,7 +194,16 @@ export class SessionDriver {
     const admission =
       (id ? this.bySession(id) : undefined) ??
       (tabId ? this.byTab(tabId) : undefined);
-    if (admission) admission.ended = true;
+    if (admission) {
+      admission.ended = true;
+      return;
+    }
+    // The engine ended an orphan whose abort was refused: free its slot and lock.
+    for (const orphan of [...this.admissions.values()])
+      if (orphan.state === 'orphan' && id && orphan.sessionId === id) {
+        this.admissions.delete(orphan.key);
+        this.options.onAbandoned?.(id);
+      }
   }
 
   async attach(

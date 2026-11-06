@@ -340,3 +340,41 @@ it('drain cancels a start waiting for its session, refuses new turns and aborts 
     expect.objectContaining({ method: 'chat:continue' }),
   );
 });
+
+it('drain reports a refused abort and keeps that turn running until the engine ends it', async () => {
+  const { driver, handleMessage } = setup();
+  await driver.continue('s1', 'tab', 'hello');
+  handleMessage.mockResolvedValue(refused);
+  const result = await driver.drain();
+  expect(result).toEqual({ unresolvedTabs: [], failedAborts: ['s1'] });
+  // Its driver lock must not be handed on while the turn may still run.
+  expect(driver.running('s1')).toBe(true);
+  await driver.terminal('s1');
+  expect(driver.running('s1')).toBe(false);
+});
+
+it('keeps an orphan whose abort was refused running until its terminal event frees it', async () => {
+  const onAbandoned = jest.fn();
+  const { driver, handleMessage } = setup(undefined, {
+    resolveTimeoutMs: 10,
+    onAbandoned,
+  });
+  await expect(
+    driver.start(start, async () => undefined, jest.fn()),
+  ).rejects.toMatchObject({ code: 'INTERNAL' });
+  // A timed-out start still waits for its session ID.
+  expect(driver.awaitingSession('tab')).toBe(true);
+  handleMessage.mockResolvedValue(refused);
+  driver.tabResolved('tab', 's1');
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(driver.awaitingSession('tab')).toBe(false);
+  expect(driver.running('s1')).toBe(true);
+  expect(onAbandoned).not.toHaveBeenCalled();
+  await expect(driver.drain()).resolves.toEqual({
+    unresolvedTabs: [],
+    failedAborts: ['s1'],
+  });
+  await driver.terminal('s1');
+  expect(driver.running('s1')).toBe(false);
+  expect(onAbandoned).toHaveBeenCalledWith('s1');
+});

@@ -384,7 +384,9 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
           );
           return { sessionId: turn.sessionId, turnId: turn.turnId };
         } finally {
-          heldPermissions.delete(tabId);
+          // A timed-out start can still resolve: its held requests are bound
+          // on the late `session:id-resolved` (see tap).
+          if (!driver.awaitingSession(tabId)) heldPermissions.delete(tabId);
         }
       },
     ),
@@ -459,7 +461,7 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
         if (sessionId) {
           pending.add(record, sessionId);
           permissionSessions.set(record.id, sessionId);
-        } else if (tabId && driver.admittingTab(tabId)) {
+        } else if (tabId && driver.awaitingSession(tabId)) {
           // Bound to its session when `session:id-resolved` arrives.
           const held = heldPermissions.get(tabId) ?? [];
           if (held.length < HELD_PERMISSIONS_LIMIT) held.push(record);
@@ -527,8 +529,18 @@ export function createRemoteSessions(deps: RemoteSessionDeps): RemoteSessions {
 
     async releaseLocks() {
       // The process is stopping: a lock still held now would be stranded.
+      // A turn whose chat:abort was refused may still run, so its lock stays
+      // held until the engine ends it; it dies with this process at worst.
       const sessions = new Set(deps.lock.held().map((held) => held.sessionId));
-      for (const sessionId of sessions) await releaseLock(sessionId);
+      let kept = 0;
+      for (const sessionId of sessions) {
+        if (driver.running(sessionId)) kept += 1;
+        else await releaseLock(sessionId);
+      }
+      if (kept > 0)
+        deps.log(
+          `[ptah-worker] kept the driver lock of ${kept} turn(s) that may still run`,
+        );
     },
   };
 }

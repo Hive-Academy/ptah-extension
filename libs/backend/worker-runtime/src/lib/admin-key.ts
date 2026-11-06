@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { ensureWorkerDirectory, WorkerPaths } from './paths';
 
@@ -17,13 +17,27 @@ export async function readAdminKey(paths: WorkerPaths): Promise<Buffer> {
   return key;
 }
 
-export function verifyAdminKey(
-  expected: Uint8Array,
-  candidate: Uint8Array,
+/** Binds an admin proof to this protocol use, so the HMAC means nothing elsewhere. */
+export const ADMIN_PROOF_CONTEXT = 'ptah-worker/admin-auth/v1';
+
+/**
+ * The admin `auth` proof: HMAC-SHA256(adminKey, challenge + context), as
+ * base64url. The challenge is the connection's `hello` `adminChallenge`.
+ */
+export function adminProof(key: Uint8Array, challenge: string): string {
+  return createHmac('sha256', key)
+    .update(`${challenge}\n${ADMIN_PROOF_CONTEXT}`)
+    .digest('base64url');
+}
+
+/** Constant-time check of an admin proof against this connection's challenge. */
+export function verifyAdminProof(
+  key: Uint8Array,
+  challenge: string,
+  candidate: string,
 ): boolean {
-  return (
-    expected.length === 32 &&
-    candidate.length === 32 &&
-    timingSafeEqual(expected, candidate)
-  );
+  if (key.length !== 32) return false;
+  const expected = Buffer.from(adminProof(key, challenge), 'base64url');
+  const actual = Buffer.from(candidate, 'base64url');
+  return actual.length === expected.length && timingSafeEqual(expected, actual);
 }

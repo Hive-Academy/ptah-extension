@@ -151,7 +151,6 @@ export class TokenStore {
     const now = Date.now();
     const last = this.lastRecorded.get(tokenId);
     if (last !== undefined && now - last < LAST_USED_DEBOUNCE_MS) return;
-    this.lastRecorded.set(tokenId, now);
     await this.mutate((records) =>
       records.map((record) =>
         record.tokenId === tokenId && !record.revokedAt
@@ -159,6 +158,9 @@ export class TokenStore {
           : record,
       ),
     );
+    // Only a written use starts the debounce window; a failed write retries
+    // on the next authentication.
+    this.lastRecorded.set(tokenId, now);
   }
 
   /** Lock, reload, change and save in one step; the only writer of the file. */

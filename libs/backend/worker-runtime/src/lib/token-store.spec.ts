@@ -10,7 +10,14 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InsecureTokenFileError, TokenStore } from './token-store';
+import { writeJsonAtomic } from './atomic-file';
 import { workerPaths } from './paths';
+
+jest.mock('./atomic-file', () => {
+  const actual =
+    jest.requireActual<typeof import('./atomic-file')>('./atomic-file');
+  return { ...actual, writeJsonAtomic: jest.fn(actual.writeJsonAtomic) };
+});
 
 describe('TokenStore', () => {
   it('refuses group or world readable files and writes private tokens atomically', async () => {
@@ -112,6 +119,28 @@ describe('TokenStore', () => {
       expect(loaded.list()[0]?.lastUsedAt).toBe(
         new Date(1_061_000).toISOString(),
       );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('retries a failed lastUsedAt write on the next use instead of waiting a minute', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'worker-token-'));
+    try {
+      const store = new TokenStore(workerPaths(home));
+      const issued = await store.issue('laptop', {
+        machineId: 'machine',
+        workspaceIds: [],
+      });
+      jest
+        .mocked(writeJsonAtomic)
+        .mockRejectedValueOnce(new Error('disk full'));
+      await expect(store.recordUse(issued.tokenId)).rejects.toThrow(
+        'disk full',
+      );
+      expect(store.list()[0]?.lastUsedAt).toBeNull();
+      await store.recordUse(issued.tokenId);
+      expect(store.list()[0]?.lastUsedAt).toEqual(expect.any(String));
     } finally {
       await rm(home, { recursive: true, force: true });
     }

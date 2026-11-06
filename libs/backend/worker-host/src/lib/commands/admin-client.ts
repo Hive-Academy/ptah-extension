@@ -8,17 +8,18 @@ import type {
 import { runningEndpoint } from './status';
 
 /**
- * Calls one admin method on the running worker. Before the admin key leaves
- * this process, the listener must be this worker: `endpoint.json` names a
- * live process of this user, and the `hello` reply carries this machine's
- * worker ID (the same value `endpoint.json` records).
+ * Calls one admin method on the running worker. The admin key never leaves
+ * this process: `auth` carries an HMAC of the key over the connection's
+ * `hello` challenge, so a listener that is not the worker learns nothing it
+ * can reuse. As an early refusal, `endpoint.json` must name a live process of
+ * this user and `hello` must carry this machine's worker ID.
  */
 export async function adminCall<M extends AdminMethod>(
   paths: WorkerPaths,
   method: M,
   params: WorkerMethodParams<M>,
 ): Promise<WorkerMethodResult<M>> {
-  const { readAdminKey, workerMachineId } =
+  const { adminProof, readAdminKey, workerMachineId } =
     await import('@ptah-extension/worker-runtime');
   const { PROTOCOL_VERSION, parseResult } =
     await import('@ptah-extension/worker-protocol');
@@ -43,13 +44,16 @@ export async function adminCall<M extends AdminMethod>(
     if (
       !hello.ok ||
       hello.value.worker.machineId !== expected ||
-      endpoint.machineId !== expected
+      endpoint.machineId !== expected ||
+      !hello.value.adminChallenge
     )
       throw new Error(
-        'The listener on the worker port is not this worker; the admin key was not sent.',
+        'The listener on the worker port is not this worker; no admin proof was sent.',
       );
     const key = await readAdminKey(paths);
-    await request(socket, 'auth', { admin: key.toString('base64url') });
+    await request(socket, 'auth', {
+      adminProof: adminProof(key, hello.value.adminChallenge),
+    });
     const parsed = parseResult(method, await request(socket, method, params));
     if (!parsed.ok) throw new Error('Invalid worker response');
     return parsed.value;

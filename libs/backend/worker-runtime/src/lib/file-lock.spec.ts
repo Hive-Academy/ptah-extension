@@ -1,9 +1,17 @@
-import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileLockBusyError, withFileLock } from './file-lock';
+import { processStartTime } from './process-state';
 
 jest.mock('node:fs/promises', () => {
   const actual =
@@ -124,4 +132,93 @@ it('keeps the operation result and error over a failed lock release', async () =
     ),
   ).rejects.toThrow('write failed');
   expect(reported).toEqual([releaseError, releaseError]);
+});
+
+describe('owner identity (revise round 1)', () => {
+  let child: ChildProcess | undefined;
+  afterEach(() => {
+    child?.kill('SIGKILL');
+    child = undefined;
+  });
+  /** A live process other than this one. */
+  async function liveOther(): Promise<number> {
+    child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
+    await new Promise<void>((resolve, reject) => {
+      child?.once('spawn', () => resolve());
+      child?.once('error', reject);
+    });
+    if (!child.pid) throw new Error('No child PID');
+    return child.pid;
+  }
+  const linux = process.platform === 'linux' ? it : it.skip;
+
+  it('never steals from a live owner, however old its lock is', async () => {
+    const file = join(directory, 'tokens.json');
+    const pid = await liveOther();
+    await plantLock(file, {
+      pid,
+      startedAt: await processStartTime(pid),
+      nonce: 'slow-owner',
+      acquiredAt: Date.now() - 120_000,
+    });
+    const operation = jest.fn(async () => 'ran');
+    await expect(
+      withFileLock(file, operation, { timeoutMs: 100 }),
+    ).rejects.toBeInstanceOf(FileLockBusyError);
+    expect(operation).not.toHaveBeenCalled();
+    expect(
+      await readFile(join(`${file}.lock`, 'owner.json'), 'utf8'),
+    ).toContain('slow-owner');
+  });
+
+  linux(
+    'steals a lock whose PID now names another process (PID reuse)',
+    async () => {
+      const file = join(directory, 'tokens.json');
+      const pid = await liveOther();
+      await plantLock(file, {
+        pid,
+        startedAt: 'a-different-start-time',
+        nonce: 'dead-owner',
+        acquiredAt: Date.now(),
+      });
+      await expect(withFileLock(file, async () => 'stolen')).resolves.toBe(
+        'stolen',
+      );
+      expect(await readdir(directory)).toEqual([]);
+    },
+  );
+
+  it('records its start time and never removes a lock another owner holds now', async () => {
+    const file = join(directory, 'tokens.json');
+    const reported: unknown[] = [];
+    const result = await withFileLock(
+      file,
+      async () => {
+        const owner = JSON.parse(
+          await readFile(join(`${file}.lock`, 'owner.json'), 'utf8'),
+        ) as { pid: number; startedAt: string | null; nonce: string };
+        expect(owner.pid).toBe(process.pid);
+        expect(owner.startedAt).toBe(await processStartTime(process.pid));
+        expect(owner.nonce).toMatch(/^[0-9a-f]{32}$/);
+        // Another owner took the lock while this operation ran.
+        await rm(`${file}.lock`, { recursive: true, force: true });
+        await plantLock(file, {
+          pid: process.pid,
+          startedAt: owner.startedAt,
+          nonce: 'other-owner',
+          acquiredAt: Date.now(),
+        });
+        return 'written';
+      },
+      { onReleaseError: (error) => reported.push(error) },
+    );
+    expect(result).toBe('written');
+    expect(String(reported[0])).toContain('held by another owner');
+    expect(
+      await readFile(join(`${file}.lock`, 'owner.json'), 'utf8'),
+    ).toContain('other-owner');
+  });
 });

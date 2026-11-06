@@ -395,3 +395,134 @@ describe('Batch 21 connection bounds and token state', () => {
     connection.close();
   });
 });
+
+describe('auth races and the admin proof (revise round 1)', () => {
+  const hello = frame('h', 'hello', {
+    protocol: { min: 1, max: 1 },
+    client: { name: 'c', version: '1' },
+  });
+  const settle = async () => {
+    for (let i = 0; i < 3; i += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  /** A connection whose `recordUse` stays pending until `finish()`. */
+  function pausedInAuth() {
+    const socket = new FakeSocket();
+    let finish!: () => void;
+    const recorded = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const state: {
+      record:
+        | {
+            tokenId: string;
+            grant: { machineId: string; workspaceIds: string[] };
+          }
+        | undefined;
+    } = {
+      record: {
+        tokenId: 'tok',
+        grant: { machineId: 'm', workspaceIds: ['w1'] },
+      },
+    };
+    const tokens = {
+      recordUse: jest.fn(() => recorded),
+      authenticate: () => state.record,
+    } as unknown as TokenStore;
+    const handle = jest.fn(
+      async (_method: string, _params: unknown, grant: unknown) => grant,
+    );
+    const connection = new WorkerConnection(socket as unknown as WebSocket, {
+      identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+      pairing: {} as PairingWindow,
+      tokens,
+      handle,
+    });
+    socket.emit('message', hello, false);
+    socket.emit('message', frame('a', 'auth', { token: 't' }), false);
+    return { socket, connection, state, finish, handle };
+  }
+
+  it('refuses a token revoked while its use was being recorded', async () => {
+    const { socket, connection, state, finish, handle } = pausedInAuth();
+    await settle();
+    // A revocation scan now cannot see this connection: no token ID yet.
+    expect(connection.authenticatedTokenId).toBeNull();
+    state.record = undefined;
+    finish();
+    await settle();
+    expect(socket.code).toBe(4401);
+    socket.emit('message', frame('1', 'workspaces.list', {}), false);
+    await settle();
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('enters client with the grant current after the recorded use', async () => {
+    const { socket, connection, state, finish } = pausedInAuth();
+    await settle();
+    state.record = {
+      tokenId: 'tok',
+      grant: { machineId: 'm', workspaceIds: ['w1', 'w2'] },
+    };
+    finish();
+    await settle();
+    const auth = socket.frames.find(
+      (item) => (item as { id?: string }).id === 'a',
+    ) as { ok: boolean; result: { grant: unknown } };
+    expect(auth.ok).toBe(true);
+    expect(auth.result.grant).toEqual({
+      machineId: 'm',
+      workspaceIds: ['w1', 'w2'],
+    });
+    expect(connection.authenticatedTokenId).toBe('tok');
+    connection.close();
+  });
+
+  it('accepts only an HMAC over this connection challenge as admin proof', async () => {
+    const { adminProof } = await import('./admin-key');
+    const key = Buffer.alloc(32, 7);
+    const open = () => {
+      const socket = new FakeSocket();
+      const connection = new WorkerConnection(socket as unknown as WebSocket, {
+        identity: { machineId: 'm', displayName: 'machine', ptahVersion: '1' },
+        pairing: {} as PairingWindow,
+        tokens: {} as TokenStore,
+        adminKey: key,
+        handle: jest.fn(),
+      });
+      socket.emit('message', hello, false);
+      return { socket, connection };
+    };
+    const challengeOf = (socket: FakeSocket) =>
+      (socket.frames[0] as { result: { adminChallenge: string } }).result
+        .adminChallenge;
+
+    const good = open();
+    await settle();
+    const challenge = challengeOf(good.socket);
+    good.socket.emit(
+      'message',
+      frame('a', 'auth', { adminProof: adminProof(key, challenge) }),
+      false,
+    );
+    await settle();
+    expect(good.socket.frames[1]).toMatchObject({
+      ok: true,
+      result: { role: 'admin' },
+    });
+    good.connection.close();
+
+    // A proof replayed on another connection meets a different challenge.
+    const replay = open();
+    await settle();
+    expect(challengeOf(replay.socket)).not.toBe(challenge);
+    replay.socket.emit(
+      'message',
+      frame('a', 'auth', { adminProof: adminProof(key, challenge) }),
+      false,
+    );
+    await settle();
+    expect(replay.socket.code).toBe(4401);
+  });
+});

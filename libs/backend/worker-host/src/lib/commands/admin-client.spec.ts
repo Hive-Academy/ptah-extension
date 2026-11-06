@@ -16,6 +16,8 @@ beforeAll(async () => {
 }, 180_000);
 
 const CASE_TIMEOUT = 60_000;
+const CHALLENGE = 'c'.repeat(43);
+const KEY = Buffer.alloc(32, 7);
 
 let home: string;
 let paths: WorkerPaths;
@@ -25,7 +27,7 @@ beforeEach(async () => {
   const { workerPaths } = await import('@ptah-extension/worker-runtime');
   paths = workerPaths(home);
   await mkdir(paths.directory, { recursive: true });
-  await writeFile(paths.adminKey, Buffer.alloc(32, 7), { mode: 0o600 });
+  await writeFile(paths.adminKey, KEY, { mode: 0o600 });
 });
 afterEach(async () => {
   await new Promise<void>((resolve) =>
@@ -39,13 +41,16 @@ afterEach(async () => {
 async function listen(machineId: string): Promise<{
   port: number;
   methods: string[];
+  frames: string[];
 }> {
   const methods: string[] = [];
+  const frames: string[] = [];
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   squatter = server;
   await new Promise<void>((resolve) => server.once('listening', resolve));
   server.on('connection', (socket) =>
     socket.on('message', (data) => {
+      frames.push(data.toString());
       const frame = JSON.parse(data.toString()) as {
         id: string;
         method: string;
@@ -62,6 +67,7 @@ async function listen(machineId: string): Promise<{
               ? {
                   protocol: 1,
                   worker: { machineId, displayName: 'x', ptahVersion: '1' },
+                  adminChallenge: CHALLENGE,
                 }
               : { role: 'admin' },
         }),
@@ -70,7 +76,7 @@ async function listen(machineId: string): Promise<{
   );
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('No port');
-  return { port: address.port, methods };
+  return { port: address.port, methods, frames };
 }
 
 async function writeEndpoint(record: unknown): Promise<void> {
@@ -89,7 +95,7 @@ it(
       machineId: workerMachineId(),
     });
     await expect(adminCall(paths, 'admin.status', {})).rejects.toThrow(
-      'not this worker; the admin key was not sent',
+      'not this worker; no admin proof was sent',
     );
     expect(methods).toEqual(['hello']);
   },
@@ -125,6 +131,34 @@ it(
       'does not name its owner',
     );
     expect(methods).toEqual([]);
+  },
+  CASE_TIMEOUT,
+);
+
+it(
+  'sends a listener with the right machine ID and a live PID only an HMAC, never the key',
+  async () => {
+    const { adminProof, workerMachineId } =
+      await import('@ptah-extension/worker-runtime');
+    const { port, methods, frames } = await listen(workerMachineId());
+    await writeEndpoint({
+      host: '127.0.0.1',
+      port,
+      pid: process.pid,
+      machineId: workerMachineId(),
+    });
+    // The impostor answers auth and the call, but cannot form a valid result.
+    await expect(adminCall(paths, 'admin.status', {})).rejects.toThrow(
+      'Invalid worker response',
+    );
+    expect(methods).toEqual(['hello', 'auth', 'admin.status']);
+    const auth = JSON.parse(frames[1] ?? '{}') as { params?: unknown };
+    expect(auth.params).toEqual({ adminProof: adminProof(KEY, CHALLENGE) });
+    for (const frame of frames) {
+      expect(frame).not.toContain(KEY.toString('base64url'));
+      expect(frame).not.toContain(KEY.toString('hex'));
+      expect(frame).not.toContain(KEY.toString('base64'));
+    }
   },
   CASE_TIMEOUT,
 );

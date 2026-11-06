@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   PROTOCOL_VERSION,
@@ -15,7 +15,7 @@ import {
 } from '@ptah-extension/worker-protocol';
 import { PairingWindow } from './pairing-window';
 import { TokenStore } from './token-store';
-import { verifyAdminKey } from './admin-key';
+import { verifyAdminProof } from './admin-key';
 
 /** The calling connection, as an authenticated method handler sees it. */
 export interface WorkerPeer {
@@ -64,6 +64,8 @@ export class WorkerConnection {
   private failures = 0;
   private nextPairAt = 0;
   private readonly id = randomUUID();
+  /** Fresh per connection; an admin answers it with an HMAC of the admin key. */
+  private readonly adminChallenge = randomBytes(32).toString('base64url');
   private readonly authTimer: ReturnType<typeof setTimeout>;
   private readonly pingTimer: ReturnType<typeof setInterval>;
   private pongDue: ReturnType<typeof setTimeout> | undefined;
@@ -290,6 +292,7 @@ export class WorkerConnection {
         this.respond(id, {
           protocol: PROTOCOL_VERSION,
           worker: this.options.identity,
+          adminChallenge: this.adminChallenge,
         });
       } else if (method === 'pair.exchange') {
         if (this.state !== 'hello') {
@@ -319,12 +322,17 @@ export class WorkerConnection {
           this.close(WORKER_CLOSE_CODES.METHOD_NOT_ALLOWED);
           return;
         }
-        const input = params as { token?: string; admin?: string };
-        if (input.admin) {
-          const candidate = Buffer.from(input.admin, 'base64url');
+        const input = params as { token?: string; adminProof?: string };
+        if (input.adminProof !== undefined) {
+          // The admin key never crosses the wire: the caller proves it holds
+          // the key with an HMAC over this connection's challenge.
           if (
             !this.options.adminKey ||
-            !verifyAdminKey(this.options.adminKey, candidate)
+            !verifyAdminProof(
+              this.options.adminKey,
+              this.adminChallenge,
+              input.adminProof,
+            )
           ) {
             this.close(WORKER_CLOSE_CODES.NOT_AUTHENTICATED);
             return;
@@ -332,7 +340,8 @@ export class WorkerConnection {
           this.state = 'admin';
           this.respond(id, { role: 'admin' });
         } else {
-          const token = this.options.tokens.authenticate(input.token ?? '');
+          const secret = input.token ?? '';
+          const token = this.options.tokens.authenticate(secret);
           if (!token) {
             this.close(WORKER_CLOSE_CODES.NOT_AUTHENTICATED);
             return;
@@ -346,13 +355,22 @@ export class WorkerConnection {
             this.options.onError?.(error);
           }
           if (this.closed) return;
-          this.grant = token.grant;
-          this.tokenId = token.tokenId;
+          // The token may have been revoked, or its grant changed, during the
+          // await; the connection scans in WorkerService could not see this
+          // connection yet. Read the current record and enter `client` in the
+          // same synchronous step, so a later scan reaches it.
+          const current = this.options.tokens.authenticate(secret);
+          if (!current) {
+            this.close(WORKER_CLOSE_CODES.NOT_AUTHENTICATED);
+            return;
+          }
+          this.grant = current.grant;
+          this.tokenId = current.tokenId;
           this.state = 'client';
           this.respond(id, {
             role: 'client',
-            tokenId: token.tokenId,
-            grant: token.grant,
+            tokenId: current.tokenId,
+            grant: current.grant,
           });
         }
         clearTimeout(this.authTimer);

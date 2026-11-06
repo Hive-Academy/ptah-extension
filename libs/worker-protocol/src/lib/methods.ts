@@ -120,6 +120,8 @@ const HelloParamsSchema = z.strictObject({
 const HelloResultSchema = z.object({
   protocol: z.number().int().min(1),
   worker: WorkerIdentitySchema,
+  /** Fresh per connection; the admin channel answers it in `auth`. */
+  adminChallenge: z.string().min(16).max(128).optional(),
 });
 
 const PairExchangeParamsSchema = z.strictObject({
@@ -135,7 +137,11 @@ const PairExchangeResultSchema = z.object({
 
 const AuthParamsSchema = z.union([
   z.strictObject({ token: SecretSchema }),
-  z.strictObject({ admin: SecretSchema }),
+  /**
+   * HMAC-SHA256(adminKey, adminChallenge + context), base64url. The admin key
+   * itself never goes on the wire.
+   */
+  z.strictObject({ adminProof: SecretSchema }),
 ]);
 
 const AuthResultSchema = z.discriminatedUnion('role', [
