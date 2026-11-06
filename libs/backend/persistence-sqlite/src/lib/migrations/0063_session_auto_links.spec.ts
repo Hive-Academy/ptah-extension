@@ -56,7 +56,7 @@ describe('migration 0063_session_auto_links', () => {
       name: '0063_session_auto_links',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(69);
+    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(71);
     expect(sql).not.toContain('${');
   });
 

@@ -155,6 +155,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentGeneration.models',
   'agentOrchestration.disabledClis',
   'agentOrchestration.disabledMcpNamespaces',
+  // External MCP callers (Claude Code, Cursor, Codex, Antigravity) stay
+  // read-only until this is `full`. Home slots stay read-only either way.
+  'mcp.externalCallerAccess',
   // Claude built-in opt-ins (TASK_2026_853): global, read by every main
   // session and Claude lane build; default [] keeps every catalog item off.
   'agentOrchestration.enabledClaudeBuiltinTools',
@@ -372,6 +375,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
+  'mcp.externalCallerAccess': 'read-only',
   'agentOrchestration.enabledClaudeBuiltinTools': [],
   'agentOrchestration.enabledClaudeBuiltinSkills': [],
   'provider.cursor.apiKey': '',

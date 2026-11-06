@@ -277,6 +277,14 @@ function makeBuilder(
     noopHooks,
     noopHooks,
     noopHooks,
+    undefined,
+    undefined,
+    undefined,
+    // MCP caller credentials: build() refuses to attach Ptah MCP without them.
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 }
 

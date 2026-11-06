@@ -3,7 +3,10 @@ import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   MemoryCuratorEventWire,
+  MemoryCuratorRunOutcome,
+  MemoryCuratorRunReason,
   MemoryDbHealthDto,
+  MemoryRunNowResult,
   MemoryStorageHealthDto,
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
@@ -20,7 +23,34 @@ export interface LastRunSnapshot {
   > | null;
 }
 
+/**
+ * The result of the last "Run curator now" click, kept from the RPC body
+ * (including `success: false`). `error` is the backend's fixed sentence.
+ */
+export interface ManualRunResult {
+  /** Epoch-ms when the pass finished. */
+  readonly at: number;
+  readonly success: boolean;
+  readonly outcome: MemoryCuratorRunOutcome;
+  readonly extracted: number;
+  readonly merged: number;
+  readonly created: number;
+  readonly skipped: number;
+  readonly reason: MemoryCuratorRunReason | null;
+  readonly error: string | null;
+}
+
 export const DIAGNOSTICS_POLL_MS = 30_000;
+
+/** Shown when the run request never reached the host (no transport text). */
+export const CURATOR_UNREACHABLE_MESSAGE =
+  'Could not reach the curator. Try again.';
+/** Shown when the diagnostics snapshot could not be read. */
+export const DIAGNOSTICS_LOAD_FAILED_MESSAGE =
+  'Could not load the curator diagnostics. Try again.';
+/** Shown when a trigger change could not be saved. */
+export const TRIGGERS_SAVE_FAILED_MESSAGE =
+  'Could not save the trigger settings. Try again.';
 
 /** Tooltip and hint on a manual run that the Memory switch blocks (plan 3.6). */
 export const MEMORY_PAUSED_REASON = 'Paused — resume Memory to run';
@@ -46,6 +76,8 @@ export class MemoryDiagnosticsStateService {
   private readonly _storage = signal<MemoryStorageHealthDto | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _lastManualRun = signal<ManualRunResult | null>(null);
+  private readonly _curatorRunning = signal<boolean>(false);
 
   public readonly triggers = this._triggers.asReadonly();
   public readonly lastRun = this._lastRun.asReadonly();
@@ -54,6 +86,13 @@ export class MemoryDiagnosticsStateService {
   public readonly storage = this._storage.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  /** Last manual run result; `refresh()` and the poll never clear it. */
+  public readonly lastManualRun = this._lastManualRun.asReadonly();
+  /**
+   * True while a manual curator run is in flight. Separate from `loading`,
+   * which the 30 s poll and Refresh toggle on their own.
+   */
+  public readonly curatorRunning = this._curatorRunning.asReadonly();
 
   public readonly hasActiveSession = computed<boolean>(() => {
     const tab = this.tabManager.activeTab();
@@ -167,14 +206,15 @@ export class MemoryDiagnosticsStateService {
       this._recentEvents.set(snapshot.recentEvents);
       this._dbHealth.set(snapshot.dbHealth);
       this._storage.set(snapshot.storage);
-    } catch (err) {
-      this._error.set(toErrorMessage(err));
+    } catch {
+      this._error.set(DIAGNOSTICS_LOAD_FAILED_MESSAGE);
     } finally {
       this._loading.set(false);
     }
   }
 
   public async runNow(): Promise<void> {
+    if (this._curatorRunning()) return;
     const root = this.appState.workspaceInfo()?.path;
     if (!root) {
       this._error.set('No workspace is open.');
@@ -189,14 +229,16 @@ export class MemoryDiagnosticsStateService {
       this._pausedNotice.set(MEMORY_PAUSED_NOTICE);
       return;
     }
-    this._loading.set(true);
+    this._curatorRunning.set(true);
     this._error.set(null);
     this._pausedNotice.set(null);
+    this._lastManualRun.set(null);
     try {
-      await this.rpc.runNow({
+      const result = await this.rpc.runNow({
         sessionId: String(sessionId),
         workspaceRoot: root,
       });
+      this._lastManualRun.set(toManualRun(result));
       await this.refresh();
     } catch (err) {
       if (err instanceof MemoryPausedError) {
@@ -206,9 +248,10 @@ export class MemoryDiagnosticsStateService {
         this._memoryEnabled.set(false);
         this._pausedNotice.set(MEMORY_PAUSED_NOTICE);
       } else {
-        this._error.set(toErrorMessage(err));
+        this._error.set(CURATOR_UNREACHABLE_MESSAGE);
       }
-      this._loading.set(false);
+    } finally {
+      this._curatorRunning.set(false);
     }
   }
 
@@ -217,8 +260,8 @@ export class MemoryDiagnosticsStateService {
     try {
       const res = await this.rpc.setTriggers({ triggers: patch });
       this._triggers.set(res.triggers);
-    } catch (err) {
-      this._error.set(toErrorMessage(err));
+    } catch {
+      this._error.set(TRIGGERS_SAVE_FAILED_MESSAGE);
     }
   }
 
@@ -257,8 +300,21 @@ export class MemoryDiagnosticsStateService {
   }
 }
 
-function toErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  return 'Unknown diagnostics error';
+function toManualRun(result: MemoryRunNowResult): ManualRunResult {
+  const stats = result.stats;
+  const count = (key: string): number => {
+    const value = stats?.[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    at: result.completedAt,
+    success: result.success,
+    outcome: result.outcome ?? (result.success ? 'ran' : 'failed'),
+    extracted: count('extracted'),
+    merged: count('merged'),
+    created: count('created'),
+    skipped: count('skipped'),
+    reason: result.reason ?? null,
+    error: result.error ?? null,
+  };
 }

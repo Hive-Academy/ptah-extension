@@ -9,5 +9,6 @@
 export { WorkspaceIndexingComponent } from './lib/workspace-indexing.component';
 export {
   WorkspaceIndexingService,
+  type IndexingActionMessage,
   type IndexingUiState,
 } from './lib/workspace-indexing.service';

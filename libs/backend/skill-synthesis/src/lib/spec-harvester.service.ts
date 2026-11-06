@@ -3,15 +3,15 @@
  * skill telemetry. A spec is eligible only once its `task.md` frontmatter status
  * is `done`/`cancelled` (see `extractSpec`); legacy carrier-less folders are
  * skipped. Three jobs:
- *  1. harvest()  — reconcile the optimistic `succeeded:true` subagent events
- *     against graded per-batch verdicts (batches.md word statuses, falling back
- *     permanently to the legacy tasks.md name), keyed by executor slug. Folders
- *     skipped for want of a carrier are warned about once per run rather than
- *     dropped silently.
+ *  1. harvest()  — reconcile the optimistic `succeeded:true` invocation events
+ *     of each finished task against its task-level verdict (`taskVerdict`:
+ *     cancelled -> failed; done -> the latest work review), by task id within
+ *     the same workspace, and write review grades. Folders skipped for want of
+ *     a carrier are warned about once per run rather than dropped silently.
  *  2. getRecentFindings() — feed review reports into the enhancer (SpecFindingsPort).
  *  3. listSpecs() / clearStaleSpecs() — classify and prune harvested specs.
  *
- * Reads the workspace `.ptah/specs` folder and writes legacy reconciliation
+ * Reads the workspace `.ptah/specs` folder and writes task reconciliation
  * through SkillInvocationEventStore and review grades through SkillTaskGradeStore.
  */
 import {
@@ -40,7 +40,10 @@ import { SkillTaskGradeStore, type GradeAttribution, type SkillTaskGrade } from 
 import {
   extractSpec,
   HARVEST_MARKER_FILE,
+  isDocumentReview,
+  taskVerdict,
   type HarvestedSpec,
+  type SpecReviewVerdict,
 } from './spec-extractor';
 import type { SpecFindingsPort } from './spec-findings.port';
 import type { SkillRegistryKind } from './skill-registry.store';
@@ -62,9 +65,23 @@ export interface SpecSummary {
 }
 
 export interface HarvestResult {
+  /** TASK_* folders with a valid `task.md` carrier. */
   readonly scanned: number;
+  /** Finished specs whose grades and marker were written this run. */
   readonly harvested: number;
+  /** Invocation events reconciled this run (summed over every finished spec). */
   readonly reconciled: number;
+  /** Scanned specs not yet done or cancelled; harvested once they finish. */
+  readonly pending: number;
+  /** TASK_* folders skipped because they have no valid `task.md` carrier. */
+  readonly skippedFolders: number;
+}
+
+export type HarvestTrigger = 'manual' | 'auto';
+
+export interface HarvestOptions {
+  /** Who started the run; logged with the run's counts. */
+  readonly trigger?: HarvestTrigger;
 }
 
 export interface ClearStaleResult {
@@ -81,7 +98,21 @@ interface HarvestMarker {
   readonly reconciledCount: number;
 }
 
-const MARKER_VERSION = 2;
+/**
+ * Version 3: task-level reconciliation (P3/P4). A marker from an older version
+ * makes the spec re-harvest once.
+ */
+const MARKER_VERSION = 3;
+
+/**
+ * The reviews sharing the newest `modifiedAt`, in their original order. One
+ * entry unless several reviews were written in the same millisecond.
+ */
+function latestReviews(reviews: readonly SpecReviewVerdict[]): SpecReviewVerdict[] {
+  if (reviews.length === 0) return [];
+  const latestAt = Math.max(...reviews.map((review) => review.modifiedAt));
+  return reviews.filter((review) => review.modifiedAt === latestAt);
+}
 
 @injectable()
 export class SpecHarvesterService implements SpecFindingsPort {
@@ -97,44 +128,48 @@ export class SpecHarvesterService implements SpecFindingsPort {
   ) {}
 
   /**
-   * Reconcile every completed, un-harvested spec under the workspace `.ptah/specs`.
-   * Idempotent: harvested specs (marker present) are skipped, and the store's
-   * `reconciled_at` guard prevents double-flipping a row.
+   * Reconcile the invocation events of every finished spec under the workspace
+   * `.ptah/specs` and write review grades for specs whose artifacts changed.
+   *
+   * Event reconciliation runs for every finished spec with a task verdict on
+   * every run, marker or not: the store only touches rows with
+   * `reconciled_at IS NULL`, so it is idempotent and overlapping runs cannot
+   * flip an event twice. Grades and the marker are written only when the
+   * marker is missing, from an older version, or has a different digest.
    */
-  async harvest(workspaceRoot?: string): Promise<HarvestResult> {
+  async harvest(workspaceRoot?: string, options: HarvestOptions = {}): Promise<HarvestResult> {
     const root = this.resolveSpecsRoot(workspaceRoot);
-    const specs = await this.readSpecs(root, { warnOnSkipped: true });
+    const workspace = normalizeWorkspaceRoot(join(root, '..', '..'));
+    const { specs, skippedFolders } = await this.readSpecs(root, { warnOnSkipped: true });
     let harvested = 0;
     let reconciled = 0;
+    let pending = 0;
     const now = Date.now();
 
     for (const spec of specs) {
-      if (!spec.completed) continue;
+      if (!spec.completed) {
+        pending += 1;
+        continue;
+      }
+      const verdict = taskVerdict(spec);
+      const count = verdict === null ? 0 : this.events.reconcileTaskEvents({
+        taskId: spec.taskId,
+        workspaceRoot: workspace,
+        succeeded: verdict === 'succeeded',
+        verdictSource: `spec:${spec.taskId}`,
+        reconciledAt: now,
+      });
+      reconciled += count;
       const marker = await this.readMarker(spec.dir);
-      if (marker?.version === MARKER_VERSION && marker.artifactDigest === spec.artifactDigest) continue;
+      const current = marker?.version === MARKER_VERSION;
+      if (current && marker?.artifactDigest === spec.artifactDigest) continue;
       for (const diagnostic of spec.diagnostics) {
         this.logger.warn('[spec-harvester] invalid review artifact', { taskId: spec.taskId, reason: diagnostic.slice(0, 120) });
-      }
-      let count = 0;
-      for (const batch of marker ? [] : spec.batches) {
-        const did = this.events.reconcileSubagentEvent({
-          slug: batch.slug,
-          taskId: spec.taskId,
-          succeeded: batch.status === 'COMPLETE',
-          windowStart: spec.windowStart,
-          windowEnd: spec.windowEnd,
-          verdictSource: `spec:${spec.taskId}`,
-          reconciledAt: now,
-        });
-        if (did) {
-          count += 1;
-          reconciled += 1;
-        }
       }
       if (this.grades) {
         const failure = this.gradeFailures.get(spec.dir);
         if (failure?.digest === spec.artifactDigest && failure.attempts >= 3) continue;
-        if (!this.writeGrades(spec, root, now)) {
+        if (!this.writeGrades(spec, workspace, now)) {
           this.gradeFailures.set(spec.dir, {
             digest: spec.artifactDigest,
             attempts: failure?.digest === spec.artifactDigest ? failure.attempts + 1 : 1,
@@ -143,23 +178,23 @@ export class SpecHarvesterService implements SpecFindingsPort {
         }
         this.gradeFailures.delete(spec.dir);
       }
-      await this.writeMarker(spec, now, count);
+      await this.writeMarker(spec, now, (current ? marker?.reconciledCount ?? 0 : 0) + count);
       harvested += 1;
     }
 
-    if (harvested > 0) {
-      this.logger.info('[spec-harvester] harvest complete', {
-        scanned: specs.length,
-        harvested,
-        reconciled,
-      });
-    }
-    return { scanned: specs.length, harvested, reconciled };
+    this.logger.info('[spec-harvester] harvest complete', {
+      trigger: options.trigger ?? 'unspecified',
+      scanned: specs.length,
+      harvested,
+      reconciled,
+      pending,
+      skippedFolders,
+    });
+    return { scanned: specs.length, harvested, reconciled, pending, skippedFolders };
   }
 
-  private writeGrades(spec: HarvestedSpec, specsRoot: string, now: number): boolean {
+  private writeGrades(spec: HarvestedSpec, workspaceRoot: string, now: number): boolean {
     if (!this.grades) return true;
-    const workspaceRoot = normalizeWorkspaceRoot(join(specsRoot, '..', '..'));
     try {
       const attributions: GradeAttribution[] = this.grades.findAttributions(spec.taskId, workspaceRoot);
       if (attributions.length === 0 && spec.batches.length > 0) {
@@ -172,19 +207,25 @@ export class SpecHarvesterService implements SpecFindingsPort {
         const siblings = attributions.filter((candidate) => candidate.kind === attribution.kind && candidate.slug === attribution.slug);
         const batch = attribution.kind === 'agent' && siblings.length === 1
           ? spec.batches.find((item) => item.slug === attribution.slug) : undefined;
-        const matching = spec.reviews.filter((review) =>
+        // Planning-document reviews never grade work on any branch (as in taskVerdict).
+        const matching = spec.reviews.filter((review) => !isDocumentReview(review.file) && (
           (review.runId !== null && review.runId === attribution.runId) ||
           (review.runId === null && review.sessionId !== null && review.sessionId === attribution.sessionId && siblings.length === 1) ||
-          (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent' && !/plan|architecture/i.test(review.file)));
+          (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent')));
         const final = matching.filter((review) => !review.file.startsWith('judge-round-'));
         const selected = final.length > 0 ? final : matching;
-        const verdicts = new Set(selected.map((review) => review.verdict));
+        const latest = latestReviews(selected);
         const laneVerdict = attribution.finalReview === 'approved' ? 'pass' : attribution.finalReview === 'rejected' ? 'fail' : null;
-        if (!batch && !laneVerdict && verdicts.size > 1) {
-          this.logger.warn('[spec-harvester] conflicting review verdicts', { taskId: spec.taskId, slug: attribution.slug.slice(0, 80) });
-          continue;
+        if (!batch && !laneVerdict && new Set(selected.map((review) => review.verdict)).size > 1) {
+          if (new Set(latest.map((review) => review.verdict)).size > 1) {
+            this.logger.warn('[spec-harvester] conflicting review verdicts', { taskId: spec.taskId, slug: attribution.slug.slice(0, 80) });
+            continue;
+          }
+          this.logger.debug('[spec-harvester] conflicting review verdicts resolved to the latest review', {
+            taskId: spec.taskId, slug: attribution.slug.slice(0, 80), file: latest.at(-1)?.file,
+          });
         }
-        const review = selected.at(-1);
+        const review = latest.at(-1);
         const verdict = batch ? (batch.status === 'COMPLETE' ? 'pass' : 'fail') : laneVerdict ?? review?.verdict;
         if (!verdict) continue;
         const grade: SkillTaskGrade = {
@@ -194,7 +235,12 @@ export class SpecHarvesterService implements SpecFindingsPort {
           sourceDigest: spec.artifactDigest, evidenceSource: batch ? 'batch' : laneVerdict ? 'lane-final-review' : 'task-review',
           workspaceRoot, gradedAt: now, findingsRef: review ? `${spec.taskId}/${review.file}` : null,
         };
-        this.grades.upsert(grade);
+        if (!this.grades.upsert(grade)) {
+          this.logger.warn('[spec-harvester] grade key owned by another workspace', {
+            taskId: spec.taskId, slug: attribution.slug.slice(0, 80),
+          });
+          continue;
+        }
         keep.push(`${grade.subjectKind}:${grade.subjectSlug}:${grade.attributionKey}`);
       }
       const removed = this.grades.removeAbsent(spec.taskId, workspaceRoot, keep);
@@ -216,7 +262,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
   /** Classify every TASK_* spec for the cleanup UI. */
   async listSpecs(workspaceRoot?: string): Promise<SpecSummary[]> {
     const root = this.resolveSpecsRoot(workspaceRoot);
-    const specs = await this.readSpecs(root);
+    const { specs } = await this.readSpecs(root);
     const now = Date.now();
     const summaries: SpecSummary[] = [];
     for (const spec of specs) {
@@ -254,7 +300,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
     const mode = options.mode ?? 'archive';
     const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
     const cutoff = Date.now() - retentionDays * DAY_MS;
-    const specs = await this.readSpecs(root);
+    const { specs } = await this.readSpecs(root);
     const cleared: string[] = [];
 
     for (const spec of specs) {
@@ -300,13 +346,14 @@ export class SpecHarvesterService implements SpecFindingsPort {
       // optional enhancement evidence; null means none can be resolved.
       return null;
     }
-    const specs = (await this.readSpecs(root))
+    const workspace = normalizeWorkspaceRoot(join(root, '..', '..'));
+    const specs = (await this.readSpecs(root)).specs
       .filter(
         (spec) =>
           spec.completed &&
           spec.reviewFindings.length > 0 &&
           (spec.batches.some((b) => b.slug === slug) ||
-            (this.grades?.hasGradeForTask(spec.taskId, slug, kind) ?? false)),
+            (this.grades?.hasGradeForTask(spec.taskId, slug, kind, workspace) ?? false)),
       )
       .sort((a, b) => b.windowEnd - a.windowEnd)
       .slice(0, MAX_FINDING_SPECS);
@@ -330,20 +377,22 @@ export class SpecHarvesterService implements SpecFindingsPort {
    * carrier-less folders, and per-folder logging would turn a real signal into
    * noise. Only `harvest()` opts in — the read-only accessors run on hot paths
    * where this would repeat without telling anyone anything new.
+   *
+   * Returns the specs and the number of skipped carrier-less folders.
    */
   private async readSpecs(
     root: string,
     options: { warnOnSkipped?: boolean } = {},
-  ): Promise<HarvestedSpec[]> {
+  ): Promise<{ specs: HarvestedSpec[]; skippedFolders: number }> {
     // degradation-audit: optional-capability - a workspace without .ptah/specs has no specs to read.
     const actualRoot = await realpath(root).catch(() => null);
     // degradation-audit: optional-capability - an unresolvable workspace root means no specs to read.
     const actualWorkspace = await realpath(join(root, '..', '..')).catch(() => null);
-    if (!actualRoot || !actualWorkspace) return [];
+    if (!actualRoot || !actualWorkspace) return { specs: [], skippedFolders: 0 };
     const rootWithinWorkspace = relative(actualWorkspace, actualRoot);
     if (!rootWithinWorkspace || rootWithinWorkspace.startsWith('..') || isAbsolute(rootWithinWorkspace)) {
       this.logger.warn('[spec-harvester] spec root resolves outside workspace');
-      return [];
+      return { specs: [], skippedFolders: 0 };
     }
     let entries: string[];
     try {
@@ -351,7 +400,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
     } catch {
       // degradation-audit: optional-capability - The specs directory is
       // optional; an unreadable or absent root contains no harvest candidates.
-      return [];
+      return { specs: [], skippedFolders: 0 };
     }
     const specs: HarvestedSpec[] = [];
     const skipped: string[] = [];
@@ -370,7 +419,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
         { folders: skipped, carrier: CARRIER_FILE },
       );
     }
-    return specs;
+    return { specs, skippedFolders: skipped.length };
   }
 
   private async writeMarker(

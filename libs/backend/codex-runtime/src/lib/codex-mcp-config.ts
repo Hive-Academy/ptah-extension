@@ -72,9 +72,7 @@ function sortedRecord(
   values: ReadonlyMap<string, string>,
 ): Record<string, string> {
   const record: Record<string, string> = {};
-  const sorted = [...values].sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
+  const sorted = [...values].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   for (const [key, value] of sorted) {
     record[key] = value;
   }
@@ -189,11 +187,16 @@ export function buildCodexThreadConfig(
   const disabledServers = new Set(lane.disabledUserMcpServers ?? []);
   for (const tool of lane.suppressedTools) {
     if (
-      tool === 'agents' || tool === 'plugins' ||
-      tool === 'apps' || tool === 'skills' ||
-      (tool.startsWith('mcp:') && disabledServers.has(tool.slice(4)) && tool !== 'mcp:ptah')
-    ) continue;
+      tool === 'agents' ||
+      tool === 'plugins' ||
+      tool === 'apps' ||
+      tool === 'skills' ||
+      (tool.startsWith('mcp:') &&
+        disabledServers.has(tool.slice(4)) &&
+        tool !== 'mcp:ptah')
+    )
+      continue;
     throw new Error('Codex profile requires unsupported runtime configuration');
   }
-  return { ...buildCodexLaneThreadConfig(profile) };
+  return { ...buildCodexLaneThreadConfig(profile, secrets) };
 }

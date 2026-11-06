@@ -12,6 +12,7 @@ import {
 
 function input(): CodexLaneProfileInput {
   return {
+    mcpToken: 't'.repeat(43),
     permissionLevel: 'ask',
     identity: {
       contextId: 'lane-1',
@@ -133,7 +134,12 @@ describe('buildCodexLaneProfileSettings', () => {
       session: result.settings,
       paths,
     });
-    expect(buildCodexLaneThreadConfig(profile)).toEqual({
+    expect(
+      buildCodexLaneThreadConfig(
+        profile,
+        new Map([['mcp.ptah.authorization', 't'.repeat(43)]]),
+      ),
+    ).toEqual({
       agents: { enabled: false },
       features: { plugins: false, apps: false },
       skills: { include_instructions: false },
@@ -148,6 +154,7 @@ describe('buildCodexLaneProfileSettings', () => {
           url: 'http://localhost:51820/agent/lane%2F1/workspace/%2Fworkspace',
           tool_timeout_sec: 960,
           default_tools_approval_mode: 'approve',
+          http_headers: { Authorization: `Bearer ${'t'.repeat(43)}` },
         },
       },
     });
@@ -180,6 +187,7 @@ describe('buildCodexLaneProfileSettings', () => {
         name: 'ptah',
         transport: 'http',
         headerReferences: {},
+        authReference: 'mcp.ptah.authorization',
         url: 'http://localhost:51820/agent/lane%2F1/workspace/%2Fworkspace',
       },
     ]);
@@ -254,7 +262,10 @@ describe('buildCodexLaneProfileSettings', () => {
         session: result.settings,
         paths,
       });
-      const threadConfig = buildCodexLaneThreadConfig(profile);
+      const threadConfig = buildCodexLaneThreadConfig(
+        profile,
+        new Map([['mcp.ptah.authorization', 't'.repeat(43)]]),
+      );
       expect(threadConfig).not.toHaveProperty('model_auto_compact_token_limit');
       expect(threadConfig).not.toHaveProperty('tool_output_token_limit');
       expect(threadConfig.web_search).toBe('disabled');
@@ -290,17 +301,22 @@ describe('buildCodexLaneProfileSettings', () => {
       config: { ...source.config, autoCompactTokens: Number.MAX_SAFE_INTEGER },
     });
     expect(result.requirements.autoCompactTokens).toBe(Number.MAX_SAFE_INTEGER);
-    expect(result.settings.lane?.autoCompactTokens).toBe(Number.MAX_SAFE_INTEGER);
+    expect(result.settings.lane?.autoCompactTokens).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
   });
 
   it.each([
     { maxTurns: 1, maxBudgetUsd: undefined, name: 'maxTurns' },
     { maxTurns: undefined, maxBudgetUsd: 0.01, name: 'maxBudgetUsd' },
-  ])('refuses unsupported positive $name', ({ maxTurns, maxBudgetUsd, name }) => {
-    expect(() =>
-      buildCodexLaneProfileSettings({ ...input(), maxTurns, maxBudgetUsd }),
-    ).toThrow(`Codex lane ${name} is unsupported`);
-  });
+  ])(
+    'refuses unsupported positive $name',
+    ({ maxTurns, maxBudgetUsd, name }) => {
+      expect(() =>
+        buildCodexLaneProfileSettings({ ...input(), maxTurns, maxBudgetUsd }),
+      ).toThrow(`Codex lane ${name} is unsupported`);
+    },
+  );
 
   it.each([undefined, 0, -1, 65536, 1.5, NaN])(
     'handles absent or invalid port %s without inventing attachment',
@@ -317,7 +333,12 @@ describe('buildCodexLaneProfileSettings', () => {
         session: result.settings,
         paths,
       });
-      expect(buildCodexLaneThreadConfig(profile).mcp_servers).toEqual({
+      expect(
+        buildCodexLaneThreadConfig(
+          profile,
+          new Map([['mcp.ptah.authorization', 't'.repeat(43)]]),
+        ).mcp_servers,
+      ).toEqual({
         'a.b': { enabled: false },
         github: { enabled: false },
       });

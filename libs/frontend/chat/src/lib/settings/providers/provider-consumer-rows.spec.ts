@@ -1,6 +1,7 @@
 import type { ProvidersSettingsSection } from '@ptah-extension/core';
 import {
   BACKGROUND_ROLE_IDS,
+  CURATOR_UNSUPPORTED_PROVIDER_IDS,
   ENHANCEMENT_HELPER_COPY,
   PROVIDER_CONSUMER_IDS,
   buildConsumerRows,
@@ -84,5 +85,28 @@ describe('provider consumer rows', () => {
   it('keeps provider readiness checks', () => {
     expect(providerReadiness('anthropic', [{ id: 'anthropic', status: 'connected' }], true)).toBeNull();
     expect(providerReadiness('', [], false)).toEqual(expect.objectContaining({ blocking: true }));
+  });
+
+  it('lists Codex as unsupported for the Memory curator only', () => {
+    expect(CURATOR_UNSUPPORTED_PROVIDER_IDS).toEqual(['openai-codex']);
+    const [curator, enhancement] = buildConsumerRows(sources(), route, () => null);
+    expect(curator.unsupportedProviders).toEqual(['openai-codex']);
+    expect(enhancement.unsupportedProviders).toEqual([]);
+  });
+
+  it('blocks an unsupported provider even when it is connected, with no setup action', () => {
+    const connected = [{ id: 'openai-codex', status: 'connected' }];
+    expect(
+      providerReadiness('openai-codex', connected, true, CURATOR_UNSUPPORTED_PROVIDER_IDS),
+    ).toEqual({
+      message: 'Memory curation cannot run on OpenAI Codex. Choose another provider.',
+      setupProviderId: null,
+      providerDisplayName: 'OpenAI Codex',
+      blocking: true,
+    });
+    // Without the list (other roles) a connected Codex stays ready.
+    expect(providerReadiness('openai-codex', connected, true)).toBeNull();
+    // Following the main agent is not affected by the list.
+    expect(providerReadiness('', [], true, CURATOR_UNSUPPORTED_PROVIDER_IDS)).toBeNull();
   });
 });

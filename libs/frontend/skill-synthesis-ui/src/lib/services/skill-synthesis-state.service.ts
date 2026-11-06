@@ -15,6 +15,20 @@ const SKILLS_SWITCH_READ_ERROR = 'Could not read whether Skills is paused.';
 const TELEMETRY_SWITCH_WRITE_ERROR =
   'Could not change the telemetry switch. It shows the saved setting.';
 const TELEMETRY_SWITCH_READ_ERROR = 'Could not read the telemetry setting.';
+/** Shown for any harvest failure; the detail stays in the host logs. */
+export const SKILLS_HARVEST_FAILED_MESSAGE =
+  'Harvest failed. See the logs for details.';
+
+/** Counts of the last successful harvest, stamped when it returned. */
+export interface SkillsHarvestOutcome {
+  /** Epoch-ms when the harvest returned. */
+  readonly at: number;
+  readonly scanned: number;
+  readonly harvested: number;
+  readonly reconciled: number;
+  readonly pending?: number;
+  readonly skippedFolders?: number;
+}
 
 const SKILLS_ENABLED_KEY = 'skillSynthesis.enabled';
 const SKILLS_TELEMETRY_KEY = 'skills.telemetry.enabled';
@@ -30,6 +44,12 @@ export class SkillSynthesisStateService {
   public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
   public readonly specsLoading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
+  /** True while a harvest request is in flight. */
+  public readonly harvesting = signal<boolean>(false);
+  /** Last successful harvest; `refreshSpecs` never clears it. */
+  public readonly lastHarvest = signal<SkillsHarvestOutcome | null>(null);
+  /** Fixed failure sentence of the last harvest; `refreshSpecs` never clears it. */
+  public readonly harvestError = signal<string | null>(null);
   public readonly staleSpecCount = computed(
     () => this.specs().filter(
       (spec) => spec.status === 'harvested'
@@ -246,14 +266,34 @@ export class SkillSynthesisStateService {
 
   /** Reconcile completed specs into telemetry now, then refresh the list. */
   public async harvestSpecs(): Promise<void> {
+    if (this.harvesting()) return;
+    this.harvesting.set(true);
     this.specsLoading.set(true);
-    this.error.set(null);
+    this.harvestError.set(null);
     try {
-      await this.rpc.harvestSpecs();
+      const result = await this.rpc.harvestSpecs();
+      this.lastHarvest.set({
+        at: Date.now(),
+        scanned: result.scanned,
+        harvested: result.harvested,
+        reconciled: result.reconciled,
+        ...(result.pending !== undefined ? { pending: result.pending } : {}),
+        ...(result.skippedFolders !== undefined
+          ? { skippedFolders: result.skippedFolders }
+          : {}),
+      });
+    } catch {
+      // No raw host text in the UI: the failure detail is in the host logs.
+      this.lastHarvest.set(null);
+      this.harvestError.set(SKILLS_HARVEST_FAILED_MESSAGE);
+      this.harvesting.set(false);
+      this.specsLoading.set(false);
+      return;
+    }
+    try {
       await this.refreshSpecs();
-    } catch (err) {
-      this.error.set(this.toMessage(err));
     } finally {
+      this.harvesting.set(false);
       this.specsLoading.set(false);
     }
   }

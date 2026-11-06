@@ -99,6 +99,9 @@ interface ProviderOption {
 
 const INHERIT_PROVIDER_LABEL = 'Active provider (default)';
 
+/** Suffix on a pinned provider the consumer excludes (`excludedProviders`). */
+const EXCLUDED_PROVIDER_SUFFIX = ' (not supported here)';
+
 /**
  * Per-option tool-use marker in the native `<select>`. An `<option>` renders
  * text only, so the marker is a text suffix; the searchable field renders a
@@ -429,6 +432,16 @@ export class ProviderModelPickerComponent {
   readonly extraProviders = input<readonly ProviderIdentityOption[]>([]);
 
   /**
+   * Provider ids this consumer cannot run on. They are dropped from the
+   * registry and supplied options, so they cannot be chosen. The one
+   * exception is the provider currently pinned by the inputs: hiding it
+   * would make the control misreport its own configuration, so it stays,
+   * labelled with {@link EXCLUDED_PROVIDER_SUFFIX}. The host is responsible
+   * for blocking a save of that value. Default `[]` excludes nothing.
+   */
+  readonly excludedProviders = input<readonly string[]>([]);
+
+  /**
    * Whole-control disabled state: both selects, the manual-entry disclosure
    * (hidden entirely) and the Retry action.
    */
@@ -470,7 +483,22 @@ export class ProviderModelPickerComponent {
         known.add(extra.id);
         supplied.push({ id: extra.id, name: extra.name });
       }
-      return [...registry, ...supplied];
+      const all = [...registry, ...supplied];
+      const excluded = this.excludedProviders();
+      if (excluded.length === 0) return all;
+      const pinned = this.fixedProvider() || this.provider();
+      const options: ProviderOption[] = [];
+      for (const opt of all) {
+        if (!excluded.includes(opt.id)) {
+          options.push(opt);
+        } else if (opt.id === pinned) {
+          options.push({
+            id: opt.id,
+            name: `${opt.name}${EXCLUDED_PROVIDER_SUFFIX}`,
+          });
+        }
+      }
+      return options;
     },
   );
 

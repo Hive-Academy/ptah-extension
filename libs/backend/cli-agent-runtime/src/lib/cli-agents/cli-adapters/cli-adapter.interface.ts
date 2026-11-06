@@ -46,12 +46,17 @@ export interface LaneAccountBindingPort {
    * Epoch changes require fresh proof; labels/defaults are not authority.
    * Keep release-held until the host can certify all of these checks.
    */
-  validateResume(reference: LaneAccountReference): Promise<{ readonly code: string }>;
+  validateResume(
+    reference: LaneAccountReference,
+  ): Promise<{ readonly code: string }>;
   /**
    * Await BOTH registry SDK linkage and durable reference before returning.
    * Must work without a parent. Failure keeps the adapter's prompt gate shut.
    */
-  persistReference(reference: LaneAccountReference, sdkSessionId: string): Promise<void>;
+  persistReference(
+    reference: LaneAccountReference,
+    sdkSessionId: string,
+  ): Promise<void>;
 }
 
 /** Model info returned by CLI adapter's listModels() */
@@ -94,11 +99,18 @@ export interface CliLaneBudgets {
 export type LaneModelSource =
   'request' | 'setting' | 'ptah-default' | 'cli-default';
 
-export type LanePolicyDelivery = 'task-prompt' | 'developer-instructions' | 'system-prompt' | 'instruction-file';
+export type LanePolicyDelivery =
+  | 'task-prompt'
+  | 'developer-instructions'
+  | 'system-prompt'
+  | 'instruction-file';
 
 export interface CliCommandOptions extends LaneAccountBindingFields {
   /** Adapters MUST await this checkpoint before releasing a named prompt. */
-  readonly onAccountBinding?: (reference: LaneAccountReference, sdkSessionId: string) => Promise<void>;
+  readonly onAccountBinding?: (
+    reference: LaneAccountReference,
+    sdkSessionId: string,
+  ) => Promise<void>;
   /** Per-process instruction files for adapters with a verified file channel. */
   readonly instructionFileStore?: import('../lane-instruction-file-store').LaneInstructionFileStore;
   readonly lanePolicyDelivery?: LanePolicyDelivery;
@@ -119,6 +131,10 @@ export interface CliCommandOptions extends LaneAccountBindingFields {
   readonly binaryPath?: string;
   /** Port of the running Ptah HTTP MCP server. When provided, adapters that support it will configure a direct MCP connection (bypassing VS Code's IDE bridge which blocks headless permissions). */
   readonly mcpPort?: number;
+  /** Privileged in-memory credential for this agent and working directory. */
+  readonly mcpToken?: string;
+  /** Revoke this lane's MCP credential once a spawn-time config is restored. */
+  readonly onMcpConfigRestored?: () => void;
   /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Copilot). */
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */

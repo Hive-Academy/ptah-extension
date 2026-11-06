@@ -127,6 +127,7 @@ import type {
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IMcpCallerCredentials } from '@ptah-extension/platform-core';
 import type { HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
@@ -392,6 +393,7 @@ function createManager(deps: {
   mcpServerStatus: { getPort: jest.Mock<number | null, []> };
   hostAttention?: HostAttentionCoordinator;
   attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe;
+  mcpCredentials?: IMcpCallerCredentials;
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -452,6 +454,10 @@ function createManager(deps: {
     planLimits as unknown as ManagerArgs[10],
     deps.hostAttention,
     deps.attachmentProbe,
+    undefined,
+    undefined,
+    undefined,
+    deps.mcpCredentials,
   );
   return {
     manager,
@@ -479,6 +485,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let hostAttention: HostAttentionCoordinator;
   let presentLaneFailure: jest.Mock;
   let releaseLaneFailure: jest.Mock;
+  let mcpCredentials: { issue: jest.Mock; revokeSubject: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -495,6 +502,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     getMcpPort = jest.fn<number | null, []>(() => null);
     presentLaneFailure = jest.fn(async () => undefined);
     releaseLaneFailure = jest.fn();
+    mcpCredentials = {
+      issue: jest.fn(() => 'a'.repeat(43)),
+      revokeSubject: jest.fn(),
+    };
     hostAttention = Object.create(null) as HostAttentionCoordinator;
     hostAttention.presentLaneFailure = presentLaneFailure;
     hostAttention.releaseLaneFailure = releaseLaneFailure;
@@ -513,6 +524,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       harnessPreflight: null,
       mcpServerStatus: { getPort: getMcpPort },
       hostAttention,
+      mcpCredentials,
     }));
   });
 
@@ -631,6 +643,23 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(result.agentId).toBeDefined();
       expect(sdkAdapter.runSdk).toHaveBeenCalledTimes(1);
       expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('revokes the lane credential when the SDK launch fails', async () => {
+      getMcpPort.mockReturnValue(51821);
+      (sdkAdapter.runSdk as jest.Mock).mockRejectedValueOnce(
+        new Error('launch failed'),
+      );
+      await expect(
+        manager.spawn({
+          task: 'Use Ptah tools',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+        }),
+      ).rejects.toThrow('launch failed');
+      expect(mcpCredentials.revokeSubject).toHaveBeenCalledWith(
+        expect.any(String),
+      );
     });
 
     it('propagates the actual MCP status port to MCP-capable adapters', async () => {
@@ -1261,6 +1290,64 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       };
       manager.restoreAgents([ref], '/workspace/root');
     }
+
+    it('passes the explicit interruption marker and resumes after the idle window', async () => {
+      manager.restoreAgents([{
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'interrupted-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        status: 'running',
+      }], '/workspace/root');
+      const previous = manager.getStatus('interrupted-previous') as AgentProcessInfo;
+      if (!previous.completedAt) throw new Error('Expected interruption timestamp');
+      resumeGate.evaluate.mockImplementationOnce(async (input: { interruptedByHostRestart?: boolean }) => ({
+        decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
+        reason: 'host restart interrupted the lane',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 601_000,
+      }));
+
+      const result = await manager.spawn({
+        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+      });
+
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
+        cliSessionId: SESSION,
+        interruptedByHostRestart: true,
+        lastActivityAt: Date.parse(previous.completedAt),
+      }));
+      expect(result.resumeDecision?.decision).toBe('resumed');
+      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBe(SESSION);
+    });
+
+    it('leaves an ordinary stopped lane subject to the idle gate', async () => {
+      manager.restoreAgents([{
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'stopped-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        completedAt: '2026-10-04T08:01:00.000Z',
+        status: 'stopped',
+      }], '/workspace/root');
+      resumeGate.evaluate.mockResolvedValueOnce({
+        decision: 'fresh', reason: 'idle 601s exceeds 600s',
+        contextTokens: null, source: 'estimate', idleMs: 601_000,
+      });
+      const result = await manager.spawn({
+        task: 'Continue', cli: 'codex', workingDirectory: '/workspace/root', resumeSessionId: SESSION,
+      });
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(expect.objectContaining({
+        cliSessionId: SESSION,
+        lastActivityAt: Date.parse('2026-10-04T08:01:00.000Z'),
+      }));
+      expect(resumeGate.evaluate.mock.calls[0][0]).not.toHaveProperty('interruptedByHostRestart');
+      expect(result.resumeDecision?.decision).toBe('fresh');
+      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].resumeSessionId).toBeUndefined();
+    });
 
     it('does not inherit an owner from a restored lane when resume omits the owner', async () => {
       restorePreviousLane();
@@ -3087,7 +3174,11 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         steerSpy;
 
       const agentId = await spawnWithHandle(controls.handle);
-      const outcome = await manager.sendToAgent(agentId, 'also handle errors', 'steer');
+      const outcome = await manager.sendToAgent(
+        agentId,
+        'also handle errors',
+        'steer',
+      );
 
       expect(outcome.mode).toBe('steer');
       expect(steerSpy).toHaveBeenCalledWith('also handle errors');
@@ -3683,6 +3774,15 @@ describe('AgentProcessManager - SDK Execution Path', () => {
    */
   describe('idle subprocess release', () => {
     let controls: MockSdkHandleControls;
+
+    it('revokes the lane credential when the idle subprocess is released', async () => {
+      getMcpPort.mockReturnValue(51821);
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+      expect(mcpCredentials.revokeSubject).toHaveBeenCalledWith(agentId);
+    });
 
     it('keeps a continuation policy file after turn settlement until subprocess release', async () => {
       const remove = jest.fn().mockResolvedValue(undefined);
@@ -4296,9 +4396,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const adopted = manager.adoptLanes([OLD_TAB, OLD_SDK], NEW_TAB);
       manager.settleLaneAdoption(adopted, 'kept');
 
-      expect(events).toEqual([
-        { agentIds: adopted, parentSessionId: NEW_TAB },
-      ]);
+      expect(events).toEqual([{ agentIds: adopted, parentSessionId: NEW_TAB }]);
       expect(infoOf(lane.agentId).status).toBe('running');
       expect(infoOf(other.agentId).status).toBe('running');
       expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_TAB);

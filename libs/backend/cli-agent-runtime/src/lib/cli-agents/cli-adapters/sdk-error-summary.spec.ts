@@ -82,6 +82,14 @@ describe('summarizeCliSdkError', () => {
 });
 
 describe('redactSecrets', () => {
+  it('redacts MCP auth path segments before logging', () => {
+    expect(
+      redactSecrets(
+        'failed http://localhost:51820/agent/a/auth/secret_123',
+        [],
+      ),
+    ).toBe('failed http://localhost:51820/agent/a/auth/[REDACTED]');
+  });
   it('replaces every literal occurrence with the fixed marker', () => {
     const text =
       'auth failed for key sk-cursor-secret-551; request used sk-cursor-secret-551';

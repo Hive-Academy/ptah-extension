@@ -85,6 +85,13 @@ async function buildWithAuthEnv(authEnv: AuthEnv): Promise<BuildResult> {
     noopHooks,
     noopHooks,
     noopHooks,
+    undefined,
+    undefined,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 
   const userMessageStream = (async function* () {

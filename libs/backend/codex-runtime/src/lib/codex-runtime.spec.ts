@@ -37,7 +37,7 @@ import {
 const profile: CodexExecutionProfile = {
   contextId: 'chat',
   consumer: 'chat',
-  normalizedHome: '/home/codex',
+  normalizedHome: process.platform === 'win32' ? 'C:\\home\\codex' : '/home/codex',
   providerId: 'codex',
   workspaceId: 'workspace',
   cwd: '/work',
@@ -146,7 +146,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   steerResultTurnId?: string;
   modelPages: unknown[] = [{ data: [catalogModel] }, { data: [catalogModel] }];
   historyThread?: Record<string, unknown>;
-  reportedCodexHome = '/home/codex';
+  reportedCodexHome = process.platform === 'win32' ? 'C:\\home\\codex' : '/home/codex';
   completeBeforeReply = false;
   turnNumber = 0;
   readonly fixtureErrors: string[] = [];

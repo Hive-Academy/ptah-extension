@@ -47,7 +47,12 @@ import type {
   OutcomeRoutingSource,
   ProviderAccountSelection,
 } from '@ptah-extension/shared';
-import { killProcessTree } from '@ptah-extension/platform-core';
+import {
+  killProcessTree,
+  PLATFORM_TOKENS,
+  type IMcpCallerCredentials,
+} from '@ptah-extension/platform-core';
+import { issueLaneMcpToken } from './cli-adapters/lane-mcp-credentials';
 import {
   claudeModelFamily,
   SDK_TOKENS,
@@ -414,6 +419,8 @@ export class AgentProcessManager {
      */
     @inject(SESSION_USAGE_SINK, { isOptional: true })
     private readonly usageSink?: SessionUsageSink | null,
+    @inject(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, { isOptional: true })
+    private readonly mcpCredentials?: IMcpCallerCredentials,
     @inject(ParentDeliveryDrainerService, { isOptional: true })
     private readonly parentDeliveryDrainer?: ParentDeliveryDrainerService,
   ) {
@@ -666,6 +673,10 @@ export class AgentProcessManager {
     const lastActivityAt = latest
       ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
       : Number.NaN;
+    const interruptedByHostRestart =
+      latest?.info.stopReason === 'host-restart' &&
+      latest.info.status === 'stopped' &&
+      latest.info.cliSessionId === resumeSessionId;
     const lastRequestContext = [...lane]
       .reverse()
       .find((tracked) => tracked.info.lastRequestContext !== undefined)
@@ -677,6 +688,7 @@ export class AgentProcessManager {
       accountReference: latest ? laneAccountFields(latest.info) : undefined,
       accountBindings: this.cliDetection.getAdapter(cli)?.accountBindings,
       ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
+      ...(interruptedByHostRestart ? { interruptedByHostRestart: true } : {}),
       ...(lastRequestContext ? { lastRequestContext } : {}),
     });
     this.logger.info('[AgentProcessManager] Resume gate', {
@@ -964,6 +976,22 @@ export class AgentProcessManager {
     let admittedSdkSessionId: string | undefined;
     let sdkHandle: SdkHandle;
     try {
+      const mcpToken =
+        mcpPort &&
+        (cli === 'codex' ||
+          cli === 'cursor' ||
+          cli === 'copilot' ||
+          cli === 'opencode' ||
+          cli === 'grok' ||
+          cli === 'antigravity')
+          ? issueLaneMcpToken(
+              this.mcpCredentials,
+              this.logger,
+              agentId,
+              workingDirectory,
+              cli === 'antigravity' ? 'lane-report' : 'privileged',
+            )
+          : undefined;
       sdkHandle = await runSdk({
         ...options.accountReference,
         // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
@@ -996,6 +1024,11 @@ export class AgentProcessManager {
         modelSource: laneModel.source,
         binaryPath,
         mcpPort,
+        mcpToken,
+        onMcpConfigRestored:
+          cli === 'antigravity'
+            ? () => this.mcpCredentials?.revokeSubject(agentId)
+            : undefined,
         attachmentProbe: this.attachmentProbe,
         resumeSessionId: request.resumeSessionId,
         projectGuidance: request.projectGuidance,
@@ -1016,6 +1049,7 @@ export class AgentProcessManager {
       // The spawn failure is the error the caller needs; the cleanup behind
       // it must never replace it (4332578869).
       await this.removeInstructionFiles(agentId);
+      this.mcpCredentials?.revokeSubject(agentId);
       throw error;
     }
     sdkHandle.onLaneConfigRejected?.(() => {
@@ -1660,6 +1694,7 @@ export class AgentProcessManager {
       if (!agentId || this.agents.has(agentId)) continue;
 
       const stdout = ref.stdout ?? '';
+      const interrupted = ref.status === 'running';
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
@@ -1673,6 +1708,12 @@ export class AgentProcessManager {
         // never resolves and would count against the concurrency cap.
         status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
+        ...(interrupted
+          ? { completedAt: new Date().toISOString(), stopReason: 'host-restart' as const }
+          : {
+              ...(ref.completedAt ? { completedAt: ref.completedAt } : {}),
+              ...(ref.stopReason ? { stopReason: ref.stopReason } : {}),
+            }),
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
@@ -2296,7 +2337,11 @@ export class AgentProcessManager {
   }
 
   getAgentMessageStatus(agentId: string, messageId: string) {
-    return this.messageRouter.messageStatus(agentId, this.agents.get(agentId), messageId);
+    return this.messageRouter.messageStatus(
+      agentId,
+      this.agents.get(agentId),
+      messageId,
+    );
   }
 
   /** Read-only messaging view for the coordinator; the manager retains ownership. */
@@ -2553,6 +2598,7 @@ export class AgentProcessManager {
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    this.mcpCredentials?.revokeSubject(agentId);
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
@@ -2913,12 +2959,14 @@ export class AgentProcessManager {
     reason: AgentReleaseReason,
   ): Promise<void> {
     if (tracked.subprocessReleased) {
+      this.mcpCredentials?.revokeSubject(agentId);
       await this.removeInstructionFiles(agentId);
       return;
     }
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    this.mcpCredentials?.revokeSubject(agentId);
     this.releaseLaneGuard(agentId);
     // Nothing can deliver a queued message once the process is gone. Say so in
     // the log rather than leaving entries that look pending forever.

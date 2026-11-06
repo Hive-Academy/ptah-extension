@@ -114,6 +114,14 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     child = createFakeChild();
     mockSpawnCli.mockImplementation(() => child);
     adapter = new AntigravityCliAdapter(undefined, async () => true);
+    const runSdk = adapter.runSdk.bind(adapter);
+    jest.spyOn(adapter, 'runSdk').mockImplementation((options) =>
+      runSdk({
+        ...options,
+        agentId: options.agentId ?? 'test-lane',
+        mcpToken: options.mcpPort ? 'b'.repeat(43) : undefined,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -127,7 +135,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
 
   /** The URL this run's write must carry: scoped to the spawn's cwd. */
   function scopedUrl(port: number): string {
-    return `http://localhost:${port}/workspace/${encodeURIComponent(ws)}`;
+    return `http://localhost:${port}/auth/${'b'.repeat(43)}/agent/test-lane/workspace/${encodeURIComponent(ws)}`;
   }
 
   function servers(): Record<string, unknown> {
@@ -190,11 +198,51 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     // The agent segment is how the server learns WHICH spawn is calling
     // (TASK_2026_402) — the child never names itself.
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/agent-7/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/agent-7/workspace/${encodeURIComponent(ws)}`,
     });
 
     child.emit('close', 0, null);
     await handle.done;
+  });
+
+  it('revokes on restore and removes the credential from disk', async () => {
+    seedUserConfig({ ptah: { serverUrl: 'http://localhost:51820' } });
+    const revoke = jest.fn();
+    const handle = await adapter.runSdk({
+      task: 'report',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-7',
+      onMcpConfigRestored: revoke,
+    });
+    expect(JSON.stringify(servers())).toContain(
+      `/auth/${'b'.repeat(43)}/agent/lane-7`,
+    );
+    expect(revoke).not.toHaveBeenCalled();
+    child.emit('close', 0, null);
+    await handle.done;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+    expect(readFileSync(configPath, 'utf-8')).not.toContain('b'.repeat(43));
+  });
+
+  it('revokes and removes the credential after a failed launch', async () => {
+    const revoke = jest.fn();
+    child.stdin.write.mockImplementationOnce(() => {
+      throw new Error('stdin failed');
+    });
+    await expect(
+      adapter.runSdk({
+        task: 'report',
+        workingDirectory: ws,
+        mcpPort: 51234,
+        agentId: 'lane-7',
+        onMcpConfigRestored: revoke,
+      }),
+    ).rejects.toThrow('stdin failed');
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(readFileSync(configPath, 'utf-8')).not.toContain('b'.repeat(43));
   });
 
   it('removes only `ptah` after `done`, leaving a marketplace-installed server in place', async () => {
@@ -310,7 +358,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     expect(() => readFileSync(configPath, 'utf-8')).toThrow();
   });
 
-  it('serializes two startups and restores the value before both lanes', async () => {
+  it('serializes two startups and keeps the second credential until completion', async () => {
     seedUserConfig({ ptah: { serverUrl: 'http://localhost:51820' } });
     const children = [createFakeChild(), createFakeChild()];
     mockSpawnCli
@@ -332,7 +380,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       attachmentProbe: probe,
     });
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
     });
     const secondPromise = adapter.runSdk({
       task: 'two',
@@ -344,7 +392,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     await Promise.resolve();
     expect(mockSpawnCli).toHaveBeenCalledTimes(1);
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
     });
     resolveWaits.get('lane-1')?.({
       agentId: 'lane-1',
@@ -354,7 +402,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     });
     const second = await secondPromise;
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
     });
     resolveWaits.get('lane-2')?.({
       agentId: 'lane-2',
@@ -363,7 +411,9 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       time: Date.now(),
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+    });
     children[0].emit('close', 0, null);
     children[1].emit('close', 0, null);
     await Promise.all([first.done, second.done]);
@@ -396,7 +446,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       agentId: 'lane-2',
     });
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
     });
     nextChild.emit('close', 0, null);
     await second.done;
@@ -436,7 +486,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       agentId: 'lane-2',
     });
     expect(servers()['ptah']).toEqual({
-      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+      serverUrl: `http://localhost:51234/auth/${'b'.repeat(43)}/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
     });
     nextChild.emit('close', 0, null);
     await second.done;

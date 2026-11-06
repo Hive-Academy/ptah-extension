@@ -109,8 +109,14 @@ export class SkillTaskGradeStore {
     return parsed.data;
   }
 
-  upsert(grade: SkillTaskGrade): void {
-    this.db.prepare(`INSERT INTO skill_task_grades (
+  /**
+   * Insert or update one grade. A conflicting row is updated only when it has
+   * no workspace root yet (legacy 0056 backfill, adopted here) or the same
+   * normalized root; a row owned by another workspace is never overwritten.
+   * Returns false when the write was refused for that reason.
+   */
+  upsert(grade: SkillTaskGrade): boolean {
+    const result = this.db.prepare(`INSERT INTO skill_task_grades (
       task_id, subject_kind, subject_slug, attribution_key, run_id, verdict,
       source_file, source_digest, evidence_source, workspace_root, graded_at, findings_ref
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -122,12 +128,15 @@ export class SkillTaskGradeStore {
       evidence_source = excluded.evidence_source,
       workspace_root = excluded.workspace_root,
       graded_at = excluded.graded_at,
-      findings_ref = excluded.findings_ref`).run(
+      findings_ref = excluded.findings_ref
+    WHERE skill_task_grades.workspace_root IS NULL
+      OR skill_task_grades.workspace_root = excluded.workspace_root`).run(
       grade.taskId, grade.subjectKind, grade.subjectSlug, grade.attributionKey,
       grade.runId, grade.verdict, grade.sourceFile, grade.sourceDigest,
       grade.evidenceSource, grade.workspaceRoot === null ? null : normalizeWorkspaceRoot(grade.workspaceRoot),
       grade.gradedAt, grade.findingsRef,
     );
+    return result.changes > 0;
   }
 
   /** Only exact task or uniquely linked session facts are eligible. */
@@ -185,10 +194,13 @@ export class SkillTaskGradeStore {
     return removed;
   }
 
-  hasGradeForTask(taskId: string, slug: string, kind?: SkillRegistryKind): boolean {
+  /** True when a grade exists for the task and slug; scoped to one workspace when a root is given. */
+  hasGradeForTask(taskId: string, slug: string, kind?: SkillRegistryKind, workspaceRoot?: string): boolean {
+    const root = workspaceRoot === undefined ? null : normalizeWorkspaceRoot(workspaceRoot);
     const row = this.db.prepare(`SELECT 1 FROM skill_task_grades
-      WHERE task_id = ? AND subject_slug = ? AND (? IS NULL OR subject_kind = ?) LIMIT 1`)
-      .get(taskId, slug, kind ?? null, kind ?? null);
+      WHERE task_id = ? AND subject_slug = ? AND (? IS NULL OR subject_kind = ?)
+        AND (? IS NULL OR workspace_root = ?) LIMIT 1`)
+      .get(taskId, slug, kind ?? null, kind ?? null, root, root);
     return row !== undefined;
   }
 

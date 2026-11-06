@@ -122,6 +122,53 @@ maybe('SkillTaskGradeStore', () => {
     } finally { db.close(); }
   });
 
+  it('refuses to overwrite a grade owned by another workspace (A5)', () => {
+    const { db, store } = setup();
+    try {
+      const rootA = join(process.cwd(), 'workspace-a');
+      const rootB = join(process.cwd(), 'workspace-b');
+      expect(store.upsert({ ...grade, workspaceRoot: rootA })).toBe(true);
+      const read = () => db.prepare('SELECT * FROM skill_task_grades').all();
+      const before = JSON.stringify(read());
+      // ON CONFLICT ... DO UPDATE ... WHERE <false> must report changes === 0.
+      expect(store.upsert({
+        ...grade, workspaceRoot: rootB, verdict: 'fail', sourceDigest: 'digest-b',
+        sourceFile: 'other.md', evidenceSource: 'task-review', gradedAt: 99, findingsRef: 'x',
+      })).toBe(false);
+      expect(store.upsert({ ...grade, workspaceRoot: null, verdict: 'fail', gradedAt: 100 })).toBe(false);
+      expect(JSON.stringify(read())).toBe(before);
+      expect(read()).toHaveLength(1);
+      // The owning workspace may still update its own row, including a trailing-separator spelling.
+      expect(store.upsert({ ...grade, workspaceRoot: `${rootA}${sep}`, verdict: 'fail', gradedAt: 5 })).toBe(true);
+      expect(store.listRecent('agent', 'writer', 5, rootA)).toMatchObject([{ verdict: 'fail', gradedAt: 5 }]);
+    } finally { db.close(); }
+  });
+
+  it('adopts a legacy NULL-root grade into the writing workspace', () => {
+    const { db, store } = setup();
+    try {
+      const root = join(process.cwd(), 'workspace-a');
+      expect(store.upsert({ ...grade, workspaceRoot: null })).toBe(true);
+      expect(store.upsert({ ...grade, workspaceRoot: root, verdict: 'fail', gradedAt: 2 })).toBe(true);
+      expect(db.prepare('SELECT workspace_root, verdict, graded_at FROM skill_task_grades').all())
+        .toEqual([{ workspace_root: root, verdict: 'fail', graded_at: 2 }]);
+    } finally { db.close(); }
+  });
+
+  it('scopes hasGradeForTask to the given workspace root', () => {
+    const { db, store } = setup();
+    try {
+      const rootA = join(process.cwd(), 'workspace-a');
+      const rootB = join(process.cwd(), 'workspace-b');
+      store.upsert({ ...grade, workspaceRoot: rootA });
+      expect(store.hasGradeForTask(grade.taskId, 'writer', 'agent', `${rootA}${sep}`)).toBe(true);
+      expect(store.hasGradeForTask(grade.taskId, 'writer', undefined, rootA)).toBe(true);
+      expect(store.hasGradeForTask(grade.taskId, 'writer', 'agent', rootB)).toBe(false);
+      expect(store.hasGradeForTask(grade.taskId, 'writer', 'skill', rootA)).toBe(false);
+      expect(store.hasGradeForTask(grade.taskId, 'writer')).toBe(true);
+    } finally { db.close(); }
+  });
+
   it('replaces a corrected review without adding a denominator', () => {
     const { db, store } = setup();
     try {

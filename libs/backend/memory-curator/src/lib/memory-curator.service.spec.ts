@@ -27,6 +27,7 @@ import {
 } from './retention/retention-sqlite.test-support';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
+import { curatorRunMessage } from './curator-llm/curator-activity-log';
 import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
 import { CURATOR_QUEUE_WAIT_CEILING_MS } from './curator-llm/curator-job-queue';
 import type { MemoryCuratorEvent } from './diagnostics.types';
@@ -585,6 +586,8 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       merged: 0,
       created: 0,
       skipped: 0,
+      reason: 'curator-error',
+      error: curatorRunMessage('curator-error'),
     });
     expect(resolve).not.toHaveBeenCalled();
     const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
@@ -598,10 +601,12 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       merged: 0,
       created: 0,
       skipped: 0,
+      reason: 'curator-error',
+      error: curatorRunMessage('curator-error'),
     });
   });
 
-  it('extract rejection attributes the failure to the extract stage in the message', async () => {
+  it('extract rejection pushes the fixed sentence and keeps the raw message out of the event', async () => {
     const extract = jest.fn().mockRejectedValue(new Error('auth expired'));
     const resolve = jest.fn().mockResolvedValue([]);
     const llm = { extract, resolve } as unknown as ICuratorLLM;
@@ -613,8 +618,9 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
-    expect(evt?.error).toContain('memory extraction failed');
-    expect(evt?.error).toContain('auth expired');
+    expect(evt?.error).toBe(curatorRunMessage('curator-error'));
+    expect(evt?.stats).toMatchObject({ stage: 'extract' });
+    expect(JSON.stringify(evt)).not.toContain('auth expired');
   });
 
   it('resolve rejection pushes curator-error, zeroes stats, attributes the resolve stage, preserves the extracted count, and does not throw out of curate()', async () => {
@@ -648,15 +654,17 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       merged: 0,
       created: 0,
       skipped: 0,
+      reason: 'curator-error',
+      error: curatorRunMessage('curator-error'),
     });
     expect(extract).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledTimes(1);
     const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
     expect(evt).toBeDefined();
     expect(evt?.sessionId).toBe('err-2');
-    expect(evt?.error).toContain('memory resolution failed');
-    expect(evt?.error).toContain('2 extracted');
-    expect(evt?.error).toContain('transport down');
+    expect(evt?.error).toBe(curatorRunMessage('curator-error'));
+    expect(evt?.stats).toMatchObject({ stage: 'resolve', extracted: 2 });
+    expect(JSON.stringify(evt)).not.toContain('transport down');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
       outcome: 'failed',
@@ -664,6 +672,8 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       merged: 0,
       created: 0,
       skipped: 0,
+      reason: 'curator-error',
+      error: curatorRunMessage('curator-error'),
     });
   });
 });
@@ -1169,8 +1179,8 @@ describe('MemoryCuratorService — the chunked curation budget (TASK_2026_367)',
     expect(resolve).not.toHaveBeenCalled();
     expect(stats.extracted).toBe(0);
     const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
-    expect(evt?.error).toContain('memory extraction failed');
-    expect(evt?.error).toContain('window 3 exploded');
+    expect(evt?.error).toBe(curatorRunMessage('curator-error'));
+    expect(JSON.stringify(evt)).not.toContain('window 3 exploded');
   });
 
   it('an abort signalled after window 2 stops the loop', async () => {
@@ -1195,7 +1205,11 @@ describe('MemoryCuratorService — the chunked curation budget (TASK_2026_367)',
     expect(extract).toHaveBeenCalledTimes(2);
     expect(resolve).not.toHaveBeenCalled();
     const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
-    expect(evt?.error).toContain('aborted after 2');
+    expect(evt?.error).toBe(curatorRunMessage('curator-error'));
+    expect(evt?.stats).toMatchObject({
+      reason: 'curator-error',
+      stage: 'extract',
+    });
   });
 
   it('a stalled window stops the loop and takes the stall path', async () => {
@@ -1635,6 +1649,50 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
 
     expect(h.read).toHaveBeenCalledTimes(2);
     expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('a thrown PreCompact curate pushes the fixed sentence, never the raw text', async () => {
+    const SENTINEL =
+      'upstream 401 key=sk-SENTINEL-7f3a https://internal.example';
+    const h = buildHarness();
+    jest.spyOn(h.svc, 'curate').mockRejectedValueOnce(new Error(SENTINEL));
+    const logger = h.logger as unknown as { error: jest.Mock };
+
+    await h.fire();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const errors = h.svc.recentEvents(10).filter((e) => e.kind === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].error).toBe(curatorRunMessage('curator-error'));
+    expect(JSON.stringify(h.svc.recentEvents(10))).not.toContain(
+      'sk-SENTINEL',
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      '[memory-curator] curate() failed',
+      expect.objectContaining({ message: SENTINEL }),
+    );
+  });
+
+  it('an unsupported-provider stall stays stalled and records the sentence as the last run', async () => {
+    const h = buildHarness();
+    h.extract.mockResolvedValueOnce({
+      status: 'stalled',
+      reason: 'provider-unsupported',
+      providerId: 'openai-codex',
+    });
+
+    const stats = await h.svc.curate({
+      sessionId: 's-codex',
+      transcript: 'USER: hello\n\nASSISTANT: hi',
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(stats.reason).toBe('provider-unsupported');
+    expect(stats.error).toBe(curatorRunMessage('provider-unsupported'));
+    expect(h.svc.lastRunInfo().stats).toEqual(stats);
+    const evt = h.svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toBe(curatorRunMessage('provider-unsupported'));
+    expect(evt?.stats).toMatchObject({ providerId: 'openai-codex' });
   });
 
   it('does not skip a manual compaction inside the interval', async () => {

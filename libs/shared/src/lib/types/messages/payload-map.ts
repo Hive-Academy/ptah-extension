@@ -127,6 +127,7 @@ import type {
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
+  IndexingFailedEvent,
 } from '../rpc/rpc-indexing.types';
 import type {
   MemoryObservationCapturedPayload,
@@ -469,6 +470,7 @@ export interface MessagePayloadMap {
   'agent-monitor:parent-delivery': AgentMonitorParentDeliveryPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
+  'indexing:failed': IndexingFailedEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
   'boot:progress': BootProgressPayload;
   'activity:event': ActivityEventPayload;

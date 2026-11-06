@@ -171,6 +171,8 @@ export {
   SessionAdmissionRefusedError,
   ModelNotAvailableError,
   AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+  isCodexNativeRuntimeRefusal,
   InternalQueryQueueTimeoutError,
 } from './lib/errors';
 // Electron codex-runtime-composition.spec.ts and di/register.ts consume registration; hosts must override only nullable port tokens.

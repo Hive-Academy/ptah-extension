@@ -278,8 +278,9 @@ export interface AgentProcessInfo {
    */
   readonly originalTask?: string;
   /**
-   * Why the lane ended: a host repeat-call guard or a classified provider
-   * limit/auth error. Unset for ordinary completion and caller stops.
+   * Why the lane ended: a host repeat-call guard, a classified provider
+   * limit/auth error, or a host restart that interrupted a running lane.
+   * Unset for ordinary completion and caller stops.
    */
   stopReason?: LaneStopReason;
   /** Known provider reset time, in Unix milliseconds, for a usage-limit exit. */
@@ -303,9 +304,17 @@ export interface AgentProcessInfo {
  * Why the host's lane guard stopped a lane (TASK_2026_597, R9.4):
  * `repeat-call` — it repeated one identical tool call up to the repeat
  * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
- * tool-call budget; a repeat loop is the only host stop.
+ * tool-call budget; a repeat loop is the only host stop. `usage-limit`,
+ * `auth` and `session-mismatch` classify a provider exit. `host-restart` —
+ * the lane was running when the host exited; restore stamps it so a resume
+ * can continue the CLI session.
  */
-export type LaneStopReason = 'repeat-call' | 'usage-limit' | 'auth' | 'session-mismatch';
+export type LaneStopReason =
+  | 'repeat-call'
+  | 'usage-limit'
+  | 'auth'
+  | 'session-mismatch'
+  | 'host-restart';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -702,6 +711,8 @@ export interface CliSessionReference {
   readonly startedAt: string;
   /** ISO timestamp when the CLI run finished. Absent in older sessions. */
   readonly completedAt?: string;
+  /** Why the host stopped this lane, when known. */
+  readonly stopReason?: LaneStopReason;
   /** Final agent status */
   readonly status: AgentStatus;
   /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */

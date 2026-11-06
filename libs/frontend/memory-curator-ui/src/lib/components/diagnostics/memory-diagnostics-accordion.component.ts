@@ -1,11 +1,17 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  LOCALE_ID,
   OnDestroy,
   OnInit,
   computed,
   inject,
 } from '@angular/core';
+import { formatDate } from '@angular/common';
+import type {
+  MemoryCuratorEventWire,
+  MemoryCuratorRunOutcome,
+} from '@ptah-extension/shared';
 import {
   AppStateManager,
   ProvidersSettingsStateService,
@@ -17,6 +23,7 @@ import {
   MEMORY_PAUSED_REASON,
   MemoryDiagnosticsStateService,
   type LastRunSnapshot,
+  type ManualRunResult,
 } from '../../services/memory-diagnostics-state.service';
 
 import {
@@ -167,6 +174,26 @@ import { EventFeedComponent } from './event-feed.component';
         </ptah-surface-card>
       }
 
+      @if (curatorError(); as ce) {
+        <div
+          class="alert alert-error flex flex-wrap items-center gap-2 py-2 text-xs"
+          role="alert"
+          data-testid="curator-error"
+        >
+          <span class="flex-1">{{ ce.text }}</span>
+          @if (ce.showSettings) {
+            <button
+              type="button"
+              class="btn btn-xs"
+              (click)="manageCurator()"
+              data-testid="curator-error-open-settings"
+            >
+              Open model settings
+            </button>
+          }
+        </div>
+      }
+
       <ptah-event-feed [events]="recentEvents()" [now]="now()" />
 
       <ptah-db-health-panel [health]="dbHealth()" />
@@ -193,13 +220,17 @@ import { EventFeedComponent } from './event-feed.component';
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          [disabled]="loading() || !hasActiveSession() || paused()"
+          [disabled]="curatorRunning() || !hasActiveSession() || paused()"
+          [attr.aria-busy]="curatorRunning()"
           [title]="runNowTitle()"
           (click)="onRunCuratorNow()"
           data-testid="run-curator-now"
         >
-          @if (loading()) {
-            <span class="loading loading-spinner loading-xs"></span>
+          @if (curatorRunning()) {
+            <span
+              class="loading loading-spinner loading-xs"
+              aria-hidden="true"
+            ></span>
           }
           Run curator now
         </button>
@@ -228,6 +259,42 @@ import { EventFeedComponent } from './event-feed.component';
           Refresh
         </button>
       </div>
+
+      @if (manualRunStatus(); as status) {
+        @if (status.alert) {
+          <p
+            class="text-xs text-error"
+            role="alert"
+            data-testid="manual-run-status"
+          >
+            {{ status.text }}
+          </p>
+        } @else {
+          <p
+            class="text-xs text-base-content"
+            role="status"
+            data-testid="manual-run-status"
+          >
+            {{ status.text }}
+          </p>
+        }
+      }
+
+      <details class="text-xs">
+        <summary class="cursor-pointer font-medium">How this works</summary>
+        <p
+          class="mt-1 text-base-content-muted"
+          data-testid="curator-how-it-works"
+        >
+          The curator reads a chat session's transcript and the observations
+          hooks captured, asks the Memory curator model to extract durable
+          facts, and merges them with similar memories. It runs on the triggers
+          below, at most the hourly limit; Run curator now curates the active
+          session once. If the provider is rate-limited, unreachable or
+          unsupported, the pass is skipped and its observations are kept for
+          the next pass.
+        </p>
+      </details>
     </div>
   `,
 })
@@ -240,6 +307,8 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly dbHealth = this.state.dbHealth;
   protected readonly storage = this.state.storage;
   protected readonly loading = this.state.loading;
+  /** Manual run in flight; a poll or Refresh never changes it. */
+  protected readonly curatorRunning = this.state.curatorRunning;
   protected readonly error = this.state.error;
   protected readonly hasActiveSession = this.state.hasActiveSession;
   protected readonly paused = this.state.memoryPaused;
@@ -255,9 +324,51 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected readonly now = injectWallClock('coarse');
 
+  private readonly locale = inject(LOCALE_ID);
+
   protected readonly lastRunLabel = computed(() =>
-    formatSnapshot(this.lastRun()),
+    formatSnapshot(this.lastRun(), this.locale),
   );
+
+  /** Status line under "Run curator now" for the last manual run. */
+  protected readonly manualRunStatus = computed<{
+    readonly text: string;
+    readonly alert: boolean;
+  } | null>(() => {
+    const run = this.state.lastManualRun();
+    if (!run) return null;
+    return {
+      text: describeRun(run, formatDate(run.at, 'shortTime', this.locale)),
+      alert: !run.success,
+    };
+  });
+
+  /**
+   * The newest `curator-error` event, when it is newer than the last pass
+   * that ran. "Open model settings" appears only when a setting can fix it.
+   */
+  protected readonly curatorError = computed<{
+    readonly text: string;
+    readonly showSettings: boolean;
+  } | null>(() => {
+    const events = this.recentEvents();
+    const newestError = newestOf(events, (ev) => ev.kind === 'curator-error');
+    if (!newestError) return null;
+    if (newestError.timestamp <= lastRanAt(events, this.lastRun())) {
+      return null;
+    }
+    const reasons = [
+      newestError.stats?.['reason'],
+      this.lastRun()?.stats?.['reason'],
+      this.state.lastManualRun()?.reason,
+    ];
+    return {
+      text: newestError.error || CURATOR_ERROR_FALLBACK,
+      showSettings: reasons.some(
+        (r) => typeof r === 'string' && SETTINGS_FIXABLE_REASONS.has(r),
+      ),
+    };
+  });
   protected readonly cueListText = computed<string>(() => {
     const cues = this.triggers()?.userPromptSubmit?.cueList ?? [];
     return cues.join('\n');
@@ -353,20 +464,93 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   }
 }
 
-function formatSnapshot(snapshot: LastRunSnapshot | null): string {
-  if (!snapshot) return 'never';
-  let when: string;
-  try {
-    when = new Date(snapshot.at).toLocaleString();
-  } catch {
-    when = String(snapshot.at);
+const LOGS_FALLBACK = 'See the logs for details.';
+const CURATOR_ERROR_FALLBACK =
+  'The curator run failed. See the logs for details.';
+/** Reasons a change in Settings > Background model roles can fix. */
+const SETTINGS_FIXABLE_REASONS: ReadonlySet<string> = new Set([
+  'provider-unsupported',
+  'auth-required',
+]);
+
+/** The fields the run wording reads, from a manual run or `lastRunStats`. */
+type RunSummary = Pick<
+  ManualRunResult,
+  'outcome' | 'extracted' | 'merged' | 'created' | 'error'
+>;
+
+/**
+ * One wording for a pass: ran with or without new memories, did not run, or
+ * failed. `error` is the backend's fixed sentence; it is never provider text.
+ */
+function describeRun(run: RunSummary, when: string): string {
+  switch (run.outcome) {
+    case 'stalled':
+      return `Did not run · ${run.error || LOGS_FALLBACK}`;
+    case 'failed':
+      return `Failed · ${run.error || LOGS_FALLBACK}`;
+    case 'ran':
+      return run.created + run.merged > 0
+        ? `Learned ${run.created} new, merged ${run.merged} (extracted ${run.extracted}) · ${when}`
+        : `Ran · nothing new to learn · ${when}`;
   }
+}
+
+function formatSnapshot(
+  snapshot: LastRunSnapshot | null,
+  locale: string,
+): string {
+  if (!snapshot) return 'never';
+  const when = formatDate(snapshot.at, 'short', locale);
   const stats = snapshot.stats;
   if (!stats) return when;
-  const summary = Object.entries(stats)
-    .filter(([, v]) => v !== null && v !== undefined)
-    .map(([k, v]) => `${k}=${String(v)}`)
-    .slice(0, 3)
-    .join(', ');
-  return summary.length > 0 ? `${when} · ${summary}` : when;
+  return describeRun(
+    {
+      outcome: toOutcome(stats['outcome']),
+      extracted: toCount(stats['extracted']),
+      merged: toCount(stats['merged']),
+      created: toCount(stats['created']),
+      error: typeof stats['error'] === 'string' ? stats['error'] : null,
+    },
+    when,
+  );
+}
+
+function toOutcome(value: unknown): MemoryCuratorRunOutcome {
+  return value === 'stalled' || value === 'failed' ? value : 'ran';
+}
+
+function toCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function newestOf(
+  events: readonly MemoryCuratorEventWire[],
+  match: (ev: MemoryCuratorEventWire) => boolean,
+): MemoryCuratorEventWire | null {
+  let newest: MemoryCuratorEventWire | null = null;
+  for (const ev of events) {
+    if (match(ev) && (newest === null || ev.timestamp > newest.timestamp)) {
+      newest = ev;
+    }
+  }
+  return newest;
+}
+
+/** Timestamp of the newest pass that ran (events or the last-run snapshot). */
+function lastRanAt(
+  events: readonly MemoryCuratorEventWire[],
+  lastRun: LastRunSnapshot | null,
+): number {
+  const ran = newestOf(
+    events,
+    (ev) =>
+      ev.kind === 'curator-run' ||
+      (ev.kind === 'manual-run' && ev.stats?.['outcome'] === 'ran'),
+  );
+  const snapshotRan =
+    lastRun !== null && toOutcome(lastRun.stats?.['outcome']) === 'ran'
+      ? lastRun.at
+      : 0;
+  return Math.max(ran?.timestamp ?? 0, snapshotRan);
 }

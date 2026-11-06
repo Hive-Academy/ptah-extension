@@ -98,6 +98,11 @@ export type {
   CuratorRunStats,
   MemoryCuratorEventListener,
 } from './lib/memory-curator.service';
+export { curatorRunMessage } from './lib/curator-llm/curator-activity-log';
+export type {
+  CuratorDeferralReason,
+  CuratorRunReason,
+} from './lib/curator-llm/curator-activity-log';
 export type {
   ICuratorLLM,
   CuratorExtraction,

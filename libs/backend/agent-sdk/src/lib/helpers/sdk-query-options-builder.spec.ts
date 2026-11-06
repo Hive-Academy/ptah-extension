@@ -284,28 +284,36 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
     ) => SdkQueryOptionsBuilder;
-    return new ctor(
-      logger,
-      permissionHandler,
-      subagentHookHandler,
-      compactionConfigProvider,
-      compactionHookHandler,
-      worktreeHookHandler,
-      authEnv,
-      modelService,
-      memoryPromptInjector,
-      postToolUseHookHandler,
-      userPromptSubmitHookHandler,
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
+    return Object.assign(
+      new ctor(
+        logger,
+        permissionHandler,
+        subagentHookHandler,
+        compactionConfigProvider,
+        compactionHookHandler,
+        worktreeHookHandler,
+        authEnv,
+        modelService,
+        memoryPromptInjector,
+        postToolUseHookHandler,
+        userPromptSubmitHookHandler,
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+        { createHooks: jest.fn().mockReturnValue({}) },
+      ),
+      {
+        mcpCallerCredentials: {
+          issue: jest.fn().mockReturnValue('test-token'),
+          revokeSubject: jest.fn(),
+        },
+      },
     );
   }
 
@@ -609,6 +617,13 @@ describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent ho
       noopHooks(),
       noopHooks(),
       noopHooks(),
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
     return { builder, createHooksSpy };
   }
@@ -704,6 +719,13 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
       noopHooks,
       noopHooks,
       noopHooks,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
   }
 
@@ -890,6 +912,13 @@ describe('SdkQueryOptionsBuilder.build — dropped user-tier disclosure', () => 
       noopHooks,
       noopHooks,
       noopHooks,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
   }
 
@@ -1041,6 +1070,15 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
   }
 
@@ -1246,6 +1284,14 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
   }
 
@@ -1402,6 +1448,14 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
 
     const sessionConfig = {
@@ -1539,6 +1593,14 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
     return { builder, logger, permissionHandler };
   }
@@ -1803,6 +1865,14 @@ describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', ()
       noopHooks,
       noopHooks,
       noopHooks,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
   }
 
@@ -2056,6 +2126,7 @@ describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TAS
       mcpServerRunning?: boolean,
       routingSessionId?: string,
       toolProfile?: McpToolProfile,
+      cwd?: string,
     ): Record<string, McpHttpServerConfig>;
   }
 
@@ -2069,13 +2140,54 @@ describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TAS
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
     ) => SdkQueryOptionsBuilder;
-    return new ctor(logger) as unknown as BuilderWithMcp;
+    const builder = Object.assign(new ctor(logger), {
+      mcpCallerCredentials: {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
+    }) as unknown as BuilderWithMcp;
+    return {
+      buildMcpServers: (running, id, profile, cwd) =>
+        builder.buildMcpServers(running, id, profile, cwd ?? '/work'),
+    };
   }
 
   it('appends the apps profile after the routing id', () => {
     expect(
       makeMcpBuilder().buildMcpServers(true, 'tab-abc', 'apps')['ptah'].url,
     ).toMatch(/\/session\/tab-abc\/profile\/apps$/);
+  });
+
+  it('issues a four-hour privileged credential bound to routing id, cwd, and profile', () => {
+    const issue = jest.fn().mockReturnValue('in-memory-token');
+    const revokeSubject = jest.fn();
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = Object.assign(new ctor({ info: jest.fn() }), {
+      mcpCallerCredentials: { issue, revokeSubject },
+    }) as unknown as BuilderWithMcp &
+      Pick<SdkQueryOptionsBuilder, 'revokeMcpSubject'>;
+    const config = builder.buildMcpServers(true, 'tab-abc', 'apps', '/work');
+    expect(config['ptah']).toEqual(
+      expect.objectContaining({
+        url: expect.stringMatching(/\/session\/tab-abc\/profile\/apps$/),
+        headers: { Authorization: 'Bearer in-memory-token' },
+      }),
+    );
+    expect(issue).toHaveBeenCalledWith(
+      {
+        kind: 'session',
+        sessionId: 'tab-abc',
+        workspaceRoot: '/work',
+        toolProfile: 'apps',
+        capability: 'privileged',
+      },
+      'claude-interactive:tab-abc',
+      4 * 60 * 60 * 1000,
+    );
+    builder.revokeMcpSubject('tab-abc');
+    expect(revokeSubject).toHaveBeenCalledWith('claude-interactive:tab-abc');
   });
 
   it.each(['coding', undefined] as const)(
@@ -2338,6 +2450,11 @@ describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853
       undefined, // mcpStatus
       undefined, // mcpBackoffService
       settingsWorkspace(input.settings ?? {}),
+      undefined, // hostKind
+      {
+        issue: jest.fn().mockReturnValue('test-token'),
+        revokeSubject: jest.fn(),
+      },
     );
     const cfg = await builder.build({
       userMessageStream: (async function* () {

@@ -28,7 +28,10 @@ import type {
   IStateStorage,
   IDisposable,
   IMcpServerStatus,
+  IMcpCallerCredentials,
   IMcpSubagentRootRegistrar,
+  IUserInteraction,
+  McpCallerBinding,
   McpSubagentRootRetention,
 } from '@ptah-extension/platform-core';
 import {
@@ -65,6 +68,15 @@ import {
   CLAUDE_TARGET,
   type PtahMcpSlot,
 } from './ptah-mcp-slots';
+import { extractAuthToken } from './mcp-http-gate';
+import {
+  McpCallerTokenRegistry,
+  type PreparedPersistentCredential,
+} from './mcp-caller-token-registry';
+import {
+  parseExternalCallerAccess,
+  type McpExternalAccess,
+} from '../mcp-core/mcp-caller-auth.types';
 
 /** Host callback for metadata-only artifact pushes. Registered by Electron. */
 export const ARTIFACT_NOTIFICATION_TOKEN = Symbol('ArtifactNotification');
@@ -170,7 +182,12 @@ function isSameFacetEntry(
 ): boolean {
   if (existing === undefined) return false;
   if (existing.type === 'stdio' || desired.type === 'stdio') return false;
-  return existing.type === desired.type && existing.url === desired.url;
+  return (
+    existing.type === desired.type &&
+    existing.url === desired.url &&
+    JSON.stringify(existing.headers ?? {}) ===
+      JSON.stringify(desired.headers ?? {})
+  );
 }
 
 /** A `ptah` entry we wrote, and everything needed to take it back. */
@@ -179,9 +196,18 @@ interface OwnedRegistration {
   readonly slot: PtahMcpSlot;
 }
 
+export interface IMcpExternalCallerAccessUpdater {
+  applyExternalCallerAccess(access: McpExternalAccess): Promise<void>;
+}
+
 @injectable()
 export class CodeExecutionMCP
-  implements IDisposable, IMcpServerStatus, IMcpSubagentRootRegistrar
+  implements
+    IDisposable,
+    IMcpServerStatus,
+    IMcpSubagentRootRegistrar,
+    IMcpCallerCredentials,
+    IMcpExternalCallerAccessUpdater
 {
   private server: http.Server | null = null;
   private port: number | null = null;
@@ -233,7 +259,7 @@ export class CodeExecutionMCP
    * A set, not a count: each child owns its own worktree, so one root is never
    * retained twice by two live sessions. Mutated only inside `enqueueMcpOp`.
    * Survives `stop()` on purpose: the sessions still run in those folders, so a
-   * restarted server writes their entries back on its next reconcile.
+   * restarted server keeps their entries in its next reconcile.
    */
   private readonly retainedRoots = new Set<string>();
 
@@ -250,8 +276,8 @@ export class CodeExecutionMCP
    *     when the second starts — and then write B and C independently. B is
    *     left with a live `ptah` entry for a folder that is no longer open, and
    *     nothing ever removes it.
-   *  b. `stop()` arrives right after a switch. The stop unregisters A while the
-   *     outstanding event writes B, so B ends up advertising a dead port.
+   *  b. `stop()` arrives right after a switch. Without cancellation, the
+   *     outstanding event writes B while the socket is closing.
    *
    * So the queue is over the OPERATION, not the file, and it has two rules:
    *
@@ -281,6 +307,7 @@ export class CodeExecutionMCP
   private readonly hasIDECapabilities: boolean;
   private readonly hasSqliteLayer: boolean;
   private readonly codeOutliner: CodeOutliner | undefined;
+  private readonly callerCredentials: McpCallerTokenRegistry;
 
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
@@ -334,6 +361,18 @@ export class CodeExecutionMCP
     /** Strict caller-session workspace lookup for artifact publishing. */
     @inject(SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
     private readonly sessionWorkspaces?: SessionWorkspaceReader,
+
+    /**
+     * Host-global state for persistent credential hashes. Optional so a unit
+     * test that constructs the service positionally keeps compiling; absent
+     * means hashes live only for this process.
+     */
+    @inject(PLATFORM_TOKENS.STATE_STORAGE, { isOptional: true })
+    globalState?: IStateStorage,
+
+    /** Once-per-process grace notice. CLI and tests may omit it. */
+    @inject(PLATFORM_TOKENS.USER_INTERACTION, { isOptional: true })
+    legacyNotice?: IUserInteraction,
   ) {
     this.codeOutliner =
       treeSitterParser === undefined
@@ -342,6 +381,12 @@ export class CodeExecutionMCP
     this.hasIDECapabilities = ideCapabilities !== undefined;
     this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
+    this.callerCredentials = new McpCallerTokenRegistry({
+      ...(globalState === undefined ? {} : { state: globalState }),
+      logger: this.logger,
+      externalCallerAccess: this.externalCallerAccess(),
+      ...(legacyNotice === undefined ? {} : { notice: legacyNotice }),
+    });
     // The event has nowhere to return a promise to, so this call site stays
     // fire-and-forget — but it is no longer UNORDERED. `queueRepoint` puts it
     // behind every other `.mcp.json` mutation and lets a later change, or a
@@ -412,6 +457,7 @@ export class CodeExecutionMCP
       port: configuredPort,
       logger: this.logger,
       workspaceState: this.workspaceState,
+      authenticate: (input) => this.callerCredentials.authorize(input),
       onMCPRequest: (request) =>
         handleMCPRequest(request, {
           ptahAPI: this.ptahAPI,
@@ -494,9 +540,8 @@ export class CodeExecutionMCP
   /** The body of {@link ensureRegisteredForSubagents}, already serialized. */
   private async ensureRegisteredNow(): Promise<McpSubagentRegistration> {
     // `stop()` nulls `this.port` in its own continuation, OUTSIDE the queue, so
-    // the port can still be non-null here for a registration that queued right
-    // behind the stop's unregister. Writing an entry for a server being torn
-    // down is exactly the dead-port entry this task exists to remove.
+    // the port can still be non-null here for a registration queued behind it.
+    // The stopped guard prevents that job from writing after shutdown.
     if (this.stopped || !this.port) return notRegistered('not-started');
 
     const activeTarget = this.getMcpJsonPath();
@@ -533,7 +578,7 @@ export class CodeExecutionMCP
    *
    * Unlike the single-slot version this replaces, a failed removal does NOT
    * block the registrations. Each path carries its own record, so the stale
-   * entry stays known and is retried by the next reconcile or by `stop()`;
+   * entry stays known and is retried by the next reconcile;
    * refusing to register the folder the user is actually working in, because an
    * unrelated closed folder's file was contended, would report
    * `mcpServerRunning: false` for a session that has a perfectly good entry.
@@ -556,10 +601,6 @@ export class CodeExecutionMCP
     }
 
     for (const [configPath, slot] of desired) {
-      if (this.registrations.get(configPath)?.port === port) {
-        outcomes.set(configPath, REGISTERED);
-        continue;
-      }
       outcomes.set(configPath, await this.registerInSlot(slot, port));
     }
 
@@ -687,21 +728,23 @@ export class CodeExecutionMCP
   /**
    * Stop MCP server and clean up resources.
    *
-   * The two statements before the unregister are the cancellation half of
-   * TASK_2026_332 and are not bookkeeping: without them a re-point that was
-   * queued a moment earlier still runs, and writes a `ptah` entry into the new
-   * workspace pointing at the port this call is about to close.
+   * The cancellation flags prevent a queued re-point from writing after stop.
+   * Persistent entries remain on disk so a restart can reuse their tokens (M1).
+   * Ephemeral lane and session credentials are revoked immediately.
    */
   async stop(): Promise<void> {
+    // Lane tokens die with the server. Persistent hashes stay so the next
+    // start can recognise the token already in a config file (M1).
+    this.callerCredentials.revokeEphemeral();
     // Drop re-points queued after this point...
     this.stopped = true;
     // ...and supersede the ones already queued before it.
     this.repointGeneration++;
 
-    // Joins the queue rather than jumping it: a re-point that already STARTED
-    // has to finish, or this would remove the entry from the file it recorded
-    // and the re-point would then write a fresh one into another.
-    await this.enqueueMcpOp(() => this.unregisterFromAllSlots());
+    // Join the queue so an active mutation finishes before the socket closes.
+    // Persistent entries stay on disk: removing them would force token rotation
+    // on the next start and violate M1's byte-identical restart contract.
+    await this.enqueueMcpOp(() => Promise.resolve());
 
     await stopHttpServer(this.server, this.workspaceState, this.logger);
     this.server = null;
@@ -713,6 +756,84 @@ export class CodeExecutionMCP
    */
   getPort(): number | null {
     return this.port;
+  }
+
+  /** In-memory lane or session token. Not written to a config file or to state. */
+  issue(binding: McpCallerBinding, subject: string, ttlMs: number): string {
+    return this.callerCredentials.issue(binding, subject, ttlMs);
+  }
+
+  /** Drop in-memory tokens for `subject`. Persistent slot hashes stay. */
+  revokeSubject(subject: string): void {
+    this.callerCredentials.revokeSubject(subject);
+  }
+
+  /** Update live persistent capabilities without rotating any token. */
+  async applyExternalCallerAccess(
+    access: McpExternalAccess,
+  ): Promise<void> {
+    this.callerCredentials.clampExternalCallerAccess(access);
+    await this.enqueueMcpOp(() =>
+      this.callerCredentials.applyExternalCallerAccess(this.externalCallerAccess()),
+    );
+  }
+
+  /**
+   * Prepare a persistent credential. Its candidate hash is committed only
+   * after the config writer succeeds, so a failed write keeps the old token.
+   */
+  private async persistentCredential(
+    slot: PtahMcpSlot,
+  ): Promise<PreparedPersistentCredential> {
+    const fileToken = this.readFileAuthToken(slot.configPath);
+    try {
+      return await this.callerCredentials.preparePersistent({
+        configPath: slot.configPath,
+        kind: slot.workspaceRoot === '' ? 'home' : 'workspace',
+        ...(slot.workspaceRoot === ''
+          ? {}
+          : { workspaceRoot: slot.workspaceRoot }),
+        setting: this.externalCallerAccess(),
+        ...(fileToken === undefined ? {} : { fileToken }),
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[CodeExecutionMCP] Credential reconcile failed for ${slot.configPath}`,
+      );
+      throw new Error('MCP credential reconcile failed');
+    }
+  }
+
+  private externalCallerAccess(): 'read-only' | 'full' {
+    return parseExternalCallerAccess(
+      this.workspaceProvider.getConfiguration(
+        'ptah',
+        'mcp.externalCallerAccess',
+        'read-only',
+      ),
+    );
+  }
+
+  /** One `/auth/{43}` token in the file, or undefined when it cannot be read. */
+  private readFileAuthToken(configPath: string): string | undefined {
+    try {
+      if (!fs.existsSync(configPath)) return undefined;
+      const content = fs.readFileSync(configPath, 'utf-8');
+      if (typeof content !== 'string') return undefined;
+      return (
+        extractAuthToken(content) ??
+        /Authorization["']?\s*[:=]\s*["']Bearer ([A-Za-z0-9_-]{43})["']/.exec(
+          content,
+        )?.[1]
+      );
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the warning reports the read
+      // failure, and undefined makes reconciliation issue a replacement token.
+      this.logger.warn(
+        '[CodeExecutionMCP] Could not read MCP config for credential reconcile',
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -795,14 +916,17 @@ export class CodeExecutionMCP
     port: number,
   ): Promise<McpSubagentRegistration> {
     try {
+      const credential = await this.persistentCredential(slot);
       const wrote =
         slot.target === CLAUDE_TARGET
           ? await this.writeMcpJsonEntry(
               slot.configPath,
               port,
               slot.workspaceRoot,
+              credential.token,
             )
-          : await this.writeFacetEntry(slot, port);
+          : await this.writeFacetEntry(slot, port, credential.token);
+      await credential.commit();
 
       this.registrations.set(slot.configPath, { port, slot });
       if (wrote) {
@@ -827,9 +951,7 @@ export class CodeExecutionMCP
         return notRegistered('lock-timeout');
       }
       this.logger.warn(
-        `[CodeExecutionMCP] Failed to register for ${slot.target} in ${slot.configPath}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `[CodeExecutionMCP] Failed to register for ${slot.target} in ${slot.configPath}`,
         'CodeExecutionMCP',
       );
       return notRegistered('write-failed');
@@ -858,6 +980,7 @@ export class CodeExecutionMCP
     mcpJsonPath: string,
     port: number,
     workspaceRoot: string,
+    token: string,
   ): Promise<boolean> {
     // The `/workspace/...` segment is what lets the server attribute an
     // external caller — Claude Code subagents, Copilot, `ptah-cli` — to THIS
@@ -865,7 +988,7 @@ export class CodeExecutionMCP
     // (TASK_2026_364). `ptahMcpUrl` owns the grammar.
     const desiredEntry: McpHttpServerEntry = {
       type: 'http',
-      url: ptahMcpUrl(port, workspaceRoot),
+      url: `http://localhost:${port}/auth/${token}${ptahMcpUrl(port, workspaceRoot).slice(`http://localhost:${port}`.length)}`,
     };
     let wrote = false;
 
@@ -924,11 +1047,19 @@ export class CodeExecutionMCP
   private async writeFacetEntry(
     slot: PtahMcpSlot,
     port: number,
+    token: string,
   ): Promise<boolean> {
     // A workspace-scoped slot declares its folder in the URL; a home-scoped
     // slot (`workspaceRoot === ''`) keeps the bare URL, because one home file
     // serves every open folder at once.
-    const desired = ptahMcpEntry(port, slot.workspaceRoot);
+    const base = ptahMcpEntry(port, slot.workspaceRoot);
+    const desired: McpServerConfig =
+      slot.target === 'cursor'
+        ? { ...base, headers: { Authorization: `Bearer ${token}` } }
+        : {
+            ...base,
+            url: `http://localhost:${port}/auth/${token}${base.url.slice(`http://localhost:${port}`.length)}`,
+          };
     const existing = slot.facet
       .readAll(slot.workspaceRoot)
       .get(PTAH_SPAWN_MCP_KEY);
@@ -936,19 +1067,6 @@ export class CodeExecutionMCP
 
     await slot.facet.write(slot.workspaceRoot, PTAH_SPAWN_MCP_KEY, desired);
     return true;
-  }
-
-  /**
-   * Give back every entry we still own. Used by `stop()`, where the server is
-   * about to close and no config file should keep advertising its port.
-   *
-   * Failures are already logged per path and deliberately do not abort the
-   * loop: one contended file must not strand the entries in the others.
-   */
-  private async unregisterFromAllSlots(): Promise<void> {
-    for (const owned of [...this.registrations.keys()]) {
-      await this.unregisterFromSlot(owned);
-    }
   }
 
   /**
@@ -962,7 +1080,7 @@ export class CodeExecutionMCP
    *
    * Returns `null` on success — including the "we did not own this path" case —
    * and the failure reason otherwise. On failure the record is deliberately
-   * KEPT, so `stop()` or the next reconcile retries the removal.
+   * KEPT, so the next reconcile retries the removal.
    */
   private async unregisterFromSlot(
     configPath: string,
@@ -993,7 +1111,7 @@ export class CodeExecutionMCP
       // with a sharper consequence: a lock timeout means the entry is STILL ON
       // DISK, pointing at a port that may be about to die. The record is
       // deliberately left in `registrations` on every failure path, so it
-      // survives and a later `stop()` or reconcile retries the removal.
+      // survives and the next reconcile retries the removal.
       if (isFileLockTimeoutError(error)) {
         this.logger.warn(
           `[CodeExecutionMCP] Did not unregister from ${configPath} — another ` +

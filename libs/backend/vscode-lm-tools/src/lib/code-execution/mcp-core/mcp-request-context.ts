@@ -17,6 +17,10 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { McpToolProfile } from '@ptah-extension/shared';
+import type {
+  McpCallerBinding,
+  McpCallerCapability,
+} from '@ptah-extension/platform-core';
 
 /** Data carried for the lifetime of a single MCP tool call. */
 export interface McpRequestContext {
@@ -40,6 +44,13 @@ export interface McpRequestContext {
   readonly callerAgentId?: string;
   /** Effective tool profile resolved from the transport-owned URL field. */
   readonly callerToolProfile?: McpToolProfile;
+  /**
+   * Credential binding the HTTP gate accepted. Absent for in-process and
+   * stdio calls, which stay privileged. Later checks read this value.
+   */
+  readonly callerBinding?: McpCallerBinding;
+  /** Privilege copied from the binding. Absent means privileged. */
+  readonly callerCapability?: McpCallerCapability;
   /**
    * Aborted when the caller stops waiting for this call (the HTTP connection
    * closed before the reply). Copied from the transport-owned
@@ -91,6 +102,19 @@ export function getCallerWorkspaceRoot(): string | undefined {
  */
 export function getCallerAgentId(): string | undefined {
   return storage.getStore()?.callerAgentId;
+}
+
+/** Credential binding of the in-flight call, if the HTTP gate stamped one. */
+export function getCallerBinding(): McpCallerBinding | undefined {
+  return storage.getStore()?.callerBinding;
+}
+
+/**
+ * Privilege of the in-flight call. Absent (in-process, stdio, or outside a
+ * tool call) is privileged.
+ */
+export function getCallerCapability(): McpCallerCapability {
+  return storage.getStore()?.callerCapability ?? 'privileged';
 }
 
 /**

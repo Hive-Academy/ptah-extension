@@ -103,6 +103,7 @@ export type StrictMessageType =
   | 'update:statusChanged'
   | 'indexing:progress'
   | 'indexing:complete'
+  | 'indexing:failed'
   | 'boot:readinessChanged'
   | 'boot:progress'
   | 'activity:event'
