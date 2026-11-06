@@ -1,4 +1,6 @@
 :host {
+  /* The clip is 16 : 9, not the 8 : 5 console clips; feeds the shared width caps. */
+  --sec-media-ratio: 16 / 9;
   display: block;
   overflow-x: clip;
   overflow-y: visible;
@@ -88,48 +90,84 @@
   text-wrap: balance;
 }
 
-/* Window chrome: shared .app-frame (app-mock.css), the app's base-100 inside. */
-.loop-window {
-  background:
-    radial-gradient(ellipse 58% 48% at 50% 55%, rgb(245 165 36 / 6%), transparent 76%),
-    var(--app-b1);
+/*
+ * The clip box carries the source's own 16 : 9 (1280 x 720), so the player's
+ * object-fit: cover neither crops nor letterboxes. Compact screens: full width.
+ */
+.loop-clip {
+  width: var(--loop-clip-w, 100%);
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
 }
 
-.loop-canvas-wrap {
-  position: relative;
-  padding: 1.75rem 1.25rem 1.75rem;
-}
-
+/* The six steps, in the page: the clip shows the loop but no readable text. */
 .loop-stages {
-  position: relative;
-  z-index: 2;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0 0 0 3.1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 0.75rem 1.25rem;
+  width: var(--loop-clip-w, 100%);
+  margin: clamp(1.25rem, 2.5vw, 1.75rem) auto 0;
+  padding: 0;
   list-style: none;
+}
+
+.loop-stage {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #262a33;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease,
+    border-color 0.35s ease;
+}
+
+.loop-stage.is-reached {
+  border-top-color: #f5a524;
+  opacity: 1;
+  transform: none;
+}
+
+.stage-number {
+  flex: none;
+  color: #ffbb4d;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.stage-label {
+  color: #e9ebef;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 @media (min-width: 1024px) {
   /*
-   * Header centred above, the loop window under it at the full shell width
-   * (68rem, the same 1088px as the shared clip width at 1440). The shared
-   * --sec-media-w reserves a copy column this stacked layout does not have,
-   * and at 1024px it left the six cards touching. The canvas keeps the
-   * 1080 / 470 SVG proportion with no min-height, so it never grows wider
-   * than the window.
+   * Header centred above, the clip under it at most the shell width (68rem).
+   * The clip uses the shared stacked width (section-media.css) with this
+   * section's ratio, and also leaves 4rem of the viewport for the step row,
+   * so header, clip and steps fit the pinned screen together.
    */
-  .loop-canvas-wrap {
-    aspect-ratio: 1080 / 470;
-    padding: 0;
+  .loop-shell {
+    --loop-clip-w: min(
+      100%,
+      var(--sec-media-w-stacked),
+      calc((100vh - 22rem) * var(--sec-media-ratio))
+    );
   }
 
   .loop-stages {
-    position: absolute;
-    inset: 0;
-    display: block;
-    padding: 0;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .stage-label {
+    font-size: 0.875rem;
   }
 }
 
@@ -148,7 +186,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise {
+  .rise,
+  .loop-stage {
     transition: none;
   }
 }

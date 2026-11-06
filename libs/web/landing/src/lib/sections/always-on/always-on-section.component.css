@@ -1,4 +1,9 @@
-/* S7 "hand-off": desk off the left edge, the phone higher on the right. */
+/* S7 "hand-off": the clip off the left edge, header and points on the right. */
+:host {
+  /* The clip is 16 : 9, not the 8 : 5 console clips; feeds the shared width caps. */
+  --sec-media-ratio: 16 / 9;
+}
+
 .ao-atmosphere {
   background:
     radial-gradient(ellipse 38% 40% at 22% 70%, rgb(245 165 36 / 7%), transparent 72%),
@@ -15,85 +20,39 @@
   min-width: 0;
 }
 
-/* The desktop app window (always-on-desk); its type scales with this width. */
-.ao-desk {
+/*
+ * The clip box carries the source's own 16 : 9 (1280 x 720), so the player's
+ * object-fit: cover neither crops nor letterboxes.
+ */
+.ao-clip {
   position: relative;
   z-index: 1;
-  display: flex;
   min-width: 0;
-  min-height: 16rem;
-  flex-direction: column;
-  overflow: hidden;
-  container-type: inline-size;
-  border: 1px solid #262a33;
-  border-radius: 0.5rem;
-  background: #0e1015;
-  box-shadow: 0 2rem 6rem rgb(0 0 0 / 65%);
+  aspect-ratio: 16 / 9;
   opacity: calc(0.25 + 0.75 * var(--enter, 1));
   transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
 }
 
-/* The phone: the three points arrive on it as messages. */
-.ao-phone {
-  position: relative;
-  z-index: 2;
-  width: min(20rem, 88%);
-  margin: -4rem 0 0 auto;
-  padding: 2.25rem 0.9rem 1.25rem;
-  border: 1px solid var(--app-line-strong);
-  border-radius: 1.75rem;
-  color: var(--app-ink);
-  background: var(--app-b1);
-  box-shadow: 0 2rem 5rem rgb(0 0 0 / 70%);
-  transition: border-color 0.4s ease;
-}
-
-.ao-phone.is-live {
-  border-color: rgb(228 185 74 / 55%);
-}
-
-.phone-notch {
-  position: absolute;
-  top: 0.9rem;
-  left: 50%;
-  width: 4.5rem;
-  height: 0.4rem;
-  border-radius: 9999px;
-  background: var(--app-b3);
-  transform: translateX(-50%);
-}
-
-/* Chat header: the platform the session was handed to, its dot green once attached. */
-.phone-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.9rem;
-  padding: 0 0.25rem 0.7rem;
-  border-bottom: 1px solid var(--app-line);
-}
-
-.phone-name {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
 .ao-points {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.6rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Messages: the app's card surface (base-200, hairline, rounded) as chat bubbles. */
+/* A tile in the window colour with a hairline and an amber status edge (as command-center). */
 .ao-point {
-  max-width: 92%;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--app-line);
-  border-radius: 1rem 1rem 1rem 0.3rem;
-  color: var(--app-ink);
-  background: var(--app-b2);
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem 0.8rem 0.9rem;
+  border: 1px solid #262a33;
+  border-left: 2px solid #f5a524;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #0e1015;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.4;
@@ -109,8 +68,17 @@
   transform: none;
 }
 
+.point-mark {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ffbb4d;
+  transform: translateY(-0.1rem);
+}
+
 @media (min-width: 1024px) {
-  /* Desk column bleeds off the left edge; the shared gap; the header column holds header and phone. */
+  /* Clip column bleeds off the left edge; the shared gap; the header column holds header and points. */
   .ao-stage {
     grid-template-columns: minmax(0, 1fr) var(--sec-head-w);
     grid-template-rows: auto auto;
@@ -125,33 +93,29 @@
   }
 
   /*
-   * Set lower than the phone, squared where it runs off the page. Sized as
-   * the shared split clip (8 / 5), plus the 1.5rem it bleeds past the padding.
+   * Squared where it runs off the page. Sized as the shared split clip at
+   * 16 : 9, plus the 1.5rem it bleeds past the frame padding; the box keeps
+   * 16 : 9 over its full width, so the visible clip is never letterboxed.
    */
-  .ao-desk {
+  .ao-clip {
+    --clip-radius: 0 0.5rem 0.5rem 0;
+    --clip-border-left: 0;
     grid-column: 1;
     grid-row: 1 / span 2;
     align-self: end;
     justify-self: start;
     width: calc(min(100%, var(--sec-media-w-split)) + 1.5rem);
-    min-height: 0;
-    aspect-ratio: 8 / 5;
     margin-left: -1.5rem;
-    border-left: 0;
-    border-radius: 0 0.5rem 0.5rem 0;
   }
 
-  .ao-phone {
+  .ao-points {
     grid-column: 2;
     grid-row: 2;
     align-self: start;
-    width: min(21rem, 100%);
-    margin: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ao-phone,
   .ao-point {
     transition: none;
   }

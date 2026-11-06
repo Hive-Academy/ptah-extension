@@ -6,40 +6,35 @@ import {
   ElementRef,
   PLATFORM_ID,
   afterNextRender,
-  computed,
   inject,
   input,
   signal,
 } from '@angular/core';
+import { ConsoleClipComponent } from '../shared/console-clip.component';
 import { REVEAL, bindSectionScroll } from '../shared/section-scroll';
-import {
-  DECISION_LOOP_STAGES,
-  STAGE_THRESHOLDS,
-  stageReached,
-  type DecisionLoopStage,
-} from './decision-loop-geometry';
-import { DecisionLoopRolesBarComponent } from './decision-loop-roles-bar.component';
-import { DecisionLoopStageComponent } from './decision-loop-stage.component';
-import { DecisionLoopTrackComponent } from './decision-loop-track.component';
+import { DECISION_LOOP_STAGES, stageReached, type DecisionLoopStage } from './decision-loop-stages';
 
-export { DECISION_LOOP_STAGES, type DecisionLoopStage } from './decision-loop-geometry';
+export { DECISION_LOOP_STAGES, type DecisionLoopStage } from './decision-loop-stages';
 
-const FORWARD_SELECTORS =
-  '[data-forward-glow], [data-forward-path], [data-forward-core], [data-mobile-forward]';
-const FEEDBACK_SELECTORS = '[data-feedback-glow], [data-feedback-path], [data-mobile-feedback]';
+/** The decision-loop clip: 1280 x 720 (16 : 9), 8 s, muted. */
+export const DECISION_LOOP_CLIP = {
+  video: '/assets/live-demo/decision-loop.mp4',
+  videoWebm: '/assets/live-demo/decision-loop.webm',
+  poster: '/assets/live-demo/decision-loop.jpg',
+  label: 'The decision loop: six steps, and step 6 returns to step 3',
+} as const;
 
 /**
- * S3 decision loop. The window reads as a piece of the app's Settings:
- * the "Background Model Roles" accordion header on top, and each of the six
- * stages as a consumer-row card (decision-model-row) with the one control it
- * runs on. The amber circuit runs 01 -> 06 and returns from 06 "Check files,
- * feed back" to 03 "Blend 90-day evidence". Scroll draws it in; SSR and
- * reduced motion render it settled.
+ * S3 decision loop. Header centred above a 16 : 9 clip of the loop (six
+ * cards, the highlight moving card to card, step 6 returning to step 3).
+ * The clip carries no readable text, so the six steps stay in the page as an
+ * ordered list under it. Scroll brings the header in, then the steps, in
+ * order; SSR and reduced motion render it settled.
  */
 @Component({
   selector: 'ptah-decision-loop-section',
   standalone: true,
-  imports: [DecisionLoopRolesBarComponent, DecisionLoopStageComponent, DecisionLoopTrackComponent],
+  imports: [ConsoleClipComponent],
   template: `
     <section id="decision-model-loop" class="decision-loop-section" aria-labelledby="decision-loop-title">
       <div class="loop-atmosphere" aria-hidden="true"></div>
@@ -60,36 +55,27 @@ const FEEDBACK_SELECTORS = '[data-feedback-glow], [data-feedback-path], [data-mo
           </p>
         </header>
 
-        <div
-          class="loop-window app-frame rise"
-          data-loop-window
-          [class.is-in]="revealProgress() >= reveal.visual"
-          [style.--loop-progress]="loopProgress()"
-        >
-          <ptah-decision-loop-roles-bar />
-          <div class="loop-canvas-wrap">
-            <ptah-decision-loop-track [stages]="stages()" [progress]="loopProgress()" />
-
-            <ol class="loop-stages">
-              @for (stage of stages(); track stage.id; let i = $index) {
-                <li
-                  ptah-decision-loop-stage
-                  class="loop-stage app-card"
-                  [stage]="stage"
-                  [attr.data-stage-index]="i"
-                  [class.is-reached]="isStageReached(i)"
-                  [class.is-active]="activeStage() === i"
-                  [class.is-convergence]="i === 2"
-                  [class.is-feedback-lit]="feedbackLit()"
-                ></li>
-              }
-            </ol>
-          </div>
+        <div class="loop-clip rise" data-loop-clip [class.is-in]="revealProgress() >= reveal.visual">
+          <ptah-console-clip
+            [video]="clip.video"
+            [videoWebm]="clip.videoWebm"
+            [poster]="clip.poster"
+            [label]="clip.label"
+          />
         </div>
+
+        <ol class="loop-stages">
+          @for (stage of stages(); track stage.id; let i = $index) {
+            <li class="loop-stage" [attr.data-stage-index]="i" [class.is-reached]="isStageReached(i)">
+              <span class="stage-number" aria-hidden="true">{{ stage.number }}</span>
+              <span class="stage-label">{{ stage.label }}</span>
+            </li>
+          }
+        </ol>
       </div>
     </section>
   `,
-  styleUrls: ['../shared/app-mock.css', './decision-loop-section.component.css'],
+  styleUrls: ['../shared/section-media.css', './decision-loop-section.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DecisionLoopSectionComponent {
@@ -100,28 +86,25 @@ export class DecisionLoopSectionComponent {
   );
   public readonly stages = input<readonly DecisionLoopStage[]>(DECISION_LOOP_STAGES);
 
-  /**
-   * Resting state (SSR and prefers-reduced-motion) is settled at 1 so every
-   * stage and the 06 -> 03 feedback arc render complete without requiring JS.
-   */
-  public readonly loopProgress = signal(1);
-  public readonly activeStage = signal(2);
-  public readonly feedbackLit = computed(() => this.loopProgress() >= 0.9);
+  protected readonly clip = DECISION_LOOP_CLIP;
 
+  /** Steps-in progress (0 to 1); settled at 1 for SSR and reduced motion. */
+  public readonly loopProgress = signal(1);
   /** Section scroll progress for the top-down header reveal; settled at 1. */
   public readonly revealProgress = signal(1);
   protected readonly reveal = REVEAL;
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly document = inject(DOCUMENT);
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
   private release?: () => void;
 
   public constructor() {
-    if (!this.browser) return;
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) return;
     afterNextRender(() => this.initialize());
-    this.destroyRef.onDestroy(() => this.cleanup());
+    inject(DestroyRef).onDestroy(() => {
+      this.release?.();
+      this.release = undefined;
+    });
   }
 
   public isStageReached(index: number): boolean {
@@ -129,21 +112,7 @@ export class DecisionLoopSectionComponent {
   }
 
   public setProgress(rawProgress: number): void {
-    const clamped = Math.max(0, Math.min(1, rawProgress));
-    this.loopProgress.set(clamped);
-
-    // Stage 06 returns to Stage 03 at the end of the loop (>= 0.92).
-    if (clamped >= 0.92) {
-      this.activeStage.set(2);
-    } else {
-      let current = 0;
-      STAGE_THRESHOLDS.forEach((threshold, i) => {
-        if (clamped >= threshold) current = i;
-      });
-      this.activeStage.set(current);
-    }
-
-    this.syncSvgStrokeProgress(clamped);
+    this.loopProgress.set(Math.max(0, Math.min(1, rawProgress)));
   }
 
   private initialize(): void {
@@ -151,31 +120,12 @@ export class DecisionLoopSectionComponent {
     const section = this.host.nativeElement.querySelector<HTMLElement>('section');
     if (!view || !section) return;
 
-    // Vertical scroll drives everything: the header rises in reading order,
-    // then the loop advances over the rest of the scroll (pinned on desktop)
-    // and settles complete before the pin ends.
+    // Vertical scroll: the header rises in reading order, then the steps come
+    // in over the rest of the scroll (pinned on desktop), all in before the
+    // pin ends.
     this.release = bindSectionScroll(section, view, (progress) => {
       this.revealProgress.set(progress);
-      const loop = (progress - REVEAL.visual) / (0.92 - REVEAL.visual);
-      this.setProgress(Math.max(0.06, loop));
+      this.setProgress(Math.max(0.06, (progress - REVEAL.visual) / (0.92 - REVEAL.visual)));
     });
-  }
-
-  private syncSvgStrokeProgress(progress: number): void {
-    const root = this.host.nativeElement;
-    const forward = Math.min(1, progress / 0.78);
-    const feedback = progress <= 0.78 ? 0 : Math.min(1, (progress - 0.78) / 0.22);
-    const draw = (selectors: string, fraction: number): void =>
-      root.querySelectorAll<SVGPathElement>(selectors).forEach((pathEl) => {
-        pathEl.style.strokeDasharray = '1';
-        pathEl.style.strokeDashoffset = String(1 - fraction);
-      });
-    draw(FORWARD_SELECTORS, forward);
-    draw(FEEDBACK_SELECTORS, feedback);
-  }
-
-  private cleanup(): void {
-    this.release?.();
-    this.release = undefined;
   }
 }

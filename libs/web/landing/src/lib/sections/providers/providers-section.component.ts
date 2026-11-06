@@ -1,9 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ConsoleClipComponent } from '../shared/console-clip.component';
 import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { stageScrollProgress, stepsReached } from '../shared/stage-scroll';
-import { ProvidersConnectionCardComponent } from './providers-connection-card.component';
-import { ProvidersPointMockComponent } from './providers-point-mock.component';
 
 export const PROVIDERS_POINTS: readonly string[] = [
   'Claude, Codex, Copilot, OpenRouter, Ollama.',
@@ -11,25 +10,27 @@ export const PROVIDERS_POINTS: readonly string[] = [
   'First run reads the repo. You pick the team.',
 ];
 
-/** The setup hub still, served from the landing app's public assets. */
-export const SETUP_HUB_STILL = '/assets/images/showcase/setup-hub.png';
+/** The providers clip: 1280 x 720 (16 : 9), 8 s, muted. */
+export const PROVIDERS_CLIP = {
+  video: '/assets/live-demo/providers.mp4',
+  videoWebm: '/assets/live-demo/providers.webm',
+  poster: '/assets/live-demo/providers.jpg',
+  label: 'Bring the accounts you already have: Claude, Codex, Copilot, OpenRouter, Ollama',
+} as const;
 
 /**
  * Providers. Composition "account deck": the header runs across the top
- * left; the real Setup Hub still sits right, raised into the header's row;
- * the three points are app cards set out from under the still's left edge,
- * each with the app fragment it stands for (provider avatars, Accounts-tab
- * rows; see providers-point-mock). The Claude connection card from Settings
- * -> Providers lands on the still's lower corner with the second point
- * (certified before launch, live subscription checked). Scroll: the header
- * lines, the still rises, then the pinned steps raise the cards and land the
- * connection card. The still takes the shared stacked clip width
- * (`section-media.css`).
+ * left; a 16 : 9 clip sits right, raised into the header's row (connections
+ * turning ready one by one, then the accounts checked); the three points are
+ * cards set out from under the clip's left edge. The clip has no readable
+ * text, so the copy stays in the page. Scroll: the header lines, the clip
+ * rises, then the pinned steps raise the cards. The clip takes the shared
+ * stacked clip width (`section-media.css`) at 16 : 9.
  */
 @Component({
   selector: 'ptah-providers-section',
   standalone: true,
-  imports: [SectionHeaderComponent, ProvidersConnectionCardComponent, ProvidersPointMockComponent],
+  imports: [ConsoleClipComponent, SectionHeaderComponent],
   template: `
     <section id="providers" class="section-frame" aria-labelledby="providers-title">
       <div class="frame-atmosphere pv-atmosphere" aria-hidden="true"></div>
@@ -49,37 +50,27 @@ export const SETUP_HUB_STILL = '/assets/images/showcase/setup-hub.png';
 
         <ul class="pv-deck">
           @for (point of points(); track point; let i = $index) {
-            <li class="pv-card app-card" [class.is-in]="reached() > i" [style.--at]="i">
-              <span class="card-head">
-                <span class="card-text">{{ point }}</span>
-                <span class="card-index app-badge" aria-hidden="true">0{{ i + 1 }}</span>
-              </span>
-              <ptah-providers-point-mock [index]="i" />
+            <li class="pv-card" [class.is-in]="reached() > i" [style.--at]="i">
+              <span class="card-text">{{ point }}</span>
+              <span class="card-index" aria-hidden="true">0{{ i + 1 }}</span>
             </li>
           }
         </ul>
 
-        <figure class="pv-still">
-          <div class="still-window">
-            <img
-              class="still-image"
-              [src]="still"
-              width="1909"
-              height="974"
-              loading="lazy"
-              decoding="async"
-              alt="PtahCode Setup Hub: workspace analysis and the AI team builder"
-            />
-          </div>
-          <ptah-providers-connection-card class="pv-conn" data-conn [class.is-in]="reached() >= 2" />
-        </figure>
+        <div class="pv-clip" data-clip>
+          <ptah-console-clip
+            [video]="clip.video"
+            [videoWebm]="clip.videoWebm"
+            [poster]="clip.poster"
+            [label]="clip.label"
+          />
+        </div>
       </div>
     </section>
   `,
   styleUrls: [
     '../shared/section-frame.css',
     '../shared/section-media.css',
-    '../shared/app-mock.css',
     './providers-section.component.css',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -92,7 +83,7 @@ export class ProvidersSectionComponent {
   );
   public readonly points = input<readonly string[]>(PROVIDERS_POINTS);
 
-  protected readonly still = SETUP_HUB_STILL;
+  protected readonly clip = PROVIDERS_CLIP;
 
   /** Vertical-scroll phases; settled at 1 for SSR and reduced motion. */
   public readonly scroll = stageScrollProgress();
@@ -100,6 +91,6 @@ export class ProvidersSectionComponent {
   public readonly headerProgress = computed(() =>
     this.scroll.reveal() >= 1 ? 1 : this.scroll.reveal() * REVEAL.visual,
   );
-  /** Cards dealt so far (0 to 3); the connection card lands with the second. */
+  /** Cards dealt so far (0 to 3). */
   public readonly reached = computed(() => stepsReached(this.scroll.steps()));
 }
