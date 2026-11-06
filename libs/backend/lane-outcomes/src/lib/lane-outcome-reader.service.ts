@@ -53,6 +53,7 @@ export class LaneOutcomeReader implements LaneOutcomeQueries {
       const rows = await this.store.listRecent(window.sinceMs, this.activeRoot());
       return await this.join(rows.slice(0, READ_LIMIT));
     } catch (error: unknown) {
+      // degradation-audit: reported - the matrix read port requires a resolved empty result after a logged store failure.
       this.logger.warn('Outcome workspace read failed', { code: error instanceof Error ? error.name : 'UNKNOWN' });
       return [];
     }
