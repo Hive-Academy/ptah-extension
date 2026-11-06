@@ -1123,7 +1123,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 - Alias and argument-array specs pass; verify passes
 
-## Batch 21: C8b connection, service, RPC handlers — PENDING
+## Batch 21: C8b connection, service, RPC handlers — COMPLETE (Codex; review at Batch 22)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1135,7 +1135,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E | Phase review: at Batch 22
 - Verify: `npm run verify -- -p @ptah-extension/remote-machines`
 
-### Task 21.1: Machine connection, service, handlers — PENDING
+### Task 21.1: Machine connection, service, handlers — COMPLETE
 
 - Files: W/`libs/backend/remote-machines/src/lib/{machine-connection,machines-service,machines-rpc.handlers}.ts`
   (+ specs), W/`libs/backend/remote-machines/src/index.ts`
@@ -1148,7 +1148,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Validation notes: edge case offline removal
 - Implementation details: `register()` pattern `register-rpc-surface.ts:183-190`
 
-### Task 21.2: A1 Duplex integration spec — PENDING
+### Task 21.2: A1 Duplex integration spec — COMPLETE
 
 - Depends on: Task 21.1
 - File: W/`libs/backend/remote-machines/src/lib/machine-connection.integration.spec.ts` (create)
