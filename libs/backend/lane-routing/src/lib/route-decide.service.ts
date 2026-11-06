@@ -307,11 +307,11 @@ export class RouteDecideService {
     try {
       this.deps.logger.info('[lane-routing] route decided', build());
     } catch (error: unknown) {
-      // degradation-audit: summary logging must not interrupt a completed route.
+      // degradation-audit: reported - summary logging must not interrupt a completed route
       try {
         this.deps.logger.warn('[lane-routing] route summary failed', errorFacts(error));
       } catch {
-        // degradation-audit: a broken host logger cannot interrupt routing.
+        // degradation-audit: optional-capability - a broken host logger cannot interrupt routing
       }
     }
   }
