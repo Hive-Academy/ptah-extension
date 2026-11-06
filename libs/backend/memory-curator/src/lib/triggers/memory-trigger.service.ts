@@ -49,6 +49,7 @@ import { BootScanRunner } from './boot-scan-runner';
 import { BootScanFailureLedger } from './boot-scan-failure-ledger';
 import { BootScanScheduler } from './boot-scan-scheduler';
 import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
+import { redactSecrets } from './redact-secrets';
 import {
   MEMORY_TRIGGER_DEFAULTS,
   MEMORY_TRIGGER_KEYS,
@@ -62,6 +63,8 @@ const COALESCE_WINDOW_MS = 5000;
 /** The curate rate limiter's window, as `CuratorRateLimitService` buckets it. */
 const HOUR_MS = 60 * 60 * 1000;
 const TOOL_FAILURE_SNIPPET = 140;
+/** Raw failure text scanned for secrets before the snippet is cut (bounds regex work). */
+const TOOL_FAILURE_REDACT_SCAN = 4096;
 /**
  * Consecutive `'failed'` passes per session whose drained observations are
  * kept unprocessed for a retry (TASK_2026_621). The pass after the last retry
@@ -495,13 +498,23 @@ export class MemoryTriggerService {
       payload.toolName,
       payload.error,
     );
+    // The raw failure text goes to the log only; the UI event carries a
+    // redacted one-line snippet (tool output can hold tokens or URLs).
+    this.logger.debug('[memory-trigger] tool failure', {
+      sessionId: payload.sessionId,
+      tool: payload.toolName,
+      error: payload.error,
+    });
     this.curator.pushEvent({
       kind: 'tool-failure',
       timestamp: payload.timestamp,
       sessionId: payload.sessionId,
       stats: {
         tool: payload.toolName,
-        error: snippetOneLine(payload.error, TOOL_FAILURE_SNIPPET),
+        error: snippetOneLine(
+          redactSecrets((payload.error ?? '').slice(0, TOOL_FAILURE_REDACT_SCAN)),
+          TOOL_FAILURE_SNIPPET,
+        ),
       },
     });
   }

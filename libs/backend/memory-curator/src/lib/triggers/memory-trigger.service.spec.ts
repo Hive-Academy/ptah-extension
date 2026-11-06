@@ -1502,6 +1502,32 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(snippet.endsWith('…')).toBe(true);
   });
 
+  it('tool-failure event never carries a secret from the tool failure text', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    const sentinel = 'sk-ant-SENTINEL0123456789abcdef';
+    const rawError = `401 from https://bot:SENTINELpw@api.example.com Authorization: Bearer ${sentinel}`;
+    toolFailure.fire({
+      toolName: 'WebFetch',
+      toolInput: { url: 'https://api.example.com' },
+      error: rawError,
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const pushed = (curator.pushEvent as jest.Mock).mock.calls.filter(
+      ([e]: [{ kind: string }]) => e.kind === 'tool-failure',
+    );
+    expect(pushed).toHaveLength(1);
+    const wire = JSON.stringify(pushed[0][0]);
+    expect(wire).not.toContain('SENTINEL');
+    expect(pushed[0][0].stats.error).toContain('401 from https://');
+    expect(pushed[0][0].stats.error).toContain('[REDACTED]');
+  });
+
   it('recovery-only episode (turnCount === 0) does NOT fire episode-trigger', async () => {
     const { service, toolFailure, postToolUse, curator } = buildService({
       workspace: makeWorkspace({
