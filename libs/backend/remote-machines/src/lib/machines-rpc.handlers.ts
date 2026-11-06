@@ -66,7 +66,7 @@ export function mapMachineError(error: unknown): Error {
 export class MachinesRpcHandlers {
   constructor(
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    private readonly machines: MachinesService,
+    @inject(MachinesService) private readonly machines: MachinesService,
   ) {}
   register(): void {
     for (const method of MACHINES_RPC_METHOD_NAMES) {
