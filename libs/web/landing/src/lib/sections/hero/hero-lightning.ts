@@ -1,29 +1,8 @@
-export interface BoltPoint { x: number; y: number }
+import { BoltPoint, generateBoltPath, paintBolt } from '../../shared/lightning-bolt';
 
-// Normalized points let one flicker shape follow symbols as GSAP moves them.
-export function generateBoltPath(
-  start: BoltPoint,
-  end: BoltPoint,
-  random: () => number = Math.random,
-): BoltPoint[] {
-  let points = [start, end];
-  const length = Math.hypot(end.x - start.x, end.y - start.y);
-  const normal = length ? { x: -(end.y - start.y) / length, y: (end.x - start.x) / length } : { x: 0, y: 0 };
-  for (let depth = 0; depth < 4; depth++) {
-    const next: BoltPoint[] = [points[0]];
-    for (let index = 0; index < points.length - 1; index++) {
-      const left = points[index];
-      const right = points[index + 1];
-      const offset = (random() * 2 - 1) * length * 0.09 / (depth + 1);
-      next.push({
-        x: (left.x + right.x) / 2 + normal.x * offset,
-        y: (left.y + right.y) / 2 + normal.y * offset,
-      }, right);
-    }
-    points = next;
-  }
-  return points;
-}
+// Re-exported for existing importers; the implementation lives in the shared util.
+export { generateBoltPath };
+export type { BoltPoint };
 
 const ARC_DURATION = 360;
 const FLICKER_INTERVAL = 95;
@@ -139,41 +118,8 @@ export class HeroLightning {
   };
 
   private paint(from: BoltPoint, to: BoltPoint, fade: number): void {
-    const context = this.context;
-    if (!context) return;
-    const along = { x: to.x - from.x, y: to.y - from.y };
-    const across = { x: -along.y, y: along.x };
-    const map = (point: BoltPoint): BoltPoint => ({
-      x: from.x + point.x * along.x + point.y * across.x,
-      y: from.y + point.x * along.y + point.y * across.y,
-    });
-    const stroke = (points: BoltPoint[], width: number, color: string, alpha: number, blur: number): void => {
-      context.beginPath();
-      points.forEach((point, index) => {
-        const mapped = map(point);
-        if (index === 0) context.moveTo(mapped.x, mapped.y);
-        else context.lineTo(mapped.x, mapped.y);
-      });
-      context.lineWidth = width;
-      context.strokeStyle = color;
-      context.globalAlpha = alpha * fade;
-      context.shadowColor = color;
-      context.shadowBlur = blur;
-      context.stroke();
-    };
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    stroke(this.path, 8, '#f5a524', 0.16, 20);
-    stroke(this.path, 2.8, '#ffbb4d', 0.7, 9);
-    stroke(this.path, 1, '#fff9eb', 0.88, 2);
-    for (const index of [5, 11]) {
-      const root = this.path[index];
-      if (!root) continue;
-      const tip = { x: root.x + 0.035, y: root.y + (index === 5 ? 0.055 : -0.05) };
-      stroke([root, { x: (root.x + tip.x) / 2, y: tip.y * 0.65 + root.y * 0.35 }, tip], 1, '#ffbb4d', 0.35, 7);
-    }
-    context.globalAlpha = 1;
-    context.shadowBlur = 0;
+    if (!this.context) return;
+    paintBolt(this.context, this.path, from, to, fade);
   }
 
   private center(symbol: HTMLElement, box: DOMRect): BoltPoint {
