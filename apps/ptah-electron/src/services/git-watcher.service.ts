@@ -448,7 +448,9 @@ export class GitWatcherService {
     // the audit the stamp stays null, which keeps every later claim false.
     const audit = this.startOptions.agentWorktreeAudit;
     if (audit) this.lastWorktreeAuditAt = Date.now();
-    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, audit);
+    if (audit) {
+      void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, true);
+    }
 
     this.subscribeGitDir(this.resolveGitDirs(gitDir));
 

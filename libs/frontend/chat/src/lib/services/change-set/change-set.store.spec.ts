@@ -10,6 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  GIT_ROOT_PROBE_FAILED_MESSAGE,
   MESSAGE_TYPES,
   type GitFileStatus,
   type GitInfoResult,
@@ -519,6 +520,25 @@ describe('ChangeSetStore', () => {
       expect(store.marksFor(store.changeSetsFor('s1')[0]).reconciled.size).toBe(
         0,
       );
+    });
+
+    it('keeps reconciled marks after a retryable root probe failure', async () => {
+      const store = createStore();
+      await openSession('s1');
+      await passDebounce();
+      gitInfo = status([]);
+      store.handleMessage({ type: MESSAGE_TYPES.SESSION_TURN_ENDED, payload: { sessionId: 's1' } });
+      await passDebounce();
+      const [set] = store.changeSetsFor('s1');
+      expect(store.marksFor(set).reconciled.size).toBe(2);
+      mockRpcCall.mockImplementation(async (_vscode, method: string) =>
+        method === 'git:info'
+          ? { success: false, error: GIT_ROOT_PROBE_FAILED_MESSAGE }
+          : { success: true, data: { changeSets: persisted } },
+      );
+      store.handleMessage({ type: MESSAGE_TYPES.SESSION_TURN_ENDED, payload: { sessionId: 's1' } });
+      await passDebounce();
+      expect(store.marksFor(set).reconciled.size).toBe(2);
     });
 
     it.each([

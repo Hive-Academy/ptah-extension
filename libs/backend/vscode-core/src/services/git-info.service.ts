@@ -32,6 +32,7 @@ import {
   GIT_HOOK_TIMEOUT_MS,
   GIT_DIFF_MAX_SIDE_BYTES,
   type GitWorktreeInfo,
+  parseWorktreeList,
   type GitStageResult,
   type GitUnstageResult,
   type GitDiscardResult,
@@ -89,6 +90,8 @@ import {
 import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
+import { GitFolderProbe } from './git/git-folder-probe';
+import { isNotAGitRepository, toError, type CommonDirRead, type WorktreeListRead } from './git/git-probe-outcome';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
 import { GitHistoryReader } from './git/git-history.reader';
 import {
@@ -727,6 +730,10 @@ export class GitInfoService {
    */
   private readonly readCache = new Map<string, unknown>();
   private readonly rootCache = new GitRootCache();
+  private readonly folderProbe = new GitFolderProbe({
+    list: (folder, signal) => this.readWorktreeList(folder, signal),
+    commonDir: (dir, signal) => this.readCommonDir(dir, signal),
+  });
   private readonly infoCache = new Map<string, { value: GitInfoResult; until: number }>();
 
   /**
@@ -779,6 +786,7 @@ export class GitInfoService {
     this.reviewReader.invalidate(workspacePath);
     // A mutation or watcher event can replace the repository at this path.
     this.rootCache.invalidate(workspacePath);
+    this.folderProbe.invalidate(workspacePath);
     if (!workspacePath) {
       this.invalidatedAllAt = this.cacheGeneration;
       this.readCache.clear();
@@ -1135,6 +1143,67 @@ export class GitInfoService {
     return this.worktreeAdmin.list(workspacePath);
   }
 
+  probeWorktreeList(folder: string, signal?: AbortSignal): Promise<WorktreeListRead> {
+    return this.folderProbe.readList(folder, signal);
+  }
+
+  probeCommonDir(dir: string, signal?: AbortSignal): Promise<CommonDirRead> {
+    return this.folderProbe.readCommonDir(dir, signal);
+  }
+
+  probeEpoch(): number {
+    return this.folderProbe.epoch();
+  }
+
+  invalidateProbeReadCache(): void {
+    this.folderProbe.invalidate();
+  }
+
+  private async readWorktreeList(folder: string, signal?: AbortSignal): Promise<WorktreeListRead> {
+    try {
+      const result = await this.execGit(['worktree', 'list', '--porcelain', '-z'], folder, {
+        timeoutMs: 10_000,
+        signal,
+      });
+      if (result.exitCode !== 0) {
+        if (isNotAGitRepository(result.exitCode, result.stderr)) return { kind: 'not-a-repo' };
+        const cause = new Error(`git worktree list exited ${result.exitCode}: ${result.stderr}`);
+        this.logger.error('[GitInfoService] worktree list probe failed', cause);
+        return { kind: 'failed', cause };
+      }
+      return { kind: 'listed', worktrees: parseWorktreeList(result.stdout) };
+    } catch (error: unknown) {
+      const cause = toError(error);
+      this.logger.error('[GitInfoService] worktree list probe failed', cause);
+      return { kind: 'failed', cause };
+    }
+  }
+
+  private async readCommonDir(dir: string, signal?: AbortSignal): Promise<CommonDirRead> {
+    try {
+      const result = await this.execGit(
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        dir,
+        { timeoutMs: GIT_STATUS_TIMEOUT_MS, signal },
+      );
+      if (result.exitCode !== 0) {
+        if (isNotAGitRepository(result.exitCode, result.stderr)) return { kind: 'not-a-repo' };
+        const cause = new Error(`git common-dir exited ${result.exitCode}: ${result.stderr}`);
+        this.logger.error('[GitInfoService] common-dir probe failed', cause);
+        return { kind: 'failed', cause };
+      }
+      const path = result.stdout.trim();
+      if (path) return { kind: 'dir', path };
+      const cause = new Error('git common-dir returned an empty path');
+      this.logger.error('[GitInfoService] common-dir probe failed', cause);
+      return { kind: 'failed', cause };
+    } catch (error: unknown) {
+      const cause = toError(error);
+      this.logger.error('[GitInfoService] common-dir probe failed', cause);
+      return { kind: 'failed', cause };
+    }
+  }
+
   /**
    * The repository's common directory as git resolves it from `dir`
    * (`rev-parse --path-format=absolute --git-common-dir`): the same for a
@@ -1149,9 +1218,8 @@ export class GitInfoService {
       );
       const commonDir = stdout.trim();
       return exitCode === 0 && commonDir.length > 0 ? commonDir : null;
-    } catch {
-      // degradation-audit: optional-capability - no answer authorizes nothing;
-      // the caller treats null as "not the same repository".
+    } catch (error: unknown) {
+      this.logger.error('[GitInfoService] getCommonDir failed', toError(error));
       return null;
     }
   }

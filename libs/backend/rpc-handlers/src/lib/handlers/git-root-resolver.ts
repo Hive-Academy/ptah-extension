@@ -6,7 +6,7 @@
  * - A named root is accepted when it is a registered workspace folder, or —
  *   under the `'folder-or-worktree'` policy — a live worktree of an open
  *   folder's repository (see {@link findRegisteredWorktree} for the checks).
- * - A refused named root throws `RpcUserError('GIT_ROOT_UNAVAILABLE')` and
+ * - A confirmed missing named root throws `RpcUserError('GIT_ROOT_UNAVAILABLE')` and
  *   never falls back to the active folder: a stale or hostile request must
  *   not read from, or mutate, a different repository. The webview shows the
  *   error's message ("This worktree is no longer available."), not the
@@ -18,7 +18,8 @@
  * (`git worktree list` + two `rev-parse` + a stat) for a short window
  * ({@link READ_PROBE_TTL_MS}) and while one is in flight, so a burst of
  * status/diff reads after a watcher push spawns git once. Only a confirmed
- * worktree is kept; a refusal is never cached. A method not in the list is
+ * confirmed worktrees and confirmed absences are cached; failures get a brief
+ * retry backoff. A method not in the list is
  * treated as a write (review M1).
  */
 
@@ -27,12 +28,13 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { GIT_ROOT_UNAVAILABLE_MESSAGE } from '@ptah-extension/shared';
+import { GIT_ROOT_UNAVAILABLE_MESSAGE, GIT_ROOT_PROBE_FAILED_MESSAGE } from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import type { GitInfoService } from '@ptah-extension/vscode-core';
 import {
   findRegisteredWorkspaceFolder,
-  findRegisteredWorktree,
+  probeRegisteredWorktree,
+  type RegisteredWorktreeOutcome,
   type WorktreeRootProbe,
 } from './git-workspace-root';
 
@@ -50,10 +52,11 @@ export interface GitRootResolverDeps {
   readonly platform?: NodeJS.Platform;
   /** Clock for the read cache; defaults to `Date.now`. */
   readonly now?: () => number;
+  readonly epoch?: () => number;
 }
 
 /** How long a confirmed worktree is reused by read-only methods. */
-export const READ_PROBE_TTL_MS = 1500;
+export const READ_PROBE_TTL_MS = 60_000;
 
 /**
  * `git:*` methods that never change a repository. Only these may reuse a
@@ -74,12 +77,13 @@ export const READ_ONLY_GIT_METHODS: ReadonlySet<string> = new Set([
   'git:prStatus',
   'git:showFile',
   'git:tags',
+  'git:watchRoots',
 ]);
 
 interface ReadProbeEntry {
-  readonly expiresAt: number;
-  readonly result: Promise<string | undefined>;
-  missing?: boolean;
+  expiresAt: number;
+  readonly epoch: number;
+  readonly result: Promise<RegisteredWorktreeOutcome>;
 }
 
 /** The message of the {@link GitRootResolver} refusal (shared with the webview). */
@@ -102,6 +106,7 @@ export class GitRootResolver {
     requested: string | undefined,
     method: string,
     policy: GitRootPolicy,
+    signal?: AbortSignal,
   ): Promise<string | undefined> {
     const { workspace, probe, platform } = this.deps;
     if (!requested) return workspace.getWorkspaceRoot();
@@ -114,10 +119,19 @@ export class GitRootResolver {
     if (folder) return folder;
 
     if (policy === 'folder-or-worktree') {
-      const worktree = READ_ONLY_GIT_METHODS.has(method)
-        ? await this.probeForRead(requested)
-        : await findRegisteredWorktree(workspace, probe, requested, platform);
-      if (worktree) return worktree;
+      if (!READ_ONLY_GIT_METHODS.has(method)) probe.invalidate?.();
+      const outcome = READ_ONLY_GIT_METHODS.has(method)
+        ? await this.probeForRead(requested, signal)
+        : await probeRegisteredWorktree(workspace, probe, requested, platform, signal);
+      if (outcome.kind === 'confirmed-worktree') return outcome.path;
+      if (outcome.kind === 'probe-failed') {
+        this.deps.warn(`[GitRoot] ${method} probe failed`, {
+          method,
+          workspaceRoot: requested,
+          cause: outcome.cause,
+        });
+        throw new RpcUserError(GIT_ROOT_PROBE_FAILED_MESSAGE, 'GIT_ROOT_PROBE_FAILED');
+      }
     }
 
     this.deps.warn(`[GitRoot] ${method} refused workspaceRoot`, {
@@ -132,27 +146,18 @@ export class GitRootResolver {
   }
 
   /** The worktree probe for a read: shared in flight and for a short TTL. */
-  private async probeForRead(requested: string): Promise<string | undefined> {
+  private async probeForRead(requested: string, signal?: AbortSignal): Promise<RegisteredWorktreeOutcome> {
     const now = (this.deps.now ?? Date.now)();
     const cached = this.readProbes.get(requested);
-    if (cached && cached.expiresAt > now) {
-      if (!cached.missing || !(await this.deps.probe.directoryExists(requested))) {
-        return cached.result;
-      }
-      this.readProbes.delete(requested);
-    }
+    const epoch = this.deps.epoch?.() ?? 0;
+    if (cached && cached.expiresAt > now && cached.epoch === epoch) return cached.result;
     this.pruneExpired(now);
 
     const { workspace, probe, platform } = this.deps;
-    let missing = false;
-    const result = probe.directoryExists(requested).then((exists) => {
-      missing = !exists;
-      return exists
-        ? findRegisteredWorktree(workspace, probe, requested, platform)
-        : undefined;
-    });
+    const result = probeRegisteredWorktree(workspace, probe, requested, platform, signal);
     const entry: ReadProbeEntry = {
       expiresAt: now + READ_PROBE_TTL_MS,
+      epoch,
       result,
     };
     this.readProbes.set(requested, entry);
@@ -162,11 +167,8 @@ export class GitRootResolver {
       }
     };
     // A missing root is cheap to recheck and expensive to re-probe with git.
-    void result.then((worktree) => {
-      if (!worktree) {
-        if (missing) entry.missing = true;
-        else forget();
-      }
+    void result.then((outcome) => {
+      if (outcome.kind === 'probe-failed') entry.expiresAt = (this.deps.now ?? Date.now)() + 2_000;
     }, forget);
     return result;
   }
@@ -184,17 +186,30 @@ export class GitRootResolver {
  * A stat failure reads as "not a directory".
  */
 export function createWorktreeRootProbe(
-  gitInfo: Pick<GitInfoService, 'getWorktrees' | 'getCommonDir'>,
+  gitInfo: Pick<GitInfoService, 'getWorktrees' | 'getCommonDir'> & Partial<Pick<GitInfoService, 'probeWorktreeList' | 'probeCommonDir' | 'invalidateProbeReadCache'>>,
   fileSystem: Pick<IFileSystemProvider, 'stat'>,
 ): WorktreeRootProbe {
   return {
     listWorktrees: (folder) => gitInfo.getWorktrees(folder),
     commonDir: (dir) => gitInfo.getCommonDir(dir),
+    listWorktreesRead: gitInfo.probeWorktreeList ? (folder, signal) => gitInfo.probeWorktreeList!(folder, signal) : undefined,
+    commonDirRead: gitInfo.probeCommonDir ? (dir, signal) => gitInfo.probeCommonDir!(dir, signal) : undefined,
+    invalidate: () => gitInfo.invalidateProbeReadCache?.(),
     directoryExists: (dir) =>
       fileSystem.stat(dir).then(
         (stat) => (stat.type & FileType.Directory) !== 0,
         // An unreadable path reads as absent, which only refuses the root.
         () => false,
       ),
+    directoryRead: (dir) => fileSystem.stat(dir).then(
+      (stat) => (stat.type & FileType.Directory) !== 0 ? { kind: 'exists' as const } : { kind: 'absent' as const },
+      (error: unknown) => {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        const code = 'code' in cause ? Reflect.get(cause, 'code') : undefined;
+        return code === 'ENOENT' || code === 'ENOTDIR'
+          ? { kind: 'absent' as const }
+          : { kind: 'failed' as const, cause };
+      },
+    ),
   };
 }

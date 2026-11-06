@@ -1072,10 +1072,11 @@ describe('GitWatcherService', () => {
       svc.start(root, broadcast, { agentWorktreeAudit: false });
       jest.advanceTimersByTime(50);
       await settle();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
       jest.advanceTimersByTime(30_000);
       await adminChange();
 
-      // The nested-root listing still runs; the audit never does.
+      // A real worktree admin change may list; the arm itself does not.
       expect(gitInfo.getWorktrees).toHaveBeenCalled();
       expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
       expect(removedPushes()).toHaveLength(0);

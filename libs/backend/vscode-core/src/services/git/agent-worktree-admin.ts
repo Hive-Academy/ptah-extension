@@ -6,7 +6,7 @@ import {
   type GitWorktreeInfo,
 } from '@ptah-extension/shared';
 import type { Logger } from '../../logging';
-import { WORKTREE_GIT_TIMEOUT_MS } from '../../utils/exec-git';
+import { DEFAULT_GIT_TIMEOUT_MS, WORKTREE_GIT_TIMEOUT_MS } from '../../utils/exec-git';
 import { resolveWorktreePath } from '../../utils/worktree-path';
 import type { GitRepoWriteLock, GitWriteRunner } from './git-write-lock';
 import { assertSafeRef } from './git-ref-guard';
@@ -79,15 +79,15 @@ export class AgentWorktreeAdmin {
       const { stdout, exitCode } = await this.deps.exec(
         ['worktree', 'list', '--porcelain', '-z'],
         workspacePath,
-        { timeoutMs: WORKTREE_GIT_TIMEOUT_MS },
+        { timeoutMs: DEFAULT_GIT_TIMEOUT_MS },
       );
-      if (exitCode !== 0) return [];
+      if (exitCode !== 0) {
+        this.deps.logger.warn('[GitInfoService] getWorktrees git exited non-zero', { workspacePath, exitCode });
+        return [];
+      }
       return parseWorktreeList(stdout);
     } catch (error: unknown) {
-      this.deps.logger.error('[GitInfoService] getWorktrees failed', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.deps.logger.error('[GitInfoService] getWorktrees failed', error instanceof Error ? error : new Error(String(error)));
       return [];
     }
   }

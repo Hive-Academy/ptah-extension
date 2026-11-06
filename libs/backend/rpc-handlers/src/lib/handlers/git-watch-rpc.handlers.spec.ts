@@ -102,6 +102,54 @@ function watchRoots(
 }
 
 describe('GitWatchRpcHandlers', () => {
+  it('joins simultaneous renewals for the same lease', async () => {
+    const { rpc, registry, gitInfo } = buildSuite();
+    let release: (() => void) | undefined;
+    let notifyStarted: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    gitInfo.getWorktrees.mockImplementation(async () => {
+      notifyStarted?.();
+      await gate;
+      return [
+        { path: FOLDER, branch: 'main', head: 'a', isMain: true, isBare: false },
+        { path: WORKTREE, branch: 'feature', head: 'b', isMain: false, isBare: false },
+      ];
+    });
+    const send = watchRoots(rpc);
+    const first = send({ leaseId: 'lease-1', roots: [WORKTREE] });
+    const second = send({ leaseId: 'lease-1', roots: [WORKTREE] });
+    await started;
+    expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+    release?.();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { watched: [WORKTREE], rejected: [], evicted: [] },
+      { watched: [WORKTREE], rejected: [], evicted: [] },
+    ]);
+    expect(registry.setLease).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the previous lease when a later root probe fails', async () => {
+    const { rpc, registry, gitInfo } = buildSuite();
+    await watchRoots(rpc)({ leaseId: 'lease-1', roots: [WORKTREE] });
+    gitInfo.getWorktrees.mockRejectedValue(new Error('git timed out'));
+    await expect(watchRoots(rpc)({ leaseId: 'lease-1', roots: ['/workspace/another'] }))
+      .rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+    expect(registry.setLease).toHaveBeenLastCalledWith('lease-1', [WORKTREE]);
+  });
+
+  it('caps the whole resolve below the renderer timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpc, gitInfo } = buildSuite();
+      gitInfo.getWorktrees.mockImplementation(() => new Promise(() => undefined));
+      const pending = watchRoots(rpc)({ leaseId: 'lease-1', roots: [WORKTREE] });
+      jest.advanceTimersByTime(25_000);
+      await expect(pending).rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
   it('owns exactly git:watchRoots', () => {
     const { rpc } = buildSuite();
 

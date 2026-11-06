@@ -51,8 +51,16 @@ export function gitRpcTimeoutFor(backendMs: number): number {
 /**
  * Message of the `GIT_ROOT_UNAVAILABLE` RPC error: a `git:*` call named a
  * root that is no longer a workspace folder or a live worktree of one
- * (TASK_2026_855). The webview matches it because `rpcCall` forwards only
- * the message, not the code.
+ * (directory absent, listed `prunable`, or git says it is not this
+ * repository). A probe timeout uses {@link GIT_ROOT_PROBE_FAILED_MESSAGE}.
  */
 export const GIT_ROOT_UNAVAILABLE_MESSAGE =
   'This worktree is no longer available.';
+
+/**
+ * Message of the `GIT_ROOT_PROBE_FAILED` RPC error. Distinct from
+ * {@link GIT_ROOT_UNAVAILABLE_MESSAGE} so a timeout is not shown as a
+ * removed worktree. The webview also matches {@link RpcUserErrorCode}.
+ */
+export const GIT_ROOT_PROBE_FAILED_MESSAGE =
+  'Git could not confirm this worktree. Ptah will retry.';

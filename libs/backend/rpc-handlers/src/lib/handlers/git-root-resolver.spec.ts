@@ -23,9 +23,7 @@ import type { WorktreeRootProbe } from './git-workspace-root';
 const FOLDER = '/workspace';
 const WORKTREE = '/workspace/.claude-worktrees/feature';
 
-type ProbeMock = {
-  [K in keyof WorktreeRootProbe]: jest.MockedFunction<WorktreeRootProbe[K]>;
-};
+type ProbeMock = jest.Mocked<Pick<WorktreeRootProbe, 'listWorktrees' | 'commonDir' | 'directoryExists'>>;
 
 function createProbe(): ProbeMock {
   return {
@@ -41,6 +39,7 @@ function createProbe(): ProbeMock {
 function build(
   folders: string[] = [FOLDER],
   now: () => number = () => 0,
+  epoch: () => number = () => 0,
 ): {
   resolver: GitRootResolver;
   probe: ProbeMock;
@@ -54,13 +53,15 @@ function build(
     warn,
     platform: 'linux',
     now,
+    epoch,
   });
   return { resolver, probe, warn };
 }
 
 describe('GitRootResolver', () => {
-  it('caches a missing worktree refusal without spawning git and retries when it reappears', async () => {
-    const { resolver, probe } = build();
+  it('caches a missing worktree refusal until the probe epoch changes', async () => {
+    let epoch = 0;
+    const { resolver, probe } = build([FOLDER], () => 0, () => epoch);
     probe.directoryExists.mockResolvedValue(false);
     await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'))
       .rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
@@ -68,6 +69,7 @@ describe('GitRootResolver', () => {
       .rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(probe.listWorktrees).not.toHaveBeenCalled();
     probe.directoryExists.mockResolvedValue(true);
+    epoch++;
     await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'))
       .resolves.toBe(WORKTREE);
     expect(probe.listWorktrees).toHaveBeenCalledTimes(1);
@@ -145,14 +147,15 @@ describe('GitRootResolver', () => {
     ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
   });
 
-  it('reads a probe throw as "not a worktree"', async () => {
+  it('reads a probe throw as retryable, not a missing worktree', async () => {
     const { resolver, probe, warn } = build();
     probe.listWorktrees.mockRejectedValue(new Error('git failed'));
 
     await expect(
       resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'),
-    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
-    expect(warn).toHaveBeenCalledTimes(1);
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_PROBE_FAILED' });
+    expect(warn).toHaveBeenCalledWith('[GitRoot] git:info probe failed',
+      expect.objectContaining({ cause: expect.any(Error) }));
   });
 
   it('throws a coded GIT_ROOT_UNAVAILABLE error with the worktree message (S2)', async () => {
@@ -194,8 +197,9 @@ describe('GitRootResolver', () => {
     ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
   });
 
-  it('does not cache a refused read', async () => {
-    const { resolver, probe } = build();
+  it('caches a confirmed refusal until invalidation', async () => {
+    let epoch = 0;
+    const { resolver, probe } = build([FOLDER], () => 0, () => epoch);
     probe.listWorktrees.mockResolvedValueOnce([
       { path: FOLDER, prunable: false },
     ]);
@@ -205,7 +209,10 @@ describe('GitRootResolver', () => {
     ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     await expect(
       resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree'),
-    ).resolves.toBe(WORKTREE);
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    expect(probe.listWorktrees).toHaveBeenCalledTimes(1);
+    epoch++;
+    await expect(resolver.resolve(WORKTREE, 'git:info', 'folder-or-worktree')).resolves.toBe(WORKTREE);
   });
 
   it('returns undefined when no root is named and no folder is open', async () => {

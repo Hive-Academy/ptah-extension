@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
-import { GIT_ROOT_UNAVAILABLE_MESSAGE, MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
+import { GIT_ROOT_UNAVAILABLE_MESSAGE, GIT_ROOT_PROBE_FAILED_MESSAGE, MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
 import {
   SessionGitStatsStore,
   sessionBranch,
@@ -33,6 +33,22 @@ function deferred<T>() {
 }
 
 describe(SessionGitStatsStore.name, () => {
+  it('keeps the last good counts after a retryable probe failure', async () => {
+    tabs.set('one', { tab: { claudeSessionId: 'session' } });
+    call.mockResolvedValueOnce(success(info([{ path: 'a', status: 'M', staged: false, additions: 2, deletions: 1 }])))
+      .mockResolvedValueOnce({ success: false, error: GIT_ROOT_PROBE_FAILED_MESSAGE });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      store.track('/a', 'one');
+      await tick();
+      const good = store.stateFor('/a');
+      turn('session');
+      await tick();
+      expect(store.stateFor('/a')).toEqual(good);
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it('stops re-requesting an unavailable root while it remains tracked', async () => {
     tabs.set('one', { tab: { claudeSessionId: 'session' } });
     call.mockResolvedValue({ success: false, error: GIT_ROOT_UNAVAILABLE_MESSAGE });

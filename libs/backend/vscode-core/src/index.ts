@@ -93,6 +93,7 @@ export { SentryTracerAdapter } from './services/sentry-tracer.adapter';
 export { NoopTracer } from './services/noop-tracer';
 export { NullSessionAttachmentGuard } from './services/null-session-attachment-guard';
 export { GitInfoService } from './services/git-info.service';
+export type { CommonDirRead, WorktreeListRead } from './services/git/git-probe-outcome';
 export type {
   WorktreeFileReader,
   DiffFileRequest,

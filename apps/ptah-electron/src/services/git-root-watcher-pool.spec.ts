@@ -96,6 +96,17 @@ describe('GitRootWatcherPool', () => {
     });
   });
 
+  it('keeps a lease alive while its renewal resolves', () => {
+    pool.attach(attachment());
+    pool.setLease('a', ['/repo/.wt/one']);
+    pool.beginRenewal('a');
+    jest.advanceTimersByTime(LEASE_TTL_MS + 1);
+    expect(running()).toEqual(['/repo/.wt/one']);
+    pool.setLease('a', ['/repo/.wt/one']);
+    pool.endRenewal('a');
+    expect(running()).toEqual(['/repo/.wt/one']);
+  });
+
   it('refcounts a root across two leases and stops it only after both release', () => {
     pool.attach(attachment());
     pool.setLease('a', ['/repo/.wt/one']);

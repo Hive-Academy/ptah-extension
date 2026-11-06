@@ -2,6 +2,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   findRegisteredWorkspaceFolder,
   findRegisteredWorktree,
+  probeRegisteredWorktree,
   type WorktreeRootProbe,
 } from './git-workspace-root';
 
@@ -60,6 +61,17 @@ describe('findRegisteredWorktree', () => {
       ...overrides,
     } as jest.Mocked<WorktreeRootProbe>;
   }
+
+  it('classifies a timeout as probe-failed rather than a missing worktree', async () => {
+    const cause = new Error('git timed out');
+    const result = await probeRegisteredWorktree(
+      workspaceWith(['/work/repo']),
+      probe({ listWorktreesRead: jest.fn(async () => ({ kind: 'failed' as const, cause })) }),
+      WT,
+      'linux',
+    );
+    expect(result).toEqual({ kind: 'probe-failed', cause });
+  });
 
   it('accepts a live listed worktree sharing the open folder common dir', async () => {
     await expect(

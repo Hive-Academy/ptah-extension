@@ -19,7 +19,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { GIT_ROOT_PROBE_FAILED_MESSAGE, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { GitBranchesService } from './git-branches.service';
 
 // ---------------------------------------------------------------------------
@@ -116,13 +116,13 @@ describe('GitBranchesService (TASK_2026_111)', () => {
     TestBed.resetTestingModule();
   });
 
-  it('joins concurrent branch reads and backs off after a timeout', async () => {
+  it.each(['RPC timeout: git:branches', GIT_ROOT_PROBE_FAILED_MESSAGE])('joins concurrent branch reads and backs off after %s', async (failure) => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       mockRpcCall.mockImplementation(async (_service, method: string) =>
         method === 'git:branches'
-          ? { success: false, error: 'RPC timeout: git:branches' }
+          ? { success: false, error: failure }
           : { success: true, data: method === 'git:stashList' ? EMPTY_STASH : EMPTY_COMMIT });
       const first = service.refreshBranches();
       const second = service.refreshBranches();

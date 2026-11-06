@@ -85,6 +85,7 @@ interface RunningWatcher {
 
 export class GitRootWatcherPool implements IGitRootWatchRegistry {
   private readonly leases = new Map<string, Lease>();
+  private readonly renewing = new Set<string>();
   /** Running watchers by normalized root key. */
   private readonly watchers = new Map<string, RunningWatcher>();
   /** Root keys whose watcher failed to start in the last reconcile. */
@@ -134,6 +135,18 @@ export class GitRootWatcherPool implements IGitRootWatchRegistry {
     return this.outcomeFor(this.leases.get(leaseId)?.roots ?? []);
   }
 
+  beginRenewal(leaseId: string): void {
+    if (this.disposed) return;
+    this.renewing.add(leaseId);
+    this.scheduleExpiry();
+  }
+
+  endRenewal(leaseId: string): void {
+    this.renewing.delete(leaseId);
+    if (this.dropExpired(this.now())) this.reconcile();
+    this.scheduleExpiry();
+  }
+
   /**
    * The primary watcher re-armed on another root: stop duplicating the new
    * one and arm the old one when it is leased.
@@ -149,6 +162,7 @@ export class GitRootWatcherPool implements IGitRootWatchRegistry {
     this.clearExpiryTimer();
     for (const key of [...this.watchers.keys()]) this.stopWatcher(key);
     this.leases.clear();
+    this.renewing.clear();
     this.startFailures.clear();
     this.attachment = null;
   }
@@ -254,7 +268,7 @@ export class GitRootWatcherPool implements IGitRootWatchRegistry {
   private dropExpired(now: number): boolean {
     let dropped = false;
     for (const [id, lease] of this.leases) {
-      if (lease.renewedAt + LEASE_TTL_MS <= now) {
+      if (!this.renewing.has(id) && lease.renewedAt + LEASE_TTL_MS <= now) {
         this.leases.delete(id);
         dropped = true;
         this.logger.info('[GitRootWatcherPool] Lease expired', { leaseId: id });
@@ -268,9 +282,11 @@ export class GitRootWatcherPool implements IGitRootWatchRegistry {
     this.clearExpiryTimer();
     if (this.disposed || this.leases.size === 0) return;
     let nearest = Number.POSITIVE_INFINITY;
-    for (const lease of this.leases.values()) {
+    for (const [id, lease] of this.leases) {
+      if (this.renewing.has(id)) continue;
       nearest = Math.min(nearest, lease.renewedAt + LEASE_TTL_MS);
     }
+    if (!Number.isFinite(nearest)) return;
     const delay = Math.max(0, nearest - this.now());
     const timer = setTimeout(() => this.onExpiryTimer(), delay);
     // The timer must never keep the process alive on its own.

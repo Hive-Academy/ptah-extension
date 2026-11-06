@@ -11,9 +11,9 @@
  * `requires: ['gitRootWatch']`, and only hosts whose profile turns that
  * capability on (Electron) register `PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY`.
  *
- * The method never throws to the renderer: invalid params reject every root,
- * and a registry failure is logged and answered with an empty result, which
- * the renderer reads as "no live pushes" (it still fetches on switch).
+ * A failed probe returns a retryable error while renewing the previous lease.
+ * Invalid params reject every root. A registry failure is logged and answered
+ * with an empty result, which the renderer reads as "no live pushes".
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -29,7 +29,7 @@ import type {
   IGitRootWatchRegistry,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
+import { normalizeWorkspaceRoot, GIT_ROOT_PROBE_FAILED_MESSAGE } from '@ptah-extension/shared';
 import type {
   GitWatchRootsParams,
   GitWatchRootsResult,
@@ -40,6 +40,7 @@ import { GitRootResolver, createWorktreeRootProbe } from './git-root-resolver';
 import { parseGitWatchRootsParams } from './git-watch-rpc.schema';
 
 const LOG_TAG = '[GitWatchRpc]';
+const WATCH_ROOTS_DEADLINE_MS = 25_000;
 
 @injectable()
 export class GitWatchRpcHandlers {
@@ -48,6 +49,8 @@ export class GitWatchRpcHandlers {
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly roots: GitRootResolver;
+  private readonly flights = new Map<string, Promise<GitWatchRootsResult>>();
+  private readonly previousRoots = new Map<string, readonly string[]>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -64,6 +67,7 @@ export class GitWatchRpcHandlers {
     this.roots = new GitRootResolver({
       workspace,
       probe: createWorktreeRootProbe(gitInfo, fileSystem),
+      epoch: () => gitInfo.probeEpoch?.() ?? 0,
       warn: (message, context) =>
         this.logger.warn(`${LOG_TAG} ${message}`, context),
     });
@@ -79,19 +83,25 @@ export class GitWatchRpcHandlers {
   /** The validated root, or undefined when the resolver refuses it. */
   private async resolveOrReject(
     requested: string,
-  ): Promise<string | undefined> {
+    signal: AbortSignal,
+  ): Promise<{ root?: string; failed: boolean }> {
     try {
-      return await this.roots.resolve(
+      const root = await this.roots.resolve(
         requested,
         'git:watchRoots',
         'folder-or-worktree',
+        signal,
       );
+      return { root, failed: false };
     } catch (error: unknown) {
       if (
         error instanceof RpcUserError &&
         error.errorCode === 'GIT_ROOT_UNAVAILABLE'
       ) {
-        return undefined;
+        return { failed: false };
+      }
+      if (error instanceof RpcUserError && error.errorCode === 'GIT_ROOT_PROBE_FAILED') {
+        return { failed: true };
       }
       throw error;
     }
@@ -107,11 +117,50 @@ export class GitWatchRpcHandlers {
       return { watched: [], rejected, evicted: [] };
     }
 
+    const running = this.flights.get(params.leaseId);
+    if (running) return running;
+    this.registry.beginRenewal?.(params.leaseId);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<GitWatchRootsResult>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        this.logger.warn(`${LOG_TAG} git:watchRoots resolve deadline`, { leaseId: params.leaseId });
+        this.keepPrevious(params.leaseId, []);
+        reject(new RpcUserError(GIT_ROOT_PROBE_FAILED_MESSAGE, 'GIT_ROOT_PROBE_FAILED'));
+      }, WATCH_ROOTS_DEADLINE_MS);
+      timer.unref?.();
+    });
+    const flight = Promise.race([this.resolveRoots(params.leaseId, params.roots, controller.signal), deadline])
+      .finally(() => {
+        if (timer) clearTimeout(timer);
+        this.registry.endRenewal?.(params.leaseId);
+        this.flights.delete(params.leaseId);
+      });
+    this.flights.set(params.leaseId, flight);
+    return flight;
+  }
+
+  private keepPrevious(leaseId: string, rejected: string[]): GitWatchRootsResult {
+    const previous = this.previousRoots.get(leaseId) ?? [];
+    const outcome = this.registry.setLease(leaseId, previous);
+    return { watched: [...outcome.watched], rejected, evicted: [...outcome.evicted] };
+  }
+
+  private async resolveRoots(leaseId: string, requestedRoots: readonly string[], signal: AbortSignal): Promise<GitWatchRootsResult> {
     const accepted: string[] = [];
     const rejected: string[] = [];
     const seen = new Set<string>();
-    for (const requested of params.roots) {
-      const root = await this.resolveOrReject(requested);
+    const results = await Promise.all(requestedRoots.map((requested) => this.resolveOrReject(requested, signal)));
+    if (signal.aborted) return this.keepPrevious(leaseId, rejected);
+    if (results.some((result) => result.failed)) {
+      this.logger.warn(`${LOG_TAG} git:watchRoots probe failed; retaining lease`, { leaseId });
+      this.keepPrevious(leaseId, rejected);
+      throw new RpcUserError(GIT_ROOT_PROBE_FAILED_MESSAGE, 'GIT_ROOT_PROBE_FAILED');
+    }
+    for (let index = 0; index < requestedRoots.length; index++) {
+      const requested = requestedRoots[index];
+      const root = results[index].root;
       if (!root) {
         rejected.push(requested);
         continue;
@@ -123,7 +172,16 @@ export class GitWatchRpcHandlers {
     }
 
     try {
-      const outcome = this.registry.setLease(params.leaseId, accepted);
+      const outcome = this.registry.setLease(leaseId, accepted);
+      if (accepted.length === 0) this.previousRoots.delete(leaseId);
+      else {
+        this.previousRoots.delete(leaseId);
+        this.previousRoots.set(leaseId, accepted);
+        if (this.previousRoots.size > 16) {
+          const oldest = this.previousRoots.keys().next().value;
+          if (oldest) this.previousRoots.delete(oldest);
+        }
+      }
       return {
         watched: [...outcome.watched],
         rejected,
