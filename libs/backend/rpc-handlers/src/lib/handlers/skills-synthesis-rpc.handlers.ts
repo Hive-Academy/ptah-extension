@@ -1118,7 +1118,7 @@ export class SkillsSynthesisRpcHandlers {
     >('skillSynthesis:harvestSpecs', async () => {
       try {
         const harvester = this.requireDesktop(this.specHarvester);
-        return await harvester.harvest();
+        return await harvester.harvest(undefined, { trigger: 'manual' });
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerHarvestSpecs');
         throw error;
