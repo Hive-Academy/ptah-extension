@@ -25,29 +25,70 @@ export interface ClaudePolicyCoverageEntry {
   readonly sources: readonly ClaudePolicySourceId[];
 }
 
+/** The build whose binary was inspected (win32, 2026-10-25); every entry uses its version line. */
+const INSPECTED_VERSION = '2.1.310';
+
+/** Every source except S7: the registry policy source exists on win32 only. */
+const POSIX_SOURCES: readonly ClaudePolicySourceId[] = Object.freeze([
+  'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S8', 'S9', 'S10', 'S11', 'S12',
+] as const);
+
+/** `managed-settings.json` directory of a posix build: macOS has its own, every other posix uses `/etc`. */
+function posixManagedSettingsDir(platform: NodeJS.Platform): string {
+  return platform === 'darwin' ? '/Library/Application Support/ClaudeCode' : '/etc/claude-code';
+}
+
+function posixEntry(platform: NodeJS.Platform): ClaudePolicyCoverageEntry {
+  return Object.freeze({
+    id: `${platform}@${INSPECTED_VERSION}`,
+    platform,
+    inspectedVersion: INSPECTED_VERSION,
+    managedSettingsDir: posixManagedSettingsDir(platform),
+    sources: POSIX_SOURCES,
+  });
+}
+
 /**
- * Closed, data-only coverage table. Adding a row needs the same read-only
- * inspection of the CLI build, recorded in research-report.md. darwin and
- * linux have no entry and refuse (Decision D-P, revised: the CLI updates
- * itself, so an exact-version pin refused every named account after each
- * update; later patch builds now reuse the inspected source set, and the
- * post-init `accountInfo()` identity check still refuses any other login).
+ * Data-only coverage table. Named accounts work on every platform: the CLI
+ * keeps one login per `CLAUDE_CONFIG_DIR` on each of them. The win32 row is
+ * the only inspected build. The posix rows are not inspected: they reuse its
+ * source set without the registry (S7), with the macOS and Linux
+ * `managed-settings.json` paths that the inspected win32 bundle names (other
+ * posix platforms use the Linux path). Sources that a scan cannot read (for example a macOS
+ * MDM profile) are not a refusal on their own: the account class check and the
+ * post-init `accountInfo()` identity check still refuse any login other than
+ * the stored personal one. Later patch builds of the inspected `x.y` line reuse
+ * the source set (see {@link claudeCoverageAcceptsVersion}).
  */
 export const CLAUDE_POLICY_COVERAGE: readonly ClaudePolicyCoverageEntry[] = Object.freeze([
   Object.freeze({
-    id: 'win32@2.1.310',
+    id: `win32@${INSPECTED_VERSION}`,
     platform: 'win32',
-    inspectedVersion: '2.1.310',
+    inspectedVersion: INSPECTED_VERSION,
     managedSettingsDir: 'C:\\Program Files\\ClaudeCode',
     sources: Object.freeze([
       'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12',
     ] as const),
   }),
+  posixEntry('darwin'),
+  posixEntry('linux'),
 ]);
 
-/** The coverage entry for `platform`, or `null` when the platform has none. */
-export function claudePolicyCoverage(platform: NodeJS.Platform): ClaudePolicyCoverageEntry | null {
-  return CLAUDE_POLICY_COVERAGE.find((entry) => entry.platform === platform) ?? null;
+const otherPosixEntries = new Map<NodeJS.Platform, ClaudePolicyCoverageEntry>();
+
+/**
+ * The coverage entry for `platform`. Every platform has one: a platform
+ * without a table row (for example `freebsd`) gets the generic posix entry.
+ */
+export function claudePolicyCoverage(platform: NodeJS.Platform): ClaudePolicyCoverageEntry {
+  const listed = CLAUDE_POLICY_COVERAGE.find((entry) => entry.platform === platform);
+  if (listed) return listed;
+  let other = otherPosixEntries.get(platform);
+  if (!other) {
+    other = posixEntry(platform);
+    otherPosixEntries.set(platform, other);
+  }
+  return other;
 }
 
 function parseCliVersion(version: string): readonly [number, number, number] | null {
