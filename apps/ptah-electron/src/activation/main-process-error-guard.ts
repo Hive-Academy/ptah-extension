@@ -34,6 +34,7 @@ export function installMainProcessErrorGuardFrom(
       events,
     );
   } catch (error: unknown) {
+    // degradation-audit: reported - written to stderr; a throw here would raise the native modal.
     reportBootFailure('Post-boot error guard install failed', error);
     return null;
   }
