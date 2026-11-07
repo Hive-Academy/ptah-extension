@@ -274,8 +274,10 @@ describe('ParentEnvelopeStoreService completion outbox and key shard', () => {
     await store.resolveParentSessionId('tab-1', PARENT);
 
     expect(shardKeys(storage)).toEqual({ version: 1, keys: [sessionKey, tabKey] });
-    expect((await store.listCompletionOutbox(PARENT)).map((item) => item.dedupeKey))
-      .toEqual(['session:entry', 'tab:entry']);
+    const outbox = await store.listCompletionOutbox(PARENT);
+    expect(outbox.map((item) => item.dedupeKey)).toEqual(['session:entry', 'tab:entry']);
+    // Replay reads each entry's own parent id, so the moved entry must name the session.
+    expect(outbox.map((item) => item.parentSessionId)).toEqual([PARENT, PARENT]);
     expect(storage.values.has(`${PARENT_COMPLETION_KEYS_PREFIX}tab-1`)).toBe(false);
     expect(storage.values.has(`${PARENT_COMPLETION_OUTBOX_PREFIX}tab-1`)).toBe(false);
   });

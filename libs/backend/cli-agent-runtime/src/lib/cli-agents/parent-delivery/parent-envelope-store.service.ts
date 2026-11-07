@@ -821,7 +821,7 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     // A resumed session may already hold its own shard: merge, never overwrite.
     const target = this.storage.get<unknown>(newKey);
     const merged = prefix === PARENT_COMPLETION_OUTBOX_PREFIX
-      ? mergeOutboxShards(target, moved)
+      ? mergeOutboxShards(target, moved, sessionId)
       : mergeCompletionKeyShards(target, moved);
     await this.storage.update(newKey, merged);
     await this.storage.update(oldKey, undefined);
