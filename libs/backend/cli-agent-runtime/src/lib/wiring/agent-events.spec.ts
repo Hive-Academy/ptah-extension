@@ -31,7 +31,10 @@ import { AgentId, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import type { ParentDeliveryEnvelope } from '../cli-agents/parent-delivery/parent-envelope-store.service';
 import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent-envelope-store.service';
-import type { ParentCompletionOutboxEntry } from '../cli-agents/parent-delivery/parent-envelope.schema';
+import {
+  ParentCompletionOutboxEntrySchema,
+  type ParentCompletionOutboxEntry,
+} from '../cli-agents/parent-delivery/parent-envelope.schema';
 import { manifestFixture } from '../cli-agents/testing/manifest.fixture';
 import {
   createLaneTerminalCheckpoint,
@@ -154,6 +157,24 @@ describe('createLaneTerminalCheckpoint', () => {
     expect(putCompletionOutbox).toHaveBeenCalledTimes(4);
   });
 
+  it('does not retry a ZodError thrown when validating the completion outbox entry', async () => {
+    jest.useFakeTimers();
+    const putCompletionOutbox = jest.fn(async (candidate: unknown) => {
+      ParentCompletionOutboxEntrySchema.parse(candidate);
+    });
+    const container = buildContainer([
+      [ParentEnvelopeStoreService, { putCompletionOutbox }],
+    ]);
+    const checkpoint = createLaneTerminalCheckpoint(
+      container,
+      createMockLogger() as unknown as Logger,
+    );
+
+    const invalidEntry = { ...entry, completedAt: 'not-a-date' };
+    await expect(checkpoint.checkpoint(invalidEntry)).resolves.toBe('failed');
+    expect(putCompletionOutbox).toHaveBeenCalledTimes(1);
+  });
+
   it('returns failed at the fifteen second deadline', async () => {
     jest.useFakeTimers();
     const putCompletionOutbox = jest.fn(() => new Promise<void>(() => undefined));
@@ -205,12 +226,12 @@ describe('agent delivery push sinks', () => {
     });
     expect(container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.LANE_TERMINAL_CHECKPOINT)).toBe(true);
     const receipt: AgentDeliveryReceipt = {
-      id: 'message-1', agentId: 'agent-1' as AgentId, state: 'accepted',
+      id: 'message-1', agentId: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001' as AgentId, state: 'accepted',
       mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1,
     };
     const envelope: ParentDeliveryEnvelope = {
       id: 'lane-delivery:completion-1', parentSessionId: PARENT_SESSION,
-      agentId: 'agent-1', kind: 'completion', dedupeKey: 'completion-1',
+      agentId: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001', kind: 'completion', dedupeKey: 'completion-1',
       body: 'Done', createdAt: 1, updatedAt: 2, state: 'delivered', attempts: 1,
       bodyBytes: 4, verdict: 'no-deliverable', stopReason: 'auth',
     };
@@ -225,7 +246,7 @@ describe('agent delivery push sinks', () => {
     );
     expect(broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
-      expect.objectContaining({ agentId: 'agent-1', kind: 'completion', state: 'delivered',
+      expect.objectContaining({ agentId: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001', kind: 'completion', state: 'delivered',
         deliveryId: envelope.id, verdict: 'no-deliverable', stopReason: 'auth' }),
     );
     container.resolve<{ emit(envelope: ParentDeliveryEnvelope): void }>(
@@ -453,6 +474,40 @@ describe('persistCliSessionReference — completion time', () => {
 
     persist(info, addCliSession);
     expect(addCliSession.mock.calls[0][1]).not.toHaveProperty('completedAt');
+  });
+
+  it('persists a positive finite stopResetAt on usage-limit stops and omits non-positive values', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    persist(
+      buildInfo({
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'stopped',
+        stopReason: 'usage-limit',
+        stopResetAt: 1_762_000_000_000,
+      }),
+      addCliSession,
+    );
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({
+        stopReason: 'usage-limit',
+        stopResetAt: 1_762_000_000_000,
+      }),
+    );
+
+    addCliSession.mockClear();
+    persist(
+      buildInfo({
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'stopped',
+        stopReason: 'usage-limit',
+        stopResetAt: 0,
+      }),
+      addCliSession,
+    );
+    expect(addCliSession.mock.calls[0][1]).not.toHaveProperty('stopResetAt');
   });
 });
 

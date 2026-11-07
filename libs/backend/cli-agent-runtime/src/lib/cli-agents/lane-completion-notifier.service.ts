@@ -351,6 +351,7 @@ export class LaneCompletionNotifier {
   ) {
     this.pendingReplays = new PendingCompletionReplays(logger);
     this.parentDelivery?.onRetryTick(() => this.retryTick());
+    void this.scheduleStartupOutboxReplay();
   }
 
   /**
@@ -585,6 +586,18 @@ export class LaneCompletionNotifier {
       if (result.reason === 'storage-unavailable') failed = true;
     }
     if (failed) throw new Error('Completion replay incomplete; retrying on the next tick');
+  }
+
+  private async scheduleStartupOutboxReplay(): Promise<void> {
+    if (!this.parentDelivery) return;
+    try {
+      const entries = await this.parentDelivery.listCompletionOutbox();
+      if (entries.length > 0) this.parentDelivery.scheduleRetry();
+    } catch (error: unknown) {
+      this.logger.error('[LaneCompletionNotifier] Startup completion outbox check failed',
+        error instanceof Error ? error : new Error('Startup completion outbox check failed'));
+      this.parentDelivery.scheduleRetry();
+    }
   }
 
   private async checkpoint(entry: ParentCompletionOutboxEntry): Promise<LaneCheckpointResult> {

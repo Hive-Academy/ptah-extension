@@ -60,6 +60,30 @@ describe('restoreLaneIdentity', () => {
       stopReason: 'auth',
     });
   });
+
+  it('restores a positive finite stopResetAt with the lifecycle fields and omits invalid values', () => {
+    const withReset = ref({
+      status: 'stopped',
+      stopReason: 'usage-limit',
+      stopResetAt: 1_762_000_000_000,
+    });
+    expect(restoreLaneLifecycle(withReset, '2026-11-07T00:02:00.000Z')).toEqual({
+      status: 'stopped',
+      completedAt: '2026-11-07T00:01:00.000Z',
+      lastActivityAt: '2026-11-07T00:00:30.000Z',
+      stopReason: 'usage-limit',
+      stopResetAt: 1_762_000_000_000,
+    });
+
+    const withZeroReset = ref({
+      status: 'stopped',
+      stopReason: 'usage-limit',
+      stopResetAt: 0,
+    });
+    expect(
+      restoreLaneLifecycle(withZeroReset, '2026-11-07T00:02:00.000Z'),
+    ).not.toHaveProperty('stopResetAt');
+  });
 });
 
 describe('stampWorkspaceKey', () => {

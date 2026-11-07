@@ -248,6 +248,33 @@ describe('LaneCompletionNotifier completion durability', () => {
     expect(first.send).not.toHaveBeenCalled();
     expect(await first.store.listCompletionOutbox(PARENT)).toHaveLength(1);
   });
+
+  it('schedules a startup outbox replay when an outbox entry exists without an indexed envelope', async () => {
+    jest.useFakeTimers();
+    try {
+      const storage = new FakeStateStorage();
+      const seed = new ParentEnvelopeStoreService(logger(), storage);
+      await seed.ready;
+      await seed.putCompletionOutbox({
+        dedupeKey: KEY,
+        agentId: AGENT,
+        parentSessionId: PARENT,
+        completedAt: COMPLETED_AT,
+        body: 'startup outbox body',
+        verdict: 'delivered',
+        originName: 'worker-1',
+        createdAt: 1,
+      });
+
+      const booted = await host(storage);
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(booted.send).toHaveBeenCalledTimes(1);
+      expect(await booted.store.listCompletionOutbox(PARENT)).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('PendingCompletionReplays', () => {

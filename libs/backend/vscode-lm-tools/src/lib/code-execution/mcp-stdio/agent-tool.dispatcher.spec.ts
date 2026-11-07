@@ -543,6 +543,40 @@ describe('AgentToolDispatcher — agent_message', () => {
     expect(messageStatus).toHaveBeenCalledWith('a1', id);
     expect(toolResult(response).structuredContent).toMatchObject({ status: 'delivered' });
   });
+
+  it('returns an mcp_tool_failed error when agent_message_status rejects inside toolSuccess', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const messageStatus = jest.fn().mockResolvedValue({
+      status: 'failed',
+      reason: 'rejected',
+      lastError: 'x'.repeat(20_000),
+    });
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    const dispatcher = new AgentToolDispatcher(
+      { agent: { messageStatus } } as unknown as PtahAPI,
+      logger,
+      undefined,
+      undefined,
+      () => Date.now(),
+      () => {
+        throw new Error('spool root unavailable');
+      },
+    );
+    const response = await dispatcher.dispatch('agent_message_status', request, {
+      agentId: 'a1',
+      messageId: id,
+    });
+    expect(toolResult(response).isError).toBe(true);
+    expect(toolResult(response).structuredContent).toEqual({
+      ptah_code: 'mcp_tool_failed',
+      tool: 'agent_message_status',
+    });
+  });
   it('handles the tool name', () => {
     expect(createMessagingHarness().dispatcher.handles('agent_message')).toBe(
       true,

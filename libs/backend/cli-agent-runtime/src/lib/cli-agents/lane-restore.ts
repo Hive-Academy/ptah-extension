@@ -31,7 +31,7 @@ export function restoreLaneLifecycle(
   restoredAt: string,
 ): Pick<
   AgentProcessInfo,
-  'status' | 'completedAt' | 'lastActivityAt' | 'stopReason'
+  'status' | 'completedAt' | 'lastActivityAt' | 'stopReason' | 'stopResetAt'
 > {
   const lastActivityAt = boundedActivityAt(ref.lastActivityAt, restoredAt);
 
@@ -42,6 +42,11 @@ export function restoreLaneLifecycle(
       : {}),
     ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
     ...(ref.stopReason !== undefined ? { stopReason: ref.stopReason } : {}),
+    ...(typeof ref.stopResetAt === 'number' &&
+    Number.isFinite(ref.stopResetAt) &&
+    ref.stopResetAt > 0
+      ? { stopResetAt: ref.stopResetAt }
+      : {}),
   };
 }
 

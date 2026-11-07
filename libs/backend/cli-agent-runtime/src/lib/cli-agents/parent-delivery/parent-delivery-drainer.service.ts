@@ -148,6 +148,10 @@ export class ParentDeliveryDrainerService {
     return () => this.retryTickListeners.delete(listener);
   }
 
+  scheduleRetry(delayMs = BACKOFF_MS[0]): void {
+    this.schedule(delayMs);
+  }
+
   drain(parentSessionId: string): Promise<void> {
     if (this.disposed) return Promise.resolve();
     const existing = this.draining.get(parentSessionId);

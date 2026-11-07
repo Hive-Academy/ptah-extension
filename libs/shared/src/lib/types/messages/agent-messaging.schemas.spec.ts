@@ -119,6 +119,21 @@ describe('agent messaging schemas', () => {
     ).toBe(false);
   });
 
+  it('validates receipt and parent-delivery agentId as an AgentId string', () => {
+    expect(
+      AgentDeliveryReceiptSchema.safeParse({
+        ...legacyReceipt,
+        agentId: 'not-an-agent-id',
+      }).success,
+    ).toBe(false);
+    expect(
+      AgentMonitorParentDeliveryPayloadSchema.safeParse({
+        ...parentDelivery('pending'),
+        agentId: 'not-an-agent-id',
+      }).success,
+    ).toBe(false);
+  });
+
   it('accepts dispatching with everDispatched', () => {
     const receipt = {
       ...legacyReceipt,
