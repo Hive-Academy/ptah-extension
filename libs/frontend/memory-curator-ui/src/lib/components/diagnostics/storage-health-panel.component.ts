@@ -388,8 +388,12 @@ export class StorageHealthPanelComponent {
       quarantineLedgerRowsText: formatCount(
         s.observations.quarantineLedgerRows,
       ),
-      processedRowsText: formatCount(s.observations.processedRows),
-      processedBytesText: formatBytes(s.observations.processedBytesEstimate),
+      processedRowsText: s.observations.processedRows === null
+        ? 'Not measured'
+        : formatCount(s.observations.processedRows),
+      processedBytesText: s.observations.processedBytesEstimate === null
+        ? 'Not measured'
+        : formatBytes(s.observations.processedBytesEstimate),
       retentionEnabled: s.retention.enabled,
       processedDaysText: formatCount(s.retention.processedDays),
       stuckDaysText: formatCount(s.retention.stuckDays),

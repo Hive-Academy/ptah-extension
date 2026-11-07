@@ -12,6 +12,7 @@ import {
   withSlowStatementTiming,
   DEFAULT_SQLITE_SLOW_RATE_WINDOW_MS,
   SQLITE_SLOW_RATE_TABLE_MAX_ENTRIES,
+  type SlowStatementSink,
 } from './slow-statement-timing';
 import type {
   SqliteDatabase,
@@ -122,7 +123,11 @@ class BrandedDatabase {
   }
 }
 
-function setup(thresholdMs = 50): {
+function setup(
+  thresholdMs = 50,
+  sink: SlowStatementSink | null = null,
+  context?: () => Readonly<Record<string, unknown>>,
+): {
   clock: ManualClock;
   real: BrandedDatabase;
   db: SqliteDatabase;
@@ -133,8 +138,10 @@ function setup(thresholdMs = 50): {
   const logger = createMockLogger();
   const db = withSlowStatementTiming(real as unknown as SqliteDatabase, {
     logger,
+    sink,
     thresholdMs,
     now: clock.now,
+    context,
   });
   return { clock, real, db, logger };
 }
@@ -189,6 +196,41 @@ describe('withSlowStatementTiming', () => {
       failed: false,
       suppressedSinceLastLog: 0,
     });
+  });
+
+  it('hands every slow statement label (SQL text only) to the injected sink, even when rate-limited', () => {
+    const noteSlowStatement = jest.fn();
+    const { db, real } = setup(50, { noteSlowStatement });
+    real.costMs = 80;
+
+    db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(42);
+    db.prepare('SELECT a FROM memory_chunks WHERE id = ?').all(43);
+
+    expect(noteSlowStatement.mock.calls).toEqual([
+      ['all SELECT a FROM memory_chunks WHERE id = ?', 80],
+      ['all SELECT a FROM memory_chunks WHERE id = ?', 80],
+    ]);
+  });
+
+  it('does not tell the sink about statements under the threshold', () => {
+    const noteSlowStatement = jest.fn();
+    const { db, real } = setup(50, { noteSlowStatement });
+    real.costMs = 10;
+
+    db.prepare('SELECT 1').get();
+
+    expect(noteSlowStatement).not.toHaveBeenCalled();
+  });
+
+  it('keeps the result when the sink throws', () => {
+    const { db, real } = setup(50, {
+      noteSlowStatement: () => {
+        throw new Error('sink down');
+      },
+    });
+    real.costMs = 80;
+
+    expect(() => db.prepare('SELECT 1').get()).not.toThrow();
   });
 
   it('reports changes for run and 0/1 rows for get', () => {
@@ -526,5 +568,42 @@ describe('withSlowStatementTiming', () => {
         replacement,
       );
     });
+  });
+});
+
+describe('withSlowStatementTiming — context', () => {
+  it('adds the context fields to a logged line and is not read for fast calls', () => {
+    let reads = 0;
+    const { real, db, logger } = setup(50, null, () => {
+      reads++;
+      return { walCheckpoints: 'worker', walBytes: 4096 };
+    });
+
+    db.exec('SELECT 1');
+    expect(reads).toBe(0);
+
+    real.costMs = 60;
+    db.exec('VACUUM');
+
+    expect(slowLines(logger).map((l) => l.context)).toEqual([
+      expect.objectContaining({
+        sql: 'VACUUM',
+        walCheckpoints: 'worker',
+        walBytes: 4096,
+      }),
+    ]);
+  });
+
+  it('still logs, naming the error, when the context throws', () => {
+    const { real, db, logger } = setup(50, null, () => {
+      throw new Error('no wal state');
+    });
+    real.costMs = 60;
+
+    expect(db.exec('VACUUM')).toBe('native:VACUUM');
+
+    expect(slowLines(logger).map((l) => l.context)).toEqual([
+      expect.objectContaining({ sql: 'VACUUM', contextError: 'no wal state' }),
+    ]);
   });
 });

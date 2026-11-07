@@ -19,11 +19,22 @@
  *
  * ## Breadcrumbs
  *
- * `setBreadcrumb(key, value)` attaches small context (the last lag sample,
- * later the RPC method in flight) to every heartbeat. The worker writes the
- * breadcrumbs it last received, so a hang line names what main was last known
- * to be doing. Bounded in key count and value length so a heartbeat stays one
- * cheap `postMessage`.
+ * `setBreadcrumb(key, value)` attaches small context (the last lag sample)
+ * to every heartbeat. The worker writes the breadcrumbs it last received, so a
+ * hang line names what main was last known to be doing. Bounded in key count
+ * and value length so a heartbeat stays one cheap `postMessage`.
+ *
+ * The RPC methods and MCP tools in flight and the last slow SQL label come
+ * from `HangBreadcrumbs`, which pushes each change here; the watchdog then
+ * posts a heartbeat at once rather than waiting up to a second, because the
+ * operation that blocks main never lets the next interval tick run.
+ *
+ * ## Recovery enrichment
+ *
+ * With `onRecovered` set (the opt-in hang profiler), the worker hands the
+ * recovery record back to main instead of appending it; main merges the
+ * enricher's fields and appends through {@link appendHangLogLine}, bounded by
+ * {@link RECOVERY_ENRICH_TIMEOUT_MS}.
  *
  * ## Worker death
  *
@@ -46,6 +57,12 @@ import { dirname, join } from 'node:path';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import { MAIN_LOOP_WATCHDOG_WORKER_SOURCE } from './main-loop-watchdog-source';
+import { hangBreadcrumbs, type HangBreadcrumbs } from './hang-breadcrumbs';
+import {
+  WatchdogRecoveredMessageSchema,
+  type HangRecoveryEnricher,
+  type WatchdogRecoveredMessage,
+} from './main-loop-watchdog-protocol';
 
 /** File name of the hang log inside the host's log directory. */
 export const HANG_LOG_FILE_NAME = 'ptah-hang.log';
@@ -88,7 +105,24 @@ export interface MainLoopWatchdogOptions {
   checkIntervalMs?: number;
   /** Rotation cap for the hang log. Defaults to {@link HANG_LOG_MAX_BYTES}. */
   hangLogMaxBytes?: number;
+  /**
+   * In-flight RPC/MCP operations and the last slow SQL label, pushed into the
+   * breadcrumbs on every change. Defaults to the process-wide
+   * {@link hangBreadcrumbs}; specs pass their own.
+   */
+  breadcrumbSource?: HangBreadcrumbs;
+  /**
+   * When set, main writes the recovery line instead of the worker, merged with
+   * what this returns (the opt-in hang profile). Absent, the worker writes it.
+   */
+  onRecovered?: HangRecoveryEnricher;
 }
+
+/**
+ * 20 s. Upper bound on how long a recovery enricher may take before the line
+ * is written without its extras — a stuck profiler must not lose the record.
+ */
+export const RECOVERY_ENRICH_TIMEOUT_MS = 20_000;
 
 /** Message shape posted to the worker. Mirrors the source's protocol. */
 interface HeartbeatMessage {
@@ -101,6 +135,7 @@ interface WorkerConfig {
   hangLogMaxBytes: number;
   hangThresholdMs: number;
   checkIntervalMs: number;
+  deferRecovery: boolean;
 }
 
 /**
@@ -165,6 +200,11 @@ export class MainLoopWatchdog {
   private readonly breadcrumbs = new Map<string, string>();
   private restartTimes: number[] = [];
   private degraded = false;
+  private detachBreadcrumbs: (() => void) | undefined;
+  private onRecovered: HangRecoveryEnricher | undefined;
+  /** Pending coalesced post for `end` changes; see scheduleCoalescedBeat. */
+  private coalescedFlush: ReturnType<typeof setImmediate> | undefined;
+  private coalescedDirty = false;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
@@ -219,12 +259,29 @@ export class MainLoopWatchdog {
       hangLogPath: join(options.logsPath, HANG_LOG_FILE_NAME),
       hangLogMaxBytes: options.hangLogMaxBytes ?? HANG_LOG_MAX_BYTES,
       hangThresholdMs: options.hangThresholdMs ?? DEFAULT_HANG_THRESHOLD_MS,
-      checkIntervalMs: options.checkIntervalMs ?? DEFAULT_HANG_CHECK_INTERVAL_MS,
+      checkIntervalMs:
+        options.checkIntervalMs ?? DEFAULT_HANG_CHECK_INTERVAL_MS,
+      deferRecovery: options.onRecovered !== undefined,
     };
     this.config = config;
+    this.onRecovered = options.onRecovered;
     this.degraded = false;
     this.restartTimes = [];
     this.spawnWorker(config);
+
+    // Push, not sample: an operation that begins and then blocks main in the
+    // same tick must already be in the worker's hands. See hang-breadcrumbs.ts.
+    // So a `begin` (or a slow-SQL note) posts at once. Only an `end` may wait:
+    // it cannot name a culprit, and a burst of RPC completions in one
+    // macrotask then costs one post instead of one each.
+    const source = options.breadcrumbSource ?? hangBreadcrumbs;
+    this.detachBreadcrumbs = source.attach((crumbs, change) => {
+      for (const [key, value] of Object.entries(crumbs)) {
+        this.setBreadcrumb(key, value);
+      }
+      if (change === 'end') this.scheduleCoalescedBeat();
+      else this.beat();
+    });
 
     const heartbeat = setInterval(() => {
       this.beat();
@@ -248,6 +305,8 @@ export class MainLoopWatchdog {
    */
   async dispose(): Promise<void> {
     this.stopHeartbeat();
+    this.detachBreadcrumbs?.();
+    this.detachBreadcrumbs = undefined;
     const worker = this.worker;
     // Cleared BEFORE terminate, so the resulting `exit` is recognised as ours
     // and does not trigger a restart.
@@ -280,7 +339,63 @@ export class MainLoopWatchdog {
       this.worker = undefined;
       this.handleUnexpectedExit(config, code, failure);
     });
+    if (config.deferRecovery) {
+      worker.on('message', (raw: unknown) => {
+        this.handleWorkerMessage(config, raw);
+      });
+    }
     this.worker = worker;
+  }
+
+  /**
+   * The worker's only outbound message: a hang ended and main is to write
+   * the recovery line. Parsed first — the worker is untyped source text.
+   */
+  private handleWorkerMessage(config: WorkerConfig, raw: unknown): void {
+    const parsed = WatchdogRecoveredMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+      this.logger.warn('[watchdog] ignored malformed worker message', {
+        issues: parsed.error.issues.length,
+      });
+      return;
+    }
+    void this.writeRecovery(config, parsed.data);
+  }
+
+  /**
+   * Enrich and append the recovery line. Never rejects: the record lands with
+   * or without the enricher's fields, and a failure is logged.
+   */
+  private async writeRecovery(
+    config: WorkerConfig,
+    message: WatchdogRecoveredMessage,
+  ): Promise<void> {
+    let extra: Record<string, unknown> = {};
+    const enrich = this.onRecovered;
+    if (enrich !== undefined) {
+      try {
+        extra = await withTimeout(
+          enrich({
+            hangStartedAt: message.hangStartedAt,
+            blockedForMs: message.record.blockedForMs,
+          }),
+          RECOVERY_ENRICH_TIMEOUT_MS,
+        );
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn('[watchdog] hang recovery enrichment failed', {
+          reason,
+        });
+        extra = { hangProfileError: reason };
+      }
+    }
+    const line = `${JSON.stringify({ ...message.record, ...extra })}\n`;
+    if (!appendHangLogLine(config.hangLogPath, line, config.hangLogMaxBytes)) {
+      this.logger.warn('[watchdog] recovery line could not be written', {
+        hangLogPath: config.hangLogPath,
+        blockedForMs: message.record.blockedForMs,
+      });
+    }
   }
 
   private handleUnexpectedExit(
@@ -296,12 +411,15 @@ export class MainLoopWatchdog {
     if (this.restartTimes.length >= MAX_WORKER_RESTARTS) {
       this.stopHeartbeat();
       this.degraded = true;
-      this.logger.error('[watchdog] degraded — restart budget spent, hang records stopped', {
-        code,
-        reason,
-        restarts: this.restartTimes.length,
-        windowMs: WORKER_RESTART_WINDOW_MS,
-      });
+      this.logger.error(
+        '[watchdog] degraded — restart budget spent, hang records stopped',
+        {
+          code,
+          reason,
+          restarts: this.restartTimes.length,
+          windowMs: WORKER_RESTART_WINDOW_MS,
+        },
+      );
       return;
     }
 
@@ -324,7 +442,22 @@ export class MainLoopWatchdog {
     }
   }
 
+  /**
+   * At most one deferred post per macrotask for `end` changes. Any immediate
+   * `beat()` before the flush already carried the latest breadcrumbs, so the
+   * flush then posts nothing.
+   */
+  private scheduleCoalescedBeat(): void {
+    this.coalescedDirty = true;
+    if (this.coalescedFlush !== undefined) return;
+    this.coalescedFlush = setImmediate(() => {
+      this.coalescedFlush = undefined;
+      if (this.coalescedDirty) this.beat();
+    });
+  }
+
   private beat(): void {
+    this.coalescedDirty = false;
     const worker = this.worker;
     if (worker === undefined) return;
     const message: HeartbeatMessage = {
@@ -339,5 +472,29 @@ export class MainLoopWatchdog {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;
     }
+    if (this.coalescedFlush !== undefined) {
+      clearImmediate(this.coalescedFlush);
+      this.coalescedFlush = undefined;
+    }
   }
+}
+
+/** Reject after `ms` with an unref'd timer, so quitting is never held open. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out after ${ms}ms`));
+    }, ms);
+    timer.unref();
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }

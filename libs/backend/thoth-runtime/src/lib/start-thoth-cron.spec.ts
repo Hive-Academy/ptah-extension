@@ -147,7 +147,8 @@ describe('startThothCron', () => {
     const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -172,6 +173,9 @@ describe('startThothCron', () => {
       prompt: 'handler:backup:daily',
       enabled: true,
     });
+    // fix-12: a daily backup interrupted in the previous run is resumed at
+    // start, once, independent of the cron slot it already consumed.
+    expect(backupService.resumeInterruptedDaily).toHaveBeenCalledTimes(1);
 
     const handler = handlers.get('backup:daily');
     expect(handler).toBeDefined();
@@ -198,7 +202,8 @@ describe('startThothCron', () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
@@ -237,7 +242,8 @@ describe('startThothCron', () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const backupService = {
       backup: jest.fn().mockResolvedValue(null),
-      rotate: jest.fn(),
+      rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -822,7 +828,8 @@ describe('startThothCron', () => {
           PERSISTENCE_TOKENS.BACKUP_SERVICE,
           {
             backup: jest.fn().mockResolvedValue('/backups/daily.db'),
-            rotate: jest.fn(),
+            rotate: jest.fn().mockResolvedValue(undefined),
+            resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
           },
         ],
         [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],

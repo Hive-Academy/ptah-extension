@@ -18,4 +18,8 @@ export interface GitRootWatchLeaseOutcome {
 export interface IGitRootWatchRegistry {
   /** Replace the canonical roots `leaseId` holds; roots are pre-validated. */
   setLease(leaseId: string, roots: readonly string[]): GitRootWatchLeaseOutcome;
+  /** Keep a lease live while a bounded renewal is resolving roots. */
+  beginRenewal?(leaseId: string): void;
+  /** End a renewal and resume normal expiry. */
+  endRenewal?(leaseId: string): void;
 }

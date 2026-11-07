@@ -9,6 +9,7 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type { MessageHandler } from '@ptah-extension/core';
 import {
   GIT_FETCH_TIMEOUT_MS,
+  GIT_ROOT_PROBE_FAILED_MESSAGE,
   GIT_HOOK_TIMEOUT_MS,
   MESSAGE_TYPES,
   gitRpcTimeoutFor,
@@ -674,7 +675,7 @@ export class GitBranchesService implements MessageHandler {
         this.readBackoffUntil.delete(key);
         return response.data;
       }
-      if (/timeout/i.test(response.error ?? '')) {
+      if (response.error === GIT_ROOT_PROBE_FAILED_MESSAGE || /timeout/i.test(response.error ?? '')) {
         this.readBackoffUntil.set(key, Date.now() + GitBranchesService.READ_TIMEOUT_BACKOFF_MS);
       }
       if (response.error) {

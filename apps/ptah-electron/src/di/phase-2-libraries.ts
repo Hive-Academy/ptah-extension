@@ -10,13 +10,15 @@
  *   - Phase 2.5: llm-abstraction
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import { resolve } from 'node:path';
 import { resolveReviewRootsForPath } from '../services/review/resolve-review-roots-for-path';
 import { registerElectronCodexReadinessAndLogin } from './codex-login-composition';
+import { registerElectronTreeSitterWorker } from './tree-sitter-worker-composition';
 
 import {
   TOKENS,
+  hangBreadcrumbs,
   type Logger,
   type WorkspaceAwareStateStorage,
 } from '@ptah-extension/vscode-core';
@@ -95,15 +97,20 @@ import {
   resolvePtahDbPath,
   resolveVecPackageName,
   resolveVecBinaryName,
+  type SlowStatementSink,
   type SqliteConnectionService,
+  type IEmbedder,
   type SqliteVecPathResolver,
+  type VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import * as fs from 'node:fs';
 import { app } from 'electron';
 import {
   registerMemoryCuratorServices,
   MEMORY_TOKENS,
+  SearchWorkerClient,
 } from '@ptah-extension/memory-curator';
+import { ElectronSearchWorkerFactory } from '../services/platform/electron-search-worker-factory';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
@@ -136,6 +143,10 @@ import { ElectronSafeStorageVault } from '../services/platform/electron-safe-sto
 import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
 import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-embedder-worker-factory';
 import { ElectronIntegrityWorkerFactory } from '../services/platform/electron-integrity-worker-factory';
+import {
+  ElectronWalCheckpointWorkerFactory,
+  WAL_CHECKPOINT_WORKER_FILE,
+} from '../services/platform/electron-wal-checkpoint-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -209,6 +220,9 @@ export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  // Before workspace-intelligence: its registration resolves the parser,
+  // which reads the optional worker factory once, at construction.
+  registerElectronTreeSitterWorker(container, logger);
   registerWorkspaceIntelligenceServices(container, logger);
   // Override the Phase 0 diagnostics stub with the real TypeScript compiler
   // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
@@ -407,6 +421,31 @@ export function registerPhase2Libraries(
       useValue: new ElectronIntegrityWorkerFactory(integrityWorkerEntry),
     });
 
+    // WAL checkpoints run in their own utilityProcess, so no COMMIT on the main
+    // thread copies WAL frames into the database file and fsyncs it (a 1150 ms
+    // `<transaction anonymous>` in fix-10). Electron only: without this
+    // factory `WalCheckpointScheduler.start()` changes nothing and VS Code and
+    // the CLI keep SQLite's auto-checkpoint. `build-wal-checkpoint-worker`
+    // puts the bundle beside `integrity-worker.mjs`.
+    container.register(PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY, {
+      useValue: new ElectronWalCheckpointWorkerFactory(
+        path.join(
+          dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+          WAL_CHECKPOINT_WORKER_FILE,
+        ),
+      ),
+    });
+
+    // Slow SQLite statements feed the main-loop watchdog's hang breadcrumbs,
+    // so a freeze inside better-sqlite3 names its SQL. Host composition only:
+    // the persistence lib defaults to no observer (VS Code, CLI benchmark).
+    const slowStatementSink: SlowStatementSink = {
+      noteSlowStatement: (label, durationMs) =>
+        hangBreadcrumbs.noteSlowSql(label, durationMs),
+    };
+    container.register(PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK, {
+      useValue: slowStatementSink,
+    });
     registerPersistenceSqliteServices(container, logger);
     registerReviewCore(container);
     registerReviewGithubServices(container);
@@ -489,6 +528,28 @@ export function registerPhase2Libraries(
       );
     }
     registerMemoryCuratorServices(container, logger);
+    // Memory / code-symbol search, the session-start memory listing and chunk
+    // lookup run in their own utilityProcess with a read-only connection, so
+    // their synchronous SQLite reads never block this thread. Built
+    // `search-worker.mjs` sits beside `main.mjs`, like the embedder worker.
+    // The stores take this token as optional; VS Code and the CLI leave it
+    // unregistered and keep searching in-process.
+    const searchWorkerEntry = path.join(
+      dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+      'search-worker.mjs',
+    );
+    container.register(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, {
+      useFactory: instanceCachingFactory(
+        (c) =>
+          new SearchWorkerClient(
+            new ElectronSearchWorkerFactory(searchWorkerEntry, dbPath, () =>
+              loadedVecPath(c.resolve<VecStatusService>(PERSISTENCE_TOKENS.VEC_STATUS)),
+            ),
+            c.resolve<IEmbedder>(PERSISTENCE_TOKENS.EMBEDDER),
+            logger,
+          ),
+      ),
+    });
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
@@ -690,6 +751,16 @@ function configureElectronVoiceProviders(
     modelCacheDir,
     ffmpegConfigured: ffmpegPath !== null,
   });
+}
+
+/**
+ * The sqlite-vec binary the main connection actually loaded, so the search
+ * worker loads the same file. `undefined` while vec is unavailable: the
+ * worker then searches lexically, as the main connection would.
+ */
+function loadedVecPath(vecStatus: VecStatusService): string | undefined {
+  const diagnostic = vecStatus.diagnostic;
+  return diagnostic.ok ? diagnostic.attemptedPath : undefined;
 }
 
 function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {

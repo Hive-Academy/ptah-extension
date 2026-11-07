@@ -158,6 +158,15 @@ describe('TranscriptMotionDirective', () => {
     expect(removed.hasAttribute('data-ptah-leave-cut')).toBe(true);
   });
 
+  it('suppresses entrances and leaves during a large replacement', () => {
+    const h = harness(['a', 'b', 'c', 'd']);
+    const removed = item(h.root, 'a');
+    h.host.messages.set(messages('w', 'x', 'y', 'z'));
+    h.fixture.detectChanges();
+    expect(h.motion.index('w')).toBeNull();
+    expect(removed.hasAttribute('data-ptah-leave-cut')).toBe(true);
+  });
+
   it('cuts a removed item outside the scroller rect', () => {
     const h = harness(['a', 'b']);
     const removed = item(h.root, 'a');

@@ -101,6 +101,11 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   // disposes it early — and in the BEFORE-persistence half, because a check
   // that completes writes its verdict through the connection about to close.
   'integrityService',
+  // The read-write WAL checkpoint worker, killed before `SQLite close` so the
+  // close's TRUNCATE checkpoint never waits on its lock (fix 11).
+  'walCheckpointScheduler',
+  // A read-only reader of the database, killed before `SQLite close`.
+  'searchWorker',
   'gitWatcher',
   'symbolWatcher',
   'statusBridgeDisposables',
@@ -122,6 +127,8 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'agentProcessManager',
   'sqliteConnection',
   'disposeVoiceWorker',
+  // The tree-sitter utility process: a parser, it writes nothing.
+  'treeSitterParser',
   'cliRegistry',
   // The watch host (TASK_2026_437 C8): captured pre-window beside
   // `cliRegistry`, killed after its consumer stopped; writes nothing.
@@ -165,6 +172,7 @@ function makeFullRefs(order: string[]): BootRefs {
     dispose: record('updateManager'),
   } as unknown as BootRefs['updateManager'];
   refs.integrityService = { dispose: record('integrityService') };
+  refs.walCheckpointScheduler = { dispose: record('walCheckpointScheduler') };
   refs.gitWatcher = {
     stop: record('gitWatcher'),
     switchWorkspace: jest.fn(),
@@ -209,7 +217,13 @@ function makeFullRefs(order: string[]): BootRefs {
     },
   };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
+  refs.treeSitterParser = { dispose: record('treeSitterParser') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
+  refs.searchWorker = {
+    dispose: async () => {
+      order.push('searchWorker');
+    },
+  };
   refs.diagnostics = {
     dispose: record('diagnostics'),
   } as unknown as BootRefs['diagnostics'];
@@ -365,6 +379,7 @@ describe('will-quit — LIFO disposal order', () => {
     refs.messagingGateway = null;
     refs.agentProcessManager = null;
     refs.chatSessions = null;
+    refs.searchWorker = null;
     const deferQuit = jest.fn();
     const quit = jest.fn();
 
@@ -381,7 +396,8 @@ describe('will-quit — LIFO disposal order', () => {
         (name) =>
           name !== 'messagingGateway' &&
           name !== 'agentProcessManager' &&
-          name !== 'chatSessions',
+          name !== 'chatSessions' &&
+          name !== 'searchWorker',
       ),
     );
     expect(deferQuit).not.toHaveBeenCalled();
@@ -471,6 +487,66 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
     expect(order).toEqual(EXPECTED_LIFO_ORDER);
   });
 
+  it('waits for the search worker to exit before closing SQLite', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.searchWorker = {
+      dispose: () => {
+        order.push('searchWorker');
+        // The utility process reports its exit 40 ms after the kill.
+        return new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push('searchWorkerExited');
+            resolve();
+          }, 40);
+        });
+      },
+    };
+    refs.messagingGateway = null;
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+    });
+
+    await flushMicrotasks();
+    expect(order).toContain('searchWorker');
+    expect(order).not.toContain('sqliteConnection');
+
+    await jest.advanceTimersByTimeAsync(40);
+    await flushMicrotasks();
+
+    expect(order.indexOf('searchWorkerExited')).toBeGreaterThan(-1);
+    expect(order.indexOf('searchWorkerExited')).toBeLessThan(
+      order.indexOf('sqliteConnection'),
+    );
+  });
+
+  it('closes SQLite anyway when the search worker exit outlives its budget', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.searchWorker = {
+      dispose: () => new Promise<void>(() => undefined),
+    };
+    refs.messagingGateway = null;
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+      searchWorkerExitBudgetMs: 100,
+    });
+
+    await flushMicrotasks();
+    expect(order).not.toContain('sqliteConnection');
+    await jest.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+    expect(order).toContain('sqliteConnection');
+  });
+
   it('closes anyway once a wedged stop exceeds its budget', async () => {
     // A quit that hangs is worse than a lost final delivery: the wait is
     // bounded, and it warns rather than silently dropping the write.
@@ -546,6 +622,7 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
 
     refs.agentProcessManager = null;
     refs.chatSessions = null;
+    refs.searchWorker = null;
     expect(requiresDeferredDisposal(refs)).toBe(false);
 
     refs.messagingGateway = {

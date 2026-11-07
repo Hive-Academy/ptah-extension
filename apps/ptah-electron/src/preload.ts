@@ -15,12 +15,8 @@ import { contextBridge, ipcRenderer } from 'electron';
  * The Angular app (VSCodeService) reads window.vscode in constructor.
  * By providing the same shape, ZERO Angular code changes needed.
  */
-const startupConfig = ipcRenderer.sendSync('get-startup-config') as {
-  initialView?: string | null;
-  workspaceRoot?: string;
-  workspaceName?: string;
-  zoneChangeDetectionFallback?: boolean;
-} | null;
+const rawStartupConfig = ipcRenderer.sendSync('get-startup-config');
+const startupConfig = parseStartupConfig(rawStartupConfig);
 contextBridge.exposeInMainWorld('vscode', {
   postMessage: (message: unknown) => {
     ipcRenderer.send('rpc', message);
@@ -44,6 +40,7 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
+  gpuCompositing: startupConfig?.gpuCompositing ?? 'hardware',
   initialView: startupConfig?.initialView || 'chat',
   // TODO(streaming-p6): remove zone fallback flag after one stable release
   zoneChangeDetectionFallback:
@@ -71,3 +68,64 @@ contextBridge.exposeInMainWorld('ptahDiag', {
 ipcRenderer.on('to-renderer', (_event, message) => {
   window.dispatchEvent(new MessageEvent('message', { data: message }));
 });
+
+interface PreloadStartupConfig {
+  initialView?: string | null;
+  workspaceRoot?: string;
+  workspaceName?: string;
+  zoneChangeDetectionFallback?: boolean;
+  gpuCompositing?: 'hardware' | 'software' | 'disabled';
+}
+
+/**
+ * Narrow the `get-startup-config` reply by hand. This file must import nothing
+ * but `electron`: the main window runs with `sandbox: true`, where a preload
+ * `require` resolves only `electron`/`events`/`timers`/`url`, and
+ * `build-preload` keeps npm packages external (`thirdParty: false`). A schema
+ * library here would ship as a runtime require of that package and leave the
+ * window blank (`preload.spec.ts` pins this). The main process owns the shape
+ * (`activation/startup-config-ipc.ts`); a malformed reply yields `null`, so
+ * every field falls back to its default below.
+ */
+function parseStartupConfig(raw: unknown): PreloadStartupConfig | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const fields = new Map<string, unknown>(Object.entries(raw));
+  const initialView = fields.get('initialView');
+  const workspaceRoot = fields.get('workspaceRoot');
+  const workspaceName = fields.get('workspaceName');
+  const zoneFallback = fields.get('zoneChangeDetectionFallback');
+  const gpuCompositing = fields.get('gpuCompositing');
+  if (
+    initialView !== undefined &&
+    initialView !== null &&
+    typeof initialView !== 'string'
+  ) {
+    return null;
+  }
+  if (workspaceRoot !== undefined && typeof workspaceRoot !== 'string') {
+    return null;
+  }
+  if (workspaceName !== undefined && typeof workspaceName !== 'string') {
+    return null;
+  }
+  if (zoneFallback !== undefined && typeof zoneFallback !== 'boolean') {
+    return null;
+  }
+  if (
+    gpuCompositing !== undefined &&
+    gpuCompositing !== 'hardware' &&
+    gpuCompositing !== 'software' &&
+    gpuCompositing !== 'disabled'
+  ) {
+    return null;
+  }
+  return {
+    initialView,
+    workspaceRoot,
+    workspaceName,
+    zoneChangeDetectionFallback: zoneFallback,
+    gpuCompositing,
+  };
+}

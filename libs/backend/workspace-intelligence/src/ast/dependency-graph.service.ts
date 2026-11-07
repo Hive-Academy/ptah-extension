@@ -41,6 +41,7 @@ import {
   buildResolverContext,
   type ResolverContext,
 } from './import-resolution/resolver-context';
+import { BACKGROUND_PARSE } from './tree-sitter-request-options';
 
 /** A node in the dependency graph representing a single file */
 export interface FileNode {
@@ -183,6 +184,28 @@ const CHUNK_SIZE = 20;
  * the host's timers (a tool call's bounded wait among them) and I/O run.
  */
 const EDGE_SLICE_MS = 10;
+
+/** Unresolved imports a build's summary line names as examples. */
+export const UNRESOLVED_IMPORT_SAMPLES = 5;
+
+/**
+ * One debug line per graph build for its unresolved imports: the count and
+ * the first {@link UNRESOLVED_IMPORT_SAMPLES}. Nothing when there are none.
+ * The count also rides the `Graph built` info line as `unresolved`.
+ */
+function logUnresolvedSummary(
+  logger: Pick<Logger, 'debug'>,
+  count: number,
+  samples: readonly string[],
+): void {
+  if (count === 0) return;
+  const more = count - samples.length;
+  logger.debug(
+    `DependencyGraphService.buildGraph() - ${count} unresolved import(s), e.g. ${samples.join(
+      ', ',
+    )}${more > 0 ? ` (+${more} more)` : ''}`,
+  );
+}
 
 /** Resolve on a later macrotask: timers and I/O callbacks run first. */
 function nextMacrotask(): Promise<void> {
@@ -705,10 +728,12 @@ export class DependencyGraphService {
 
     let analysisResult: Result<CodeInsights, Error>;
     try {
+      // A graph build parses many files: bulk work, behind interactive parses.
       analysisResult = await this.astAnalysis.analyzeSource(
         content,
         language,
         normalizedPath,
+        BACKGROUND_PARSE,
       );
     } catch (error: unknown) {
       // degradation-audit: reported — the file stays out of the graph and is
@@ -795,6 +820,9 @@ export class DependencyGraphService {
     let caseFolded = false;
     let contextDependent = false;
     const edgeApproximations = new Set<GraphEdgeApproximation>();
+    /** First few unresolved imports, for the one summary line per build. */
+    const unresolvedSamples: string[] = [];
+    let unresolvedImports = 0;
     let sliceStart = Date.now();
     /** False once a background build was superseded: stop linking. */
     const continueLinking = async (): Promise<boolean> => {
@@ -805,6 +833,14 @@ export class DependencyGraphService {
       return isCurrent();
     };
     const finish = (): {
+      graph: DependencyGraph;
+      resolution: GraphResolutionCounts;
+      reExporters: Map<string, Set<string>>;
+    } => {
+      logUnresolvedSummary(this.logger, unresolvedImports, unresolvedSamples);
+      return assemble();
+    };
+    const assemble = (): {
       graph: DependencyGraph;
       resolution: GraphResolutionCounts;
       reExporters: Map<string, Set<string>>;
@@ -891,9 +927,12 @@ export class DependencyGraphService {
         unresolvedCount++;
         if (resolution.kind === 'external') external++;
         else unresolvedInternal++;
-        this.logger.debug(
-          `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
-        );
+        // One summary per build instead of a line per import: a 7 458-file
+        // build once wrote 27 823 debug lines in a single minute.
+        unresolvedImports++;
+        if (unresolvedSamples.length < UNRESOLVED_IMPORT_SAMPLES) {
+          unresolvedSamples.push(`'${imp.source}' in ${node.relativePath}`);
+        }
         return [];
       }
       // Declared once targets link; an unresolved import approximates nothing.

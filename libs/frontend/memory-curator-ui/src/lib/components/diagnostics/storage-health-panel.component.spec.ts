@@ -184,6 +184,7 @@ describe('StorageHealthPanelComponent', () => {
       }),
     );
     expect(root.textContent ?? '').toContain('—');
+    expect(root.textContent ?? '').toContain('Not measured');
     expect(
       root.querySelector('[data-testid="storage-db-size"]')?.textContent ?? '',
     ).toContain('—');

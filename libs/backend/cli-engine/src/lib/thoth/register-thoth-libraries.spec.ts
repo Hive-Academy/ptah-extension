@@ -9,6 +9,7 @@ import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import { GATEWAY_TOKENS } from '@ptah-extension/messaging-gateway';
 import { SKILL_REPROPAGATION_TOKEN } from '@ptah-extension/skill-synthesis';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 
 import {
   MEMORY_TOKENS,
@@ -92,6 +93,25 @@ describe('registerThothLibraries — real Thoth registration', () => {
       GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT,
     );
     expect(vault.isEncryptionAvailable()).toBe(true);
+  });
+
+  it('keeps SQLite auto-checkpoint: no WAL checkpoint worker, a scheduler that does not start', () => {
+    // Electron alone moves checkpoints off the main thread (fix 11).
+    expect(
+      c.isRegistered(PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY, true),
+    ).toBe(false);
+    const scheduler = c.resolve<{ start(): boolean }>(
+      PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER,
+    );
+    expect(scheduler.start()).toBe(false);
+  });
+
+  it('gives db:reset an exclusive-access pause that resolves at once', async () => {
+    const access = c.resolve<{
+      pauseForExclusiveAccess(): Promise<{ release(): void }>;
+    }>(PERSISTENCE_TOKENS.SQLITE_EXCLUSIVE_ACCESS);
+    const lease = await access.pauseForExclusiveAccess();
+    expect(() => lease.release()).not.toThrow();
   });
 
   it('registers SKILL_REPROPAGATION_TOKEN as CliSkillRepropagation', () => {

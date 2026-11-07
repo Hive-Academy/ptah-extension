@@ -187,12 +187,34 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   integrityService: { dispose: () => void } | null;
   /**
+   * `PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER`, set only when it started
+   * (main-loop-sync-blocks fix 11). `dispose()` stops its timer, kills the
+   * checkpoint `utilityProcess` and restores SQLite's auto-checkpoint; it
+   * must run BEFORE `SQLite close` so the close's TRUNCATE checkpoint never
+   * waits on the worker's checkpointer lock.
+   */
+  walCheckpointScheduler: { dispose: () => void } | null;
+  /**
    * `PLATFORM_TOKENS.WORKSPACE_WATCHER` — `ElectronWorkspaceWatcher`, which owns
    * the watch host `utilityProcess` (TASK_2026_437 C8). `dispose()` kills the
    * host synchronously and touches no SQLite. Captured pre-window with the
    * other shutdown handles; resolving it forks nothing.
    */
   workspaceWatcher: { dispose: () => void } | null;
+  /**
+   * `MEMORY_TOKENS.SQLITE_SEARCH_WORKER` — `SearchWorkerClient`, which owns the
+   * read-only SQLite search `utilityProcess`. `dispose()` kills it, stops
+   * respawns and settles once the process has exited (bounded at 2 s); it
+   * writes nothing. Captured pre-window; resolving forks nothing.
+   */
+  searchWorker: { dispose: () => Promise<void> } | null;
+  /**
+   * `TOKENS.TREE_SITTER_PARSER_SERVICE`, the instance phase 2 already built
+   * (its registration resolves it). `dispose()` stops the tree-sitter
+   * `utilityProcess` and settles every waiting parse with an error; it
+   * writes nothing. Captured after DI so quit never builds a new parser.
+   */
+  treeSitterParser: { dispose: () => void } | null;
   /**
    * Window-bounds persistence storage. Not a disposable — `app.on('activate')`
    * needs it to recreate the window on macOS.
@@ -230,7 +252,10 @@ export function createEmptyBootRefs(): BootRefs {
     hostRouting: null,
     providerProxyPool: null,
     integrityService: null,
+    walCheckpointScheduler: null,
     workspaceWatcher: null,
+    searchWorker: null,
+    treeSitterParser: null,
     resolvedStateStorage: null,
   };
 }

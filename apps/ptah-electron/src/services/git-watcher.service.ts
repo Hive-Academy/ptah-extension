@@ -448,7 +448,9 @@ export class GitWatcherService {
     // the audit the stamp stays null, which keeps every later claim false.
     const audit = this.startOptions.agentWorktreeAudit;
     if (audit) this.lastWorktreeAuditAt = Date.now();
-    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, audit);
+    if (audit) {
+      void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, true);
+    }
 
     this.subscribeGitDir(this.resolveGitDirs(gitDir));
 
@@ -847,11 +849,19 @@ export class GitWatcherService {
     this.flushContentChanges();
   }
 
-  /** Coalesces worktree add/remove bursts into one `git worktree list`. */
+  /**
+   * Coalesces worktree add/remove bursts into one `git worktree list`.
+   *
+   * The worktree-root probe answers are dropped right away, not after the
+   * debounce: a worktree created or removed outside Ptah (agent CLI,
+   * terminal) changes no ref, so nothing else would tell the `git:*` root
+   * resolver that its cached list is out of date (review M1).
+   */
   private scheduleNestedRootsRefresh(): void {
     if (this.isDisposed) return;
     const workspaceRoot = this.workspacePath;
     if (!workspaceRoot) return;
+    this.gitInfo.invalidateProbeReadCache(workspaceRoot);
     if (this.nestedRootsRefreshTimer) {
       clearTimeout(this.nestedRootsRefreshTimer);
     }
@@ -1006,9 +1016,9 @@ export class GitWatcherService {
       }
       const listing = await this.gitInfo.getWorktrees(main);
       if (this.isDisposed || this.armGeneration !== generation) return;
-      // `getWorktrees` answers a failed listing with `[]`. A real listing
-      // always reports the main worktree, so its absence means the listing
-      // failed and cannot confirm that any candidate is gone.
+      // A failed listing rejects (caught below). A real listing always
+      // reports the main worktree, so its absence means git did not see
+      // `main` as a repository and cannot confirm that any candidate is gone.
       if (!listing.some((w) => w.isMain && w.path === main)) {
         this.logger.warn(
           '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',

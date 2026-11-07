@@ -929,9 +929,7 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(state1?.backlogRemaining).toBe(false);
     expect(state1?.processedPurged).toBe(1200);
     expect(state1?.stuckQuarantined).toBe(0);
-    expect(state1?.processedRowsAfter).toBe(
-      pNew.length + pOldCapturedNewProcessed.length,
-    );
+    expect(state1?.processedRowsAfter).toBeNull();
 
     // Liveness: the backlog and its age are visible in diagnostics.
     const health = h.service.storageHealth();
@@ -979,7 +977,7 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(state3?.lastCompletedAt).toBe(NOW + 25 * HOUR);
     expect(state3?.processedPurged).toBe(50);
     expect(state3?.stuckQuarantined).toBe(0);
-    expect(state3?.processedRowsAfter).toBe(pOldCapturedNewProcessed.length);
+    expect(state3?.processedRowsAfter).toBeNull();
 
     // ---- Run 4: due again 25 h after run 3, nothing is eligible to delete.
     const run4 = (await h.run(NOW + 50 * HOUR)) as MemoryRetentionRunReport;

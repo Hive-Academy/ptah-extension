@@ -7,6 +7,7 @@ import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import { SpecHarvesterService } from './spec-harvester.service';
 import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { extractSpec, HARVEST_MARKER_FILE } from './spec-extractor';
+import * as specExtractor from './spec-extractor';
 import { SkillTaskGradeStore } from './skill-task-grade.store';
 
 const COMPLETED_TASKS_MD = `## Batch 1: Backend — COMPLETE
@@ -871,6 +872,60 @@ describe('SpecHarvesterService — carrier-less folder warning', () => {
     expect((payload as { folders: string[] }).folders).toEqual([
       'TASK_2026_LEGACY',
     ]);
+  });
+
+  it('skips carrier-less folders without extraction and warns again when the set changes', async () => {
+    await mkdir(join(specsRoot, 'TASK_2026_LEGACY'));
+    const extract = jest.spyOn(specExtractor, 'extractSpec');
+    try {
+      await svc.harvest();
+      await svc.harvest();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      await mkdir(join(specsRoot, 'TASK_2026_OTHER'));
+      await svc.harvest();
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      // A definite miss (no carrier file) never needs the full extraction.
+      expect(extract).not.toHaveBeenCalled();
+    } finally {
+      extract.mockRestore();
+    }
+  });
+
+  it('re-reads a folder whose carrier exists but yields no spec, every run', async () => {
+    const dir = join(specsRoot, 'TASK_2026_BROKEN');
+    await mkdir(dir);
+    await writeFile(join(dir, 'task.md'), 'no frontmatter here', 'utf8');
+    const extract = jest.spyOn(specExtractor, 'extractSpec');
+    try {
+      await svc.harvest();
+      await svc.harvest();
+      // Not cached: a transient read failure looks the same as this from
+      // outside extractSpec, and must not hide the folder.
+      expect(extract).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    } finally {
+      extract.mockRestore();
+    }
+  });
+
+  it('keys the skipped-set warning per specs root', async () => {
+    const otherRoot = await mkdtemp(join(tmpdir(), 'spec-harvest-warn-b-'));
+    try {
+      await mkdir(join(specsRoot, 'TASK_2026_A'));
+      await mkdir(join(otherRoot, '.ptah', 'specs', 'TASK_2026_B'), {
+        recursive: true,
+      });
+
+      await svc.harvest(root);
+      await svc.harvest(otherRoot);
+      await svc.harvest(root);
+      await svc.harvest(otherRoot);
+
+      // One warn per root, not one per alternating call.
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
   });
 
   it('names every skipped folder in ONE warn, not one warn per folder', async () => {

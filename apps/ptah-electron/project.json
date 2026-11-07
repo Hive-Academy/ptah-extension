@@ -174,6 +174,53 @@
         "external": ["@huggingface/transformers"]
       }
     },
+    "build-search-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/search-worker.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/memory-curator/src/lib/search-worker.ts",
+        "outputFileName": "search-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.search-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": { "outExtension": { ".js": ".mjs" }, "banner": { "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } },
+        "external": ["better-sqlite3", "sqlite-vec", "reflect-metadata", "tsyringe"]
+      }
+    },
+    "build-tree-sitter-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/tree-sitter-worker.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/workspace-intelligence/src/ast/worker/tree-sitter-worker.ts",
+        "outputFileName": "tree-sitter-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.tree-sitter-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": ["web-tree-sitter"]
+      }
+    },
     "build-integrity-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
@@ -183,6 +230,33 @@
         "main": "libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
         "outputFileName": "integrity-worker.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.integrity-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": ["better-sqlite3"]
+      }
+    },
+    "build-wal-checkpoint-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
+      "outputs": ["{options.outputPath}/wal-checkpoint-worker.mjs"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/persistence-sqlite/src/lib/wal-checkpoint/wal-checkpoint-worker.ts",
+        "outputFileName": "wal-checkpoint-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.wal-checkpoint-worker.json",
         "format": ["esm"],
         "platform": "node",
         "target": "node20",
@@ -334,6 +408,9 @@
         "build-embedder-worker",
         "build-voice-worker",
         "build-integrity-worker",
+        "build-wal-checkpoint-worker",
+        "build-search-worker",
+        "build-tree-sitter-worker",
         "build-state-storage-worker",
         "build-workspace-watch-host",
         "build-worker-host",
@@ -371,6 +448,9 @@
           "nx build-embedder-worker ptah-electron",
           "nx build-voice-worker ptah-electron",
           "nx build-integrity-worker ptah-electron",
+          "nx build-wal-checkpoint-worker ptah-electron",
+          "nx build-search-worker ptah-electron",
+          "nx build-tree-sitter-worker ptah-electron",
           "nx build-state-storage-worker ptah-electron",
           "nx build-workspace-watch-host ptah-electron",
           "nx build-worker-host ptah-electron",
@@ -427,6 +507,9 @@
           "nx build-embedder-worker ptah-electron --watch",
           "nx build-voice-worker ptah-electron --watch",
           "nx build-integrity-worker ptah-electron --watch",
+          "nx build-wal-checkpoint-worker ptah-electron --watch",
+          "nx build-search-worker ptah-electron --watch",
+          "nx build-tree-sitter-worker ptah-electron --watch",
           "nx build-state-storage-worker ptah-electron --watch",
           "nx build-workspace-watch-host ptah-electron --watch",
           "nx build-worker-host ptah-electron --watch",
@@ -500,6 +583,9 @@
         "build-main",
         "build-embedder-worker",
         "build-integrity-worker",
+        "build-wal-checkpoint-worker",
+        "build-search-worker",
+        "build-tree-sitter-worker",
         "build-state-storage-worker",
         "build-voice-worker",
         "build-workspace-watch-host",

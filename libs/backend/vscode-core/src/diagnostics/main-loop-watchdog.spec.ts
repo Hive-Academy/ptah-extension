@@ -11,6 +11,8 @@ import {
   appendHangLogLine,
 } from './main-loop-watchdog';
 import { HANG_LOG_APPEND_SOURCE } from './main-loop-watchdog-source';
+import { HANG_BREADCRUMB_KEYS, HangBreadcrumbs } from './hang-breadcrumbs';
+import type { HangRecoveryDetails } from './main-loop-watchdog-protocol';
 import type { Logger } from '../logging/logger';
 
 const PERF_ENABLED = process.env['PTAH_PERF_SPECS'] === '1';
@@ -327,6 +329,157 @@ describe('MainLoopWatchdog', () => {
 
     expect(fs.readFileSync(`${hangLog}.1`, 'utf8')).toBe('x'.repeat(400));
     expect(readLines(hangLog)[0].event).toBe('hang');
+  });
+});
+
+describe('MainLoopWatchdog — hang breadcrumbs and recovery enrichment', () => {
+  let logsDir: string;
+  let hangLog: string;
+  let watchdog: MainLoopWatchdog;
+  let logger: ReturnType<typeof createLogger>;
+  let crumbs: HangBreadcrumbs;
+
+  const fastTimings = {
+    heartbeatIntervalMs: 50,
+    hangThresholdMs: 300,
+    checkIntervalMs: 25,
+  };
+
+  beforeEach(() => {
+    logsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-watchdog-bc-'));
+    hangLog = path.join(logsDir, HANG_LOG_FILE_NAME);
+    logger = createLogger();
+    watchdog = new MainLoopWatchdog(logger as unknown as Logger);
+    crumbs = new HangBreadcrumbs();
+  });
+
+  afterEach(async () => {
+    await watchdog.dispose();
+    fs.rmSync(logsDir, { recursive: true, force: true });
+  });
+
+  it('names an RPC that began in the same tick as the block — no heartbeat could have carried it', async () => {
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      ...fastTimings,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    crumbs.begin('rpc', 'chat:continue');
+    blockMainThread(700);
+    await waitFor(() => readLines(hangLog).length >= 2, 2_000);
+
+    const [hang] = readLines(hangLog);
+    expect(hang.event).toBe('hang');
+    expect(hang.breadcrumbs[HANG_BREADCRUMB_KEYS.rpc]).toMatch(
+      /^chat:continue@\d{2}:\d{2}:\d{2}\.\d{3}$/,
+    );
+  });
+
+  it('posts every begin at once but coalesces ends to one post per macrotask', async () => {
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      ...fastTimings,
+      heartbeatIntervalMs: 60_000,
+    });
+    const worker = (
+      watchdog as unknown as {
+        worker: { postMessage: (message: unknown) => void };
+      }
+    ).worker;
+    const post = jest.spyOn(worker, 'postMessage');
+    const nextMacrotask = (): Promise<void> =>
+      new Promise((resolve) => setImmediate(resolve));
+
+    const a = crumbs.begin('rpc', 'a');
+    const b = crumbs.begin('rpc', 'b');
+    expect(post).toHaveBeenCalledTimes(2);
+
+    crumbs.end(a);
+    crumbs.end(b);
+    expect(post).toHaveBeenCalledTimes(2);
+    await nextMacrotask();
+    expect(post).toHaveBeenCalledTimes(3);
+    const last = post.mock.calls[2][0] as { breadcrumbs: Record<string, string> };
+    expect(last.breadcrumbs[HANG_BREADCRUMB_KEYS.rpc]).toBe('');
+
+    // A begin after an end in the same tick posts at once and carries the
+    // end too, so the deferred flush has nothing left to send.
+    const c = crumbs.begin('rpc', 'c');
+    crumbs.end(c);
+    crumbs.begin('rpc', 'd');
+    expect(post).toHaveBeenCalledTimes(5);
+    await nextMacrotask();
+    expect(post).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops pushing after dispose', async () => {
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      ...fastTimings,
+    });
+    await watchdog.dispose();
+    crumbs.begin('mcp', 'ptah_memory_search');
+
+    const internal = (
+      watchdog as unknown as { breadcrumbs: Map<string, string> }
+    ).breadcrumbs;
+    expect(internal.has(HANG_BREADCRUMB_KEYS.mcp)).toBe(false);
+  });
+
+  it('lets main write the recovery line, merged with the enricher fields', async () => {
+    const onRecovered = jest.fn(async (_details: HangRecoveryDetails) => ({
+      hangProfile: '/logs/hang-profiles/x.cpuprofile',
+      topSelfTime: [{ fn: 'hotLoop', at: 'main.js:42', selfMs: 640 }],
+    }));
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      onRecovered,
+      ...fastTimings,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    blockMainThread(700);
+    await waitFor(() => readLines(hangLog).length >= 2, 3_000);
+
+    const raw = fs.readFileSync(hangLog, 'utf8').trim().split('\n');
+    const recovered = JSON.parse(raw[1]) as Record<string, unknown>;
+    expect(recovered['event']).toBe('recovered');
+    expect(recovered['source']).toBe('main-loop-watchdog');
+    expect(recovered['hangProfile']).toBe('/logs/hang-profiles/x.cpuprofile');
+    expect(recovered['topSelfTime']).toEqual([
+      { fn: 'hotLoop', at: 'main.js:42', selfMs: 640 },
+    ]);
+    expect(onRecovered).toHaveBeenCalledTimes(1);
+    const [details] = onRecovered.mock.calls[0];
+    expect(details.blockedForMs).toBeGreaterThanOrEqual(600);
+    expect(details.hangStartedAt).toBeLessThan(Date.now());
+  });
+
+  it('still writes the recovery line when the enricher fails', async () => {
+    watchdog.start({
+      logsPath: logsDir,
+      breadcrumbSource: crumbs,
+      onRecovered: async () => {
+        throw new Error('inspector gone');
+      },
+      ...fastTimings,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    blockMainThread(700);
+    await waitFor(() => readLines(hangLog).length >= 2, 3_000);
+
+    const raw = fs.readFileSync(hangLog, 'utf8').trim().split('\n');
+    const recovered = JSON.parse(raw[1]) as Record<string, unknown>;
+    expect(recovered['event']).toBe('recovered');
+    expect(recovered['hangProfileError']).toBe('inspector gone');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[watchdog] hang recovery enrichment failed',
+      { reason: 'inspector gone' },
+    );
   });
 });
 

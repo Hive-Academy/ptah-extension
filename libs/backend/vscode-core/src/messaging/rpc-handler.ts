@@ -25,8 +25,10 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ITracer } from '@ptah-extension/platform-core';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
+import { RepeatedWarningLimiter } from '../logging/repeated-warning-limiter';
 import type { SentryService } from '../services/sentry.service';
 import { readMsEnv, roundMs } from '../diagnostics/env-thresholds';
+import { hangBreadcrumbs } from '../diagnostics/hang-breadcrumbs';
 import {
   RpcUserError,
   type RpcMessage,
@@ -126,6 +128,13 @@ export class RpcHandler {
   private readonly slowWarnMs =
     readMsEnv(RPC_SLOW_WARN_MS_ENV) ?? DEFAULT_RPC_SLOW_WARN_MS;
 
+  /**
+   * Repeats of the same refusal — an unknown method, or one method returning
+   * the same user error — are written once per minute with a count. A caller
+   * retrying a stale request every second otherwise floods the log (fix-13).
+   */
+  private readonly repeatedWarnings = new RepeatedWarningLimiter();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE, { isOptional: true })
@@ -207,7 +216,13 @@ export class RpcHandler {
 
     const handler = this.handlers.get(method);
     if (!handler) {
-      this.logger.warn(`RpcHandler: Method not found: "${method}"`);
+      const suppressed = this.repeatedWarnings.admit(`not-found|${method}`);
+      const message = `RpcHandler: Method not found: "${method}"`;
+      if (suppressed !== null && suppressed > 0) {
+        this.logger.warn(message, { suppressedRepeats: suppressed });
+      } else if (suppressed !== null) {
+        this.logger.warn(message);
+      }
       return {
         success: false,
         error: `Method not found: ${method}`,
@@ -219,6 +234,9 @@ export class RpcHandler {
     // throws after 40 seconds is the MOST interesting case, and an error return
     // gives no hint that the failure was preceded by a long block.
     const startedAt = performance.now();
+    // Before the handler's synchronous part runs: a block that starts in this
+    // very tick must already name its method in the hang log.
+    const breadcrumb = hangBreadcrumbs.begin('rpc', method);
     try {
       const data = await handler(params);
       this.logger.debug(`RpcHandler: Method "${method}" succeeded`, {
@@ -231,11 +249,19 @@ export class RpcHandler {
         // — "session not active", "task already completed", "invalid params" —
         // and debug is off in a shipping log. A user reporting "the button did
         // nothing" then produced a log with no record that the call was ever
-        // made, let alone why it was refused (TASK_2026_331).
-        this.logger.warn(
-          `RpcHandler: Method "${method}" returned user error (${error.errorCode}): ${error.message}`,
-          { correlationId },
+        // made, let alone why it was refused (TASK_2026_331). An identical
+        // refusal repeated within a minute is counted instead of re-written.
+        const suppressed = this.repeatedWarnings.admit(
+          `user-error|${method}|${error.errorCode}|${error.message}`,
         );
+        if (suppressed !== null) {
+          this.logger.warn(
+            `RpcHandler: Method "${method}" returned user error (${error.errorCode}): ${error.message}`,
+            suppressed > 0
+              ? { correlationId, suppressedRepeats: suppressed }
+              : { correlationId },
+          );
+        }
         return {
           success: false,
           error: error.message,
@@ -256,6 +282,7 @@ export class RpcHandler {
         correlationId,
       };
     } finally {
+      hangBreadcrumbs.end(breadcrumb);
       this.warnIfSlow(method, performance.now() - startedAt, correlationId);
     }
   }

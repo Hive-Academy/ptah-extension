@@ -69,6 +69,8 @@ describe('AstAnalysisService', () => {
       queryMulti: jest.fn(),
       initialize: jest.fn(),
       parse: jest.fn(),
+      isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+      runtimeRetryInMs: jest.fn().mockReturnValue(0),
     } as unknown as jest.Mocked<TreeSitterParserService>;
 
     // Default mock implementation — empty result map (no matches for any
@@ -79,6 +81,19 @@ describe('AstAnalysisService', () => {
 
     // Create service with mock logger and parser service
     service = new AstAnalysisService(mockLogger, mockParserService);
+  });
+
+  it('fails fast for a latched runtime without parsing or per-call logging', async () => {
+    mockParserService.isRuntimeUnavailable.mockReturnValue(true);
+    for (let i = 0; i < 3; i++) {
+      expect(
+        (
+          await service.analyzeSource('source', 'typescript', 'file.ts')
+        ).isErr(),
+      ).toBe(true);
+    }
+    expect(mockParserService.queryMulti).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
   describe('analyzeAst (traversal-based fallback)', () => {

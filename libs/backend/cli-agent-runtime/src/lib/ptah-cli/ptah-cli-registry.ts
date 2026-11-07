@@ -290,48 +290,54 @@ export class PtahCliRegistry {
   /**
    * List all configured Ptah CLI agents with their status
    */
-  async listAgents(): Promise<(PtahCliSummary & { manifest: CliAdapterManifest })[]> {
+  async listAgents(): Promise<
+    (PtahCliSummary & { manifest: CliAdapterManifest })[]
+  > {
     await this.configPersistence.ensureMigrated();
     const configs = this.configPersistence.loadConfigs();
-    const summaries: (PtahCliSummary & { manifest: CliAdapterManifest })[] = [];
+    const summaries = await Promise.all(
+      configs.map(
+        async (
+          agentConfig,
+        ): Promise<PtahCliSummary & { manifest: CliAdapterManifest }> => {
+          const provider = getAnthropicProvider(agentConfig.providerId);
+          const trulyLocal = this.isTrulyLocal(provider);
+          const hasStoredKey = await this.authSecrets.hasProviderKey(
+            `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
+          );
+          // Runnable: truly-local, key stored, signin-capable (authType none), or
+          // a key-less Kimi Code agent while the host's Kimi Code connection is
+          // usable.
+          const hasKey =
+            trulyLocal ||
+            hasStoredKey ||
+            provider?.authType === 'none' ||
+            (isKimiCodeProvider(provider) &&
+              (await this.isKimiCodeConnectionUsable()));
 
-    for (const agentConfig of configs) {
-      const provider = getAnthropicProvider(agentConfig.providerId);
-      const trulyLocal = this.isTrulyLocal(provider);
-      const hasStoredKey = await this.authSecrets.hasProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
-      );
-      // Runnable: truly-local, key stored, signin-capable (authType none), or
-      // a key-less Kimi Code agent while the host's Kimi Code connection is
-      // usable.
-      const hasKey =
-        trulyLocal ||
-        hasStoredKey ||
-        provider?.authType === 'none' ||
-        (isKimiCodeProvider(provider) &&
-          (await this.isKimiCodeConnectionUsable()));
+          const modelCount = provider?.staticModels?.length ?? 0;
 
-      const modelCount = provider?.staticModels?.length ?? 0;
+          let status: PtahCliState['status'] = 'unconfigured';
+          if (hasKey) {
+            status = 'available';
+          }
 
-      let status: PtahCliState['status'] = 'unconfigured';
-      if (hasKey) {
-        status = 'available';
-      }
-
-      summaries.push({
-        id: agentConfig.id,
-        name: agentConfig.name,
-        providerName: provider?.name ?? 'Unknown',
-        providerId: agentConfig.providerId,
-        hasApiKey: hasKey,
-        hasStoredKey,
-        status,
-        enabled: agentConfig.enabled,
-        modelCount,
-        reasoningEffort: agentConfig.reasoningEffort,
-        manifest: this.capabilities(agentConfig.providerId),
-      });
-    }
+          return {
+            id: agentConfig.id,
+            name: agentConfig.name,
+            providerName: provider?.name ?? 'Unknown',
+            providerId: agentConfig.providerId,
+            hasApiKey: hasKey,
+            hasStoredKey,
+            status,
+            enabled: agentConfig.enabled,
+            modelCount,
+            reasoningEffort: agentConfig.reasoningEffort,
+            manifest: this.capabilities(agentConfig.providerId),
+          };
+        },
+      ),
+    );
 
     this.logger.info(`[PtahCliRegistry] Listed ${summaries.length} agents`);
     return summaries;
@@ -341,25 +347,54 @@ export class PtahCliRegistry {
   capabilities(providerId: string): CliAdapterManifest {
     return {
       messaging: {
-        steer: { state: 'unsupported', reason: 'The SDK prompt mailbox starts a new turn.' },
-        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        steer: {
+          state: 'unsupported',
+          reason: 'The SDK prompt mailbox starts a new turn.',
+        },
+        interrupt: {
+          state: 'unsupported',
+          reason: 'No run-scoped interrupt is exposed.',
+        },
         continuation: { state: 'supported' },
         resume: { state: 'supported' },
       },
       roleChannel: 'system-prompt',
       permissionModes: {
-        plan: { state: 'supported', nativeMode: 'plan', networkModes: ['allow'] },
-        ask: { state: 'supported', nativeMode: 'default', networkModes: ['allow'] },
-        'auto-edit': { state: 'supported', nativeMode: 'acceptEdits', networkModes: ['allow'] },
-        yolo: { state: 'supported', nativeMode: 'bypassPermissions', networkModes: ['allow'] },
+        plan: {
+          state: 'supported',
+          nativeMode: 'plan',
+          networkModes: ['allow'],
+        },
+        ask: {
+          state: 'supported',
+          nativeMode: 'default',
+          networkModes: ['allow'],
+        },
+        'auto-edit': {
+          state: 'supported',
+          nativeMode: 'acceptEdits',
+          networkModes: ['allow'],
+        },
+        yolo: {
+          state: 'supported',
+          nativeMode: 'bypassPermissions',
+          networkModes: ['allow'],
+        },
       },
       networkModes: {
         allow: { state: 'supported' },
-        deny: { state: 'unsupported', reason: 'The Claude SDK has no verified general network sandbox.' },
+        deny: {
+          state: 'unsupported',
+          reason: 'The Claude SDK has no verified general network sandbox.',
+        },
       },
-      limitReader: providerId === 'claude-cli' || providerId === 'ollama-cloud'
-        ? { state: 'available', source: 'PtahCliLanePlanLimits' }
-        : { state: 'no-reliable-source', reason: 'No provider-specific owner limit reader is registered.' },
+      limitReader:
+        providerId === 'claude-cli' || providerId === 'ollama-cloud'
+          ? { state: 'available', source: 'PtahCliLanePlanLimits' }
+          : {
+              state: 'no-reliable-source',
+              reason: 'No provider-specific owner limit reader is registered.',
+            },
       mcp: { state: 'supported' },
     };
   }
@@ -741,8 +776,13 @@ export class PtahCliRegistry {
       network?: import('@ptah-extension/shared').LaneNetworkMode;
     },
   ): Promise<
-    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void;
-        potentialCapabilities: CliAdapterManifest; effectivePolicy: EffectiveLanePolicy }
+    | {
+        handle: SdkHandle;
+        agentName: string;
+        setAgentId: (id: string) => void;
+        potentialCapabilities: CliAdapterManifest;
+        effectivePolicy: EffectiveLanePolicy;
+      }
     | SpawnAgentFailure
   > {
     const configs = this.configPersistence.loadConfigs();
@@ -756,7 +796,10 @@ export class PtahCliRegistry {
     }
 
     const lanePolicy = AgentSpawnEnvironment.resolveLanePolicy(
-      { name: 'ptah-cli', capabilities: () => this.capabilities(agentConfig.providerId) },
+      {
+        name: 'ptah-cli',
+        capabilities: () => this.capabilities(agentConfig.providerId),
+      },
       { permission: options?.permission, network: options?.network },
     );
 

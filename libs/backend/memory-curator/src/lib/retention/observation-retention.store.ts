@@ -92,10 +92,6 @@ const BOOT_SCAN_FAILURE_COUNTS_SQL = `SELECT
    COALESCE(SUM(status = 'given_up'), 0) AS given_up
  FROM memory_boot_scan_failures`;
 
-// Deliberately unfiltered and therefore only called at the END of a run, never
-// on a diagnostics poll (measured 72 ms warm, 1.4 s cold on the live file).
-const TOTAL_ROWS_SQL = `SELECT COUNT(*) AS n FROM observation_queue`;
-
 const READ_STATE_SQL = `SELECT * FROM memory_retention_state WHERE id = 1`;
 
 const WRITE_RUN_SQL = `INSERT INTO memory_retention_state
@@ -168,7 +164,6 @@ export const OBSERVATION_RETENTION_SQL = {
   STUCK_ELIGIBLE_COUNT_SQL,
   LEDGER_COUNT_SQL,
   BOOT_SCAN_FAILURE_COUNTS_SQL,
-  TOTAL_ROWS_SQL,
   READ_STATE_SQL,
   WRITE_RUN_SQL,
   WRITE_SKIP_SQL,
@@ -508,14 +503,6 @@ export class ObservationRetentionStore {
       bootScanFailuresGivenUp: bootScanFailures?.givenUp ?? null,
       readErrors,
     };
-  }
-
-  /** Unfiltered row count. End of a run only — never on a diagnostics poll. */
-  countTotalRows(): number {
-    const db = this.connection.db;
-    const row = this.statement(db, TOTAL_ROWS_SQL).get() as
-      { n: number } | undefined;
-    return Number(row?.n ?? 0);
   }
 
   /** The run record, or `null` when retention never ran or skipped. */

@@ -15,6 +15,7 @@ const ipcMainListeners = new Map<
 >();
 
 jest.mock('electron', () => ({
+  app: { getGPUFeatureStatus: () => ({ gpu_compositing: 'enabled' }) },
   ipcMain: {
     on: (channel: string, listener: (...args: unknown[]) => unknown) => {
       const arr = ipcMainListeners.get(channel) ?? [];
@@ -32,6 +33,7 @@ import { join } from 'node:path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
+  gpuCompositingModeFor,
   readStartupConfig,
   registerStartupConfigIpc,
 } from './startup-config-ipc';
@@ -86,6 +88,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: '',
       workspaceName: '',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
   });
 
@@ -104,6 +107,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: join('/tmp', 'demo-workspace'),
       workspaceName: 'demo-workspace',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
   });
 
@@ -122,6 +126,7 @@ describe('get-startup-config responder', () => {
       workspaceRoot: '',
       workspaceName: '',
       zoneChangeDetectionFallback: false,
+      gpuCompositing: 'hardware',
     });
     jest.restoreAllMocks();
   });
@@ -149,6 +154,25 @@ describe('get-startup-config responder', () => {
 
     process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'] = 'true';
     expect(readStartupConfig(null).zoneChangeDetectionFallback).toBe(false);
+  });
+});
+
+describe('gpuCompositingModeFor', () => {
+  it.each([
+    ['enabled', 'hardware'],
+    ['enabled_on', 'hardware'],
+    ['enabled_force', 'hardware'],
+    ['disabled_software', 'software'],
+    ['unavailable_software', 'software'],
+    ['disabled_off', 'disabled'],
+    ['disabled_off_ok', 'disabled'],
+    ['unavailable_off', 'disabled'],
+    ['unavailable', 'disabled'],
+    [undefined, 'hardware'],
+    ['', 'hardware'],
+    ['some_future_status', 'hardware'],
+  ] as const)('maps %p to %p', (status, mode) => {
+    expect(gpuCompositingModeFor(status)).toBe(mode);
   });
 });
 

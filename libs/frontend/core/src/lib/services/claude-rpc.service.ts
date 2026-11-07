@@ -16,6 +16,7 @@ import {
   SubagentQueryResult,
   SubagentCommandResult,
   type RpcUserErrorCode,
+  parseRpcUserErrorCode,
   CHAT_ADMISSION_RPC_TIMEOUT_MS,
 } from '@ptah-extension/shared';
 
@@ -87,7 +88,7 @@ interface RpcResponse<T = unknown> {
   data?: T;
   error?: string | { message: string };
   /** Error code for programmatic handling — see RpcUserErrorCode for all values. */
-  errorCode?: RpcUserErrorCode;
+  errorCode?: unknown;
   correlationId: string;
 }
 
@@ -196,7 +197,7 @@ export class ClaudeRpcService implements MessageHandler {
             response.success,
             response.data,
             errorStr,
-            response.errorCode,
+            parseRpcUserErrorCode(response.errorCode),
           ),
         );
       }) as (response: RpcResponse<unknown>) => void);

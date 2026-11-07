@@ -41,6 +41,13 @@ export const PERSISTENCE_TOKENS = {
    * EMBEDDER_WORKER_PATH so both worker paths are registered the same way.
    */
   INTEGRITY_WORKER_PATH: Symbol.for('PtahIntegrityWorkerPath'),
+  /**
+   * SlowStatementSink — host-supplied observer of slow SQLite statements
+   * (useValue). Injected `{ isOptional: true }` into SqliteConnectionService:
+   * a host that registers none (VS Code, the CLI benchmark) gets no observer.
+   * Electron wires it to the main-loop watchdog's hang breadcrumbs.
+   */
+  SQLITE_SLOW_STATEMENT_SINK: Symbol.for('PtahSqliteSlowStatementSink'),
   /** SqliteIntegrityService — owns the due-decision and the worker dispatch. */
   SQLITE_INTEGRITY_SERVICE: Symbol.for('PtahSqliteIntegrityService'),
   /**
@@ -49,6 +56,22 @@ export const PERSISTENCE_TOKENS = {
    * retention; never issues a full vacuum.
    */
   SQLITE_PAGE_RECLAIMER: Symbol.for('PtahSqlitePageReclaimer'),
+  /**
+   * IWalCheckpointWorkerProcessFactory — host-implemented spawner for the
+   * read-write WAL checkpoint worker (useValue). Only the Electron composition
+   * binds it. Without it the scheduler never starts and SQLite keeps its own
+   * auto-checkpoint inside COMMIT (VS Code, the CLI benchmark).
+   */
+  WAL_CHECKPOINT_WORKER_FACTORY: Symbol.for('PtahWalCheckpointWorkerFactory'),
+  /** WalCheckpointScheduler — runs WAL checkpoints in the worker. */
+  WAL_CHECKPOINT_SCHEDULER: Symbol.for('PtahWalCheckpointScheduler'),
+  /**
+   * ISqliteExclusiveAccess — pause every other process's use of the database
+   * file (the WAL checkpoint worker) around a close + rename (`db:reset`).
+   * Aliases WAL_CHECKPOINT_SCHEDULER; its pause resolves at once on a host
+   * whose scheduler never started.
+   */
+  SQLITE_EXCLUSIVE_ACCESS: Symbol.for('PtahSqliteExclusiveAccess'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

@@ -63,6 +63,20 @@ class LRUCache<K, V> {
 type MatcherFunction = (path: string) => boolean;
 
 /**
+ * Compiled matchers kept by {@link PatternMatcherService}.
+ *
+ * `IgnorePatternResolverService.isIgnored` walks EVERY pattern of every ignore
+ * file for each path, in the same order each time. An LRU smaller than that
+ * pattern set never hits under a cyclic scan: each lookup evicts the entry the
+ * next path needs first. This repository's `.gitignore` + `.prettierignore`
+ * hold 138 patterns, so the former size of 100 recompiled every pattern for
+ * every file of the startup index (picomatch `parse` was the top frame of both
+ * max-lag profiles, fix-9). 1000 holds any realistic ignore set; a compiled
+ * matcher is a closure over one RegExp.
+ */
+const PATTERN_CACHE_SIZE = 1000;
+
+/**
  * Pattern matching result for batch operations
  */
 export interface PatternMatchResult {
@@ -119,7 +133,9 @@ export class PatternMatcherService {
   private resultCache: LRUCache<string, boolean>;
 
   constructor() {
-    this.patternCache = new LRUCache<string, MatcherFunction>(100);
+    this.patternCache = new LRUCache<string, MatcherFunction>(
+      PATTERN_CACHE_SIZE,
+    );
     this.resultCache = new LRUCache<string, boolean>(1000);
   }
 
@@ -262,6 +278,35 @@ export class PatternMatcherService {
     return this.matchFiles(paths, patterns, options)
       .filter((result) => result.matched)
       .map((result) => result.path);
+  }
+
+  /**
+   * Compile `patterns` once into the predicate {@link matchFiles} applies to
+   * one path: `(no inclusion pattern || some inclusion matches) && no
+   * exclusion matches`, with `!`-prefixed patterns as exclusions.
+   *
+   * For loops that test many paths against one fixed set: the per-call cache
+   * key building and the result LRU of {@link isMatch} are skipped, which on a
+   * workspace walk is pure allocation (every path is a distinct key).
+   */
+  compilePatternSet(
+    patterns: readonly string[],
+    options?: PatternMatchOptions,
+  ): (path: string) => boolean {
+    const inclusions = patterns
+      .filter((p) => !p.startsWith('!'))
+      .map((p) => this.getCompiledMatcher(p, options));
+    const exclusions = patterns
+      .filter((p) => p.startsWith('!'))
+      .map((p) => this.getCompiledMatcher(p.slice(1), options));
+
+    return (path: string): boolean => {
+      const normalizedPath = path.replace(/\\/g, '/');
+      const included =
+        inclusions.length === 0 ||
+        inclusions.some((matches) => matches(normalizedPath));
+      return included && !exclusions.some((matches) => matches(normalizedPath));
+    };
   }
 
   /**

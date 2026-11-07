@@ -7,9 +7,16 @@
  * gracefully degrades to BM25-only.
  */
 import { inject, injectable } from 'tsyringe';
+import { MEMORY_TOKENS } from './di/tokens';
+import type { ISqliteSearchWorker } from './search-worker.port';
 import { ulid } from 'ulid';
 import { blankToNull } from '@ptah-extension/shared';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type {
+  CuratorLogger,
+  SqliteDbProvider,
+  VecAvailability,
+} from './sqlite-reader-deps.types';
 import {
   type IMemoryLister,
   type IMemoryUsageRecorder,
@@ -17,8 +24,6 @@ import {
 } from '@ptah-extension/memory-contracts';
 import {
   PERSISTENCE_TOKENS,
-  SqliteConnectionService,
-  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import {
@@ -148,13 +153,27 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
   private embedderWarnedOnce = false;
 
   constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.LOGGER) private readonly logger: CuratorLogger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    private readonly connection: SqliteDbProvider,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
-    private readonly vecStatus: VecStatusService,
+    private readonly vecStatus: VecAvailability,
+    @inject(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, { isOptional: true })
+    private readonly searchWorker: ISqliteSearchWorker | null = null,
   ) {}
+
+  listSnapshot(workspaceRoot: string, limit: number): Promise<MemoryListPage> {
+    return this.searchWorker
+      ? this.searchWorker.listMemories(workspaceRoot, limit)
+      : Promise.resolve(this.listAll(workspaceRoot, undefined, limit, 0));
+  }
+
+  getChunksAsync(id: MemoryId): Promise<readonly MemoryChunk[]> {
+    return this.searchWorker
+      ? this.searchWorker.getChunks(id)
+      : Promise.resolve(this.getChunks(id));
+  }
 
   /**
    * Returns the current write generation for a workspace root.
@@ -485,6 +504,14 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       memories: rows.map(rowToMemory),
       total: totalRow?.n ?? rows.length,
     };
+  }
+
+  /**
+   * Prompt-cache revision: the unscoped write generation, which advances on
+   * every committed memory write in this process.
+   */
+  getRevision(): number {
+    return this.getWriteCounter('');
   }
 
   /**

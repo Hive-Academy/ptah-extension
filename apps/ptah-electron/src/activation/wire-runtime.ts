@@ -33,7 +33,10 @@ import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
 import { propagateHarness } from './plugin-activation';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
+import {
+  MEMORY_TOKENS,
+  type EmbedderWorkerClient,
+} from '@ptah-extension/memory-curator';
 import type { DependencyGraphService } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
@@ -722,6 +725,30 @@ export function captureShutdownHandles(
     coordinator.refs.hostRouting = null;
   }
 
+  // The SQLite search worker is a utilityProcess forked once the database is
+  // migrated (`search-worker-prestart.ts`), or on the first search otherwise.
+  // Captured here so `will-quit` kills the instance the stores hold; resolving
+  // forks nothing. Unregistered when memory-curator registration was skipped.
+  try {
+    coordinator.refs.searchWorker = container.isRegistered(
+      MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
+    )
+      ? container.resolve<{ dispose: () => Promise<void> }>(
+          MEMORY_TOKENS.SQLITE_SEARCH_WORKER,
+        )
+      : null;
+  } catch (searchWorkerError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` leaves the search process to Electron's child teardown.
+    console.warn(
+      '[Ptah Electron] SQLite search worker eager resolve failed (non-fatal):',
+      searchWorkerError instanceof Error
+        ? searchWorkerError.message
+        : String(searchWorkerError),
+    );
+    coordinator.refs.searchWorker = null;
+  }
+
   // The watch host is a child process: `will-quit` must kill it through the
   // instance consumers hold, never through a first resolve mid-teardown.
   // Resolving forks nothing — the host starts on the first `watch`.
@@ -743,6 +770,28 @@ export function captureShutdownHandles(
         : String(workspaceWatcherError),
     );
     coordinator.refs.workspaceWatcher = null;
+  }
+
+  // Phase 2 already built the parser (its registration resolves it), so this
+  // returns that singleton; `will-quit` then stops the tree-sitter worker it
+  // owns without ever constructing a parser mid-teardown.
+  try {
+    coordinator.refs.treeSitterParser = container.isRegistered(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+    )
+      ? container.resolve<{ dispose: () => void }>(
+          TOKENS.TREE_SITTER_PARSER_SERVICE,
+        )
+      : null;
+  } catch (treeSitterError: unknown) {
+    // degradation-audit: reported - quit then leaves the worker to process exit.
+    logger.warn(
+      '[Ptah Electron] Tree-sitter parser eager resolve failed (non-fatal)',
+      treeSitterError instanceof Error
+        ? treeSitterError
+        : new Error(String(treeSitterError)),
+    );
+    coordinator.refs.treeSitterParser = null;
   }
 }
 

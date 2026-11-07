@@ -121,8 +121,7 @@ describe('ObservationRetentionStore (real SQLite)', () => {
 
       const planned = Object.entries(OBSERVATION_RETENTION_SQL).filter(
         ([name, sql]) =>
-          // The unfiltered end-of-run count is a deliberate full index scan.
-          name !== 'TOTAL_ROWS_SQL' && /observation_queue/.test(sql),
+          /observation_queue/.test(sql),
       );
       expect(planned.length).toBeGreaterThanOrEqual(6);
       const violations: string[] = [];
@@ -816,12 +815,5 @@ describe('ObservationRetentionStore (real SQLite)', () => {
     });
   });
 
-  it('countTotalRows counts every row', () => {
-    const { t, store } = fresh();
-    seedObservations(t.raw, [
-      { sessionId: 'a', kind: 'tool-use', capturedAt: NOW, processedAt: null },
-      { sessionId: 'b', kind: 'tool-use', capturedAt: NOW, processedAt: NOW },
-    ]);
-    expect(store.countTotalRows()).toBe(2);
-  });
+
 });

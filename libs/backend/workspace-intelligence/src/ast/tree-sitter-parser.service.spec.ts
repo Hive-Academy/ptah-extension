@@ -262,6 +262,39 @@ describe('TreeSitterParserService', () => {
     });
   });
 
+  it('latches runtime failures with bounded retries and logs recovery once', async () => {
+    let now = 0;
+    service.dispose();
+    service = new TreeSitterParserService(mockLogger);
+    service.setClock(() => now);
+    mockLogger.info.mockClear();
+    webTreeSitter.Parser.init.mockRejectedValue(new Error('WASM boom'));
+
+    for (let i = 0; i < 5; i++)
+      expect((await service.initialize()).isErr()).toBe(true);
+    expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(service.runtimeRetryInMs()).toBe(60_000);
+
+    now = 60_000;
+    expect((await service.initialize()).isErr()).toBe(true);
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(service.runtimeRetryInMs()).toBe(120_000);
+
+    for (let i = 0; i < 5; i++) {
+      now += service.runtimeRetryInMs();
+      await service.initialize();
+    }
+    expect(service.runtimeRetryInMs()).toBe(1_800_000);
+    webTreeSitter.Parser.init.mockResolvedValue(undefined);
+    now += service.runtimeRetryInMs();
+    expect((await service.initialize()).isOk()).toBe(true);
+    expect(service.isRuntimeUnavailable()).toBe(false);
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining('recovered'),
+    );
+  });
+
   describe('AST structure', () => {
     it('returns a node with the expected GenericAstNode fields', async () => {
       const result = await service.parse('const message = "hi";', 'typescript');
@@ -365,19 +398,31 @@ describe('TreeSitterParserService', () => {
       expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(1);
     });
 
-    it('a runtime failure is not latched: the next call retries it', async () => {
+    it('a runtime failure is latched until its backoff expires, then retried', async () => {
+      let now = 1_000_000;
+      service.setClock(() => now);
       webTreeSitter.Parser.init.mockRejectedValueOnce(new Error('WASM boom'));
 
       const failed = await service.queryMulti('const x = 1;', 'typescript', []);
+      // Inside the backoff: the cached refusal, no second init attempt.
+      const latched = await service.queryMulti(
+        'const x = 1;',
+        'typescript',
+        [],
+      );
+      expect(parserFailureReason(failed.error)).toBe('grammar-unavailable');
+      expect(parserFailureReason(latched.error)).toBe('grammar-unavailable');
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(1);
+
+      now += 60_000;
       const retried = await service.queryMulti(
         'const x = 1;',
         'typescript',
         [],
       );
 
-      expect(parserFailureReason(failed.error)).toBe('grammar-unavailable');
-      expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(1);
       expect(retried.isOk()).toBe(true);
+      expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(1);
       expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(2);
     });
 

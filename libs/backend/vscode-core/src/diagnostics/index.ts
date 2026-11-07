@@ -34,6 +34,39 @@ export {
 export type { MainLoopWatchdogOptions } from './main-loop-watchdog';
 
 export {
+  HangBreadcrumbs,
+  hangBreadcrumbs,
+  HANG_BREADCRUMB_KEYS,
+  MAX_IN_FLIGHT_OPS,
+  DROPPED_TOKEN,
+} from './hang-breadcrumbs';
+export type {
+  HangOpKind,
+  HangBreadcrumbChange,
+  HangBreadcrumbSink,
+} from './hang-breadcrumbs';
+
+export {
+  HangProfiler,
+  HANG_PROFILE_ENV,
+  HANG_PROFILE_DIR_NAME,
+  MAX_HANG_PROFILES,
+  isHangProfileEnabled,
+} from './hang-profiler';
+export type {
+  HangProfilerOptions,
+  HangProfileFields,
+  InspectorSessionPort,
+  InspectorSessionFactory,
+} from './hang-profiler';
+export { summarizeSelfTime } from './hang-profile-summary';
+export type { SelfTimeEntry, SelfTimeSummary } from './hang-profile-summary';
+export type {
+  HangRecoveryEnricher,
+  HangRecoveryDetails,
+} from './main-loop-watchdog-protocol';
+
+export {
   BackgroundWorkGovernor,
   DEFAULT_MAX_DEFER_MS,
   LAG_ENTER_P99_MS,
@@ -62,6 +95,7 @@ export { armDiagnostics } from './arm-diagnostics';
 export type {
   ArmDiagnosticsOptions,
   DiagnosticsHandle,
+  HangProfilerFactory,
 } from './arm-diagnostics';
 
 export { readMsEnv, roundMs } from './env-thresholds';

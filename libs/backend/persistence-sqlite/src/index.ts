@@ -15,6 +15,8 @@ export type {
   SqliteVecPathResolver,
 } from './lib/sqlite-connection.service';
 
+export type { SlowStatementSink } from './lib/slow-statement-timing';
+
 export type {
   VecLoadDiagnostic,
   VecLoadReason,
@@ -90,6 +92,24 @@ export type {
   SqlitePageStats,
   SqliteReclaimStepResult,
 } from './lib/sqlite-page-reclaimer';
+
+export {
+  WalCheckpointScheduler,
+  DEFAULT_WAL_CHECKPOINT_SCHEDULER_OPTIONS,
+} from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type {
+  WalCheckpointSchedulerOptions,
+  WalFileStat,
+} from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type { WalAutoCheckpointOutcome } from './lib/wal-checkpoint/wal-checkpoint-state';
+export type {
+  ISqliteExclusiveAccess,
+  SqliteExclusiveAccessLease,
+} from './lib/wal-checkpoint/sqlite-exclusive-access.port';
+export type {
+  IWalCheckpointWorkerProcess,
+  IWalCheckpointWorkerProcessFactory,
+} from './lib/wal-checkpoint/wal-checkpoint-worker.port';
 
 export type { IEmbedder } from './lib/embedder/embedder.interface';
 

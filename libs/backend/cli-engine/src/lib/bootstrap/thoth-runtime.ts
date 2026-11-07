@@ -414,7 +414,7 @@ function registerBackupJob(
         );
         const backupPath = await backupService.backup('daily');
         try {
-          backupService.rotate('daily', KEEP_BY_KIND.daily);
+          await backupService.rotate('daily', KEEP_BY_KIND.daily);
         } catch (rotateError: unknown) {
           logger.warn('[CLI Thoth] Daily backup rotation failed (non-fatal)', {
             error:
@@ -438,6 +438,12 @@ function registerBackupJob(
       prompt: `handler:${BACKUP_HANDLER_NAME}`,
       enabled: true,
     });
+    // A daily backup a previous run started but never finished already
+    // consumed its cron slot, so catch-up cannot replay it; the service
+    // resumes it, waits for a quiet host, logs its outcome and never rejects.
+    void container
+      .resolve<IBackupService>(PERSISTENCE_TOKENS.BACKUP_SERVICE)
+      .resumeInterruptedDaily?.();
   } catch (error: unknown) {
     logger.warn(
       '[CLI Thoth] Daily backup cron registration failed (non-fatal)',
