@@ -3,8 +3,11 @@ import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { createMockRpcService, rpcSuccess } from '@ptah-extension/core/testing';
 import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { AgentId } from '@ptah-extension/shared';
+import { AgentId, type AgentDeliveryReceipt } from '@ptah-extension/shared';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
+import { DeliveryStatusComponent } from '../delivery-status/delivery-status.component';
+import { laneThreadEntries } from '../../organisms/transcript/lane-thread';
+import { LaneThreadRowComponent } from '../../organisms/transcript/lane-thread-row.component';
 import { LaneEventRowComponent } from './lane-event-row.component';
 import { provideMarkdown } from 'ngx-markdown';
 import type { LaneEventRow } from './lane-event-row.types';
@@ -285,6 +288,196 @@ describe('LaneEventRowComponent', () => {
       element.querySelector<HTMLButtonElement>('button[aria-label="Cancel report from Glm to the parent"]')!.click();
       await fixture.whenStable();
       expect(rpc.call).toHaveBeenCalledWith('agent:cancelParentDelivery', { deliveryId });
+    });
+  });
+
+  describe('ack and limit UI', () => {
+    const laneId = AgentId.from('11111111-1111-4111-8111-111111111111');
+    const laneRow: LaneEventRow = { ...row, agentId: laneId };
+    const now = Date.now();
+
+    function makeReceipt(overrides: Partial<AgentDeliveryReceipt> = {}): AgentDeliveryReceipt {
+      return {
+        id: 'msg-1',
+        agentId: laneId,
+        sender: 'user',
+        delivery: 'queue',
+        mode: 'queue-next-turn',
+        state: 'settled',
+        turnOutcome: 'completed',
+        createdAt: now - 5 * 60_000,
+        updatedAt: now - 60_000,
+        ...overrides,
+      };
+    }
+
+    function render() {
+      const fixture = TestBed.createComponent(LaneEventRowComponent);
+      fixture.componentRef.setInput('row', laneRow);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it.each([
+      ['pending', undefined, 'Awaiting lane ack', 'text-state-need', false],
+      ['read', undefined, 'Read by lane', 'text-state-run', true],
+      ['acted', undefined, 'Lane reports acted', 'text-state-done', true],
+      ['rejected', 'Needs migration first', 'Lane rejected: Needs migration first', 'text-state-err', true],
+      ['unavailable', undefined, 'Ack unavailable (no MCP)', 'text-state-need', false],
+    ] as const)('renders ack chip with exact label and accessible name for %s', (ackState, ackNote, expectedLabel, toneClass, inThread) => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      const item = makeReceipt({ ackState, ackNote, ackAt: now - 30_000 });
+      store.onMessageReceipt(item);
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      const chip = element.querySelector('[data-testid="lane-event-ack-chip"]')!;
+      expect(chip).not.toBeNull();
+      expect(chip.textContent?.trim()).toBe(expectedLabel);
+      expect(chip.getAttribute('data-ack-state')).toBe(ackState);
+      expect(chip.getAttribute('aria-label')).toBe(`Glm lane acknowledgment: ${expectedLabel}`);
+      expect(chip.classList.contains(toneClass)).toBe(true);
+      if (ackNote) {
+        expect(chip.getAttribute('title')).toBe(ackNote);
+        expect(chip.querySelector('[data-testid="lane-event-ack-chip-label"]')?.className).toContain('break-words');
+      }
+
+      const threadEntries = laneThreadEntries([], [item], 'claude', 'Glm', 'ptah-cli');
+      const ackEntry = threadEntries.find((entry) => entry.kind === 'ack');
+      if (inThread) {
+        expect(ackEntry).toMatchObject({
+          id: 'ack:msg-1',
+          kind: 'ack',
+          sender: 'Glm · ptah-cli',
+          body: expectedLabel,
+          ackState,
+          timestamp: now - 30_000,
+        });
+      } else {
+        expect(ackEntry).toBeUndefined();
+      }
+    });
+
+    it('shows transport state, turn outcome, and lane ack separately without implying the lane acted from settled', () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onMessageReceipt(makeReceipt({ state: 'settled', turnOutcome: 'completed', ackState: 'pending' }));
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      const transport = element.querySelector('[data-testid="lane-event-transport-state"]')!;
+      const outcome = element.querySelector('[data-testid="lane-event-turn-outcome"]')!;
+      const ackChip = element.querySelector('[data-testid="lane-event-ack-chip"]')!;
+      expect(transport.textContent?.trim()).toBe('Delivered to lane');
+      expect(outcome.textContent?.trim()).toBe('Turn ended · completed');
+      expect(ackChip.textContent?.trim()).toBe('Awaiting lane ack');
+      expect(element.querySelector('[data-testid="lane-event-receipt-status"]')?.textContent).not.toContain('acted');
+    });
+
+    it('ignores regressive ack pushes while applying newer transport fields', () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      const resetAt = now + 25 * 60_000;
+      store.onMessageReceipt(
+        makeReceipt({
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: false },
+          ackState: 'read',
+          ackAt: now - 40_000,
+          updatedAt: now - 40_000,
+        }),
+      );
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector('[data-testid="lane-event-ack-chip"]')?.textContent?.trim()).toBe('Read by lane');
+      expect(element.querySelector('[data-testid="lane-event-limit-status"]')?.querySelector('time')).toBeNull();
+
+      store.onMessageReceipt(
+        makeReceipt({
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: true, resetAt },
+          ackState: 'pending',
+          updatedAt: now - 10_000,
+        }),
+      );
+      fixture.detectChanges();
+
+      const chip = element.querySelector('[data-testid="lane-event-ack-chip"]')!;
+      expect(chip.textContent?.trim()).toBe('Read by lane');
+      expect(chip.getAttribute('aria-label')).toBe('Glm lane acknowledgment: Read by lane');
+      const limitTime = element.querySelector('[data-testid="lane-event-limit-status"] time');
+      expect(limitTime).not.toBeNull();
+      expect(limitTime?.getAttribute('datetime')).toBe(new Date(resetAt).toISOString());
+    });
+
+    it('renders limit reset time in <time> only when known, and a generic lane at limit label when unknown', () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      const resetAt = now + 20 * 60_000;
+      store.onMessageReceipt(
+        makeReceipt({
+          id: 'msg-limit',
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: true, resetAt },
+          updatedAt: now - 30_000,
+        }),
+      );
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      const knownStatus = element.querySelector('[data-testid="lane-event-limit-status"]')!;
+      expect(knownStatus.textContent).toContain('Waiting for limit reset');
+      const timeEl = knownStatus.querySelector('time');
+      expect(timeEl).not.toBeNull();
+      expect(timeEl?.getAttribute('datetime')).toBe(new Date(resetAt).toISOString());
+
+      store.onMessageReceipt(
+        makeReceipt({
+          id: 'msg-limit',
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: false },
+          updatedAt: now,
+        }),
+      );
+      fixture.detectChanges();
+
+      const unknownStatus = element.querySelector('[data-testid="lane-event-limit-status"]')!;
+      expect(unknownStatus.textContent?.trim()).toBe('Lane at limit');
+      expect(unknownStatus.querySelector('time')).toBeNull();
+    });
+
+    it('renders the known limit reset time in a <time> element inside DeliveryStatusComponent and styles ack thread rows', () => {
+      const resetAt = now + 30 * 60_000;
+      const deliveryFixture = TestBed.createComponent(DeliveryStatusComponent);
+      deliveryFixture.componentRef.setInput(
+        'receipt',
+        makeReceipt({
+          id: 'msg-limit-chip',
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: true, resetAt },
+        }),
+      );
+      deliveryFixture.componentRef.setInput('subject', 'message to Glm');
+      deliveryFixture.detectChanges();
+
+      const statusEl = (deliveryFixture.nativeElement as HTMLElement).querySelector('[data-testid="delivery-status"]')!;
+      expect(statusEl.textContent).toContain('Waiting for limit reset');
+      const timeEl = statusEl.querySelector('time');
+      expect(timeEl).not.toBeNull();
+      expect(timeEl?.getAttribute('datetime')).toBe(new Date(resetAt).toISOString());
+
+      const rowFixture = TestBed.createComponent(LaneThreadRowComponent);
+      rowFixture.componentRef.setInput('entry', {
+        id: 'ack:msg-1',
+        sender: 'Glm · ptah-cli',
+        kind: 'ack',
+        timestamp: now - 10_000,
+        body: 'Lane rejected: Needs migration',
+        ackState: 'rejected',
+      });
+      rowFixture.detectChanges();
+      const rowItem = (rowFixture.nativeElement as HTMLElement).querySelector('[role="listitem"]')!;
+      expect(rowItem.classList.contains('border-error')).toBe(true);
+      expect(rowItem.getAttribute('aria-label')).toContain('acknowledgment');
     });
   });
 });

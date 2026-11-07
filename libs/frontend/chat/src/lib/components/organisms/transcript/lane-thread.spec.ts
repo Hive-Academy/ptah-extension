@@ -1,4 +1,4 @@
-import { createExecutionChatMessage, type AgentDeliveryReceipt } from '@ptah-extension/shared';
+import { AgentId, createExecutionChatMessage, type AgentDeliveryReceipt } from '@ptah-extension/shared';
 import { laneThreadEntries } from './lane-thread';
 
 describe('laneThreadEntries', () => {
@@ -69,5 +69,33 @@ describe('laneThreadEntries', () => {
     const entries = laneThreadEntries([], [], 'Claude', 'opencode', 'opencode', [],
       { status: 'completed', timestamp: 20 });
     expect(entries[0].sender).toBe('opencode');
+  });
+
+  it('emits an ack thread entry only for read, acted, or rejected receipts that have ackAt', () => {
+    const base: AgentDeliveryReceipt = {
+      id: 'r1',
+      agentId: AgentId.from('11111111-1111-4111-8111-111111111111'),
+      sender: 'user',
+      state: 'settled',
+      mode: 'queue-next-turn',
+      delivery: 'queue',
+      createdAt: 10,
+      updatedAt: 50,
+    };
+    expect(laneThreadEntries([], [{ ...base, ackState: 'pending', ackAt: 30 }], 'Claude', 'Docs', 'Codex')).toEqual([]);
+    expect(laneThreadEntries([], [{ ...base, ackState: 'unavailable', ackAt: 30 }], 'Claude', 'Docs', 'Codex')).toEqual([]);
+    expect(laneThreadEntries([], [{ ...base, ackState: 'read' }], 'Claude', 'Docs', 'Codex')).toEqual([]);
+
+    const acted = laneThreadEntries([], [{ ...base, ackState: 'acted', ackAt: 42 }], 'Claude', 'Docs', 'Codex');
+    expect(acted).toEqual([
+      {
+        id: 'ack:r1',
+        sender: 'Docs · Codex',
+        kind: 'ack',
+        timestamp: 42,
+        body: 'Lane reports acted',
+        ackState: 'acted',
+      },
+    ]);
   });
 });

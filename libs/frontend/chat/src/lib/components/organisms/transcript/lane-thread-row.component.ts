@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { CircleCheckBig, CircleX, MessageSquareText, UserRound, Bot, LucideAngularModule } from 'lucide-angular';
+import { CircleCheckBig, CircleX, Eye, MessageSquareText, UserRound, Bot, LucideAngularModule } from 'lucide-angular';
 import { DeliveryStatusComponent } from '../../molecules/delivery-status/delivery-status.component';
 import type { LaneThreadEntry } from './lane-thread';
 
@@ -10,10 +10,10 @@ import type { LaneThreadEntry } from './lane-thread';
     <div role="listitem" class="border-l-2 px-3 py-2 text-sm"
       [class.border-primary]="entry().sender === 'You'"
       [class.border-info]="entry().sender.startsWith('Parent agent')"
-      [class.border-success]="entry().sender !== 'You' && !entry().sender.startsWith('Parent agent')"
-      [class.border-error]="entry().kind === 'completion' && entry().verdict === 'Failed'"
-      [class.text-error]="entry().kind === 'completion' && entry().verdict === 'Failed'"
-      [attr.aria-label]="entry().sender + ', ' + absoluteTime() + ', ' + entry().kind">
+      [class.border-success]="entry().sender !== 'You' && !entry().sender.startsWith('Parent agent') && !isRejectedAck()"
+      [class.border-error]="(entry().kind === 'completion' && entry().verdict === 'Failed') || isRejectedAck()"
+      [class.text-error]="(entry().kind === 'completion' && entry().verdict === 'Failed') || isRejectedAck()"
+      [attr.aria-label]="entry().sender + ', ' + absoluteTime() + ', ' + kindLabel()">
       <div class="flex min-w-0 items-center gap-2">
         <lucide-angular [img]="icon()" class="h-4 w-4 shrink-0" aria-hidden="true" />
         <span class="min-w-0 truncate font-semibold">{{ entry().sender }}</span>
@@ -38,9 +38,21 @@ export class LaneThreadRowComponent {
   protected readonly ReportIcon = MessageSquareText;
   protected readonly DoneIcon = CircleCheckBig;
   protected readonly FailIcon = CircleX;
+  /** Neutral icon for a `read` ack, so it never looks like the lane acted. */
+  protected readonly ReadIcon = Eye;
   protected readonly subject = computed(() => `${this.entry().kind} from ${this.laneLabel()} to the parent`);
+  protected isRejectedAck(): boolean {
+    return this.entry().kind === 'ack' && this.entry().ackState === 'rejected';
+  }
+  protected kindLabel(): string {
+    return this.entry().kind === 'ack' ? 'acknowledgment' : this.entry().kind;
+  }
   protected icon() {
     if (this.entry().kind === 'report') return this.ReportIcon;
+    if (this.entry().kind === 'ack') {
+      if (this.isRejectedAck()) return this.FailIcon;
+      return this.entry().ackState === 'read' ? this.ReadIcon : this.DoneIcon;
+    }
     if (this.entry().kind === 'completion') return this.entry().verdict === 'Failed' ? this.FailIcon : this.DoneIcon;
     return this.entry().sender === 'You' ? this.YouIcon : this.ParentIcon;
   }

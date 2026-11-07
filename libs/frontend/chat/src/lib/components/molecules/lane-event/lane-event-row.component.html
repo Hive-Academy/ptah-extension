@@ -53,6 +53,36 @@
       title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
     <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
   </div>
+  @if (receiptStatus(); as status) {
+    <div data-testid="lane-event-receipt-status" class="mt-1 flex flex-wrap items-center gap-1.5 pl-[50px] text-xs leading-5 text-base-content-muted">
+      @if (isLimitReceipt()) {
+        <span data-testid="lane-event-limit-status">
+          @if (status.resetAt !== undefined) {
+            {{ status.label }} · <time [attr.datetime]="iso(status.resetAt)" [title]="newDateLabel(status.resetAt)">{{ status.resetTime }}</time>
+          } @else {
+            {{ status.label }}
+          }
+        </span>
+      } @else if (status.transportLabel; as transport) {
+        <span data-testid="lane-event-transport-state">{{ transport }}</span>
+        @if (status.turnOutcomeLabel; as outcome) {
+          <span aria-hidden="true">·</span>
+          <span data-testid="lane-event-turn-outcome">{{ outcome }}</span>
+        }
+      }
+      @if (ackChip(); as ack) {
+        <span data-testid="lane-event-ack-chip"
+          class="lane-chip inline-flex max-w-full shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium leading-5"
+          [attr.data-ack-state]="ack.state"
+          [attr.aria-label]="ack.ariaLabel"
+          [attr.title]="ack.title ?? null"
+          [class.text-state-run]="ack.tone === 'run'" [class.text-state-done]="ack.tone === 'done'"
+          [class.text-state-need]="ack.tone === 'need'" [class.text-state-err]="ack.tone === 'err'">
+          <span data-testid="lane-event-ack-chip-label" class="max-w-[20rem] break-words text-base-content">{{ ack.label }}</span>
+        </span>
+      }
+    </div>
+  }
   @for (entry of attentionDeliveries(); track entry.kind) {
     <ptah-delivery-status data-testid="lane-event-parent-delivery" class="mt-1 pl-[50px]" [parentDelivery]="entry.item" [subject]="deliverySubject(entry.kind)" />
   }

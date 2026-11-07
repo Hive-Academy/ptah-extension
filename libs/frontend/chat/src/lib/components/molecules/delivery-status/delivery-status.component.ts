@@ -20,7 +20,7 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
     @if (status(); as current) {
       <div class="flex min-w-0 flex-wrap items-center gap-1 text-xs" data-testid="delivery-status">
         <span class="min-w-0" [class.text-warning]="current.attention" [class.text-base-content-muted]="!current.attention">
-          {{ current.label }}@if (current.since !== undefined) { · <time [attr.datetime]="iso(current.since)" [title]="absolute(current.since)">{{ current.age }}</time>}
+          {{ current.label }}@if (current.resetAt !== undefined) { · <time [attr.datetime]="iso(current.resetAt)" [title]="absolute(current.resetAt)">{{ current.resetTime }}</time>} @else if (current.since !== undefined) { · <time [attr.datetime]="iso(current.since)" [title]="absolute(current.since)">{{ current.age }}</time>}
         </span>
         @for (action of current.actions; track action.kind) {
           <button type="button" class="btn btn-ghost btn-xs" [disabled]="busy()"

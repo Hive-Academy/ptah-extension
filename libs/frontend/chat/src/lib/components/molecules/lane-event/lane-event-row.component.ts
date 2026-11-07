@@ -3,7 +3,8 @@ import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { AgentDeliveryStore, type ParentDeliveryItem } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, type DeliveryStatus, type ParentDeliveryItem } from '@ptah-extension/chat-streaming';
+import type { AgentDeliveryReceipt, AgentMessageAckState } from '@ptah-extension/shared';
 import { DeliveryStatusComponent } from '../delivery-status/delivery-status.component';
 import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2, MessageSquareText, CircleCheckBig, CircleX } from 'lucide-angular';
 import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.utils';
@@ -19,6 +20,14 @@ interface ParentDeliveryEntry {
   readonly kind: (typeof PARENT_DELIVERY_KINDS)[number];
   readonly item: ParentDeliveryItem;
   readonly attention: boolean;
+}
+
+interface AckChipView {
+  readonly state: AgentMessageAckState;
+  readonly label: string;
+  readonly tone: LaneEventTone;
+  readonly ariaLabel: string;
+  readonly title?: string;
 }
 
 @Component({
@@ -40,6 +49,7 @@ interface ParentDeliveryEntry {
 })
 export class LaneEventRowComponent {
   readonly row = input.required<LaneEventRow>();
+  readonly receipt = input<AgentDeliveryReceipt | null>(null);
   readonly monitorAgent = input<LaneEventMetrics | null>(null);
   readonly monitorStatus = input<string | null>(null);
   readonly laterCompleted = input(false);
@@ -64,6 +74,36 @@ export class LaneEventRowComponent {
       default: return 'Unverified';
     }
   }
+  protected readonly latestReceipt = computed<AgentDeliveryReceipt | null>(() => {
+    const direct = this.receipt();
+    if (direct) return direct;
+    const list = this.delivery?.receipts().get(this.row().agentId);
+    return list && list.length > 0 ? list[list.length - 1] : null;
+  });
+  protected readonly receiptStatus = computed<DeliveryStatus | null>(() => {
+    const item = this.latestReceipt();
+    return item && this.delivery ? this.delivery.receiptStatus(item) : null;
+  });
+  protected readonly isLimitReceipt = computed(() => this.latestReceipt()?.reason === 'lane-at-limit');
+  protected readonly ackChip = computed<AckChipView | null>(() => {
+    const item = this.latestReceipt();
+    const state = item?.ackState;
+    const label = AgentDeliveryStore.ackLabel(item);
+    if (!state || !label) return null;
+    const tone: LaneEventTone =
+      state === 'acted' ? 'done'
+      : state === 'rejected' ? 'err'
+      : state === 'read' ? 'run'
+      : 'need';
+    const note = item?.ackNote?.trim();
+    return {
+      state,
+      label,
+      tone,
+      ariaLabel: `${this.row().agent} lane acknowledgment: ${label}`,
+      ...(state === 'rejected' && note ? { title: note } : {}),
+    };
+  });
   /**
    * The newest completion and report deliveries to the parent; none when no
    * push or hydration reported one. An item that needs the user shows on the

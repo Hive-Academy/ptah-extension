@@ -1,13 +1,14 @@
-import type { AgentDeliveryReceipt, ExecutionChatMessage } from '@ptah-extension/shared';
-import type { ParentDeliveryItem } from '@ptah-extension/chat-streaming';
+import type { AgentDeliveryReceipt, AgentMessageAckState, ExecutionChatMessage } from '@ptah-extension/shared';
+import { AgentDeliveryStore, type ParentDeliveryItem } from '@ptah-extension/chat-streaming';
 
 export interface LaneThreadEntry {
   readonly id: string;
   readonly sender: string;
-  readonly kind: 'message' | 'report' | 'completion';
+  readonly kind: 'message' | 'report' | 'completion' | 'ack';
   readonly timestamp: number;
   readonly body: string;
   readonly receipt?: AgentDeliveryReceipt;
+  readonly ackState?: AgentMessageAckState;
   readonly verdict?: string;
   /** Delivery of this report or completion to the parent; its label comes from AgentDeliveryStore. */
   readonly parentDelivery?: ParentDeliveryItem;
@@ -42,6 +43,24 @@ export function laneThreadEntries(
     if (!receipt.preview || matched.has(receipt.id)) continue;
     entries.push({ id: `receipt:${receipt.id}`, sender: receipt.sender === 'user' ? 'You' : (parentFamily ? `Parent agent · ${parentFamily}` : 'Parent agent'),
       kind: 'message', timestamp: receipt.createdAt, body: receipt.preview, receipt });
+  }
+  for (const receipt of receipts) {
+    if (
+      (receipt.ackState !== 'read' && receipt.ackState !== 'acted' && receipt.ackState !== 'rejected') ||
+      receipt.ackAt === undefined
+    ) {
+      continue;
+    }
+    const ackLabel = AgentDeliveryStore.ackLabel(receipt);
+    if (!ackLabel) continue;
+    entries.push({
+      id: `ack:${receipt.id}`,
+      sender: laneSender,
+      kind: 'ack',
+      timestamp: receipt.ackAt,
+      body: ackLabel,
+      ackState: receipt.ackState,
+    });
   }
   for (const event of parentDelivery.filter(event => event.kind === 'report')) {
     entries.push({ id: `report:${event.deliveryId ?? event.agentId}`, sender: laneSender,
