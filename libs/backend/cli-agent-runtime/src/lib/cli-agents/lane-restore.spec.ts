@@ -6,6 +6,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   applyOutputCheckpoint,
+  checkpointFreshness,
   restoreLaneIdentity,
   restoreLaneLifecycle,
   stampWorkspaceKey,
@@ -161,13 +162,31 @@ describe('applyOutputCheckpoint', () => {
     });
   });
 
-  it('is not recovered again once the reference carries the checkpoint time', () => {
+  it('keeps the saved reference output when the checkpoint is not newer', () => {
+    const saved = [{ type: 'text' as const, content: 'saved' }];
+    for (const outputLostAfter of [checkpoint.at, '2026-11-07T00:01:00.000Z']) {
+      // Equal time: the recovered output was already saved. Later time: the
+      // reference saved newer output than this retained checkpoint.
+      expect(
+        applyOutputCheckpoint(
+          interrupted({ outputLostAfter, stdout: 'saved', segments: saved }),
+          checkpoint,
+        ),
+      ).toEqual({ stdout: 'saved', segments: saved, outputLostAfter });
+    }
+  });
+
+  it('replaces the saved reference output with a strictly newer checkpoint', () => {
     expect(
-      applyOutputCheckpoint(interrupted({ outputLostAfter: checkpoint.at }), checkpoint),
+      applyOutputCheckpoint(
+        interrupted({ outputLostAfter: '2026-11-07T00:00:30.000Z', stdout: 'saved' }),
+        checkpoint,
+      ),
     ).toEqual({
       stdout: 'tail',
       segments: checkpoint.segmentsTail,
       outputLostAfter: checkpoint.at,
+      recovered: true,
     });
   });
 
@@ -189,6 +208,18 @@ describe('applyOutputCheckpoint', () => {
     expect(
       applyOutputCheckpoint(interrupted({ outputLostAfter: 'yesterday' }), undefined),
     ).not.toHaveProperty('outputLostAfter');
+  });
+});
+
+describe('checkpointFreshness', () => {
+  const at = '2026-11-07T00:00:45.000Z';
+  it('compares the checkpoint time with the saved-output marker', () => {
+    expect(checkpointFreshness({ at }, undefined)).toBe('newer');
+    expect(checkpointFreshness({ at }, 'yesterday')).toBe('newer');
+    expect(checkpointFreshness({ at }, '2026-11-07T00:00:44.000Z')).toBe('newer');
+    expect(checkpointFreshness({ at }, at)).toBe('same');
+    expect(checkpointFreshness({ at }, '2026-11-07T00:00:46.000Z')).toBe('older');
+    expect(checkpointFreshness({ at: 'not a time' }, undefined)).toBe('older');
   });
 });
 

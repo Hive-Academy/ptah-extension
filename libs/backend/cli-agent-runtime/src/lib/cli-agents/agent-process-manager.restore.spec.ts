@@ -885,6 +885,33 @@ describe('AgentProcessManager.restoreAgents', () => {
       expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).outputLostAfter).toBe(checkpointAt);
     });
 
+    it('ignores a checkpoint older than the saved output on restore and in the handoff', async () => {
+      const savedAt = '2026-09-01T10:06:00.000Z';
+      const manager = makeManager({
+        providerRoot: ROOT_A,
+        outputJournal: journalWith(checkpoint),
+        evaluateResume: jest.fn(async () => ({
+          decision: 'fresh', reason: 'too large', contextTokens: null, source: 'estimate', idleMs: null,
+        })),
+      });
+      const recovered = jest.fn();
+      manager.events.on('agent:output-recovered', recovered);
+      manager.restoreAgents(
+        [interrupted({ outputLostAfter: savedAt, segments: [{ type: 'text', content: 'saved ref text' }] })],
+        ROOT_A,
+      );
+
+      expect(recovered).not.toHaveBeenCalled();
+      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).outputLostAfter).toBe(savedAt);
+      expect(manager.readOutputForPersistence(RESTORED_ID)).toMatchObject({
+        segments: [{ type: 'text', content: 'saved ref text' }],
+      });
+      const gated = await manager['gateResume']('Continue the work', 'cli-session-1', 'copilot');
+      expect(gated.task).toContain('saved ref text');
+      expect(gated.task).not.toContain('checkpoint text');
+      expect(gated.task).not.toContain('src/early.ts');
+    });
+
     it('still skips the idle rule on resume when restored from a checkpoint', async () => {
       const now = Date.now();
       const output: IOutputChannel = {

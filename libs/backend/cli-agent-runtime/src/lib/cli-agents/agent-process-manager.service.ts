@@ -110,6 +110,7 @@ import { LaneBudgetGuard } from './lane-budget-guard';
 import type { AgentOutputJournal } from './agent-output-journal.service';
 import {
   applyOutputCheckpoint,
+  checkpointFreshness,
   laneLastActivityAt,
   restoreLaneIdentity,
   restoreLaneLifecycle,
@@ -742,9 +743,14 @@ export class AgentProcessManager {
       };
     }
 
+    // A checkpoint older than the output the lane holds is never carried. An
+    // equal time is the checkpoint the lane was restored from, so it is kept.
+    const checkpoint = latest ? this.outputJournal?.read(latest.info.agentId) : undefined;
     const carryOver = collectHandoffCarryOver(
       lane.flatMap((tracked) => tracked.accumulatedSegments),
-      latest ? this.outputJournal?.read(latest.info.agentId) : undefined,
+      checkpoint && checkpointFreshness(checkpoint, latest?.info.outputLostAfter) !== 'older'
+        ? checkpoint
+        : undefined,
     );
     const finalText =
       carryOver.finalText || (latest?.stdoutBuffer.trim() ?? '');

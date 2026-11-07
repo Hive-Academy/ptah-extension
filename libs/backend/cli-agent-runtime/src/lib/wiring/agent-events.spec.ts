@@ -1611,6 +1611,45 @@ describe('wireAgentEventListeners — running-output journal (P3-K)', () => {
     expect(journal.remove).not.toHaveBeenCalled();
   });
 
+  describe('an exit write queued behind an earlier write of the same lane', () => {
+    // The earlier write holds the lane queue; the exit write runs after it.
+    async function exitBehindEarlierWrite(newRunStartsMeanwhile: boolean) {
+      const info = buildInfo({ cli: 'codex', status: 'completed', parentSessionId: PARENT_SESSION, cliSessionId: 'cli-1' });
+      let current = info;
+      let releaseEarlier = (): void => undefined;
+      const earlier = new Promise<void>((resolve) => {
+        releaseEarlier = resolve;
+      });
+      const addCliSession = jest
+        .fn()
+        .mockImplementationOnce(() => earlier)
+        .mockResolvedValue(undefined);
+      const { events, journal } = wireJournalLane(() => current, addCliSession);
+      events.emit('agent:output-recovered', info);
+      events.emit('agent:exited', info);
+      if (newRunStartsMeanwhile) {
+        current = { ...info, status: 'running', startedAt: new Date(60_000).toISOString() };
+      }
+      releaseEarlier();
+      for (let i = 0; i < 4; i++) await drainMicrotasks();
+      return { addCliSession, journal };
+    }
+
+    it('keeps the checkpoint when the exit write is skipped as stale', async () => {
+      const { addCliSession, journal } = await exitBehindEarlierWrite(true);
+      expect(journal.checkpointNow).toHaveBeenCalledTimes(1);
+      // Only the earlier write reached the store; the exit write was skipped.
+      expect(addCliSession).toHaveBeenCalledTimes(1);
+      expect(journal.remove).not.toHaveBeenCalled();
+    });
+
+    it('removes the checkpoint once the queued exit write lands', async () => {
+      const { addCliSession, journal } = await exitBehindEarlierWrite(false);
+      expect(addCliSession).toHaveBeenCalledTimes(2);
+      expect(journal.remove).toHaveBeenCalledWith('agent-42', 7);
+    });
+  });
+
   it('persists a recovered lane with outputLostAfter and keeps the host-restart stamp', async () => {
     const info = buildInfo({
       cli: 'codex',

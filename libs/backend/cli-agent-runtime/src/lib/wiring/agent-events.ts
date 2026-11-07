@@ -570,7 +570,9 @@ function wireCopilotPermissionForwarding(
  * Persist a CLI session reference to the parent session's metadata store.
  * Fire-and-forget with retry — errors are logged, never thrown. `onFailed`
  * runs once when the reference was not persisted: skipped for a missing
- * parent or store, or failed after its retries.
+ * parent or store, or failed after its retries. `onPersisted` runs only after
+ * `addCliSession` accepted the reference; a write skipped as stale (a newer
+ * run or turn of the lane) runs neither callback.
  *
  * Exported so `sdk-callbacks.ts` can re-persist exited agents once their
  * parent session IDs resolve from tab ID to real SDK UUID.
@@ -723,14 +725,16 @@ export function persistCliSessionReference(
     // (TASK_2026_324 finding 2). Sequencing them makes the reference the
     // receipt for the bulk: it cannot become durable first, and a retry
     // re-runs the bulk, which is a whole-record overwrite and so idempotent.
-    const persistBulkThenReference = async (): Promise<void> => {
+    // Resolves `written` only once `addCliSession` accepted the reference; a
+    // stale skip resolves `skipped` so no caller treats it as durable.
+    const persistBulkThenReference = async (): Promise<'written' | 'skipped'> => {
       const isStale = (): boolean => {
         if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) return false;
         const current = container.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER).findAgentInfo(info.agentId);
         return current !== undefined && (current.startedAt !== info.startedAt ||
           (agentHasFinished && current.status === 'running'));
       };
-      if (isStale()) return;
+      if (isStale()) return 'skipped';
       if (
         agentHasFinished &&
         persistedOutput &&
@@ -752,8 +756,9 @@ export function persistCliSessionReference(
           parentSessionId,
         );
       }
-      if (isStale()) return;
+      if (isStale()) return 'skipped';
       await metadataStore.addCliSession(parentSessionId, ref);
+      return 'written';
     };
 
     const persist = (): Promise<void> =>
@@ -782,7 +787,17 @@ export function persistCliSessionReference(
           );
         },
       })
-        .then(() => {
+        .then((result) => {
+          if (result === 'skipped') {
+            // Superseded by a newer run or turn of this lane: nothing was
+            // written, so `onPersisted` must not acknowledge it (an exit
+            // checkpoint would be removed although its reference never landed).
+            logger.debug(
+              `${tag} CLI session reference write skipped as stale: ${effectiveCliSessionId}`,
+              { agentId: info.agentId, startedAt: info.startedAt },
+            );
+            return;
+          }
           logger.info(
             `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
           );
