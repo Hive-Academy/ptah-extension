@@ -68,7 +68,7 @@ describe('FinalCtaSectionComponent', () => {
     expect(root.querySelectorAll('.cta-sentence:not(.is-in)')).toHaveLength(0);
     expect(root.querySelector('.cta-line')?.classList.contains('is-in')).toBe(true);
     expect(root.querySelector('.cta-actions')?.classList.contains('is-in')).toBe(true);
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(1);
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     expect(root.querySelector('video')).toBeNull();
     fixture.destroy();
   });
@@ -80,7 +80,6 @@ describe('FinalCtaSectionComponent', () => {
     component.progress.set(0);
     fixture.detectChanges();
     expect(shown('.cta-sentence')).toBe(0);
-    expect(component.strike()).toBe(0);
 
     component.progress.set(CTA_REVEAL.sentences[1]);
     fixture.detectChanges();
@@ -96,7 +95,6 @@ describe('FinalCtaSectionComponent', () => {
     component.progress.set(1);
     fixture.detectChanges();
     expect(shown('.cta-actions')).toBe(1);
-    expect(component.strike()).toBe(5);
     fixture.destroy();
   });
 });

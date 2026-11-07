@@ -14,7 +14,6 @@ import {
 import { RouterLink } from '@angular/router';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
 
 /** Reading order of the closing band, as fractions of its scroll progress; 1 is settled. */
 export const CTA_REVEAL = {
@@ -71,15 +70,14 @@ export function headlineSentences(headline: string): string[] {
 
 /**
  * Final CTA. Composition "closing slab": the headline's three sentences are
- * stacked large on the left, each line further in; a single bolt runs under
- * them toward the right, where the licence line and the two buttons sit low
- * and right. Scroll (no pin): the sentences, the line, then the buttons;
- * focus always shows the buttons. One canvas bolt, no clip.
+ * stacked large on the left, each line further in; the licence line and the
+ * two buttons sit low and right. Scroll (no pin): the sentences, the line,
+ * then the buttons; focus always shows the buttons. No clip.
  */
 @Component({
   selector: 'ptah-final-cta-section',
   standalone: true,
-  imports: [RouterLink, FlankBoltComponent],
+  imports: [RouterLink],
   template: `
     <section id="cta" class="section-frame cta-frame" aria-labelledby="cta-title">
       <div class="frame-atmosphere cta-atmosphere" aria-hidden="true"></div>
@@ -94,8 +92,6 @@ export function headlineSentences(headline: string): string[] {
             {{ ' ' }}
           }
         </h2>
-
-        <ptah-flank-bolt class="cta-bolt" axis="horizontal" [seed]="151" [strike]="strike()" />
 
         <div class="cta-close">
           <p class="cta-line" [class.is-in]="progress() >= reveal.line">{{ line() }}</p>
@@ -126,12 +122,6 @@ export class FinalCtaSectionComponent {
   /** Scroll progress; settled at 1 for SSR and reduced motion. */
   public readonly progress = signal(1);
   public readonly sentences = computed(() => headlineSentences(this.headline()));
-  /** The bolt flashes once per sentence, then for the line and the buttons. */
-  public readonly strike = computed(() => {
-    const at = this.progress();
-    const sentences = this.sentences().filter((_, i) => at >= this.sentenceAt(i)).length;
-    return sentences + Number(at >= CTA_REVEAL.line) + Number(at >= CTA_REVEAL.actions);
-  });
 
   public constructor() {
     const host = inject<ElementRef<HTMLElement>>(ElementRef);

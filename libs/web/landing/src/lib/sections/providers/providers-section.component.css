@@ -1,4 +1,9 @@
-/* S8 "account deck": header top-left, the still raised on the right, cards stepping out from under it. */
+/* S8 "account deck": header top-left, the clip raised on the right, cards stepping out from under it. */
+:host {
+  /* The clip is 16 : 9, not the 8 : 5 console clips; feeds the shared width caps. */
+  --sec-media-ratio: 16 / 9;
+}
+
 .pv-atmosphere {
   background:
     radial-gradient(ellipse 44% 40% at 68% 58%, rgb(245 165 36 / 8%), transparent 72%),
@@ -15,7 +20,7 @@
   min-width: 0;
 }
 
-/* The deck: one account card per point, each stepped further right. */
+/* The deck: one card per point, each stepped further right. */
 .pv-deck {
   position: relative;
   z-index: 3;
@@ -27,20 +32,20 @@
   list-style: none;
 }
 
+/* A card in the window colour with a hairline: the point, then its index. */
 .pv-card {
   display: flex;
-  align-items: baseline;
-  gap: 0.9rem;
-  padding: 0.95rem 1.1rem;
-  border: 1px solid #262a33;
-  border-left: 2px solid #f5a524;
-  border-radius: 0.4rem;
-  color: #e9ebef;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(242 242 241 / 12%);
+  border-radius: 0.5rem;
+  color: #fff;
   background: #0e1015;
   box-shadow: 0 1.25rem 3rem rgb(0 0 0 / 55%);
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.4;
   opacity: 0;
   transform: translateY(0.75rem);
   transition:
@@ -53,93 +58,43 @@
   transform: none;
 }
 
+/* Balanced, never broken mid-name: the line splits only between whole names. */
+.card-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: normal;
+  text-wrap: balance;
+}
+
 .card-index {
   flex: none;
+  margin-top: 0.2rem;
   color: #ffbb4d;
   font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
 }
 
-.pv-still {
+/*
+ * The clip box carries the source's own 16 : 9 (1280 x 720), so the player's
+ * object-fit: cover neither crops nor letterboxes.
+ */
+.pv-clip {
   position: relative;
   order: 1;
   min-width: 0;
-  margin: 0;
+  aspect-ratio: 16 / 9;
   opacity: calc(0.25 + 0.75 * var(--enter, 1));
   transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
 }
 
-/* The still, cropped to the hub's header and its quick actions. */
-.still-window {
-  position: relative;
-  overflow: hidden;
-  aspect-ratio: 930 / 590;
-  border: 1px solid #262a33;
-  border-radius: 0.5rem;
-  background: #0e1015;
-  box-shadow:
-    0 2rem 6rem rgb(0 0 0 / 65%),
-    0 0 4rem rgb(245 165 36 / 10%);
-}
-
-.still-window::before {
-  position: absolute;
-  z-index: 2;
-  inset: 0 0 auto;
-  height: 1px;
-  content: '';
-  background: linear-gradient(90deg, transparent 8%, rgb(255 187 77 / 45%) 50%, transparent 92%);
-  pointer-events: none;
-}
-
-.still-image {
-  position: absolute;
-  top: -18.64%;
-  left: -51.61%;
-  width: 205.27%;
-  max-width: none;
-  height: auto;
-}
-
-/* The seal: stamps the still's bottom-right corner once accounts are in. */
-.pv-seal {
-  position: absolute;
-  z-index: 3;
-  right: -1rem;
-  bottom: -1.5rem;
-  width: clamp(3.25rem, 5vw, 4.5rem);
-  height: auto;
-  color: #ffbb4d;
-  background: #08090c;
-  border-radius: 50%;
-  opacity: 0;
-  transform: translateY(0.75rem) rotate(-8deg);
-  transition:
-    opacity 0.3s ease,
-    transform 0.35s ease;
-}
-
-.pv-seal.is-in {
-  opacity: 1;
-  transform: rotate(-8deg);
-}
-
-.pv-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   .pv-stage {
-    grid-template-columns: min(26rem, 30vw) minmax(0, 1fr);
+    grid-template-columns: min(27rem, 32vw) minmax(0, 1fr);
     grid-template-rows: auto auto;
     column-gap: 0;
     row-gap: clamp(1.5rem, 3vh, 2.5rem);
-    width: min(100%, 90rem);
-    margin: 0 auto;
-    padding: 0 clamp(4rem, 6vw, 6rem) 0 clamp(1rem, 3vw, 3rem);
+    padding: 0 clamp(3rem, 5vw, 5rem) 0 clamp(0rem, 3vw, 3rem);
   }
 
   .pv-head {
@@ -147,25 +102,25 @@
     z-index: 4;
     grid-column: 1 / span 2;
     grid-row: 1;
-    max-width: 38rem;
+    max-width: var(--sec-head-w);
   }
 
   /*
    * Raised into the header's row on the right; the header keeps the left and
-   * may overlap the still's dark top corner. Left-anchored, so the deck
+   * may overlap the clip's dark top corner. Left-anchored, so the deck
    * always overlaps its left edge.
    */
-  .pv-still {
+  .pv-clip {
     order: 0;
     grid-column: 2;
     grid-row: 1 / span 2;
     align-self: end;
     justify-self: start;
-    width: min(100%, calc(64vh * 1.576));
+    width: min(100%, var(--sec-media-w-stacked));
     margin-top: clamp(12rem, 28vh, 18rem);
   }
 
-  /* The deck steps onto the still's frame edge, clear of the hub cards inside it. */
+  /* The deck steps onto the clip's frame edge. */
   .pv-deck {
     order: 0;
     grid-column: 1;
@@ -175,32 +130,14 @@
     margin-bottom: clamp(1.5rem, 4vh, 3rem);
   }
 
+  /* A short step, so the deck keeps its width (the cards no longer narrow into a wrap). */
   .pv-card {
-    margin-left: calc(var(--at, 0) * 1.75rem);
-  }
-
-  /* Lintel bolt: above the still, clear of the header column. */
-  .pv-bolt-lintel {
-    display: block;
-    bottom: calc(100% + 0.5rem);
-    right: 0;
-    left: 30%;
-    height: 2.75rem;
-  }
-
-  /* Edge bolt: along the still's right edge, in the page margin, above the seal. */
-  .pv-bolt-edge {
-    display: block;
-    top: -6%;
-    left: calc(100% + 0.25rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 86%;
+    margin-left: calc(var(--at, 0) * 1rem);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pv-card,
-  .pv-seal {
+  .pv-card {
     transition: none;
   }
 }

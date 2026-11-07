@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { ConsoleClipComponent } from '../shared/console-clip.component';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { STEP_THRESHOLDS, stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -21,13 +20,12 @@ const VOICE_BARS = [0.4, 0.7, 1, 0.55, 0.85, 0.3, 0.65, 0.95, 0.5, 0.75, 0.35, 0
  * speaks briefly) that ends in a flat amber line (then hands the rest off),
  * the first point drawn. Scroll: the header lines, the clip rises, then the
  * pinned steps speak the bars, draw the hand-off and bring the points in.
- * Two canvas bolts flank the clip: one in the gutter between clip and copy,
- * one along its outer left edge.
+ * Sizes come from the shared media tokens (`section-media.css`).
  */
 @Component({
   selector: 'ptah-voice-and-apps-section',
   standalone: true,
-  imports: [ConsoleClipComponent, FlankBoltComponent, SectionHeaderComponent],
+  imports: [ConsoleClipComponent, SectionHeaderComponent],
   template: `
     <section id="voice-and-apps" class="section-frame" aria-labelledby="voice-and-apps-title">
       <div class="frame-atmosphere va-atmosphere" aria-hidden="true"></div>
@@ -35,7 +33,6 @@ const VOICE_BARS = [0.4, 0.7, 1, 0.55, 0.85, 0.3, 0.65, 0.95, 0.5, 0.75, 0.35, 0
 
       <div class="va-stage" data-stage data-layout="text-led" [style.--enter]="scroll.enter()">
         <div class="va-clip">
-          <ptah-flank-bolt class="va-bolt va-bolt-outer" axis="vertical" [seed]="59" [strike]="strike()" />
           <ptah-console-clip
             class="va-video"
             video="/assets/live-demo/command-center.mp4"
@@ -44,7 +41,6 @@ const VOICE_BARS = [0.4, 0.7, 1, 0.55, 0.85, 0.3, 0.65, 0.95, 0.5, 0.75, 0.35, 0
             label="PtahCode Voice tab: a spoken command runs the work"
           />
         </div>
-        <ptah-flank-bolt class="va-bolt va-bolt-gutter" axis="vertical" [seed]="71" [strike]="strike()" />
 
         <div class="va-text">
           <ptah-section-header
@@ -70,7 +66,11 @@ const VOICE_BARS = [0.4, 0.7, 1, 0.55, 0.85, 0.3, 0.65, 0.95, 0.5, 0.75, 0.35, 0
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './voice-and-apps-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './voice-and-apps-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class VoiceAndAppsSectionComponent {
@@ -95,6 +95,4 @@ export class VoiceAndAppsSectionComponent {
   public readonly spoken = computed(() =>
     Math.round(VOICE_BARS.length * Math.min(1, this.scroll.steps() / STEP_THRESHOLDS[0])),
   );
-  /** The flanking bolts flash once per header line and once per point. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

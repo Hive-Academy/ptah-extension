@@ -120,21 +120,13 @@
   background: #f5a524;
 }
 
-.tb-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   /*
    * A big clip anchored right; the copy column overlaps its left edge (the
    * sessions column) on an ink scrim, so the headline stays on screen while
-   * the stage is pinned. The copy is set larger than the other sections.
+   * the stage is pinned. Sizes and type match the command-center section.
    */
   .tb-stage {
-    --section-title-size: clamp(2.4rem, 4.4vw, 4rem);
-    --section-subline-size: 1.15rem;
     display: block;
     width: min(100%, 100rem);
     margin: 0 auto;
@@ -146,7 +138,7 @@
     z-index: 4;
     top: 50%;
     left: clamp(0rem, 3vw, 3rem);
-    width: min(38rem, 44vw);
+    width: var(--sec-head-w);
     isolation: isolate;
     transform: translateY(-50%);
   }
@@ -162,30 +154,13 @@
 
   .tb-point {
     max-width: none;
-    font-size: 1.15rem;
+    font-size: 1.05rem;
   }
 
+  /* The clip box adds the bench room on top; its width is the shared clip width. */
   .tb-clip {
-    width: min(74vw, calc(84vh * 1.6));
+    width: var(--sec-media-w);
     margin-left: auto;
-  }
-
-  /* Floor bolt: under the clip's right part, clear of the copy column. */
-  .tb-bolt-floor {
-    display: block;
-    top: calc(100% + 0.4rem);
-    right: 0;
-    left: 38%;
-    height: 2.75rem;
-  }
-
-  /* Outer bolt: along the clip's right edge, below the bench. */
-  .tb-bolt-outer {
-    display: block;
-    top: 18%;
-    left: calc(100% + 0.25rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 88%;
   }
 }
 

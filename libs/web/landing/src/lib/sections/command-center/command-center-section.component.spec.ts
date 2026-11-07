@@ -43,13 +43,12 @@ describe('CommandCenterSectionComponent', () => {
     expect(video?.getAttribute('poster')).toBe('/assets/live-demo/multi-agent.jpg');
     expect(root.querySelector('[data-stage]')?.getAttribute('data-layout')).toBe('rail-bleed');
 
-    // Settled: every line and tile shown, nine of twenty ticks running, two flank bolts.
+    // Settled: every line and tile shown, nine of twenty ticks running, no lightning.
     expect(root.querySelectorAll('.rise:not(.is-in)')).toHaveLength(0);
     expect(root.querySelectorAll('.rail-tile.is-in')).toHaveLength(3);
     expect(root.querySelectorAll('.rail-tick')).toHaveLength(20);
     expect(root.querySelectorAll('.rail-tick.is-running')).toHaveLength(9);
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     fixture.destroy();
   });
 
@@ -66,19 +65,18 @@ describe('CommandCenterSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('strikes the flank bolts once per header line and once per tile, lighting ticks with the steps', () => {
+  it('brings the tiles in and lights the running ticks with the steps', () => {
     const { component, root, fixture } = mount();
 
     component.scroll.reveal.set(0.5);
     component.scroll.steps.set(0);
     fixture.detectChanges();
-    expect(component.strike()).toBe(2);
+    expect(root.querySelectorAll('.rail-tile.is-in')).toHaveLength(0);
     expect(root.querySelectorAll('.rail-tick.is-running')).toHaveLength(0);
 
     component.scroll.reveal.set(1);
     component.scroll.steps.set(0.45);
     fixture.detectChanges();
-    expect(component.strike()).toBe(5);
     expect(root.querySelectorAll('.rail-tile.is-in')).toHaveLength(2);
     expect(root.querySelectorAll('.rail-tick.is-running')).toHaveLength(6);
     fixture.destroy();

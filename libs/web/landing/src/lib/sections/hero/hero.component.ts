@@ -11,29 +11,21 @@ import {
 import { RouterLink } from '@angular/router';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { LightningComponent } from '../../shared/lightning/lightning.component';
 import { HeroLightning } from './hero-lightning';
+import { createHeroScroll } from './hero-scroll';
 
 const CINEMATIC_QUERY =
   '(min-width: 768px) and (prefers-reduced-motion: no-preference)';
 
-/**
- * The title fade keeps main's pace: it spans 0.9 viewports of pinned scroll. The pin now
- * ends with the fade, because the clip rail that used to follow it moved into the sections below.
- */
-const FADE_VIEWPORTS = 0.9;
-/**
- * Fractions of the fade (the fade now fills the whole pin, so progress is fade progress):
- * arcs stop once the copy has mostly faded, then the faded CTAs leave the tab order.
- * Both must stay below 1, or the pin can end before they apply.
- */
-const TITLE_GONE = 0.9;
-const TITLE_INERT = 0.95;
+/** Arcs stop once the symbols have mostly faded (a fraction of the pinned layer fade, below 1). */
+const SYMBOLS_GONE = 0.9;
+/** The faded copy's CTAs leave the tab order (a fraction of the copy fade, below 1). */
+const COPY_INERT = 0.95;
 
 @Component({
   selector: 'ptah-hero',
   standalone: true,
-  imports: [RouterLink, LightningComponent],
+  imports: [RouterLink],
   template: `
     <section class="cinematic-hero" aria-labelledby="hero-title">
       <div class="story-stage" data-story-stage>
@@ -47,10 +39,10 @@ const TITLE_INERT = 0.95;
           />
           <div class="title-grain" aria-hidden="true"></div>
           <div class="artifacts" data-artifacts aria-hidden="true">
-            <img data-float src="/assets/textures/ankh-sphere.png" alt="" class="artifact artifact-ankh" />
-            <img data-float src="/assets/textures/scarab.png" alt="" class="artifact artifact-scarab" />
-            <img data-float src="/assets/textures/eye_of_horus.png" alt="" class="artifact artifact-eye" />
-            <img data-float src="/assets/textures/sun_disk_ra.png" alt="" class="artifact artifact-sun" />
+            <img data-float src="/assets/textures/ankh-sphere.webp" alt="" class="artifact artifact-ankh" />
+            <img data-float src="/assets/textures/scarab.webp" alt="" class="artifact artifact-scarab" />
+            <img data-float src="/assets/textures/eye_of_horus.webp" alt="" class="artifact artifact-eye" />
+            <img data-float src="/assets/textures/sun_disk_ra.webp" alt="" class="artifact artifact-sun" />
             <canvas class="lightning-canvas" data-lightning aria-hidden="true"></canvas>
           </div>
           <div class="title-content" data-title-content>
@@ -75,8 +67,6 @@ const TITLE_INERT = 0.95;
             <span class="cue-line" aria-hidden="true"></span><span>No account, no license key, no credit card</span><span class="cue-line" aria-hidden="true"></span>
           </p>
         </div>
-        <!-- The page-wide bolt: outlives the title fade and runs through the bottom seam into the next section. -->
-        <ptah-lightning class="hero-bolt" [hue]="40" [transparent]="true" [size]="1.2" [intensity]="0.85" [seed]="11" />
       </div>
     </section>
   `,
@@ -93,7 +83,7 @@ export class HeroComponent {
   private mediaContext?: ReturnType<typeof gsap.matchMedia>;
   private lightning?: HeroLightning;
   private stageVisible = false;
-  private titleVisible = true;
+  private symbolsVisible = true;
   private reducedMotion = false;
   private saveData = false;
 
@@ -126,14 +116,13 @@ export class HeroComponent {
     this.mediaContext.add(CINEMATIC_QUERY, () => this.animateCinematic(view, stage));
   }
 
-  /** Desktop motion, as on main: intro reveal, floating artifacts, arcs, and the pinned title fade. */
+  /** Desktop motion: intro reveal, floating artifacts, WebGL arcs and the scroll choreography (hero-scroll.ts). */
   private animateCinematic(view: Window, stage: HTMLElement): () => void {
     this.host.nativeElement.classList.add('is-cinematic');
-    const title = stage.querySelector<HTMLElement>('[data-title-frame]');
     const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
     const artifacts = stage.querySelector<HTMLElement>('[data-artifacts]');
     const canvas = artifacts?.querySelector<HTMLCanvasElement>('[data-lightning]');
-    if (artifacts && canvas) this.lightning = new HeroLightning(view, artifacts, canvas, symbols);
+    if (artifacts && canvas) this.lightning = new HeroLightning(view, artifacts, canvas, symbols, stage);
     this.syncLightning();
     const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
     const supporting = Array.from(stage.querySelectorAll<HTMLElement>('.title-index, .title-lead, .title-actions, .title-footnote'));
@@ -153,40 +142,32 @@ export class HeroComponent {
       delay: index * 0.3,
     }));
 
-    const timeline = gsap.timeline({
-      defaults: { ease: 'none' },
-      scrollTrigger: {
-        trigger: stage,
-        start: 'top top',
-        end: () => '+=' + Math.round(view.innerHeight * FADE_VIEWPORTS),
-        pin: true,
-        scrub: 1,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
-        onUpdate: (self) => this.onFadeProgress(self.progress),
-      },
+    const scroll = createHeroScroll(view, stage, {
+      onLayers: (progress) => this.onLayersProgress(progress),
+      onCopy: (progress) => this.onCopyProgress(progress),
     });
-    if (title) timeline.to(title, { opacity: 0, yPercent: -8, duration: 1 }, 0);
 
     return () => {
       this.lightning?.destroy();
       this.lightning = undefined;
       intro.kill();
       floats.forEach((float) => float.kill());
-      timeline.scrollTrigger?.kill();
-      timeline.kill();
+      scroll();
       this.host.nativeElement.classList.remove('is-cinematic', 'is-in-story');
-      this.titleVisible = true;
+      this.symbolsVisible = true;
       this.setTitleInert(false);
     };
   }
 
-  private onFadeProgress(progress: number): void {
-    this.titleVisible = progress < TITLE_GONE;
+  private onLayersProgress(progress: number): void {
+    this.symbolsVisible = progress < SYMBOLS_GONE;
     this.syncLightning();
-    const gone = progress >= TITLE_INERT;
+  }
+
+  private onCopyProgress(progress: number): void {
+    const gone = progress >= COPY_INERT;
     this.host.nativeElement.classList.toggle('is-in-story', gone);
-    // The faded title is still pinned on screen; keep its CTAs out of the tab order (WCAG 2.4.7).
+    // The faded copy is still held on screen; keep its CTAs out of the tab order (WCAG 2.4.7).
     this.setTitleInert(gone);
   }
 
@@ -207,7 +188,7 @@ export class HeroComponent {
   };
 
   private readonly syncLightning = (): void => {
-    if (this.stageVisible && this.titleVisible && !this.document.hidden &&
+    if (this.stageVisible && this.symbolsVisible && !this.document.hidden &&
       !this.reducedMotion && !this.saveData) this.lightning?.start();
     else this.lightning?.stop();
   };

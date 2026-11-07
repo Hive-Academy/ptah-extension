@@ -97,21 +97,12 @@
   transform: none;
 }
 
-.va-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
-  /* Uneven grid: clip 55vw, a 5rem bolt gutter, the copy takes the rest. */
+  /* Uneven grid: the shared split clip width, the shared gap, the copy takes the rest. */
   .va-stage {
-    grid-template-columns: minmax(0, min(55vw, calc(76vh * 1.6))) 5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--sec-media-w-split)) minmax(0, 1fr);
     align-items: start;
-    gap: 0;
-    width: min(100%, 96rem);
-    margin: 0 auto;
-    padding-left: clamp(2.5rem, 4vw, 4.5rem);
+    column-gap: var(--sec-gap);
   }
 
   /* Set lower than the headline: the copy leads, the clip answers. */
@@ -124,29 +115,9 @@
 
   .va-text {
     order: 0;
-    grid-column: 3;
-    grid-row: 1;
-    max-width: 36rem;
-  }
-
-  /* Gutter bolt: between clip and copy, touching neither. */
-  .va-bolt-gutter {
-    display: block;
     grid-column: 2;
     grid-row: 1;
-    position: relative;
-    align-self: stretch;
-    width: 100%;
-    min-height: 100%;
-  }
-
-  /* Outer bolt: along the clip's left edge, in the page margin. */
-  .va-bolt-outer {
-    display: block;
-    top: -10%;
-    right: calc(100% + 0.25rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 120%;
+    max-width: var(--sec-head-w);
   }
 }
 

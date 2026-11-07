@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { ConsoleClipComponent } from '../shared/console-clip.component';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { STEP_THRESHOLDS, stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -17,17 +16,17 @@ const SEATS = [-8, -4, 0, 4, 8] as const;
 /**
  * Tribunal. Composition "the bench": a big clip anchored right with a fan of
  * five empty console windows (the panel's seats) rising from behind its top
- * edge; on desktop the larger copy column overlaps the clip's left edge on an
+ * edge; on desktop the copy column overlaps the clip's left edge on an
  * ink scrim, so the headline stays on screen while pinned. The last point is
  * set as the verdict and lands last. Scroll: the header lines, the clip
  * rises, then the pinned steps seat the panel and bring the points in, the
- * verdict last. Two canvas bolts flank the clip: one under its right part,
- * one along its right edge.
+ * verdict last. Clip, copy column and type follow the shared media tokens
+ * (`section-media.css`), the same proportions as the command-center section.
  */
 @Component({
   selector: 'ptah-tribunal-section',
   standalone: true,
-  imports: [ConsoleClipComponent, FlankBoltComponent, SectionHeaderComponent],
+  imports: [ConsoleClipComponent, SectionHeaderComponent],
   template: `
     <section id="tribunal" class="section-frame" aria-labelledby="tribunal-title">
       <div class="frame-atmosphere tb-atmosphere" aria-hidden="true"></div>
@@ -52,7 +51,6 @@ const SEATS = [-8, -4, 0, 4, 8] as const;
           </ul>
         </div>
         <div class="tb-clip">
-          <ptah-flank-bolt class="tb-bolt tb-bolt-floor" axis="horizontal" [seed]="83" [strike]="strike()" />
           <div class="tb-bench" aria-hidden="true">
             @for (tilt of seats; track $index; let i = $index) {
               <span class="tb-seat" [class.is-in]="seated() > i" [style.--tilt]="tilt + 'deg'" [style.--at]="i">
@@ -60,7 +58,6 @@ const SEATS = [-8, -4, 0, 4, 8] as const;
               </span>
             }
           </div>
-          <ptah-flank-bolt class="tb-bolt tb-bolt-outer" axis="vertical" [seed]="97" [strike]="strike()" />
           <ptah-console-clip
             class="tb-video"
             video="/assets/live-demo/tribunal-council.mp4"
@@ -72,7 +69,11 @@ const SEATS = [-8, -4, 0, 4, 8] as const;
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './tribunal-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './tribunal-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TribunalSectionComponent {
@@ -97,6 +98,4 @@ export class TribunalSectionComponent {
   public readonly seated = computed(() =>
     Math.round(SEATS.length * Math.min(1, this.scroll.steps() / STEP_THRESHOLDS[0])),
   );
-  /** The flanking bolts flash once per header line and once per point. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

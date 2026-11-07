@@ -1,0 +1,27 @@
+/*
+ * Shared media proportions for every section below the hero. The first video
+ * section (command-center) is the reference: its clip width, its height cap,
+ * its header column and its type scale. Each section keeps its own layout
+ * (clip left or right, text over or beside it, centred under the header) and
+ * reads its sizes from these tokens, so the proportions live in one place.
+ * Only the >= 1024px layouts use them; compact screens stack at full width.
+ */
+:host {
+  /* Clip ratio of the console clips (8 / 5). */
+  --sec-media-ratio: 1.6;
+  /* The clip never grows taller than this share of the viewport. */
+  --sec-media-max-h: 80vh;
+  /* Header column that sits over (or beside) the clip. */
+  --sec-head-w: min(34rem, 40vw);
+  /* Gap between a clip and a text column set beside it. */
+  --sec-gap: clamp(2.5rem, 4vw, 4rem);
+  /* The reference clip width: wide, leaving 22rem of page for the copy. */
+  --sec-media-w: min(76vw, calc(100vw - 22rem), calc(var(--sec-media-max-h) * var(--sec-media-ratio)));
+  /* Text beside the clip (no overlap): the clip gives up the header column and the gap. */
+  --sec-media-w-split: min(
+    var(--sec-media-w),
+    calc(100vw - 3rem - var(--sec-head-w) - var(--sec-gap))
+  );
+  /* Clip under a header row: the cap leaves 18rem of the viewport for the header. */
+  --sec-media-w-stacked: min(var(--sec-media-w), calc((100vh - 18rem) * var(--sec-media-ratio)));
+}
