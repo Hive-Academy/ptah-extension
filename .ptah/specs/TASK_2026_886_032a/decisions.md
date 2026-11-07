@@ -23,4 +23,7 @@
 | 20 | Accept polish of 123 backlog carriers: 0 status lines changed, 123/123 parse with `Current state` section, 46 history files got only the note line, 0 absolute paths | polish-report-part00..03.md, diff checks | Orchestrator verification |
 | 21 | No separate review subagent for the polish: docs/metadata only (lean rule 3); mechanical checks above stand in | Orchestration skill | Orchestrator |
 | 22 | Missing `id:`/`created:` fields in about 18 older carriers left as is (folder name is canonical ID) | task-tracking.md § Task ID | Evidence |
+| 23 | 241 and 459 set to `done`; 450 stays `backlog` (CI-history proof not checked) | polish-report-part00/01.md | User (AskUserQuestion) |
+| 24 | 362 set to `cancelled` (pi-ai branch 6051 commits behind main); 647 epic set to `done`, `parent:` removed from 651 so it stands alone | polish-report-part00/03.md | User (AskUserQuestion) |
+| 25 | 407, 667, 704 stay in backlog; their task.md names the check to run first | polish reports | User (AskUserQuestion) |
 | 6 | Status changes to `cancelled` for stale backlog items go to the user | Removals/cancellations are user-reserved | Orchestration skill |

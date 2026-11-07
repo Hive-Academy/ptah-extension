@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_647_1b0f
-status: backlog
+status: done
 type: REFACTORING
 title: "Setup Hub on chat sessions: finish the analysis-phase follow-up"
 depends_on: []

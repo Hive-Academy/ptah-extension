@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_459_fc7d
-status: backlog
+status: done
 type: FEATURE
 title: >-
   Show the Ptah title for peer sessions from any workspace registered in this

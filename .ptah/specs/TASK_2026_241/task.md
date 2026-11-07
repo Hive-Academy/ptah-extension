@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_241
-status: backlog
+status: done
 type: FEATURE
 title: Group the unified Marketplace MCP inventory by target config file
 updated: 2026-11-07T00:00:00.000Z

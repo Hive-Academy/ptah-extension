@@ -9,7 +9,6 @@ updated: "2026-11-07T00:00:00.000Z"
 description: >-
   Manifest v4 already stores per-phase sessionId and freshness (PR #732). Analysis phases still
   register as non-tab surfaces. Run each phase as a workflow-tagged chat session that survives turns.
-parent: TASK_2026_647_1b0f
 estimate: L
 labels:
   - setup-wizard

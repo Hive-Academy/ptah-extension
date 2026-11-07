@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_362
-status: backlog
+status: cancelled
 type: FEATURE
 title: >-
   Decide the fate of the native pi-ai agent loop branch, then merge or park it
