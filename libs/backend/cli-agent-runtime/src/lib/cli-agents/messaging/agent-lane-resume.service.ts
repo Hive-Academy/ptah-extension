@@ -1,34 +1,69 @@
-import type { AgentProcessInfo, SpawnAgentRequest, SpawnAgentResult } from '@ptah-extension/shared';
+import type {
+  AgentProcessInfo,
+  SpawnAgentRequest,
+  SpawnAgentResult,
+} from '@ptah-extension/shared';
 import type { AgentProcessManager } from '../agent-process-manager.service';
+import { LaneResumeError, type LaneResumeResult } from './lane-resumers/lane-resumer.port';
+import {
+  PtahCliLaneResumer,
+  type PtahCliResumeParams,
+} from './lane-resumers/ptah-cli-lane-resumer';
+import { SystemCliLaneResumer } from './lane-resumers/system-cli-lane-resumer';
 
 /** Explicit resume and cold message sends share the manager's resume gate. */
 export class AgentLaneResumeService {
-  constructor(private readonly manager: Pick<AgentProcessManager, 'spawn' | 'prepareSdkHandleSpawn' | 'releaseIdleForResume'>) {}
+  private readonly system: SystemCliLaneResumer;
 
-  async resume(info: AgentProcessInfo, task: string): Promise<SpawnAgentResult> {
-    if (!info.cliSessionId) throw new Error('No CLI session is available for resume.');
-    await this.manager.releaseIdleForResume(info.agentId);
-    return this.resumeRequest({
-      cli: info.cli,
-      task,
-      workingDirectory: info.workingDirectory,
-      resumeSessionId: info.cliSessionId,
-      parentSessionId: info.parentSessionId,
-      ptahCliId: info.ptahCliId,
-      permission: info.effectivePolicy?.permission,
-      network: info.effectivePolicy?.network,
-    });
+  constructor(
+    private readonly manager: Pick<
+      AgentProcessManager,
+      'spawn' | 'prepareSdkHandleSpawn' | 'releaseIdleForResume'
+    >,
+    private readonly ptahCli?: PtahCliLaneResumer,
+  ) {
+    this.system = new SystemCliLaneResumer(manager);
+  }
+
+  resume(info: AgentProcessInfo, task: string): Promise<LaneResumeResult> {
+    if (info.cli === 'ptah-cli' && info.ptahCliId && this.ptahCli) {
+      return this.ptahCli.resume(info, task);
+    }
+    return this.system.resume(info, task);
   }
 
   resumeRequest(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    if (!request.resumeSessionId) throw new Error('No CLI session is available for resume.');
+    if (!request.resumeSessionId) {
+      throw new LaneResumeError(
+        'no-session',
+        'No CLI session is available for resume.',
+      );
+    }
     return this.manager.spawn(request);
   }
 
   prepareSdkResume(
     request: Parameters<AgentProcessManager['prepareSdkHandleSpawn']>[0],
   ): ReturnType<AgentProcessManager['prepareSdkHandleSpawn']> {
-    if (!request.resumeSessionId) throw new Error('No CLI session is available for resume.');
+    if (!request.resumeSessionId) {
+      throw new LaneResumeError(
+        'no-session',
+        'No CLI session is available for resume.',
+      );
+    }
     return this.manager.prepareSdkHandleSpawn(request);
+  }
+
+  resumePtahCli(
+    params: PtahCliResumeParams,
+    workspaceRoot: string,
+  ): Promise<SpawnAgentResult> {
+    if (!this.ptahCli) {
+      throw new LaneResumeError(
+        'spawn-failed',
+        'Ptah CLI resume is not configured in this host.',
+      );
+    }
+    return this.ptahCli.resumePtahCli(params, workspaceRoot);
   }
 }

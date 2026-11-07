@@ -58,6 +58,7 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * process manager.
    */
   LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
+  LANE_TERMINAL_CHECKPOINT: Symbol.for('LaneTerminalCheckpoint'),
   LANE_INSTRUCTION_FILE_STORE: Symbol.for('LaneInstructionFileStore'),
 
   // Plan limits (TASK_2026_596). See `cli-agents/limits/`.

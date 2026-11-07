@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import type {
-  AgentProcessInfo,
-  CliSessionReference,
+import {
+  normalizeWorkspaceRoot,
+  type AgentProcessInfo,
+  type CliSessionReference,
 } from '@ptah-extension/shared';
+import type { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 
 const persistedActivitySchema = z.iso.datetime({ offset: true });
 const RESTORE_CLOCK_SKEW_MS = 60_000;
@@ -41,6 +43,41 @@ export function restoreLaneLifecycle(
     ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
     ...(ref.stopReason !== undefined ? { stopReason: ref.stopReason } : {}),
   };
+}
+
+/** Identity restored beside, never instead of, the lifecycle projection. */
+export function restoreLaneIdentity(
+  ref: CliSessionReference,
+  parentSessionId?: string,
+): Pick<
+  AgentProcessInfo,
+  'parentSessionId' | 'potentialCapabilities' | 'ptahCliId' | 'workspaceKey'
+> {
+  return {
+    ...(parentSessionId ? { parentSessionId } : {}),
+    ...(ref.potentialCapabilities !== undefined
+      ? { potentialCapabilities: ref.potentialCapabilities }
+      : {}),
+    ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
+    ...(ref.workspaceKey ? { workspaceKey: ref.workspaceKey } : {}),
+  };
+}
+
+/** Stamp the caller workspace, or preserve the original lane's key on resume. */
+export function stampWorkspaceKey(
+  info: AgentProcessInfo,
+  spawnEnvironment: Pick<AgentSpawnEnvironment, 'scopedWorkspaceRoot'>,
+  resumedFrom?: AgentProcessInfo,
+): AgentProcessInfo {
+  if (resumedFrom) {
+    return resumedFrom.workspaceKey
+      ? { ...info, workspaceKey: resumedFrom.workspaceKey }
+      : info;
+  }
+  const scope = spawnEnvironment.scopedWorkspaceRoot();
+  return scope === undefined
+    ? info
+    : { ...info, workspaceKey: normalizeWorkspaceRoot(scope) };
 }
 
 /** The resume clock starts at activity, then completion, then spawn. */

@@ -13,6 +13,7 @@ describe('AgentLaneResumeService', () => {
     expect(releaseIdleForResume).toHaveBeenCalledWith(info.agentId);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       cli: 'codex', resumeSessionId: 'session', task: 'follow up', parentSessionId: 'parent',
+      resumedFromAgentId: info.agentId,
     }));
   });
 

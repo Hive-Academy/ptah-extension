@@ -27,6 +27,7 @@ import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import { manifestFixture } from './testing/manifest.fixture';
 import {
   LaneResumeGate,
   type LaneResumeGateInput,
@@ -198,6 +199,38 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(
       manager.readOutputForPersistence(RESTORED_ID)?.segments,
     ).toHaveLength(1);
+  });
+
+  it('restores identity beside lifecycle without overriding lifecycle fields', () => {
+    const manager = makeManager({ providerRoot: ROOT_A });
+    const manifest = manifestFixture();
+
+    manager.restoreAgents(
+      [
+        makeRef({
+          status: 'stopped',
+          stopReason: 'host-restart',
+          completedAt: '2026-09-01T10:01:00.000Z',
+          lastActivityAt: '2026-09-01T10:00:30.000Z',
+          ptahCliId: 'ptah-cli-7',
+          workspaceKey: 'd:/projects/workspace-a',
+          potentialCapabilities: manifest,
+        }),
+      ],
+      ROOT_A,
+      'parent-session',
+    );
+
+    expect(manager.getStatus(RESTORED_ID)).toMatchObject({
+      parentSessionId: 'parent-session',
+      ptahCliId: 'ptah-cli-7',
+      workspaceKey: 'd:/projects/workspace-a',
+      potentialCapabilities: manifest,
+      status: 'stopped',
+      stopReason: 'host-restart',
+      completedAt: '2026-09-01T10:01:00.000Z',
+      lastActivityAt: '2026-09-01T10:00:30.000Z',
+    });
   });
 
   it('logs one redacted restart line per host-restart ref and none for other terminal refs', () => {
