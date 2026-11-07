@@ -126,6 +126,7 @@ class BrandedDatabase {
 function setup(
   thresholdMs = 50,
   sink: SlowStatementSink | null = null,
+  context?: () => Readonly<Record<string, unknown>>,
 ): {
   clock: ManualClock;
   real: BrandedDatabase;
@@ -140,6 +141,7 @@ function setup(
     sink,
     thresholdMs,
     now: clock.now,
+    context,
   });
   return { clock, real, db, logger };
 }
@@ -566,5 +568,42 @@ describe('withSlowStatementTiming', () => {
         replacement,
       );
     });
+  });
+});
+
+describe('withSlowStatementTiming — context', () => {
+  it('adds the context fields to a logged line and is not read for fast calls', () => {
+    let reads = 0;
+    const { real, db, logger } = setup(50, null, () => {
+      reads++;
+      return { walCheckpoints: 'worker', walBytes: 4096 };
+    });
+
+    db.exec('SELECT 1');
+    expect(reads).toBe(0);
+
+    real.costMs = 60;
+    db.exec('VACUUM');
+
+    expect(slowLines(logger).map((l) => l.context)).toEqual([
+      expect.objectContaining({
+        sql: 'VACUUM',
+        walCheckpoints: 'worker',
+        walBytes: 4096,
+      }),
+    ]);
+  });
+
+  it('still logs, naming the error, when the context throws', () => {
+    const { real, db, logger } = setup(50, null, () => {
+      throw new Error('no wal state');
+    });
+    real.costMs = 60;
+
+    expect(db.exec('VACUUM')).toBe('native:VACUUM');
+
+    expect(slowLines(logger).map((l) => l.context)).toEqual([
+      expect.objectContaining({ sql: 'VACUUM', contextError: 'no wal state' }),
+    ]);
   });
 });

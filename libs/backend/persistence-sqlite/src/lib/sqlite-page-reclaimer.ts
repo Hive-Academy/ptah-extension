@@ -157,8 +157,19 @@ export class SqlitePageReclaimer {
    * `PRAGMA wal_checkpoint(PASSIVE)` so the WAL does not keep holding the pages
    * a reclaim just relocated. PASSIVE never waits on readers or writers.
    * Never throws.
+   *
+   * Skipped when checkpoints already run off the main thread: this call would
+   * copy the reclaim's WAL frames into the file and fsync it on the calling
+   * (main) thread, which is the stall the off-main checkpointer removes. The
+   * worker picks those frames up on its next poll.
    */
   checkpointPassive(): void {
+    if (this.connection.walCheckpointsOffMainThread) {
+      this.logger.debug(
+        '[persistence-sqlite] passive checkpoint left to the WAL checkpoint worker',
+      );
+      return;
+    }
     const db = this.openDb();
     if (!db) return;
     try {

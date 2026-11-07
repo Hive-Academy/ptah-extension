@@ -101,6 +101,9 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   // disposes it early — and in the BEFORE-persistence half, because a check
   // that completes writes its verdict through the connection about to close.
   'integrityService',
+  // The read-write WAL checkpoint worker, killed before `SQLite close` so the
+  // close's TRUNCATE checkpoint never waits on its lock (fix 11).
+  'walCheckpointScheduler',
   // A read-only reader of the database, killed before `SQLite close`.
   'searchWorker',
   'gitWatcher',
@@ -169,6 +172,7 @@ function makeFullRefs(order: string[]): BootRefs {
     dispose: record('updateManager'),
   } as unknown as BootRefs['updateManager'];
   refs.integrityService = { dispose: record('integrityService') };
+  refs.walCheckpointScheduler = { dispose: record('walCheckpointScheduler') };
   refs.gitWatcher = {
     stop: record('gitWatcher'),
     switchWorkspace: jest.fn(),

@@ -39,6 +39,7 @@ import {
   type VecLoadDiagnostic,
   type VecLoadReason,
 } from './vec-load-diagnostic';
+import { WalCheckpointState } from './wal-checkpoint/wal-checkpoint-state';
 
 /**
  * Minimal subset of better-sqlite3's `Database` surface that this lib uses.
@@ -137,6 +138,8 @@ export class SqliteConnectionService {
   private backupService: IBackupService | undefined = undefined;
   /** Subscribers to the open transition — see {@link onDidOpen}. */
   private readonly openListeners = new Set<() => void>();
+  /** Who checkpoints the WAL, and its last measured size. */
+  private readonly walState = new WalCheckpointState();
 
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly _dbPath: string,
@@ -218,6 +221,8 @@ export class SqliteConnectionService {
         sink: this.slowStatementSink,
         thresholdMs:
           readMsEnv(SQLITE_SLOW_WARN_MS_ENV) ?? DEFAULT_SQLITE_SLOW_WARN_MS,
+        // Lets the next perf run tell a checkpoint stall from other work.
+        context: () => this.walState.slowStatementContext(),
       });
       this.logger.debug('[persistence-sqlite] Database factory created');
     } catch (err: unknown) {
@@ -525,6 +530,29 @@ export class SqliteConnectionService {
     return this.migrationRunner?.lastAppliedVersion ?? 0;
   }
 
+  /**
+   * Set `wal_autocheckpoint` on this connection: `0` stops commits from
+   * checkpointing (an off-main checkpointer has taken over), `null` restores
+   * SQLite's default. Kept across reopens. Only `WalCheckpointScheduler`
+   * calls this, and only on a host that binds a checkpoint worker.
+   *
+   * @throws RangeError when `pages` is not an integer in range.
+   */
+  setWalAutoCheckpoint(pages: number | null): void {
+    this.walState.setAutoCheckpointOverride(pages);
+    if (this.database?.open) this.applyWalAutoCheckpoint(this.database);
+  }
+
+  /** True when commits on this connection no longer checkpoint the WAL. */
+  get walCheckpointsOffMainThread(): boolean {
+    return this.walState.checkpointsOffMainThread;
+  }
+
+  /** Record a measured `-wal` size for slow-statement attribution. */
+  noteWalBytes(bytes: number): void {
+    this.walState.noteWalBytes(bytes);
+  }
+
   /** Close the connection. Idempotent — calling twice is safe. */
   close(): void {
     if (!this.database) return;
@@ -585,6 +613,25 @@ export class SqliteConnectionService {
           error: stringifyError(err),
         });
       }
+    }
+    // Only a host that moved checkpoints off the main thread changes this.
+    if (this.walState.autoCheckpointOverride !== null) {
+      this.applyWalAutoCheckpoint(db);
+    }
+  }
+
+  private applyWalAutoCheckpoint(db: SqliteDatabase): void {
+    const pragma = this.walState.autoCheckpointPragma();
+    try {
+      db.pragma(pragma);
+      this.logger.info('[persistence-sqlite] WAL auto-checkpoint set', {
+        pragma,
+      });
+    } catch (err: unknown) {
+      this.logger.warn('[persistence-sqlite] failed to apply pragma', {
+        pragma,
+        error: stringifyError(err),
+      });
     }
   }
 

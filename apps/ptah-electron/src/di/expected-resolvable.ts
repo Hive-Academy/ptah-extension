@@ -89,6 +89,14 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
     PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK,
   ],
   ['SQLITE_SEARCH_WORKER', MEMORY_TOKENS.SQLITE_SEARCH_WORKER],
+  // WAL checkpoints off the main thread (main-loop-sync-blocks fix 11): the
+  // worker factory is bound in phase 2 before the persistence registration,
+  // which registers the scheduler. VS Code and the CLI bind no factory.
+  [
+    'WAL_CHECKPOINT_WORKER_FACTORY',
+    PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY,
+  ],
+  ['WAL_CHECKPOINT_SCHEDULER', PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER],
 ] as const;
 
 /**

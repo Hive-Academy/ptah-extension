@@ -201,6 +201,24 @@ describe('will-quit — the run-check kill', () => {
     expect(deps.quit).toHaveBeenCalledTimes(1);
   });
 
+  it('stops the WAL checkpoint scheduler before SQLite close', () => {
+    const order: string[] = [];
+    const refs = minimalRefs(order);
+    refs.walCheckpointScheduler = {
+      dispose: () => {
+        order.push('walCheckpointScheduler');
+      },
+    };
+
+    expect(handleWillQuit(quitDeps(refs))).toBe(true);
+
+    expect(order).toEqual([
+      'walCheckpointScheduler',
+      'sqliteConnection',
+      'diagnostics',
+    ]);
+  });
+
   it('aborts and awaits the review worker before SQLite close', async () => {
     const order: string[] = [];
     let finish!: () => void;

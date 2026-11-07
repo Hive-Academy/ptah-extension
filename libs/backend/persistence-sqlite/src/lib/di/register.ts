@@ -19,6 +19,7 @@ import { VecStatusService } from '../vec-status.service';
 import { SqliteIntegrityService } from '../integrity/integrity-check.service';
 import { DbWorkerRunner } from '../integrity/db-worker-runner';
 import { SqlitePageReclaimer } from '../sqlite-page-reclaimer';
+import { WalCheckpointScheduler } from '../wal-checkpoint/wal-checkpoint-scheduler';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -64,6 +65,14 @@ export function registerPersistenceSqliteServices(
   container.registerSingleton(
     PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
     SqliteIntegrityService,
+  );
+  // Singleton: one worker, one timer. It resolves
+  // `WAL_CHECKPOINT_WORKER_FACTORY` optionally, so a host without a worker
+  // (VS Code, the CLI benchmark) gets a scheduler whose `start()` changes
+  // nothing and keeps SQLite's auto-checkpoint.
+  container.registerSingleton(
+    PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER,
+    WalCheckpointScheduler,
   );
   const connection = container.resolve<SqliteConnectionService>(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,

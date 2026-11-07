@@ -269,6 +269,12 @@ function disposeBeforePersistence(deps: DisposalDeps): {
   // the connection `disposeAfterPersistence` is about to close. The abort is
   // synchronous (it kills the worker), so nothing here has to be awaited.
   nonFatal('Integrity check abort', () => refs.integrityService?.dispose());
+  // Kills the read-write checkpoint worker, so the TRUNCATE checkpoint in
+  // `SQLite close` never waits on its lock, and gives commits made during
+  // teardown their auto-checkpoint back. Synchronous; writes nothing.
+  nonFatal('WAL checkpoint scheduler dispose', () =>
+    refs.walCheckpointScheduler?.dispose(),
+  );
   // The search worker holds a second, read-only connection to the database.
   // Killing it before `SQLite close` lets the close checkpoint the WAL without
   // a reader pinning it, and stops a respawn during teardown. Writes nothing.

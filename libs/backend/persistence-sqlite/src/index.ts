@@ -93,6 +93,16 @@ export type {
   SqliteReclaimStepResult,
 } from './lib/sqlite-page-reclaimer';
 
+export {
+  WalCheckpointScheduler,
+  DEFAULT_WAL_CHECKPOINT_SCHEDULER_OPTIONS,
+} from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type { WalCheckpointSchedulerOptions } from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type {
+  IWalCheckpointWorkerProcess,
+  IWalCheckpointWorkerProcessFactory,
+} from './lib/wal-checkpoint/wal-checkpoint-worker.port';
+
 export type { IEmbedder } from './lib/embedder/embedder.interface';
 
 export { PERSISTENCE_TOKENS } from './lib/di/tokens';

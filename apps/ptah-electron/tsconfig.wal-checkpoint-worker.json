@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/persistence-sqlite/src/lib/wal-checkpoint/wal-checkpoint-worker.ts",
+    "../../libs/backend/persistence-sqlite/src/lib/wal-checkpoint/**/*.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

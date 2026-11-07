@@ -143,6 +143,10 @@ import { ElectronSafeStorageVault } from '../services/platform/electron-safe-sto
 import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
 import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-embedder-worker-factory';
 import { ElectronIntegrityWorkerFactory } from '../services/platform/electron-integrity-worker-factory';
+import {
+  ElectronWalCheckpointWorkerFactory,
+  WAL_CHECKPOINT_WORKER_FILE,
+} from '../services/platform/electron-wal-checkpoint-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -415,6 +419,21 @@ export function registerPhase2Libraries(
     });
     container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PROCESS_FACTORY, {
       useValue: new ElectronIntegrityWorkerFactory(integrityWorkerEntry),
+    });
+
+    // WAL checkpoints run in their own utilityProcess, so no COMMIT on the main
+    // thread copies WAL frames into the database file and fsyncs it (a 1150 ms
+    // `<transaction anonymous>` in fix-10). Electron only: without this
+    // factory `WalCheckpointScheduler.start()` changes nothing and VS Code and
+    // the CLI keep SQLite's auto-checkpoint. `build-wal-checkpoint-worker`
+    // puts the bundle beside `integrity-worker.mjs`.
+    container.register(PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY, {
+      useValue: new ElectronWalCheckpointWorkerFactory(
+        path.join(
+          dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+          WAL_CHECKPOINT_WORKER_FILE,
+        ),
+      ),
     });
 
     // Slow SQLite statements feed the main-loop watchdog's hang breadcrumbs,

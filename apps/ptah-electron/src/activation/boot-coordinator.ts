@@ -177,6 +177,14 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   integrityService: { dispose: () => void } | null;
   /**
+   * `PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER`, set only when it started
+   * (main-loop-sync-blocks fix 11). `dispose()` stops its timer, kills the
+   * checkpoint `utilityProcess` and restores SQLite's auto-checkpoint; it
+   * must run BEFORE `SQLite close` so the close's TRUNCATE checkpoint never
+   * waits on the worker's checkpointer lock.
+   */
+  walCheckpointScheduler: { dispose: () => void } | null;
+  /**
    * `PLATFORM_TOKENS.WORKSPACE_WATCHER` — `ElectronWorkspaceWatcher`, which owns
    * the watch host `utilityProcess` (TASK_2026_437 C8). `dispose()` kills the
    * host synchronously and touches no SQLite. Captured pre-window with the
@@ -233,6 +241,7 @@ export function createEmptyBootRefs(): BootRefs {
     hostRouting: null,
     providerProxyPool: null,
     integrityService: null,
+    walCheckpointScheduler: null,
     workspaceWatcher: null,
     searchWorker: null,
     treeSitterParser: null,

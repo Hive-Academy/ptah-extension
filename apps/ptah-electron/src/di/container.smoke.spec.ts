@@ -163,6 +163,22 @@ describe('Electron DI — skill telemetry seam', () => {
   });
 });
 
+describe('Electron DI WAL checkpoint worker registration', () => {
+  it('binds the worker factory before the persistence registration', () => {
+    const phase = fs.readFileSync(path.join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    const factory = phase.indexOf(
+      'container.register(PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY, {',
+    );
+    const sqlite = phase.indexOf('registerPersistenceSqliteServices(container, logger);');
+    expect(factory).toBeGreaterThan(-1);
+    expect(factory).toBeLessThan(sqlite);
+    expect(phase).toContain('new ElectronWalCheckpointWorkerFactory(');
+    for (const name of ['WAL_CHECKPOINT_WORKER_FACTORY', 'WAL_CHECKPOINT_SCHEDULER']) {
+      expect(EXPECTED_RESOLVABLE_TOKENS.some(([entry]) => entry === name)).toBe(true);
+    }
+  });
+});
+
 describe('Electron DI search worker registration', () => {
   it('includes the host worker port in the resolvable census', () => {
     const entry = EXPECTED_RESOLVABLE_TOKENS.find(([name]) => name === 'SQLITE_SEARCH_WORKER');

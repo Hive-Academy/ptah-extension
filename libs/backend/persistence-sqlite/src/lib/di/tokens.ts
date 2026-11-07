@@ -56,6 +56,15 @@ export const PERSISTENCE_TOKENS = {
    * retention; never issues a full vacuum.
    */
   SQLITE_PAGE_RECLAIMER: Symbol.for('PtahSqlitePageReclaimer'),
+  /**
+   * IWalCheckpointWorkerProcessFactory — host-implemented spawner for the
+   * read-write WAL checkpoint worker (useValue). Only the Electron composition
+   * binds it. Without it the scheduler never starts and SQLite keeps its own
+   * auto-checkpoint inside COMMIT (VS Code, the CLI benchmark).
+   */
+  WAL_CHECKPOINT_WORKER_FACTORY: Symbol.for('PtahWalCheckpointWorkerFactory'),
+  /** WalCheckpointScheduler — runs WAL checkpoints in the worker. */
+  WAL_CHECKPOINT_SCHEDULER: Symbol.for('PtahWalCheckpointScheduler'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

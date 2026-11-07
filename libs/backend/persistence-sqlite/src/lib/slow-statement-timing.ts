@@ -86,6 +86,11 @@ export interface SlowStatementTimingOptions {
   readonly rateWindowMs?: number;
   /** Monotonic millisecond clock. Test seam; defaults to `performance.now`. */
   readonly now?: () => number;
+  /**
+   * Extra fields for each logged line (the connection adds its WAL state).
+   * Read only when a line is logged, so it costs nothing on the fast path.
+   */
+  readonly context?: () => Readonly<Record<string, unknown>>;
 }
 
 type AnyFn = (...args: unknown[]) => unknown;
@@ -109,6 +114,7 @@ class SlowStatementReporter {
     private readonly rateWindowMs: number,
     readonly now: () => number,
     private readonly sink: SlowStatementSink | null,
+    private readonly context: (() => Readonly<Record<string, unknown>>) | null,
   ) {}
 
   /**
@@ -188,8 +194,10 @@ class SlowStatementReporter {
       if (!oldest.done) this.rateTable.delete(oldest.value);
     }
     this.rateTable.set(key, { lastLoggedAt: at, suppressed: 0 });
+    const context = this.readContext();
     try {
       this.logger.warn('[SQLite] slow statement', {
+        ...context,
         sql: key.slice(0, SQL_PREVIEW_CHARS),
         op,
         durationMs: roundMs(durationMs),
@@ -200,6 +208,19 @@ class SlowStatementReporter {
     } catch {
       // A diagnostics line must never turn a successful statement into a
       // failure, or replace the statement's own exception with the logger's.
+    }
+  }
+
+  private readContext(): Readonly<Record<string, unknown>> {
+    if (this.context === null) return {};
+    try {
+      return this.context();
+    } catch (error: unknown) {
+      // degradation-audit: reported - the line still logs, naming the failure
+      // instead of the context it could not read.
+      return {
+        contextError: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }
@@ -461,6 +482,7 @@ export function withSlowStatementTiming(
     options.rateWindowMs ?? DEFAULT_SQLITE_SLOW_RATE_WINDOW_MS,
     options.now ?? (() => performance.now()),
     options.sink ?? null,
+    options.context ?? null,
   );
   return forwardingProxy(db, (prop, method): AnyFn => {
     if (prop === 'prepare') {
