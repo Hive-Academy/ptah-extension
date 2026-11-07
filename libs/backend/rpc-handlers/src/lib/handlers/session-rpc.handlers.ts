@@ -1360,11 +1360,14 @@ export class SessionRpcHandlers {
             sessionId,
           );
           // Under the session file lock: the lookup may restore staged files.
-          const filePath = await this.sessionFileLock.run(sessionId, () =>
-            this.findSessionFile(sessionId, resolvedWorkspacePath, {
-              recoverStaged: metadata !== null && metadata !== undefined,
-            }),
-          );
+          // The metadata is read again inside the lock, so a delete that
+          // finished while this call waited cannot have its files revived.
+          const filePath = await this.sessionFileLock.run(sessionId, async () => {
+            const current = await this.metadataStore.get(sessionId);
+            return this.findSessionFile(sessionId, resolvedWorkspacePath, {
+              recoverStaged: current !== null && current !== undefined,
+            });
+          });
 
           if (filePath) {
             this.logger.debug('RPC: session:validate - session file exists', {
