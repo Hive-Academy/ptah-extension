@@ -5,6 +5,7 @@ import type { SdkHandle } from '../cli-adapters/cli-adapter.interface';
 import { LaneAccountResumeError } from '../lane-resume-gate';
 import { AgentLaneResumeService } from './agent-lane-resume.service';
 import { AgentMessageCoordinator, CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-coordinator.service';
+import { agentMessageAckLine } from './agent-message-delivery-text';
 import { AGENT_MESSAGE_BODY_PREFIX } from './envelope/agent-message-envelope.schema';
 import {
   AgentMessageBodyUnavailableError,
@@ -56,7 +57,8 @@ describe('AgentMessageCoordinator', () => {
       expect(outcome).toMatchObject({ mode: 'steer', requestedAgentId: h.agentId, agentId: h.agentId });
       expect(outcome.receipt).toMatchObject({ state: 'started', turnSeq: 1, everDispatched: true, hasRecoverableBody: true });
       expect(h.sendToAgent).toHaveBeenCalledWith(h.agentId,
-        `[Ptah message ${idOf(outcome)} from the parent session]\n\nchange`, 'now', idOf(outcome), false);
+        `[Ptah message ${idOf(outcome)} from the parent session]\n\nchange\n\n${agentMessageAckLine(idOf(outcome))}`,
+        'now', idOf(outcome), false);
     });
 
     it('keeps a parked queued message not-started with the parking attempt undone', async () => {
@@ -78,7 +80,7 @@ describe('AgentMessageCoordinator', () => {
       expect(outcome).toMatchObject({ mode: 'start-turn', requestedAgentId: h.agentId, agentId: spawned });
       expect(outcome.receipt).toMatchObject({ state: 'started', agentId: h.agentId, actualAgentId: spawned, cliSessionId: 'session-2' });
       expect(h.resume.resume).toHaveBeenCalledWith(expect.objectContaining({ agentId: h.agentId }),
-        `[Ptah message ${idOf(outcome)} from the parent session]\n\nresume`);
+        `[Ptah message ${idOf(outcome)} from the parent session]\n\nresume\n\n${agentMessageAckLine(idOf(outcome))}`);
       expect(await h.aliases.resolve(h.agentId)).toEqual({ requestedAgentId: h.agentId, agentId: spawned });
     });
 
@@ -188,7 +190,7 @@ describe('AgentMessageCoordinator', () => {
       await new Promise((resolve) => setTimeout(resolve, 2));
       const coordinator = new AgentMessageCoordinator({
         manager: h.manager, detection: h.detection, store: h.store, aliases: h.aliases, resume: h.resume,
-        scheduler: h.scheduler, logger: h.logger, purge,
+        scheduler: h.scheduler, ack: h.ack, logger: h.logger, purge,
       });
       await coordinator.start();
       await coordinator.start();
@@ -469,7 +471,7 @@ describe('AgentMessageCoordinator', () => {
       h.coordinator.dispose();
       const fresh = new AgentMessageCoordinator({
         manager: h.manager, detection: h.detection, store: h.store, aliases: h.aliases,
-        resume: h.resume, scheduler: h.scheduler, logger: h.logger,
+        resume: h.resume, scheduler: h.scheduler, ack: h.ack, logger: h.logger,
       });
       h.events.emit('agent:turn-started', { ...h.tracked.info, turnSeq: 2, messageId: idOf(sent) });
       await settleEvents();
@@ -506,7 +508,7 @@ describe('AgentMessageCoordinator', () => {
     );
     const coordinator = new AgentMessageCoordinator({
       manager: h.manager, detection: h.detection, store: h.store, aliases: h.aliases, resume,
-      scheduler: h.scheduler, logger: h.logger,
+      scheduler: h.scheduler, ack: h.ack, logger: h.logger,
     });
     const result = await coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'session', resumedFromAgentId: h.agentId }));

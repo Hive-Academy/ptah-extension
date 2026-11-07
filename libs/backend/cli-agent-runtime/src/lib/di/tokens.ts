@@ -9,6 +9,8 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
   AGENT_ID_ALIAS_REGISTRY: Symbol.for('AgentIdAliasRegistry'),
   /** One-timer cold inbox and retry scheduler (`AgentMessageDeliveryScheduler`). */
   AGENT_MESSAGE_SCHEDULER: Symbol.for('AgentMessageDeliveryScheduler'),
+  /** Semantic acknowledgment of delivered messages (`AgentMessageAckService`). */
+  AGENT_MESSAGE_ACK: Symbol.for('AgentMessageAck'),
   /**
    * `{ markDispatching }` over the envelope store. The same `Symbol.for` the
    * router injects optionally; register it before the router and manager.

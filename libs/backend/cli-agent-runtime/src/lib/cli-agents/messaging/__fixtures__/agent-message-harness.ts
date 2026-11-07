@@ -15,6 +15,7 @@ import type { AgentMessageStatus, MessageRoutableAgent } from '../../agent-messa
 import type { SdkHandle } from '../../cli-adapters/cli-adapter.interface';
 import type { CliDetectionService } from '../../cli-detection.service';
 import { AgentIdAliasRegistry } from '../agent-id-alias.registry';
+import { AgentMessageAckService } from '../agent-message-ack.service';
 import {
   AgentMessageCoordinator,
   type CoordinatorManager,
@@ -140,10 +141,11 @@ export function harness(storage = new MemoryPersistence()) {
   const build = (persistence: MemoryPersistence) => {
     const store = new AgentMessageEnvelopeStore(persistence, undefined, Date.now, logger);
     const aliases = new AgentIdAliasRegistry(persistence, logger);
+    const ack = new AgentMessageAckService({ store, aliases, logger });
     const coordinator = new AgentMessageCoordinator({
-      manager, detection, store, aliases, resume, scheduler, logger,
+      manager, detection, store, aliases, resume, scheduler, ack, logger,
     });
-    return { store, aliases, coordinator };
+    return { store, aliases, ack, coordinator };
   };
   const built = build(storage);
   return {

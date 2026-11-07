@@ -12,6 +12,11 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentProcessManager } from '../agent-process-manager.service';
 import type { CliDetectionService } from '../cli-detection.service';
 import type { AgentLaneResumeService } from './agent-lane-resume.service';
+import type {
+  AgentMessageAckRequest,
+  AgentMessageAckResult,
+  AgentMessageAckService,
+} from './agent-message-ack.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
 import type {
   AgentMessageDeliveryScheduler,
@@ -53,6 +58,8 @@ export interface AgentMessageCoordinatorDeps {
   readonly aliases: Pick<AgentIdAliasRegistry, 'record' | 'resolve' | 'rootOf'>;
   readonly resume: Pick<AgentLaneResumeService, 'resume'>;
   readonly scheduler: CoordinatorScheduler;
+  /** Semantic acknowledgment (Component 13). */
+  readonly ack: Pick<AgentMessageAckService, 'acknowledge'>;
   readonly logger: Logger;
   /** Startup purge recovery; awaited before the scheduler starts. */
   readonly purge?: Pick<ParentSessionPurge, 'resumePendingPurges'>;
@@ -239,6 +246,14 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     if (!envelope || (viewer !== undefined && !mayActOnEnvelope(viewer, envelope)))
       throw new Error('Message receipt not found.');
     return this.deps.store.toReceipt(envelope);
+  }
+
+  /**
+   * A lane acknowledges a message delivered to it. The caller is the lane the
+   * transport proved; the envelope's transport state is never changed.
+   */
+  acknowledge(request: AgentMessageAckRequest, caller: { readonly agentId: AgentId }): Promise<AgentMessageAckResult> {
+    return this.deps.ack.acknowledge(request, caller);
   }
 
   async listReceipts(filter: { agentId?: AgentId; parentSessionId?: string }): Promise<readonly AgentDeliveryReceipt[]> {

@@ -66,6 +66,8 @@ const READ_TOOLS: ReadonlySet<string> = new Set([
 const AGENT_CONTROL_TOOLS: ReadonlySet<string> = new Set([
   'ptah_agent_spawn',
   'ptah_agent_message',
+  'ptah_agent_message_control',
+  'ptah_agent_message_ack',
   'ptah_agent_report',
   'ptah_agent_stop',
   'ptah_agent_wait',
@@ -111,8 +113,20 @@ export function toolClass(name: string): McpToolClass {
 }
 
 /**
- * Read-only permits class `read`. Lane-report also permits its own report and
- * read-only message status. Privileged permits every class.
+ * Tools a `lane-report` caller may call beyond the read class: its own report,
+ * message status, and the ack of a message delivered to it. Each one acts only
+ * as the bound lane. Sending (`ptah_agent_message`) and retry or cancel
+ * (`ptah_agent_message_control`) stay privileged.
+ */
+const LANE_REPORT_TOOLS: ReadonlySet<string> = new Set([
+  'ptah_agent_report',
+  'ptah_agent_message_status',
+  'ptah_agent_message_ack',
+]);
+
+/**
+ * Read-only permits class `read`. Lane-report also permits
+ * `LANE_REPORT_TOOLS`. Privileged permits every class.
  */
 export function isToolPermitted(
   name: string,
@@ -120,8 +134,5 @@ export function isToolPermitted(
 ): boolean {
   if (capability === 'privileged') return true;
   if (toolClass(name) === 'read') return true;
-  return (
-    capability === 'lane-report' &&
-    (name === 'ptah_agent_report' || name === 'ptah_agent_message_status')
-  );
+  return capability === 'lane-report' && LANE_REPORT_TOOLS.has(name);
 }

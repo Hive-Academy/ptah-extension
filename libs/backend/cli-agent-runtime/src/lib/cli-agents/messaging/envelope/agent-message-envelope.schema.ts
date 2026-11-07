@@ -40,6 +40,13 @@ export const AgentMessageEnvelopeSchema = z.object({
   ]),
   attemptId: z.string().uuid().optional(),
   everDispatched: z.boolean().optional(),
+  /**
+   * The text may have reached the lane: an adapter call accepted it
+   * (`started`) or threw after it began. Unlike `everDispatched`, which the
+   * journal sets before the adapter call, it gates the semantic ack of an
+   * `outcome-unknown` envelope. Absent on records written before acks.
+   */
+  maybeDelivered: z.boolean().optional(),
   route: z.enum(['live', 'cold']).optional(),
   mode: z.enum(['steer', 'queue-next-turn', 'interrupt-resume', 'start-turn', 'unsupported']),
   delivery: z.enum(['queue', 'now']),
@@ -91,7 +98,9 @@ export type NewEnvelope = Omit<AgentMessageEnvelope,
   readonly attemptCount?: number;
   readonly terminalAt?: number;
 };
-export type EnvelopePatch = Partial<Omit<AgentMessageEnvelope,
+/** The semantic ack fields, written apart from transport transitions. */
+export type EnvelopeAckPatch = Pick<AgentMessageEnvelope, 'ackState' | 'ackAt' | 'ackNote'>;
+export type EnvelopePatch =Partial<Omit<AgentMessageEnvelope,
   'id' | 'targetAgentId' | 'laneLineageId' | 'sender' | 'senderKey' |
   'idempotencyKey' | 'createdAt'
 >>;

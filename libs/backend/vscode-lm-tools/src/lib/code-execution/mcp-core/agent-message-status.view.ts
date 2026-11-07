@@ -8,8 +8,9 @@ type MessageStatus = Awaited<ReturnType<AgentNamespace['messageStatus']>>;
  * made explicit:
  * - `requestedAgentId`: the id the caller asked about;
  * - `agentId`: the lane that now owns the message (differs after a resume);
- * - `attemptCount` and `ackState`. No lane can acknowledge in Phase 1, so a
- *   receipt without an ack state reads `unavailable`.
+ * - `attemptCount` and `ackState`, the lane's own acknowledgment
+ *   (`ptah_agent_message_ack`). A receipt without an ack state (never
+ *   started, or written before acks existed) reads `unavailable`.
  *
  * The legacy `{ status, reason }` answer of a host without the coordinator
  * keeps its old shape.

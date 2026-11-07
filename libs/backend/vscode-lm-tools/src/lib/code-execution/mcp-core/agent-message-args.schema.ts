@@ -10,7 +10,10 @@
  */
 
 import { z } from 'zod';
-import { MAX_AGENT_MESSAGE_LENGTH } from './tool-description.builder';
+import {
+  MAX_AGENT_ACK_NOTE_LENGTH,
+  MAX_AGENT_MESSAGE_LENGTH,
+} from './tool-description.builder';
 
 /** Caller-chosen dedupe key; the same rule as the renderer RPC. */
 export const AgentMessageIdempotencyKeySchema = z
@@ -40,5 +43,17 @@ export const AgentMessageControlArgsSchema = z
     messageId: z.string().uuid(),
     action: z.enum(['retry', 'cancel']),
     confirmDuplicateRisk: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * `ptah_agent_message_ack`. There is no `agentId`: the acknowledging lane is
+ * the one the MCP credential is bound to, so a strict schema refuses one.
+ */
+export const AgentMessageAckArgsSchema = z
+  .object({
+    messageId: z.string().uuid(),
+    state: z.enum(['read', 'acted', 'rejected']),
+    note: z.string().max(MAX_AGENT_ACK_NOTE_LENGTH).optional(),
   })
   .strict();

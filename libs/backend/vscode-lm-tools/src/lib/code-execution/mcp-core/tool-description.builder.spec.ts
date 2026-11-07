@@ -5,6 +5,7 @@ import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
   buildAgentMessageStatusTool,
+  buildAgentMessageAckTool,
   buildAgentListTool,
   buildAgentReadTool,
   buildAgentReportTool,
@@ -255,6 +256,14 @@ describe('buildAgentMessageTool', () => {
     expect(buildAgentMessageTool().inputSchema.properties?.['delivery']).toMatchObject({ enum: ['queue', 'now', 'steer'] });
     expect(buildAgentMessageStatusTool().name).toBe('ptah_agent_message_status');
     expect(buildAgentMessageStatusTool().inputSchema.required).toEqual(['agentId', 'messageId']);
+  });
+  it('offers an ack tool with no agentId argument', () => {
+    const tool = buildAgentMessageAckTool();
+    expect(tool.name).toBe('ptah_agent_message_ack');
+    expect(tool.inputSchema.required).toEqual(['messageId', 'state']);
+    expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual(['messageId', 'state', 'note']);
+    expect(tool.inputSchema.properties?.['state']).toMatchObject({ enum: ['read', 'acted', 'rejected'] });
+    expect(buildAgentMessageStatusTool().description).toContain('ackState');
   });
   it('names the tool ptah_agent_message and requires agentId + message', () => {
     const tool = buildAgentMessageTool();

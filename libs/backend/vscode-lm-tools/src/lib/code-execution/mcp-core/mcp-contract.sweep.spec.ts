@@ -415,6 +415,12 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       api.agent = { control: async () => ({ mode: 'unsupported', detail: `${marker}-${filler(280000, 'c')}` }) };
     },
   },
+  ptah_agent_message_ack: {
+    args: { messageId: '11111111-1111-4111-8111-111111111111', state: 'read' },
+    mock: (api, marker) => {
+      api.agent = { ack: async () => ({ ok: false, messageId: `${marker}-${filler(280000, 'k')}`, code: 'not_found' }) };
+    },
+  },
   ptah_agent_message: {
     args: { agentId: 'agent-1', message: 'hi' },
     mock: (api, marker) => {
@@ -1148,6 +1154,12 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       api.agent = { control: async () => ({ mode: 'unsupported', detail: proseParagraph(marker) }) };
     },
   },
+  ptah_agent_message_ack: {
+    args: { messageId: '11111111-1111-4111-8111-111111111111', state: 'read' },
+    mock: (api, marker) => {
+      api.agent = { ack: async () => ({ ok: false, messageId: proseParagraph(marker), code: 'not_found' }) };
+    },
+  },
   ptah_agent_message: {
     args: { agentId: 'agent-1', message: 'hi' },
     mock: (api, marker) => {
@@ -1546,6 +1558,7 @@ const PINNED_PREFORMATTED_TOOLS: ReadonlySet<string> = new Set([
   'ptah_agent_message',
   'ptah_agent_message_status',
   'ptah_agent_message_control',
+  'ptah_agent_message_ack',
   'ptah_agent_report',
   'ptah_agent_stop',
   'ptah_agent_list',
@@ -1953,8 +1966,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
     // run_check and HTTP-only run_check_wait. +1: ptah_session_handoff,
     // always-on (TASK_2026_655). +1: ptah_agent_message_control
-    // (TASK_2026_AGENT_MESSAGING P1-E).
-    expect(namesPerCaller[0]).toHaveLength(68);
+    // (TASK_2026_AGENT_MESSAGING P1-E). +1: ptah_agent_message_ack (P2-G).
+    expect(namesPerCaller[0]).toHaveLength(69);
     expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
   });
 
@@ -1981,8 +1994,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
     // 63 in total minus the 3 IDE-gated tools; see the note above
     // (TASK_2026_655: +1, ptah_session_handoff; P1-E: +1,
-    // ptah_agent_message_control).
-    expect(namesPerCaller[0]).toHaveLength(65);
+    // ptah_agent_message_control; P2-G: +1, ptah_agent_message_ack).
+    expect(namesPerCaller[0]).toHaveLength(66);
     expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
     for (const ideOnly of [
       'ptah_lsp_references',
@@ -2022,8 +2035,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
           ),
         );
         // TASK_2026_655: +1, ptah_session_handoff (always-on). P1-E: +1,
-        // ptah_agent_message_control.
-        expect(apps).toHaveLength(hasIDECapabilities ? 71 : 68);
+        // ptah_agent_message_control. P2-G: +1, ptah_agent_message_ack.
+        expect(apps).toHaveLength(hasIDECapabilities ? 72 : 69);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2446,8 +2459,10 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       // P1-E, measured 2026-11-07: 642 chars (+ the idempotencyKey sentence),
       // 284 (honest status semantics) and 340 (new control tool); ceil(n * 1.1) + 10.
       ptah_agent_message: 717,
-      ptah_agent_message_status: 323,
+      // P2-G, measured 2026-11-07: 441 (status names ackState) and 333 (new ack tool).
+      ptah_agent_message_status: 496,
       ptah_agent_message_control: 385,
+      ptah_agent_message_ack: 377,
       execute_code: 567,
       ptah_agent_read: 553,
       // TASK_2026_580: measured 522 chars (2026-10-01).

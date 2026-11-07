@@ -6,7 +6,12 @@
  * the lineage root), so it never overlaps a route for the same lane. Handler
  * failures are logged and never reject into the manager's event emitter.
  */
-import { AgentId, type AgentProcessInfo } from '@ptah-extension/shared';
+import {
+  AgentId,
+  type AgentMessageAckState,
+  type AgentProcessInfo,
+  type LaneCapabilitySupport,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentProcessManager } from '../agent-process-manager.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
@@ -48,6 +53,24 @@ const KNOWN_FAILURES = new Set(['continuation_rejected', 'queue-full', 'storage-
 /** The lane that owns an envelope's delivery: the resumed lane once there is one. */
 export function envelopeLane(envelope: AgentMessageEnvelope): AgentId {
   return envelope.actualAgentId ?? envelope.targetAgentId;
+}
+
+/**
+ * The ack expectation written at `started` (Component 13, A5): `pending`
+ * when the lane can call Ptah MCP tools, else `unavailable`. A lane's own
+ * ack is never reset by a later re-dispatch of the same envelope.
+ */
+export function ackStateAtStart(
+  current: AgentMessageAckState | undefined,
+  mcp: LaneCapabilitySupport | undefined,
+): AgentMessageAckState {
+  if (current === 'read' || current === 'acted' || current === 'rejected') return current;
+  return mcp?.state === 'supported' ? 'pending' : 'unavailable';
+}
+
+/** The MCP capability a lane record carries: effective first, then the adapter's potential. */
+export function laneMcpCapability(info: AgentProcessInfo | undefined): LaneCapabilitySupport | undefined {
+  return info?.effectiveCapabilities?.mcp ?? info?.potentialCapabilities?.mcp;
 }
 
 /** Remove a parked router entry, so a cancelled or re-routed envelope is never flushed. */
@@ -145,7 +168,8 @@ export class AgentMessageReconciler {
     if (!envelope || (envelope.state !== 'dispatching' && envelope.state !== 'not-started')) return;
     const laneId = AgentId.safeParse(info.agentId);
     await this.deps.store.transition(envelope.id, {
-      state: 'started', turnSeq: info.turnSeq,
+      state: 'started', turnSeq: info.turnSeq, maybeDelivered: true,
+      ackState: ackStateAtStart(envelope.ackState, laneMcpCapability(info)),
       ...(laneId && laneId !== envelope.targetAgentId ? { actualAgentId: laneId } : {}),
     }, ['dispatching', 'not-started']);
   }

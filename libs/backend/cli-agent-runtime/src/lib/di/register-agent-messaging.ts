@@ -20,6 +20,7 @@ import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent
 import type { AgentDeliveryReceiptEventSink } from '../cli-agents/messaging/agent-delivery-receipt-event-sink';
 import { AgentIdAliasRegistry } from '../cli-agents/messaging/agent-id-alias.registry';
 import { AgentLaneResumeService } from '../cli-agents/messaging/agent-lane-resume.service';
+import { AgentMessageAckService } from '../cli-agents/messaging/agent-message-ack.service';
 import { AgentMessageCoordinator } from '../cli-agents/messaging/agent-message-coordinator.service';
 import { AgentMessageDeliveryScheduler } from '../cli-agents/messaging/agent-message-delivery.scheduler';
 import type { AgentMessageDispatchJournal } from '../cli-agents/messaging/agent-message-dispatch-journal.port';
@@ -54,7 +55,7 @@ export function registerAgentMessageJournal(container: DependencyContainer): voi
   });
 }
 
-/** Alias registry, scheduler, purge, resume and the coordinator. */
+/** Alias registry, scheduler, purge, resume, ack and the coordinator. */
 export function registerAgentMessagingServices(container: DependencyContainer): void {
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_ID_ALIAS_REGISTRY, {
     useFactory: instanceCachingFactory((c) => new AgentIdAliasRegistry(
@@ -96,6 +97,13 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
       ));
     }),
   });
+  container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_ACK, {
+    useFactory: instanceCachingFactory((c) => new AgentMessageAckService({
+      store: envelopeStore(c),
+      aliases: c.resolve<AgentIdAliasRegistry>(CLI_AGENT_RUNTIME_TOKENS.AGENT_ID_ALIAS_REGISTRY),
+      logger: c.resolve<Logger>(TOKENS.LOGGER),
+    })),
+  });
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR, {
     useFactory: instanceCachingFactory((c) => {
       const logger = c.resolve<Logger>(TOKENS.LOGGER);
@@ -106,6 +114,7 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
         aliases: c.resolve<AgentIdAliasRegistry>(CLI_AGENT_RUNTIME_TOKENS.AGENT_ID_ALIAS_REGISTRY),
         resume: c.resolve<AgentLaneResumeService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME),
         scheduler: c.resolve<AgentMessageDeliveryScheduler>(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_SCHEDULER),
+        ack: c.resolve<AgentMessageAckService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_ACK),
         purge: c.resolve<ParentSessionPurgeService>(CLI_AGENT_RUNTIME_TOKENS.PARENT_SESSION_PURGE),
         isParentFrozen: isParentFrozen(c),
         logger,

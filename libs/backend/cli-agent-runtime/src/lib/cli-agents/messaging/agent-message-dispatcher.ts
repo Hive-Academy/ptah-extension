@@ -19,6 +19,7 @@ import type { AgentLaneResumeService } from './agent-lane-resume.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
 import { formatAgentMessageDeliveryText } from './agent-message-delivery-text';
 import { AgentMessageDispatchWithdrawnError } from './agent-message-dispatch-journal.port';
+import { ackStateAtStart } from './agent-message-reconciler';
 import type { AgentMessageEnvelope, EnvelopePatch } from './envelope/agent-message-envelope.schema';
 import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
 import { LaneResumeError } from './lane-resumers/lane-resumer.port';
@@ -65,7 +66,9 @@ export class AgentMessageDispatcher {
     } catch (error: unknown) {
       return this.journalFailed(attempt, error);
     }
-    const text = formatAgentMessageDeliveryText(envelope.id, envelope.sender, attempt.body);
+    // The ack line and the `started` ack state come from the same capability (A5).
+    const ackRequested = ackStateAtStart(undefined, attempt.plan.effectiveCapabilities.mcp) === 'pending';
+    const text = formatAgentMessageDeliveryText(envelope.id, envelope.sender, attempt.body, ackRequested);
     return attempt.plan.usesResume
       ? this.cold(attempt, dispatching, text)
       : this.live(attempt, dispatching, text);
@@ -107,7 +110,8 @@ export class AgentMessageDispatcher {
     }
     const spawned = this.deps.manager.findAgentInfo(spawnedId);
     const started = await this.deps.store.transition(dispatching.id, {
-      state: 'started', mode: 'start-turn', route: 'cold', actualAgentId: spawnedId,
+      state: 'started', mode: 'start-turn', route: 'cold', actualAgentId: spawnedId, maybeDelivered: true,
+      ackState: ackStateAtStart(dispatching.ackState, attempt.plan.effectiveCapabilities.mcp),
       turnSeq: spawned?.turnSeq ?? 1,
       cliSessionId: spawnedSession ?? spawned?.cliSessionId ?? dispatching.cliSessionId,
     }, ['dispatching']);
@@ -142,7 +146,8 @@ export class AgentMessageDispatcher {
     if (result.mode === 'queue-next-turn') return this.parked(attempt, dispatching, result);
     const current = this.deps.manager.findAgentInfo(laneId);
     const started = await this.deps.store.transition(envelope.id, {
-      state: 'started', mode: result.mode, route: 'live',
+      state: 'started', mode: result.mode, route: 'live', maybeDelivered: true,
+      ackState: ackStateAtStart(dispatching.ackState, attempt.plan.effectiveCapabilities.mcp),
       turnSeq: current?.turnSeq ?? attempt.info.turnSeq ?? 1,
     }, ['dispatching']);
     await this.settleIfFinished(laneId);
@@ -225,7 +230,9 @@ export function classifyAttemptFailure(
       ? { reason: 'resume-failed', patch: { state: 'failed', reason: 'resume-failed', ...undo } }
       : { reason: 'resume-failed', patch: { state: 'blocked-retryable', reason: 'resume-failed', nextRetryAt: undefined } };
   }
-  return { reason: 'delivery-failed', patch: { state: 'outcome-unknown', reason: 'delivery-failed' } };
+  // The adapter call began and threw: the text may have reached the lane.
+  return { reason: 'delivery-failed',
+    patch: { state: 'outcome-unknown', reason: 'delivery-failed', maybeDelivered: true } };
 }
 
 function asError(error: unknown): Error {
