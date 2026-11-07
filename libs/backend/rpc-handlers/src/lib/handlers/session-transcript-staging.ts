@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as path from 'path';
 
 /** Suffix of a transcript file that a `session:delete` has staged for removal. */
 export const STAGED_TRANSCRIPT_SUFFIX = '.ptah-deleting';
@@ -11,12 +12,7 @@ export interface StagedTranscript {
 
 /** Node fs errors can come from another realm, so check the code, not the class. */
 function isMissingFile(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
-  );
+  return hasCode(error, 'ENOENT');
 }
 
 /**
@@ -58,6 +54,79 @@ export async function restoreTranscripts(
     }
   }
   if (firstError !== undefined) throw firstError;
+}
+
+/**
+ * Undo an interrupted or half-undone delete of a session that is still
+ * listed: rename back every staged transcript of the session whose original
+ * name is free. A staged file whose original exists again is left alone, so
+ * no content is overwritten. Returns the paths that were restored.
+ *
+ * Covered layouts: `{dir}/{id}.jsonl`, `{dir}/{id}/subagents/agent-*.jsonl`
+ * and legacy flat `{dir}/agent-*.jsonl` (owned when `ownsFlatFile` says so).
+ */
+export async function recoverStagedTranscripts(
+  sessionsDir: string,
+  sessionId: string,
+  ownsFlatFile: (stagedPath: string) => Promise<boolean>,
+): Promise<string[]> {
+  const candidates = [path.join(sessionsDir, `${sessionId}.jsonl`)];
+  const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+  for (const name of await listStaged(subagentsDir)) {
+    candidates.push(path.join(subagentsDir, unstagedName(name)));
+  }
+  for (const name of await listStaged(sessionsDir)) {
+    if (!name.startsWith('agent-')) continue;
+    const original = path.join(sessionsDir, unstagedName(name));
+    if (await ownsFlatFile(original + STAGED_TRANSCRIPT_SUFFIX)) {
+      candidates.push(original);
+    }
+  }
+  const restored: string[] = [];
+  for (const original of candidates) {
+    if (await restoreOne(original)) restored.push(original);
+  }
+  return restored;
+}
+
+function unstagedName(stagedName: string): string {
+  return stagedName.slice(0, -STAGED_TRANSCRIPT_SUFFIX.length);
+}
+
+/** Staged `*.jsonl` transcript names in a directory; a missing one is empty. */
+async function listStaged(dir: string): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (error: unknown) {
+    if (isMissingFile(error) || hasCode(error, 'ENOTDIR')) return [];
+    throw error;
+  }
+  return names.filter((n) => n.endsWith(`.jsonl${STAGED_TRANSCRIPT_SUFFIX}`));
+}
+
+/** Rename `original + suffix` back when it exists and `original` does not. */
+async function restoreOne(original: string): Promise<boolean> {
+  const staged = original + STAGED_TRANSCRIPT_SUFFIX;
+  if (!(await exists(staged)) || (await exists(original))) return false;
+  await fs.rename(staged, original);
+  return true;
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch (error: unknown) {
+    if (isMissingFile(error)) return false;
+    throw error;
+  }
+}
+
+function hasCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' && error !== null && 'code' in error && error.code === code
+  );
 }
 
 /**

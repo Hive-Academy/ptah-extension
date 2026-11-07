@@ -68,6 +68,7 @@ import {
 import * as fs from 'fs/promises';
 import {
   finalizeTranscripts,
+  recoverStagedTranscripts,
   restoreTranscripts,
   STAGED_TRANSCRIPT_SUFFIX,
   stageTranscripts,
@@ -1146,9 +1147,11 @@ export class SessionRpcHandlers {
     workspacePath: string,
     workingDirectory?: string,
   ): Promise<SessionTranscripts | null> {
+    // Only called for a session whose metadata exists (session:delete).
     const sessionFilePath = await this.findSessionFile(
       sessionId,
       workingDirectory ?? workspacePath,
+      { recoverStaged: true },
     );
 
     if (!sessionFilePath) {
@@ -1207,29 +1210,66 @@ export class SessionRpcHandlers {
     for (const file of allFiles) {
       if (!file.startsWith('agent-') || !file.endsWith('.jsonl')) continue;
       const filePath = path.join(sessionsDir, file);
-      const firstLine = (await fs.readFile(filePath, 'utf-8')).split('\n')[0];
-      if (!firstLine) continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(firstLine);
-      } catch {
-        this.logger.debug(
-          'session:delete — skipping unreadable JSONL (malformed JSON)',
-          { filePath },
-        );
-        continue;
+      if ((await this.flatTranscriptOwner(filePath)) === sessionId) {
+        owned.push(filePath);
       }
-      const result = AgentJsonlFirstLineSchema.safeParse(parsed);
-      if (!result.success) {
-        this.logger.debug(
-          'session:delete — skipping JSONL with unexpected first-line shape',
-          { filePath, issues: result.error.issues },
-        );
-        continue;
-      }
-      if (result.data.sessionId === sessionId) owned.push(filePath);
     }
     return owned;
+  }
+
+  /** The session id on a flat agent transcript's first line, or null. */
+  private async flatTranscriptOwner(filePath: string): Promise<string | null> {
+    const firstLine = (await fs.readFile(filePath, 'utf-8')).split('\n')[0];
+    if (!firstLine) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(firstLine);
+    } catch {
+      this.logger.debug(
+        'session:delete — skipping unreadable JSONL (malformed JSON)',
+        { filePath },
+      );
+      return null;
+    }
+    const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+    if (!result.success) {
+      this.logger.debug(
+        'session:delete — skipping JSONL with unexpected first-line shape',
+        { filePath, issues: result.error.issues },
+      );
+      return null;
+    }
+    return result.data.sessionId;
+  }
+
+  /**
+   * A listed session may hold staged transcripts from an interrupted or
+   * half-undone delete; put them back before the transcript is looked up.
+   * A failure is logged and the lookup goes on: the staged files keep their
+   * deterministic names, so a later lookup tries again.
+   */
+  private async recoverStagedSessionFiles(
+    sessionsDir: string,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      const restored = await recoverStagedTranscripts(
+        sessionsDir,
+        sessionId,
+        async (staged) => (await this.flatTranscriptOwner(staged)) === sessionId,
+      );
+      if (restored.length > 0) {
+        this.logger.warn('RPC: restored staged transcripts of a listed session', {
+          sessionId,
+          restored,
+        });
+      }
+    } catch (error: unknown) {
+      this.logger.error(
+        `RPC: staged transcripts of session ${sessionId} not restored; will retry on next lookup`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   /** Remove the then-empty nested session directories; they hold no content. */
@@ -1305,6 +1345,7 @@ export class SessionRpcHandlers {
           const filePath = await this.findSessionFile(
             sessionId,
             resolvedWorkspacePath,
+            { recoverStaged: metadata !== null && metadata !== undefined },
           );
 
           if (filePath) {
@@ -1910,16 +1951,24 @@ export class SessionRpcHandlers {
    * Find the Claude SDK JSONL session file on disk.
    *
    * Claude SDK sessions: ~/.claude/projects/{workspace}/{sessionId}.jsonl
+   *
+   * `recoverStaged`: the session's metadata exists, so staged transcripts of
+   * an interrupted delete are put back first. Never set it for a session
+   * without metadata: that would revive the files of a deleted session.
    */
   private async findSessionFile(
     sessionId: string,
     workspacePath: string,
+    opts: { recoverStaged: boolean },
   ): Promise<string | null> {
     const sessionDir = await this.resolveSessionsDir(workspacePath, {
       allowPartialMatch: true,
     });
     if (!sessionDir) {
       return null;
+    }
+    if (opts.recoverStaged) {
+      await this.recoverStagedSessionFiles(sessionDir, sessionId);
     }
 
     const sessionFilePath = path.join(sessionDir, `${sessionId}.jsonl`);

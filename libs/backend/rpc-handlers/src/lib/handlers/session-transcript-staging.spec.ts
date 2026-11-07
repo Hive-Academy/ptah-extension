@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   finalizeTranscripts,
+  recoverStagedTranscripts,
   restoreTranscripts,
   STAGED_TRANSCRIPT_SUFFIX,
   stageTranscripts,
@@ -59,6 +60,57 @@ describe('session transcript staging', () => {
 
     expect(readFileSync(a, 'utf-8')).toBe('content of agent-1.jsonl');
     expect(readFileSync(blocked, 'utf-8')).toBe('content of session.jsonl');
+  });
+
+  describe('recoverStagedTranscripts', () => {
+    const ID = 'sess-1';
+    const owns = (owner: string) => async (staged: string) =>
+      readFileSync(staged, 'utf-8') === owner;
+
+    it('puts back a half-undone delete: main, nested and owned flat files', async () => {
+      // Finding 2 shape: the main file was never staged, a sub-agent file was.
+      const main = transcript(`${ID}.jsonl`);
+      const nestedDir = join(root, ID, 'subagents');
+      mkdirSync(nestedDir, { recursive: true });
+      const nested = join(nestedDir, 'agent-a.jsonl');
+      writeFileSync(`${nested}${STAGED_TRANSCRIPT_SUFFIX}`, 'nested');
+      const flat = join(root, 'agent-b.jsonl');
+      writeFileSync(`${flat}${STAGED_TRANSCRIPT_SUFFIX}`, ID);
+      const foreign = join(root, 'agent-c.jsonl');
+      writeFileSync(`${foreign}${STAGED_TRANSCRIPT_SUFFIX}`, 'other-session');
+
+      const restored = await recoverStagedTranscripts(root, ID, owns(ID));
+
+      expect(restored.sort()).toEqual([flat, nested].sort());
+      expect(readFileSync(main, 'utf-8')).toBe(`content of ${ID}.jsonl`);
+      expect(readFileSync(nested, 'utf-8')).toBe('nested');
+      expect(readFileSync(flat, 'utf-8')).toBe(ID);
+      expect(existsSync(`${foreign}${STAGED_TRANSCRIPT_SUFFIX}`)).toBe(true);
+      expect(existsSync(foreign)).toBe(false);
+    });
+
+    it('restores a staged main transcript after a failed restore or a crash', async () => {
+      const main = join(root, `${ID}.jsonl`);
+      writeFileSync(`${main}${STAGED_TRANSCRIPT_SUFFIX}`, 'main');
+
+      expect(await recoverStagedTranscripts(root, ID, owns(ID))).toEqual([main]);
+      expect(readFileSync(main, 'utf-8')).toBe('main');
+    });
+
+    it('never overwrites an original that exists again', async () => {
+      const main = transcript(`${ID}.jsonl`);
+      writeFileSync(`${main}${STAGED_TRANSCRIPT_SUFFIX}`, 'older');
+
+      expect(await recoverStagedTranscripts(root, ID, owns(ID))).toEqual([]);
+      expect(readFileSync(main, 'utf-8')).toBe(`content of ${ID}.jsonl`);
+      expect(readFileSync(`${main}${STAGED_TRANSCRIPT_SUFFIX}`, 'utf-8')).toBe('older');
+    });
+
+    it('does nothing when the directory holds no staged files', async () => {
+      transcript(`${ID}.jsonl`);
+
+      expect(await recoverStagedTranscripts(root, ID, owns(ID))).toEqual([]);
+    });
   });
 
   it('removes staged files and reports the ones it could not remove', async () => {
