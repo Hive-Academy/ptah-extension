@@ -331,6 +331,9 @@ export class LaneComposerComponent {
     try {
       // After a reload the text lives only in the backend: read it before the cancel drops it.
       const local = LaneComposerComponent.acceptedText.get(messageId);
+      // degradation-audit: optional-capability - reading the queued text back
+      // only lets the composer restore it; when the read fails the cancel still
+      // runs and the composer stays empty.
       const text = local?.agentId === agentId ? local.text
         : await this.store.recoverQueuedText(agentId, messageId).catch(() => null);
       const receipt = await this.store.cancelMessage(agentId, messageId);

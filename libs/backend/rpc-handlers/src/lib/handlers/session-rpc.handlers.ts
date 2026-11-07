@@ -1242,6 +1242,8 @@ export class SessionRpcHandlers {
     try {
       parsed = JSON.parse(firstLine);
     } catch {
+      // degradation-audit: optional-capability - a flat agent file whose first
+      // line is not JSON names no owner, so it is not this session's transcript.
       this.logger.debug(
         'session:delete — skipping unreadable JSONL (malformed JSON)',
         { filePath },
@@ -1299,6 +1301,9 @@ export class SessionRpcHandlers {
       await fs.rmdir(path.join(sessionDir, 'subagents'));
       await fs.rmdir(sessionDir);
     } catch (err) {
+      // degradation-audit: reported - a missing directory is already removed;
+      // any other failure is logged as a warning below. The directories hold
+      // no transcript content, so the delete result does not depend on them.
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code === 'ENOENT' || code === 'ENOTDIR') return;
       // Empty directories only; a non-empty session dir keeps non-transcript content.
