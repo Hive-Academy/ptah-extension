@@ -17,7 +17,7 @@ export {
   CliCommandLineTooLongError,
   PTAH_LANE_POLICY,
 } from './cli-adapter.utils';
-export { fixPath } from './fix-path';
+export { fixPath, fixPathReady } from './fix-path';
 export { ptahMcpServerUrl } from './ptah-mcp-url';
 export { CopilotSdkAdapter } from './copilot-sdk.adapter';
 export { CopilotPermissionBridge } from './copilot-permission-bridge';

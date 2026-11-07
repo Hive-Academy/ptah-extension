@@ -110,6 +110,7 @@ export class GitWorkflowRpcHandlers {
     this.roots = new GitRootResolver({
       workspace,
       probe: createWorktreeRootProbe(gitInfo, fileSystem),
+      epoch: () => gitInfo.probeEpoch(),
       warn: (message, context) =>
         this.logger.warn(`${LOG_TAG} ${message}`, context),
     });

@@ -64,12 +64,13 @@ import type { IIntegrityWorkerProcessFactory } from './integrity/worker-process.
 import {
   BACKUP_DESTINATION_EXISTS,
   BACKUP_STAGING_EXISTS,
-  removeBackupArtifact,
 } from './integrity/integrity-worker-protocol';
 import type {
+  BackupPacing,
   BackupRequest,
   BackupResponse,
 } from './integrity/integrity-worker-protocol';
+import { DailyBackupPendingMarker } from './daily-backup-pending-marker';
 
 /** Discriminated kind for backup filenames and rotation policy. */
 export type BackupKind = 'pre-migration' | 'daily' | 'reset';
@@ -87,6 +88,36 @@ const GOVERNED_KINDS: ReadonlySet<BackupKind> = new Set<BackupKind>(['daily']);
 
 /** `whenClear` lane name; it only labels the governor's ceiling log line. */
 const GOVERNOR_LANE = 'sqlite-daily-backup';
+
+/**
+ * How long a daily backup may wait for a quiet host, counted from its DUE
+ * time (main-loop-sync-blocks fix-12). The governor's own 10-minute default
+ * ceiling is shorter than one long streaming session, so the backup used to
+ * start in the middle of four streaming chats anyway. Two hours covers a
+ * working session; past it the backup runs regardless, so it is never starved.
+ */
+export const DAILY_BACKUP_MAX_DEFER_MS = 2 * 60 * 60 * 1000;
+/**
+ * The shortest wait an overdue daily backup still gets. A marker resumed at
+ * startup is usually past its two hours; without this floor it would copy
+ * during the busiest minutes of the run. Kept short so a backup owed across
+ * many short runs still lands.
+ */
+export const DAILY_BACKUP_MIN_DEFER_MS = 15 * 60 * 1000;
+/** Wait until the live WAL has seen no writes for this long. */
+export const DAILY_BACKUP_WRITE_QUIET_MS = 10_000;
+const DAILY_BACKUP_WRITE_POLL_MS = 2_000;
+
+/**
+ * Pacing for the daily copy. 32 MiB/s moves a 1.4 GB database in ~45 s, and a
+ * flush every 64 MiB keeps the OS from holding more than that much of the copy
+ * as dirty cache. Pre-migration and reset backups are not paced: a migration
+ * or a user is waiting on them, and nothing else is writing.
+ */
+export const DAILY_BACKUP_PACING: BackupPacing = {
+  maxBytesPerSecond: 32 * 1024 * 1024,
+  flushEveryBytes: 64 * 1024 * 1024,
+};
 
 /**
  * How long the worker may spend on one backup before it is killed.
@@ -190,6 +221,15 @@ export interface IBackupService {
   backup(kind: BackupKind): Promise<string | null>;
 
   /**
+   * Run the daily backup an earlier process started but never finished (it
+   * quit while the backup was deferred, or died mid-copy), then rotate daily
+   * backups. A no-op returning `null` when none is owed. Hosts call it once at
+   * start-up, beside the cron job; it waits for a quiet host like any daily
+   * backup. Never throws.
+   */
+  resumeInterruptedDaily?(): Promise<string | null>;
+
+  /**
    * Deletes old backup files of the given kind, keeping only the `keep` newest.
    * A `keep` of `0` means unlimited — no files are deleted.
    * Filenames sort newest-first by compact ISO timestamp. Across mixed formats,
@@ -197,7 +237,7 @@ export interface IBackupService {
    * New code publishes only validated finals. An old-version daily partial on
    * the upgrade day is the documented compatibility exception.
    */
-  rotate(kind: BackupKind, keep: number): void;
+  rotate(kind: BackupKind, keep: number): Promise<void>;
 }
 
 @injectable()
@@ -229,7 +269,12 @@ export class SqliteBackupService implements IBackupService {
      */
     @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
     private readonly governor: BackgroundWorkAdmission | null = null,
-  ) {}
+  ) {
+    this.pendingDaily = new DailyBackupPendingMarker(dbPath, logger);
+  }
+
+  /** Records an owed daily backup so a quit or a crash cannot lose it. */
+  private readonly pendingDaily: DailyBackupPendingMarker;
 
   /**
    * The tail of the serialization chain — every `backup()` call links onto it.
@@ -288,14 +333,100 @@ export class SqliteBackupService implements IBackupService {
    * links onto the queue (see `waitForBackgroundClear`); its place in the queue
    * is therefore the moment the wait ended, which is the only order a scheduled
    * backup needs.
+   *
+   * A `daily` backup also records itself as owed before it waits, and clears
+   * that record once it has run (`DailyBackupPendingMarker`), so a quit while
+   * it is deferred is resumed by `resumeInterruptedDaily` at the next start.
    */
   async backup(kind: BackupKind): Promise<string | null> {
-    if (
-      GOVERNED_KINDS.has(kind) &&
-      !(await this.waitForBackgroundClear(kind))
-    ) {
+    if (!GOVERNED_KINDS.has(kind)) return this.enqueue(kind);
+    const dueAt = await this.pendingDaily.markDue(Date.now());
+    return this.runGovernedDaily(dueAt);
+  }
+
+  async resumeInterruptedDaily(): Promise<string | null> {
+    try {
+      const dueAt = await this.pendingDaily.read(Date.now());
+      if (dueAt === null) return null;
+      this.logger.info(
+        '[persistence-sqlite] resuming a daily backup the previous run did not finish',
+        { dueAt: new Date(dueAt).toISOString() },
+      );
+      const dest = await this.runGovernedDaily(dueAt);
+      await this.rotate('daily', KEEP_BY_KIND.daily);
+      return dest;
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged at warn; a missed
+      // resume is retried by the next scheduled daily backup.
+      this.logger.warn('[persistence-sqlite] daily backup resume failed (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
+  }
+
+  /**
+   * Wait for a quiet host (at most until `dueAt + DAILY_BACKUP_MAX_DEFER_MS`), take the daily backup,
+   * then clear the owed marker. A shutdown during the wait returns `null` and
+   * KEEPS the marker.
+   */
+  private async runGovernedDaily(dueAt: number): Promise<string | null> {
+    // An overdue backup (a marker resumed at the next start, or re-used by a
+    // later cron tick) still waits DAILY_BACKUP_MIN_DEFER_MS for a quiet host
+    // instead of copying at once during startup.
+    const deadline = Math.max(
+      dueAt + DAILY_BACKUP_MAX_DEFER_MS,
+      Date.now() + DAILY_BACKUP_MIN_DEFER_MS,
+    );
+    while (Date.now() < deadline) {
+      const admission = await this.waitForBackgroundClear('daily', deadline - Date.now());
+      if (admission === null) return null;
+      if (admission === 'timeout') break;
+      if (Date.now() >= deadline) break;
+      if (await this.walHasRecentWrites()) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await this.pauseBeforeWriteCheck(Math.min(DAILY_BACKUP_WRITE_POLL_MS, remaining));
+        continue;
+      }
+      if (this.governor?.isClear() === false) continue;
+      break;
+    }
+    return this.finishDueDaily();
+  }
+
+  private async walHasRecentWrites(): Promise<boolean> {
+    try {
+      const stat = await fs.promises.stat(`${this.dbPath}-wal`);
+      return Date.now() - stat.mtimeMs < DAILY_BACKUP_WRITE_QUIET_MS;
+    } catch (error: unknown) {
+      // degradation-audit: reported - a missing WAL means no recent writes; any
+      // other stat failure is logged at warn and the backup proceeds.
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+      this.logger.warn('[persistence-sqlite] WAL write recency check failed; proceeding with daily backup', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  private pauseBeforeWriteCheck(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      timer.unref();
+    });
+  }
+
+  private async finishDueDaily(): Promise<string | null> {
+    const dest = await this.enqueue('daily');
+    // A failed, corrupt or timed-out copy returns null: keep the marker so the
+    // owed backup is retried at the next start instead of lost for the day.
+    if (dest !== null) await this.pendingDaily.clear();
+    return dest;
+  }
+
+  /** Link one backup onto the serialization chain. */
+  private enqueue(kind: BackupKind): Promise<string | null> {
     const run = this.queue.then(() => this.takeBackup(kind));
     this.queue = run.then(
       () => undefined,
@@ -314,33 +445,45 @@ export class SqliteBackupService implements IBackupService {
    * spawns a process and reads the whole database file from disk while the
    * user is mid-turn or the main loop already lags — so the START is deferred.
    *
-   * `'clear'` and `'timeout'` (the governor's starvation ceiling) both return
-   * true: the backup runs. An `AbortError` means the governor was disposed —
-   * the host is shutting down — so the backup is skipped (false) and logged at
+   * A timeout starts the backup even if the host remains busy. An AbortError
+   * means the governor was disposed, so the backup is skipped and logged at
    * info; starting a worker during quit is the one thing that must not happen.
    * Any other rejection fails open: the backup runs.
    */
-  private async waitForBackgroundClear(kind: BackupKind): Promise<boolean> {
+  private async waitForBackgroundClear(
+    kind: BackupKind,
+    maxDeferMs: number,
+  ): Promise<'clear' | 'timeout' | null> {
     const governor = this.governor;
-    if (governor === null || governor.isClear()) return true;
+    if (governor === null || governor.isClear()) return 'clear';
+    const startedAt = Date.now();
+    this.logger.info(
+      '[persistence-sqlite] daily backup deferred — the host is busy',
+      { kind, maxDeferMs },
+    );
     try {
-      await governor.whenClear({ lane: GOVERNOR_LANE });
-      return true;
+      const outcome = await governor.whenClear({ lane: GOVERNOR_LANE, maxDeferMs });
+      this.logger.debug('[persistence-sqlite] daily backup deferral ended', {
+        kind,
+        outcome,
+        waitedMs: Date.now() - startedAt,
+      });
+      return outcome;
     } catch (error: unknown) {
-      // degradation-audit: optional-capability - a scheduled backup held at shutdown is skipped on purpose; the next scheduled run takes it
+      // degradation-audit: optional-capability - a scheduled backup held at shutdown is skipped on purpose; its owed marker makes the next start resume it
       const reason = error instanceof Error ? error.message : String(error);
       if (error instanceof Error && error.name === 'AbortError') {
         this.logger.info(
           '[persistence-sqlite] scheduled backup skipped — the host is shutting down',
           { kind, reason },
         );
-        return false;
+        return null;
       }
       this.logger.warn(
         '[persistence-sqlite] background-work wait failed — taking the backup anyway',
         { kind, reason },
       );
-      return true;
+      return 'timeout';
     }
   }
 
@@ -402,6 +545,7 @@ export class SqliteBackupService implements IBackupService {
         dbPath: this.dbPath,
         destPath: dest,
         stagingPath: `${dest}.${crypto.randomBytes(4).toString('hex')}.tmp`,
+        ...(kind === 'daily' ? { pacing: DAILY_BACKUP_PACING } : {}),
       };
       staging = request.stagingPath;
       const outcome = await this.runner.run<BackupResponse>(factory, {
@@ -415,7 +559,7 @@ export class SqliteBackupService implements IBackupService {
       if (response === null) {
         // The worker may have died mid-copy. Only its randomized staging path
         // belongs to this attempt; the final path may belong to another host.
-        this.discardArtifact(staging, kind);
+        await this.discardArtifact(staging, kind);
         this.reportNotTaken(
           kind,
           'the backup worker produced no result (no reply, early exit, or budget expiry)',
@@ -428,7 +572,7 @@ export class SqliteBackupService implements IBackupService {
           '[persistence-sqlite] backup discarded — integrity check failed',
           { kind, dest, staging, quickCheck: response.quickCheck },
         );
-        this.discardArtifact(staging, kind);
+        await this.discardArtifact(staging, kind);
         return null;
       }
 
@@ -448,7 +592,7 @@ export class SqliteBackupService implements IBackupService {
           this.reportNotTaken(kind, response.detail);
           return null;
         }
-        this.discardArtifact(staging, kind);
+        await this.discardArtifact(staging, kind);
         this.reportNotTaken(
           kind,
           response.detail ?? 'the backup could not be completed or validated',
@@ -468,7 +612,7 @@ export class SqliteBackupService implements IBackupService {
         kind,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (staging !== null) this.discardArtifact(staging, kind);
+      if (staging !== null) await this.discardArtifact(staging, kind);
       return null;
     }
   }
@@ -504,10 +648,7 @@ export class SqliteBackupService implements IBackupService {
    * older than two worker budgets. Host cleanup remains necessary for prompt
    * recovery after an early exit or budget kill.
    *
-   * `removeBackupArtifact` is REUSED from the protocol module rather than
-   * reimplemented here. That module is where the suffix list lives, and two
-   * copies of "which files belong to a backup" is exactly how one of them ends
-   * up out of date. This is a pure filesystem helper, not the backup mechanism
+   * This is a pure filesystem helper, not the backup mechanism
    * — the rule that this service talks to the worker over the protocol rather
    * than by calling its internals is about `performBackup`, and still holds.
    *
@@ -515,34 +656,26 @@ export class SqliteBackupService implements IBackupService {
    * cleanup must not turn into a thrown error at a call site that only
    * expects `null`.
    */
-  private discardArtifact(staging: string, kind: BackupKind): void {
-    try {
-      const existed = fs.existsSync(staging);
-      removeBackupArtifact(fs, staging);
-      if (fs.existsSync(staging)) {
-        // `removeBackupArtifact` swallows its own failures, so this is the only
-        // place the one that matters for rotation can still be reported.
+  private async discardArtifact(staging: string, kind: BackupKind): Promise<void> {
+    for (const target of [staging, `${staging}-wal`, `${staging}-shm`]) {
+      try {
+        await fs.promises.unlink(target);
+        this.logger.debug('[persistence-sqlite] backup artifact discarded', {
+          kind,
+          staging: target,
+        });
+      } catch (error: unknown) {
+        if (this.isMissingFile(error)) continue;
         this.logger.warn(
           '[persistence-sqlite] backup artifact cleanup failed (non-fatal) — a stale file may take a rotation slot',
-          { kind, staging },
+          { kind, staging: target, error: error instanceof Error ? error.message : String(error) },
         );
-        return;
       }
-      if (!existed) return;
-      this.logger.debug('[persistence-sqlite] backup artifact discarded', {
-        kind,
-        staging,
-      });
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[persistence-sqlite] backup artifact cleanup failed (non-fatal) — a stale file may take a rotation slot',
-        {
-          kind,
-          staging,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
     }
+  }
+
+  private isMissingFile(error: unknown): boolean {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
   }
 
   /**
@@ -566,12 +699,17 @@ export class SqliteBackupService implements IBackupService {
    * The daily-backup callers invoke `rotate()` unconditionally, so the stale
    * staging sweep also runs after a failed attempt.
    */
-  rotate(kind: BackupKind, keep: number): void {
+  async rotate(kind: BackupKind, keep: number): Promise<void> {
     try {
       const dir = this.dirFor(kind);
-      if (!fs.existsSync(dir)) return;
       const prefix = this.prefixFor(kind);
-      const entries = fs.readdirSync(dir);
+      let entries: string[];
+      try {
+        entries = await fs.promises.readdir(dir);
+      } catch (error: unknown) {
+        if (this.isMissingFile(error)) return;
+        throw error;
+      }
       const stagingRoots = new Set(
         entries
           .filter((file) => file.startsWith(prefix) && STAGING_SUFFIX.test(file))
@@ -581,14 +719,19 @@ export class SqliteBackupService implements IBackupService {
       );
       const staleBefore = Date.now() - 2 * BACKUP_WORKER_BUDGET_MS;
       for (const staging of stagingRoots) {
-        const group = [staging, `${staging}-wal`, `${staging}-shm`].filter(
-          (target) => fs.existsSync(target),
+        const group = await Promise.all(
+          [staging, `${staging}-wal`, `${staging}-shm`].map(async (target) => {
+            try {
+              return { target, stat: await fs.promises.stat(target) };
+            } catch (error: unknown) {
+              if (this.isMissingFile(error)) return null;
+              throw error;
+            }
+          }),
         );
-        if (
-          group.length > 0 &&
-          group.every((target) => fs.statSync(target).mtimeMs < staleBefore)
-        ) {
-          removeBackupArtifact(fs, staging);
+        const existing = group.filter((entry) => entry !== null);
+        if (existing.length > 0 && existing.every((entry) => entry.stat.mtimeMs < staleBefore)) {
+          await this.discardArtifact(staging, kind);
           this.logger.debug('[persistence-sqlite] stale staging swept', {
             kind,
             staging,
@@ -604,7 +747,7 @@ export class SqliteBackupService implements IBackupService {
       const toDelete = files.slice(keep);
       for (const file of toDelete) {
         try {
-          fs.unlinkSync(path.join(dir, file));
+          await fs.promises.unlink(path.join(dir, file));
           this.logger.debug('[persistence-sqlite] backup rotated (deleted)', {
             file,
             kind,

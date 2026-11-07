@@ -360,6 +360,18 @@ describe('ClaudeRpcService', () => {
       expect(result.isError()).toBe(true);
       expect(result.errorCode).toBe('AUTH_REQUIRED');
     });
+
+    it('drops an unknown RPC error code at the wire boundary', async () => {
+      const pending = service.call('session:list', { workspacePath: '/tmp' });
+      const sent = lastPostedRpc(postMessage);
+      service.handleResponse({
+        success: false,
+        error: 'failure',
+        errorCode: 'NOT_A_RPC_CODE',
+        correlationId: sent.payload.correlationId,
+      });
+      expect((await pending).errorCode).toBeUndefined();
+    });
   });
 
   describe('subscription cleanup', () => {

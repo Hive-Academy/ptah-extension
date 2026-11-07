@@ -10,22 +10,20 @@ Bugs are tracked on GitHub: [https://github.com/Hive-Academy/PtahCode/issues](ht
 
 ## Before you file
 
-1. Search existing issues — yours may already be known.
-2. Reproduce on the latest version. Each release fixes a handful of regressions.
-3. Try an isolated workspace. Some problems are workspace-specific.
+1. Search the existing issues. Your problem can already be known.
+2. Make sure that the problem occurs on the latest version.
+3. Try a different workspace. Some problems occur only in one workspace.
 
 ## What to include
 
-A useful issue answers these questions:
-
-| Section                    | What to include                                           |
-| -------------------------- | --------------------------------------------------------- |
-| **What happened**          | One-sentence summary. Not a stack trace — the story.      |
-| **Expected**               | What you expected to happen instead.                      |
-| **Steps**                  | Numbered, minimal reproduction. Start from "launch Ptah". |
-| **Diagnostics**            | Paste the output of **Help → Copy diagnostics**.          |
-| **Logs**                   | Attach `ptah-YYYY-MM-DD.log` if the problem produces one. |
-| **Screenshot / recording** | Especially useful for UI glitches.                        |
+| Section                    | What to include                                                  |
+| -------------------------- | ---------------------------------------------------------------- |
+| **What happened**          | A one-sentence summary.                                          |
+| **Expected**               | What you expected instead.                                       |
+| **Steps**                  | Numbered, minimal steps. Start from "start Ptah".                |
+| **Environment**            | Ptah version, OS, and the providers that you use.               |
+| **Logs**                   | The `Ptah-YYYY-MM-DD.log` file of the day, if it shows the problem. See [Logs & diagnostics](/troubleshooting/logs-and-diagnostics/). |
+| **Screenshot / recording** | Useful for problems in the UI.                                   |
 
 ## Template
 
@@ -44,26 +42,21 @@ A useful issue answers these questions:
 2.
 3.
 
-### Diagnostics
+### Environment
 
-<paste from Help → Copy diagnostics>
+<Ptah version, OS, providers>
 
 ### Logs / screenshots
 
 <attach files>
 ```
 
-## Severity labels we care about
-
-- **crash** — Ptah quits unexpectedly.
-- **data-loss** — Work disappeared without warning.
-- **security** — Credential leakage or sandbox escape. **Do not file publicly** — email security@ptah.live instead.
-- **regression** — Worked in a previous version, broken in the current one.
+## Security issues
 
 <Aside type="caution">
-Security issues should never go into the public tracker. Use the private disclosure email above. We coordinate a fix before any public write-up.
+Do not put security issues in the public tracker. Send them to **security@ptah.live**. See `SECURITY.md` in the repository.
 </Aside>
 
 ## Feature requests
 
-Feature requests are welcome on the same tracker, tagged `enhancement`. Include the problem you're trying to solve, not only the feature you have in mind — there's often a simpler path that gets you there.
+You can request features on the same tracker. Describe the problem that you want to solve, not only the feature that you have in mind.

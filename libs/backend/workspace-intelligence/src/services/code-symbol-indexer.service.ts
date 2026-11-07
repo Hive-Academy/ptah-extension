@@ -41,6 +41,7 @@ import {
   recognisedSourceExtensions,
   supportedLanguagesFor,
 } from '../ast/language-registry';
+import { BACKGROUND_PARSE } from '../ast/tree-sitter-request-options';
 
 export interface CodeSymbolIndexerOptions {
   /** Number of files to process per batch before yielding. Default: 20 */
@@ -1080,6 +1081,7 @@ export class CodeSymbolIndexer {
     let totalSymbols = 0;
     let totalErrors = 0;
     let attempted = 0;
+    let runtimeSkipped = 0;
 
     let filesProcessed = 0;
     // Before any write, after every batch (including the last), and again
@@ -1092,6 +1094,15 @@ export class CodeSymbolIndexer {
       const batch = files.slice(i, i + batchSize);
 
       for (const file of batch) {
+        if (
+          this.astAnalysis.isRuntimeUnavailable() &&
+          !file.unreadable &&
+          file.size <= MAX_INDEXED_FILE_BYTES
+        ) {
+          runtimeSkipped++;
+          filesProcessed++;
+          continue;
+        }
         if (file.unreadable || file.size > MAX_INDEXED_FILE_BYTES) {
           this.recordWrite(
             workspaceRoot,
@@ -1142,7 +1153,20 @@ export class CodeSymbolIndexer {
     // or last batch. It must not be reported as a finished index.
     this.throwIfAborted(options?.signal);
 
-    if (attempted > 0 && totalSymbols === 0 && totalErrors === attempted) {
+    // A run that skipped files is not a finished index: it must neither purge
+    // nor report `complete`, so the caller's retry policy indexes the skipped
+    // files once the runtime recovers. One error for the whole run, not one
+    // line per file.
+    if (runtimeSkipped > 0) {
+      throw new Error(
+        `[CodeSymbolIndexer] tree-sitter runtime unavailable — skipped ${runtimeSkipped} files; next retry in ${this.astAnalysis.runtimeRetryInMs()}ms`,
+      );
+    }
+    if (
+      attempted > 0 &&
+      totalSymbols === 0 &&
+      totalErrors === attempted
+    ) {
       throw new Error(
         `Code symbol indexing failed: all ${totalErrors} files errored and 0 symbols were produced. ` +
           `This usually means the tree-sitter WASM runtime or the symbol sink failed to initialize — check the logs for the underlying error.`,
@@ -1403,15 +1427,18 @@ export class CodeSymbolIndexer {
       };
     }
 
+    // Indexing is bulk work: it queues behind interactive parses.
     const result = await this.astAnalysis.analyzeSource(
       content,
       language,
       normalizedFilePath,
+      BACKGROUND_PARSE,
     );
     if (result.isErr()) {
-      this.logger.warn(
-        `[CodeSymbolIndexer] AST parse failed for ${normalizedFilePath}: ${result.error?.message ?? 'Unknown error'}`,
-      );
+      if (!this.astAnalysis.isRuntimeUnavailable())
+        this.logger.warn(
+          `[CodeSymbolIndexer] AST parse failed for ${normalizedFilePath}: ${result.error?.message ?? 'Unknown error'}`,
+        );
       return {
         symbolsIndexed: 0,
         errors: 1,

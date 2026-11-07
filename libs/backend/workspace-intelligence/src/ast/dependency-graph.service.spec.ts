@@ -26,6 +26,7 @@ import type {
 } from '@ptah-extension/vscode-core';
 import {
   DependencyGraphService,
+  UNRESOLVED_IMPORT_SAMPLES,
   graphPathIdentity,
   type DependencyGraph,
 } from './dependency-graph.service';
@@ -692,9 +693,9 @@ describe('DependencyGraphService — edge linking inside one node (TASK_2026_559
 
   /**
    * One node importing IMPORT_COUNT missing relative modules: each import is
-   * unresolved and logged, so the debug log records the linking order. The
-   * clock advances 1 ms per read, so the 10 ms edge slice ends every few
-   * imports without any real CPU cost.
+   * resolved (to nothing) through the TS/JS resolver, whose spy records the
+   * linking order. The clock advances 1 ms per read, so the 10 ms edge slice
+   * ends every few imports without any real CPU cost.
    */
   function heavyNodeSetup() {
     const order: string[] = [];
@@ -710,20 +711,54 @@ describe('DependencyGraphService — edge linking inside one node (TASK_2026_559
     } as unknown as FileSystemService;
     const logger = {
       info: jest.fn(),
-      debug: jest.fn((message: string) => {
-        if (message.includes('Unresolved import')) order.push('import');
-      }),
+      debug: jest.fn(),
       error: jest.fn(),
       warn: jest.fn(),
     } as unknown as Logger;
+    const realResolve = TS_JS_IMPORT_RESOLVER.resolve.bind(
+      TS_JS_IMPORT_RESOLVER,
+    );
+    const resolve = jest
+      .spyOn(TS_JS_IMPORT_RESOLVER, 'resolve')
+      .mockImplementation((...args) => {
+        order.push('import');
+        return realResolve(...args);
+      });
     let clock = 0;
     const now = jest.spyOn(Date, 'now').mockImplementation(() => ++clock);
     return {
       svc: new DependencyGraphService(astAnalysis, fileSystem, logger),
       order,
-      restoreClock: () => now.mockRestore(),
+      logger,
+      restoreClock: () => {
+        now.mockRestore();
+        resolve.mockRestore();
+      },
     };
   }
+
+  it('logs one bounded unresolved-import summary per build, not a line per import', async () => {
+    const { svc, logger, restoreClock } = heavyNodeSetup();
+    try {
+      await svc.buildGraph([HEAVY_FILE], WS_A);
+    } finally {
+      restoreClock();
+    }
+
+    const debug = (logger.debug as jest.Mock).mock.calls.map(
+      (call: unknown[]) => String(call[0]),
+    );
+    const summaries = debug.filter((m) => m.includes('unresolved import(s)'));
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain(`${IMPORT_COUNT} unresolved import(s)`);
+    expect(summaries[0]).toContain(
+      `(+${IMPORT_COUNT - UNRESOLVED_IMPORT_SAMPLES} more)`,
+    );
+    expect(summaries[0].match(/'\.\/missing-\d+'/g)).toHaveLength(
+      UNRESOLVED_IMPORT_SAMPLES,
+    );
+    expect(debug.some((m) => m.includes('Unresolved import'))).toBe(false);
+  });
 
   /** A macrotask heartbeat: `beat` runs once per event-loop turn. */
   function startHeartbeat(beat: () => void): () => void {

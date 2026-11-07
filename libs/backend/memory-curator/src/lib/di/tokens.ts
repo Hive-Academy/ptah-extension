@@ -11,6 +11,7 @@ export const MEMORY_TOKENS = {
   MEMORY_CURATOR: Symbol.for('PtahMemoryCurator'),
   /** MemorySearchService — hybrid BM25 + vector search with RRF fusion. */
   MEMORY_SEARCH: Symbol.for('PtahMemorySearch'),
+  SQLITE_SEARCH_WORKER: Symbol.for('PtahSqliteSearchWorker'),
   /** MemoryStore — typed CRUD over `memories` and `memory_chunks` tables. */
   MEMORY_STORE: Symbol.for('PtahMemoryStore'),
   /** ICuratorLLM — small/fast LLM wrapper for extract/resolve prompts. */

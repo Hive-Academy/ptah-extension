@@ -89,6 +89,9 @@ import {
 import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
+import { GitFolderProbe } from './git/git-folder-probe';
+import { GitProbeReader } from './git/git-probe-reader';
+import type { CommonDirRead, WorktreeListRead } from './git/git-probe-outcome';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
 import { GitHistoryReader } from './git/git-history.reader';
 import {
@@ -153,7 +156,10 @@ function unavailableReason(
   if (error instanceof GitOutputLimitError) return 'output-too-large';
   // A call dropped from a saturated queue is a timeout too: it opens the same
   // backoff, so the watcher does not queue another run behind the backlog.
-  if (error instanceof GitTimeoutError || error instanceof GitQueueDeadlineError) {
+  if (
+    error instanceof GitTimeoutError ||
+    error instanceof GitQueueDeadlineError
+  ) {
     return 'timeout';
   }
   return isIndexLockFailure(stderr) ? 'locked' : 'error';
@@ -632,6 +638,7 @@ export class GitInfoService {
   private readonly commitRunner: GitCommitRunner;
   private readonly remoteSync: GitRemoteSync;
   private readonly worktreeAdmin: AgentWorktreeAdmin;
+  private readonly folderProbe: GitFolderProbe;
   private readonly operationReader: GitRepoOperationReader;
   private readonly operationActions: GitOperationActions;
   private readonly changeSetNumstat: GitChangeSetNumstatReader;
@@ -665,6 +672,7 @@ export class GitInfoService {
     this.commitRunner = new GitCommitRunner(deps);
     this.remoteSync = new GitRemoteSync(deps);
     this.worktreeAdmin = new AgentWorktreeAdmin(deps);
+    this.folderProbe = new GitFolderProbe({ reader: new GitProbeReader(deps) });
     this.operationReader = new GitRepoOperationReader(deps);
     this.operationActions = new GitOperationActions({
       ...deps,
@@ -727,7 +735,10 @@ export class GitInfoService {
    */
   private readonly readCache = new Map<string, unknown>();
   private readonly rootCache = new GitRootCache();
-  private readonly infoCache = new Map<string, { value: GitInfoResult; until: number }>();
+  private readonly infoCache = new Map<
+    string,
+    { value: GitInfoResult; until: number }
+  >();
 
   /**
    * One flight record per read key (same keys as {@link readCache}): the
@@ -779,6 +790,7 @@ export class GitInfoService {
     this.reviewReader.invalidate(workspacePath);
     // A mutation or watcher event can replace the repository at this path.
     this.rootCache.invalidate(workspacePath);
+    this.folderProbe.invalidate(workspacePath);
     if (!workspacePath) {
       this.invalidatedAllAt = this.cacheGeneration;
       this.readCache.clear();
@@ -962,14 +974,24 @@ export class GitInfoService {
   async getGitInfo(workspacePath: string): Promise<GitInfoResult> {
     const cached = this.infoCache.get(workspacePath);
     if (cached && cached.until > Date.now()) return cached.value;
-    return this.singleFlight(`info|${workspacePath}|`, workspacePath, async () => {
-      const generation = this.cacheGeneration;
-      const value = await this.computeGitInfo(workspacePath);
-      if (generation >= this.generationOf(workspacePath) && !value.statusUnavailable) {
-        this.infoCache.set(workspacePath, { value, until: Date.now() + 2_500 });
-      }
-      return value;
-    });
+    return this.singleFlight(
+      `info|${workspacePath}|`,
+      workspacePath,
+      async () => {
+        const generation = this.cacheGeneration;
+        const value = await this.computeGitInfo(workspacePath);
+        if (
+          generation >= this.generationOf(workspacePath) &&
+          !value.statusUnavailable
+        ) {
+          this.infoCache.set(workspacePath, {
+            value,
+            until: Date.now() + 2_500,
+          });
+        }
+        return value;
+      },
+    );
   }
 
   /**
@@ -1135,25 +1157,26 @@ export class GitInfoService {
     return this.worktreeAdmin.list(workspacePath);
   }
 
-  /**
-   * The repository's common directory as git resolves it from `dir`
-   * (`rev-parse --path-format=absolute --git-common-dir`): the same for a
-   * repository's main worktree and every linked one. Null when `dir` is not
-   * inside a repository or git cannot answer.
-   */
-  async getCommonDir(dir: string): Promise<string | null> {
-    try {
-      const { stdout, exitCode } = await this.execGit(
-        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-        dir,
-      );
-      const commonDir = stdout.trim();
-      return exitCode === 0 && commonDir.length > 0 ? commonDir : null;
-    } catch {
-      // degradation-audit: optional-capability - no answer authorizes nothing;
-      // the caller treats null as "not the same repository".
-      return null;
-    }
+  /** Shared, cached `git worktree list` outcome; see {@link GitFolderProbe}. */
+  probeWorktreeList(
+    folder: string,
+    signal?: AbortSignal,
+  ): Promise<WorktreeListRead> {
+    return this.folderProbe.readList(folder, signal);
+  }
+
+  /** Shared, cached `--git-common-dir` outcome; see {@link GitFolderProbe}. */
+  probeCommonDir(dir: string, signal?: AbortSignal): Promise<CommonDirRead> {
+    return this.folderProbe.readCommonDir(dir, signal);
+  }
+
+  probeEpoch(): number {
+    return this.folderProbe.epoch();
+  }
+
+  /** Drop probe answers covering `root`, or every answer when omitted. */
+  invalidateProbeReadCache(root?: string): void {
+    this.folderProbe.invalidate(root);
   }
 
   /**
@@ -1754,7 +1777,9 @@ export class GitInfoService {
     workspacePath: string,
     priority?: ExecGitOptions['priority'],
   ): Promise<string | null> {
-    return this.rootCache.resolve(workspacePath, () => this.probeRepositoryRoot(workspacePath, priority));
+    return this.rootCache.resolve(workspacePath, () =>
+      this.probeRepositoryRoot(workspacePath, priority),
+    );
   }
 
   private async probeRepositoryRoot(
@@ -2750,7 +2775,11 @@ export class GitInfoService {
 
   /** Map a thrown spawn/timeout failure onto a read error code. */
   private classifyExecError(error: unknown): GitReadErrorCode {
-    if (error instanceof GitQueueDeadlineError || error instanceof GitTimeoutError) return 'timeout';
+    if (
+      error instanceof GitQueueDeadlineError ||
+      error instanceof GitTimeoutError
+    )
+      return 'timeout';
     if (!(error instanceof Error)) return 'unknown';
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return 'git-missing';

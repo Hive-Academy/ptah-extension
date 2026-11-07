@@ -25,9 +25,7 @@ Instead, please email: **security@ptah.live**
 
 This policy applies to:
 
-- The Ptah VS Code extension
 - The PtahCode desktop application (Electron)
-- The PtahCode license server (api.ptah.live)
 - The PtahCode website (ptah.live)
 
 ### Out of Scope

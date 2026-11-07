@@ -1,44 +1,23 @@
 ---
 title: Workspace Restoration
-description: How Ptah recovers your previous session when you relaunch the app.
+description: What PtahCode restores when you start the app again.
 ---
 
 # Workspace Restoration
 
-Ptah is designed so that closing the app and reopening it feels like resuming, not starting over. Restoration happens automatically on every launch.
-
-## What gets restored
-
-| Item                           | Scope         | Restored?              |
-| ------------------------------ | ------------- | ---------------------- |
-| Active workspace               | App-level     | Yes                    |
-| Open chats and scroll position | Per workspace | Yes                    |
-| Chat drafts                    | Per workspace | Yes                    |
-| Expanded file tree nodes       | Per workspace | Yes                    |
-| Sidebar and panel layout       | App-level     | Yes                    |
-| In-flight agent runs           | Per workspace | No (cancelled on quit) |
-| Browser automation sessions    | App-level     | No (closed on quit)    |
-| Provider auth tokens           | App-level     | Yes (via secure store) |
+PtahCode restores your workspaces each time that the app starts.
 
 ## Launch flow
 
-1. Ptah reads the last active workspace path from settings.
-2. If a CLI argument was passed, that path overrides the stored one.
-3. Ptah validates the folder exists and is readable.
-   - On success → workspace opens, chats and layout reload.
-   - On failure → welcome screen opens with a **"Last workspace unavailable"** notice.
-4. The background analyzer compares the analysis cache timestamp to file mtimes and re-scans only what changed.
+1. PtahCode reads the saved list of workspace folders and the active folder.
+2. PtahCode skips a saved folder that no longer exists.
+3. If you started the app with a folder path, PtahCode adds that folder and makes it active.
+4. Otherwise, the saved active folder becomes active again.
 
-## Handling moved or deleted folders
+## Moved or deleted folders
 
-If you've moved a workspace since the last session, Ptah won't guess where it went. You'll see the welcome screen and can re-open the folder from its new location — your chat history under `.ptah/chats/` moves with the folder, so nothing is lost.
+PtahCode does not try to find a moved folder. Open the folder again from its new location. Refer to [Opening a workspace](/workspace/opening-a-workspace/).
 
-If you've deleted the folder, Ptah forgets it from the recent list after the next successful launch.
+## CLI lanes after a restart
 
-## Disabling restoration
-
-If you'd rather start from the welcome screen every time, toggle **Settings → General → Restore last workspace on launch** off.
-
-:::tip
-Crash recovery uses the same mechanism. If Ptah exits unexpectedly, relaunching resumes exactly where you were — no manual recovery step required.
-:::
+A CLI lane that ran when the app stopped shows **Interrupted by host restart** on its agent card. PtahCode can resume such a lane with its context if the lane started less than 24 hours earlier. After that, the lane starts again without its earlier context.

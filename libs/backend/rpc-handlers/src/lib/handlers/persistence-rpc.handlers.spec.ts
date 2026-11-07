@@ -62,7 +62,7 @@ function makeRpcHandler() {
 function makeBackupService() {
   return {
     backup: jest.fn().mockResolvedValue('/path/to/backup.sqlite'),
-    rotate: jest.fn(),
+    rotate: jest.fn().mockResolvedValue(undefined),
   };
 }
 

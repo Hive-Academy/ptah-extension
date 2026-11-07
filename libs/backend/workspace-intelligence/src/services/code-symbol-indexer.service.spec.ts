@@ -12,6 +12,20 @@ import type { AstAnalysisService } from '../ast/ast-analysis.service';
 import type { BackgroundWorkAdmission } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import { CodeSymbolIndexer } from './code-symbol-indexer.service';
+import { Result } from '@ptah-extension/shared';
+import { AstAnalysisService as RealAstAnalysisService } from '../ast/ast-analysis.service';
+import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import {
+  FakeWorkerFactory,
+  emptyQueryMultiReply,
+} from '../testing/tree-sitter-worker-fakes';
+
+// The real parser service is used by the worker-outage suite; its WASM
+// bundle-dir resolver reads `import.meta.url`, which Jest's CJS runtime rejects.
+jest.mock('../ast/wasm-bundle-dir', () => ({
+  BUNDLE_DIR: '/mock/bundle/dir',
+  resolveWasmPath: (filename: string) => `/mock/bundle/dir/wasm/${filename}`,
+}));
 
 // ---------------------------------------------------------------------------
 // Minimal mock helpers
@@ -103,6 +117,8 @@ function makeAst(): jest.Mocked<AstAnalysisService> {
       isErr: () => false,
       value: { functions: [], classes: [] },
     }),
+    isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+    runtimeRetryInMs: jest.fn().mockReturnValue(0),
   } as unknown as jest.Mocked<AstAnalysisService>;
 }
 
@@ -483,6 +499,32 @@ describe('CodeSymbolIndexer', () => {
   });
 
   describe('indexWorkspace — total failure surfaces an error', () => {
+    it('fails the run with one summary for runtime skips, recording and purging nothing', async () => {
+      const files = fakeTsFiles(4);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('const x = 1;');
+      let unavailable = false;
+      const ast = makeAst();
+      ast.isRuntimeUnavailable = jest.fn(() => unavailable);
+      ast.runtimeRetryInMs = jest.fn(() => 60_000);
+      ast.analyzeSource.mockImplementation(async () => {
+        unavailable = true;
+        return Result.err(new Error('runtime unavailable'));
+      });
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+      await expect(service.indexWorkspace('/workspace')).rejects.toThrow(
+        'tree-sitter runtime unavailable — skipped 3 files; next retry in 60000ms',
+      );
+      expect(ast.analyzeSource).toHaveBeenCalledTimes(1);
+      expect(sink.replaceFileSymbols).toHaveBeenCalledTimes(0);
+      // No per-file parse warning while the runtime is latched.
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('AST parse failed'),
+      );
+    });
     it('throws when every discovered file errors and 0 symbols are produced', async () => {
       const files = fakeTsFiles(5);
       const logger = makeLogger();
@@ -497,6 +539,8 @@ describe('CodeSymbolIndexer', () => {
           isErr: () => true,
           error: new Error('web-tree-sitter.wasm not found'),
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
 
       const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
@@ -531,6 +575,8 @@ describe('CodeSymbolIndexer', () => {
               }
             : { isErr: () => true, error: new Error('parse failed') };
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
 
       const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
@@ -604,6 +650,8 @@ describe('CodeSymbolIndexer', () => {
             parseStatus: 'ok',
           },
         }),
+        isRuntimeUnavailable: jest.fn().mockReturnValue(false),
+        runtimeRetryInMs: jest.fn().mockReturnValue(0),
       } as unknown as jest.Mocked<AstAnalysisService>;
     }
 
@@ -1689,6 +1737,43 @@ describe('CodeSymbolIndexer', () => {
       await service.indexWorkspace(ROOT);
       expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
       expect(sink.purgeMissing.mock.calls[0][1]).toEqual(files);
+    });
+  });
+
+  describe('indexWorkspace — tree-sitter worker outage', () => {
+    it('skips and retries, rather than completing, when the worker enters its cooldown mid-batch', async () => {
+      const files = fakeTsFiles(8);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('const x = 1;');
+      // Two files parse, then the worker dies on every request: the third
+      // consecutive crash starts the client's cooldown.
+      const factory = new FakeWorkerFactory();
+      let answered = 0;
+      factory.autoReply = (request) =>
+        answered++ < 2
+          ? { kind: 'reply', message: emptyQueryMultiReply(request) }
+          : { kind: 'exit', code: 1 };
+      const parser = new TreeSitterParserService(logger, factory);
+      const ast = new RealAstAnalysisService(logger, parser);
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+
+      await expect(service.indexWorkspace('/workspace')).rejects.toThrow(
+        /tree-sitter runtime unavailable — skipped 3 files; next retry in \d+ms/,
+      );
+      // 2 answered + 3 crashed; the 3 files after the cooldown were never sent.
+      const sent = factory.workers.flatMap((worker) => worker.requests());
+      expect(sent).toHaveLength(5);
+      expect(sent.every((request) => request.op === 'queryMulti')).toBe(true);
+      expect(parser.isRuntimeUnavailable()).toBe(true);
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(
+        '[CodeSymbolIndexer] Workspace indexing complete',
+        expect.anything(),
+      );
+      parser.dispose();
     });
   });
 });

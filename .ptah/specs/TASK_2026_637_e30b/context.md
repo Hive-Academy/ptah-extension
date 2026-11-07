@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Epic: Thoth UI (P2)
 
 Created 2026-10-12 by the memory and skills backlog triage (code audit against `main`, codex cross-review).

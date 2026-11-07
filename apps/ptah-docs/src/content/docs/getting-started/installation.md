@@ -1,122 +1,74 @@
 ---
 title: Installation
-description: Download and install the PtahCode desktop app on Windows, macOS, or Linux.
+description: Install the PtahCode desktop app on Windows, macOS, or Linux.
 ---
 
-PtahCode is distributed as a native desktop app for Windows, macOS, and Linux. This page covers system requirements, where to download installers, and per-platform installation steps.
+PtahCode is a desktop app for Windows, macOS, and Linux. Windows builds come from the Microsoft Store. macOS and Linux builds come from GitHub releases.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/install.mp4" type="video/mp4" />
 </video>
 
-## System requirements
+## Supported platforms
 
-| Platform | Minimum version                                     | Recommended   |
-| -------- | --------------------------------------------------- | ------------- |
-| Windows  | Windows 10 (64-bit)                                 | Windows 11    |
-| macOS    | macOS 11 Big Sur (Intel or Apple Silicon)           | macOS 13+     |
-| Linux    | Ubuntu 20.04+, Debian 11+, Fedora 36+ (glibc 2.31+) | Ubuntu 22.04+ |
+| Platform | Build                         | Where to get it                                                                  |
+| -------- | ----------------------------- | -------------------------------------------------------------------------------- |
+| Windows  | x64, Microsoft Store package  | [Microsoft Store](https://apps.microsoft.com/detail/9N80K3HFX0JT)                |
+| macOS    | Apple Silicon, `.dmg` or `.zip` | [GitHub releases](https://github.com/Hive-Academy/PtahCode/releases)           |
+| Linux    | x64, `.AppImage` or `.deb`    | [GitHub releases](https://github.com/Hive-Academy/PtahCode/releases)             |
 
-Additional requirements for all platforms:
+No Intel macOS build and no Windows ARM build are published.
 
-- **Memory**: 4 GB RAM minimum, 8 GB recommended
-- **Disk**: 500 MB for the app, plus space for workspace caches and downloaded plugins
-- **Network**: Internet connection for provider APIs and plugin downloads. Ptah needs no license check to run.
-- **Node.js** (optional): Required if you plan to run local MCP servers
-
-:::note[Apple Silicon]
-Ptah ships a universal macOS build that runs natively on both Intel and Apple Silicon. No Rosetta required.
-:::
-
-## Download
-
-All releases are published to GitHub:
-
-**[github.com/Hive-Academy/PtahCode/releases](https://github.com/Hive-Academy/PtahCode/releases)**
-
-Download the installer that matches your platform from the latest release assets.
-
-| Platform | File                                                    |
-| -------- | ------------------------------------------------------- |
-| Windows  | `Ptah-Setup-<version>.exe`                              |
-| macOS    | `Ptah-<version>.dmg`                                    |
-| Linux    | `Ptah-<version>.AppImage` or `ptah_<version>_amd64.deb` |
+You can also start from the [download page](https://ptah.live/download).
 
 ## Install on Windows
 
-1. Double-click `Ptah-Setup-<version>.exe`.
-2. If SmartScreen shows a warning, click **More info** then **Run anyway**. The installer is signed, but the marketplace reputation for new releases takes time to build.
-3. Choose an install scope (per-user or machine-wide) and complete the wizard.
-4. Ptah launches automatically when installation finishes.
+1. Open the [PtahCode page in the Microsoft Store](https://apps.microsoft.com/detail/9N80K3HFX0JT).
+2. Click **Get** or **Install**.
+3. Start Ptah from the Start menu.
 
-:::caution[SmartScreen warning]
-If you see "Windows protected your PC," verify the publisher is **Ptah Extensions** before proceeding. Do not run installers from any other source.
+The Microsoft Store installs updates for you.
+
+:::note[Older Windows installs]
+GitHub releases contain no Windows `.exe` installer. If you have an older Ptah that you installed from an `.exe`, uninstall it first. Then install Ptah from the Microsoft Store. Your data in `~/.ptah` stays.
 :::
 
 ## Install on macOS
 
-1. Open `Ptah-<version>.dmg`.
-2. Drag the **Ptah** icon into the **Applications** folder.
-3. Eject the DMG.
-4. Open **Applications** and double-click **Ptah**. On first launch, macOS asks you to confirm the app was downloaded from the internet — click **Open**.
+1. Download the `.dmg` file from the latest GitHub release.
+2. Open the `.dmg` file.
+3. Drag **Ptah** into the **Applications** folder.
+4. Open **Ptah** from **Applications**.
 
-If macOS blocks the app with a Gatekeeper message, go to **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to the Ptah notice.
+The macOS build is not signed. If macOS blocks the app, go to **System Settings → Privacy & Security** and click **Open Anyway** next to the Ptah message. See [Installation issues](/troubleshooting/installation-issues/) for other fixes.
 
 ## Install on Linux
 
-### AppImage (portable)
+### AppImage
 
 ```bash
-chmod +x Ptah-<version>.AppImage
-./Ptah-<version>.AppImage
+chmod +x Ptah-*.AppImage
+./Ptah-*.AppImage
 ```
 
-The AppImage is self-contained and runs without installation. To integrate it with your desktop environment, use a tool like [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher).
+The AppImage runs without installation. Some distributions need FUSE. If the AppImage does not start, install `libfuse2` (`sudo apt install libfuse2`).
 
 ### Debian / Ubuntu (.deb)
 
 ```bash
-sudo dpkg -i ptah_<version>_amd64.deb
-sudo apt-get install -f   # resolve any missing dependencies
+sudo apt install ./<downloaded-file>.deb
 ```
 
-Launch Ptah from your application menu or run `ptah` from a terminal.
+Start **PtahCode** from your application menu.
 
-:::note[Sandbox / FUSE]
-AppImages on some distributions require FUSE. If the AppImage fails to start, install `libfuse2` (`sudo apt install libfuse2`).
-:::
+## Updates
 
-## First-run permissions
+On macOS and Linux, Ptah compares your version with the latest GitHub release. When a newer release is available, Ptah shows an update dialog. Its **Download** action opens the release file in your browser. Install the new version over the old one.
 
-On the first launch, your operating system may ask Ptah to grant a few permissions:
+## Where your data goes
 
-- **Firewall / network access** — required to reach provider APIs (Claude, Copilot, Codex, etc.), the license server, and the plugin registry. Allow access on both private and public networks if prompted.
-- **Clipboard access** (macOS) — used by copy/paste actions inside the chat and terminal panels.
-- **Keychain / Credential Manager** — Ptah stores your license key and provider credentials in the OS secure store via Electron's `safeStorage` API.
-- **File-system access** — macOS may prompt the first time you open a workspace folder. Grant access to the parent folder where your projects live.
-
-Deny any of these and the corresponding feature will be disabled until you grant access again in your OS settings.
-
-## Verify the install
-
-Open PtahCode and check:
-
-1. On Windows and Linux, the window title bar shows **PtahCode**.
-2. **Help → About** displays a version number that matches the release you downloaded.
-3. The status bar at the bottom shows **Ready** with no error badges.
-
-You can also verify from a terminal (Linux/macOS) or PowerShell (Windows):
-
-```bash
-# macOS / Linux
-ls -la /Applications/Ptah.app 2>/dev/null || which ptah
-
-# Windows PowerShell
-Get-AppxPackage *ptah* -ErrorAction SilentlyContinue ; `
-  Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" `
-    | Where-Object DisplayName -like "*Ptah*"
-```
+Ptah keeps its settings and data in `~/.ptah` in your home folder. See [File locations](/reference/file-locations/).
 
 ## Next step
 
-Continue to [First launch](/getting-started/first-launch/) to open your first workspace and run the setup wizard.
+Continue to [First launch](/getting-started/first-launch/).

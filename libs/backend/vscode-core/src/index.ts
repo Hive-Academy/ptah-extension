@@ -10,6 +10,11 @@ export type { ExtensionContextShimPaths } from './di/register-storage-shims';
 export { Logger } from './logging';
 export type { LogLevel, LogContext, LogEntry } from './logging';
 export { DegradationReporter, MAX_TRACKED_DEGRADATION_CODES } from './logging';
+export {
+  RepeatedWarningLimiter,
+  DEFAULT_REPEATED_WARNING_INTERVAL_MS,
+} from './logging';
+export type { RepeatedWarningLimiterOptions } from './logging';
 export type {
   DegradationReport,
   DegradationCount,
@@ -93,6 +98,7 @@ export { SentryTracerAdapter } from './services/sentry-tracer.adapter';
 export { NoopTracer } from './services/noop-tracer';
 export { NullSessionAttachmentGuard } from './services/null-session-attachment-guard';
 export { GitInfoService } from './services/git-info.service';
+export type { CommonDirRead, WorktreeListRead } from './services/git/git-probe-outcome';
 export type {
   WorktreeFileReader,
   DiffFileRequest,
@@ -156,8 +162,12 @@ export {
   MAX_BREADCRUMB_VALUE_LENGTH,
   MAX_WORKER_RESTARTS,
   WORKER_RESTART_WINDOW_MS,
+  HangBreadcrumbs,
+  hangBreadcrumbs,
+  HANG_PROFILE_ENV,
 } from './diagnostics';
 export type {
+  HangOpKind,
   BackgroundWorkAdmission,
   BackgroundWorkSignal,
   BackgroundWorkState,

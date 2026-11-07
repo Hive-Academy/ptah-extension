@@ -1,66 +1,50 @@
 ---
-title: AI Team Builder
-description: Conversationally design a custom AI team — agents, skills, prompts, and MCP tools — and apply it to your workspace.
+title: AI team builder
+description: Describe the AI team you want, tune the proposed configuration with the agent, and apply it to your workspace.
 ---
 
-The **AI Team Builder** (also called the _Harness Builder_) is a conversational way to assemble a complete agent configuration for your workspace. Where the [Setup Wizard](/setup/setup-wizard/) generates an opinionated roster from a scan, the Team Builder lets you **describe what you're building** and shape every piece of the configuration with Ptah's help.
+The **AI team builder** is the Setup path where you describe the team that you want. The agent proposes a configuration, and you tune it in a conversation. Use [Analyze current project](/setup/setup-wizard/) instead if you want Ptah to recommend agents from a scan.
 
-![AI Team Builder](/screenshots/setup-ai-team-builder.png)
+![AI team builder](/screenshots/setup-ai-team-builder.png)
 
-## Opening it
+## Start the builder
 
-From the [Setup Hub](/setup/), click the **AI Team Builder** card. The card reads **Create AI Team** if no `CLAUDE.md` exists yet, or **Edit AI Team** if your workspace already has one.
+1. Click **Setup** in the tab bar.
+2. On the **AI team builder** card, click **Build a team**.
+3. Under **What should the team do?**, describe the team. This field is necessary.
+4. Send the brief.
 
-## How it works
+To continue earlier work, click **Load saved draft**.
 
-The Team Builder is a two-pane view:
+## The steps
 
-- **Left** — a chat transcript. You describe your project; Ptah plans it with you and streams its work (analysis, suggestions, generated files) as an execution tree.
-- **Right** — a live **Config** preview that fills in as the conversation progresses.
+The builder has three steps: **Brief**, **Proposal**, and **Review**.
 
-Start by telling it what you're building, for example:
+- **Brief** — what the team must do.
+- **Proposal** — the agent proposes the configuration, and the panel shows it as it develops. Send more messages to change it. The agent can ask you questions in the conversation.
+- **Review** — examine the final configuration, then click **Apply**.
 
-> _"A NestJS + Prisma REST API with a Stripe billing module and a Playwright e2e suite. I want strict review on anything touching payments."_
+## What the proposal contains
 
-Ptah responds by planning the team, then proposing concrete configuration. As it works it may surface **permission requests** and **questions** inline in the transcript — answer them to steer the result.
+| Section       | What it holds                                         |
+| ------------- | ----------------------------------------------------- |
+| **Persona**   | The identity, description, and goals of the team      |
+| **Agents**    | Built-in agents to turn on, and custom agents         |
+| **Skills**    | Existing skills to include, and new skills            |
+| **Prompt**    | A system prompt and added sections                    |
+| **MCP**       | MCP servers to attach, and their enabled tools        |
+| **CLAUDE.md** | The project `CLAUDE.md` file                          |
 
-## What it configures
+## Apply to your workspace
 
-A harness is a packaged agent configuration. The Team Builder can fill in any combination of:
+When the review shows **Safe to apply. The agent is not running.**, click **Apply**. Ptah writes the project `CLAUDE.md`, the agent files in `.claude/agents/`, and the new skills.
 
-| Section       | What it holds                                                                           |
-| ------------- | --------------------------------------------------------------------------------------- |
-| **Persona**   | The team's overall identity, description, and goals                                     |
-| **Agents**    | Which built-in agents are enabled, plus any custom sub-agents designed for your project |
-| **Skills**    | Existing skills to include, plus new skills generated for your stack                    |
-| **Prompt**    | A system prompt and enhanced sections layered on top of the defaults                    |
-| **MCP**       | MCP servers to attach and which of their tools are enabled                              |
-| **CLAUDE.md** | The generated project `CLAUDE.md`, including any custom sections                        |
+To start again, click **Start over**.
 
-You can keep refining by sending more messages — add an agent, tighten a prompt, attach an MCP server — until the config reads the way you want.
+## Presets
 
-## Applying to your workspace
+Save a configuration as a preset from the **Presets** section of the proposal page. Apply the preset later to another workspace that uses the same conventions.
 
-When the configuration is ready, the builder shows **Configuration looks ready to apply**. Click **Apply to Workspace** (in the banner or the side panel) and Ptah writes the result as:
+## Related
 
-- a project **`CLAUDE.md`**,
-- agent files under **`.claude/agents/`**, and
-- any generated **skills**.
-
-The [Setup Hub](/setup/) **Active Configuration** card flips to show `CLAUDE.md present` and `Agent config active` once applied.
-
-:::note
-Closing the builder with an in-progress configuration prompts you to discard it. Apply (or save a preset) before leaving if you want to keep your work.
-:::
-
-## Saving presets
-
-Configurations you build can be saved as **presets** — reusable AI team setups that appear in the Setup Hub. A preset captures the persona, agents, skills, prompt, and MCP selections so you can re-apply the same team to another workspace with one click. This is ideal for teams that maintain a house style across many repos.
-
-## When to use the Team Builder
-
-- You want **precise control** over agents, prompts, and tools rather than an auto-generated roster.
-- Your project needs **custom skills or MCP servers** wired in from the start.
-- You're standardizing a **reusable team** across multiple repositories (save it as a preset).
-
-For a brand-new, empty repository, start from the [New Project](/setup/new-project/) flow instead — it scaffolds the project _and_ builds its team in one pass.
+- [New project](/setup/new-project/) — start an empty folder with a proposed team.

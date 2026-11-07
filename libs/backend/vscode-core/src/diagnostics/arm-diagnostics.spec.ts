@@ -3,6 +3,8 @@ import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import { armDiagnostics } from './arm-diagnostics';
+import { HANG_PROFILE_ENV, HANG_PROFILE_THRESHOLD_ENV, HangProfiler } from './hang-profiler';
+import { createFakeInspectorSession } from '../testing/inspector-session.mock';
 import type {
   EventLoopLagListener,
   EventLoopLagSample,
@@ -219,3 +221,113 @@ describe('armDiagnostics — background-work governor (TASK_2026_437 C14)', () =
     expect(fakes.watchdog.start).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('armDiagnostics — opt-in hang profiler (PTAH_HANG_PROFILE)', () => {
+  const original = process.env[HANG_PROFILE_ENV];
+  const originalThreshold = process.env[HANG_PROFILE_THRESHOLD_ENV];
+
+  afterEach(() => {
+    if (original === undefined) delete process.env[HANG_PROFILE_ENV];
+    else process.env[HANG_PROFILE_ENV] = original;
+    if (originalThreshold === undefined) delete process.env[HANG_PROFILE_THRESHOLD_ENV];
+    else process.env[HANG_PROFILE_THRESHOLD_ENV] = originalThreshold;
+  });
+
+  function armWithFakeSession(fakes: ReturnType<typeof createFakes>) {
+    const session = createFakeInspectorSession();
+    const handle = armDiagnostics({
+      container: buildContainer(fakes),
+      logsPath: '/logs',
+      createHangProfiler: (options) =>
+        new HangProfiler({ ...options, createSession: () => session }),
+    });
+    return { session, handle };
+  }
+
+  it('stays off by default: the watchdog writes its own recovery line', () => {
+    delete process.env[HANG_PROFILE_ENV];
+    const fakes = createFakes();
+    const { session } = armWithFakeSession(fakes);
+
+    expect(fakes.watchdog.start).toHaveBeenCalledWith({ logsPath: '/logs' });
+    expect(session.calls).toEqual([]);
+  });
+
+  it('when on, starts sampling and routes the recovery line through the profiler', async () => {
+    process.env[HANG_PROFILE_ENV] = '1';
+    const fakes = createFakes();
+    const { session, handle } = armWithFakeSession(fakes);
+
+    const startArgs: unknown[] = fakes.watchdog.start.mock.calls[0];
+    const options = startArgs[0] as { logsPath: string; onRecovered?: unknown };
+    expect(options.logsPath).toBe('/logs');
+    expect(typeof options.onRecovered).toBe('function');
+    await waitForCalls(session, 3);
+    expect(session.calls).toEqual([
+      'Profiler.enable',
+      'Profiler.setSamplingInterval',
+      'Profiler.start',
+    ]);
+
+    handle.dispose();
+    await waitForCalls(session, 4);
+    expect(session.calls[3]).toBe('Profiler.stop');
+    expect(session.disconnected).toBe(true);
+  });
+
+  it('captures measured lag only above the configured threshold', async () => {
+    process.env[HANG_PROFILE_ENV] = '1';
+    process.env[HANG_PROFILE_THRESHOLD_ENV] = '400';
+    const capture = jest.spyOn(HangProfiler.prototype, 'captureHang').mockResolvedValue({
+      hangProfile: '/logs/test.cpuprofile', topSelfTime: [], profiledMs: 0,
+      profileWindowed: false,
+    });
+    const fakes = createFakes();
+    const { session, handle } = armWithFakeSession(fakes);
+    await waitForCalls(session, 3);
+    fakes.emitLag({ ...SAMPLE, maxMs: 400 });
+    expect(capture).not.toHaveBeenCalled();
+    fakes.emitLag({ ...SAMPLE, maxMs: 401 });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ blockedForMs: 401 }));
+    handle.dispose();
+    capture.mockRestore();
+  });
+
+  it('disposes the profiler when the watchdog fails to start, leaving no debugger attached', async () => {
+    process.env[HANG_PROFILE_ENV] = '1';
+    const fakes = createFakes();
+    fakes.watchdog.start.mockImplementation(() => {
+      throw new Error('workers forbidden');
+    });
+    let profiler: HangProfiler | undefined;
+    const session = createFakeInspectorSession();
+    armDiagnostics({
+      container: buildContainer(fakes),
+      logsPath: '/logs',
+      createHangProfiler: (options) => {
+        profiler = new HangProfiler({ ...options, createSession: () => session });
+        return profiler;
+      },
+    });
+    for (let i = 0; i < 50; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(profiler).toBeDefined();
+    // Disposed before its queued start ran: no inspector session was opened,
+    // so nothing samples and no rotation timer holds the profiler alive.
+    expect(session.calls).toEqual([]);
+    expect(
+      (profiler as unknown as { rotateTimer: unknown }).rotateTimer,
+    ).toBeUndefined();
+  });
+});
+
+async function waitForCalls(
+  session: { calls: string[] },
+  count: number,
+): Promise<void> {
+  for (let i = 0; i < 50 && session.calls.length < count; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}

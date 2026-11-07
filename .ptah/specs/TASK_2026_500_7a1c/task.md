@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: devops
 title: >-
   Repair or delete the license-server prune targets

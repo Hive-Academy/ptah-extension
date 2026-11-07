@@ -1,103 +1,72 @@
 ---
 title: Creating Templates
-description: Structure and metadata for authoring Ptah templates.
+description: The structure and frontmatter of a PtahCode agent template.
 ---
 
-A template is a Markdown or folder-based artifact with **YAML frontmatter** that tells Ptah how to present and apply it. The same authoring model is used for agent definitions and project scaffolds.
+An agent template is a file named `<name>.template.md` with YAML frontmatter and a Markdown body.
 
-## Agent template
+## Example frontmatter
 
-The simplest template type — a single Markdown file describing an agent:
-
-```markdown title="agents/frontend-developer.md"
+```markdown title="frontend-developer.template.md"
 ---
+templateId: frontend-developer-v2
+templateVersion: 2.3.0
+applicabilityRules:
+  projectTypes: [React, Angular, Vue, Svelte, Node]
+  requiredPatterns: ['**/components/**', '**/*.component.*']
+  excludePatterns: ['**/controllers/**']
+  minimumRelevanceScore: 60
+  alwaysInclude: false
+  techStack: [React, Angular, TypeScript]
+dependencies: []
 name: frontend-developer
-description: Implements UI features with accessibility and performance in mind.
-category: agent
-tools: Read, Write, Edit, Grep, Glob
-tags: [frontend, ui, accessibility]
----
-
-You are a senior frontend developer. When invoked:
-
-1. Read the task and relevant files.
-2. Implement the change with clean, typed code.
-3. Add or update tests.
-4. Verify accessibility (keyboard nav, ARIA, contrast).
-5. Summarize what changed.
-```
-
-Applying this template writes the file to `<workspace>/.claude/agents/frontend-developer.md`.
-
-## Task-spec ownership
-
-When adapting a shipped specialist template, preserve its task-spec boundaries: read the assigned task folder, write the requested deliverable, and report completion or blockers with evidence. Specialists do not allocate task IDs or edit `task.md` or `batches.md`; the team-leader records batch state.
-
-Keep delegation scoped to the role. `team-leader`, `visual-reviewer`, and `ui-ux-designer` do not delegate to CLI lanes. Do not assume Ptah tools exist in every host: prefer them when listed, otherwise use native tools. See [agent orchestration](/agents/agent-orchestration/).
-
-## Project scaffold template
-
-Scaffolds are folders with a `template.yaml` at the root describing files and variables:
-
-```text
-my-scaffold/
-├── template.yaml
-├── files/
-│   ├── {{featureName}}.component.ts.hbs
-│   ├── {{featureName}}.component.html.hbs
-│   └── {{featureName}}.component.spec.ts.hbs
-└── README.md
-```
-
-```yaml title="template.yaml"
-name: angular-feature-module
-description: Scaffolds a new Angular standalone feature with signals.
-category: scaffold
-tags: [angular, signals]
+description: >-
+  Writes and changes user-interface code in this repository ...
+model: opus
 variables:
-  - name: featureName
-    prompt: Feature name (kebab-case)
-    required: true
-  - name: useSignals
-    prompt: Use signals?
-    type: boolean
-    default: true
-targetPath: src/app/features/{{featureName}}
+  CLARIFY_TRIGGER: >-
+    two materially different UI structures ...
+---
 ```
 
 ## Frontmatter fields
 
-| Field         | Type                              | Required       | Purpose                                                   |
-| ------------- | --------------------------------- | -------------- | --------------------------------------------------------- |
-| `name`        | string                            | Yes            | Unique identifier (kebab-case)                            |
-| `description` | string                            | Yes            | Shown in the Templates panel and used by the orchestrator |
-| `category`    | `agent` \| `scaffold` \| `prompt` | Yes            | Determines how the template is applied                    |
-| `tools`       | string list                       | No             | Tools granted to an agent template                        |
-| `tags`        | string list                       | No             | Search filters                                            |
-| `variables`   | list                              | No             | User-provided values for `{{placeholders}}`               |
-| `targetPath`  | string                            | Scaffolds only | Where files land inside the workspace                     |
+| Field                | Purpose                                                                       |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `templateId`         | Unique template ID                                                            |
+| `templateVersion`    | Version of the template                                                       |
+| `applicabilityRules` | When the template is selected. See [How templates are used](/templates/using-templates/) |
+| `dependencies`       | Other templates that this template needs                                      |
+| `name`               | The agent name                                                                |
+| `description`        | When to use the agent                                                         |
+| `model`              | The model for the agent                                                       |
+| `variables`          | Values for the `{{SLOT}}` placeholders in the shared blocks                   |
 
-## Template expressions
+## Shared blocks
 
-Template files can use Handlebars-style expressions:
+To include a shared block, put a marker pair on its own lines:
 
-```text
-{{featureName}}              → provided variable
-{{pascalCase featureName}}   → helper
-{{#if useSignals}}...{{/if}} → conditional blocks
+```markdown
+<!-- STATIC:CLARIFICATION_PROTOCOL -->
+<!-- /STATIC:CLARIFICATION_PROTOCOL -->
 ```
 
-Built-in helpers: `camelCase`, `pascalCase`, `kebabCase`, `snakeCase`, `upperCase`, `lowerCase`.
+PtahCode replaces the content between the markers with the file `_shared/<kebab-name>.md`, for example `_shared/clarification-protocol.md`. The ID must use only capital letters and `_`. A wrong ID stops the template load with an error.
 
-## Testing locally
+## Task-spec ownership
 
-Drop your template under `~/.ptah/templates/` and run **Ptah: Reload Templates** from the command palette. Templates sideloaded this way are tagged **Local** and do not auto-update.
+When you adapt a shipped specialist template, keep its task-spec limits. A specialist reads its task folder, writes its deliverable, and reports with evidence. It does not allocate task IDs.
 
 ## Publishing
 
-Submit templates to the official catalog by opening a PR against [`libs/backend/agent-generation/templates/`](https://github.com/Hive-Academy/PtahCode/tree/main/libs/backend/agent-generation/templates) and regenerating the manifest with `node scripts/generate-content-manifest.js`.
+Templates are in [`libs/backend/agent-generation/templates/agents/`](https://github.com/Hive-Academy/PtahCode/tree/main/libs/backend/agent-generation/templates/agents).
+
+1. Add or change the template in a pull request.
+2. Run `node scripts/generate-content-manifest.js` to make the manifest again.
+
+Templates that you copy into `~/.ptah/templates/agents/` are deleted at the next content download. See [Template storage](/templates/template-storage/).
 
 ## Next steps
 
-- [Template storage internals](/templates/template-storage/)
-- [Apply templates](/templates/using-templates/)
+- [Template storage](/templates/template-storage/)
+- [How templates are used](/templates/using-templates/)

@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Handoff - TASK_2026_619_af7f (2026-10-07)
 
 ## Update (2026-10-08, sixth session "619 session 6", launcher branch `session/task-619-s6-launcher`, unused) — read this first

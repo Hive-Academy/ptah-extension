@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_859_b561
-status: in_progress
+status: done
 type: BUGFIX
 title: Fix MCP registry integration for the v0.1 versions/latest API
 description: >-
@@ -9,7 +9,7 @@ description: >-
   packages/remotes server.json schema, fail loudly on unknown shapes, add fixture tests.
 depends_on: []
 created: 2026-11-01T14:40:00.000Z
-updated: 2026-11-01T14:40:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

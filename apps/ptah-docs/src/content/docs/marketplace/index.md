@@ -1,65 +1,47 @@
 ---
 title: Marketplace
-description: One hub to add MCP servers, skills, and plugins to your workspace — from official registries and hosted providers like Smithery.
+description: One place to add connectors, MCP servers, skills, and plugins to PtahCode.
 ---
 
-The **Marketplace** is Ptah's in-app hub for extending any workspace with new capabilities. It brings several catalogs together behind one screen: skill packs, the official MCP registry, community skills, and hosted MCP providers — each installable without leaving the app.
+The **Marketplace** is the PtahCode screen where you add connectors, MCP servers, skills, and plugins.
 
-## Opening the Marketplace
+## Open the Marketplace
 
-In the PtahCode desktop app, click the **Marketplace** entry in the navigation rail. Pick a provider from the list and its catalog mounts on the right.
+Click the **Marketplace** button in the chat header.
 
-## Providers
+## Pages
 
-| Provider           | Adds                                                                                            | Status      |
-| ------------------ | ----------------------------------------------------------------------------------------------- | ----------- |
-| **Connectors**     | A curated, verified catalog merging Connected Apps and Smithery behind one status badge per app | Live        |
-| **Plugins**        | Bundled skill packs for orchestration, frontend & backend                                       | Live        |
-| **MCP Registry**   | Servers from the official Model Context Protocol registry                                       | Live        |
-| **Skills**         | Community skills you can discover and install                                                   | Live        |
-| **Smithery**       | Hosted MCP servers with one-click setup                                                         | Live        |
-| **Connected Apps** | OAuth-secured remote MCP servers you authorize in the browser                                   | Live        |
-| **Composio**       | Managed-auth MCP toolkits                                                                       | Coming soon |
+The left navigation has two groups.
 
-**Connectors** is the first tab — open the Marketplace and it is what you see. Only the provider you select loads — unselected and coming-soon providers fire no network calls.
+**Marketplace**
 
-### Connectors
+| Page             | What it shows                                                                  |
+| ---------------- | ------------------------------------------------------------------------------ |
+| Overview         | A summary of what you installed and what needs attention                       |
+| Connectors       | A catalog of apps with one status per app. See [Connectors](/marketplace/connectors/) |
+| MCP Servers      | The installed MCP servers                                                      |
+| Skills & Plugins | The installed skills and plugins                                               |
 
-A curated catalog of popular apps, each probe-verified, with a search box and category chips. It merges the state of your Connected Apps and Smithery connections into one status badge per app, so you do not have to check two tabs to see what is actually usable. See [Connectors](/marketplace/connectors/).
+**Sources**
 
-### Plugins
+| Source       | What you can add                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| Smithery     | Hosted MCP servers. Needs a Smithery API key. See [Smithery](/marketplace/smithery/)              |
+| MCP Registry | Servers from the official MCP registry. See [MCP Registry](/marketplace/mcp-registry/)            |
+| Custom URL   | Any remote MCP server that signs in with OAuth. See [Custom URL](/marketplace/connected-apps/)    |
+| Ptah Plugins | The official Ptah plugin packs. See [Plugins](/plugins/)                                          |
+| Community    | Community skills from skills.sh                                                                   |
+| Marketplaces | Plugin marketplaces published in GitHub repositories (`owner/repo`)                               |
 
-Curated, multi-contribution packs (agents, skills, templates, slash commands). The Marketplace's Plugins surface is the same catalog covered in depth under [Plugins](/plugins/marketplace/).
+## When an install takes effect
 
-### MCP Registry
-
-Browse and install servers from the **official MCP registry**. See [MCP Registry](/marketplace/mcp-registry/).
-
-### Skills
-
-Discover and install **community skills** — scoped knowledge packs invoked on demand in chat. For how skills work once installed, see [Skills](/mcp-and-skills/skills/).
-
-### Smithery
-
-**Hosted MCP servers** with a guided, often one-click, setup. See [Smithery](/marketplace/smithery/).
-
-### Connected Apps
-
-Remote MCP servers secured with **OAuth** — paste the server URL, authorize in your browser, and Ptah keeps the tokens encrypted on your machine. See [Connected Apps](/marketplace/connected-apps/).
-
-### Composio (coming soon)
-
-Managed-auth MCP toolkits — connect SaaS tools without hand-managing tokens. Listed in the hub and will go live in a future release.
-
-## How installs take effect
-
-After you install a skill or resolve an MCP server, Ptah refreshes its autocomplete caches so the new skill or server's tools immediately show up in `/command` and `@agent` suggestions and in the installed lists. MCP tools become first-class citizens alongside `ptah_*` tools, subject to the same [permission model](/mcp-and-skills/third-party-mcp/#permissions).
+A new MCP server is available in new chat sessions. A session that is already open does not get it.
 
 ## Next steps
 
-- [Connectors](/marketplace/connectors/) — the curated catalog with one status badge per app
-- [Smithery setup](/marketplace/smithery/)
+- [Connectors](/marketplace/connectors/)
+- [Smithery](/marketplace/smithery/)
 - [MCP Registry](/marketplace/mcp-registry/)
-- [Connected Apps](/marketplace/connected-apps/) — OAuth-secured MCP servers
-- [Third-party MCP servers](/mcp-and-skills/third-party-mcp/) — manual configuration
+- [Custom URL](/marketplace/connected-apps/)
+- [Third-party MCP servers](/mcp-and-skills/third-party-mcp/)
 - [Plugins](/plugins/)

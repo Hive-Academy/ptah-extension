@@ -14,8 +14,11 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { ITracer } from '@ptah-extension/platform-core';
 import type {
   IEmbedder,
+  SqliteDatabase,
+  SqliteStatement,
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
+import type { SqliteDbProvider } from './sqlite-reader-deps.types';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
@@ -337,6 +340,34 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
     ).toBe(true);
   });
 
+  it('a rerank failure (e.g. the 2 s host cap) is answered in RRF order but not cached', async () => {
+    const rows = [1, 2, 3, 4, 5].map((i) => ftsRow(i, `text ${i}`));
+    const rerankImpl = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('host rerank timed out after 2000 ms'))
+      .mockResolvedValue([{ id: '5', score: 0.99 }]);
+    const { service } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? { id, subject: `s${id}`, content: `c${id}`, tier: 'core' }
+          : undefined,
+    });
+
+    const fallback = await service.searchRich('test query', 5);
+    expect(fallback.hits.length).toBeGreaterThan(1);
+
+    // Not served from the cache: the reranker runs again and its order wins.
+    const reranked = await service.searchRich('test query', 5);
+    expect(rerankImpl).toHaveBeenCalledTimes(2);
+    expect(reranked.hits.map((hit) => hit.chunk.id)).toEqual(['ck5']);
+
+    // The complete answer is cached.
+    await service.searchRich('test query', 5);
+    expect(rerankImpl).toHaveBeenCalledTimes(2);
+  });
+
   it('4×K over-fetch: reranker receives limit*4 candidates when BM25 returns >limit*4 rows', async () => {
     // topK = 3 → reranker should receive up to 12 candidates (3*4), not just 3.
     const topK = 3;
@@ -445,6 +476,62 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
 // ---------------------------------------------------------------------------
 // LRU result cache
 // ---------------------------------------------------------------------------
+
+describe('MemorySearchService.searchRich — degraded vector branch', () => {
+  it('answers bm25Only when the embed fails and does not cache that answer', async () => {
+    const rows = [1, 2].map((i) => ftsRow(i, `text ${i}`));
+    const embed = jest
+      .fn<Promise<Float32Array[]>, [readonly string[]]>()
+      .mockRejectedValueOnce(new Error('host embed timed out after 4000 ms'))
+      .mockResolvedValue([new Float32Array(384)]);
+    const embedder: IEmbedder = {
+      embed,
+      dim: 384,
+      modelId: 'test-model',
+      dispose: async () => undefined,
+    };
+    const service = new MemorySearchService(
+      makeLogger(),
+      makeConnection(),
+      embedder,
+      makeStore(),
+      makeObservationQueue(),
+      makeVecStatus(true),
+    );
+
+    const first = await service.searchRich('hello world', 10);
+    expect(first.bm25Only).toBe(true);
+
+    // A cache hit would skip the embed; the retry reaches the vector branch.
+    const second = await service.searchRich('hello world', 10);
+    expect(embed).toHaveBeenCalledTimes(2);
+    expect(second.bm25Only).toBe(false);
+
+    await service.searchRich('hello world', 10);
+    expect(embed).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers before the worker deadline when embedding stalls', async () => {
+    jest.useFakeTimers();
+    try {
+      const embedder: IEmbedder = {
+        embed: () => new Promise<Float32Array[]>(() => undefined),
+        dim: 384,
+        modelId: 'test-model',
+        dispose: async () => undefined,
+      };
+      const service = new MemorySearchService(
+        makeLogger(), makeConnection(), embedder, makeStore(), makeObservationQueue(), makeVecStatus(true),
+      );
+      const pending = service.searchRich('hello world', 10, undefined, Date.now() + 500);
+      await Promise.resolve();
+      jest.advanceTimersByTime(300);
+      expect((await pending).bm25Only).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
 
 describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
   /**
@@ -1879,9 +1966,12 @@ describe('MemorySearchService — real SQLite scope and quarantine', () => {
   it('ranks scoped vector candidates after the workspace predicate', async () => {
     seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('b-1', '/ws/b')]);
     await makeSearch({ vec: true }).searchIndex({ query: 'kiwi', workspaceRoot: '/ws/b' });
+    // Bounded vec0 KNN first, workspace predicate after it; never the
+    // whole-table `vec_distance_l2` join that blocked the main thread.
     expect(t.issued.some((sql) =>
-      sql.includes('vec_distance_l2') && sql.includes('m.workspace_root IS ?')
+      sql.includes('embedding MATCH ? AND k = ?') && sql.includes('m.workspace_root IS ?')
     )).toBe(true);
+    expect(t.issued.some((sql) => sql.includes('vec_distance_l2'))).toBe(false);
   });
 
   // Cache invalidation through the real store (no mocked counters). The insert
@@ -1950,5 +2040,83 @@ describe('MemorySearchService — real SQLite scope and quarantine', () => {
         hitIds((await search.searchRich('kiwi', 10, '/ws/a')).hits),
       ).toEqual(['a-1']);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bounded scoped KNN: recall guard
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService.searchRich — scoped vector candidate cap', () => {
+  it('returns the BM25 hits, not bm25Only, when the capped KNN finds no scoped vectors', async () => {
+    const rows = [1, 2, 3].map((i) => ftsRow(i, `lexical match ${i}`));
+    const knnK: number[] = [];
+    const statementFor = (sql: string): SqliteStatement => ({
+      all: (...params: unknown[]) => {
+        if (sql.includes('embedding MATCH ? AND k = ?')) {
+          knnK.push(Number(params[1]));
+          // The cap-sized KNN held no scoped row: one anchor row, null rowid.
+          return [{ inspected: 2048, rowid: null, distance: null }];
+        }
+        return rows;
+      },
+      get: () => undefined,
+      run: () => ({ changes: 0, lastInsertRowid: 0 }),
+      iterate: () => [][Symbol.iterator](),
+    });
+    const db: SqliteDatabase = {
+      exec: () => undefined,
+      prepare: statementFor,
+      pragma: () => undefined,
+      close: () => undefined,
+      open: true,
+      inTransaction: false,
+      transaction: (fn) => fn,
+    };
+    const connection: SqliteDbProvider = {
+      db,
+      vecExtensionLoaded: true,
+      handleFatalWriteError: () => false,
+    };
+    const embedder: IEmbedder = {
+      embed: async () => [new Float32Array(384)],
+      dim: 384,
+      modelId: 'test-model',
+      dispose: async () => undefined,
+    };
+    const store: MemoryStore = Object.assign(Object.create(MemoryStore.prototype), {
+      getById: (id: string) => ({ id, subject: id, content: id, tier: 'recall' }),
+      recordUse: jest.fn(),
+      getWriteCounter: () => 0,
+    });
+    const logger = makeLogger();
+    const service = new MemorySearchService(
+      logger,
+      connection,
+      embedder,
+      store,
+      makeObservationQueue(),
+      { available: true },
+    );
+
+    const result = await service.searchRich('lexical match', 5, '/tiny-workspace');
+
+    // A capped KNN is a partial vector answer, not a failure (review 4 Critical 1).
+    expect(result.bm25Only).toBe(false);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(result.hits.map((hit) => hit.chunk.text)).toEqual([
+      'lexical match 1',
+      'lexical match 2',
+      'lexical match 3',
+    ]);
+    // Hard bound held: one KNN pass, at the cap. Partial answers are not
+    // cached, so the repeat scans again.
+    expect(knnK).toEqual([2048]);
+    await service.searchRich('lexical match', 5, '/tiny-workspace');
+    expect(knnK).toEqual([2048, 2048]);
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('candidate cap'),
+      expect.objectContaining({ table: 'memory_chunks_vec', scopedHits: 0 }),
+    );
   });
 });

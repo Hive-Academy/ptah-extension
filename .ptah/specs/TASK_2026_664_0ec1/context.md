@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context
 Source: TASK_2026_655_handoff/HANDOFF.md follow-up 1 (found in the PR 724 review).
 - `libs/backend/vscode-core/src/.../webview-manager.ts` and

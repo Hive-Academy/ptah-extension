@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: devops
 title: >-
   Take @sentry/nestjs 11 and drop the peer override

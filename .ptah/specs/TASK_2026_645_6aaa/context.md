@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context: combined M-final memory measurement and main-process growth
 
 ## Why this task exists

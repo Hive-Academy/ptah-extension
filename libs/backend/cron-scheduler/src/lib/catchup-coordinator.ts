@@ -97,7 +97,7 @@ export class CatchupCoordinator {
       const policy = policyFor(job);
       if (policy === 'none') continue;
       const since = Math.max(cutoff, job.lastRunAt ?? cutoff);
-      const slots = this.computeMissedSlots(job, since, now);
+      const slots = await this.computeMissedSlots(job, since, now);
       if (slots.length === 0) continue;
       const toFire = policy === 'last' ? [slots[slots.length - 1]] : slots;
       for (const slot of toFire) {
@@ -119,11 +119,11 @@ export class CatchupCoordinator {
    * `(since, now]`. Slots equal to `since` are excluded — that boundary
    * was either already-run (stored in `lastRunAt`) or is the cutoff itself.
    */
-  private computeMissedSlots(
+  private async computeMissedSlots(
     job: ScheduledJob,
     since: number,
     now: number,
-  ): number[] {
+  ): Promise<number[]> {
     const Cron = loadCron();
     let cron: CronInstance;
     try {
@@ -145,7 +145,14 @@ export class CatchupCoordinator {
     const slots: number[] = [];
     let cursor = new Date(since);
     const MAX_ITER = 2000;
+    const BATCH_SIZE = 32;
+    const BATCH_BUDGET_MS = 20;
+    let batchStartedAt = Date.now();
     for (let i = 0; i < MAX_ITER; i += 1) {
+      if (i > 0 && (i % BATCH_SIZE === 0 || Date.now() - batchStartedAt >= BATCH_BUDGET_MS)) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        batchStartedAt = Date.now();
+      }
       const next = cron.nextRun(cursor);
       if (!next) break;
       const t = next.getTime();

@@ -1,11 +1,11 @@
 ---
 title: Logs & Diagnostics
-description: Finding logs, opening DevTools, and enabling verbose logging.
+description: Find the log files, change the log level, and open DevTools.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Ptah writes structured logs to the Electron user-data folder. Logs rotate daily and are kept for 14 days.
+Ptah writes its log to the Electron logs folder. It starts a new file each day.
 
 ## Log file locations
 
@@ -15,53 +15,32 @@ Ptah writes structured logs to the Electron user-data folder. Logs rotate daily 
 | macOS   | `/Users/<you>/Library/Logs/Ptah/`           |
 | Linux   | `/home/<you>/.config/Ptah/logs/`            |
 
-The current day's log is named `ptah-YYYY-MM-DD.log`. Older files are gzipped as `ptah-YYYY-MM-DD.log.gz`.
+The log of the day is named `Ptah-YYYY-MM-DD.log`.
 
-## Opening the logs folder
+## Log level
 
-**Help → Open logs folder** reveals the folder in Explorer / Finder / your file manager without having to remember the path.
-
-## Log levels
-
-The default level is `info`. Raise it for more detail:
-
-- **Settings → Advanced → Log level**, or
-- Launch with the `PTAH_LOG=debug` environment variable:
+The default level is `info`. For more detail, start Ptah with the `PTAH_LOG_LEVEL` environment variable. The levels are `debug`, `info`, `warn`, and `error`.
 
 ```bash
-# Windows (PowerShell)
-$env:PTAH_LOG = "debug"; & "C:\Users\$env:USERNAME\AppData\Local\Programs\Ptah\Ptah.exe"
-
 # macOS
-PTAH_LOG=debug /Applications/Ptah.app/Contents/MacOS/Ptah
+PTAH_LOG_LEVEL=debug /Applications/Ptah.app/Contents/MacOS/Ptah
 
 # Linux
-PTAH_LOG=debug ./Ptah-*.AppImage
+PTAH_LOG_LEVEL=debug ./Ptah-*.AppImage
 ```
 
-Valid levels: `error`, `warn`, `info`, `debug`, `trace`. `trace` is extremely verbose — use only when debugging.
+On Windows, set `PTAH_LOG_LEVEL` as a user environment variable, then start Ptah.
 
 ## DevTools
 
-Ptah is an Electron app, and you can open Chromium DevTools for the webview:
+Ptah is an Electron app. To open Chromium DevTools, select **View → Toggle Developer Tools**, or press `Ctrl+Shift+I` (Windows and Linux) or `Cmd+Option+I` (macOS).
 
-- **Help → Toggle DevTools**, or
-- `Ctrl+Shift+I` (Windows / Linux) / `Cmd+Option+I` (macOS)
+The **Console** tab shows errors in the app window.
 
-The **Console** tab shows renderer-side errors, the **Network** tab shows IPC-style channels, and the **Sources** tab lets you breakpoint if you're contributing to Ptah itself.
+## Reset the database
 
-## Main-process logs
+If the local database is damaged, select **Help → Database → Reset Database...**. This deletes all memories, skills, cron jobs, and gateway data. Ptah makes a backup first. Use it only when other fixes fail.
 
-Electron's main process logs to the same file as the renderer. Entries are tagged `[main]` or `[renderer]` so you can filter:
+## Before you share a log
 
-```bash
-grep "\[main\]" ptah-2026-04-21.log
-```
-
-## Redacting before sharing
-
-Logs are scrubbed of API keys and OAuth tokens before writing, but filesystem paths, workspace names, and file contents can leak. Skim a log before attaching it to a bug report.
-
-<Aside type="tip">
-**Help → Copy diagnostics** produces a compact, pre-redacted block suitable for pasting into a GitHub issue without sharing the full log.
-</Aside>
+Ptah does not write secret values to the log. But a log can contain file paths, workspace names, and file contents. Read a log before you attach it to a bug report.

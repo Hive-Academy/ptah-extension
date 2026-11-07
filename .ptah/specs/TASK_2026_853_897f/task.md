@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_853_897f
-status: in_progress
+status: done
 type: FEATURE
 title: Trim the session prefix and scope installs to the workspace
 description: >-
@@ -9,7 +9,7 @@ description: >-
   workspace scope with an opt-in global install; remove existing global installs.
 depends_on: []
 created: 2026-10-29T15:40:00.000Z
-updated: 2026-10-29T15:40:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

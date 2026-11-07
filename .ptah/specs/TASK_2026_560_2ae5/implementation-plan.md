@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Implementation Plan - TASK_2026_560_2ae5 (revision 2 + bounded correction r3)
 
 ## Inputs and constraints

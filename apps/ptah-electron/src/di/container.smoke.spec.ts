@@ -164,6 +164,36 @@ describe('Electron DI — skill telemetry seam', () => {
   });
 });
 
+describe('Electron DI WAL checkpoint worker registration', () => {
+  it('binds the worker factory before the persistence registration', () => {
+    const phase = fs.readFileSync(path.join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    const factory = phase.indexOf(
+      'container.register(PERSISTENCE_TOKENS.WAL_CHECKPOINT_WORKER_FACTORY, {',
+    );
+    const sqlite = phase.indexOf('registerPersistenceSqliteServices(container, logger);');
+    expect(factory).toBeGreaterThan(-1);
+    expect(factory).toBeLessThan(sqlite);
+    expect(phase).toContain('new ElectronWalCheckpointWorkerFactory(');
+    for (const name of [
+      'WAL_CHECKPOINT_WORKER_FACTORY',
+      'WAL_CHECKPOINT_SCHEDULER',
+      'SQLITE_EXCLUSIVE_ACCESS',
+    ]) {
+      expect(EXPECTED_RESOLVABLE_TOKENS.some(([entry]) => entry === name)).toBe(true);
+    }
+  });
+});
+
+describe('Electron DI search worker registration', () => {
+  it('includes the host worker port in the resolvable census', () => {
+    const entry = EXPECTED_RESOLVABLE_TOKENS.find(([name]) => name === 'SQLITE_SEARCH_WORKER');
+    expect(entry).toBeDefined();
+    const phase = fs.readFileSync(path.join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    expect(phase).toContain('container.register(MEMORY_TOKENS.SQLITE_SEARCH_WORKER, {');
+    expect(phase).toContain('new ElectronSearchWorkerFactory(');
+  });
+});
+
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
   for (const token of [
@@ -566,6 +596,26 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     expect(sdk).toBeGreaterThan(-1);
     expect(bind).toBeGreaterThan(sqlite);
     expect(bind).toBeGreaterThan(sdk);
+  });
+
+  it('phase 2 binds the slow-statement sink before the SQLite connection is registered', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const sink = source.indexOf(
+      'container.register(PERSISTENCE_TOKENS.SQLITE_SLOW_STATEMENT_SINK',
+    );
+    const sqlite = source.indexOf(
+      'registerPersistenceSqliteServices(container, logger);',
+    );
+    expect(sink).toBeGreaterThan(-1);
+    expect(sink).toBeLessThan(sqlite);
+    expect(
+      EXPECTED_RESOLVABLE_TOKENS.some(
+        ([name]) => name === 'SQLITE_SLOW_STATEMENT_SINK',
+      ),
+    ).toBe(true);
   });
 });
 

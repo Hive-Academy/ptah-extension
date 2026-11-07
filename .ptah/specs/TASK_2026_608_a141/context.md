@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_608 — align Settings with the app-wide focus, disabled and table-header styles
 
 ## Why

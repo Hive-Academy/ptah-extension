@@ -1,54 +1,40 @@
 ---
 title: Creating a Cron Job
-description: Step through the fields and validation rules.
+description: The fields of a cron job and the validation rules.
 ---
 
 # Creating a Cron Job
 
-Open **Settings → Cron** and click **New job**.
+1. Open **Thoth → Schedules**.
+2. Click **New job**.
+3. Fill in the fields.
+4. Click **Create job**.
 
 ## Fields
 
-| Field           | What it is                                                           |
-| --------------- | -------------------------------------------------------------------- |
-| Name            | Human-readable label shown in the panel and run history              |
-| Cron expression | 5- or 6-field croner-compatible expression. Second field is optional |
-| Timezone        | IANA zone (e.g. `America/New_York`, `Europe/London`, `UTC`)          |
-| Prompt          | The task sent to the agent each time the job fires                   |
-| Workspace root  | Absolute path to the workspace the agent runs in. Required           |
+| Field                     | What it is                                                                 |
+| ------------------------- | -------------------------------------------------------------------------- |
+| Name                      | The label in the job list and in the run history                           |
+| Cron expression           | A 5-field or 6-field croner expression. The form shows a preview or error  |
+| Prompt / handler          | The prompt that the headless session runs each time the job fires          |
+| Workspace root (optional) | The absolute path of the workspace that the session runs in                |
+| Timezone                  | An IANA zone, for example `America/New_York` or `UTC`. Default is detected |
+| Enabled                   | When cleared, the job is saved but does not fire                           |
 
 ## Validation
 
-Cron expressions and timezones are validated by croner at save time. If either is invalid, **croner's diagnostic message is surfaced verbatim** in the form — no re-wrapping, so you can search the croner docs directly.
-
-The workspace root is validated at the RPC boundary:
-
-- Must be an absolute path
-- No `..` segments allowed (no escape)
-- Must point to an existing directory readable by Ptah
+- Croner validates the expression and the timezone when you save. The form shows the croner error message without changes.
+- A workspace root must be an absolute path and must not contain `..` segments.
+- A prompt that starts with `handler:` is rejected. That prefix is reserved for internal jobs.
 
 :::caution
-Don't put secrets in the prompt. Job rows live in `~/.ptah/ptah.db` and are also visible in run history. Reference secrets through your environment or settings, not the prompt body.
+Do not put secrets in the prompt. The prompt is stored in `~/.ptah/state/ptah.sqlite`.
 :::
 
-## RPC surface
+## Manage a job
 
-For automation or A2A scenarios:
+Each job card has actions to run the job now, edit it, enable or disable it, and delete it. Open a job to see its details and run history.
 
-| Method          | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `cron:create`   | Create a job                                   |
-| `cron:update`   | Update an existing job                         |
-| `cron:delete`   | Delete a job (cascade-deletes its run history) |
-| `cron:toggle`   | Enable / disable a job without deleting it     |
-| `cron:runNow`   | Fire the job immediately, off-schedule         |
-| `cron:list`     | List all jobs                                  |
-| `cron:get`      | Fetch a single job                             |
-| `cron:runs`     | List past runs for a job                       |
-| `cron:nextFire` | Compute the next scheduled fire time           |
-
-## Tips
-
-- Start with the cron expression `0 * * * *` (top of every hour) and **Run now** the first time to confirm the job behaves as you expect.
-- Toggle a job off rather than deleting it if you're just pausing — run history stays intact.
-- Use small, idempotent prompts. A 200-line prompt that runs every 5 minutes is a recipe for noise.
+- To pause a job, disable it. A disabled job keeps its run history.
+- To test a new job, click **Run now** before you rely on the schedule.
+- When you delete a job, its run history is deleted too.

@@ -1,3 +1,13 @@
+---
+id: TASK_2026_853_cli_lanes
+status: done
+type: FEATURE
+title: Make CLI lanes a first-class delegation option in the Ptah prompt and tool surface
+description: >-
+  Merged as PR #865. Frontmatter added by TASK_2026_886_032a status sweep.
+updated: 2026-11-07T00:00:00.000Z
+---
+
 # Task: Make CLI lanes a first-class delegation option in the Ptah prompt and tool surface
 
 User brief, 2026-10-30. Delivery decision (TASK_2026_853_897f decisions.md #51): own PR, stacked

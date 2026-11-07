@@ -64,6 +64,15 @@ const mockGrokCtor = jest.fn((_spawner?: unknown, _logger?: unknown) =>
 jest.mock('./cli-adapters/grok-cli.adapter', () => ({
   GrokCliAdapter: mockGrokCtor,
 }));
+const currentPath = (): string => process.env['PATH'] ?? '';
+const mockFixPathReady = jest.fn<Promise<string>, []>(() =>
+  Promise.resolve(currentPath()),
+);
+const mockIsShellPathPending = jest.fn<boolean, []>(() => false);
+jest.mock('./cli-adapters/fix-path', () => ({
+  fixPathReady: () => mockFixPathReady(),
+  isShellPathPending: () => mockIsShellPathPending(),
+}));
 
 import { CliDetectionService } from './cli-detection.service';
 
@@ -152,6 +161,113 @@ function createService(codexAdapterFactory: CodexAdapterFactory | null = {
   );
   return { service, logger, sentry, authSecrets };
 }
+
+describe('CliDetectionService login-shell PATH refresh', () => {
+  const settle = (): Promise<void> =>
+    new Promise((resolve) => setImmediate(resolve));
+
+  /** One shared pending probe, as `fixPath` exposes it. */
+  function pendingProbe(): (path: string) => void {
+    let land: (path: string) => void = () => undefined;
+    const probe = new Promise<string>((resolve) => {
+      land = (next: string) => {
+        process.env['PATH'] = next;
+        mockIsShellPathPending.mockReturnValue(false);
+        resolve(next);
+      };
+    });
+    mockFixPathReady.mockImplementation(() => probe);
+    mockIsShellPathPending.mockReturnValue(true);
+    return (next: string) => land(next);
+  }
+
+  const originalPath = process.env['PATH'];
+
+  beforeEach(() => {
+    mockAdapters.clear();
+    for (const [name, channel] of CHANNELS) {
+      mockAdapters.set(name, createAdapter(name, channel));
+    }
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    process.env['PATH'] = originalPath;
+    mockIsShellPathPending.mockImplementation(() => false);
+    mockFixPathReady.mockImplementation(() => Promise.resolve(currentPath()));
+  });
+
+  it('drops the cached scan once when the shell PATH lands after a scan ran', async () => {
+    const land = pendingProbe();
+    // The scan below runs on the fallback PATH: its head start already lapsed.
+    mockIsShellPathPending.mockReturnValue(false);
+    const { service } = createService();
+    await service.detectAll();
+    const invalidate = jest.spyOn(service, 'invalidateCache');
+
+    land(`/login-shell/bin:${currentPath()}`);
+    await settle();
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    await service.detectAll();
+    expect(mockAdapterFor('codex').detect).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the cached scan when the shell probe leaves PATH unchanged', async () => {
+    const { service } = createService();
+    await service.detectAll();
+    const invalidate = jest.spyOn(service, 'invalidateCache');
+
+    await settle();
+
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('starts the first scan after the shell PATH when it lands within the head start', async () => {
+    const land = pendingProbe();
+    const { service } = createService();
+    const invalidate = jest.spyOn(service, 'invalidateCache');
+    let seenPath = '';
+    mockAdapterFor('codex').detect.mockImplementation(async () => {
+      seenPath = currentPath();
+      return { cli: 'codex', installed: true, messagingMode: 'queue' };
+    });
+
+    const first = service.detectAll();
+    // Joined while it waits: one scan, not two.
+    const joined = service.detectAll();
+    expect(mockAdapterFor('codex').detect).not.toHaveBeenCalled();
+
+    land('/login-shell/bin');
+    expect(await joined).toEqual(await first);
+
+    expect(seenPath).toBe('/login-shell/bin');
+    expect(invalidate).not.toHaveBeenCalled();
+    await service.detectAll();
+    expect(mockAdapterFor('codex').detect).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds the head start: a silent probe delays the first scan by at most 1 s', async () => {
+    jest.useFakeTimers();
+    pendingProbe();
+    const { service } = createService();
+
+    const first = service.detectAll();
+    await jest.advanceTimersByTimeAsync(999);
+    expect(mockAdapterFor('codex').detect).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    await first;
+
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(1);
+    }
+    // Only the first scan waits.
+    service.invalidateCache();
+    const second = service.detectAll();
+    expect(mockAdapterFor('codex').detect).toHaveBeenCalledTimes(2);
+    await second;
+  });
+});
 
 describe('CliDetectionService role stamp', () => {
   beforeEach(() => {
@@ -387,5 +503,18 @@ describe('CliDetectionService role stamp', () => {
     for (const [name] of CHANNELS) {
       expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it('deduplicates model listing and recomputes after invalidation', async () => {
+    const { service } = createService();
+    await Promise.all([service.listModelsForAll(), service.listModelsForAll()]);
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).listModels).toHaveBeenCalledTimes(1);
+    }
+    await service.listModelsForAll();
+    expect(mockAdapterFor('codex').listModels).toHaveBeenCalledTimes(1);
+    service.invalidateCache();
+    await service.listModelsForAll();
+    expect(mockAdapterFor('codex').listModels).toHaveBeenCalledTimes(2);
   });
 });

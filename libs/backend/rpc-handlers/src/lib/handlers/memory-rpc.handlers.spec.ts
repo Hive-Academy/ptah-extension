@@ -86,7 +86,7 @@ function makeMemoryStore() {
   return {
     list: jest.fn(),
     getActiveById: jest.fn(),
-    getChunks: jest.fn(),
+    getChunksAsync: jest.fn().mockResolvedValue([]),
     recordUse: jest.fn(),
     setPinned: jest.fn().mockReturnValue(true),
     forget: jest.fn(),
@@ -133,7 +133,7 @@ function makeCodeSymbolStore() {
     deleteByFile: jest.fn().mockReturnValue(0),
     insertBatch: jest.fn().mockResolvedValue(undefined),
     purgeWorkspace: jest.fn().mockReturnValue(0),
-    search: jest.fn().mockReturnValue({ items: [], total: 0 }),
+    searchAsync: jest.fn().mockResolvedValue({ items: [], total: 0 }),
   };
 }
 
@@ -284,6 +284,17 @@ function buildHandlersWithStore<TStore extends object>(
 // ---------------------------------------------------------------------------
 
 describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
+  it('answers degraded when worker readiness consumes the deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+      search.searchRich.mockImplementation(() => new Promise(() => undefined));
+      const response = rpcHandler.call('memory:search', { query: 'needle' });
+      jest.advanceTimersByTime(4_700);
+      await expect(response).resolves.toEqual({ hits: [], bm25Only: true });
+      expect(search.searchRich).toHaveBeenCalledWith('needle', 10, undefined, expect.any(Number));
+    } finally { jest.useRealTimers(); }
+  });
   it('forwards workspaceRoot to search.searchRich when provided', async () => {
     const { rpcHandler, search } = buildHandlers(['/workspace/project']);
     search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
@@ -298,6 +309,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
       'hello world',
       5,
       '/workspace/project',
+      expect.any(Number),
     );
   });
 
@@ -314,6 +326,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
       'hello world',
       10,
       undefined,
+      expect.any(Number),
     );
   });
 
@@ -387,7 +400,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
     });
 
     // workspaceRoot should be undefined (schema rejected the empty string)
-    expect(search.searchRich).toHaveBeenCalledWith('hello', 10, undefined);
+    expect(search.searchRich).toHaveBeenCalledWith('hello', 10, undefined, expect.any(Number));
   });
 
   it('preserves workspaceRoot when topK is invalid (topK: 0 fails positive() but must not drop scope)', async () => {
@@ -402,7 +415,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
       workspaceRoot: '/ws',
     });
 
-    expect(search.searchRich).toHaveBeenCalledWith('x', 0, '/ws');
+    expect(search.searchRich).toHaveBeenCalledWith('x', 0, '/ws', expect.any(Number));
   });
 
   it('preserves workspaceRoot when topK exceeds max (topK: 51 fails max(50) but must not drop scope)', async () => {
@@ -415,7 +428,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
       workspaceRoot: '/ws',
     });
 
-    expect(search.searchRich).toHaveBeenCalledWith('x', 51, '/ws');
+    expect(search.searchRich).toHaveBeenCalledWith('x', 51, '/ws', expect.any(Number));
   });
 });
 
@@ -423,7 +436,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
   it('records a found memory:get result', async () => {
     const { rpcHandler, store } = buildHandlers();
     store.getActiveById.mockReturnValue(makeMemory());
-    store.getChunks.mockReturnValue([]);
+    store.getChunksAsync.mockResolvedValue([]);
 
     const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
 
@@ -448,7 +461,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
     const result = await rpcHandler.call('memory:get', { id: 'quarantined' });
 
     expect(store.getActiveById).toHaveBeenCalledWith('quarantined');
-    expect(store.getChunks).not.toHaveBeenCalled();
+    expect(store.getChunksAsync).not.toHaveBeenCalled();
     expect(store.recordUse).not.toHaveBeenCalled();
     expect(result).toEqual({ memory: null, chunks: [] });
   });
@@ -467,7 +480,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
   it('returns a found memory unchanged when recording fails', async () => {
     const { rpcHandler, store, logger } = buildHandlers();
     store.getActiveById.mockReturnValue(makeMemory());
-    store.getChunks.mockReturnValue([]);
+    store.getChunksAsync.mockResolvedValue([]);
     store.recordUse.mockImplementation(() => {
       throw new Error('usage ledger unavailable');
     });
@@ -1441,13 +1454,35 @@ describe('MemoryRpcHandlers — memory:stats workspace scoping', () => {
 });
 
 describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
+  it('answers an empty page when the worker response is too slow', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+      codeSymbols.searchAsync.mockImplementation(() => new Promise(() => undefined));
+      const response = rpcHandler.call('memory:searchSymbols', { query: 'needle' });
+      jest.advanceTimersByTime(4_700);
+      await expect(response).resolves.toEqual({ items: [], total: 0 });
+    } finally { jest.useRealTimers(); }
+  });
+  it('arms the deadline before starting symbol work', async () => {
+    jest.useFakeTimers();
+    try {
+      const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+      codeSymbols.searchAsync.mockImplementation(() => {
+        expect(jest.getTimerCount()).toBeGreaterThan(0);
+        return Promise.resolve({ items: [], total: 0 });
+      });
+      await expect(rpcHandler.call('memory:searchSymbols', { query: 'needle' })).resolves.toEqual({ items: [], total: 0 });
+    } finally { jest.useRealTimers(); }
+  });
   it('scopes an omitted workspaceRoot to the current root instead of every workspace', async () => {
     const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
 
     await rpcHandler.call('memory:searchSymbols', { query: 'login' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: '/workspace/project' }),
+      expect.any(Number),
     );
   });
 
@@ -1456,8 +1491,9 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
 
     await rpcHandler.call('memory:searchSymbols', { query: 'login' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: null }),
+      expect.any(Number),
     );
   });
 
@@ -1472,8 +1508,9 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
       scope: 'all',
     });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: undefined }),
+      expect.any(Number),
     );
   });
 
@@ -1482,8 +1519,9 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
 
     await rpcHandler.call('memory:searchSymbols', { scope: 'all' });
 
-    expect(codeSymbols.search).toHaveBeenCalledWith(
+    expect(codeSymbols.searchAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: undefined }),
+      expect.any(Number),
     );
   });
 
@@ -1493,7 +1531,7 @@ describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
     await expect(
       rpcHandler.call('memory:searchSymbols', { scope: 'everything' }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(codeSymbols.search).not.toHaveBeenCalled();
+    expect(codeSymbols.searchAsync).not.toHaveBeenCalled();
   });
 });
 

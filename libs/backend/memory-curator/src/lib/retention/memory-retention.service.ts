@@ -155,6 +155,7 @@ interface RunTally {
 
 @injectable()
 export class MemoryRetentionService {
+  private loggedUnmeasuredRows = false;
   /** Captured at construction: the boot-deferral gate measures from here. */
   private readonly startedAt = Date.now();
 
@@ -638,18 +639,9 @@ export class MemoryRetentionService {
     freedBytesMeasured: boolean,
     lifecycleResult: MemoryLifecycleStepResult,
   ): void {
-    let processedRowsAfter: number | null = null;
-    try {
-      const pending = this.store.readLiveStorage(
-        startedAt - settings.stuckDays * DAY_MS,
-      ).pendingRows;
-      if (pending !== null) {
-        processedRowsAfter = Math.max(0, this.store.countTotalRows() - pending);
-      }
-    } catch (error: unknown) {
-      this.logger.debug('[memory-curator] retention row count failed', {
-        error: errorText(error),
-      });
+    if (!this.loggedUnmeasuredRows) {
+      this.logger.debug('[memory-curator] processed row count not measured on main thread');
+      this.loggedUnmeasuredRows = true;
     }
     try {
       this.store.writeRun({
@@ -667,7 +659,7 @@ export class MemoryRetentionService {
         pagesReclaimed: report.pagesReclaimed,
         backlogRemaining: report.backlogRemaining,
         completedAt: report.status === 'completed' ? finishedAt : null,
-        processedRowsAfter,
+        processedRowsAfter: null,
         // `null` keeps the previous average: an unmeasured run must not
         // replace it with one derived from an invalid page-stat sample.
         avgProcessedRowBytes:

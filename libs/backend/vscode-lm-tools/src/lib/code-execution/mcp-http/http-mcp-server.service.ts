@@ -18,7 +18,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
-import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, Logger, hangBreadcrumbs } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type { McpServerConfig } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -484,6 +484,7 @@ export class CodeExecutionMCP
             typeof this.apiBuilder.outcomeReportDependencies === 'function'
               ? this.apiBuilder.outcomeReportDependencies()
               : undefined,
+          hangBreadcrumbs,
         }),
     });
 

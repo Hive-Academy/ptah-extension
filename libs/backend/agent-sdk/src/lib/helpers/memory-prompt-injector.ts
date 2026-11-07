@@ -19,6 +19,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { PromptReadCache } from './prompt-read-cache';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
@@ -84,6 +85,7 @@ export interface CorpusSummary {
 
 @injectable()
 export class MemoryPromptInjector {
+  private readonly sessionStartCache = new PromptReadCache();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER)
@@ -178,6 +180,28 @@ export class MemoryPromptInjector {
     corpora: readonly CorpusSummary[] = [],
   ): Promise<string> {
     if (!workspaceRoot) return '';
+    let revision: number | undefined;
+    try {
+      revision = this.memoryLister.getRevision?.();
+    } catch (err: unknown) {
+      // degradation-audit: reported - logged at warn; the session starts
+      // without a memory block, as for the injector's other read failures.
+      this.logger.warn('[MemoryPromptInjector] SessionStart revision read failed',
+        { error: err instanceof Error ? err.message : String(err) });
+      return '';
+    }
+    const key = JSON.stringify([workspaceRoot, observationCount, corpusCount, corpora, revision]);
+    return this.sessionStartCache.run(key, () =>
+      this.buildSessionStartBlockUncached(workspaceRoot, observationCount, corpusCount, corpora));
+  }
+
+  private async buildSessionStartBlockUncached(
+    workspaceRoot?: string,
+    observationCount?: number,
+    corpusCount?: number,
+    corpora: readonly CorpusSummary[] = [],
+  ): Promise<string> {
+    if (!workspaceRoot) return '';
     const injectionEnabled =
       this.workspace.getConfiguration<boolean>(
         SESSION_START_SECTION,
@@ -214,12 +238,8 @@ export class MemoryPromptInjector {
     let subjects: string[] = [];
     if (memoryLimit > 0) {
       try {
-        const page = this.memoryLister.listAll(
-          workspaceRoot,
-          undefined,
-          memoryLimit,
-          0,
-        );
+        const page = await (this.memoryLister.listSnapshot?.(workspaceRoot, memoryLimit)
+          ?? this.memoryLister.listAll(workspaceRoot, undefined, memoryLimit, 0));
         subjects = page.memories
           .map((m) => (m.subject ?? '').trim())
           .filter((s) => s.length > 0);

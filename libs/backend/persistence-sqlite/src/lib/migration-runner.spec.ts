@@ -235,7 +235,7 @@ describe('SqliteMigrationRunner', () => {
         backupCalls.push(kind);
         return '/fake/backup/path.sqlite';
       },
-      rotate: (kind: string, keep: number) => {
+      rotate: async (kind: string, keep: number) => {
         rotateCalls.push([kind, keep]);
       },
     };
@@ -259,7 +259,7 @@ describe('SqliteMigrationRunner', () => {
         backupCalls.push(kind);
         return null;
       },
-      rotate: () => undefined,
+      rotate: async () => undefined,
     };
     const runner = new SqliteMigrationRunner(
       db,
@@ -283,7 +283,7 @@ describe('SqliteMigrationRunner', () => {
       backup: async () => {
         throw new Error('backup disk error (fake)');
       },
-      rotate: () => undefined,
+      rotate: async () => undefined,
     };
     const logger = createMockLogger();
     const runner = new SqliteMigrationRunner(db, logger, fakeBackupService);
@@ -307,7 +307,7 @@ describe('SqliteMigrationRunner', () => {
     const rotateCalls: number[] = [];
     const fakeBackupService = {
       backup: async () => null as string | null, // simulate unavailable db.backup
-      rotate: (_kind: string, _keep: number) => {
+      rotate: async (_kind: string, _keep: number) => {
         rotateCalls.push(1);
       },
     };
@@ -328,7 +328,7 @@ describe('SqliteMigrationRunner', () => {
     const rotateCalls: number[] = [];
     const fakeBackupService = {
       backup: async () => '/fake/backup.sqlite' as string | null,
-      rotate: (_kind: string, _keep: number) => {
+      rotate: async (_kind: string, _keep: number) => {
         rotateCalls.push(1);
       },
     };
@@ -351,7 +351,7 @@ describe('SqliteMigrationRunner', () => {
         callOrder.push('backup');
         return '/path.sqlite';
       },
-      rotate: () => {
+      rotate: async () => {
         callOrder.push('rotate');
       },
     };

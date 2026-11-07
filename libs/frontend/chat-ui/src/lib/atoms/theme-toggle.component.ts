@@ -306,6 +306,11 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
             }
           </div>
         </div>
+        <label class="mt-3 flex cursor-pointer items-center gap-2 border-t border-base-content/20 px-2 pt-3 text-xs">
+          <input #glassToggle type="checkbox" [checked]="glassEffects()"
+            (change)="setGlassEffects(glassToggle.checked)" />
+          Glass effects
+        </label>
         @if (currentTheme() === 'ptah-glass' || currentTheme() === 'ptah-glass-light') {
           <fieldset class="mt-3 border-t border-base-content/20 px-2 pt-3">
             <legend class="text-xs font-semibold">Primary accent</legend>
@@ -374,6 +379,11 @@ export class ThemeToggleComponent implements OnDestroy {
   readonly currentTheme = this.themeService.currentTheme;
   readonly accent = this.themeService.accent;
   readonly scene = this.themeService.scene;
+  readonly glassEffects = this.themeService.glassEffects;
+
+  protected setGlassEffects(enabled: boolean): void {
+    this.themeService.setGlassEffects(enabled);
+  }
   protected readonly menuId = `ptah-theme-menu-${++ThemeToggleComponent.sequence}`;
   protected readonly tabPanelId = `${this.menuId}-tabpanel`;
   protected readonly themesPanelId = `${this.menuId}-themes-panel`;

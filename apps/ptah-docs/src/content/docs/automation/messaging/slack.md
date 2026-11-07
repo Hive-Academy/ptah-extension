@@ -1,55 +1,53 @@
 ---
 title: Slack Setup
-description: Talk to Ptah from a Slack workspace.
+description: Talk to PtahCode from a Slack workspace.
 ---
 
 # Slack Setup
 
-The Slack adapter (`BoltSlackAdapter`) uses [`@slack/bolt`](https://api.slack.com/tools/bolt) in **Socket Mode** — no public webhook URL required.
+The Slack adapter uses [`@slack/bolt`](https://api.slack.com/tools/bolt) in **Socket Mode**. You do not need a public webhook URL. The app receives a message only when you @-mention it.
 
 ## 1. Create a Slack app
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
-2. Name it and pick the workspace
+1. Go to [api.slack.com/apps](https://api.slack.com/apps).
+2. Click **Create New App**, then **From scratch**.
+3. Name the app and select the workspace.
 
 ## 2. Add bot scopes
 
-Under **OAuth & Permissions → Bot Token Scopes**, add:
+In **OAuth & Permissions → Bot Token Scopes**, add these scopes:
 
-- `chat:write`
 - `app_mentions:read`
-- `channels:history`
-- `im:history`
-- `files:read`
+- `chat:write`
 
-## 3. Enable Socket Mode
+## 3. Enable Socket Mode and events
 
-1. Sidebar → **Socket Mode** → toggle **Enable**
-2. When prompted, generate an **App-Level Token** with the `connections:write` scope. Save the `xapp-…` token
+1. Open **Socket Mode** and turn it on.
+2. Create an **App-Level Token** with the `connections:write` scope. Copy the `xapp-...` token.
+3. Open **Event Subscriptions** and subscribe to the bot event `app_mention`.
 
-## 4. Install to workspace
+## 4. Install the app
 
-**OAuth & Permissions → Install to Workspace.** After install, copy the **Bot User OAuth Token** (`xoxb-…`).
+1. In **OAuth & Permissions**, click **Install to Workspace**.
+2. Copy the **Bot User OAuth Token** (`xoxb-...`).
 
 ## 5. Find your team ID
 
-The workspace ID looks like `T0XXXXXXX`. You can grab it from `slack.com/account/team` in the URL.
+The workspace (team) ID looks like `T0XXXXXXX`.
 
-## 6. Configure Ptah
+## 6. Configure PtahCode
 
-Open **Settings → Messaging → Slack**:
-
-1. Paste **both** tokens (`xoxb-…` and `xapp-…`) — the UI encrypts before persisting
-2. Add the team ID to **Allowed team IDs** (`gateway.slack.allowedTeamIds`)
-3. Enable **Slack** (`gateway.slack.enabled = true`)
-4. Enable the global **Messaging Gateway** (`gateway.enabled = true`)
+1. Open **Thoth → Messaging → Slack**.
+2. In **Connection**, paste the bot token (`xoxb-...`) and the app-level token (`xapp-...`).
+3. Click **Save & start**.
+4. In **Access**, add the team ID to the allow list, and click **Save allow-list**.
 
 ## 7. Pair the binding
 
-1. In any allowed workspace, DM the app or @-mention it in a channel
-2. It replies with a 6-digit pairing code
-3. Approve the binding in **Settings → Messaging → Bindings**
+1. In a channel, @-mention the app.
+2. The app replies with a 6-digit pairing code.
+3. In **Access → Pending requests**, type the code and click **Approve**.
 
 :::tip
-Socket Mode means you don't need a publicly reachable URL — perfect for running Ptah on a laptop behind NAT.
+Socket Mode does not need a public URL. You can run PtahCode on a laptop behind NAT.
 :::

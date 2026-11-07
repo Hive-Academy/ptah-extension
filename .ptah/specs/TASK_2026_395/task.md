@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: devops
 title: Run license-server migrations as a deploy step, not in the app start command
 description: >-

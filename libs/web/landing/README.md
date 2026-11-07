@@ -1,7 +1,7 @@
 # web-landing
 
-This library was generated with [Nx](https://nx.dev).
+Landing page for the PtahCode desktop app, imported as `@ptah-web/landing`: `LandingPageComponent`, its sections and the console components (see `src/index.ts`).
 
-## Running unit tests
-
-Run `nx test web-landing` to execute the unit tests.
+```bash
+npm run verify -- -p web-landing
+```

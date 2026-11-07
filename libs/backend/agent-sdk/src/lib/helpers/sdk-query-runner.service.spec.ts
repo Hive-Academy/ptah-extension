@@ -501,6 +501,26 @@ describe('SdkQueryRunner', () => {
       ];
       expect(params.options.cwd).toBe(os.homedir());
     });
+
+    it('warns once per unsafe cwd while keeping every rewrite', async () => {
+      const h = makeRunner({
+        extensionPath: '/home/abdo/.local/programs/ptah/resources/app.asar',
+      });
+      for (const cwd of ['', '', '/home/abdo/.local/programs/ptah']) {
+        await h.runner.runOneShot({
+          mode: 'oneShot',
+          cwd,
+          model: 'claude-sonnet-4-20250514',
+          prompt: 'hi',
+          mcpServerRunning: false,
+        });
+      }
+      expect(
+        h.logger.warn.mock.calls.filter(([message]) =>
+          String(message).includes('Unsafe one-shot cwd rewritten'),
+        ),
+      ).toHaveLength(2);
+    });
   });
 
   /**

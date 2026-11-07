@@ -34,10 +34,10 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { blankToUndefined } from '@ptah-extension/shared';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { CuratorLogger, SqliteDbProvider } from './sqlite-reader-deps.types';
 import {
   PERSISTENCE_TOKENS,
-  SqliteConnectionService,
   type SqliteDatabase,
   type SqliteStatement,
 } from '@ptah-extension/persistence-sqlite';
@@ -303,9 +303,9 @@ export class ObservationQueueStore {
   private cachedDb: SqliteDatabase | null = null;
 
   constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.LOGGER) private readonly logger: CuratorLogger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    private readonly connection: SqliteDbProvider,
   ) {}
 
   /** Rows captured but not yet written. Test/diagnostic accessor. */

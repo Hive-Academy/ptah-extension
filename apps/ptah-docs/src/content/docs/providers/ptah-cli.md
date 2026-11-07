@@ -1,85 +1,45 @@
 ---
 title: Ptah CLI
-description: Wrap any command-line AI agent as a first-class provider.
+description: Add more agent lanes on providers that you already connected.
 sidebar:
   order: 8
 ---
 
 # Ptah CLI
 
-The **Ptah CLI** provider lets you register any command-line AI agent — your own, a teammate's, or an experimental one — and have Ptah use it as a sub-agent on equal footing with Codex and Copilot.
+A **Ptah CLI instance** is an agent lane that runs on a provider connection that you already have, for example OpenRouter, Kimi Code, Z.AI, or GitHub Copilot. Ptah runs the instance through the Claude Agent SDK. The orchestrator can then send sub-tasks to it, in the same way as to Codex or Copilot.
 
-Ptah-CLI agents have the **highest priority** in CLI detection. When Autopilot needs to delegate a subtask and a ptah-cli agent is registered and enabled, it's picked first.
+## Add an instance
 
-## What you need
+1. Connect the provider first. See [Providers](/providers/).
+2. Open **Settings → Providers**.
+3. In the **CLI agents** matrix, open **Add Ptah CLI Agent Instance**.
+4. Type an **Instance name**. Each instance must have a different name.
+5. Select the **Provider connection**.
+6. For GitHub Copilot, sign in with GitHub when Ptah asks.
+7. Click **Create Instance**.
 
-- A CLI executable that:
-  - Accepts a prompt via stdin or `--prompt`.
-  - Streams responses to stdout.
-  - Returns a non-zero exit code on failure.
-- The full path to the binary (or an entry on your `PATH`).
+The instance appears in the CLI agents matrix. Click its model or effort cell to change it. You can set a model for each tier of the instance.
 
-## Configuration
+## Settings
 
-Ptah CLI agents are configured in `~/.ptah/settings.json` under the `ptahCliAgents` key:
+Ptah stores instances in `~/.ptah/settings.json` under `ptahCliAgents`. Each entry has an `id`, a `name`, a `providerId`, an `enabled` flag, and optional `tierMappings` and `selectedModel`. Use the Settings page to change them. Keys stay in encrypted storage.
 
-```json
-{
-  "ptahCliAgents": [
-    {
-      "id": "my-agent",
-      "displayName": "My Custom Agent",
-      "command": "my-agent",
-      "args": ["--stream"],
-      "env": {
-        "MY_AGENT_MODEL": "gpt-4o"
-      },
-      "enabled": true
-    }
-  ]
-}
-```
+## Turn off a CLI
 
-| Field         | Description                                                                                                                                                                               |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | Unique id, lowercase with dashes. Used in logs and the Execution Tree.                                                                                                                    |
-| `displayName` | Label shown in the chat model selector.                                                                                                                                                   |
-| `command`     | Executable name (if on `PATH`) or absolute path. Use forward slashes on Windows.                                                                                                          |
-| `args`        | Additional CLI arguments passed before the prompt.                                                                                                                                        |
-| `env`         | Environment variables for the child process. Secrets should live here only if you're on a trusted machine — otherwise use `safeStorage` by configuring the agent through the Settings UI. |
-| `enabled`     | Set to `false` to keep the config but stop Ptah from using it.                                                                                                                            |
-
-You can also manage Ptah CLI agents from **Settings → Providers → Ptah CLI** in the app.
-
-## Selection priority
-
-When Autopilot delegates a subtask:
-
-`ptah-cli > codex > copilot`
-
-`agentOrchestration.disabledClis` does **not** apply to Ptah CLI agents. It is matched against CLI _types_ (`codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi`) — putting a ptah-cli agent id in it has no effect anywhere.
-
-To switch a Ptah CLI agent off, set `enabled: false` on the agent itself (see the table above). That removes it from Autopilot _and_ from manual selection; there is no "Autopilot-only" opt-out for these agents.
+- To change or delete an instance, open its **More actions** menu in the CLI agents matrix. An instance with `enabled: false` is not used.
+- `agentOrchestration.disabledClis` applies to CLI types (`codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi`, `grok`, `claude`), not to Ptah CLI instances. A disabled CLI type is not used, and a spawn request for it is refused.
 
 ```json
-{ "agentOrchestration.disabledClis": ["codex", "copilot"] }
+{ "agentOrchestration": { "disabledClis": ["cursor"] } }
 ```
 
-Disabling a CLI type this way is a **hard disable** — it is skipped by automatic selection and an explicit `ptah_agent_spawn { cli: "codex" }` is rejected. Disabled CLIs still show up in `ptah_agent_list` with a `disabled` status.
+## Verify that it works
 
-## Verifying it works
-
-1. Open the chat and select your custom agent from the model selector.
-2. Send a prompt.
-3. You should see the agent's output stream into the transcript. In the [Execution Tree](/chat/execution-tree/), the node's provider field shows `ptah-cli:<id>`.
+1. In the CLI agents matrix, run the test of the instance. Ptah shows **Test passed.** when it works.
+2. Ask the main agent to send a sub-task to the instance. The [Execution Tree](/chat/execution-tree/) shows the lane.
 
 ## Troubleshooting
 
-- **Agent not listed in the selector** — check `enabled: true`, restart Ptah, verify the `command` resolves (run it manually in a terminal).
-- **ENOENT on Windows** — npm-installed CLIs are `.cmd` wrappers. Ptah handles this automatically, but if you use an absolute path, make sure it ends in `.cmd` or `.exe`.
-- **Output looks corrupted** — Ptah sets `FORCE_COLOR=0` and `NO_COLOR=1` on child processes, but some CLIs ignore these. Add your own `env` entry to force plain output.
-- **Agent hangs on first turn** — your CLI may be waiting for an interactive TTY. Run it with a non-interactive flag (`--no-tty`, `--pipe`, etc.).
-
-:::note[Cost]
-Cost for ptah-cli agents is reported as $0 because billing is handled by whatever service the CLI ultimately calls. Token counts are still captured from the CLI's output where possible.
-:::
+- **The instance does not run** — examine the provider connection. Fix the key or sign in again.
+- **"Another Ptah CLI instance already uses this name."** — choose a different name.

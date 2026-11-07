@@ -1,38 +1,35 @@
 ---
 title: Run History
-description: Audit every cron firing — succeeded, failed, or skipped.
+description: Examine each cron run — succeeded, failed, or skipped.
 ---
 
 # Run History
 
-Every job fire produces a row in the runs table. Open any job in the **Cron** panel to see its history.
+Each time a job fires, the scheduler records a run. Open a job in **Thoth → Schedules** to see its run history.
 
 ## Statuses
 
-| Status      | Meaning                                                          |
-| ----------- | ---------------------------------------------------------------- |
-| `pending`   | Slot recorded but execution hasn't started                       |
-| `running`   | Currently in-flight                                              |
-| `succeeded` | Agent returned a clean result                                    |
-| `failed`    | Agent threw or the run timed out — `errorMessage` has the detail |
-| `skipped`   | Catchup policy or concurrency cap suppressed this slot           |
+| Status      | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `pending`   | The slot is recorded, but the run did not start               |
+| `running`   | The run is in progress                                        |
+| `succeeded` | The run completed                                             |
+| `failed`    | The run failed. The run shows the error message               |
+| `skipped`   | The run did not start, for example because of the job limit   |
 
-## Fields per run
+## Fields of a run
 
-- `scheduledFor` — the slot the run targets
-- `startedAt` — when execution actually began (may differ from `scheduledFor` after catchup)
-- `endedAt` — completion timestamp
-- `resultSummary` — short summary returned by the agent
-- `errorMessage` — populated when status is `failed`
+- `scheduledFor` — the slot that the run is for.
+- `startedAt` — the time the run started. After catch-up, it can be later than `scheduledFor`.
+- `endedAt` — the time the run ended.
+- `resultSummary` — a short summary of the result.
+- `errorMessage` — the error, when the status is `failed`.
 
-## Uniqueness
+## Rules
 
-The runs table has a `UNIQUE(jobId, scheduledFor)` constraint. The same slot can never fire twice — if catchup tries to replay an already-fired slot, the insert is rejected and the duplicate is logged.
-
-## Cleanup
-
-When a job is deleted via `cron:delete`, its runs are **cascade-deleted**. There's no orphan history.
+- Each slot runs at most one time. The database rejects a second run for the same job and slot.
+- When you delete a job, its runs are deleted too.
 
 :::tip
-Use the run history as a feedback loop. A high failure rate, or `resultSummary` strings that all look the same, are signals that the prompt needs sharpening or the schedule is too aggressive.
+Use the run history to improve a job. Many failures, or summaries that are all the same, show that the prompt or the schedule needs a change.
 :::

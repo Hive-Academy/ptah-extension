@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import {
@@ -41,6 +41,7 @@ export function registerStartupConfigIpc(
  * What `preload.ts` reads out of the main process before Angular bootstraps.
  */
 export interface StartupConfig {
+  gpuCompositing: 'hardware' | 'software' | 'disabled';
   initialView: string | null;
   workspaceRoot: string;
   workspaceName: string;
@@ -49,6 +50,7 @@ export interface StartupConfig {
 }
 
 const EMPTY_STARTUP_CONFIG: StartupConfig = {
+  gpuCompositing: 'hardware',
   initialView: null,
   workspaceRoot: '',
   workspaceName: '',
@@ -62,8 +64,35 @@ function readZoneChangeDetectionFallback(): boolean {
 function emptyStartupConfig(): StartupConfig {
   return {
     ...EMPTY_STARTUP_CONFIG,
+    gpuCompositing: gpuCompositingMode(),
     zoneChangeDetectionFallback: readZoneChangeDetectionFallback(),
   };
+}
+
+/**
+ * Map Chromium's `gpu_compositing` feature status onto the renderer's mode.
+ *
+ * Chromium reports `enabled*` (`enabled`, `enabled_on`, `enabled_force`, ...),
+ * `*_software` when compositing falls back to the CPU, and `disabled_*` /
+ * `unavailable_*` when it is off. The renderer turns glass blur off for both
+ * `software` and `disabled`, so only a status that positively says the GPU is
+ * not compositing may leave `hardware`. A missing or unrecognised status maps
+ * to `hardware`: turning glass off on a working GPU is a visible regression,
+ * while a wrong `hardware` on a GPU-less machine only costs blur performance.
+ */
+export function gpuCompositingModeFor(
+  status: string | undefined,
+): StartupConfig['gpuCompositing'] {
+  if (!status || status.startsWith('enabled')) return 'hardware';
+  if (status.endsWith('software')) return 'software';
+  if (status.startsWith('disabled') || status.startsWith('unavailable')) {
+    return 'disabled';
+  }
+  return 'hardware';
+}
+
+function gpuCompositingMode(): StartupConfig['gpuCompositing'] {
+  return gpuCompositingModeFor(app.getGPUFeatureStatus().gpu_compositing);
 }
 
 /**
@@ -86,6 +115,7 @@ export function readStartupConfig(
     const resolvedRoot = workspaceProvider.getWorkspaceRoot();
     if (!resolvedRoot) return emptyStartupConfig();
     return {
+      gpuCompositing: gpuCompositingMode(),
       initialView: null,
       workspaceRoot: resolvedRoot,
       workspaceName: path.basename(resolvedRoot),

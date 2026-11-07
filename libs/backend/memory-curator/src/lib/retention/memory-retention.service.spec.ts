@@ -91,7 +91,6 @@ class FakeStore {
   purgeLimits: number[] = [];
   runs: RetentionRunRecord[] = [];
   skips: Array<{ at: number; reason: string }> = [];
-  totalRows = 100;
   pendingRows: number | null = 40;
   /** Advance the clock by this much inside each row batch. */
   batchCostMs = 0;
@@ -137,10 +136,6 @@ class FakeStore {
       bootScanFailuresGivenUp: 0,
       readErrors: [],
     };
-  }
-
-  countTotalRows(): number {
-    return this.totalRows;
   }
 
   readState(): RetentionState | null {
@@ -875,10 +870,13 @@ describe('MemoryRetentionService — run', () => {
       outcome: 'completed',
       completedAt: h.clock.t,
       backlogRemaining: false,
-      processedRowsAfter: 60,
+      processedRowsAfter: null,
       avgProcessedRowBytes: 4096,
       stuckQuarantined: 0,
     });
+    expect(h.logger.debug).toHaveBeenCalledWith(
+      '[memory-curator] processed row count not measured on main thread',
+    );
   });
 
   // TASK_2026_621: unprocessed rows older than stuckDays are kept and counted.

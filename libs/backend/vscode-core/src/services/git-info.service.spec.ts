@@ -202,6 +202,33 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(worktree.isMain).toBe(true);
     });
 
+    // Review #7: a failed listing must not read as "no worktrees".
+    it('rejects a listing that fails, instead of answering no worktrees', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr: 'fatal: unable to read .git/worktrees',
+          exitCode: 1,
+        }),
+      );
+
+      await expect(service.getWorktrees(WS)).rejects.toThrow(
+        'git worktree list exited 1',
+      );
+    });
+
+    it('answers no worktrees for a folder git reports is not a repository', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr: 'fatal: not a git repository (or any parent)',
+          exitCode: 128,
+        }),
+      );
+
+      await expect(service.getWorktrees(WS)).resolves.toEqual([]);
+    });
+
     it('uses the shared nested default for UI/backend creation', async () => {
       mockSpawn.mockImplementation(() =>
         makeSpawnResult({ stdout: '', exitCode: 0 }),
@@ -3133,7 +3160,10 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
 
       const counts = await service.readChangeSetNumstat(WS, ['new.ts']);
 
-      expect(counts.get('new.ts')).toEqual({ additions: null, deletions: null });
+      expect(counts.get('new.ts')).toEqual({
+        additions: null,
+        deletions: null,
+      });
       expect(readUntracked).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalled();
     });

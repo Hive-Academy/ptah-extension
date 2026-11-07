@@ -1,48 +1,48 @@
 ---
 title: Installation Issues
-description: Resolving install and update failures per platform.
+description: Fix install and update problems on each platform.
 ---
 
 ## Windows
 
-**Symptom:** Installer shows "Windows protected your PC" SmartScreen warning.
-**Likely cause:** SmartScreen has not seen enough downloads to trust the signed binary yet.
-**Fix:** Click **More info → Run anyway**. The signature is valid; SmartScreen reputation builds over time.
+**Symptom:** You cannot find a Windows `.exe` installer in the GitHub release.
+**Likely cause:** Windows builds come only from the Microsoft Store.
+**Fix:** Install Ptah from the [Microsoft Store](https://apps.microsoft.com/detail/9N80K3HFX0JT). If you have an older Ptah from an `.exe`, uninstall it first. Your data in `~/.ptah` stays.
 
 ---
 
-**Symptom:** Installer fails with `0x80070005` (access denied).
-**Likely cause:** Running from a write-protected location or a corporate policy blocking per-user installs.
-**Fix:** Download to your Downloads folder and run as a normal user. If corporate policy prevents per-user installs, ask IT to deploy the MSI variant.
-
----
-
-**Symptom:** App launches but crashes immediately with a missing `VCRUNTIME140.dll`.
-**Likely cause:** Missing Visual C++ runtime.
-**Fix:** Install the latest **Microsoft Visual C++ Redistributable (x64)** from Microsoft.
+**Symptom:** Ptah does not update on Windows.
+**Likely cause:** The Microsoft Store controls updates of Store installs. Ptah does not check GitHub for them.
+**Fix:** Look for updates in the Microsoft Store.
 
 ## macOS
 
 **Symptom:** "Ptah is damaged and can't be opened."
-**Likely cause:** Quarantine attribute after downloading via a browser.
+**Likely cause:** The macOS build is not signed, and the browser added a quarantine attribute.
 **Fix:**
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Ptah.app
 ```
 
-Then launch normally.
+Then start Ptah.
 
 ---
 
-**Symptom:** App opens but the dock icon bounces and then disappears.
-**Likely cause:** Gatekeeper blocked an unsigned helper on first launch.
-**Fix:** Open **System Settings → Privacy & Security** and click **Open Anyway** on the Ptah prompt. Relaunch.
+**Symptom:** macOS blocks the app on the first start.
+**Likely cause:** Gatekeeper blocks unsigned apps.
+**Fix:** Open **System Settings → Privacy & Security** and click **Open Anyway** next to the Ptah message. Start Ptah again.
+
+---
+
+**Symptom:** The app does not start on an Intel Mac.
+**Likely cause:** Only an Apple Silicon build is published.
+**Fix:** Use a Mac with Apple Silicon.
 
 ## Linux
 
-**Symptom:** AppImage won't run.
-**Likely cause:** Missing executable bit, or `FUSE` is not available.
+**Symptom:** The AppImage does not run.
+**Likely cause:** The file is not executable, or FUSE is missing.
 **Fix:**
 
 ```bash
@@ -53,22 +53,16 @@ sudo apt install libfuse2     # Debian/Ubuntu
 
 ---
 
-**Symptom:** `.deb` install fails with unmet `libnss3` or `libatk1.0-0` dependencies.
-**Likely cause:** Minimal install without Electron runtime libs.
-**Fix:**
+**Symptom:** The `.deb` install fails with missing dependencies.
+**Likely cause:** `dpkg -i` does not install dependencies.
+**Fix:** Install the file with `apt`, which resolves dependencies:
 
 ```bash
-sudo apt install libnss3 libatk1.0-0 libatk-bridge2.0-0 libxkbcommon0 libgbm1
+sudo apt install ./<downloaded-file>.deb
 ```
 
-## Updates
+## Updates on macOS and Linux
 
-**Symptom:** "Update available" toast appears but the update never downloads.
-**Likely cause:** Release server unreachable (firewall or DNS).
-**Fix:** Check connectivity to `https://releases.ptah.live`. If blocked, download the installer manually from GitHub releases and run it over the existing install.
-
----
-
-**Symptom:** Update downloads but reports "checksum mismatch."
-**Likely cause:** Proxy rewrote the binary.
-**Fix:** Bypass the corporate proxy for `releases.ptah.live`, or download from GitHub releases directly.
+**Symptom:** The **Update available** dialog does not show, but a newer release exists.
+**Likely cause:** Ptah could not reach the GitHub Releases API.
+**Fix:** Make sure that your network can reach `api.github.com`. Or download the new release from [GitHub releases](https://github.com/Hive-Academy/PtahCode/releases) and install it over the old version.

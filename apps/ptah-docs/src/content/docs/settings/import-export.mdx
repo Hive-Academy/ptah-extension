@@ -1,49 +1,40 @@
 ---
 title: Import & Export
-description: Back up and restore your Ptah configuration.
+description: Back up your Ptah settings to a file and restore them.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-You can package your entire Ptah setup — global settings, agents, skills, plugins, and templates — into a single archive and restore it on another machine.
+You can export your Ptah settings to one JSON file and import the file on another machine.
 
 ## Export
 
-**Settings → Import & Export → Export configuration** produces a `.ptah-config.zip` file containing:
+1. Open **Settings → Advanced**.
+2. In the **Membership & data** card, click **Export**.
+3. Select where to save the file. The default name is `ptah-settings-export.json`.
 
-| Included            | Path in archive      |
-| ------------------- | -------------------- |
-| Global settings     | `ptah/settings.json` |
-| Installed plugins   | `ptah/plugins/`      |
-| Installed templates | `ptah/templates/`    |
-| Agents              | `claude/agents/`     |
-| Skills              | `claude/skills/`     |
+The file contains your settings and your secrets: provider API keys, tokens, and the membership key. Ptah shows how many secrets it exported.
 
 <Aside type="caution">
-**API keys are stripped on export.** Secrets are encrypted to your local OS keychain and cannot be moved to another machine. You'll need to re-enter them after import.
+The export file contains your secrets in a readable form. Keep it private. Do not commit it or share it. Delete it after you import it.
 </Aside>
 
 ## Import
 
-**Settings → Import & Export → Import configuration** restores a previously-exported archive. You can choose:
+1. Open **Settings → Advanced**.
+2. In the **Membership & data** card, click **Import**.
+3. Ptah asks **Replace your settings from a file?** Click **Import settings**.
+4. Select the export file.
 
-- **Merge** — add entries to your existing setup, keeping current values on conflict
-- **Replace** — wipe the target folders and restore the archive verbatim
-
-Import is applied atomically. If any step fails, Ptah rolls back so your existing setup is never left half-migrated.
+Import replaces your current settings, API keys, and preferences with the contents of the file. If the file contains a membership key, the window reloads.
 
 ## Manual backup
 
-The same data is just files on disk — a plain `zip` of the following folders is a valid backup:
+To back up agents, skills, plugins, and memory, copy these folders:
 
-| OS      | Folders to include                                 |
-| ------- | -------------------------------------------------- |
-| Windows | `C:\Users\<you>\.ptah\`, `C:\Users\<you>\.claude\` |
-| macOS   | `~/.ptah/`, `~/.claude/`                           |
-| Linux   | `~/.ptah/`, `~/.claude/`                           |
+| Folder        | Contents                                          |
+| ------------- | ------------------------------------------------- |
+| `~/.ptah/`    | Settings file, plugins, skills library, database  |
+| `~/.claude/`  | User-wide agents and skills                       |
 
-Restore by unzipping over the originals. Exclude `settings.json` if you want to keep your current secrets.
-
-## Versioning with Git
-
-Many teams keep `~/.claude/agents/` and `~/.claude/skills/` in a personal dotfiles repo. Ptah has no objection — it only cares that the files are on disk when it launches.
+Encrypted secrets are in the Electron user-data folder and work only on the machine that encrypted them. Use **Export** to move secrets.

@@ -24,6 +24,8 @@ export interface CodeIndexFreshness {
 }
 
 export interface ICodeSymbolReader {
+  /** Monotonic revision of writes on the owning SQLite connection, when available. */
+  getRevision?(): number;
   searchSymbols(
     query: string,
     topK?: number,

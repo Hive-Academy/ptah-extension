@@ -1,7 +1,7 @@
-# dashboard
+# @ptah-extension/dashboard
 
-This library was generated with [Nx](https://nx.dev).
+Angular dashboard library for the Electron renderer: the dashboard grid, its cards and `ThothStatusService` (see `src/index.ts`).
 
-## Running unit tests
-
-Run `nx test dashboard` to execute the unit tests.
+```bash
+npm run verify -- -p dashboard
+```

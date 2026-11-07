@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": ["../../libs/backend/memory-curator/src/lib/search-worker.ts", "../../libs/backend/memory-curator/src/lib/**/*.ts"],
+  "exclude": ["**/*.spec.ts"]
+}

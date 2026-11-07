@@ -283,6 +283,7 @@ function logProvenanceTapFailure(logger: Logger, error: unknown): void {
 
 @injectable()
 export class SdkQueryRunner {
+  private readonly warnedUnsafeCwds = new Set<string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_RUNTIME_STATE)
@@ -388,10 +389,17 @@ export class SdkQueryRunner {
     const fallback = isUnsafeWorkspacePath(home, this.platformInfo).ok
       ? home
       : os.tmpdir();
-    this.logger.warn(
-      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
-      { requested, fallback },
-    );
+    if (!this.warnedUnsafeCwds.has(requested)) {
+      this.warnedUnsafeCwds.add(requested);
+      if (this.warnedUnsafeCwds.size > 128) {
+        const oldest = this.warnedUnsafeCwds.values().next().value;
+        if (oldest !== undefined) this.warnedUnsafeCwds.delete(oldest);
+      }
+      this.logger.warn(
+        `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
+        { requested, fallback },
+      );
+    }
     return fallback;
   }
 

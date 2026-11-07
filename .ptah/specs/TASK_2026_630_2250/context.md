@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context - TASK_2026_630_2250 (Display panel follow-ups)
 
 Source task: `TASK_2026_623_3492` (branch `feat/task-623-display-panel`). Decision numbers below refer to that

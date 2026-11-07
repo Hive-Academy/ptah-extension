@@ -1,45 +1,35 @@
 ---
 title: File attachments
-description: Attach files, folders, agents, and skills with the @ autocomplete.
+description: Attach files, folders, and images, and run slash commands from the composer.
 sidebar:
   order: 3
 ---
 
 # File attachments
 
-Ptah uses a single `@` autocomplete — the **unified suggestions dropdown** — to attach anything in your workspace as context for the next message.
+The composer has one suggestions dropdown. The character that you type selects what it shows.
 
 ![Unified @ suggestions dropdown](/screenshots/chat-at-suggestions.png)
 
-## Opening the dropdown
+## Attach files and folders
 
-Type `@` in the composer. The dropdown opens and filters as you type. Results are grouped by type:
+1. Type `@` in the composer.
+2. Type part of a name to filter the **Files & Folders** list.
+3. Use **Arrow Up** and **Arrow Down** to move in the list.
+4. Press **Enter** to attach the selected item.
 
-| Group         | What it is                                                        | Typical use                                     |
-| ------------- | ----------------------------------------------------------------- | ----------------------------------------------- |
-| Files         | Any file tracked by the workspace.                                | Attach source code, config, or docs as context. |
-| Folders       | Directories in the workspace.                                     | Give the model a whole module or package.       |
-| Agents        | Specialist agents from `.claude/agents/` or the built-in catalog. | Delegate work to a domain expert.               |
-| Skills        | Skills from `.claude/skills/` or the harness registry.            | Pull in procedural knowledge for a task.        |
-| MCP resources | Anything exposed by a connected MCP server.                       | Attach live tickets, PRs, or search results.    |
+Press **Esc** to close the dropdown.
 
-Use **Arrow keys** to move between results and **Enter** or **Tab** to insert. **Esc** closes the dropdown.
+The dropdown does not list agents. The model selects its own sub-agents.
 
-## How attachments are sent
+## Run a slash command
 
-- **Files** are read at send-time and inserted into the prompt as fenced code blocks with the file path as a header. The model sees the current on-disk contents, not a stale snapshot.
-- **Folders** expand to a file tree plus the contents of every text file inside, subject to a size budget. Binary files are skipped.
-- **Agents** become delegation targets — the orchestrator can hand a subtask to the selected specialist. `ptah_agent_spawn` starts CLI lanes, not these specialist definitions.
-- **Skills** are injected as procedural context at the top of the system prompt.
+Type `/` in the composer. The dropdown shows the slash commands and prompts that are available to the session. Press **Enter** to select one.
 
-:::tip
-If you attach a large folder, Ptah shows the projected token count before you send. Use the Execution Tree after the turn to see exactly how many tokens each attachment consumed.
-:::
+## Attach images
 
-## Drag and drop
+Paste an image into the composer, or drop an image file onto it. PtahCode accepts JPEG, PNG, GIF, and WebP images. It rejects an image that is larger than the size limit.
 
-You can drop files from your OS file manager directly onto the composer. They are attached the same way as `@`-mentions. Images (`.png`, `.jpg`, `.gif`, `.webp`) are sent inline to vision-capable models.
+## Remove an attachment
 
-## Removing attachments
-
-Attachments render as chips above the composer. Click the `x` on a chip to remove it before sending. Once a message has been sent, its attachments are frozen into the transcript.
+Attachments show as chips above the composer. Click the `x` on a chip to remove it before you send the message.

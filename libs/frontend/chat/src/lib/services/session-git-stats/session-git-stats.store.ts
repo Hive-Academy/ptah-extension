@@ -15,6 +15,7 @@ import {
 } from '@ptah-extension/core';
 import {
   GIT_ROOT_UNAVAILABLE_MESSAGE,
+  GIT_ROOT_PROBE_FAILED_MESSAGE,
   MESSAGE_TYPES,
   resolveSessionWorkingRoot,
   type GitInfoResult,
@@ -343,6 +344,11 @@ export class SessionGitStatsStore implements MessageHandler {
           console.warn(`${LOG_PREFIX} Git read failed.`, result.error);
           if (result.error === GIT_ROOT_UNAVAILABLE_MESSAGE) {
             entry.backoffUntil = Date.now() + UNAVAILABLE_ROOT_BACKOFF_MS;
+          }
+          if (result.error === GIT_ROOT_PROBE_FAILED_MESSAGE) {
+            entry.backoffUntil = Date.now() + TIMEOUT_BACKOFF_MS;
+            entry.readAt = Date.now();
+            return;
           }
           if (typeof result.error === 'string' && result.error.includes('RPC timeout')) {
             entry.backoffUntil = Date.now() + TIMEOUT_BACKOFF_MS;

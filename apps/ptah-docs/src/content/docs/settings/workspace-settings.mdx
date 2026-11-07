@@ -1,92 +1,79 @@
 ---
 title: Workspace Settings
-description: Per-project configuration stored in .claude/ and .ptah/.
+description: Per-project configuration in the .claude/ and .ptah/ folders.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Workspace settings live **inside your project** so they can be checked into version control and shared with teammates. Ptah uses two folders:
+Workspace configuration lives **inside your project**, so you can commit it and share it with your team. Ptah uses two folders:
 
-| Folder     | Purpose                                                                                 |
-| ---------- | --------------------------------------------------------------------------------------- |
-| `.claude/` | Standard Claude agents, skills, and settings that any Claude Agent SDK tool understands |
-| `.ptah/`   | Ptah-specific metadata — enabled plugins, workspace locks, screenshots, recordings      |
+| Folder     | Purpose                                                       |
+| ---------- | ------------------------------------------------------------- |
+| `.claude/` | Agents, skills, and Claude settings for the project           |
+| `.ptah/`   | Ptah files for the project, such as task specifications and browser screenshots |
 
 ## `.claude/` folder
 
-A typical layout:
-
 ```
 .claude/
-├── agents/                  # Custom sub-agents for this project
+├── agents/                  # Agents for this project
 │   └── reviewer.md
-├── skills/                  # Project-specific skills
+├── skills/                  # Skills for this project
 │   └── release-notes/
 │       └── SKILL.md
-├── settings.json            # Workspace-only overrides
-└── settings.local.json      # Personal overrides, not committed
+├── settings.json            # Committed Claude settings
+└── settings.local.json      # Personal Claude settings, not committed
 ```
 
-| File / folder         | Purpose                                                     |
-| --------------------- | ----------------------------------------------------------- |
-| `agents/`             | Markdown-defined sub-agents with their own tool permissions |
-| `skills/`             | Named skill bundles with a `SKILL.md` entry point           |
-| `settings.json`       | Committed workspace overrides (model, permissions, hooks)   |
-| `settings.local.json` | Personal overrides; add to `.gitignore`                     |
+| File / folder         | Purpose                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `agents/`             | Markdown agents with their own tool permissions           |
+| `skills/`             | Skills, each with a `SKILL.md` file                       |
+| `settings.json`       | Committed Claude settings, for example `permissions`      |
+| `settings.local.json` | Personal Claude settings. Add it to `.gitignore`.         |
+
+The agent reads both settings files when it runs in the workspace.
 
 ## `.ptah/` folder
 
-```
-.ptah/
-├── plugins.json             # List of enabled plugins for this workspace
-├── screenshots/             # Output from ptah_browser_screenshot
-├── recordings/              # Output from ptah_browser_record_stop
-└── specs/                   # Task specifications when using orchestration
-```
+| File / folder  | Purpose                                         |
+| -------------- | ----------------------------------------------- |
+| `specs/`       | Task specifications for orchestration and the tasks board |
+| `screenshots/` | Default output of browser screenshots           |
+| `roadmap.md`   | Phased plan from [New project](/setup/new-project/) |
 
-| File / folder  | Purpose                                                            |
-| -------------- | ------------------------------------------------------------------ |
-| `plugins.json` | Which plugins from `~/.ptah/plugins/` are active in this workspace |
-| `screenshots/` | Default output for browser screenshots                             |
-| `recordings/`  | Default output for browser GIF recordings                          |
-| `specs/`       | Orchestration task descriptions and handoff documents              |
+Which plugins and skills are enabled is not stored in the workspace folder. Ptah keeps that in its own workspace state.
 
-## Precedence
+## Skill copies for other tools
 
-When Ptah resolves a setting, it merges layers in order — later layers override earlier ones:
+Ptah can copy skills into folders that other AI tools read, for example `.agents/skills/`, `.github/skills/`, and `.cursor/skills/`. These are derived copies. Ptah adds them to `.gitignore`. See [File locations](/reference/file-locations/#the-harness-user-layer).
 
-1. Built-in defaults
-2. Global — `~/.ptah/settings.json`
-3. Workspace — `.claude/settings.json`
-4. Personal workspace — `.claude/settings.local.json`
-
-## Committing to Git
+## Commit to Git
 
 <Aside type="tip">
-Recommended `.gitignore` entries:
+Add these entries to `.gitignore`:
 
 ```
 .claude/settings.local.json
 .ptah/screenshots/
-.ptah/recordings/
 ```
 
-Commit the rest — agents, skills, and `plugins.json` — so your whole team gets the same setup.
+Commit the agents and skills, so your whole team gets the same setup.
 
 </Aside>
 
-## Creating custom agents
+## Create a custom agent
 
-Drop a Markdown file into `.claude/agents/` with front matter that describes the agent:
+Add a Markdown file to `.claude/agents/` with frontmatter that describes the agent:
 
 ```markdown
 ---
 name: reviewer
 description: Strict TypeScript code reviewer
-tools: [Read, Grep, Glob]
+tools: Read, Grep, Glob
 ---
 
 You are a senior TypeScript reviewer...
 ```
 
-The new agent appears immediately in the agent picker for this workspace.
+See [Custom agents](/agents/custom-agents/).

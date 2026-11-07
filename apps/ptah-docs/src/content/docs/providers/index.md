@@ -1,70 +1,66 @@
 ---
 title: Providers
-description: Ptah is multi-provider. Bring your own keys.
+description: Ptah works with many AI providers. Bring your own keys.
 sidebar:
   order: 1
 ---
 
 # Providers
 
-Ptah is multi-provider by design. You configure the AI services you want to use, Ptah routes chat traffic, sub-agent spawns, and tool calls across them, and a single unified cost ledger shows you what each turn cost — no matter which backend served it.
+Ptah works with many AI providers. You connect the services that you want to use, and Ptah sends chat, sub-agent, and tool traffic to them.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/providers.mp4" type="video/mp4" />
 </video>
 
-**You bring your own keys.** Ptah never proxies your traffic through a service we control. Your API keys stay on your machine.
+**You bring your own keys.** Credentials go from your machine directly to the AI provider. No Ptah server is involved. Some providers use a translation proxy that runs on your own machine.
 
 ## Supported providers
 
-| Provider                              | Auth            | Best for                                                     | Cost tracking                          |
-| ------------------------------------- | --------------- | ------------------------------------------------------------ | -------------------------------------- |
-| [Claude](/providers/claude/)          | API key         | Reasoning-heavy work, long contexts, prompt caching.         | Anthropic published rates.             |
-| [GitHub Copilot](/providers/copilot/) | OAuth           | Code completion quality, bundled if you have Copilot.        | $0 (your subscription).                |
-| [OpenAI Codex](/providers/codex/)     | OAuth / API key | GPT-5 family, high-reasoning modes.                          | OpenAI published rates.                |
-| [Ollama](/providers/ollama/)          | Local / token   | Offline work, privacy, local models.                         | $0 for local, Cloud uses Ollama rates. |
-| [LM Studio](/providers/lm-studio/)    | Local (no key)  | Local models over an OpenAI-compatible server.               | $0 — runs on your hardware.            |
-| [OpenRouter](/providers/openrouter/)  | API key         | Access hundreds of models with one key; live pricing feed.   | Live from OpenRouter registry.         |
-| [Requesty](/providers/requesty/)      | API key         | Multi-model routing with no translation layer.               | Requesty published rates.              |
-| [Kimi Code](/providers/kimi-code/)    | API key         | Kimi K3.1 on a Kimi Code subscription, up to 1M context.     | Covered by your plan quota.            |
-| [Z.AI (GLM)](/providers/z-ai/)        | API key         | 1M context, open-source coding leader (`glm-5.2`).           | Z.AI published rates.                  |
-| [Sakana (Fugu)](/providers/sakana/)   | API key         | Fugu and Fugu Ultra, 200K context.                           | Unpublished — reported as $0.          |
-| [Ptah CLI](/providers/ptah-cli/)      | User-configured | Wrap any CLI-based agent. Highest priority in CLI detection. | Delegated to wrapped tool.             |
+| Provider                              | How you connect                          |
+| ------------------------------------- | ---------------------------------------- |
+| [Claude](/providers/claude/)          | Claude Code sign-in, or an API key       |
+| [OpenAI Codex](/providers/codex/)     | Sign-in with a ChatGPT plan              |
+| [GitHub Copilot](/providers/copilot/) | Sign-in with a Copilot plan              |
+| [Kimi Code](/providers/kimi-code/)    | Kimi Code sign-in, or an API key         |
+| [Z.AI (GLM)](/providers/z-ai/)        | API key                                  |
+| [OpenRouter](/providers/openrouter/)  | API key                                  |
+| [Requesty](/providers/requesty/)      | API key                                  |
+| [Sakana (Fugu)](/providers/sakana/)   | API key                                  |
+| [Ollama](/providers/ollama/)          | Local server; Ollama Cloud with a key    |
+| [LM Studio](/providers/lm-studio/)    | Local server, no key                     |
+| OpenCode Zen, OpenCode Go             | API key                                  |
 
-Ollama Cloud is configured from the same panel as local Ollama. See
-[Ollama](/providers/ollama/).
+### Custom endpoint
 
-You can also add a **custom provider** — any Anthropic-compatible or
-OpenAI-compatible endpoint you define yourself, with your own base URL, key,
-model list, and tier map:
+You can add your own endpoint: any OpenAI- or Anthropic-compatible server. Click **Connect provider**, then **Configure** next to **Custom endpoint gateway**. Set the **Base URL**, the key, the models, and the tier mapping. Ptah does not operate or check a host that you add.
 
-```bash
-ptah provider custom add my-endpoint --base-url https://... --key <key>
-```
+## Connect a provider
 
-And three web search providers for grounding:
+1. Open **Settings**. The **Providers** tab opens.
+2. Click **Connect provider**.
+3. Click **Connect** next to the provider.
+4. Paste the key, or sign in.
 
-- [Tavily, Serper, Exa](/providers/web-search/) — API keys for web search tools.
+Click a connection to open its details. The tabs are **Overview & Used By**, **Credentials**, and **Models & Tiers**. Custom endpoints also have **Advanced**.
 
 ## How routing works
 
-- The **main chat agent** uses the provider and model you pick with the in-chat model selector — or your default from `~/.ptah/settings.json`.
-- **Sub-agents** spawned by Autopilot use the CLI detection priority (`ptah-cli > codex > copilot`) unless the parent specifies a CLI explicitly.
-- **Web search tools** use whichever web search provider you have an API key for, with Tavily as the default.
-- **Embeddings / indexing** tasks use a lightweight model from your active provider family.
+- **Main agent** — the section at the top of the Providers tab sets the provider, model, and reasoning effort of the main chat agent.
+- **CLI agents** — the CLI agents matrix lists installed agent CLIs and your [Ptah CLI](/providers/ptah-cli/) instances. Click a model or effort cell to change it.
+- **Background Model Roles** — set the models for the memory curator, skill enhancement, and decisions.
+- **Web search** — see [Web search](/providers/web-search/).
 
-See [Switching](/providers/switching/) for what happens when you change providers mid-conversation.
+## Model tiers
+
+Ptah asks for models by three tier words: `opus`, `sonnet`, and `haiku`. Each provider maps these tiers to real model ids. Some providers have a default map. For others, Ptah derives the map from the live model list. To change the map, open the connection and select **Models & Tiers**.
 
 ## Where keys are stored
 
 :::note[Security]
-API keys are encrypted on disk using [Electron `safeStorage`](https://www.electronjs.org/docs/latest/api/safe-storage), which wraps the OS keychain (DPAPI on Windows, Keychain on macOS, libsecret on Linux). Keys never appear in plaintext in `~/.ptah/settings.json` — that file only holds non-secret configuration like default model names and endpoints.
+Secrets go into `secrets.json` in the Electron user-data folder. Each value is encrypted with [Electron `safeStorage`](https://www.electronjs.org/docs/latest/api/safe-storage) (DPAPI on Windows, Keychain on macOS, libsecret on Linux). Non-secret settings go into `~/.ptah/settings.json`.
 :::
-
-Non-secret settings live in `~/.ptah/settings.json`. Secrets live in secure storage, managed from the Providers settings page inside the app.
 
 ## No provider gating
 
-Ptah is free and fully open source. Every provider integration — API keys and OAuth flows alike —
-is available to everyone. Bring your own key (or sign in via OAuth) and you're set. No Ptah account,
-no license key, and no subscription is involved. See the individual provider pages for setup details.
+Ptah is free and open source. Every provider is available to everyone. You do not need a Ptah account, a license key, or a subscription.

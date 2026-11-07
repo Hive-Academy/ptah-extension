@@ -1,47 +1,36 @@
 ---
 title: Sending messages
-description: Compose prompts, stream responses, and abort long-running turns.
+description: Compose prompts, stream responses, and stop a response.
 sidebar:
   order: 2
 ---
 
 # Sending messages
 
-The composer at the bottom of the chat is a multi-line input with support for Markdown, fenced code blocks, and `@` mentions. Ptah streams the response token-by-token as soon as the provider starts producing output.
+The composer at the bottom of the chat is a multi-line input. The response streams as soon as the provider starts to send output.
 
-## Composing a prompt
+## Compose a prompt
 
-- **Enter** sends the message.
-- **Shift + Enter** inserts a newline.
-- **Ctrl/Cmd + Enter** also sends — useful when you want to use Enter for newlines exclusively.
-- Paste images, files, or folders directly into the composer. Files are attached as context; images are sent inline to providers that support vision.
-
-:::tip
-Use fenced code blocks (triple backticks) when pasting snippets. Ptah preserves language hints and syntax-highlights them in the transcript.
-:::
+- Press **Enter** to send the message.
+- Press **Shift + Enter** to add a new line.
+- Type `@` to attach a file or folder. Refer to [File attachments](/chat/file-attachments/).
+- Type `/` to select a slash command or prompt.
+- Paste or drop an image to attach it.
 
 ## Streaming responses
 
-Responses stream in real time. You will see:
+The response shows these items as they arrive:
 
-1. **Thinking blocks** (for reasoning-capable models like Claude Sonnet/Opus and GPT-5 family) render as collapsed cards at the top of the response.
-2. **Tool calls** render as inline cards with the tool name, arguments, and result.
-3. **Assistant text** streams below, with Markdown rendered progressively.
+1. **Thinking blocks**, for models that send them.
+2. **Tool calls**, with the tool name, the input, and the result.
+3. **Assistant text**, with Markdown rendered as it streams.
 
-Sub-agents spawned during the turn appear in the [Execution Tree](/chat/execution-tree/) on the right.
+Sub-agents that the turn starts show in the [Execution Tree](/chat/execution-tree/).
 
-## Stopping a response
+## Stop a response
 
-Click **Stop** (or press **Esc**) to abort the current turn. Ptah:
+Click **Stop generating** to stop the current turn. The output that the model sent before you stopped stays in the transcript.
 
-- Cancels the in-flight provider request.
-- Cleans up any pending tool calls so you don't end up with orphaned `tool_use` blocks on the next turn.
-- Preserves partial output — you keep whatever the model produced before you stopped.
+## Branch a conversation
 
-:::caution
-If you abort while a sub-agent is running, the sub-agent is asked to wrap up cleanly before the parent turn ends. This can take a second or two. Hitting Stop a second time forces immediate termination.
-:::
-
-## Resuming a conversation
-
-Every message you send is checkpointed. Closing and reopening Ptah restores the full transcript, including the Execution Tree. Use **New chat** to start a fresh session, or **Fork** on any assistant message to branch the conversation from that point.
+Hover over a message and click **Branch conversation from here**. PtahCode makes a new session from that point. The original session does not change.

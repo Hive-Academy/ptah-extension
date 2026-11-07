@@ -1,9 +1,9 @@
 ---
 title: PtahCode Documentation
-description: The AI dev team that ships production SaaS — user guide for the PtahCode desktop app.
+description: User guide for the PtahCode desktop app — a free, open-source app that runs a team of AI agents on your own machine.
 template: splash
 hero:
-  tagline: A staffed team of AI agents that learns your architecture and ships production SaaS. Free, open source, and running on your own machine.
+  tagline: PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine. Bring any model and keep your code and keys with you.
   actions:
     - text: Install PtahCode
       link: /getting-started/installation/
@@ -21,39 +21,38 @@ import { Card, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
 ## Start here
 
-New to PtahCode? Follow these three pages in order. They take you from download to a working agent roster.
+Follow these three pages in order.
 
 <Steps>
 
-1. **[Install PtahCode](/getting-started/installation/)** — download the desktop app for Windows, macOS, or Linux.
+1. **[Install PtahCode](/getting-started/installation/)** — install the desktop app on Windows, macOS, or Linux.
 
-2. **[Connect a provider](/getting-started/signing-in/)** — bring your own key for Claude, Copilot, Codex, Ollama, or any other supported provider.
+2. **[Connect a provider](/getting-started/signing-in/)** — sign in to Claude Code or Codex, or add a key for another supported provider.
 
-3. **[Run the setup wizard](/setup/setup-wizard/)** — let Ptah analyze your repository and generate an agent roster tuned to your stack.
+3. **[Set up your project](/setup/)** — let Ptah analyze your repository and write an agent team for it.
 
 </Steps>
 
 ## What Ptah does
 
 <CardGrid>
-  <Card title="Chat with a real team" icon="comment-alt">
-    One conversation, many specialists. Ptah routes each slice of work to the
-    right agent and shows you the whole execution tree.
+  <Card title="Chat with a team of agents" icon="comment-alt">
+    One conversation, many specialists. Ptah sends each part of the work to an
+    agent and shows the execution tree.
     [Chat →](/chat/)
   </Card>
-  <Card title="Remember your architecture" icon="star">
-    Tiered memory with hybrid keyword and vector search. Decisions from last
-    week still apply this week.
+  <Card title="Remember your project" icon="star">
+    Persistent memory with keyword and vector search keeps decisions available
+    across sessions.
     [Memory →](/memory/)
   </Card>
-  <Card title="Manage your Skills Library" icon="seti:powershell">
-    Edit skills, agents, and commands. Review history, resolve upstream changes,
-    and preview manual enhancements.
+  <Card title="Manage your skills" icon="seti:powershell">
+    Edit skills, agents, and commands, and review their history.
     [Skills Library →](/skill-synthesis/)
   </Card>
-  <Card title="Keep working while you sleep" icon="rocket">
-    Cron jobs run agents on a schedule. Telegram, Discord, and Slack let you
-    approve a diff from your phone.
+  <Card title="Run work on a schedule" icon="rocket">
+    Scheduled jobs run agents for you. Telegram, Discord, and Slack let you
+    talk to Ptah from your phone.
     [Automation →](/automation/)
   </Card>
 </CardGrid>
@@ -64,88 +63,85 @@ New to PtahCode? Follow these three pages in order. They take you from download 
   <LinkCard
     title="Providers"
     href="/providers/"
-    description="Claude, Copilot, Codex, Ollama, OpenRouter, Kimi Code, Z.AI, and more. Bring your own keys."
+    description="Claude, Codex, Copilot, Ollama, LM Studio, OpenRouter, and more. Bring your own keys."
   />
   <LinkCard
     title="Agents"
     href="/agents/"
-    description="The 14 built-in agents, custom agents, CLI helpers, and syncing your roster to other tools."
+    description="Built-in agents, custom agents, and CLI agents."
   />
   <LinkCard
     title="Orchestra Canvas"
     href="/canvas/"
-    description="Run up to nine chat sessions side by side on one drag-and-resize grid."
+    description="Run several chat sessions in parallel on the session rail, or open two side by side."
   />
   <LinkCard
     title="Project setup"
     href="/setup/"
-    description="The Setup Hub, the setup wizard, the AI Team Builder, and new-project scaffolding."
+    description="Analyze a project, start a new project, or build an AI team."
   />
   <LinkCard
     title="Tasks board"
     href="/tasks/"
-    description="A six-column Kanban board over the task specifications in your workspace."
+    description="A board over the task specifications in your workspace."
   />
   <LinkCard
     title="Tribunal"
     href="/tribunal/"
-    description="Ask the tribunal skill in main chat for Council, Forge, Race, Crucible, or Relay across installed CLI lanes."
+    description="Ask several CLI agents the same question and compare the results."
   />
   <LinkCard
     title="Workspace"
     href="/workspace/"
-    description="Opening a workspace, project analysis, the file tree, and workspace intelligence."
+    description="Open a workspace, switch projects, and use workspace intelligence."
   />
   <LinkCard
     title="Sessions"
     href="/sessions/"
-    description="History, metadata, cost summaries, analytics, and importing your existing CLI transcripts."
+    description="Session history, costs, and imported Claude Code sessions."
   />
   <LinkCard
     title="Plugins & skills"
     href="/plugins/"
-    description="Enable the bundled plugin packs, toggle individual skills, or author your own."
+    description="Enable plugin packs, turn individual skills on or off, or write your own."
   />
   <LinkCard
     title="MCP"
     href="/mcp-and-skills/"
-    description="The built-in MCP server, Ptah's own tools, third-party servers, and driving Ptah over MCP."
+    description="The built-in MCP server, Ptah's own tools, and third-party servers."
   />
   <LinkCard
     title="Browser automation"
     href="/browser-automation/"
-    description="Navigate, click, type, read a page, capture screenshots, watch the network, record a run."
+    description="Navigate, click, type, read a page, take screenshots, and record a run."
   />
   <LinkCard
     title="Git"
     href="/git/"
-    description="Status, diffs, commits, branch awareness, and worktrees."
+    description="Status, diffs, commits, branches, and worktrees."
   />
   <LinkCard
     title="Settings"
     href="/settings/"
-    description="Global and workspace settings, API keys, autopilot, themes, import and export."
+    description="Settings tabs, the settings file, autopilot, themes, import and export."
   />
   <LinkCard
     title="Troubleshooting"
     href="/troubleshooting/"
-    description="Installation problems, provider errors, port conflicts, logs, and how to file a good bug."
+    description="Installation problems, provider errors, port conflicts, and logs."
   />
 </CardGrid>
 
 ## Good to know
 
-- **Every local capability is free.** Ptah is open source. Nothing on your own
-  machine sits behind a paywall. See the [tier comparison](/reference/tier-comparison/).
-- **Your keys stay on your machine.** Ptah never proxies your traffic through a
-  service we control. See [Providers](/providers/).
-- **These pages describe the desktop app.** Its agent pool can include configured CLI providers.
+- **Every local capability is free.** Ptah is open source. No account, license key, or credit card is necessary.
+- **Your keys stay on your machine.** Credentials go from your machine directly to the AI provider. See [Providers](/providers/).
 
 <CardGrid>
   <LinkCard
     title="Reference"
     href="/reference/"
-    description="File locations, keyboard shortcuts, the glossary, and the changelog."
+    description="File locations, keyboard shortcuts, and the glossary."
   />
   <LinkCard
     title="Ask a question"

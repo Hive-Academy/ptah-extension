@@ -1,43 +1,27 @@
 ---
 title: CLI Agents
-description: Spawn Copilot CLI, Codex CLI, and ptah-cli as parallel workers.
+description: Run installed CLIs and Ptah CLI providers as parallel lanes.
 ---
 
 # CLI Agents
 
-CLI agents are external command-line assistants that Ptah spawns as subprocesses. They complement the built-in orchestra by providing bulk, parallel, or provider-specific horsepower — think of them as extra pairs of hands your main agent can delegate to.
+CLI agents are external command-line assistants that PtahCode runs as lanes. The main agent gives them self-contained tasks that run in parallel.
 
 ![CLI agents panel](/screenshots/agents-cli-panel.png)
 
 ## Supported CLIs
 
-Ptah auto-detects these CLIs on your `PATH` at startup:
+PtahCode detects these system CLIs when they are installed: **Codex**, **Copilot**, **Cursor**, **Antigravity**, **OpenCode**, **Pi**, **Grok**, and **Claude**.
 
-| CLI             | Binary         | Notes                                                          |
-| --------------- | -------------- | -------------------------------------------------------------- |
-| **ptah-cli**    | —              | Not a binary. A user-configured Anthropic-compatible provider. |
-| **Codex CLI**   | `codex`        | OpenAI Codex, SDK adapter                                      |
-| **Copilot CLI** | `copilot`      | GitHub Copilot, SDK adapter                                    |
-| **Cursor CLI**  | `cursor-agent` | Cursor's agent CLI                                             |
-| **Antigravity** | `agy`          | Antigravity agent CLI                                          |
-| **OpenCode**    | `opencode`     | OpenCode agent CLI                                             |
-| **Pi**          | `pi`           | Pi agent CLI                                                   |
+A **Ptah CLI** agent is not a binary. It is an Anthropic-compatible provider that you configure.
 
-Only the CLIs you have installed are detected. An absent CLI is not an error.
+An absent CLI is not an error. `ptah_agent_list` shows which lanes are installed and available.
 
-:::note[Windows gotcha]
-npm-installed CLIs on Windows are `.cmd` wrapper scripts. Ptah handles this automatically by routing non-`.exe` paths through a shell. No configuration needed.
+:::note[Windows]
+npm-installed CLIs on Windows are `.cmd` wrapper scripts. PtahCode runs them through a shell. No configuration is necessary.
 :::
 
-## Priority & selection
-
-When a parent agent asks Ptah to "spawn a CLI helper" without specifying which, Ptah picks in this order:
-
-1. `ptah-cli`
-2. `codex`
-3. `copilot`
-
-You can override the default in **Settings → Providers → CLI Agents → Preferred order**.
+To turn off a CLI, add it to `agentOrchestration.disabledClis`. A spawn for a disabled CLI is refused with `CLI agent '<cli>' is disabled`.
 
 ## The agent-lanes skill
 
@@ -47,21 +31,22 @@ When `ptah_agent_*` tools are available, call `ptah_agent_list` before choosing 
 
 Without the lane tools, the agent does the work natively and says so.
 
-## The spawn → poll → read pattern
+## The spawn → signal → read pattern
 
 CLI agents are asynchronous. The orchestrating agent follows a three-step protocol:
 
 ```text
 1. spawn   → launch a lane with a self-contained task, get an agentId
-2. poll    → check status until it is no longer running
+2. signal  → wait for the <agent-lane-completed> message that the lane pushes when it ends
 3. read    → fetch captured output, read deliverables, and verify results
 ```
 
-This lets the parent continue working (or spawn more CLIs) while helpers run. The MCP tools that drive this flow are:
+The parent can continue to work, or spawn more lanes, while lanes run. The MCP tools that drive this flow are:
 
 - `ptah_agent_list` — discover lane availability and messaging capabilities
 - `ptah_agent_spawn` — start a CLI lane with a `task`
-- `ptah_agent_status` — poll for completion
+- `ptah_agent_wait` — block until lanes end
+- `ptah_agent_status` — a one-time status check, for example to get the CLI Session ID for resume
 - `ptah_agent_read` — fetch captured stdout/stderr, including output so far for a running lane; `tail` limits the returned lines
 - `ptah_agent_message` — send a follow-up instruction mid-run. It reports back which of four delivery modes
   actually fired (`steer`, `interrupt-resume`, `queue-next-turn`,
@@ -80,13 +65,13 @@ Status values are `running`, `completed`, `failed`, `timeout`, and `stopped`. Th
 
 The `agent-lanes` skill uses **three concurrent lanes** by default; workflows may widen that budget with your agreement. This is separate from the runtime limit below.
 
-To keep your machine responsive, Ptah caps concurrent CLI agents. The cap is
+To keep your machine responsive, PtahCode caps concurrent CLI agents. The cap is
 `agentOrchestration.maxConcurrentAgents`.
 
 | Setting | Value |
 | ------- | ----- |
 | Default | 5     |
-| Maximum | 20    |
+| Maximum | 100   |
 
 A spawn beyond the cap fails with a "Maximum concurrent agent limit reached"
 error. Wait for a running agent to finish, stop one explicitly, or raise the
@@ -139,25 +124,16 @@ Ask the orchestrator to assign CLI work. Eligible specialists can also delegate 
 
 > "Spawn three Codex CLI agents in parallel to generate unit tests for `libs/backend/auth`, `libs/backend/billing`, and `libs/backend/users`. Merge the results."
 
-The orchestrator will manage spawn/poll/read and return a consolidated summary.
+The orchestrator manages spawn, signal, and read and return a consolidated summary.
 
 ## Inspecting CLI runs
 
-The **CLI Agents** panel shows every spawn with:
-
-- Status (running / completed / failed / timeout / stopped)
-- Duration
-- Tokens / cost (when the CLI reports it)
-- CLI Session ID when the adapter reports one (used for resume)
-- Full transcript
-
-Click any row to open the transcript in a side-by-side diff viewer.
+Each lane shows as an agent card in the chat, with its status, its output, and its token use when the CLI reports it. Click **Stop agent** on the card to stop a lane.
 
 ## Troubleshooting
 
 | Symptom                       | Cause                             | Fix                                                                           |
 | ----------------------------- | --------------------------------- | ----------------------------------------------------------------------------- |
-| `CLI not detected` on startup | Binary not on `PATH`              | Restart Ptah after installing / add to `PATH` manually                        |
-| `ENOENT` spawning on Windows  | `.cmd` wrapper issue              | Upgrade Ptah — auto-shell routing landed in v1.0                              |
+| CLI not detected              | Binary not on `PATH`              | Add the CLI to `PATH`, then restart PtahCode                                  |
 | Hanging forever               | CLI waiting for interactive input | Stop it; rewrite prompt to be fully non-interactive                           |
-| Mangled colors in output      | ANSI codes in transcript          | Ptah sets `FORCE_COLOR=0` and `NO_COLOR=1`; ensure no shell profile overrides |
+| Mangled colors in output      | ANSI codes in transcript          | PtahCode sets `FORCE_COLOR=0` and `NO_COLOR=1`. Make sure that no shell profile overrides them. |

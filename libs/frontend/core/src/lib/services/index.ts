@@ -32,6 +32,7 @@ export {
 } from './auth-state.service';
 export { LlmProviderStateService } from './llm-provider-state.service';
 export { type MessageHandler, MESSAGE_HANDLERS } from './message-router.types';
+export { RendererFrameMonitorService } from './renderer-frame-monitor.service';
 export {
   MessageRouterService,
   provideMessageRouter,

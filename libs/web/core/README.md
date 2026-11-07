@@ -1,7 +1,7 @@
 # web-core
 
-This library was generated with [Nx](https://nx.dev).
+Services for the landing site (`apps/ptah-landing-page`), imported as `@ptah-web/core`: `GitHubReleaseService` and `SeoService` (see `src/index.ts`).
 
-## Running unit tests
-
-Run `nx test web-core` to execute the unit tests.
+```bash
+npm run verify -- -p web-core
+```

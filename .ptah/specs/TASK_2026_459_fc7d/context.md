@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_459 — Cross-workspace `ptahTitle`
 
 Found while implementing TASK_2026_449 / TASK_2026_452 (PR #517). Deferred

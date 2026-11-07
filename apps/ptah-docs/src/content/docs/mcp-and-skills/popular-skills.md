@@ -3,11 +3,9 @@ title: Shipped Skills
 description: Every skill that ships with the official Ptah plugin packs.
 ---
 
-This page lists the skills that ship with the official Ptah plugins. Enable the
-parent plugin from the [plugin catalog](/plugins/marketplace/) and Ptah copies
-its skills into your workspace automatically.
-
-Ptah ships plugin packs with skills for development and orchestration.
+This page lists the skills that ship with the official Ptah plugin packs. Enable the
+parent plugin from the [plugin catalog](/plugins/marketplace/), and PtahCode copies
+its skills into your workspace.
 
 :::note[These are Ptah's skills, not your AI tool's]
 Your coding assistant may also expose skills of its own. This page covers only
@@ -16,7 +14,7 @@ what the Ptah plugin packs contribute.
 
 ## `ptah-core` — core workflow
 
-The recommended default pack includes skills and slash commands.
+The recommended default pack.
 
 | Skill                      | What it does                                                                                                                             | When it triggers                                                  |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -27,6 +25,8 @@ The recommended default pack includes skills and slash commands.
 | `humanize-library`         | Behavior-preserving refactor for readability, SOLID, and file size                                                                       | "Clean this up", "split large files", "remove duplication"        |
 | `skill-creator`            | Guide for authoring effective skills — structure, triggers, references                                                                   | Creating or updating a skill                                      |
 | `technical-content-writer` | Marketing pages, blog posts, technical docs, and video scripts                                                                           | Producing external-facing content                                 |
+| `ptah-surface-authoring`   | Authors ptah-ui blocks and HTML artifacts from verified data                                                                             | Turn summaries, stats, charts, reports                            |
+| `session-handoff`          | Writes HANDOFF.md and continues the work in a new Ptah session                                                                           | Only when you or the session-budget banner run /session-handoff   |
 | `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                    | Landing pages, brand identity, visual specs                       |
 
 `orchestration` assigns phases to sub-agents or CLI lanes; a whole pipeline on lanes is [Relay](/tribunal/relay/). Both `orchestration` and `tribunal` require `agent-lanes` when running lanes. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies) before narrowing your selection.
@@ -47,6 +47,8 @@ security.
 | `saas-platform-patterns`     | Tiering, licensing, subscription state machines, checkout flows                  |
 | `saas-workspace-initializer` | Two-stage SaaS bootstrap — discovery, roadmap, then foundation scaffolding       |
 | `webhook-architecture`       | Three-layer inbound webhook handling with signature checks and idempotency       |
+
+The pack also registers two slash commands: `/init-saas` (SaaS workspace bootstrap) and `/initialize-workspace` (generates CLAUDE.md files).
 
 ## `ptah-angular` — Angular frontends
 

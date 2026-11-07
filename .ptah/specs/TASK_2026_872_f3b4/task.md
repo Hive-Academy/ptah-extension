@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_872_f3b4
-status: in_progress
+status: done
 type: FEATURE
 title: Split session sidebar into agent run details and lane plan limits
 description: >-
@@ -8,7 +8,7 @@ description: >-
   plan-limit row per provider with a progress bar like the main PLAN LIMITS card.
 depends_on: []
 created: 2026-11-03T15:20:00.000Z
-updated: 2026-11-03T15:20:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

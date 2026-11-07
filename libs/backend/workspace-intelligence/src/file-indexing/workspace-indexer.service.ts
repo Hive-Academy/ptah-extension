@@ -21,6 +21,14 @@ import {
   type ParsedIgnoreFile,
 } from './ignore-pattern-resolver.service';
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
+import { WalkSlice } from './cooperative-yield';
+import {
+  collectDirectories,
+  groupByDepth,
+  isUnderNestedRoot,
+  relativeSegments,
+  unprobedCandidates,
+} from './nested-repo-scan';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
 
@@ -130,18 +138,6 @@ function isUnreadableEntryError(error: unknown): boolean {
 export const DISCOVERY_BATCH_SIZE = 500;
 
 /**
- * Hand the event loop a turn.
- *
- * `setImmediate` rather than `Promise.resolve()`: a resolved promise is a
- * MICROtask, so awaiting it drains back into the same loop turn and starves
- * timers, I/O callbacks and IPC exactly as the uninterrupted loop did. Same
- * reasoning, same idiom as `CodeSymbolIndexer`.
- */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-/**
  * Workspace indexing options
  */
 export interface WorkspaceIndexOptions {
@@ -222,6 +218,34 @@ export class WorkspaceIndexerService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
   ) {}
+
+  /**
+   * One walk's "skip this path?" predicate, compiled ONCE before the walk.
+   *
+   * Same decision the walks used to make per file with
+   * `ignoreResolver.isIgnored(relativePath, ignoreFiles)` (no workspace root,
+   * so paths are matched as given) and
+   * `patternMatcher.matchFiles([relativePath], excludePatterns)[0].matched`.
+   * Calling those per file rebuilt a cache key per (path, pattern) pair and, on
+   * an ignore set larger than the matcher LRU, recompiled every pattern for
+   * every file: the top frame of both fix-9 max-lag profiles.
+   */
+  private compilePathFilter(
+    ignoreFiles: ParsedIgnoreFile[],
+    excludePatterns: readonly string[] | undefined,
+  ): (relativePath: string) => boolean {
+    const isIgnored =
+      ignoreFiles.length > 0
+        ? this.ignoreResolver.compileMatcher(ignoreFiles)
+        : null;
+    const isExcluded =
+      excludePatterns && excludePatterns.length > 0
+        ? this.patternMatcher.compilePatternSet(excludePatterns)
+        : null;
+    return (relativePath: string): boolean =>
+      (isIgnored !== null && isIgnored(relativePath)) ||
+      (isExcluded !== null && isExcluded(relativePath));
+  }
 
   /**
    * `stat` one discovered entry, yielding `null` instead of throwing when that
@@ -312,29 +336,17 @@ export class WorkspaceIndexerService {
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
     let skippedEntries = 0;
+    const isSkipped = this.compilePathFilter(
+      respectIgnoreFiles ? parsedIgnoreFiles : [],
+      options.excludePatterns,
+    );
+    const slice = new WalkSlice();
 
     for (const filePath of allFiles) {
+      if (slice.expired()) await slice.yield();
       const relativePath = path.relative(workspaceFolder, filePath);
-      if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
-        const ignoreResult = await this.ignoreResolver.isIgnored(
-          relativePath,
-          parsedIgnoreFiles,
-        );
-        if (ignoreResult.ignored) {
-          continue; // Skip ignored files
-        }
-      }
-      if (options.excludePatterns && options.excludePatterns.length > 0) {
-        const excluded = this.patternMatcher.matchFiles(
-          [relativePath],
-          options.excludePatterns,
-        );
-        // `matchFiles` returns one result per INPUT path, so its length is 1
-        // for this single-path call whether or not the path matched. Read the
-        // per-file `matched` flag; the length says only that we asked.
-        if (excluded && excluded[0]?.matched) {
-          continue; // Skip excluded files
-        }
+      if (isSkipped(relativePath)) {
+        continue;
       }
       const stat = await this.statOrNull(filePath);
       if (!stat) {
@@ -429,27 +441,17 @@ export class WorkspaceIndexerService {
     // the workspace root changes mid-stream, which closes the generator without
     // running the loop to completion. The summary must still be emitted for the
     // work that did happen.
+    const isSkipped = this.compilePathFilter(
+      respectIgnoreFiles ? parsedIgnoreFiles : [],
+      options.excludePatterns,
+    );
+    const slice = new WalkSlice();
     try {
       for (const filePath of allFiles) {
+        if (slice.expired()) await slice.yield();
         const relativePath = path.relative(workspaceFolder, filePath);
-        if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
-          const ignoreResult = await this.ignoreResolver.isIgnored(
-            relativePath,
-            parsedIgnoreFiles,
-          );
-          if (ignoreResult.ignored) {
-            continue;
-          }
-        }
-        if (options.excludePatterns && options.excludePatterns.length > 0) {
-          const excluded = this.patternMatcher.matchFiles(
-            [relativePath],
-            options.excludePatterns,
-          );
-          // One result per INPUT path — see `indexWorkspace` above.
-          if (excluded && excluded[0]?.matched) {
-            continue;
-          }
+        if (isSkipped(relativePath)) {
+          continue;
         }
         const stat = await this.statOrNull(filePath);
         if (!stat) {
@@ -509,8 +511,9 @@ export class WorkspaceIndexerService {
    *    monopolise the loop the way one uninterrupted `for` over 15k paths does.
    *    Same idiom as `CodeSymbolIndexer`'s `yieldToEventLoop`.
    *
-   * {@link indexWorkspaceStream} is deliberately left alone: its other consumers
-   * want the stat + classification it pays for.
+   * {@link indexWorkspaceStream} keeps the stat + classification its other
+   * consumers want; since fix-10 it shares the compiled predicate
+   * (`compilePathFilter`) and yields by time budget (`WalkSlice`).
    *
    * Pass `ignoreFiles` when the caller has already parsed them (the file index
    * has — it keeps them for its watcher re-checks) to avoid a second read of
@@ -553,7 +556,11 @@ export class WorkspaceIndexerService {
     options.onNestedRepoRoots?.(nestedRepoRoots);
 
     let batch: string[] = [];
+    // Per item, not per batch: a long run of ignored paths fills no batch, so
+    // the batch yield below alone never fires for it (review-10 finding 3).
+    const walk = new WalkSlice();
     for (const filePath of allFiles) {
+      if (walk.expired()) await walk.yield();
       const relativePath = path.relative(workspaceFolder, filePath);
       if (isIgnored(relativePath)) {
         continue;
@@ -564,8 +571,8 @@ export class WorkspaceIndexerService {
         batch = [];
         // AFTER the yield, so the consumer has already absorbed the batch: the
         // pause is what keeps the walk off the critical path, not a delay in
-        // delivering it.
-        await yieldToEventLoop();
+        // delivering it. Also starts a fresh slice.
+        await walk.yield();
       }
     }
     if (batch.length > 0) {
@@ -650,18 +657,23 @@ export class WorkspaceIndexerService {
       workspaceFolder,
     );
 
-    const nestedRoots = await this.findNestedRepoRoots(workspaceFolder, files);
+    const walk = new WalkSlice();
+    const nestedRoots = await this.findNestedRepoRoots(
+      workspaceFolder,
+      files,
+      walk,
+    );
     if (nestedRoots.size === 0) {
       return { files, nestedRepoRoots: [] };
     }
+    const outside: string[] = [];
+    for (const file of files) {
+      if (walk.expired()) await walk.yield();
+      const segments = relativeSegments(workspaceFolder, file).slice(0, -1);
+      if (!isUnderNestedRoot(segments, nestedRoots)) outside.push(file);
+    }
     return {
-      files: files.filter(
-        (file) =>
-          !isUnderNestedRoot(
-            relativeSegments(workspaceFolder, file).slice(0, -1),
-            nestedRoots,
-          ),
-      ),
+      files: outside,
       nestedRepoRoots: [...nestedRoots].map((root) =>
         path.join(workspaceFolder, root),
       ),
@@ -671,55 +683,39 @@ export class WorkspaceIndexerService {
   /**
    * Root-relative (`/`-joined) directories below `workspaceFolder` that hold a
    * `.git` entry, outermost only.
+   *
+   * Every synchronous pass here (directory collection, depth grouping, the
+   * per-level candidate filter) checks `walk` per item, so a large flat tree
+   * cannot hold the main loop beyond one slice budget.
    */
   private async findNestedRepoRoots(
     workspaceFolder: string,
     files: readonly string[],
+    walk: WalkSlice,
   ): Promise<Set<string>> {
-    // Every directory holding a discovered file, and each of its ancestors,
-    // once. Walking up stops at the first directory already seen, so a file
-    // costs one lookup beyond its first new ancestor.
-    const directories = new Set<string>();
-    for (const file of files) {
-      const relative = path.relative(workspaceFolder, file);
-      if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
-      const segments = relative.split(/[\\/]/).filter((s) => s.length > 0);
-      let key = segments.slice(0, -1).join('/');
-      while (key.length > 0 && !directories.has(key)) {
-        directories.add(key);
-        const slash = key.lastIndexOf('/');
-        key = slash < 0 ? '' : key.slice(0, slash);
-      }
-    }
-
+    const directories = await collectDirectories(workspaceFolder, files, walk);
     // One depth level at a time, so a level's probes all run after every root
     // above it is known and nothing below a root is ever probed.
-    const levels: string[][] = [];
-    for (const dir of directories) {
-      const depth = dir.split('/').length - 1;
-      (levels[depth] ??= []).push(dir);
-    }
+    const levels = await groupByDepth(directories, walk);
     const roots = new Set<string>();
     for (const level of levels) {
       if (!level) continue;
-      const candidates = level.filter(
-        (dir) => !isUnderNestedRoot(dir.split('/'), roots),
-      );
+      const candidates = await unprobedCandidates(level, roots, walk);
       for (
         let start = 0;
         start < candidates.length;
         start += NESTED_REPO_CHECK_CONCURRENCY
       ) {
-        const slice = candidates.slice(
+        const probes = candidates.slice(
           start,
           start + NESTED_REPO_CHECK_CONCURRENCY,
         );
         const holdsGit = await Promise.all(
-          slice.map((dir) =>
+          probes.map((dir) =>
             this.holdsGitEntry(path.join(workspaceFolder, dir)),
           ),
         );
-        slice.forEach((dir, index) => {
+        probes.forEach((dir, index) => {
           if (holdsGit[index]) roots.add(dir);
         });
       }
@@ -758,25 +754,3 @@ export class WorkspaceIndexerService {
  * large tree does not queue thousands of probes on the thread pool at once.
  */
 const NESTED_REPO_CHECK_CONCURRENCY = 64;
-
-/** `file` relative to `root`, split on either separator, empty segments dropped. */
-function relativeSegments(root: string, file: string): string[] {
-  return path
-    .relative(root, file)
-    .split(/[\\/]/)
-    .filter((segment) => segment.length > 0);
-}
-
-/** True when some prefix of `segments` (including all of it) is a root in `roots`. */
-function isUnderNestedRoot(
-  segments: readonly string[],
-  roots: ReadonlySet<string>,
-): boolean {
-  if (roots.size === 0) return false;
-  let prefix = '';
-  for (const segment of segments) {
-    prefix = prefix.length === 0 ? segment : `${prefix}/${segment}`;
-    if (roots.has(prefix)) return true;
-  }
-  return false;
-}
