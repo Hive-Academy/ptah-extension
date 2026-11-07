@@ -193,6 +193,32 @@ describe('copyFromSnapshot', () => {
     expect(calls).not.toContain('COMMIT');
   });
 
+  it('keeps the copy error when closing the flush handle also fails', async () => {
+    const source: SnapshotBackupSource = {
+      exec: () => undefined,
+      pragma: () => PAGE_SIZE,
+      backup: async () => {
+        throw new Error('disk full');
+      },
+    };
+    const { io, close } = fakeIo({ now: 0 });
+    const closeError = new Error('EBADF');
+    close.mockImplementation(() => {
+      throw closeError;
+    });
+
+    const failure: unknown = await copyFromSnapshot(
+      source,
+      '/tmp/x.tmp',
+      { maxBytesPerSecond: MIB, flushEveryBytes: MIB },
+      io,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('disk full');
+    expect((failure as Error).cause).toBe(closeError);
+  });
+
   it('refuses a source without backup()', async () => {
     const { io } = fakeIo({ now: 0 });
     await expect(

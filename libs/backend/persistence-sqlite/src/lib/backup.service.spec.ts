@@ -26,6 +26,7 @@ import {
   SqliteBackupService,
   BACKUP_WORKER_BUDGET_MS,
   DAILY_BACKUP_MAX_DEFER_MS,
+  DAILY_BACKUP_MIN_DEFER_MS,
   DAILY_BACKUP_WRITE_QUIET_MS,
   DAILY_BACKUP_PACING,
   KEEP_BY_KIND,
@@ -70,11 +71,13 @@ function flush(): Promise<void> {
 /**
  * Wait until a daily backup is parked on the governor. A daily backup writes
  * its owed marker (real file I/O) before it waits, so one `flush()` is not
- * enough to reach `whenClear`.
+ * enough to reach `whenClear`. The bound is time, not turns: on a loaded
+ * machine the marker write can outlast 200 event-loop turns.
  */
 async function untilHeld(governor: { whenClear: jest.Mock }): Promise<void> {
-  for (let i = 0; i < 200 && governor.whenClear.mock.calls.length === 0; i++) {
-    await flush();
+  const giveUpAt = Date.now() + 5_000;
+  while (governor.whenClear.mock.calls.length === 0 && Date.now() < giveUpAt) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
   }
   expect(governor.whenClear).toHaveBeenCalled();
 }
@@ -1078,15 +1081,30 @@ describe('SqliteBackupService.backup — background-work governor', () => {
     expect(h.spawnCount()).toBe(0);
   });
 
-  it('a resumed backup whose two hours ran out runs immediately', async () => {
+  it('a resumed backup whose two hours ran out still waits the short floor', async () => {
     const governor = makeGovernor();
     const h = makeHarness({ governor });
     const dueAt = Date.now() - 3 * DAILY_BACKUP_MAX_DEFER_MS;
     fs.writeFileSync(markerPath(h), JSON.stringify({ dueAt }));
 
-    await expect(h.service.resumeInterruptedDaily()).resolves.not.toBeNull();
-    expect(governor.whenClear).not.toHaveBeenCalled();
+    const pending = h.service.resumeInterruptedDaily();
+    await untilHeld(governor);
+    expect(h.spawnCount()).toBe(0);
+    const [{ maxDeferMs }] = governor.whenClear.mock.calls[0];
+    expect(maxDeferMs).toBeLessThanOrEqual(DAILY_BACKUP_MIN_DEFER_MS);
+    expect(maxDeferMs).toBeGreaterThan(DAILY_BACKUP_MIN_DEFER_MS - 60_000);
+
+    governor.release('clear');
+    await expect(pending).resolves.not.toBeNull();
     expect(h.spawnCount()).toBe(1);
+  });
+
+  it('keeps the owed record when the daily copy fails', async () => {
+    const h = makeHarness({ spawnThrows: true });
+    fs.writeFileSync(markerPath(h), JSON.stringify({ dueAt: Date.now() }));
+
+    await expect(h.service.resumeInterruptedDaily()).resolves.toBeNull();
+    expect(fs.existsSync(markerPath(h))).toBe(true);
   });
 
   it('an earlier owed record keeps its due time when the next daily backup fires', async () => {

@@ -187,9 +187,27 @@ export async function copyFromSnapshot(
     await source.backup(stagingPath, {
       progress: (progress) => pacer.onStep(progress),
     });
-  } finally {
-    flushHandle?.close();
+  } catch (copyError: unknown) {
+    // Close the flush handle without letting a close failure mask the copy error.
+    closeFlushHandle(flushHandle, copyError);
+    throw copyError;
   }
+  // After a good copy a close failure still fails the backup: the staged file's
+  // durability is then unknown, and the caller discards it.
+  flushHandle?.close();
   source.exec('COMMIT');
   return pacer.stats();
+}
+
+/** Close `handle` after a failed copy; the copy error stays the one thrown. */
+function closeFlushHandle(handle: BackupFlushHandle | null, copyError: unknown): void {
+  try {
+    handle?.close();
+  } catch (closeError: unknown) {
+    // degradation-audit: reported - the caller rethrows the copy error, which
+    // fails the backup; the close failure is attached to it as context.
+    if (copyError instanceof Error && copyError.cause === undefined) {
+      copyError.cause = closeError;
+    }
+  }
 }
