@@ -7,7 +7,7 @@ The **Tasks** board reads the `.ptah/specs/` folder in your workspace and render
 it as a Kanban board. Every card is a real folder on disk. Every status change
 writes back to a file you can read, diff, and commit.
 
-Open it from **Tasks** in the navigation rail.
+Open it from **Tasks** in the tab bar.
 
 ## What a task is
 
@@ -138,7 +138,7 @@ description: >-
 
 Open **Manage** in the board header. **Generate registry** regenerates `registry.md`, a summary of every task. **Reindex** rescans
 `.ptah/specs/` from scratch. **Tidy finished…** previews which finished tasks would be deleted. Reindex is the fix when you have edited carriers
-outside PtahCodeCode and want the board to catch up immediately.
+outside PtahCode and want the board to catch up immediately.
 
 The board also refreshes on its own. An agent writing spec folders pushes a
 change notification, and the board re-reads when it is on screen.

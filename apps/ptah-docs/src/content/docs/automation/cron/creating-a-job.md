@@ -28,7 +28,7 @@ description: The fields of a cron job and the validation rules.
 - A prompt that starts with `handler:` is rejected. That prefix is reserved for internal jobs.
 
 :::caution
-Do not put secrets in the prompt. The prompt is stored in `~/.ptah/ptah.db`.
+Do not put secrets in the prompt. The prompt is stored in `~/.ptah/state/ptah.sqlite`.
 :::
 
 ## Manage a job

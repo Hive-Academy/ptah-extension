@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_889_d57a
-status: in_progress
+status: in_review
 type: DOCUMENTATION
 title: Sweep all docs to match the Electron-only product with code evidence
 description: >-

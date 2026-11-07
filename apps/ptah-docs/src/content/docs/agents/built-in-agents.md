@@ -56,11 +56,7 @@ Non-implementation specialists. They produce specs, briefs, reports, and content
 
 ## How agents are used
 
-The model selects its own sub-agents. To run a coordinated task, use orchestration.
-
-
-For a coordinated task, use [orchestration](/agents/agent-orchestration/). The team-leader recommends executors and next actions; the orchestrator spawns the agents.
-:::
+The model selects its own sub-agents. For a coordinated task, use [orchestration](/agents/agent-orchestration/). The team-leader recommends executors and next actions. The orchestrator spawns the agents.
 
 ## Delegation and task state
 

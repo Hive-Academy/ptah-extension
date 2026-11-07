@@ -24,4 +24,4 @@ You can also change two of them in **Settings → Advanced → Fine-tuning → S
 
 ## Storage
 
-All cron data — jobs and runs — is stored in `~/.ptah/ptah.db`.
+All cron data — jobs and runs — is stored in `~/.ptah/state/ptah.sqlite`.

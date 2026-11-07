@@ -16,7 +16,7 @@ Gateway settings use the `gateway.*` prefix in `~/.ptah/settings.json`. The **Me
 | `gateway.rateLimit.maxConcurrent` | `2`     | Shown as a read-only value in the Messaging tab                      |
 | `gateway.voice.enabled`           | `true`  | Lets the gateway transcribe voice notes that an adapter supplies     |
 
-The tool approval level for gateway turns is `gateway.permissionLevel`: `ask` (default), `auto-edit`, or `yolo`. This key is not a `settings.json` key, and the Messaging tab has no control for it.
+The tool approval level for gateway turns is `gateway.permissionLevel`: `ask` (default), `auto-edit`, or `yolo`. PtahCode does not read this key from `~/.ptah/settings.json`. It reads it from the `"ptah"` object in `config.json` in the Electron user-data folder. Refer to [File locations](/reference/file-locations/#electron-user-data). The Messaging tab has no control for it.
 
 :::note
 The adapters do not download voice notes at this time. A voice note without text does not start a turn.
@@ -50,4 +50,4 @@ The adapters do not download voice notes at this time. A voice note without text
 
 ## Storage
 
-Bindings, pairing codes, and message records are stored in `~/.ptah/ptah.db`.
+Bindings, pairing codes, and message records are stored in `~/.ptah/state/ptah.sqlite`.

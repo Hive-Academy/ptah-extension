@@ -10,7 +10,7 @@ The plugin catalog is the **Configure Ptah Skills** panel. You browse, search, e
 Use one of these paths:
 
 - Click **Marketplace** in the chat header, then **Sources → Ptah Plugins**.
-- On the Dashboard, open the skill selection card. It opens the same panel in a dialog.
+- On the Dashboard (**Analytics** in the tab bar), open the skill selection card. It opens the same panel in a dialog.
 
 If the catalog cannot load, the panel shows an error and a **Try Again** button.
 

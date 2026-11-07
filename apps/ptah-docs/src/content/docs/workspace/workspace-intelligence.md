@@ -22,12 +22,14 @@ PtahCode reads files in your workspace to build a local search index stored at `
 
 The index has two pipelines: **Code symbol index** and **Chat memory extraction**. You can turn off each pipeline.
 
-Use these controls to manage the index:
+Manage the index in **Thoth → Memory** with these controls:
 
 - **Index now**: build the index for a workspace that is not indexed yet.
 - **Re-index**: build the index again.
 - **Pause** and **Resume**: stop and continue the current run.
 - **Cancel**: stop the current run.
+
+The **Advanced indexing** section on the **Code index** view has all of these controls. The indexing banner on the **Memories** view has **Index now**, **Re-index**, **Resume**, and **Cancel**.
 
 ## Privacy
 

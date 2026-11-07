@@ -7,7 +7,7 @@ description: Run a prompt on a cron schedule as a headless PtahCode session.
 
 The cron scheduler runs a prompt on a recurring schedule as a headless PtahCode session. Use it for nightly checks, digests, or maintenance work.
 
-The scheduler uses [croner](https://github.com/Hexagon/croner). Jobs are stored in `~/.ptah/ptah.db` and stay after PtahCode restarts.
+The scheduler uses [croner](https://github.com/Hexagon/croner). Jobs are stored in `~/.ptah/state/ptah.sqlite` and stay after PtahCode restarts.
 
 ## Open the scheduler
 

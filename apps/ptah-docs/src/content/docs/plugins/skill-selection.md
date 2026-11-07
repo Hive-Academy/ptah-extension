@@ -7,7 +7,7 @@ PtahCode keeps one editable copy of each skill that you have under `~/.ptah/user
 
 ## A new project starts with no skills selected
 
-When you open a new project, PtahCode does not copy any of these skills into it. The Dashboard shows the card **No skills selected for this project yet**. Click **Choose skills…** to open the picker.
+When you open a new project, PtahCode does not copy any of these skills into it. The Dashboard (**Analytics** in the tab bar) shows the card **No skills selected for this project yet**. Click **Choose skills…** to open the picker.
 
 ## Choose skills
 

@@ -19,4 +19,4 @@ The model selector in the composer changes the model of the session. The next me
 
 ## Defaults
 
-PtahCode stores the default provider in `~/.ptah/settings.json` (`llm.defaultProvider`). To change the default, use the Providers settings page. Refer to [Providers](/providers/).
+To change the default provider and model of the main agent, use the **Main agent** section on the **Settings → Providers** page. Refer to [Providers](/providers/).

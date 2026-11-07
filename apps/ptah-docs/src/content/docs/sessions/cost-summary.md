@@ -23,7 +23,7 @@ PtahCode stores these keys in `~/.ptah/settings.json`. You can also change them 
 | Key                                       | Default      | What it does                                             |
 | ----------------------------------------- | ------------ | -------------------------------------------------------- |
 | `sessionBudget.enabled`                   | `true`       | Turns the budget on or off.                              |
-| `sessionBudget.unit`                      | `tokens`     | Budget in tokens or in USD.                              |
+| `sessionBudget.unit`                      | `tokens`     | Budget unit: `tokens` or `cost` (USD).                   |
 | `sessionBudget.tokens`                    | `50000000`   | Token limit (1,000,000 to 2,000,000,000).                |
 | `sessionBudget.usd`                       | `30`         | USD limit (0.5 to 10,000).                               |
 | `sessionBudget.fallbackWeightedTokens`    | `9000000`    | Weighted token limit when no price is available.         |

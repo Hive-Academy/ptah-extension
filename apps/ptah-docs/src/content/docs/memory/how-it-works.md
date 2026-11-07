@@ -41,7 +41,7 @@ SQLite + vec     → memories land in ~/.ptah/state/ptah.sqlite, chunks are embe
 
 ## Curator and resolver
 
-Both stages are LLM calls. Choose the curator model in the **Memory** tab (**Curator model**), or via `memory.curatorProvider` and `memory.curatorModel`. Both default to empty, which means the curator rides the provider and model your chat is already using. Pick a small, fast model here — the curator runs often. The curator can also run on its **own independently-chosen provider** — set `memory.curatorProvider` and the curator authenticates against that provider on its own, regardless of which provider your chat is using (leave it empty to ride the active provider). Reuses the credentials you already authenticated for that provider.
+Both stages are LLM calls. Choose the curator model in **Settings → Providers → Background Model Roles** (**Memory curator**), or set `memory.curatorProvider` and `memory.curatorModel`. Both default to empty, which means the curator rides the provider and model your chat is already using. Pick a small, fast model here — the curator runs often. The curator can also run on its **own independently-chosen provider** — set `memory.curatorProvider` and the curator authenticates against that provider on its own, regardless of which provider your chat is using (leave it empty to ride the active provider). Reuses the credentials you already authenticated for that provider.
 
 The curator's output is structured: each draft has a `kind` (`fact | preference | event | entity`), a body, an optional `subject`, and a tier hint. The resolver does the work of deciding what's actually new versus what's a refinement of something PtahCode already knows.
 

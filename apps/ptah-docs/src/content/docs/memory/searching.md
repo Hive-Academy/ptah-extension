@@ -39,9 +39,9 @@ Use **Search memory entries** in the **Memory** tab to test queries against your
 The **Memory** tab also tracks the [code-symbol index](/memory/how-it-works/#the-code-symbol-index) for your workspace — separate from curated memories. Two surfaces expose it:
 
 - The **Code index** stat card shows the number of indexed symbols. It sits next to **Last curated** in the stats row at the top of the tab.
-- The **Indexed code** panel — a collapsible section below the memory list — lets you browse those symbols directly.
+- The **Indexed code** list on the **Code index** view lets you browse those symbols directly.
 
-Expand **Indexed code** to see the symbol list. Each row shows the symbol name, its `kind` badge (function, class, method, …), the file it's in (shown relative to the workspace root), and a token count. A counter reports how many symbols are indexed in total.
+In **Thoth → Memory**, click the **Code index** view tab to see the symbol list. Each row shows the symbol name, its `kind` badge (function, class, method, …), the file it's in (shown relative to the workspace root), and a token count. A counter reports how many symbols are indexed in total.
 
 ### Searching symbols
 

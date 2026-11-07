@@ -9,7 +9,7 @@ The usage dashboard shows the tokens and cost of your sessions for a range of da
 
 ## Open the dashboard
 
-Click the **Session Analytics** button in the app shell. Click **Back to chat** to return.
+Click **Analytics** in the tab bar. To return, click the back arrow (**Back to chat**).
 
 ## What the dashboard shows
 
