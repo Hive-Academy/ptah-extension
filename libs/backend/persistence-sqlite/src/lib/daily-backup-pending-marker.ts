@@ -56,6 +56,8 @@ export class DailyBackupPendingMarker {
     try {
       raw = await fs.promises.readFile(this.path, 'utf8');
     } catch (error: unknown) {
+      // degradation-audit: reported - a missing marker means none is owed; an
+      // unreadable one is logged at warn and the backup counts as owed.
       if (isMissingFile(error)) return null;
       this.logger.warn(
         '[persistence-sqlite] daily backup marker unreadable — treating the backup as owed',
@@ -101,6 +103,8 @@ export class DailyBackupPendingMarker {
     try {
       await fs.promises.unlink(this.path);
     } catch (error: unknown) {
+      // degradation-audit: reported - a missing marker is the goal state; any
+      // other unlink failure is logged at warn (one extra daily backup).
       if (isMissingFile(error)) return;
       this.logger.warn(
         '[persistence-sqlite] daily backup marker not removed — the next start will run one more daily backup',
