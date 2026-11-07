@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightLinksValidator from 'starlight-links-validator';
 
 const GITHUB_REPO = 'https://github.com/Hive-Academy/PtahCode';
 const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
@@ -60,6 +61,9 @@ export default defineConfig({
       editLink: {
         baseUrl: EDIT_BASE,
       },
+      // Fails `astro build` (and so the CI docs-build job) on any broken
+      // internal link or heading anchor.
+      plugins: [starlightLinksValidator()],
       sidebar: [
         {
           label: 'Getting Started',
@@ -71,7 +75,10 @@ export default defineConfig({
         },
         {
           label: 'Orchestra Canvas',
-          items: [{ label: 'Overview', slug: 'canvas' }],
+          items: [
+            { label: 'Overview', slug: 'canvas' },
+            { label: 'Session Details', slug: 'canvas/session-inspector' },
+          ],
         },
         {
           label: 'Providers',
@@ -105,6 +112,8 @@ export default defineConfig({
             { label: 'How It Works', slug: 'memory/how-it-works' },
             { label: 'Searching', slug: 'memory/searching' },
             { label: 'Pinning & Forgetting', slug: 'memory/pinning-and-forgetting' },
+            { label: 'Timeline & Corpus', slug: 'memory/timeline-and-corpus' },
+            { label: 'Maintenance', slug: 'memory/maintenance' },
             { label: 'Settings', slug: 'memory/settings' },
           ],
         },
@@ -144,6 +153,7 @@ export default defineConfig({
             { label: 'Discord Setup', slug: 'automation/messaging/discord' },
             { label: 'Slack Setup', slug: 'automation/messaging/slack' },
             { label: 'Pairing & Approvals', slug: 'automation/messaging/pairing-and-approvals' },
+            { label: 'Hand Off a Session', slug: 'automation/messaging/send-a-session' },
             { label: 'Messaging Settings', slug: 'automation/messaging/settings' },
           ],
         },
@@ -154,6 +164,10 @@ export default defineConfig({
         {
           label: 'Git & Version Control',
           items: [{ autogenerate: { directory: 'git' } }],
+        },
+        {
+          label: 'Reviews',
+          items: [{ label: 'Review Runs', slug: 'reviews' }],
         },
         {
           label: 'Marketplace',
@@ -198,11 +212,13 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'mcp-and-skills' },
             { label: 'Built-in MCP Server', slug: 'mcp-and-skills/built-in-mcp-server' },
+            { label: 'External MCP Callers', slug: 'mcp-and-skills/external-callers' },
             { label: 'Ptah Tools', slug: 'mcp-and-skills/ptah-tools' },
             { label: 'Skills', slug: 'mcp-and-skills/skills' },
             { label: 'Shipped Skills', slug: 'mcp-and-skills/popular-skills' },
             { label: 'Creating Skills', slug: 'mcp-and-skills/creating-skills' },
             { label: 'Third-party MCP', slug: 'mcp-and-skills/third-party-mcp' },
+            { label: 'Apps', slug: 'mcp-and-skills/apps' },
           ],
         },
         {
@@ -213,6 +229,8 @@ export default defineConfig({
             { label: 'Workspace Settings', slug: 'settings/workspace-settings' },
             { label: 'Theme', slug: 'settings/theme' },
             { label: 'Autopilot', slug: 'settings/autopilot' },
+            { label: 'Context Management', slug: 'settings/context-management' },
+            { label: 'Search & Voice', slug: 'settings/search-and-voice' },
             { label: 'Import & Export', slug: 'settings/import-export' },
           ],
         },
