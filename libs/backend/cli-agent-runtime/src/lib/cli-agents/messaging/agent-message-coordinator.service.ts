@@ -1,237 +1,362 @@
-import { AgentId } from '@ptah-extension/shared';
+import { randomUUID } from 'node:crypto';
 import type {
   AgentDeliveryReceipt,
+  AgentId,
   AgentMessageOutcome,
   AgentMessagePreview,
   AgentMessagePreviewRequest,
   AgentMessageRequest,
-  AgentProcessInfo,
+  AgentMessageSender,
 } from '@ptah-extension/shared';
-import { AgentContinueError, type AgentProcessManager } from '../agent-process-manager.service';
-import type { CliDetectionService } from '../cli-detection.service';
-import { AgentInterruptedDeliveryError } from '../agent-message-router.service';
-import { LaneAccountResumeError } from '../lane-resume-gate';
-import { AgentDeliveryReceiptStore } from './agent-delivery-receipt-store.service';
-import { resolveEffectiveLaneCapabilities } from './agent-effective-capabilities';
-import { planAgentDelivery } from './agent-delivery-planner';
-import { AgentLaneResumeService } from './agent-lane-resume.service';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { AgentProcessManager } from '../agent-process-manager.service';
+import type { CliDetectionService } from '../cli-detection.service';
+import type { AgentLaneResumeService } from './agent-lane-resume.service';
+import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
+import type {
+  AgentMessageDeliveryScheduler,
+  AgentMessageDeliveryTarget,
+} from './agent-message-delivery.scheduler';
+import { AgentMessageDispatcher } from './agent-message-dispatcher';
+import { CAPABILITY_METADATA_UNAVAILABLE, previewAgentMessage } from './agent-message-preview';
+import { AgentMessageReconciler, removeParkedEntry } from './agent-message-reconciler';
+import {
+  agentMessageSenderKey,
+  mayActOnEnvelope,
+  normalizeAgentMessageSender,
+  type AgentMessageSenderInput,
+} from './agent-message-sender';
+import type { AgentMessageEnvelope, NewEnvelope } from './envelope/agent-message-envelope.schema';
+import {
+  AgentMessageStorageError,
+  AgentMessageValidationError,
+  type AgentMessageEnvelopeStore,
+} from './envelope/agent-message-envelope.store';
+import { LaneSerialQueue } from './lane-serial-queue';
+import type { ParentSessionPurge } from './parent-session-purge.service';
 
-/** Stable refusal code: the agent record exists but has no capability manifest. */
-export const CAPABILITY_METADATA_UNAVAILABLE = 'capability_metadata_unavailable';
+export { CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-preview';
 
-interface QueueUpdate {
-  readonly agentId: string;
-  readonly failures?: readonly { messageId: string; reason: string }[];
+export type CoordinatorManager = Pick<
+  AgentProcessManager,
+  'events' | 'findAgentInfo' | 'getMessageRoutableAgent' | 'sendToAgent' | 'getAgentMessageStatus'
+>;
+export type CoordinatorEnvelopeStore = Pick<
+  AgentMessageEnvelopeStore,
+  'ready' | 'put' | 'get' | 'getBody' | 'transition' | 'markDispatching' | 'list' | 'toReceipt'
+>;
+export type CoordinatorScheduler = Pick<
+  AgentMessageDeliveryScheduler,
+  'start' | 'enqueueCold' | 'schedule' | 'onLaneSettled'
+>;
+
+export interface AgentMessageCoordinatorDeps {
+  readonly manager: CoordinatorManager;
+  readonly detection: Pick<CliDetectionService, 'getAdapter'>;
+  readonly store: CoordinatorEnvelopeStore;
+  readonly aliases: Pick<AgentIdAliasRegistry, 'record' | 'resolve' | 'rootOf'>;
+  readonly resume: Pick<AgentLaneResumeService, 'resume'>;
+  readonly scheduler: CoordinatorScheduler;
+  readonly logger: Logger;
+  /** Startup purge recovery; awaited before the scheduler starts. */
+  readonly purge?: Pick<ParentSessionPurge, 'resumePendingPurges'>;
+  /** True while the parent session's deletion is in progress. */
+  readonly isParentFrozen?: (parentSessionId: string) => boolean;
+  readonly clock?: () => number;
 }
 
-/** One facade for preview, send, receipt lookup and accepted-message cancellation. */
-export class AgentMessageCoordinator {
-  private readonly queued = new Map<string, string[]>();
-  private readonly started = new Map<string, string[]>();
+type ReasonCode = NonNullable<AgentMessageOutcome['reasonCode']>;
+type RouterDelivery = 'queue' | 'now' | 'steer';
 
-  constructor(
-    private readonly manager: Pick<AgentProcessManager, 'events' | 'findAgentInfo' | 'getMessageRoutableAgent' | 'sendToAgent' | 'getAgentMessageStatus'>,
-    private readonly detection: Pick<CliDetectionService, 'getAdapter'>,
-    private readonly receipts: AgentDeliveryReceiptStore,
-    private readonly resume: Pick<AgentLaneResumeService, 'resume'>,
-    private readonly logger?: Logger,
-  ) {
-    manager.events.on('agent:turn-started', (info: AgentProcessInfo & { messageId?: string }) => {
-      void this.onTurnStarted(info).catch((error: unknown) => {
-        // Degradation: receipt bookkeeping cannot reject into the host event emitter.
-        this.logEventFailure(error);
-      });
+const RETRYABLE = new Set<AgentMessageEnvelope['state']>(['blocked-retryable', 'outcome-unknown', 'failed', 'expired']);
+const CANCELLABLE = new Set<AgentMessageEnvelope['state']>([
+  'not-started', 'blocked-retryable', 'outcome-unknown', 'failed', 'expired',
+]);
+const DELIVERABLE = new Set<AgentMessageEnvelope['state']>(['not-started', 'blocked-retryable']);
+
+/**
+ * One facade for preview, send, status, list, cancel and retry of lane
+ * messages (Component 6). Every message is durable before any adapter call,
+ * and all state lives in the envelope store: there is no memory-only id map.
+ */
+export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
+  private readonly serial = new LaneSerialQueue();
+  private readonly dispatcher: AgentMessageDispatcher;
+  private readonly reconciler: AgentMessageReconciler;
+  private readonly clock: () => number;
+  private startup?: Promise<void>;
+
+  constructor(private readonly deps: AgentMessageCoordinatorDeps) {
+    this.clock = deps.clock ?? Date.now;
+    this.reconciler = new AgentMessageReconciler({
+      manager: deps.manager, store: deps.store, aliases: deps.aliases, scheduler: deps.scheduler,
+      serial: this.serial, logger: deps.logger, clock: this.clock, bootAt: this.clock(),
     });
-    manager.events.on('agent:turn-settled', (info: AgentProcessInfo) => {
-      void this.onTurnSettled(info).catch((error: unknown) => {
-        // Degradation: receipt bookkeeping cannot reject into the host event emitter.
-        this.logEventFailure(error);
-      });
+    this.dispatcher = new AgentMessageDispatcher({
+      manager: deps.manager, store: deps.store, aliases: deps.aliases, resume: deps.resume,
+      settleTurn: (info) => this.reconciler.settleTurn(info), logger: deps.logger,
     });
-    manager.events.on('agent:queue-updated', (update: QueueUpdate) => {
-      void this.onQueueUpdated(update).catch((error: unknown) => {
-        // Degradation: receipt bookkeeping cannot reject into the host event emitter.
-        this.logEventFailure(error);
-      });
-    });
-    manager.events.on('agent:expired', ({ agentId }: { agentId: string }) => {
-      void this.onAgentExpired(agentId).catch((error: unknown) => {
-        // Degradation: record expiry must not reject into the host event emitter.
-        this.logEventFailure(error);
-      });
-    });
+    this.reconciler.attach();
   }
 
-  private logEventFailure(error: unknown): void {
-    this.logger?.error('[AgentMessageCoordinator] Receipt event failed',
-      error instanceof Error ? error : new Error('Receipt event failed'));
+  /** Purge recovery, then restart reconciliation, then the scheduler. Idempotent. */
+  start(): Promise<void> {
+    this.startup ??= (async () => {
+      await this.deps.purge?.resumePendingPurges();
+      await this.reconciler.reconcileStartup();
+      await this.deps.scheduler.start(this);
+    })();
+    return this.startup;
+  }
+
+  dispose(): void {
+    this.reconciler.dispose();
   }
 
   preview(request: AgentMessagePreviewRequest): AgentMessagePreview {
-    const info = this.manager.findAgentInfo(request.agentId);
-    const tracked = this.manager.getMessageRoutableAgent(request.agentId);
-    const manifest = info?.potentialCapabilities ?? (info && this.detection.getAdapter(info.cli)?.capabilities());
-    if (!manifest || !info) {
-      // No record → `not_found`. A record without a capability manifest (e.g. a
-      // restored lane whose adapter is not registered) exists, so say so.
-      const reason = info ? CAPABILITY_METADATA_UNAVAILABLE : 'not_found';
-      const unavailable = { state: 'unsupported' as const, reason };
-      const delivery = request.delivery ?? 'queue';
-      const effectiveCapabilities = { agentId: request.agentId, resolvedAt: Date.now(), source: 'restored-record' as const,
-        messaging: { steer: unavailable, interrupt: unavailable, continuation: unavailable, resume: unavailable }, mcp: unavailable };
-      if (info) return { agentId: request.agentId, delivery, effectiveCapabilities, mode: 'unsupported', supported: false, usesResume: false, reason };
-      return planAgentDelivery({ agentId: request.agentId, delivery, info, hasLiveHandle: false, effectiveCapabilities });
-    }
-    const live = Boolean(tracked?.sdkHandle && !tracked.subprocessReleased && !tracked.restored);
-    return planAgentDelivery({
-      agentId: request.agentId, delivery: request.delivery ?? 'queue', info,
-      hasLiveHandle: live,
-      effectiveCapabilities: resolveEffectiveLaneCapabilities(info, manifest, tracked?.sdkHandle, !live),
+    return previewAgentMessage(this.deps.manager, this.deps.detection, request);
+  }
+
+  async send(request: AgentMessageRequest, senderInput: AgentMessageSenderInput = 'parent'): Promise<AgentMessageOutcome> {
+    if (!request.message.trim()) throw new Error('Message must not be empty.');
+    const sender = normalizeAgentMessageSender(senderInput);
+    const senderKey = agentMessageSenderKey(sender);
+    const delivery = request.delivery === 'steer' ? 'now' : request.delivery ?? 'queue';
+    const base = { requested: request.agentId, delivery, sender, senderKey };
+    if (request.idempotencyKey && sender.kind === 'parent' && !sender.sessionId)
+      return this.refuse({ ...base, lineage: request.agentId }, 'idempotency-key-requires-identity');
+    const lineage = await this.deps.aliases.rootOf(request.agentId);
+    return this.serial.run(lineage, async () => {
+      if (request.idempotencyKey) {
+        const existing = await this.findByKey(senderKey, lineage, request.idempotencyKey);
+        if (existing) return this.duplicate(existing, request.agentId);
+      }
+      const { agentId: laneId } = await this.deps.aliases.resolve(request.agentId);
+      const plan = this.preview({ agentId: laneId, delivery });
+      const info = this.deps.manager.findAgentInfo(laneId);
+      const refusal = refusalFor(request, plan);
+      if (refusal || !info) return this.refuse({ ...base, lineage }, refusal ?? 'not_found', plan.reason);
+      if (info.parentSessionId && this.deps.isParentFrozen?.(info.parentSessionId))
+        return this.refuse({ ...base, lineage }, 'parent-session-deleted');
+      let put: { envelope: AgentMessageEnvelope; deduplicated: boolean };
+      try {
+        put = await this.deps.store.put({
+          targetAgentId: request.agentId, laneLineageId: lineage,
+          ...(laneId !== request.agentId ? { actualAgentId: laneId } : {}),
+          ...(info.parentSessionId ? { parentSessionId: info.parentSessionId } : {}),
+          sender, senderKey,
+          ...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
+          mode: plan.mode, delivery,
+          ...(request.allowPartialTurnLoss === true ? { allowPartialTurnLoss: true } : {}),
+          ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
+          route: plan.usesResume ? 'cold' : 'live',
+        }, request.message);
+      } catch (error: unknown) {
+        return this.storageRefusal(error, request.agentId);
+      }
+      if (put.deduplicated) return this.duplicate(put.envelope, request.agentId);
+      return this.dispatcher.attempt({
+        envelope: put.envelope, body: request.message, plan, info, laneId,
+        requestedAgentId: request.agentId,
+        routerDelivery: request.delivery === 'steer' ? 'steer' : delivery,
+      });
     });
   }
 
-  async send(request: AgentMessageRequest, sender: 'user' | 'parent' = 'parent'): Promise<AgentMessageOutcome> {
-    if (!request.message.trim()) throw new Error('Message must not be empty.');
-    const delivery = request.delivery === 'steer' ? 'now' : request.delivery ?? 'queue';
-    const preview = this.preview({ agentId: request.agentId, delivery });
-    if (request.delivery === 'steer' && preview.mode !== 'steer')
-      return this.refuse(request.agentId, delivery, 'True steer is unavailable.', sender, request.message);
-    if (!preview.supported) return this.refuse(request.agentId, delivery, preview.reason ?? 'Delivery is unavailable.', sender, request.message);
-    if (preview.mode === 'interrupt-resume' && request.allowPartialTurnLoss !== true)
-      return this.refuse(request.agentId, delivery, 'Confirm partial turn work loss before interrupting.', sender, request.message);
-    const info = this.manager.findAgentInfo(request.agentId);
-    const receipt = await this.receipts.accept(request.agentId, preview.mode, delivery, info?.cliSessionId, sender, request.message);
+  /** Scheduler entry point: cold inbox, due retries and queue-full re-offers. */
+  async deliver(envelopeId: string): Promise<void> {
+    const envelope = await this.deps.store.get(envelopeId);
+    if (!envelope || !DELIVERABLE.has(envelope.state)) return;
+    await this.serial.run(envelope.laneLineageId, async () => {
+      const current = await this.deps.store.get(envelopeId);
+      if (!current || !DELIVERABLE.has(current.state)) return;
+      const body = await this.deps.store.getBody(envelopeId);
+      if (body === undefined) {
+        this.deps.logger.warn('[AgentMessageCoordinator] Held message has no recoverable body', { envelopeId });
+        return;
+      }
+      await this.routeHeld(current, body, current.delivery);
+    });
+  }
+
+  async retry(
+    agentId: AgentId,
+    messageId: string,
+    actorInput: AgentMessageSenderInput = 'user',
+    opts: { confirmDuplicateRisk?: boolean } = {},
+  ): Promise<AgentMessageOutcome> {
+    const actor = normalizeAgentMessageSender(actorInput);
+    const envelope = await this.owned(agentId, messageId, actor);
+    return this.serial.run(envelope.laneLineageId, async () => {
+      const current = (await this.deps.store.get(messageId)) ?? envelope;
+      if (!RETRYABLE.has(current.state)) throw new Error('Message is not retryable in its current state.');
+      if (current.state === 'expired' && !current.cliSessionId)
+        return this.unsupportedFor(current, 'not_found');
+      if (current.everDispatched === true && opts.confirmDuplicateRisk !== true)
+        return this.unsupportedFor(current, 'confirmation-required');
+      const body = await this.deps.store.getBody(messageId);
+      if (body === undefined) return this.unsupportedFor(current, 'not_found');
+      removeParkedEntry(this.deps.manager, current.actualAgentId ?? current.targetAgentId, messageId);
+      const reopened = await this.deps.store.transition(messageId, {
+        state: 'not-started', reason: undefined, nextRetryAt: undefined,
+      }, [current.state]);
+      if (!reopened || reopened.state !== 'not-started') return this.unsupportedFor(reopened ?? current, 'storage-unavailable');
+      return this.routeHeld(reopened, body, reopened.delivery);
+    });
+  }
+
+  async cancel(agentId: AgentId, messageId: string, actorInput: AgentMessageSenderInput = 'user'): Promise<AgentDeliveryReceipt> {
+    const actor = normalizeAgentMessageSender(actorInput);
+    const envelope = await this.owned(agentId, messageId, actor);
+    return this.serial.run(envelope.laneLineageId, async () => {
+      const current = (await this.deps.store.get(messageId)) ?? envelope;
+      if (!CANCELLABLE.has(current.state)) throw new Error('Message is no longer cancellable.');
+      removeParkedEntry(this.deps.manager, current.actualAgentId ?? current.targetAgentId, messageId);
+      const cancelled = await this.deps.store.transition(messageId, {
+        state: 'cancelled', reason: actor.kind === 'user' ? 'cancelled-by-user' : 'cancelled-by-sender',
+        nextRetryAt: undefined,
+      }, [current.state]);
+      if (!cancelled || cancelled.state !== 'cancelled') throw new Error('Message could not be cancelled.');
+      return this.deps.store.toReceipt(cancelled);
+    });
+  }
+
+  async getReceipt(agentId: AgentId, messageId: string, viewer?: AgentMessageSenderInput): Promise<AgentDeliveryReceipt> {
+    const envelope = await this.find(agentId, messageId);
+    if (!envelope || (viewer !== undefined && !mayActOnEnvelope(normalizeAgentMessageSender(viewer), envelope)))
+      throw new Error('Message receipt not found.');
+    return this.deps.store.toReceipt(envelope);
+  }
+
+  async listReceipts(filter: { agentId?: AgentId; parentSessionId?: string }): Promise<readonly AgentDeliveryReceipt[]> {
+    const lineage = filter.agentId ? await this.deps.aliases.rootOf(filter.agentId) : undefined;
+    const envelopes = await this.deps.store.list(filter.parentSessionId ? { parentSessionId: filter.parentSessionId } : {});
+    return envelopes
+      .filter((envelope) => !lineage || envelope.laneLineageId === lineage)
+      .map((envelope) => this.deps.store.toReceipt(envelope));
+  }
+
+  /** The stored body of an undelivered message, for Recover text. */
+  async getBody(agentId: AgentId, messageId: string, actorInput: AgentMessageSenderInput = 'user'): Promise<string> {
+    const envelope = await this.owned(agentId, messageId, normalizeAgentMessageSender(actorInput));
+    if (!CANCELLABLE.has(envelope.state) && envelope.state !== 'dispatching')
+      throw new Error('Message text is only recoverable before delivery.');
+    const body = await this.deps.store.getBody(messageId);
+    if (body === undefined) throw new Error('Message text is not available.');
+    return body;
+  }
+
+  /** Re-plan a held envelope against the lane's current record and route it. */
+  private async routeHeld(envelope: AgentMessageEnvelope, body: string, routerDelivery: RouterDelivery): Promise<AgentMessageOutcome> {
+    const { agentId: laneId } = await this.deps.aliases.resolve(envelope.targetAgentId);
+    const info = this.deps.manager.findAgentInfo(laneId);
+    if (!info) {
+      // No record in this host run: a resumable lane waits for Retry; otherwise it expires.
+      const held = await this.deps.store.transition(envelope.id, envelope.cliSessionId
+        ? { state: 'blocked-retryable', reason: 'awaiting-resume', route: 'cold', nextRetryAt: undefined }
+        : { state: 'expired', reason: 'agent_expired', nextRetryAt: undefined }, ['not-started', 'blocked-retryable']);
+      return this.unsupportedFor(held ?? envelope, envelope.cliSessionId ? 'awaiting-resume' : 'agent_expired');
+    }
+    if (info.parentSessionId && this.deps.isParentFrozen?.(info.parentSessionId))
+      return this.unsupportedFor(envelope, 'parent-session-deleted');
+    const plan = this.preview({ agentId: laneId, delivery: envelope.delivery });
+    const refusal = refusalFor({ allowPartialTurnLoss: envelope.allowPartialTurnLoss }, plan);
+    if (refusal) {
+      const failed = await this.deps.store.transition(envelope.id, {
+        state: 'failed', reason: plan.reason ?? refusal,
+      }, ['not-started', 'blocked-retryable']);
+      return this.unsupportedFor(failed ?? envelope, refusal);
+    }
+    return this.dispatcher.attempt({
+      envelope, body, plan, info, laneId, requestedAgentId: envelope.targetAgentId, routerDelivery,
+    });
+  }
+
+  /** A send-time refusal is never an accepted message: metadata only, no body, no key. */
+  private async refuse(
+    input: { requested: AgentId; lineage: AgentId; delivery: 'queue' | 'now'; sender: AgentMessageSender; senderKey: string },
+    reason: ReasonCode,
+    detail?: string,
+  ): Promise<AgentMessageOutcome> {
+    const record: NewEnvelope = {
+      targetAgentId: input.requested, laneLineageId: input.lineage, sender: input.sender,
+      senderKey: input.senderKey, state: 'failed', mode: 'unsupported', delivery: input.delivery,
+      reason: detail && detail.length <= 200 ? detail : reason,
+    };
+    let envelope: AgentMessageEnvelope;
     try {
-      if (preview.usesResume) {
-        if (!info) throw new Error('Agent record disappeared before resume.');
-        const spawned = await this.resume.resume(info, request.message);
-        this.add(this.started, spawned.agentId, receipt.id);
-        const spawnedInfo = this.manager.findAgentInfo(spawned.agentId);
-        const started = await this.receipts.transition(receipt.id, { state: 'started', mode: 'start-turn', turnSeq: spawnedInfo?.turnSeq ?? 1 });
-        const current = this.manager.findAgentInfo(spawned.agentId);
-        if (current && current.status !== 'running') await this.onTurnSettled(current);
-        return { mode: 'start-turn', messageId: receipt.id,
-          receipt: await this.receipts.get(request.agentId, receipt.id) ?? started ?? receipt };
-      }
-      this.add(this.queued, request.agentId, receipt.id);
-      const result = await this.manager.sendToAgent(request.agentId, request.message,
-        request.delivery === 'steer' ? 'steer' : delivery, receipt.id, request.allowPartialTurnLoss === true);
-      if (result.mode === 'unsupported') {
-        this.remove(this.queued, request.agentId, receipt.id);
-        const failed = await this.receipts.transition(receipt.id, { state: 'failed', mode: result.mode, reason: result.reasonCode ?? 'delivery-refused' });
-        return { mode: 'unsupported', detail: 'Message delivery unavailable.', messageId: receipt.id, receipt: failed ?? receipt };
-      }
-      if (result.mode === 'queue-next-turn') {
-        await this.receipts.transition(receipt.id, { mode: result.mode });
-        return { mode: result.mode, messageId: receipt.id,
-          receipt: await this.receipts.get(request.agentId, receipt.id) };
-      }
-      this.remove(this.queued, request.agentId, receipt.id);
-      const current = this.manager.findAgentInfo(request.agentId);
-      this.add(this.started, request.agentId, receipt.id);
-      const started = await this.receipts.transition(receipt.id, { state: 'started', mode: result.mode, turnSeq: current?.turnSeq ?? info?.turnSeq ?? 1 });
-      const latest = this.manager.findAgentInfo(request.agentId);
-      if (latest && latest.status !== 'running') await this.onTurnSettled(latest);
-      return { mode: result.mode, messageId: receipt.id,
-        receipt: await this.receipts.get(request.agentId, receipt.id) ?? started ?? receipt };
+      envelope = (await this.deps.store.put(record, undefined)).envelope;
     } catch (error: unknown) {
-      this.remove(this.queued, request.agentId, receipt.id);
-      const interrupted = error instanceof AgentInterruptedDeliveryError;
-      const reason = interrupted ? 'interrupted-undelivered'
-        : error instanceof LaneAccountResumeError ? 'account_refused'
-        : error instanceof AgentContinueError ? error.code : 'delivery-failed';
-      const failed = await this.receipts.transition(receipt.id, {
-        state: interrupted ? 'interrupted-undelivered' : 'failed',
-        partialTurnLost: interrupted,
-        reason,
+      // Degradation: the refusal is still answered; only its audit record is missing.
+      this.deps.logger.warn('[AgentMessageCoordinator] Refusal record not persisted', {
+        error: error instanceof Error ? error.name : 'unknown',
       });
-      return { mode: 'unsupported', detail: failed?.reason, messageId: receipt.id, receipt: failed ?? receipt };
+      const now = this.clock();
+      envelope = { ...record, id: randomUUID(), state: 'failed', createdAt: now, updatedAt: now, attemptCount: 0, bodyBytes: 0 };
     }
+    return { ...this.unsupportedFor(envelope, reason), detail: envelope.reason ?? reason, requestedAgentId: input.requested };
   }
 
-  getReceipt(agentId: AgentId, messageId: string): Promise<AgentDeliveryReceipt> {
-    return this.receipts.get(agentId, messageId);
-  }
-
-  async cancel(agentId: AgentId, messageId: string): Promise<AgentDeliveryReceipt> {
-    const receipt = await this.receipts.get(agentId, messageId);
-    if (receipt.state !== 'accepted') throw new Error('Only accepted messages can be cancelled.');
-    const tracked = this.manager.getMessageRoutableAgent(agentId);
-    const index = tracked?.pendingMessages.findIndex((item) => item.messageId === messageId) ?? -1;
-    if (index < 0) throw new Error('Message is no longer cancellable.');
-    tracked?.pendingMessages.splice(index, 1);
-    this.remove(this.queued, agentId, messageId);
-    const cancelled = await this.receipts.transition(messageId, { state: 'failed', reason: 'cancelled-by-user' });
-    if (!cancelled) throw new Error('Receipt disappeared during cancellation.');
-    return cancelled;
-  }
-
-  private async refuse(agentId: AgentId, delivery: 'queue' | 'now', reason: string, sender: 'user' | 'parent', message: string): Promise<AgentMessageOutcome> {
-    const receipt = await this.receipts.accept(agentId, 'unsupported', delivery, undefined, sender, message);
-    const failed = await this.receipts.transition(receipt.id, { state: 'failed', reason });
-    return { mode: 'unsupported', detail: reason, messageId: receipt.id, receipt: failed ?? receipt };
-  }
-
-  private add(map: Map<string, string[]>, agentId: string, id: string): void {
-    const ids = map.get(agentId) ?? [];
-    if (!ids.includes(id)) ids.push(id);
-    map.set(agentId, ids);
-  }
-
-  private remove(map: Map<string, string[]>, agentId: string, id: string): void {
-    const ids = map.get(agentId);
-    if (!ids) return;
-    const remaining = ids.filter((entry) => entry !== id);
-    if (remaining.length) map.set(agentId, remaining);
-    else map.delete(agentId);
-  }
-
-  private async onAgentExpired(agentId: string): Promise<void> {
-    const pending = [...(this.queued.get(agentId) ?? []), ...(this.started.get(agentId) ?? [])];
-    this.queued.delete(agentId);
-    this.started.delete(agentId);
-    for (const id of pending)
-      await this.receipts.transition(id, { state: 'failed', reason: 'agent_expired' });
-  }
-
-  private async onTurnStarted(info: AgentProcessInfo & { messageId?: string }): Promise<void> {
-    const id = info.messageId;
-    if (!id || !info.turnSeq || !this.queued.get(info.agentId)?.includes(id)) return;
-    this.remove(this.queued, info.agentId, id);
-    this.add(this.started, info.agentId, id);
-    await this.receipts.transition(id, { state: 'started', turnSeq: info.turnSeq });
-  }
-
-  private async onTurnSettled(info: AgentProcessInfo): Promise<void> {
-    if (!info.turnSeq) return;
-    for (const id of this.started.get(info.agentId) ?? []) {
-      const current = await this.receipts.getById(id);
-      if (current?.state !== 'started' || current.turnSeq !== info.turnSeq) continue;
-      await this.receipts.transition(id, { state: 'settled', turnSeq: info.turnSeq,
-        turnOutcome: info.status === 'completed' ? 'completed' : info.status === 'stopped' ? 'stopped' : 'failed' });
-      this.remove(this.started, info.agentId, id);
+  /**
+   * `put` only validates and writes, so any other failure is a storage write
+   * (the store does not wrap a failed body write): fail closed as
+   * `storage-unavailable`, with nothing routed. The caller still holds the text.
+   */
+  private storageRefusal(error: unknown, requested: AgentId): AgentMessageOutcome {
+    if (error instanceof AgentMessageStorageError || error instanceof AgentMessageValidationError) {
+      this.deps.logger.warn('[AgentMessageCoordinator] Message not accepted', { reason: error.code });
+      return { mode: 'unsupported', reasonCode: error.code, detail: error.code, requestedAgentId: requested };
     }
+    this.deps.logger.error('[AgentMessageCoordinator] Message not accepted: storage write failed',
+      error instanceof Error ? error : new Error('Message storage write failed'));
+    return { mode: 'unsupported', reasonCode: 'storage-unavailable', detail: 'storage-unavailable', requestedAgentId: requested };
   }
 
-  private async onQueueUpdated({ agentId, failures = [] }: QueueUpdate): Promise<void> {
-    const failed = new Map(failures.map((entry) => [entry.messageId, entry.reason]));
-    for (const id of [...(this.queued.get(agentId) ?? [])]) {
-      const status = this.manager.getAgentMessageStatus(agentId, id);
-      if (!failed.has(id) && status.status !== 'failed' && !(status.status === 'unknown' && this.manager.findAgentInfo(agentId)?.status === 'stopped')) continue;
-      const parsedId = AgentId.safeParse(agentId);
-      if (!parsedId) {
-        this.logger?.warn('[AgentMessageCoordinator] Invalid queue agent id');
-        this.remove(this.queued, agentId, id);
-        continue;
-      }
-      const receipt = await this.receipts.get(parsedId, id);
-      if (receipt.state !== 'accepted') continue;
-      const candidate = failed.get(id) ?? (status.status === 'failed' ? status.reason : 'agent_stopped');
-      const reason = ['agent_stopped', 'subprocess_released', 'session_changed', 'continuation_rejected'].includes(candidate)
-        ? candidate : 'queue-undelivered';
-      await this.receipts.transition(id, { state: 'failed', reason });
-      this.remove(this.queued, agentId, id);
-    }
+  private duplicate(envelope: AgentMessageEnvelope, requested: AgentId): AgentMessageOutcome {
+    return {
+      mode: envelope.mode, messageId: envelope.id, receipt: this.deps.store.toReceipt(envelope),
+      requestedAgentId: requested, agentId: envelope.actualAgentId ?? envelope.targetAgentId,
+      deduplicated: true,
+    };
   }
+
+  private unsupportedFor(envelope: AgentMessageEnvelope, reason: ReasonCode): AgentMessageOutcome {
+    return {
+      mode: 'unsupported', detail: reason, reasonCode: reason, messageId: envelope.id,
+      receipt: this.deps.store.toReceipt(envelope),
+      requestedAgentId: envelope.targetAgentId, agentId: envelope.actualAgentId ?? envelope.targetAgentId,
+    };
+  }
+
+  private async findByKey(senderKey: string, lineage: AgentId, key: string): Promise<AgentMessageEnvelope | undefined> {
+    return (await this.deps.store.list({})).find((envelope) =>
+      envelope.senderKey === senderKey && envelope.laneLineageId === lineage && envelope.idempotencyKey === key);
+  }
+
+  /** Alias-aware: an envelope matches any id of its lane lineage. */
+  private async find(agentId: AgentId, messageId: string): Promise<AgentMessageEnvelope | undefined> {
+    const envelope = await this.deps.store.get(messageId);
+    if (!envelope) return undefined;
+    if (envelope.targetAgentId === agentId || envelope.actualAgentId === agentId) return envelope;
+    return (await this.deps.aliases.rootOf(agentId)) === envelope.laneLineageId ? envelope : undefined;
+  }
+
+  private async owned(agentId: AgentId, messageId: string, actor: AgentMessageSender): Promise<AgentMessageEnvelope> {
+    const envelope = await this.find(agentId, messageId);
+    if (!envelope || !mayActOnEnvelope(actor, envelope)) throw new Error('Message receipt not found.');
+    return envelope;
+  }
+}
+
+/** Preview and explicit-intent refusals (unchanged rules, Preserve 1). */
+function refusalFor(
+  request: { delivery?: AgentMessageRequest['delivery']; allowPartialTurnLoss?: boolean },
+  plan: AgentMessagePreview,
+): ReasonCode | undefined {
+  if (request.delivery === 'steer' && plan.mode !== 'steer') return 'steer-unavailable';
+  if (!plan.supported)
+    return plan.reason === 'not_found' || plan.reason === CAPABILITY_METADATA_UNAVAILABLE
+      ? plan.reason : 'delivery-refused';
+  if (plan.mode === 'interrupt-resume' && request.allowPartialTurnLoss !== true) return 'confirmation-required';
+  return undefined;
 }

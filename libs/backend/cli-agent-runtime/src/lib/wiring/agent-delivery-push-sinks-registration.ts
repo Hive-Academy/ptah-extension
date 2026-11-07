@@ -2,7 +2,7 @@
  * Push sinks for lane delivery receipts and parent-delivery envelopes.
  *
  * Lives in a `*-registration.ts` file so di-lint sees the registration of
- * the tokens that `AgentDeliveryReceiptStore` and `ParentDeliveryDrainer`
+ * the tokens that `AgentMessageEnvelopeStore` and `ParentDeliveryDrainer`
  * inject. Behaviour is unchanged: a sink that is already registered wins.
  */
 

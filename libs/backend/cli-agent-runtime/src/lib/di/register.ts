@@ -29,10 +29,11 @@ import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import type { IAgentAdapter } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
-import { AgentMessageCoordinator } from '../cli-agents/messaging/agent-message-coordinator.service';
-import { AgentLaneResumeService } from '../cli-agents/messaging/agent-lane-resume.service';
-import { AgentDeliveryReceiptStore, type AgentDeliveryReceiptEventSink } from '../cli-agents/messaging/agent-delivery-receipt-store.service';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type { LaneTerminalCheckpoint } from '../cli-agents/lane-terminal-checkpoint.port';
+import {
+  registerAgentMessageJournal,
+  registerAgentMessagingServices,
+} from './register-agent-messaging';
 import { LaneInstructionFileStore } from '../cli-agents/lane-instruction-file-store';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
@@ -306,6 +307,8 @@ export function registerCliAgentRuntimeServices(
   // construct the notifier while the adapter is still absent (TASK_2026_515).
   container.registerSingleton(ParentEnvelopeStoreService);
   container.registerSingleton(ParentDeliveryDrainerService);
+  // Before the router and manager: the router injects the journal optionally.
+  registerAgentMessageJournal(container);
   container.register(LaneCompletionNotifier, {
     useFactory: instanceCachingFactory(
       (c) =>
@@ -320,6 +323,13 @@ export function registerCliAgentRuntimeServices(
               ? c.resolve<LaneOutcomeRecorder>(LANE_OUTCOME_TOKENS.RECORDER)
               : null,
           c.resolve(ParentDeliveryDrainerService),
+          // Lazy: `wireAgentEventListeners` registers the checkpoint after this.
+          () =>
+            c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.LANE_TERMINAL_CHECKPOINT, true)
+              ? c.resolve<LaneTerminalCheckpoint>(
+                  CLI_AGENT_RUNTIME_TOKENS.LANE_TERMINAL_CHECKPOINT,
+                )
+              : null,
         ),
     ),
   });
@@ -361,29 +371,7 @@ export function registerCliAgentRuntimeServices(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,
   );
-  container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_STORE, {
-    useFactory: instanceCachingFactory((c) => AgentDeliveryReceiptStore.fromStateStorage(
-      c.resolve<IStateStorage>(PLATFORM_TOKENS.STATE_STORAGE),
-      c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK, true)
-        ? c.resolve<AgentDeliveryReceiptEventSink>(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_EVENT_SINK)
-        : undefined,
-      c.resolve<Logger>(TOKENS.LOGGER),
-    )),
-  });
-  container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME, {
-    useFactory: instanceCachingFactory((c) => new AgentLaneResumeService(
-      c.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER),
-    )),
-  });
-  container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR, {
-    useFactory: instanceCachingFactory((c) => new AgentMessageCoordinator(
-      c.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER),
-      c.resolve<CliDetectionService>(TOKENS.CLI_DETECTION_SERVICE),
-      c.resolve<AgentDeliveryReceiptStore>(CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_STORE),
-      c.resolve<AgentLaneResumeService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME),
-      c.resolve<Logger>(TOKENS.LOGGER),
-    )),
-  });
+  registerAgentMessagingServices(container);
   // The parent → child session link (TASK_2026_584). Registered by class,
   // BEFORE the router that injects it, so the router's optional injection
   // always finds the one shared instance rather than nothing.
