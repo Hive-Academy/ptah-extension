@@ -79,6 +79,8 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
   LANE_TERMINAL_CHECKPOINT: Symbol.for('LaneTerminalCheckpoint'),
+  /** Running-output journal (Component 16): checkpoints over state storage. */
+  AGENT_OUTPUT_JOURNAL: Symbol.for('AgentOutputJournal'),
   LANE_INSTRUCTION_FILE_STORE: Symbol.for('LaneInstructionFileStore'),
 
   // Plan limits (TASK_2026_596). See `cli-agents/limits/`.

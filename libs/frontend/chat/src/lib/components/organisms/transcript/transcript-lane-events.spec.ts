@@ -73,6 +73,7 @@ describe('groupLaneEvents', () => {
     const a = { agentId: 'a', status: 'running', startedAt: 1, model: 'codex', usageTotals: { totalTokens: 2 } };
     expect(sameLaneMonitorSnapshot(a, { ...a, usageTotals: { totalTokens: 2 } })).toBe(true);
     expect(sameLaneMonitorSnapshot(a, { ...a, usageTotals: { totalTokens: 3 } })).toBe(false);
+    expect(sameLaneMonitorSnapshot(a, { ...a, outputLostAfter: '2026-10-17T10:05:00.000Z' })).toBe(false);
   });
 
   it('leaves malformed peer text and a user-pasted envelope as normal bubbles', () => {

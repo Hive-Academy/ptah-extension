@@ -107,7 +107,9 @@ import {
   resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
+import type { AgentOutputJournal } from './agent-output-journal.service';
 import {
+  applyOutputCheckpoint,
   laneLastActivityAt,
   restoreLaneIdentity,
   restoreLaneLifecycle,
@@ -436,6 +438,8 @@ export class AgentProcessManager {
     private readonly mcpCredentials?: IMcpCallerCredentials,
     @inject(ParentDeliveryDrainerService, { isOptional: true })
     private readonly parentDeliveryDrainer?: ParentDeliveryDrainerService,
+    @inject(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL, { isOptional: true })
+    private readonly outputJournal?: AgentOutputJournal,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -740,6 +744,7 @@ export class AgentProcessManager {
 
     const carryOver = collectHandoffCarryOver(
       lane.flatMap((tracked) => tracked.accumulatedSegments),
+      latest ? this.outputJournal?.read(latest.info.agentId) : undefined,
     );
     const finalText =
       carryOver.finalText || (latest?.stdoutBuffer.trim() ?? '');
@@ -1745,7 +1750,8 @@ export class AgentProcessManager {
       }
       this.foreignLiveAgentIds.delete(agentId);
 
-      const stdout = ref.stdout ?? '';
+      const output = applyOutputCheckpoint(ref, this.outputJournal?.read(agentId));
+      const stdout = output.stdout;
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
@@ -1766,6 +1772,7 @@ export class AgentProcessManager {
         // stays "Unknown owner" and is never given the current owner.
         ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
         modelScope: ref.modelScope ?? null,
+        ...(output.outputLostAfter ? { outputLostAfter: output.outputLostAfter } : {}),
       };
       // Seeds the lane's remembered owner, so a lane that only learns its
       // owner from a run still reads its evidence after a reload.
@@ -1789,7 +1796,7 @@ export class AgentProcessManager {
         // emits (no process, and steer/stop/continue throw first); it is never
         // running, so lane adoption and the tab-id remap never re-persist it;
         // and `saveAgentOutput` skips a write when both arrays are empty.
-        accumulatedSegments: ref.segments ? [...ref.segments] : [],
+        accumulatedSegments: [...output.segments],
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
         streamCapLogged: false,
         pendingMessages: [],
@@ -1811,6 +1818,7 @@ export class AgentProcessManager {
       // Same TTL as a completed agent. Without it, a long-lived Electron
       // process accumulates one record per restored agent per session switch.
       this.scheduleCleanup(agentId);
+      if (output.recovered) this.events.emit('agent:output-recovered', { ...info });
       restored++;
     }
 

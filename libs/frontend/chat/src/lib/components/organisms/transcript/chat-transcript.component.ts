@@ -758,6 +758,7 @@ export class ChatTranscriptComponent {
           inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd,
         } : null,
         status: agent.status, startedAt: agent.startedAt, completedAt: agent.completedAt,
+        ...(agent.outputLostAfter ? { outputLostAfter: agent.outputLostAfter } : {}),
       };
       const old = previous.get(agent.agentId);
       next.set(agent.agentId, old && sameLaneMonitorSnapshot(old, snapshot) ? old : snapshot);

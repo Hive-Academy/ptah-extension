@@ -2,9 +2,11 @@ import { z } from 'zod';
 import {
   normalizeWorkspaceRoot,
   type AgentProcessInfo,
+  type CliOutputSegment,
   type CliSessionReference,
 } from '@ptah-extension/shared';
 import type { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import type { AgentOutputCheckpoint } from './agent-output-journal.service';
 
 const persistedActivitySchema = z.iso.datetime({ offset: true });
 const RESTORE_CLOCK_SKEW_MS = 60_000;
@@ -95,4 +97,68 @@ export function laneLastActivityAt(
   return Date.parse(
     info.lastActivityAt ?? info.completedAt ?? info.startedAt,
   );
+}
+
+/** Output fields of a restored lane. Lifecycle fields stay with `restoreLaneLifecycle`. */
+export interface RestoredLaneOutput {
+  readonly stdout: string;
+  readonly segments: readonly CliOutputSegment[];
+  /** ISO time of the checkpoint the output ends at; later output was lost. */
+  readonly outputLostAfter?: string;
+  /** The checkpoint is newer than anything the reference persisted. */
+  readonly recovered?: true;
+}
+
+/**
+ * Output for a restored lane. A lane interrupted by a host restart persisted
+ * no output of its own, so its latest running-output checkpoint stands in and
+ * names when output stopped. The checkpoint replaces, never appends, so no
+ * stream is replayed twice. Returns output fields only: the `host-restart`
+ * stamp and the resume gate's idle-rule exception are untouched.
+ */
+export function applyOutputCheckpoint(
+  ref: CliSessionReference,
+  checkpoint: AgentOutputCheckpoint | undefined,
+): RestoredLaneOutput {
+  const persisted = persistedActivitySchema.safeParse(ref.outputLostAfter);
+  const persistedLostAfter = persisted.success ? persisted.data : undefined;
+  if (
+    !checkpoint ||
+    checkpoint.agentId !== String(ref.agentId) ||
+    ref.stopReason !== 'host-restart'
+  ) {
+    return {
+      stdout: ref.stdout ?? '',
+      segments: ref.segments ?? [],
+      ...(persistedLostAfter ? { outputLostAfter: persistedLostAfter } : {}),
+    };
+  }
+  const recovered =
+    persistedLostAfter === undefined ||
+    Date.parse(checkpoint.at) > Date.parse(persistedLostAfter);
+  return {
+    stdout: checkpoint.stdoutTail,
+    segments: checkpoint.segmentsTail,
+    outputLostAfter: checkpoint.at,
+    ...(recovered ? { recovered: true as const } : {}),
+  };
+}
+
+/**
+ * Restore references as the renderer receives them: each carries the
+ * `outputLostAfter` its restored record holds, for the lost-output notice.
+ */
+export function withRestoredOutputLoss(
+  refs: readonly CliSessionReference[],
+  findAgentInfo: (
+    agentId: string,
+  ) => Pick<AgentProcessInfo, 'startedAt' | 'outputLostAfter'> | undefined,
+): CliSessionReference[] {
+  return refs.map((ref) => {
+    const info = findAgentInfo(String(ref.agentId));
+    if (!info?.outputLostAfter || info.startedAt !== ref.startedAt) return ref;
+    return info.outputLostAfter === ref.outputLostAfter
+      ? ref
+      : { ...ref, outputLostAfter: info.outputLostAfter };
+  });
 }

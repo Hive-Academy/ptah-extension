@@ -358,6 +358,33 @@ describe('LaneResumeGate', () => {
 });
 
 describe('collectHandoffCarryOver', () => {
+  it('uses the checkpoint text and leads with its earlier changed files', () => {
+    const checkpoint = {
+      stdoutTail: 'raw stdout',
+      segmentsTail: [{ type: 'text' as const, content: 'checkpoint text' }],
+      changedFiles: ['early.ts', 'later.ts'],
+    };
+    expect(collectHandoffCarryOver([], checkpoint)).toEqual({
+      finalText: 'checkpoint text',
+      changedFiles: ['early.ts', 'later.ts'],
+    });
+    // Live segments still win for text; their files join the checkpoint's.
+    expect(
+      collectHandoffCarryOver(
+        [
+          { type: 'file-change', content: 'later.ts' },
+          { type: 'file-change', content: 'new.ts' },
+          { type: 'text', content: 'live text' },
+        ],
+        checkpoint,
+      ),
+    ).toEqual({ finalText: 'live text', changedFiles: ['early.ts', 'later.ts', 'new.ts'] });
+    // No text segments at all: the stdout tail stands in.
+    expect(
+      collectHandoffCarryOver([], { ...checkpoint, segmentsTail: [] }).finalText,
+    ).toBe('raw stdout');
+  });
+
   it('collects changed files once, in first-seen order, and the text tail', () => {
     const longText = 'a'.repeat(HANDOFF_FINAL_TEXT_MAX_CHARS) + 'END';
 

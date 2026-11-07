@@ -7,10 +7,13 @@ export interface LaneMonitorSnapshot extends LaneEventMetrics {
   readonly status: string;
   readonly startedAt: number;
   readonly completedAt?: number;
+  /** ISO time a host restart cut the lane's output at. */
+  readonly outputLostAfter?: string;
 }
 
 export function sameLaneMonitorSnapshot(a: LaneMonitorSnapshot, b: LaneMonitorSnapshot): boolean {
   return a.agentId === b.agentId && a.status === b.status && a.startedAt === b.startedAt && a.completedAt === b.completedAt &&
+    a.outputLostAfter === b.outputLostAfter &&
     a.model === b.model && a.usageTotals?.model === b.usageTotals?.model &&
     a.usageTotals?.totalTokens === b.usageTotals?.totalTokens &&
     a.usageTotals?.inputTokens === b.usageTotals?.inputTokens &&

@@ -17,6 +17,7 @@ import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import type { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent-envelope-store.service';
+import { AgentOutputJournal } from '../cli-agents/agent-output-journal.service';
 import type { AgentDeliveryReceiptEventSink } from '../cli-agents/messaging/agent-delivery-receipt-event-sink';
 import { AgentIdAliasRegistry } from '../cli-agents/messaging/agent-id-alias.registry';
 import { AgentLaneResumeService } from '../cli-agents/messaging/agent-lane-resume.service';
@@ -55,6 +56,28 @@ export function registerAgentMessageJournal(container: DependencyContainer): voi
         await envelopeStore(c).markDispatching(messageId);
       },
     })),
+  });
+}
+
+/**
+ * Running-output journal (Component 16). BEFORE the manager, which injects it
+ * optionally. Its output source resolves the manager lazily at tick time.
+ */
+export function registerAgentOutputJournal(container: DependencyContainer): void {
+  container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL, {
+    useFactory: instanceCachingFactory((c) => {
+      const manager = (): AgentProcessManager =>
+        c.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER);
+      return new AgentOutputJournal(
+        c.resolve<IStateStorage>(PLATFORM_TOKENS.STATE_STORAGE),
+        c.resolve<Logger>(TOKENS.LOGGER),
+        () => ({
+          readOutput: (agentId) => manager().readOutputForPersistence(agentId),
+          hasRunningLanes: () =>
+            manager().listTrackedAgents().some((info) => info.status === 'running'),
+        }),
+      );
+    }),
   });
 }
 

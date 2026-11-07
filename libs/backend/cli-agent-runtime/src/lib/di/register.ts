@@ -32,6 +32,7 @@ import { AgentProcessManager } from '../cli-agents/agent-process-manager.service
 import type { LaneTerminalCheckpoint } from '../cli-agents/lane-terminal-checkpoint.port';
 import {
   registerAgentMessageJournal,
+  registerAgentOutputJournal,
   registerAgentMessagingServices,
 } from './register-agent-messaging';
 import { LaneInstructionFileStore } from '../cli-agents/lane-instruction-file-store';
@@ -309,6 +310,7 @@ export function registerCliAgentRuntimeServices(
   container.registerSingleton(ParentDeliveryDrainerService);
   // Before the router and manager: the router injects the journal optionally.
   registerAgentMessageJournal(container);
+  registerAgentOutputJournal(container);
   container.register(LaneCompletionNotifier, {
     useFactory: instanceCachingFactory(
       (c) =>

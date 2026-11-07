@@ -40,6 +40,7 @@ import {
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
   safeErrorKind,
+  withRestoredOutputLoss,
   type AgentProcessManager,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
@@ -2142,6 +2143,13 @@ export class ChatSessionService {
             resolvedWorkspacePath,
             sessionId,
           );
+          // Each restored card learns when a host restart cut its output.
+          const manager = this.agentProcessManager;
+          if (manager) {
+            cliSessions = withRestoredOutputLoss(restored, (id) =>
+              manager.findAgentInfo(id),
+            );
+          }
         }
       } catch (error) {
         this.logger.debug('[RPC] Could not query CLI sessions', {

@@ -1523,3 +1523,115 @@ describe('wireAgentEventListeners handoff chain and reparent (TASK_2026_876)', (
     expect(quiet.error).not.toHaveBeenCalled();
   });
 });
+
+describe('wireAgentEventListeners — running-output journal (P3-K)', () => {
+  function wireJournalLane(
+    currentInfo: () => AgentProcessInfo,
+    addCliSession: jest.Mock,
+  ) {
+    const order: string[] = [];
+    const journal = {
+      markDirty: jest.fn(),
+      checkpointNow: jest.fn(async () => {
+        order.push('checkpoint');
+        return 7;
+      }),
+      remove: jest.fn(async () => {
+        order.push('remove');
+      }),
+      pruneExpired: jest.fn(async () => 0),
+    };
+    const events = new EventEmitter();
+    const container = buildContainer([
+      [
+        TOKENS.AGENT_PROCESS_MANAGER,
+        {
+          events,
+          findAgentInfo: currentInfo,
+          readOutputForPersistence: jest.fn().mockReturnValue({
+            stdout: 'recovered',
+            segments: [{ type: 'text', content: 'recovered' }],
+            streamEvents: [],
+          }),
+        },
+      ],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage: jest.fn().mockResolvedValue(undefined) }],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession: jest.fn(async (...args: unknown[]) => {
+            order.push('reference');
+            return addCliSession(...args);
+          }),
+          markChildSession: jest.fn(),
+        },
+      ],
+      [CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL, journal],
+    ]);
+    wireAgentEventListeners(container, {
+      logger: Object.assign(Object.create(null) as Logger, createMockLogger()),
+      platform: 'electron',
+      options: { persistCliSession: true },
+    });
+    return { events, journal, order };
+  }
+
+  it('marks a running lane dirty on output and never writes per delta', () => {
+    const info = buildInfo({ cli: 'codex', status: 'running', parentSessionId: PARENT_SESSION });
+    const { events, journal } = wireJournalLane(() => info, jest.fn());
+    for (let i = 0; i < 20; i++) events.emit('agent:output', { agentId: info.agentId });
+    expect(journal.markDirty).toHaveBeenCalledTimes(20);
+    expect(journal.markDirty).toHaveBeenCalledWith('agent-42');
+    expect(journal.checkpointNow).not.toHaveBeenCalled();
+    expect(journal.pruneExpired).toHaveBeenCalledTimes(1);
+  });
+
+  it('checkpoints on exit and removes the checkpoint after the reference is persisted', async () => {
+    const info = buildInfo({ cli: 'codex', status: 'completed', parentSessionId: PARENT_SESSION, cliSessionId: 'cli-1' });
+    const { events, journal, order } = wireJournalLane(() => info, jest.fn());
+    events.emit('agent:exited', info);
+    await drainMicrotasks();
+    await drainMicrotasks();
+    expect(order).toEqual(['checkpoint', 'reference', 'remove']);
+    expect(journal.remove).toHaveBeenCalledWith('agent-42', 7);
+  });
+
+  it('keeps the checkpoint when the exit reference is not persisted', async () => {
+    const info = buildInfo({ cli: 'codex', status: 'completed', parentSessionId: PARENT_SESSION, cliSessionId: 'cli-1' });
+    const { events, journal } = wireJournalLane(
+      () => info,
+      jest.fn(async () => {
+        throw new Error('Parent session not found');
+      }),
+    );
+    events.emit('agent:exited', info);
+    await drainMicrotasks();
+    await drainMicrotasks();
+    expect(journal.checkpointNow).toHaveBeenCalledTimes(1);
+    expect(journal.remove).not.toHaveBeenCalled();
+  });
+
+  it('persists a recovered lane with outputLostAfter and keeps the host-restart stamp', async () => {
+    const info = buildInfo({
+      cli: 'codex',
+      status: 'stopped',
+      stopReason: 'host-restart',
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-1',
+      outputLostAfter: '2026-11-07T00:00:45.000Z',
+    });
+    const addCliSession = jest.fn(async () => undefined);
+    const { events, journal } = wireJournalLane(() => info, addCliSession);
+    events.emit('agent:output-recovered', info);
+    await drainMicrotasks();
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({
+        status: 'stopped',
+        stopReason: 'host-restart',
+        outputLostAfter: '2026-11-07T00:00:45.000Z',
+      }),
+    );
+    expect(journal.remove).not.toHaveBeenCalled();
+  });
+});

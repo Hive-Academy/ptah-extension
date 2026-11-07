@@ -575,6 +575,11 @@ export interface MonitoredAgent {
    */
   stopReason?: LaneStopReason;
   /**
+   * ISO time a host restart cut this restored lane's output at, from
+   * `CliSessionReference.outputLostAfter`. Absent when nothing was lost.
+   */
+  readonly outputLostAfter?: string;
+  /**
    * Quota owner this run used (full G3 reference, not a key string). Absent
    * when the backend never recorded one — consumers render that as an
    * unknown owner, never as the current owner.
@@ -2041,6 +2046,10 @@ export class AgentMonitorStore implements OnDestroy {
           status: ref.status,
           ...(ref.stopReason !== undefined
             ? { stopReason: ref.stopReason }
+            : {}),
+          ...(typeof ref.outputLostAfter === 'string' &&
+          Number.isFinite(Date.parse(ref.outputLostAfter))
+            ? { outputLostAfter: ref.outputLostAfter }
             : {}),
           startedAt: Number.isNaN(ts) ? Date.now() : ts,
           completedAt: Number.isNaN(completedAt) ? undefined : completedAt,

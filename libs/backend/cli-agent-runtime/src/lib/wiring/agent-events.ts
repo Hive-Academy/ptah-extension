@@ -45,6 +45,7 @@ import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot
 import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent-envelope-store.service';
 import type { ParentCompletionOutboxEntry } from '../cli-agents/parent-delivery/parent-envelope.schema';
 import type { LaneTerminalCheckpoint } from '../cli-agents/lane-terminal-checkpoint.port';
+import type { AgentOutputJournal } from '../cli-agents/agent-output-journal.service';
 
 /** Running lanes checkpoint activity without writing output bodies. */
 const ACTIVITY_CHECKPOINT_INTERVAL_MS = 30_000;
@@ -305,6 +306,10 @@ function wireAgentMonitorListeners(
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
 ): void {
   const activityCheckpoints = new Map<string, number>();
+  const journal = persistCliSession
+    ? resolveOutputJournal(container, logger, tag)
+    : undefined;
+  if (journal) void journal.pruneExpired();
 
   agentProcessManager.events.on('agent:spawned', (info: AgentProcessInfo) => {
     activityCheckpoints.delete(String(info.agentId));
@@ -351,6 +356,8 @@ function wireAgentMonitorListeners(
 
     if (persistCliSession) {
       const info = agentProcessManager.findAgentInfo(delta.agentId);
+      // Marks only; the journal's one interval writes it (no per-delta write).
+      if (info?.status === 'running') journal?.markDirty(String(delta.agentId));
       const activityAt = Date.parse(info?.lastActivityAt ?? '');
       const previousCheckpoint = activityCheckpoints.get(String(delta.agentId));
       if (
@@ -390,6 +397,21 @@ function wireAgentMonitorListeners(
         );
       });
 
+    if (persistCliSession) {
+      // The exit checkpoint starts before the completion persist; it is
+      // removed only once that reference is durable.
+      const agentKey = String(info.agentId);
+      const written = journal?.checkpointNow(agentKey);
+      persistCliSessionReference(container, logger, tag, info, getSdkSessionId, undefined, () => {
+        void written?.then((seq) => (seq === undefined ? undefined : journal?.remove(agentKey, seq)));
+      });
+    }
+  });
+
+  // A restored host-restart lane's checkpoint is newer than its persisted
+  // output: persist it as the lane's output, with `outputLostAfter`. The
+  // checkpoint itself stays for the fresh handoff until it expires.
+  agentProcessManager.events.on('agent:output-recovered', (info: AgentProcessInfo) => {
     if (persistCliSession) {
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
@@ -458,6 +480,24 @@ function wireAgentMonitorListeners(
         });
     },
   );
+}
+
+/** The running-output journal, when this host registers one. */
+function resolveOutputJournal(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+): AgentOutputJournal | undefined {
+  if (!container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL, true)) return undefined;
+  try {
+    return container.resolve<AgentOutputJournal>(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL);
+  } catch (error: unknown) {
+    logger.error(
+      `${tag} Failed to resolve the running-output journal`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return undefined;
+  }
 }
 
 function wireCopilotPermissionForwarding(
@@ -542,6 +582,7 @@ export function persistCliSessionReference(
   info: AgentProcessInfo,
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
   onFailed?: () => void,
+  onPersisted?: () => void,
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
@@ -652,6 +693,7 @@ export function persistCliSessionReference(
       info.stopResetAt > 0
         ? { stopResetAt: info.stopResetAt }
         : {}),
+      ...(info.outputLostAfter ? { outputLostAfter: info.outputLostAfter } : {}),
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }
         : {}),
@@ -744,6 +786,7 @@ export function persistCliSessionReference(
           logger.info(
             `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
           );
+          onPersisted?.();
           // Only after `addCliSession` accepted the reference: a parent that is
           // still a tab id is rejected there ("Parent session not found"), so a
           // success means `parentSessionId` is a real SDK session UUID — the

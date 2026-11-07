@@ -76,6 +76,7 @@ export { CLAUDE_LANE_ACCOUNT_PERSISTENCE } from './lib/di/tokens';
 export type { ClaudeLaneAccountPersistence } from './lib/claude/claude-sdk-lane-runner';
 export { registerCliAgentRuntimeServices } from './lib/di/register';
 export { LaneAccountResumeError } from './lib/cli-agents/lane-resume-gate';
+export { withRestoredOutputLoss } from './lib/cli-agents/lane-restore';
 
 export {
   wireSdkCallbacks,
