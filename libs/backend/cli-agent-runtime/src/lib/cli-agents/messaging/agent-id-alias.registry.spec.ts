@@ -2,7 +2,11 @@ import { AgentId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { AGENT_ID_ALIAS_KEY, AgentIdAliasRegistry } from './agent-id-alias.registry';
 import { AGENT_MESSAGE_ENVELOPE_INDEX_KEY } from './envelope/agent-message-envelope.schema';
-import type { AgentMessagePersistence } from './envelope/agent-message-envelope.store';
+import {
+  AgentMessageEnvelopeStore,
+  type AgentMessagePersistence,
+} from './envelope/agent-message-envelope.store';
+import type { NewEnvelope } from './envelope/agent-message-envelope.schema';
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX_EDGES = 512;
@@ -44,6 +48,18 @@ function createLogger(): Logger {
     warn: jest.fn(),
     error: jest.fn(),
   } as Partial<Logger> as Logger;
+}
+
+function envelopeFor(lineage: AgentId, overrides: Partial<NewEnvelope> = {}): NewEnvelope {
+  return {
+    targetAgentId: lineage,
+    laneLineageId: lineage,
+    sender: { kind: 'parent', sessionId: 'parent-session' },
+    senderKey: 'parent:parent-session',
+    mode: 'start-turn',
+    delivery: 'queue',
+    ...overrides,
+  };
 }
 
 function envelopeIndex(records: readonly Record<string, unknown>[]): Record<string, unknown> {
@@ -243,5 +259,41 @@ describe('AgentIdAliasRegistry', () => {
 
     expect(storage.has(AGENT_ID_ALIAS_KEY)).toBe(false);
     await expect(aliases.resolve(a)).resolves.toMatchObject({ agentId: a });
+  });
+
+  it('pins an alias that a full undelivered envelope record still needs', async () => {
+    const [a, b] = [AgentId.create(), AgentId.create()];
+    const envelopes = new AgentMessageEnvelopeStore(storage, undefined, () => now);
+    await envelopes.put(envelopeFor(a), 'held for the resumed lane');
+    const aliases = registry();
+
+    await aliases.record(a, b);
+    now += 8 * DAY;
+    await aliases.record(AgentId.create(), AgentId.create());
+
+    await expect(aliases.resolve(a)).resolves.toMatchObject({ agentId: b });
+    await expect(aliases.resolve(b)).resolves.toMatchObject({ agentId: b });
+    expect(storage.get<PersistedAliasIndex>(AGENT_ID_ALIAS_KEY)?.edges
+      .some((edge) => edge.from === a)).toBe(true);
+  });
+
+  it('prunes an expired alias that only a send-time refusal or nothing references', async () => {
+    const [unreferenced, unreferencedTo] = [AgentId.create(), AgentId.create()];
+    const [refused, refusedTo] = [AgentId.create(), AgentId.create()];
+    const envelopes = new AgentMessageEnvelopeStore(storage, undefined, () => now);
+    await envelopes.put(envelopeFor(refused, {
+      state: 'failed', mode: 'unsupported', reason: 'delivery-refused',
+    }), undefined);
+    const aliases = registry();
+
+    await aliases.record(unreferenced, unreferencedTo);
+    await aliases.record(refused, refusedTo);
+    now += 8 * DAY;
+    await aliases.record(AgentId.create(), AgentId.create());
+
+    await expect(aliases.resolve(unreferenced)).resolves.toMatchObject({ agentId: unreferenced });
+    await expect(aliases.resolve(refused)).resolves.toMatchObject({ agentId: refused });
+    const edges = storage.get<PersistedAliasIndex>(AGENT_ID_ALIAS_KEY)?.edges ?? [];
+    expect(edges.some((edge) => edge.from === unreferenced || edge.from === refused)).toBe(false);
   });
 });

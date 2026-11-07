@@ -28,6 +28,7 @@ const MAX_UNDELIVERED_PER_LINEAGE = 32;
 class FakeStorage implements AgentMessagePersistence {
   private readonly values = new Map<string, unknown>();
   failIndexWrites = 0;
+  failBodyWrites = 0;
 
   get<T>(key: string): T | undefined {
     return this.values.get(key) as T | undefined;
@@ -37,6 +38,10 @@ class FakeStorage implements AgentMessagePersistence {
     if (key === AGENT_MESSAGE_ENVELOPE_INDEX_KEY && this.failIndexWrites > 0) {
       this.failIndexWrites -= 1;
       throw new Error('index write failed');
+    }
+    if (key.startsWith(AGENT_MESSAGE_BODY_PREFIX) && value !== undefined && this.failBodyWrites > 0) {
+      this.failBodyWrites -= 1;
+      throw new Error('body write failed');
     }
     if (value === undefined) this.values.delete(key);
     else this.values.set(key, value);
@@ -554,5 +559,80 @@ describe('AgentMessageEnvelopeStore', () => {
     await expect(envelopes.get(dispatched.envelope.id)).resolves.toMatchObject({
       state: 'dispatching',
     });
+  });
+
+  it('fails closed with storage-unavailable when the body write fails', async () => {
+    const envelopes = store();
+    await envelopes.ready;
+    storage.failBodyWrites = 1;
+
+    const error = await envelopes.put(input(), 'lost body').catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(AgentMessageStorageError);
+    if (!(error instanceof AgentMessageStorageError)) throw new Error('Expected storage error');
+    expect(error.code).toBe('storage-unavailable');
+    expect(error.cause).toBeInstanceOf(Error);
+    await expect(envelopes.list({})).resolves.toHaveLength(0);
+    expect(storage.keys().some((key) => key.startsWith(AGENT_MESSAGE_BODY_PREFIX))).toBe(false);
+    await expect(envelopes.put(input(), 'next body')).resolves.toMatchObject({
+      deduplicated: false,
+    });
+  });
+
+  function refusal(lineage: AgentId): NewEnvelope {
+    return input({
+      targetAgentId: lineage,
+      laneLineageId: lineage,
+      state: 'failed',
+      mode: 'unsupported',
+      reason: 'delivery-refused',
+    });
+  }
+
+  it('does not count 40 send-time refusals toward the lane queue cap', async () => {
+    const envelopes = store();
+    const lineage = AgentId.create();
+    for (let index = 0; index < 40; index += 1)
+      await envelopes.put(refusal(lineage), undefined);
+
+    await expect(envelopes.put(
+      input({ targetAgentId: lineage, laneLineageId: lineage }),
+      'accepted body',
+    )).resolves.toMatchObject({ envelope: { state: 'not-started' } });
+    for (let index = 1; index < MAX_UNDELIVERED_PER_LINEAGE; index += 1)
+      await envelopes.put(input({ targetAgentId: lineage, laneLineageId: lineage }), 'held');
+
+    await expect(envelopes.put(refusal(lineage), undefined)).resolves.toMatchObject({
+      envelope: { state: 'failed', mode: 'unsupported' },
+    });
+    const error = await envelopes.put(
+      input({ targetAgentId: lineage, laneLineageId: lineage }),
+      'one too many',
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AgentMessageStorageError);
+    if (!(error instanceof AgentMessageStorageError)) throw new Error('Expected storage error');
+    expect(error.code).toBe('queue-full');
+  });
+
+  it('expires send-time refusals at seven days and prunes them by the body-less count cap', async () => {
+    const envelopes = store();
+    const lineage = AgentId.create();
+    const first = await envelopes.put(refusal(lineage), undefined);
+    for (let index = 1; index < 70; index += 1) {
+      now += 1;
+      await envelopes.put(refusal(lineage), undefined);
+    }
+
+    const kept = await envelopes.list({ targetAgentId: lineage });
+    expect(kept).toHaveLength(64);
+    expect(kept.some((envelope) => envelope.id === first.envelope.id)).toBe(false);
+
+    const held = await envelopes.put(input({ targetAgentId: lineage, laneLineageId: lineage }),
+      'held body');
+    now += 7 * DAY;
+
+    await expect(envelopes.list({ targetAgentId: lineage })).resolves.toEqual([
+      expect.objectContaining({ id: held.envelope.id, state: 'not-started' }),
+    ]);
   });
 });

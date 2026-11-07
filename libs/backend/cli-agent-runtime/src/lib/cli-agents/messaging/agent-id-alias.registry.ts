@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { AgentId, type AgentId as AgentIdValue } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { AgentMessagePersistence } from './envelope/agent-message-envelope.store';
+import {
+  isSendTimeRefusal,
+  type AgentMessagePersistence,
+} from './envelope/agent-message-envelope.store';
 import { AGENT_MESSAGE_ENVELOPE_INDEX_KEY } from './envelope/agent-message-envelope.schema';
 
 export const AGENT_ID_ALIAS_KEY = 'ptah:agent-id-aliases:v1';
@@ -20,11 +23,18 @@ const AliasIndexSchema = z.object({
 }).strict();
 type AliasEdge = z.infer<typeof AliasEdgeSchema>;
 
+/**
+ * Only the fields the pin check reads. Deliberately non-strict: the index holds full
+ * envelope records, and a strict schema would reject every one of them.
+ */
 const EnvelopeLineageSchema = z.object({
   laneLineageId: z.string(),
   state: z.string(),
   terminalAt: z.number().int().nonnegative().optional(),
-}).strict();
+  mode: z.string().optional(),
+  bodyBytes: z.number().int().nonnegative().optional(),
+  everDispatched: z.boolean().optional(),
+});
 
 /** Durable alias edges for resumed lane identities. */
 export class AgentIdAliasRegistry {
@@ -184,6 +194,7 @@ export class AgentIdAliasRegistry {
     return records.some((value) => {
       const parsed = EnvelopeLineageSchema.safeParse(value);
       if (!parsed.success || parsed.data.laneLineageId !== root) return false;
+      if (isSendTimeRefusal(parsed.data)) return false;
       if (parsed.data.state !== 'settled') return parsed.data.state !== 'cancelled';
       return parsed.data.terminalAt !== undefined && now < parsed.data.terminalAt + TTL_MS;
     });

@@ -33,6 +33,21 @@ const UNDELIVERED = new Set<AgentMessageEnvelopeState>([
   'not-started', 'dispatching', 'blocked-retryable', 'outcome-unknown', 'failed', 'expired',
 ]);
 
+/**
+ * A send-time refusal: a metadata-only `failed` record that was never accepted (plan,
+ * "Lane message envelope"). It is not undelivered work, so it takes no queue slot and pins
+ * no alias; like `cancelled`, it is count-pruned with the body-less records and expires at 7 d.
+ */
+export function isSendTimeRefusal(envelope: {
+  readonly state?: string;
+  readonly mode?: string;
+  readonly bodyBytes?: number;
+  readonly everDispatched?: boolean;
+}): boolean {
+  return envelope.state === 'failed' && envelope.mode === 'unsupported' &&
+    (envelope.bodyBytes ?? 0) === 0 && envelope.everDispatched !== true;
+}
+
 export interface AgentMessagePersistence {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): Promise<void>;
@@ -98,8 +113,10 @@ export class AgentMessageEnvelopeStore {
       this.validateBody(input, body);
       this.checkCapacity(input, body !== undefined);
       const now = this.clock();
+      const refusal = body === undefined && isSendTimeRefusal(input);
       const envelope = AgentMessageEnvelopeSchema.parse({
         ...input,
+        ...(refusal && input.terminalAt === undefined ? { terminalAt: now } : {}),
         id: input.id ?? randomUUID(),
         state: input.state ?? 'not-started',
         createdAt: input.createdAt ?? now,
@@ -108,14 +125,19 @@ export class AgentMessageEnvelopeStore {
         bodyBytes: body === undefined ? 0 : Buffer.byteLength(body, 'utf8'),
       });
       if (body !== undefined) {
-        await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${envelope.id}`, {
-          text: body,
-          envelopeId: envelope.id,
-          targetAgentId: envelope.targetAgentId,
-          ...(envelope.parentSessionId
-            ? { parentSessionId: envelope.parentSessionId } : {}),
-          createdAt: envelope.createdAt,
-        });
+        try {
+          await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${envelope.id}`, {
+            text: body,
+            envelopeId: envelope.id,
+            targetAgentId: envelope.targetAgentId,
+            ...(envelope.parentSessionId
+              ? { parentSessionId: envelope.parentSessionId } : {}),
+            createdAt: envelope.createdAt,
+          });
+        } catch (error: unknown) {
+          // Fail closed: no envelope is indexed or held in memory without its body.
+          throw new AgentMessageStorageError('storage-unavailable', undefined, { cause: error });
+        }
       }
       const previous = this.envelopes.get(envelope.id);
       this.envelopes.set(envelope.id, envelope);
@@ -299,9 +321,10 @@ export class AgentMessageEnvelopeStore {
   }
 
   private checkCapacity(input: NewEnvelope, hasBody: boolean): void {
-    if (UNDELIVERED.has(input.state ?? 'not-started')) {
+    const refusal = !hasBody && isSendTimeRefusal(input);
+    if (!refusal && UNDELIVERED.has(input.state ?? 'not-started')) {
       const undelivered = [...this.envelopes.values()].filter((envelope) =>
-        UNDELIVERED.has(envelope.state));
+        UNDELIVERED.has(envelope.state) && !isSendTimeRefusal(envelope));
       const lineage = undelivered.filter((envelope) =>
         envelope.laneLineageId === input.laneLineageId);
       if (lineage.length >= MAX_UNDELIVERED_PER_LINEAGE || undelivered.length >= MAX_UNDELIVERED)
@@ -400,14 +423,17 @@ export class AgentMessageEnvelopeStore {
     const now = this.clock();
     let changed = false;
     for (const [id, envelope] of [...this.envelopes]) {
-      const expiry = envelope.terminalAt === undefined ? undefined : envelope.terminalAt + RETENTION_MS;
+      const refusal = isSendTimeRefusal(envelope);
+      // A refusal written before refusals carried terminalAt expires from its last update.
+      const terminalAt = envelope.terminalAt ?? (refusal ? envelope.updatedAt : undefined);
+      const expiry = terminalAt === undefined ? undefined : terminalAt + RETENTION_MS;
       if (envelope.state === 'cancelled' && (envelope.bodyBytes ?? 0) > 0) {
         await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${id}`, undefined);
         this.envelopes.set(id, { ...envelope, bodyBytes: 0 });
         changed = true;
       }
       if (expiry !== undefined && now >= expiry &&
-        (envelope.state === 'settled' || envelope.state === 'cancelled')) {
+        (envelope.state === 'settled' || envelope.state === 'cancelled' || refusal)) {
         if ((envelope.bodyBytes ?? 0) > 0)
           await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${id}`, undefined);
         this.envelopes.delete(id);
@@ -415,7 +441,8 @@ export class AgentMessageEnvelopeStore {
       }
     }
     const bodyless = [...this.envelopes.values()].filter((envelope) =>
-      (envelope.bodyBytes ?? 0) === 0 && envelope.state === 'cancelled');
+      (envelope.bodyBytes ?? 0) === 0 &&
+      (envelope.state === 'cancelled' || isSendTimeRefusal(envelope)));
     const remove = new Set<string>();
     const global = bodyless.sort((a, b) => b.updatedAt - a.updatedAt);
     for (const envelope of global.slice(MAX_BODYLESS)) remove.add(envelope.id);
