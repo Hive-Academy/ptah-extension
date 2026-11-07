@@ -14,6 +14,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { ZodError } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -41,9 +42,13 @@ export { registerAgentDeliveryPushSinks };
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
+import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent-envelope-store.service';
+import type { ParentCompletionOutboxEntry } from '../cli-agents/parent-delivery/parent-envelope.schema';
+import type { LaneTerminalCheckpoint } from '../cli-agents/lane-terminal-checkpoint.port';
 
 /** Running lanes checkpoint activity without writing output bodies. */
 const ACTIVITY_CHECKPOINT_INTERVAL_MS = 30_000;
+const TERMINAL_CHECKPOINT_TIMEOUT_MS = 15_000;
 
 /** Retries stay in lane order, so an old checkpoint cannot follow an exit write. */
 const lanePersistQueues = new WeakMap<
@@ -143,6 +148,51 @@ export interface WireAgentEventListenersContext {
   readonly options?: WireAgentEventListenersOptions;
 }
 
+/** Persist the terminal replay record with bounded retries and one deadline. */
+export function createLaneTerminalCheckpoint(
+  container: DependencyContainer,
+  logger: Logger,
+): LaneTerminalCheckpoint {
+  return {
+    async checkpoint(entry: ParentCompletionOutboxEntry) {
+      if (
+        !entry.parentSessionId ||
+        !container.isRegistered(ParentEnvelopeStoreService, true)
+      ) {
+        return 'not-applicable';
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const store = container.resolve(ParentEnvelopeStoreService);
+        const write = retryWithBackoff(
+          () => store.putCompletionOutbox(entry),
+          {
+            retries: 3,
+            initialDelay: 1000,
+            shouldRetry: (error: unknown) => !(error instanceof ZodError),
+          },
+        );
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Lane terminal checkpoint timed out')),
+            TERMINAL_CHECKPOINT_TIMEOUT_MS,
+          );
+        });
+        await Promise.race([write, deadline]);
+        return 'durable';
+      } catch (error: unknown) {
+        logger.error(
+          '[agent-events] Lane terminal checkpoint failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        return 'failed';
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
+
 /**
  * Wire agent-process-manager + Copilot permission events to the webview.
  * Safe to call once per app at bootstrap.
@@ -169,6 +219,10 @@ export function wireAgentEventListeners(
 
   try {
     registerAgentDeliveryPushSinks(container, logger, platform);
+    container.registerInstance(
+      CLI_AGENT_RUNTIME_TOKENS.LANE_TERMINAL_CHECKPOINT,
+      createLaneTerminalCheckpoint(container, logger),
+    );
     const agentProcessManager = container.resolve<AgentProcessManager>(
       TOKENS.AGENT_PROCESS_MANAGER,
     );
@@ -593,6 +647,11 @@ export function persistCliSessionReference(
       ...(info.lastActivityAt ? { lastActivityAt: info.lastActivityAt } : {}),
       status: info.status,
       ...(info.stopReason ? { stopReason: info.stopReason } : {}),
+      ...(typeof info.stopResetAt === 'number' &&
+      Number.isFinite(info.stopResetAt) &&
+      info.stopResetAt > 0
+        ? { stopResetAt: info.stopResetAt }
+        : {}),
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }
         : {}),
@@ -600,6 +659,10 @@ export function persistCliSessionReference(
         ? { segments: persistedOutput.segments }
         : {}),
       ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
+      ...(info.potentialCapabilities !== undefined
+        ? { potentialCapabilities: info.potentialCapabilities }
+        : {}),
+      ...(info.workspaceKey ? { workspaceKey: info.workspaceKey } : {}),
       ...(sdkSessionId ? { sdkSessionId } : {}),
       // The full non-secret owner reference, so a restored run still names the
       // owner it ran on even when the ledger holds nothing for it (Gate 2 G3).

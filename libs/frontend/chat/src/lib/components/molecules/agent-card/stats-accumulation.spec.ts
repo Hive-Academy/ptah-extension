@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { createMockRpcService } from '@ptah-extension/core/testing';
 import type { CliOutputSegment } from '@ptah-extension/shared';
@@ -120,6 +120,9 @@ describe('typed usage accumulation contract', () => {
       imports: [CliAgentOutputComponent],
       providers: [
         provideMarkdown(),
+        { provide: AgentDeliveryStore, useValue: { receipts: signal(new Map()), recovered: signal(new Map()), takeRecovered: () => null,
+          composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined),
+          receiptLabel: () => 'Queued', receiptStatus: () => ({ label: 'Queued' }), newIdempotencyKey: () => 'key' } },
         {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },

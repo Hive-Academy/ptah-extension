@@ -14,6 +14,7 @@ import type {
   OutcomeRoutingSource,
   OutcomeTaskKind,
 } from './lane-outcome.types';
+import type { AgentMessagingCapability } from './agent-messaging.types';
 
 /**
  * Branded AgentId type - prevents mixing with other string IDs
@@ -201,6 +202,8 @@ export interface AgentProcessInfo {
   readonly cli: CliType;
   readonly task: string;
   readonly workingDirectory: string;
+  /** Canonical workspace identity captured from the spawning caller at spawn. */
+  readonly workspaceKey?: string;
   readonly taskFolder?: string;
   status: AgentStatus;
   readonly startedAt: string; // ISO timestamp
@@ -208,6 +211,8 @@ export interface AgentProcessInfo {
   turnSeq?: number;
   /** ISO timestamp when agent finished (completed/failed/stopped/timeout). Used to freeze timer display. */
   completedAt?: string;
+  /** ISO timestamp after which output was lost during a host restart. */
+  outputLostAfter?: string;
   /** ISO timestamp of the latest lane output or terminal event. */
   lastActivityAt?: string;
   exitCode?: number;
@@ -470,114 +475,7 @@ export interface SpawnAgentResult {
   readonly resumeDecision?: AgentResumeOutcome;
 }
 
-/**
- * The mechanism that actually delivered a message to a running agent.
- *
- * - `steer` — injected mid-turn; the current turn continues and absorbs it.
- * - `interrupt-resume` — the current turn was aborted and the message re-submitted
- *   on the SAME session. **Discards the aborted turn's partial work**, which is why
- *   the mode is always reported back to the caller rather than presented as a plain
- *   success.
- * - `queue-next-turn` — held and delivered as the next full turn.
- * - `unsupported` — nothing was delivered; `detail` carries the reason.
- */
-export type AgentMessagingMode =
-  | 'steer'
-  | 'interrupt-resume'
-  | 'queue-next-turn'
-  | 'start-turn'
-  | 'unsupported';
-
-/**
- * The best mechanism a CLI can offer, as reported by agent listings.
- *
- * This is the declared capability, not the outcome of a delivery — see
- * {@link AgentMessagingMode} for the latter.
- */
-export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
-
-export type AgentMessageDelivery = 'queue' | 'now';
-/** MCP compatibility input. `steer` never selects interrupt-resume. */
-export type AgentMessageRequestDelivery = AgentMessageDelivery | 'steer';
-export type AgentMessagePreviewMode =
-  | 'steer'
-  | 'queue-next-turn'
-  | 'interrupt-resume'
-  | 'start-turn'
-  | 'unsupported';
-
-export interface AgentMessageRequest {
-  readonly agentId: AgentId;
-  readonly message: string;
-  readonly delivery?: AgentMessageRequestDelivery; // Default: queue.
-  /** Required only when the selected plan is interrupt-resume. */
-  readonly allowPartialTurnLoss?: boolean;
-}
-
-export interface AgentMessagePreviewRequest {
-  readonly agentId: AgentId;
-  readonly delivery?: AgentMessageDelivery;
-}
-
-export interface AgentMessagePreview {
-  readonly agentId: AgentId;
-  readonly delivery: AgentMessageDelivery;
-  readonly mode: AgentMessagePreviewMode;
-  readonly supported: boolean;
-  readonly reason?: string;
-  readonly usesResume: boolean;
-  readonly lossDisclosure?: {
-    readonly kind: 'partial-turn-work-lost';
-    readonly confirmationRequired: true;
-    readonly text: string;
-  };
-  readonly effectiveCapabilities: EffectiveLaneCapabilities;
-}
-
-export type AgentDeliveryReceiptState =
-  | 'accepted'
-  | 'started'
-  | 'settled'
-  | 'failed'
-  | 'expired'
-  | 'interrupted-undelivered';
-
-export interface AgentDeliveryReceipt {
-  readonly id: string;
-  readonly agentId: AgentId;
-  readonly state: AgentDeliveryReceiptState;
-  readonly mode: AgentMessagePreviewMode;
-  readonly delivery: AgentMessageDelivery;
-  readonly sender?: 'user' | 'parent';
-  readonly preview?: string;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-  readonly turnSeq?: number;
-  readonly cliSessionId?: string;
-  readonly reason?: string;
-  readonly partialTurnLost?: boolean;
-  /** Turn outcome is separate from delivery outcome. */
-  readonly turnOutcome?: 'completed' | 'failed' | 'stopped';
-}
-
-/**
- * What actually happened to a message aimed at a live agent.
- *
- * `mode` is never inferred by the caller and never omitted: an `unsupported`
- * outcome means NOTHING was delivered, and `detail` carries the reason in
- * words the caller (often a model) can act on.
- */
-export interface AgentMessageOutcome {
-  readonly mode: AgentMessagingMode;
-  readonly detail?: string;
-  /** Stable refusal reason; safe to persist or send across host boundaries. */
-  readonly reasonCode?: 'queue-full' | 'no-session' | 'steer-rejected' | 'steer-unavailable'
-    | 'interrupt-failed' | 'confirmation-required' | 'immediate-unavailable'
-    | 'continuation-unavailable' | 'start-turn-failed';
-  readonly messageId?: string;
-  /** Optional until the legacy router migrates to receipt-producing sends. */
-  readonly receipt?: AgentDeliveryReceipt;
-}
+export * from './agent-messaging.types';
 
 export interface CliDetectionResult {
   readonly cli: CliType;
@@ -704,6 +602,10 @@ export interface CliSessionReference {
   readonly replacesCliSessionIds?: readonly string[];
   /** Which CLI produced this session */
   readonly cli: CliType;
+  /** Adapter-declared capabilities available before session setup. */
+  readonly potentialCapabilities?: CliAdapterManifest;
+  /** Canonical workspace identity inherited from the original lane. */
+  readonly workspaceKey?: string;
   /** Model selected for this lane, when known. */
   readonly model?: string;
   /** Ptah's branded AgentId that ran this session */
@@ -720,6 +622,8 @@ export interface CliSessionReference {
   readonly status: AgentStatus;
   /** Why the host stopped this lane, when known. Persisted with an interrupted restore. */
   readonly stopReason?: LaneStopReason;
+  /** Epoch milliseconds when a usage-limit stop resets, when known. */
+  readonly stopResetAt?: number;
   /**
    * Host process run that wrote a `running` reference; internal restore
    * bookkeeping, never returned by the restore read. A running reference from
@@ -843,6 +747,8 @@ export type LaneCompletionRefusalReason =
   | 'chat-runtime-unavailable'
   /** The chat runtime rejected the injected turn. */
   | 'delivery-failed'
+  /** The completion could not be saved; the producer must replay it. */
+  | 'storage-unavailable'
   /** A signal for this same terminal transition was already delivered. */
   | 'already-signalled';
 

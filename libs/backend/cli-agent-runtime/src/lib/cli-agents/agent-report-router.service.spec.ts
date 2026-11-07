@@ -21,6 +21,7 @@ import {
 import { SessionChildRegistry } from '../session-children/session-child.registry';
 import { ParentEnvelopeStoreService } from './parent-delivery/parent-envelope-store.service';
 import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
+import { FakeStateStorage } from './parent-delivery/__fixtures__/fake-state-storage';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -106,7 +107,7 @@ describe('AgentReportRouter.deliver', () => {
   });
   it('queues a tab-id report and delivers it after session resolution', async () => {
     const h = createHarness({ info: createInfo({ parentSessionId: 'tab-1' }) });
-    const store = new ParentEnvelopeStoreService(h.logger);
+    const store = new ParentEnvelopeStoreService(h.logger, new FakeStateStorage());
     const adapter = { isSessionActive: h.isSessionActive,
       sendMessageToSession: h.sendMessageToSession } as never;
     const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
@@ -122,7 +123,7 @@ describe('AgentReportRouter.deliver', () => {
 
   it('limits attempted reports while the parent remains inactive', async () => {
     const h = createHarness({ sessionActive: false });
-    const store = new ParentEnvelopeStoreService(h.logger);
+    const store = new ParentEnvelopeStoreService(h.logger, new FakeStateStorage());
     const adapter = { isSessionActive: h.isSessionActive,
       sendMessageToSession: h.sendMessageToSession } as never;
     const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
@@ -133,6 +134,54 @@ describe('AgentReportRouter.deliver', () => {
       expect((await router.deliver({ agentId: AGENT_ID, message: `report ${i}` })).pending).toBe(true);
     expect(await router.deliver({ agentId: AGENT_ID, message: 'overflow' }))
       .toMatchObject({ delivered: false, reason: 'rate-limited' });
+  });
+
+  describe('durable parent inbox refusals', () => {
+    async function durableRouter(h: Harness, storage: FakeStateStorage) {
+      const store = new ParentEnvelopeStoreService(h.logger, storage);
+      await store.ready;
+      const adapter = { isSessionActive: h.isSessionActive,
+        sendMessageToSession: h.sendMessageToSession } as never;
+      const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);
+      const manager = { findAgentInfo: h.findAgentInfo,
+        recordAgentNote: h.recordAgentNote, markReportDelivered: h.markReportDelivered } as never;
+      return { store, drainer, router: new AgentReportRouter(h.logger, manager, adapter, null, drainer) };
+    }
+
+    it('maps a failed persist to storage-unavailable and lets the lane report again', async () => {
+      const h = createHarness();
+      const storage = new FakeStateStorage();
+      const { router, drainer } = await durableRouter(h, storage);
+      storage.failWrites = () => true;
+      expect(await router.deliver({ agentId: AGENT_ID, message: 'progress' }))
+        .toEqual({ delivered: false, reason: 'storage-unavailable' });
+      storage.failWrites = () => false;
+      expect(await router.deliver({ agentId: AGENT_ID, message: 'progress' }))
+        .toMatchObject({ delivered: true, recorded: true });
+      drainer.dispose();
+    });
+
+    it('maps a frozen parent to parent-session-deleted', async () => {
+      const h = createHarness();
+      const { router, store, drainer } = await durableRouter(h, new FakeStateStorage());
+      await store.markIntent(PARENT);
+      expect(await router.deliver({ agentId: AGENT_ID, message: 'progress' }))
+        .toEqual({ delivered: false, reason: 'parent-session-deleted' });
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
+      drainer.dispose();
+    });
+
+    it('maps a full parent inbox to parent-inbox-full', async () => {
+      const h = createHarness({ sessionActive: false });
+      const { router, store, drainer } = await durableRouter(h, new FakeStateStorage());
+      for (let n = 0; n < 64; n++) await store.enqueue({
+        id: `lane-delivery:report:other:${n}:h`, dedupeKey: `report:other:${n}:h`,
+        agentId: 'other', parentSessionId: PARENT, kind: 'report', body: 'b', createdAt: n,
+      });
+      expect(await router.deliver({ agentId: AGENT_ID, message: 'progress' }))
+        .toEqual({ delivered: false, reason: 'parent-inbox-full' });
+      drainer.dispose();
+    });
   });
   describe('the happy path', () => {
     it('sends exactly one turn with the peer origin and writes exactly one tile segment', async () => {

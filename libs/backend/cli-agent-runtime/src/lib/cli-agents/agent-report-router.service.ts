@@ -131,7 +131,13 @@ export type AgentReportRefusalReason =
   /** No chat runtime is registered in this host, so nothing can be delivered. */
   | 'chat-runtime-unavailable'
   /** The chat runtime rejected the injected turn. */
-  | 'delivery-failed';
+  | 'delivery-failed'
+  /** The parent inbox holds its maximum of undelivered or retained reports. */
+  | 'parent-inbox-full'
+  /** The report could not be saved; the lane may report again. */
+  | 'storage-unavailable'
+  /** The parent session is being deleted or was deleted. */
+  | 'parent-session-deleted';
 
 /**
  * One report. The reporter is either a spawned CLI agent (`agentId`, from the
@@ -339,7 +345,6 @@ export class AgentReportRouter {
       delivered: previous.state === 'delivered', recorded: true,
       pending: previous.state === 'pending', deliveryId: previous.id,
       parentSessionId,
-      ...(previous.state === 'expired' ? { reason: 'delivery-failed' as const } : {}),
     };
     if (this.recentDeliveryCount(agentId, now) >= AGENT_REPORT_BURST_LIMIT) {
       return this.refuse('rate-limited', agentId, {
@@ -357,7 +362,7 @@ export class AgentReportRouter {
 
     const envelope = AgentReportRouter.buildEnvelope(info, message, summary);
     if (this.parentDelivery) {
-      const saved = this.parentDelivery.enqueue({
+      const saved = await this.parentDelivery.enqueue({
         id: `lane-delivery:${key}`, dedupeKey: key, agentId,
         parentSessionId, kind: 'report', body: envelope, createdAt: now,
         originName: `${info.cli} · ${agentLabel(info)}`,
@@ -368,16 +373,13 @@ export class AgentReportRouter {
           content: `Reported to the spawning session: ${summary?.trim() || firstLine(message, TILE_NOTE_PREVIEW_LENGTH)}`,
         });
       });
-      if (!saved) return this.refuse('delivery-failed', agentId, {
-        parentSessionId, detail: 'pending-capacity-exceeded',
-      });
+      if ('refused' in saved) return this.refuse(saved.refused, agentId, { parentSessionId });
       this.remember(agentId, { at: now, message });
       await this.parentDelivery.drain(parentSessionId);
       const delivered = this.parentDelivery.find(key)?.state === 'delivered';
       const state = this.parentDelivery.find(key)?.state;
       return { delivered, recorded: true, pending: state === 'pending',
-        deliveryId: saved.id, parentSessionId,
-        ...(state === 'expired' ? { reason: 'delivery-failed' as const } : {}) };
+        deliveryId: saved.id, parentSessionId };
     }
     try {
       await this.agentAdapter.sendMessageToSession(SessionId.from(parentSessionId), envelope, {

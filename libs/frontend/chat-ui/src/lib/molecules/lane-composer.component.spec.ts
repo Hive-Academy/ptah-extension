@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { LaneComposerComponent } from './lane-composer.component';
 
 describe('LaneComposerComponent', () => {
@@ -11,11 +11,21 @@ describe('LaneComposerComponent', () => {
   const sendMessage = jest.fn();
   const cancelMessage = jest.fn();
   const previewMessage = jest.fn().mockResolvedValue(undefined);
+  const recoverQueuedText = jest.fn();
+  const recovered = signal<ReadonlyMap<string, string>>(new Map());
+  let keys = 0;
   const store = {
-    receipts, agentsById: signal(new Map()), sendMessage, cancelMessage, previewMessage,
+    receipts, agentsById: signal(new Map()), sendMessage, cancelMessage, previewMessage, recoverQueuedText, recovered,
     composerState: jest.fn(() => ({ queue: { supported: true, mode: 'queue-next-turn' }, now: { supported: true, mode: 'steer' } })),
     receiptLabel: () => 'Queued',
+    receiptStatus: (item: { state: string }) => ({ label: item.state === 'failed' ? 'Not delivered: lane stopped' : 'Queued' }),
     receipt: () => undefined,
+    newIdempotencyKey: () => `key-${++keys}`,
+    takeRecovered: (id: string) => {
+      const text = recovered().get(id) ?? null;
+      recovered.set(new Map());
+      return text;
+    },
   };
 
   beforeEach(() => {
@@ -24,9 +34,12 @@ describe('LaneComposerComponent', () => {
     sendMessage.mockReset();
     cancelMessage.mockReset();
     previewMessage.mockClear();
+    recoverQueuedText.mockReset();
+    recovered.set(new Map());
     store.composerState.mockReset().mockReturnValue({ queue: { supported: true, mode: 'queue-next-turn' }, now: { supported: true, mode: 'steer' } });
     TestBed.configureTestingModule({ imports: [LaneComposerComponent], providers: [
       { provide: AgentMonitorStore, useValue: store },
+      { provide: AgentDeliveryStore, useValue: store },
     ] });
   });
 
@@ -134,7 +147,7 @@ describe('LaneComposerComponent', () => {
     fixture.detectChanges();
     fixture.nativeElement.querySelector('button.btn-primary').click();
     await fixture.whenStable();
-    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'Earlier text\nNew thought', 'queue', false);
+    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'Earlier text\nNew thought', 'queue', false, expect.any(String));
     expect(cancelMessage.mock.invocationCallOrder[0]).toBeGreaterThan(sendMessage.mock.invocationCallOrder[1]);
   });
 
@@ -177,10 +190,78 @@ describe('LaneComposerComponent', () => {
     field.value = 'New thought'; field.dispatchEvent(new Event('input')); fixture.detectChanges();
     fixture.nativeElement.querySelector('button.btn-primary').click();
     await fixture.whenStable(); fixture.detectChanges();
-    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'Earlier text\nNew thought', 'queue', false);
+    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'Earlier text\nNew thought', 'queue', false, expect.any(String));
     expect(cancelMessage).not.toHaveBeenCalled();
     expect(field.value).toBe('New thought');
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('Lane is unavailable');
+  });
+
+  it('treats a lane-at-limit hold receipt as accepted, clears the draft, cancels coalesced earlier queue, and uses a new idempotency key on a later send', async () => {
+    const limitHeldReceipt = {
+      ...receipt,
+      id: 'message-2',
+      state: 'blocked-retryable' as const,
+      mode: 'unsupported' as const,
+      reason: 'lane-at-limit',
+      updatedAt: 3,
+    };
+    sendMessage
+      .mockResolvedValueOnce({ mode: 'queue-next-turn', receipt })
+      .mockResolvedValueOnce({
+        mode: 'unsupported',
+        detail: 'lane-at-limit',
+        reasonCode: 'lane-at-limit',
+        receipt: limitHeldReceipt,
+      })
+      .mockResolvedValueOnce({
+        mode: 'queue-next-turn',
+        receipt: { ...receipt, id: 'message-3', updatedAt: 5 },
+      });
+    cancelMessage.mockResolvedValue({ ...receipt, state: 'failed', reason: 'cancelled-by-user', updatedAt: 4 });
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    const field = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    field.value = 'Earlier text';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    receipts.set(new Map([[agentId, [receipt]]]));
+    fixture.detectChanges();
+
+    field.value = 'New thought';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      2,
+      agentId,
+      'Earlier text\nNew thought',
+      'queue',
+      false,
+      expect.any(String),
+    );
+    expect(cancelMessage).toHaveBeenCalledWith(agentId, 'message-1');
+    expect(field.value).toBe('');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+
+    // If the user later types and sends the same combined text intentionally, it gets a fresh key.
+    receipts.set(new Map([[agentId, []]]));
+    fixture.detectChanges();
+    field.value = 'Earlier text\nNew thought';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+
+    const secondKey = sendMessage.mock.calls[1][4];
+    const thirdKey = sendMessage.mock.calls[2][4];
+    expect(thirdKey).not.toBe(secondKey);
   });
 
   it('uses one distinct Edit action for a queued user message', () => {
@@ -199,6 +280,8 @@ describe('LaneComposerComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     previewMessage.mockClear();
+    recoverQueuedText.mockReset();
+    recovered.set(new Map());
     fixture.nativeElement.querySelector('textarea').dispatchEvent(new Event('focus'));
     expect(previewMessage).toHaveBeenCalledTimes(2);
     fixture.nativeElement.querySelector('[aria-label="Send options"]').click();
@@ -213,6 +296,8 @@ describe('LaneComposerComponent', () => {
     const fixture = TestBed.createComponent(LaneComposerComponent);
     fixture.componentRef.setInput('agentId', agentId); fixture.detectChanges(); await fixture.whenStable();
     previewMessage.mockClear();
+    recoverQueuedText.mockReset();
+    recovered.set(new Map());
     for (let index = 0; index < 10; index++) {
       store.agentsById.set(new Map([[agentId, { status: 'running' }], [`other-${index}`, { status: 'running' }]]));
       fixture.detectChanges();
@@ -283,8 +368,83 @@ describe('LaneComposerComponent', () => {
     expect(sendMessage).not.toHaveBeenCalled();
     fixture.nativeElement.querySelector('[role="alertdialog"] button.btn-warning').click();
     await fixture.whenStable();
-    expect(sendMessage).toHaveBeenCalledWith(agentId, 'Now', 'now', true);
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'Now', 'now', true, expect.any(String));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[aria-label="Send options"]')?.getAttribute('aria-expanded')).toBe('false');
+  });
+  it('reads queued text back from the backend when Edit runs after a reload', async () => {
+    recoverQueuedText.mockResolvedValue('Text from before the reload');
+    const reloaded = { ...receipt, id: 'reload-1', preview: 'Before reload' };
+    cancelMessage.mockResolvedValue({ ...reloaded, state: 'cancelled', reason: 'cancelled-by-user' });
+    receipts.set(new Map([[agentId, [reloaded]]]));
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[aria-label="Edit queued message: Before reload"]').click();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(recoverQueuedText).toHaveBeenCalledWith(agentId, 'reload-1');
+    expect(recoverQueuedText.mock.invocationCallOrder[0]).toBeLessThan(cancelMessage.mock.invocationCallOrder[0]);
+    expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Text from before the reload');
+  });
+
+  it('keeps the queued message when Edit cannot read its text back, and allows a retry', async () => {
+    recoverQueuedText.mockRejectedValueOnce(new Error('transport down'))
+      .mockResolvedValueOnce('Text on retry');
+    const reloaded = { ...receipt, id: 'reload-2', preview: 'Unreadable' };
+    cancelMessage.mockResolvedValue({ ...reloaded, state: 'cancelled', reason: 'cancelled-by-user' });
+    receipts.set(new Map([[agentId, [reloaded]]]));
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    const edit = (): void => fixture.nativeElement.querySelector('[aria-label="Edit queued message: Unreadable"]').click();
+    edit();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(cancelMessage).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Could not load the queued message to edit. Try again.');
+    expect(fixture.nativeElement.querySelector('[aria-label="Edit queued message: Unreadable"]').disabled).toBe(false);
+    edit();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(cancelMessage).toHaveBeenCalledWith(agentId, 'reload-2');
+    expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Text on retry');
+  });
+
+  it('puts recovered text from a Recover text action into the draft', () => {
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    recovered.set(new Map([[agentId, 'Recovered body']]));
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Recovered body');
+  });
+
+  it('reuses the idempotency key when the same submission is retried after a transport failure', async () => {
+    sendMessage.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ mode: 'queue-next-turn', receipt });
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    const field = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    field.value = 'Same text';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[0][4]).toBe(sendMessage.mock.calls[1][4]);
+    field.value = 'Different text';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    sendMessage.mockResolvedValueOnce({ mode: 'queue-next-turn', receipt: { ...receipt, id: 'message-3' } });
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    expect(sendMessage.mock.calls[2][4]).not.toBe(sendMessage.mock.calls[0][4]);
   });
 });

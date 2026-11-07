@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { ChevronDown, LucideAngularModule, Pencil } from 'lucide-angular';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
 
 /** One delivery contract for a lane, shown at full or compact width. */
@@ -80,7 +80,8 @@ import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
   `,
 })
 export class LaneComposerComponent {
-  private readonly store = inject(AgentMonitorStore);
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly store = inject(AgentDeliveryStore);
   private readonly confirmButton = viewChild<ElementRef<HTMLButtonElement>>('confirmButton');
   private readonly cancelButton = viewChild<ElementRef<HTMLButtonElement>>('cancelButton');
   private readonly sendNowButton = viewChild<ElementRef<HTMLButtonElement>>('sendNowButton');
@@ -88,6 +89,8 @@ export class LaneComposerComponent {
   /** Shared across composer mounts so a tab switch does not discard accepted text. */
   private static readonly acceptedText = new Map<string, { agentId: string; text: string }>();
   private readonly cancelling = new Set<string>();
+  /** The last submission that did not reach the backend; a retry of the same text reuses its key. */
+  private submission: { readonly agentId: string; readonly text: string; readonly delivery: 'queue' | 'now'; readonly key: string } | null = null;
   private static nextId = 0;
   readonly agentId = input.required<string>();
   readonly laneLabel = input('lane');
@@ -105,7 +108,7 @@ export class LaneComposerComponent {
   protected readonly ChevronIcon = ChevronDown;
   protected readonly EditIcon = Pencil;
   protected readonly state = computed(() => this.store.composerState(this.agentId()));
-  private readonly previewKey = computed(() => `${this.stopped()}:${this.store.agentsById().get(this.agentId())?.status ?? ''}:${this.state().queue?.mode ?? ''}:${this.state().now?.mode ?? ''}`);
+  private readonly previewKey = computed(() => `${this.stopped()}:${this.monitor.agentsById().get(this.agentId())?.status ?? ''}:${this.state().queue?.mode ?? ''}:${this.state().now?.mode ?? ''}`);
   protected readonly queuedReceipts = computed(() =>
     (this.store.receipts().get(this.agentId()) ?? []).filter(receipt => receipt.state === 'accepted' && receipt.delivery === 'queue' && receipt.sender === 'user'),
   );
@@ -156,6 +159,15 @@ export class LaneComposerComponent {
       });
     });
     effect(() => {
+      // Text recovered from an undelivered message ("Recover text") lands in this draft.
+      const agentId = this.agentId();
+      if (!this.store.recovered().has(agentId)) return;
+      untracked(() => {
+        const text = this.store.takeRecovered(agentId);
+        if (text) this.restore(text);
+      });
+    });
+    effect(() => {
       const target = this.confirmLoss() ? this.confirmButton() : this.returnFocus() ? this.sendNowButton() : undefined;
       if (!target) { if (this.returnFocus() && !this.menuOpen()) untracked(() => this.returnFocus.set(false)); return; }
       target.nativeElement.focus();
@@ -175,7 +187,7 @@ export class LaneComposerComponent {
         : receipt.state === 'expired' ? 'The queued message expired before delivery.'
         : receipt.state === 'interrupted-undelivered' ? 'Resume the lane to send it again.'
         : 'Message was not sent.';
-      this.error.set(`${this.store.receiptLabel(receipt)}: ${reason}`);
+      this.error.set(`${this.store.receiptStatus(receipt).label}: ${reason}`);
       LaneComposerComponent.acceptedText.delete(receipt.id);
     } else if (receipt.state === 'settled') LaneComposerComponent.acceptedText.delete(receipt.id);
   }
@@ -252,17 +264,19 @@ export class LaneComposerComponent {
           if (earlier?.agentId === agentId) { earlierQueuedId = queued.id; text = `${earlier.text}\n${draftText}`; }
         }
       }
-      const outcome = await this.store.sendMessage(agentId, text, delivery, allowPartialTurnLoss);
+      const outcome = await this.store.sendMessage(agentId, text, delivery, allowPartialTurnLoss, this.submissionKey(agentId, text, delivery));
+      this.submission = null;
       if (this.agentId() !== agentId) return;
-      if (outcome.mode === 'unsupported' || (outcome.receipt && !['accepted', 'started'].includes(outcome.receipt.state))) {
+      const limitHeld = outcome.receipt?.state === 'blocked-retryable' && outcome.receipt.reason === 'lane-at-limit';
+      if ((outcome.mode === 'unsupported' && !limitHeld) || (outcome.receipt && !['accepted', 'started'].includes(outcome.receipt.state) && !limitHeld)) {
         this.error.set(outcome.detail ?? 'Could not send your message. Try again.');
         this.refreshPreviews();
         return;
       }
       if (!outcome.receipt) { this.error.set('No message receipt was returned. Try again.'); return; }
-      if (outcome.receipt?.state === 'accepted' || outcome.receipt?.state === 'started') {
+      if (outcome.receipt?.state === 'accepted' || outcome.receipt?.state === 'started' || limitHeld) {
         if (this.draft().trim() === draftText) this.draft.set('');
-        if (outcome.receipt.state === 'accepted') {
+        if (outcome.receipt.state === 'accepted' || limitHeld) {
           const acceptedText = LaneComposerComponent.acceptedText;
           acceptedText.set(outcome.receipt.id, { agentId, text });
           let agentCount = [...acceptedText.values()].filter(item => item.agentId === agentId).length;
@@ -303,15 +317,38 @@ export class LaneComposerComponent {
     }
   }
 
+  /** Reuse the key of an identical submission that failed in transit, so the backend can dedupe it. */
+  private submissionKey(agentId: string, text: string, delivery: 'queue' | 'now'): string {
+    const prior = this.submission;
+    if (prior && prior.agentId === agentId && prior.text === text && prior.delivery === delivery) return prior.key;
+    this.submission = { agentId, text, delivery, key: this.store.newIdempotencyKey() };
+    return this.submission.key;
+  }
+
   protected async cancel(messageId: string): Promise<void> {
     const agentId = this.agentId();
     this.sending.set(true);
     this.cancelling.add(messageId);
     try {
+      // After a reload the text lives only in the backend: read it before the cancel drops it.
+      const local = LaneComposerComponent.acceptedText.get(messageId);
+      let text: string;
+      if (local?.agentId === agentId) text = local.text;
+      else {
+        try {
+          text = await this.store.recoverQueuedText(agentId, messageId);
+        } catch {
+          // degradation-audit: reported - the cancel would drop the only copy of
+          // the text, so Edit stops, shows the error below, and the queued
+          // message stays for a retry.
+          this.error.set('Could not load the queued message to edit. Try again.');
+          return;
+        }
+      }
       const receipt = await this.store.cancelMessage(agentId, messageId);
       if (receipt.reason === 'cancelled-by-user') {
-        const pending = LaneComposerComponent.acceptedText.get(messageId);
-        if (pending?.agentId === agentId) { this.restore(pending.text); LaneComposerComponent.acceptedText.delete(messageId); }
+        this.restore(text);
+        LaneComposerComponent.acceptedText.delete(messageId);
       } else this.error.set('Message already started and could not be cancelled.');
     } catch {
       this.error.set('Could not cancel the queued message. Try again.');

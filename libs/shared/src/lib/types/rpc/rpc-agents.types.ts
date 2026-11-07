@@ -9,13 +9,77 @@ import type { CodexSandboxMode } from '../advanced-settings.types';
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 import type { EffortLevel } from '../ai-provider.types';
-import type { SystemCliType } from '../agent-process.types';
+import type {
+  AgentDeliveryReceipt,
+  AgentId,
+  AgentMessageOutcome,
+  AgentMessageRequest,
+  ParentDeliveryView,
+  SystemCliType,
+} from '../agent-process.types';
 import type {
   ProviderAccountBindingPresence,
   ProviderAccountSelectionField,
 } from '../provider-account.types';
 import type { CapabilityPolicyStatus } from '../capability-toggle.types';
 import type { CapabilityScope } from '../mcp-directory.types';
+
+export type AgentSendMessageParams = AgentMessageRequest;
+export type AgentSendMessageResult = AgentMessageOutcome;
+
+export interface AgentListMessageReceiptsParams {
+  readonly agentId?: AgentId;
+  readonly parentSessionId?: string;
+}
+
+export interface AgentListMessageReceiptsResult {
+  readonly receipts: AgentDeliveryReceipt[];
+}
+
+export interface AgentGetQueuedMessageBodyParams {
+  readonly agentId: AgentId;
+  readonly messageId: string;
+}
+
+export interface AgentGetQueuedMessageBodyResult {
+  readonly text: string;
+}
+
+export interface AgentRetryMessageParams {
+  readonly agentId: AgentId;
+  readonly messageId: string;
+  readonly confirmDuplicateRisk?: boolean;
+}
+
+export type AgentRetryMessageResult = AgentMessageOutcome;
+
+export interface AgentCancelMessageParams {
+  readonly agentId: AgentId;
+  readonly messageId: string;
+}
+
+export type AgentCancelMessageResult = AgentDeliveryReceipt;
+
+export interface AgentListParentDeliveriesParams {
+  readonly parentSessionId?: string;
+}
+
+export interface AgentListParentDeliveriesResult {
+  readonly deliveries: ParentDeliveryView[];
+}
+
+export interface AgentRetryParentDeliveryParams {
+  readonly deliveryId: ParentDeliveryView['deliveryId'];
+  readonly confirmDuplicateRisk?: boolean;
+}
+
+export type AgentRetryParentDeliveryResult = ParentDeliveryView;
+
+export interface AgentCancelParentDeliveryParams {
+  readonly deliveryId: ParentDeliveryView['deliveryId'];
+}
+
+export type AgentCancelParentDeliveryResult = ParentDeliveryView;
 
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {

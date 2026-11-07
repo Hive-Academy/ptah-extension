@@ -1,20 +1,32 @@
-import type { AgentDeliveryReceipt, AgentId, LaneCompletionVerdict, LaneStopReason } from '../agent-process.types';
+import type {
+  AgentDeliveryReceipt,
+  AgentId,
+  LaneCompletionVerdict,
+  LaneStopReason,
+  ParentDeliveryState,
+} from '../agent-process.types';
 
 /** Payload for `agent-monitor:message-receipt`. */
 export interface AgentMonitorMessageReceiptPayload {
   readonly receipt: AgentDeliveryReceipt;
 }
 
-/** `expired`: the envelope was evicted or timed out before the parent took it. */
-export type AgentParentDeliveryState = 'pending' | 'delivered' | 'expired';
-
 /** Delivery state for a completion or report envelope sent to the parent. */
 export interface AgentMonitorParentDeliveryPayload {
   readonly agentId: AgentId;
   readonly kind: 'completion' | 'report';
-  readonly state: AgentParentDeliveryState;
+  readonly state: ParentDeliveryState;
   readonly deliveryId?: string;
+  readonly parentSessionId?: string;
   readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly attempts?: number;
+  readonly lastError?: string;
+  readonly nextRetryAt?: number;
+  readonly waitingReason?: 'parent-offline';
+  readonly everDispatched?: boolean;
+  /** Set on a view-only `not-saved` push that withdraws the earlier notice. */
+  readonly removed?: true;
   readonly preview?: string;
   readonly verdict?: LaneCompletionVerdict;
   readonly stopReason?: LaneStopReason;

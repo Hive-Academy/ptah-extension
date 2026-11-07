@@ -91,6 +91,15 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { AgentRpcHandlers } from './agent-rpc.handlers';
 
+// The real Ptah CLI resumer that the runtime registers behind AGENT_LANE_RESUME.
+// The runtime barrel is mocked above, so the class is loaded by path.
+interface PtahCliResumer {
+  resumePtahCli(params: object, workspaceRoot: string): Promise<{ agentId: string }>;
+}
+const { PtahCliLaneResumer } = jest.requireActual<{
+  PtahCliLaneResumer: new (...deps: unknown[]) => PtahCliResumer;
+}>('../../../../cli-agent-runtime/src/lib/cli-agents/messaging/lane-resumers/ptah-cli-lane-resumer');
+
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
 afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
 mkdirSync(join(TEST_ROOT, 'ws'), { recursive: true });
@@ -161,6 +170,9 @@ function makeHarness(): Harness {
   const resumeService = {
     resumeRequest: (request: Parameters<typeof processManager.spawn>[0]) => processManager.spawn(request),
     prepareSdkResume: (request: Parameters<typeof processManager.prepareSdkHandleSpawn>[0]) => processManager.prepareSdkHandleSpawn(request),
+    // The real Ptah CLI resumer the runtime registers, over this harness's fakes.
+    resumePtahCli: (...args: Parameters<PtahCliResumer['resumePtahCli']>) =>
+      new PtahCliLaneResumer(processManager, registry, metadataStore, createMockLogger()).resumePtahCli(...args),
   };
 
   const workspace = {
@@ -362,7 +374,7 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
   // parentSessionId was NORMALIZED to undefined and the resume proceeded. With
   // a schema at the boundary the empty id never gets that far: it is refused,
   // and neither half spawns. The in-handler normalization
-  // (`agent-rpc.handlers.ts`, resumePtahCliSession) stays as defence in depth
+  // (`PtahCliLaneResumer.resumePtahCli`) stays as defence in depth
   // for callers that do not come through this method — `?: string` widens the
   // type without forbidding `''`.
   it('refuses an empty parentSessionId at the boundary instead of normalizing it', async () => {
@@ -658,7 +670,7 @@ describe('AgentRpcHandlers — agent:resumeCliSession from ptah agent-cli resume
     task: 'continue the work',
   } as const;
 
-  it('resolves the default provider and reaches resumePtahCliSession', async () => {
+  it('resolves the default provider and reaches the shared Ptah CLI resumer', async () => {
     const h = makeHarness();
     h.registry.listAgents.mockResolvedValue([
       { id: PTAH_CLI_ID, name: 'GLM', enabled: true, hasApiKey: true },
@@ -667,7 +679,7 @@ describe('AgentRpcHandlers — agent:resumeCliSession from ptah agent-cli resume
     const result = await resumeRaw(h, { ...CLI_PAYLOAD });
 
     expect(result.success).toBe(true);
-    // resumePtahCliSession's two halves — this is the path the old
+    // The resumer's two halves — this is the path the old
     // `cli: 'glm'` payload could never reach, because it fell through to the
     // system-CLI branch and threw "glm CLI is not installed".
     expect(h.registry.spawnAgent).toHaveBeenCalledTimes(1);

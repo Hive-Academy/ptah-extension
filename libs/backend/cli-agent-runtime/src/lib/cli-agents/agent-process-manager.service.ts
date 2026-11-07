@@ -107,7 +107,12 @@ import {
   resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
-import { laneLastActivityAt, restoreLaneLifecycle } from './lane-restore';
+import {
+  laneLastActivityAt,
+  restoreLaneIdentity,
+  restoreLaneLifecycle,
+  stampWorkspaceKey,
+} from './lane-restore';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { MCP_ATTACHMENT_TIMEOUT_MS } from './mcp-attachment-probe.port';
@@ -947,6 +952,7 @@ export class AgentProcessManager {
       effectivePolicy: options.effectivePolicy,
     };
 
+    const scopedInfo = stampWorkspaceKey(info, this.spawnEnvironment, previous);
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
       agentId,
       cli,
@@ -1078,7 +1084,7 @@ export class AgentProcessManager {
     // back to the task prompt the role stays on developer instructions, and
     // Pi reports its shared channel here too (4332578858).
     const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
-    const boundInfo = { ...info, ...admittedReference };
+    const boundInfo = { ...scopedInfo, ...admittedReference };
     const effectiveInfo = roleStamp
       ? { ...boundInfo, roleChannel: effectiveChannel }
       : boundInfo;
@@ -1199,11 +1205,12 @@ export class AgentProcessManager {
           : {}),
         ...meta.roleStamp,
       };
+      const scopedInfo = stampWorkspaceKey(info, this.spawnEnvironment, previous);
       const effectiveChannel = sdkHandle.getRoleDelivery?.();
       const effectiveInfo =
         effectiveChannel && meta.roleStamp
-          ? { ...info, roleChannel: effectiveChannel }
-          : info;
+          ? { ...scopedInfo, roleChannel: effectiveChannel }
+          : scopedInfo;
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
         ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
@@ -1718,6 +1725,7 @@ export class AgentProcessManager {
   restoreAgents(
     refs: readonly CliSessionReference[],
     workingDirectory: string,
+    parentSessionId?: string,
   ): number {
     let restored = 0;
     const restoredAt = new Date().toISOString();
@@ -1745,6 +1753,7 @@ export class AgentProcessManager {
         // Status, completedAt, lastActivityAt and stopReason come from the
         // store-normalized reference. Live foreign lanes were excluded above.
         ...restoreLaneLifecycle(ref, restoredAt),
+        ...restoreLaneIdentity(ref, parentSessionId),
         agentId: ref.agentId,
         cli: ref.cli,
         task: ref.task,
@@ -1752,7 +1761,6 @@ export class AgentProcessManager {
         startedAt: ref.startedAt,
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
-        ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
         // The owner the run recorded (Gate 2 G3). `getCliSessionsForRestore`
         // already dropped a malformed or legacy value, so a run without one
         // stays "Unknown owner" and is never given the current owner.
@@ -1778,8 +1786,8 @@ export class AgentProcessManager {
         // Restore refs are lean, so both are normally empty. That cannot
         // overwrite the stored output: `readOutputForPersistence` is read only
         // on `agent:spawned` / `agent:exited`, which a restored record never
-        // emits (no process, and steer/stop/continue throw first); its info has
-        // no `parentSessionId`, so the session-id remap never re-persists it;
+        // emits (no process, and steer/stop/continue throw first); it is never
+        // running, so lane adoption and the tab-id remap never re-persist it;
         // and `saveAgentOutput` skips a write when both arrays are empty.
         accumulatedSegments: ref.segments ? [...ref.segments] : [],
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
@@ -1805,6 +1813,11 @@ export class AgentProcessManager {
       this.scheduleCleanup(agentId);
       restored++;
     }
+
+    // Durable completions survive any ref replacement: replay by outbox, never by ref.
+    if (parentSessionId) this.laneCompletion.replayOutbox(parentSessionId).catch((error: unknown) =>
+      this.logger.error('[AgentProcessManager] Completion outbox replay failed',
+        error instanceof Error ? error : new Error(String(error))));
 
     if (restored > 0) {
       this.logger.info(

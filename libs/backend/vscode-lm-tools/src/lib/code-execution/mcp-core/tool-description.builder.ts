@@ -22,6 +22,7 @@ import {
   TASK_LIST_MAX_LIMIT,
 } from '../namespace-builders/tasks-namespace.builder';
 import {
+  AGENT_MESSAGE_MAX_CHARS,
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
@@ -861,12 +862,12 @@ export function buildAgentReadTool(): MCPToolDefinition {
 /**
  * Maximum length of a single message sent to a running agent.
  *
- * Same ceiling as the spawn task body (`MAX_TASK_LENGTH`), because a message
- * to a live agent is the same kind of payload as the task it was started with.
- * Shared by BOTH MCP surfaces so a body accepted over HTTP is accepted over
- * stdio.
+ * The shared `AGENT_MESSAGE_MAX_CHARS` (102,400), so the renderer RPC and both
+ * MCP surfaces accept exactly the same body. It equals the spawn task body
+ * ceiling (`MAX_TASK_LENGTH`): a message to a live agent is the same kind of
+ * payload as the task it was started with.
  */
-export const MAX_AGENT_MESSAGE_LENGTH = 100 * 1024;
+export const MAX_AGENT_MESSAGE_LENGTH = AGENT_MESSAGE_MAX_CHARS;
 
 /**
  * Build the ptah_agent_message tool definition
@@ -886,7 +887,9 @@ export function buildAgentMessageTool(): MCPToolDefinition {
       'message was re-submitted), "queue-next-turn" (held and delivered as ' +
       'the next turn), or "unsupported" (nothing was delivered — "detail" ' +
       'says why). Always read "mode": it is not a plain success. Call ' +
-      'ptah_agent_list first to see which mechanism each agent offers.',
+      'ptah_agent_list first to see which mechanism each agent offers. Pass ' +
+      'an idempotencyKey to make a repeat of the same call safe: it returns ' +
+      'the first message, marked deduplicated.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -907,23 +910,63 @@ export function buildAgentMessageTool(): MCPToolDefinition {
           type: 'boolean',
           description: 'Confirm loss of partial turn work when immediate delivery requires interrupt and resume.',
         },
+        idempotencyKey: {
+          type: 'string',
+          description: '1-128 characters of [A-Za-z0-9._:-], unique per target. Needs a session identity.',
+        },
       },
       required: ['agentId', 'message'],
     },
   };
 }
 
+/**
+ * The status description states what each state does NOT prove: `settled`
+ * ends the turn, it does not show the agent acted on the message, and an
+ * `outcome-unknown` message may already have run.
+ */
 export function buildAgentMessageStatusTool(): MCPToolDefinition {
   return {
     name: 'ptah_agent_message_status',
-    description: 'Read the delivery status of a queued agent message.',
+    description:
+      'Read the delivery status of an agent message: state, requestedAgentId ' +
+      'and agentId (they differ after a resume), attemptCount, lastError, ' +
+      'nextRetryAt and sender. "settled" means the turn ended, not that the ' +
+      'agent acted on the message. An "outcome-unknown" message may already ' +
+      'have run.',
     inputSchema: {
       type: 'object',
       properties: {
         agentId: { type: 'string', description: 'Agent ID' },
-        messageId: { type: 'string', description: 'Queued message ID' },
+        messageId: { type: 'string', description: 'Message ID' },
       },
       required: ['agentId', 'messageId'],
+    },
+  };
+}
+
+/** Retry or cancel a message the caller sent (Component 12). */
+export function buildAgentMessageControlTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_message_control',
+    description:
+      'Retry or cancel a message you sent with ptah_agent_message; you cannot ' +
+      'act on messages others sent. Retry re-delivers a held, failed, expired ' +
+      'or outcome-unknown message. A message that already reached the agent ' +
+      'once needs confirmDuplicateRisk: true, because it may already have run. ' +
+      'Cancel stops an undelivered message and deletes its text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Agent ID the message was sent to' },
+        messageId: { type: 'string', description: 'Message ID from ptah_agent_message' },
+        action: { type: 'string', enum: ['retry', 'cancel'], description: 'retry or cancel' },
+        confirmDuplicateRisk: {
+          type: 'boolean',
+          description: 'Confirm a retry that may deliver the message twice.',
+        },
+      },
+      required: ['agentId', 'messageId', 'action'],
     },
   };
 }

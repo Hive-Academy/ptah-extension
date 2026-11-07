@@ -92,6 +92,31 @@ export {
   type WireAgentEventListenersContext,
   type AgentEventPlatform,
 } from './lib/wiring/agent-events';
-export { AgentMessageCoordinator } from './lib/cli-agents/messaging/agent-message-coordinator.service';
+export {
+  AgentMessageCoordinator,
+  CAPABILITY_METADATA_UNAVAILABLE,
+  type AgentMessageCoordinatorDeps,
+} from './lib/cli-agents/messaging/agent-message-coordinator.service';
 export { AgentLaneResumeService } from './lib/cli-agents/messaging/agent-lane-resume.service';
+export { ParentDeliveryDrainerService } from './lib/cli-agents/parent-delivery/parent-delivery-drainer.service';
+export {
+  AgentMessageEnvelopeStore,
+  AgentMessageStorageError,
+  AgentMessageValidationError,
+  type AgentMessagePersistence,
+} from './lib/cli-agents/messaging/envelope/agent-message-envelope.store';
+export type { AgentMessageEnvelope } from './lib/cli-agents/messaging/envelope/agent-message-envelope.schema';
+export { AgentIdAliasRegistry } from './lib/cli-agents/messaging/agent-id-alias.registry';
+export {
+  AgentMessageDeliveryScheduler,
+  type AgentMessageDeliveryScheduling,
+} from './lib/cli-agents/messaging/agent-message-delivery.scheduler';
+export type { AgentMessageDispatchJournal } from './lib/cli-agents/messaging/agent-message-dispatch-journal.port';
+export {
+  ParentSessionPurgeService,
+  type ParentSessionPurge,
+  type ParentSessionPurgeOutcome,
+  type ParentSessionExistence,
+} from './lib/cli-agents/messaging/parent-session-purge.service';
+export type { AgentDeliveryReceiptEventSink } from './lib/cli-agents/messaging/agent-delivery-receipt-event-sink';
 export { LaneSpawnPolicyError } from './lib/cli-agents/lane-spawn-policy';

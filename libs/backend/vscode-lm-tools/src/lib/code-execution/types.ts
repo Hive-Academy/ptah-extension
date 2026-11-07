@@ -362,11 +362,21 @@ export interface AgentNamespace {
    * and its partial work discarded. Neither is a plain success, so neither may
    * be collapsed into `void`.
    *
+   * The sender is taken from the MCP request context, never from arguments.
+   * An `idempotencyKey` makes a repeat of the same call return the first
+   * message (`deduplicated: true`); it needs a session identity.
+   *
    * @param agentId - Agent ID
    * @param message - Text to deliver to the agent
    */
-  message: (agentId: string, message: string, delivery?: 'queue' | 'now' | 'steer', allowPartialTurnLoss?: boolean) => Promise<AgentMessageOutcome>;
+  message: (agentId: string, message: string, delivery?: 'queue' | 'now' | 'steer', allowPartialTurnLoss?: boolean, idempotencyKey?: string) => Promise<AgentMessageOutcome>;
+  /** Alias-aware: a message sent to an agent is found under its resumed id too. */
   messageStatus: (agentId: string, messageId: string) => Promise<import('@ptah-extension/shared').AgentDeliveryReceipt | { status: 'pending' | 'delivered' | 'failed' | 'unknown'; reason?: string }>;
+  /**
+   * Retry or cancel a message the caller sent. A retry of a message that may
+   * already have run needs `confirmDuplicateRisk`.
+   */
+  control: (agentId: string, messageId: string, action: 'retry' | 'cancel', confirmDuplicateRisk?: boolean) => Promise<AgentMessageOutcome | import('@ptah-extension/shared').AgentDeliveryReceipt>;
 
   /**
    * Deliver a report to the session that started the reporter.

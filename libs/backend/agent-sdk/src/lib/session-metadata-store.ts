@@ -826,6 +826,46 @@ function countReferencesWithBulk(metadata: SessionMetadata): number {
   ).length;
 }
 
+const laneCapabilitySupportSchema = z.object({
+  state: z.enum(['supported', 'unsupported']),
+  reason: z.string().optional(),
+}).strict();
+const lanePermissionCapabilitySchema = laneCapabilitySupportSchema.extend({
+  nativeMode: z.string().optional(),
+  networkModes: z.array(z.enum(['allow', 'deny'])),
+}).strict();
+const cliAdapterManifestSchema = z.object({
+  messaging: z.object({
+    steer: laneCapabilitySupportSchema,
+    interrupt: laneCapabilitySupportSchema,
+    continuation: laneCapabilitySupportSchema,
+    resume: laneCapabilitySupportSchema,
+  }).strict(),
+  roleChannel: z.enum([
+    'task-prompt',
+    'developer-instructions',
+    'system-prompt',
+    'agent-selection',
+  ]),
+  permissionModes: z.object({
+    plan: lanePermissionCapabilitySchema.optional(),
+    ask: lanePermissionCapabilitySchema.optional(),
+    'auto-edit': lanePermissionCapabilitySchema.optional(),
+    yolo: lanePermissionCapabilitySchema.optional(),
+  }).strict(),
+  networkModes: z.object({
+    allow: laneCapabilitySupportSchema,
+    deny: laneCapabilitySupportSchema,
+  }).strict(),
+  limitReader: z.object({
+    state: z.enum(['available', 'no-reliable-source']),
+    source: z.string().optional(),
+    reason: z.string().optional(),
+  }).strict(),
+  mcp: laneCapabilitySupportSchema,
+}).strict();
+const restoredWorkspaceKeySchema = z.string().min(1).max(2_048);
+
 /**
  * A restored reference carries its `quotaOwner` and `modelScope` only when
  * they validate. A
@@ -843,17 +883,34 @@ function restoreQuotaOwner(ref: CliSessionReference): CliSessionReference {
   if (
     !('quotaOwner' in stored) &&
     !('quotaOwnerKey' in stored) &&
-    !('modelScope' in stored)
+    !('modelScope' in stored) &&
+    !('potentialCapabilities' in stored) &&
+    !('workspaceKey' in stored)
   ) {
     return ref;
   }
-  const { quotaOwner, quotaOwnerKey: _legacy, modelScope, ...rest } = stored;
+  const {
+    quotaOwner,
+    quotaOwnerKey: _legacy,
+    modelScope,
+    potentialCapabilities,
+    workspaceKey,
+    ...rest
+  } = stored;
   const owner = parseQuotaOwnerRef(quotaOwner);
   const scope =
     modelScope === null || typeof modelScope === 'string' ? { modelScope } : {};
+  const capabilities = cliAdapterManifestSchema.safeParse(potentialCapabilities);
+  const workspace = restoredWorkspaceKeySchema.safeParse(workspaceKey);
+  const identity = {
+    ...(capabilities.success
+      ? { potentialCapabilities: capabilities.data }
+      : {}),
+    ...(workspace.success ? { workspaceKey: workspace.data } : {}),
+  };
   return owner
-    ? { ...rest, quotaOwner: owner, ...scope }
-    : { ...rest, ...scope };
+    ? { ...rest, quotaOwner: owner, ...scope, ...identity }
+    : { ...rest, ...scope, ...identity };
 }
 
 const RESTORE_CLOCK_SKEW_MS = 60_000;

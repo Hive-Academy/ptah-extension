@@ -39,6 +39,7 @@ import type {
 import { recordLaneUsageOutcome } from './lane-completion-outcome';
 import { ParentEnvelopeStoreService } from './parent-delivery/parent-envelope-store.service';
 import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
+import { FakeStateStorage } from './parent-delivery/__fixtures__/fake-state-storage';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -156,7 +157,7 @@ function createHarness(
 describe('LaneCompletionNotifier.signal', () => {
   it('holds a tab-id completion until the real parent session resolves', async () => {
     const h = createHarness();
-    const store = new ParentEnvelopeStoreService(h.logger);
+    const store = new ParentEnvelopeStoreService(h.logger, new FakeStateStorage());
     const adapter = { isSessionActive: h.isSessionActive,
       sendMessageToSession: h.sendMessageToSession } as never;
     const drainer = new ParentDeliveryDrainerService(h.logger, store, adapter, null, null);

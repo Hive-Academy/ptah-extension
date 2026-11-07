@@ -1,7 +1,21 @@
+import { AGENT_MESSAGE_DISPATCH_JOURNAL } from '../cli-agents/messaging/agent-message-dispatch-journal.port';
+
 export const CLI_AGENT_RUNTIME_TOKENS = {
   PARENT_DELIVERY_EVENT_SINK: Symbol.for('ParentDeliveryEventSink'),
   AGENT_MESSAGE_COORDINATOR: Symbol.for('AgentMessageCoordinator'),
-  AGENT_DELIVERY_RECEIPT_STORE: Symbol.for('AgentDeliveryReceiptStore'),
+  /** Durable lane message envelopes (`AgentMessageEnvelopeStore`). */
+  AGENT_MESSAGE_ENVELOPE_STORE: Symbol.for('AgentMessageEnvelopeStore'),
+  /** Old agent id → resumed agent id (`AgentIdAliasRegistry`). */
+  AGENT_ID_ALIAS_REGISTRY: Symbol.for('AgentIdAliasRegistry'),
+  /** One-timer cold inbox and retry scheduler (`AgentMessageDeliveryScheduler`). */
+  AGENT_MESSAGE_SCHEDULER: Symbol.for('AgentMessageDeliveryScheduler'),
+  /**
+   * `{ markDispatching }` over the envelope store. The same `Symbol.for` the
+   * router injects optionally; register it before the router and manager.
+   */
+  AGENT_MESSAGE_DISPATCH_JOURNAL,
+  /** Three-phase purge of a deleted parent session's messages (`ParentSessionPurge`). */
+  PARENT_SESSION_PURGE: Symbol.for('ParentSessionPurge'),
   AGENT_LANE_RESUME: Symbol.for('AgentLaneResume'),
   AGENT_DELIVERY_RECEIPT_EVENT_SINK: Symbol.for('AgentDeliveryReceiptEventSink'),
   AGENT_SPAWN_TRUSTED_ROOTS: Symbol.for('AgentSpawnTrustedRoots'),
@@ -58,6 +72,7 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * process manager.
    */
   LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
+  LANE_TERMINAL_CHECKPOINT: Symbol.for('LaneTerminalCheckpoint'),
   LANE_INSTRUCTION_FILE_STORE: Symbol.for('LaneInstructionFileStore'),
 
   // Plan limits (TASK_2026_596). See `cli-agents/limits/`.

@@ -72,6 +72,7 @@ import { currentHostRunId } from './host-run-id';
 import { initializeSessionRuntimeIdentityLookup } from './wiring/session-runtime-identity-cache';
 import type {
   AgentId,
+  CliAdapterManifest,
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
@@ -112,6 +113,23 @@ function streamEvents(count: number): readonly FlatStreamEventUnion[] {
     text: 'x',
   })) as unknown as readonly FlatStreamEventUnion[];
 }
+
+const RESTORE_MANIFEST: CliAdapterManifest = {
+  messaging: {
+    steer: { state: 'unsupported', reason: 'No steer transport.' },
+    interrupt: { state: 'unsupported', reason: 'No interrupt transport.' },
+    continuation: { state: 'supported' },
+    resume: { state: 'supported' },
+  },
+  roleChannel: 'task-prompt',
+  permissionModes: {},
+  networkModes: {
+    allow: { state: 'supported' },
+    deny: { state: 'unsupported', reason: 'No deny mode.' },
+  },
+  limitReader: { state: 'no-reliable-source', reason: 'No limit reader.' },
+  mcp: { state: 'unsupported', reason: 'No MCP transport.' },
+};
 
 function cliRef(
   overrides: Partial<CliSessionReference> = {},
@@ -1757,7 +1775,9 @@ describe('SessionMetadataStore', () => {
       });
 
       /** Host A persists a running lane, then host B opens the same store. */
-      async function runningLaneOfHostA(): Promise<{
+      async function runningLaneOfHostA(
+        overrides: Partial<CliSessionReference> = {},
+      ): Promise<{
         hostA: SessionMetadataStore;
         hostB: SessionMetadataStore;
       }> {
@@ -1766,7 +1786,7 @@ describe('SessionMetadataStore', () => {
         await hostA.create('sess-1', WORKSPACE, 'parent');
         await hostA.addCliSession(
           'sess-1',
-          cliRef({ status: 'running', completedAt: undefined }),
+          cliRef({ status: 'running', completedAt: undefined, ...overrides }),
         );
         await hostA.flush();
         hostRun.mockReturnValue('host-run-b');
@@ -1824,6 +1844,24 @@ describe('SessionMetadataStore', () => {
 
         expect(second).toEqual(first);
         expect(second.lastActivityAt).toBe(first.lastActivityAt);
+      });
+
+      it('keeps valid identity fields during dead-host normalization', async () => {
+        const { hostA, hostB } = await runningLaneOfHostA({
+          ptahCliId: 'ptah-config',
+          workspaceKey: '/workspace/root',
+          potentialCapabilities: RESTORE_MANIFEST,
+        });
+        await hostA.flushForShutdown();
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+          ptahCliId: 'ptah-config',
+          workspaceKey: '/workspace/root',
+          potentialCapabilities: RESTORE_MANIFEST,
+        });
       });
 
       it('interrupts a lane at once after its host exited cleanly', async () => {
@@ -2584,6 +2622,42 @@ describe('SessionMetadataStore', () => {
       await expect(store.getCliSessionsForRestore('sess-1')).resolves.toEqual([
         cliRef(),
       ]);
+    });
+
+    it('restores a valid manifest and workspace key', async () => {
+      await seedRun(undefined, {
+        potentialCapabilities: RESTORE_MANIFEST,
+        workspaceKey: '/workspace/root',
+      });
+
+      const [run] = await store.getCliSessionsForRestore('sess-1');
+      expect(run.potentialCapabilities).toEqual(RESTORE_MANIFEST);
+      expect(run.workspaceKey).toBe('/workspace/root');
+    });
+
+    it('drops only a malformed manifest and keeps a valid workspace key', async () => {
+      await seedRun(undefined, {
+        potentialCapabilities: {
+          ...RESTORE_MANIFEST,
+          messaging: { ...RESTORE_MANIFEST.messaging, secret: 'do-not-restore' },
+        },
+        workspaceKey: '/workspace/root',
+      });
+
+      const [run] = await store.getCliSessionsForRestore('sess-1');
+      expect(run).not.toHaveProperty('potentialCapabilities');
+      expect(run.workspaceKey).toBe('/workspace/root');
+    });
+
+    it('drops only a malformed workspace key and keeps a valid manifest', async () => {
+      await seedRun(undefined, {
+        potentialCapabilities: RESTORE_MANIFEST,
+        workspaceKey: '',
+      });
+
+      const [run] = await store.getCliSessionsForRestore('sess-1');
+      expect(run.potentialCapabilities).toEqual(RESTORE_MANIFEST);
+      expect(run).not.toHaveProperty('workspaceKey');
     });
 
     it.each<[string, unknown]>([

@@ -31,15 +31,24 @@ import type {
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import { legacyMessagingCapabilities } from './cli-adapters/cli-adapter.interface';
+import {
+  AGENT_MESSAGE_DISPATCH_JOURNAL,
+  AgentMessageDispatchWithdrawnError,
+  type AgentMessageDispatchJournal,
+} from './messaging/agent-message-dispatch-journal.port';
+import { classifyContinuationFailure } from './messaging/continuation-failure.classifier';
 
 /**
  * How many messages may wait for an agent's current turn to finish.
  *
- * The queue is in-memory, per agent, and never persisted: a message that has
- * not been delivered when the host stops was not delivered, and pretending
- * otherwise across a restart is worse than losing it visibly. Over the cap the
- * caller is REFUSED (`mode: 'unsupported'`) rather than having its message
- * silently dropped.
+ * This live queue is in-memory and per agent; it holds only the delivery
+ * mechanics. The record of truth is the durable inbox (the envelope store):
+ * every message is persisted there before it is routed, and an entry queued
+ * with a caller-supplied id is journalled as `dispatching` before it reaches
+ * the adapter. After a restart the coordinator reclassifies what this queue
+ * held. Over the cap the caller is REFUSED (`mode: 'unsupported'`) rather than
+ * having its message silently dropped; the coordinator holds it and re-offers
+ * it after the next settle.
  */
 export const MAX_PENDING_MESSAGES = 8;
 
@@ -90,6 +99,11 @@ export interface PendingAgentMessage {
   readonly messageId: string;
   readonly cliSessionId: string;
   readonly text: string;
+  /**
+   * True when the caller supplied `messageId` (an envelope id), so the flush
+   * journals it before dispatch. A router-generated id has no envelope.
+   */
+  readonly journaled?: boolean;
 }
 
 export type AgentMessageStatus =
@@ -98,6 +112,8 @@ export type AgentMessageStatus =
   | { status: 'unknown' };
 
 const MAX_TERMINAL_MESSAGES = 64;
+/** Outcome of the dispatch journal write for one queued entry. */
+type JournalResult = 'ok' | 'refused' | 'withdrawn';
 
 /**
  * The one manager operation the router invokes. Keeps the dependency an
@@ -121,6 +137,8 @@ export class AgentMessageRouter {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
+    @inject(AGENT_MESSAGE_DISPATCH_JOURNAL, { isOptional: true })
+    private readonly journal: AgentMessageDispatchJournal | null = null,
   ) {}
 
   /**
@@ -285,7 +303,10 @@ export class AgentMessageRouter {
     const cliSessionId = tracked.info.cliSessionId;
     if (!cliSessionId) return { mode: 'unsupported', reasonCode: 'no-session', detail: 'The agent session is unavailable; nothing was queued.' };
     const messageId = receiptId ?? randomUUID();
-    tracked.pendingMessages.push({ messageId, cliSessionId, text: message });
+    tracked.pendingMessages.push({
+      messageId, cliSessionId, text: message,
+      ...(receiptId !== undefined ? { journaled: true } : {}),
+    });
     return {
       mode: 'queue-next-turn',
       messageId,
@@ -365,32 +386,86 @@ export class AgentMessageRouter {
 
     this.flushing.add(agentId);
     this.inFlight.set(agentId, next.messageId);
+    // A previous flush may have reported this entry `storage-unavailable` and
+    // put it back; this attempt starts from a clean status.
+    this.terminal.delete(`${agentId}:${next.messageId}`);
+    let journal: JournalResult = 'refused';
+    let rejected = false;
     try {
-      await dispatcher.continueConversation(agentId, next.text, next.messageId);
-      if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
-        this.setTerminal(agentId, next.messageId, { status: 'delivered' });
-      this.logger.info('[AgentMessageRouter] Delivered queued message', {
-        agentId,
-        cli: tracked.info.cli,
-        remaining: tracked.pendingMessages.length,
-      });
+      journal = await this.journalDispatch(agentId, tracked, next);
+      if (journal === 'ok' && this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed') {
+        await dispatcher.continueConversation(agentId, next.text, next.messageId);
+        if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
+          this.setTerminal(agentId, next.messageId, { status: 'delivered' });
+        this.logger.info('[AgentMessageRouter] Delivered queued message', {
+          agentId,
+          cli: tracked.info.cli,
+          remaining: tracked.pendingMessages.length,
+        });
+      }
     } catch (error: unknown) {
-      this.setTerminal(agentId, next.messageId, { status: 'failed', reason: 'continuation_rejected' });
-      this.failPending(agentId, tracked, 'continuation_rejected');
-      // Losing it visibly beats re-queuing it forever against a handle that has
-      // just refused: the next settle would retry the same failing delivery.
+      const reason = classifyContinuationFailure(error);
+      // Only this entry failed; the reconciler decides between a backoff retry
+      // and a permanent hold with the body kept. A transient refusal (busy) is
+      // followed by a settle, which offers the next entry; a permanent one
+      // started no turn, so the next entry is offered below.
+      rejected = reason === 'continuation_rejected';
+      this.setTerminal(agentId, next.messageId, { status: 'failed', reason });
       this.logger.error(
         '[AgentMessageRouter] Queued message could not be delivered',
         {
           agentId,
           cli: tracked.info.cli,
           error: error instanceof Error ? error.name : 'unknown',
+          reason,
           remaining: tracked.pendingMessages.length,
         },
       );
     } finally {
       this.inFlight.delete(agentId);
       this.flushing.delete(agentId);
+    }
+    // A withdrawn or permanently rejected entry ran nothing, so no settle will
+    // follow: offer the next one now.
+    if (journal === 'withdrawn' || rejected) await this.flushPending(agentId, tracked, dispatcher);
+  }
+
+  /**
+   * Durably journal `dispatching` before an envelope-backed entry reaches the
+   * adapter. Without a journal, or for a router-generated id, there is nothing
+   * to journal. When the write is refused the store is failing: the entry goes
+   * back to the head of the queue, is reported `storage-unavailable`, and this
+   * flush stops — nothing is dispatched and the other entries stay queued.
+   * A withdrawn entry (cancelled or re-routed after this flush took it) is
+   * dropped: its envelope already records the decision.
+   */
+  private async journalDispatch(
+    agentId: string,
+    tracked: MessageRoutableAgent,
+    entry: PendingAgentMessage,
+  ): Promise<JournalResult> {
+    if (!this.journal || !entry.journaled) return 'ok';
+    try {
+      await this.journal.markDispatching(entry.messageId);
+      return 'ok';
+    } catch (error: unknown) {
+      if (error instanceof AgentMessageDispatchWithdrawnError) {
+        this.logger.info('[AgentMessageRouter] Queued message withdrawn before dispatch', {
+          agentId, state: error.state,
+        });
+        return 'withdrawn';
+      }
+      // A teardown during the write already reported the entry; re-queuing it
+      // would hand a stopped agent work it can never receive.
+      if (this.terminal.get(`${agentId}:${entry.messageId}`)?.status !== 'failed') {
+        tracked.pendingMessages.unshift(entry);
+        this.setTerminal(agentId, entry.messageId, { status: 'failed', reason: 'storage-unavailable' });
+      }
+      this.logger.error(
+        '[AgentMessageRouter] Dispatch journal write failed; queued message not dispatched',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return 'refused';
     }
   }
 

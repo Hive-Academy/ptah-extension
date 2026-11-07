@@ -18,6 +18,15 @@
 
 import 'reflect-metadata';
 
+// The handler injects one runtime token (the parent-session purge). Loading the
+// real runtime barrel pulls in the tree-sitter loader, whose ESM-only
+// `wasm-bundle-dir` CommonJS ts-jest cannot parse; this spec needs none of it.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: {
+    PARENT_SESSION_PURGE: Symbol.for('ParentSessionPurge'),
+  },
+}));
+
 import * as sessionRpcSchema from './session-rpc.schema';
 import { AgentJsonlFirstLineSchema } from './session-rpc.handlers';
 

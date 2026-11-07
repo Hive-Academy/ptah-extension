@@ -83,7 +83,13 @@ describe('Electron RPC surface', () => {
         'agent:previewMessage',
         'agent:sendMessage',
         'agent:getMessageReceipt',
+        'agent:listMessageReceipts',
+        'agent:getQueuedMessageBody',
+        'agent:retryMessage',
         'agent:cancelMessage',
+        'agent:listParentDeliveries',
+        'agent:retryParentDelivery',
+        'agent:cancelParentDelivery',
       ]),
     );
     expect(surface.registered).toEqual(manifestMethods);

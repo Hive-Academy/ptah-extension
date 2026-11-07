@@ -17,7 +17,9 @@ import {
 } from '../mcp-core/agent-spawn-args.schema';
 import { readProviderAccountSelectionField } from '@ptah-extension/shared/schemas';
 import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
+import { mcpControlActor } from './agent-message-control-actor';
 import {
+  getCallerAgentId,
   getCallerSessionId,
   isMcpRequestInFlight,
 } from '../mcp-core/mcp-request-context';
@@ -34,6 +36,7 @@ import {
   type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
+  AgentMessageSender,
   AgentRoleDefinition,
   CliAdapterManifest,
   EffectiveLanePolicy,
@@ -50,6 +53,24 @@ import {
   classifyLaneState,
   laneFamilyOf,
 } from '@ptah-extension/shared';
+
+/**
+ * The sender of an MCP message, from the request context (Phase 1, URL
+ * attribution; no permission change):
+ * - an `/agent/{id}` caller is an unverified lane;
+ * - else a `/session/{id}` caller is that parent session;
+ * - else an anonymous parent, which may not use an idempotency key.
+ * Phase 3 replaces the lane case with the verified caller binding. Retry and
+ * cancel already use it (`mcpControlActor`): ownership must not rest on a URL.
+ */
+function mcpMessageSender(): AgentMessageSender {
+  const callerAgentId = getCallerAgentId();
+  if (callerAgentId && AgentId.validate(callerAgentId)) {
+    return { kind: 'lane', agentId: AgentId.from(callerAgentId), verified: false };
+  }
+  const sessionId = getCallerSessionId();
+  return sessionId ? { kind: 'parent', sessionId } : { kind: 'parent' };
+}
 
 /**
  * Minimal summary returned by PtahCliRegistry.listAgents().
@@ -119,7 +140,7 @@ interface PtahCliRegistryLike {
  * Dependencies for agent namespace
  */
 export interface AgentNamespaceDependencies {
-  getMessageCoordinator?: () => Pick<import('@ptah-extension/cli-agent-runtime').AgentMessageCoordinator, 'send' | 'getReceipt'> | undefined;
+  getMessageCoordinator?: () => Pick<import('@ptah-extension/cli-agent-runtime').AgentMessageCoordinator, 'send' | 'getReceipt' | 'retry' | 'cancel'> | undefined;
   agentProcessManager: AgentProcessManager;
   cliDetectionService: CliDetectionService;
   /** Lazy getter for workspace root path. Called at spawn time to get the current workspace root. */
@@ -516,10 +537,15 @@ export function buildAgentNamespace(
       return agentProcessManager.readOutput(agentId, tail, offset);
     },
 
-    message: async (agentId, message, delivery, allowPartialTurnLoss) => {
+    message: async (agentId, message, delivery, allowPartialTurnLoss, idempotencyKey) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
-      if (coordinator) return coordinator.send({ agentId: AgentId.from(agentId), message, delivery, allowPartialTurnLoss });
+      if (coordinator) {
+        return coordinator.send({
+          agentId: AgentId.from(agentId), message, delivery, allowPartialTurnLoss,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+        }, mcpMessageSender());
+      }
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
       // discarded. A `void` return would have made both look like a success.
@@ -528,8 +554,22 @@ export function buildAgentNamespace(
     messageStatus: async (agentId, messageId) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
+      // No viewer: Phase 1 keeps today's read access (URL attribution only).
       return coordinator ? coordinator.getReceipt(AgentId.from(agentId), messageId)
         : agentProcessManager.getAgentMessageStatus(agentId, messageId);
+    },
+    control: async (agentId, messageId, action, confirmDuplicateRisk) => {
+      if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
+      const coordinator = deps.getMessageCoordinator?.();
+      if (!coordinator) {
+        throw new Error('Message retry and cancel are unavailable: no message coordinator is wired into this host.');
+      }
+      // The actor comes from the verified caller binding, never the URL, so a
+      // caller acts only on messages it sent. Absent or unverified identity throws.
+      const actor = mcpControlActor();
+      return action === 'retry'
+        ? coordinator.retry(AgentId.from(agentId), messageId, actor, { confirmDuplicateRisk })
+        : coordinator.cancel(AgentId.from(agentId), messageId, actor);
     },
 
     report: async (input) => {

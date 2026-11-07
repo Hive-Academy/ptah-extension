@@ -8,6 +8,7 @@
  */
 
 import 'reflect-metadata';
+import { homedir } from 'node:os';
 
 // ---- Mock vscode before any imports that use it ----
 const mockGetConfiguration = jest.fn();
@@ -133,6 +134,7 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
+  ICallerWorkspaceResolver,
   IMcpCallerCredentials,
   IOutputChannel,
 } from '@ptah-extension/platform-core';
@@ -409,6 +411,7 @@ function createManager(deps: {
   hostAttention?: HostAttentionCoordinator;
   attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe;
   mcpCredentials?: IMcpCallerCredentials;
+  callerWorkspaceResolver?: ICallerWorkspaceResolver;
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -421,6 +424,7 @@ function createManager(deps: {
     sentryService as unknown as EnvironmentArgs[4],
     deps.harnessPreflight as unknown as EnvironmentArgs[5],
     deps.mcpServerStatus,
+    deps.callerWorkspaceResolver ?? null,
   );
   const outputBuffer = new AgentOutputBuffer(deps.logger);
   const laneCompletion = {
@@ -548,6 +552,75 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   });
 
   describe('spawn() with SDK adapter', () => {
+    it('stamps one caller workspace across worktrees and keeps it on resume', async () => {
+      ({ manager } = createManager({
+        logger,
+        cliDetection,
+        workspaceProvider: createMockWorkspaceProvider(),
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+        callerWorkspaceResolver: {
+          resolveCallerWorkspaceRoot: () => '/workspace/caller',
+        },
+      }));
+      const first = await manager.spawn({
+        task: 'A',
+        cli: 'codex',
+        workingDirectory: '/workspace/caller/worktree-a',
+        resumeSessionId: 'workspace-thread',
+      });
+      const sibling = await manager.spawn({
+        task: 'B',
+        cli: 'codex',
+        workingDirectory: '/workspace/caller/worktree-b',
+      });
+      const resumed = await manager.spawn({
+        task: 'continue',
+        cli: 'codex',
+        workingDirectory: '/workspace/caller/worktree-c',
+        resumeSessionId: 'workspace-thread',
+        parentSessionId: 'parent-session',
+      });
+
+      expect(
+        (manager.getStatus(first.agentId) as AgentProcessInfo).workspaceKey,
+      ).toBe('/workspace/caller');
+      expect(
+        (manager.getStatus(sibling.agentId) as AgentProcessInfo).workspaceKey,
+      ).toBe('/workspace/caller');
+      expect(manager.getStatus(resumed.agentId)).toMatchObject({
+        workspaceKey: '/workspace/caller',
+        parentSessionId: 'parent-session',
+      });
+    });
+
+    it('leaves workspaceKey absent at spawn without a caller or provider scope', async () => {
+      const workspaceProvider = createMockWorkspaceProvider();
+      workspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
+      workspaceProvider.getWorkspaceFolders.mockReturnValue([]);
+      ({ manager } = createManager({
+        logger,
+        cliDetection,
+        workspaceProvider,
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+        callerWorkspaceResolver: {
+          resolveCallerWorkspaceRoot: () => undefined,
+        },
+      }));
+
+      const spawned = await manager.spawn({
+        task: 'A',
+        cli: 'codex',
+        workingDirectory: homedir(),
+      });
+      expect(manager.getStatus(spawned.agentId)).not.toHaveProperty(
+        'workspaceKey',
+      );
+    });
+
     it('starts SDK and handle records at turn one', async () => {
       const sdk = await manager.spawn({
         task: 'A',

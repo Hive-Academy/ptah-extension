@@ -106,6 +106,15 @@ import { join } from 'node:path';
 
 import { AgentRpcHandlers } from './agent-rpc.handlers';
 
+// The real Ptah CLI resumer that the runtime registers behind AGENT_LANE_RESUME.
+// The runtime barrel is mocked above, so the class is loaded by path.
+interface PtahCliResumer {
+  resumePtahCli(params: object, workspaceRoot: string): Promise<{ agentId: string }>;
+}
+const { PtahCliLaneResumer } = jest.requireActual<{
+  PtahCliLaneResumer: new (...deps: unknown[]) => PtahCliResumer;
+}>('../../../../cli-agent-runtime/src/lib/cli-agents/messaging/lane-resumers/ptah-cli-lane-resumer');
+
 const WORKSPACE = 'D:/ws';
 const PTAH_CLI_ID = 'pc-agent-1';
 const CLI_SESSION_ID = 'cli-session-uuid';
@@ -210,9 +219,13 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     ),
     continueConversation: jest.fn().mockResolvedValue(undefined),
   };
+  const metadataStore = { createChild: jest.fn().mockResolvedValue(undefined) };
   const resumeService = {
     resumeRequest: (request: Parameters<typeof processManager.spawn>[0]) => processManager.spawn(request),
     prepareSdkResume: (request: Parameters<typeof processManager.prepareSdkHandleSpawn>[0]) => processManager.prepareSdkHandleSpawn(request),
+    // The real Ptah CLI resumer the runtime registers, over this harness's fakes.
+    resumePtahCli: (...args: Parameters<PtahCliResumer['resumePtahCli']>) =>
+      new PtahCliLaneResumer(processManager, registry, metadataStore, logger).resumePtahCli(...args),
   };
   const messageCoordinator = {
     send: jest.fn(async (request: { agentId: string; message: string }) => {
@@ -257,9 +270,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     } as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,
-    {
-      createChild: jest.fn().mockResolvedValue(undefined),
-    } as unknown as SessionMetadataStore,
+    metadataStore as unknown as SessionMetadataStore,
     workspace as unknown as IWorkspaceProvider,
     stateStorage as unknown as IStateStorage,
     {} as unknown as CliModelListService,
@@ -521,7 +532,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     const h = makeHarness();
     await call<ContinueResult>(h, 'agent:continue', { agentId: CONTINUE_AGENT_ID, message: 'next step' });
     expect(h.messageCoordinator.send).toHaveBeenCalledWith(
-      { agentId: CONTINUE_AGENT_ID, message: 'next step', delivery: 'queue' }, 'user',
+      { agentId: CONTINUE_AGENT_ID, message: 'next step', delivery: 'queue' }, { kind: 'user' },
     );
   });
   it('preserves message whitespace and caps continue input at the RPC boundary', async () => {
@@ -530,7 +541,7 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
       agentId: CONTINUE_AGENT_ID, message: '  next step\n',
     });
     expect(h.messageCoordinator.send).toHaveBeenCalledWith(
-      { agentId: CONTINUE_AGENT_ID, message: '  next step\n', delivery: 'queue' }, 'user',
+      { agentId: CONTINUE_AGENT_ID, message: '  next step\n', delivery: 'queue' }, { kind: 'user' },
     );
     await expect(call<ContinueResult>(h, 'agent:continue', {
       agentId: CONTINUE_AGENT_ID, message: 'x'.repeat(32769),
