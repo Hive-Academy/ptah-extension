@@ -121,6 +121,7 @@ describe('WorkspaceIndexerService', () => {
     patternMatcher = {
       isMatch: jest.fn(),
       matchFiles: jest.fn(),
+      compilePatternSet: jest.fn(() => () => false),
       getCacheStats: jest.fn(),
     } as unknown as jest.Mocked<PatternMatcherService>;
 
@@ -236,7 +237,7 @@ describe('WorkspaceIndexerService', () => {
         size: 1000,
       });
 
-      // Non-empty ignore file set so isIgnored is consulted per file
+      // Non-empty ignore file set so the compiled ignore predicate is applied
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([
         {
           filePath: '/workspace/.gitignore',
@@ -253,12 +254,9 @@ describe('WorkspaceIndexerService', () => {
         },
       ]);
 
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockImplementation(
-        (relativePath: string) =>
-          Promise.resolve({
-            filePath: relativePath,
-            ignored: relativePath.includes('node_modules'),
-          }),
+      // Compiled once per walk (fix-10); the predicate runs per file.
+      ignoreResolver.compileMatcher.mockReturnValue((relativePath: string) =>
+        relativePath.includes('node_modules'),
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -389,17 +387,11 @@ describe('WorkspaceIndexerService', () => {
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
 
-      // One result per INPUT path, matched and unmatched alike — the real
-      // `matchFiles` contract. This mock used to `.filter()` the unmatched
-      // entries away, which is a contract the service does not have and is
-      // what let the caller read `excluded.length > 0` as "excluded".
-      patternMatcher.matchFiles.mockImplementation((paths: string[]) => {
-        return paths.map((path) => ({
-          path,
-          matched: path.includes('test'),
-          matchedPatterns: path.includes('test') ? ['**/test/**'] : [],
-        }));
-      });
+      // Exclude patterns compile once per walk into a predicate (fix-10);
+      // `compilePatternSet` parity with `matchFiles` is pinned in its own spec.
+      patternMatcher.compilePatternSet.mockReturnValue((path: string) =>
+        path.includes('test'),
+      );
 
       fileClassifier.classifyFile.mockReturnValue({
         type: FileType.Source,
@@ -616,12 +608,9 @@ describe('WorkspaceIndexerService', () => {
         },
       ]);
 
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockImplementation(
-        (relativePath: string) =>
-          Promise.resolve({
-            filePath: relativePath,
-            ignored: relativePath.includes('node_modules'),
-          }),
+      // Compiled once per walk (fix-10); the predicate runs per file.
+      ignoreResolver.compileMatcher.mockReturnValue((relativePath: string) =>
+        relativePath.includes('node_modules'),
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -1089,6 +1078,200 @@ describe('WorkspaceIndexerService', () => {
       const count = await service.getFileCount();
 
       expect(count).toBe(0);
+    });
+  });
+
+  /**
+   * fix-10 — the startup symbol index drives `indexWorkspaceStream`. It used to
+   * await `isIgnored` per file, which (with 138 patterns against a 100-entry
+   * matcher LRU) recompiled every pattern for every file and never handed the
+   * loop back across a run of ignored paths: the 1.4-6 s max lags of fix-9.
+   */
+  describe('indexWorkspaceStream — compiled filter and cooperative walk', () => {
+    const GITIGNORE = [
+      'node_modules',
+      'dist/',
+      '*.log',
+      '!keep.log',
+      'tmp/**',
+      '!tmp/keep/**',
+      '# comment',
+      'coverage',
+    ].join('\n');
+    const PRETTIERIGNORE = ['*.md', '!README.md'].join('\n');
+    const RELATIVE_PATHS = [
+      'src/app.ts',
+      'node_modules/pkg/index.js',
+      'dist/bundle.js',
+      'logs/server.log',
+      'logs/keep.log',
+      'tmp/cache/a.json',
+      'tmp/keep/b.json',
+      'docs/guide.md',
+      'README.md',
+      'coverage/lcov.info',
+      'src/nested/deep/util.ts',
+    ];
+
+    /** Real resolver + matcher; the ignore files come from mocked reads. */
+    async function realIgnoreSetup(): Promise<{
+      resolver: IgnorePatternResolverService;
+      ignoreFiles: Awaited<
+        ReturnType<IgnorePatternResolverService['parseWorkspaceIgnoreFiles']>
+      >;
+    }> {
+      fileSystemService.readFile.mockImplementation((filePath: string) =>
+        Promise.resolve(
+          filePath.endsWith('.gitignore') ? GITIGNORE : PRETTIERIGNORE,
+        ),
+      );
+      const resolver = new IgnorePatternResolverService(
+        fileSystemService,
+        new PatternMatcherService(),
+      );
+      const ignoreFiles = [
+        await resolver.parseIgnoreFile('/workspace/.gitignore'),
+        await resolver.parseIgnoreFile('/workspace/.prettierignore'),
+      ];
+      return { resolver, ignoreFiles };
+    }
+
+    function streamService(
+      resolver: IgnorePatternResolverService,
+    ): WorkspaceIndexerService {
+      return new WorkspaceIndexerService(
+        fileSystemService,
+        new PatternMatcherService(),
+        resolver,
+        fileClassifier,
+        tokenCounter,
+        mockFsProvider,
+        logger,
+      );
+    }
+
+    async function collectRelative(
+      indexer: WorkspaceIndexerService,
+    ): Promise<string[]> {
+      const out: string[] = [];
+      for await (const file of indexer.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
+        out.push(file.relativePath.replace(/\\/g, '/'));
+      }
+      return out;
+    }
+
+    beforeEach(() => {
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 10,
+      });
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+    });
+
+    it('compiles the ignore predicate once per stream and never calls isIgnored', async () => {
+      const { resolver, ignoreFiles } = await realIgnoreSetup();
+      jest
+        .spyOn(resolver, 'parseWorkspaceIgnoreFiles')
+        .mockResolvedValue(ignoreFiles);
+      const compileSpy = jest.spyOn(resolver, 'compileMatcher');
+      const isIgnoredSpy = jest.spyOn(resolver, 'isIgnored');
+      mockFsProvider.findFiles.mockResolvedValue(
+        RELATIVE_PATHS.map((p) => `${WORKSPACE_ROOT}/${p}`),
+      );
+
+      await collectRelative(streamService(resolver));
+
+      expect(compileSpy).toHaveBeenCalledTimes(1);
+      expect(isIgnoredSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps exactly the files the per-file isIgnored reference keeps (ignore + negation)', async () => {
+      const { resolver, ignoreFiles } = await realIgnoreSetup();
+      jest
+        .spyOn(resolver, 'parseWorkspaceIgnoreFiles')
+        .mockResolvedValue(ignoreFiles);
+      mockFsProvider.findFiles.mockResolvedValue(
+        RELATIVE_PATHS.map((p) => `${WORKSPACE_ROOT}/${p}`),
+      );
+
+      const kept = await collectRelative(streamService(resolver));
+
+      // The pre-fix decision, computed path by path with the reference API.
+      const reference: string[] = [];
+      for (const relativePath of RELATIVE_PATHS) {
+        const result = await resolver.isIgnored(relativePath, ignoreFiles);
+        if (!result.ignored) reference.push(relativePath);
+      }
+      expect(kept).toEqual(reference);
+      // Sanity: the fixture really exercises ignores AND negations, so the
+      // parity above is not two empty (or two complete) lists agreeing.
+      expect(kept).toEqual(
+        expect.arrayContaining(['tmp/keep/b.json', 'README.md', 'src/app.ts']),
+      );
+      expect(kept).not.toContain('docs/guide.md');
+      expect(kept).not.toContain('tmp/cache/a.json');
+      expect(kept).not.toContain('dist/bundle.js');
+    });
+
+    it('yields to the event loop during a long run of ignored paths', async () => {
+      const { resolver, ignoreFiles } = await realIgnoreSetup();
+      jest
+        .spyOn(resolver, 'parseWorkspaceIgnoreFiles')
+        .mockResolvedValue(ignoreFiles);
+      // 5,000 ignored paths and one kept: no stat between them, so without a
+      // budgeted yield the whole run is one synchronous slice.
+      const paths = Array.from(
+        { length: 5000 },
+        (_, i) => `${WORKSPACE_ROOT}/tmp/cache/f${i}.json`,
+      );
+      paths.push(`${WORKSPACE_ROOT}/src/app.ts`);
+      mockFsProvider.findFiles.mockResolvedValue(paths);
+      // A deterministic clock that only the ignore filter advances (1 ms per
+      // path), so the 16 ms budget can only expire inside the filtered walk.
+      let clock = 0;
+      const nowSpy = jest
+        .spyOn(performance, 'now')
+        .mockImplementation(() => clock);
+      jest
+        .spyOn(resolver, 'compileMatcher')
+        .mockImplementation((files, root) => {
+          const real =
+            IgnorePatternResolverService.prototype.compileMatcher.call(
+              resolver,
+              files,
+              root,
+            );
+          return (relativePath: string) => {
+            clock += 1;
+            return real(relativePath);
+          };
+        });
+      let immediateFired = false;
+      setImmediate(() => {
+        immediateFired = true;
+      });
+      try {
+        const indexer = streamService(resolver);
+        const stream = indexer.indexWorkspaceStream({
+          workspaceFolder: WORKSPACE_ROOT,
+        });
+        const first = await stream.next();
+        // The walk reached the one kept file only after the loop ran a
+        // macrotask (our setImmediate) in the middle of the ignored run.
+        expect(first.done).toBe(false);
+        expect(immediateFired).toBe(true);
+        await stream.return(undefined);
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 

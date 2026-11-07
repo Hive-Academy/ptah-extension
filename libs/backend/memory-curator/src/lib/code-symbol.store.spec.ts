@@ -9,6 +9,7 @@ import {
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { CodeSymbolStore, type CodeSymbolInsert } from './code-symbol.store';
+import { MAX_SYMBOL_ROWS_PER_TRANSACTION } from './code-symbol-file-writer';
 
 function makeTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-code-symbol-test-'));
@@ -593,30 +594,42 @@ describe('CodeSymbolStore (native-gated)', () => {
     }
   });
 
-  maybe('scoped semantic search reaches a match beyond 100 other workspaces', async () => {
-    const { service, store } = await bootstrap();
-    try {
-      const others = Array.from({ length: 101 }, (_, i) => makeEntry({
-        workspaceRoot: '/ws/other',
-        filePath: `/ws/other/src/${i}.ts`,
-        symbolName: `other${i}`,
-        subject: `code:/ws/other/src/${i}.ts#other${i}`,
-        text: 'unrelated symbol',
-      }));
-      await store.insertBatch([...others, makeEntry({
-        workspaceRoot: '/ws/target',
-        filePath: '/ws/target/src/target.ts',
-        symbolName: 'target',
-        subject: 'code:/ws/target/src/target.ts#target',
-        text: 'unrelated symbol',
-      })]);
-      const page = await store.searchSymbols('semantic only', 5, '/ws/target');
-      expect(page.bm25Only).toBe(false);
-      expect(page.hits.map((hit) => hit.symbolName)).toContain('target');
-    } finally {
-      service.close();
-    }
-  });
+  maybe(
+    'scoped semantic search reaches a match beyond 100 other workspaces',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const others = Array.from({ length: 101 }, (_, i) =>
+          makeEntry({
+            workspaceRoot: '/ws/other',
+            filePath: `/ws/other/src/${i}.ts`,
+            symbolName: `other${i}`,
+            subject: `code:/ws/other/src/${i}.ts#other${i}`,
+            text: 'unrelated symbol',
+          }),
+        );
+        await store.insertBatch([
+          ...others,
+          makeEntry({
+            workspaceRoot: '/ws/target',
+            filePath: '/ws/target/src/target.ts',
+            symbolName: 'target',
+            subject: 'code:/ws/target/src/target.ts#target',
+            text: 'unrelated symbol',
+          }),
+        ]);
+        const page = await store.searchSymbols(
+          'semantic only',
+          5,
+          '/ws/target',
+        );
+        expect(page.bm25Only).toBe(false);
+        expect(page.hits.map((hit) => hit.symbolName)).toContain('target');
+      } finally {
+        service.close();
+      }
+    },
+  );
 
   maybe(
     'searchSymbols falls back to BM25-only when vec is unavailable',
@@ -1563,6 +1576,66 @@ describe('CodeSymbolStore (native-gated)', () => {
               .get() as { n: number }
           ).n,
         ).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'replaceFileSymbols: a file larger than one transaction stores every symbol, FTS and vector row (fix-10)',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const count = MAX_SYMBOL_ROWS_PER_TRANSACTION * 2 + 7;
+        const entries = Array.from({ length: count }, (_, i) =>
+          makeEntry({
+            symbolName: `fn${i}`,
+            subject: `code:/test/ws/src/a.ts#fn${i}`,
+            text: `function fn${i}() { return ${i}; }`,
+          }),
+        );
+        // A previous version of the file, replaced as a whole.
+        await store.replaceFileSymbols('/test/ws', '/test/ws/src/a.ts', [
+          makeEntry({
+            symbolName: 'old',
+            subject: 'code:/test/ws/src/a.ts#old',
+          }),
+        ]);
+        await store.replaceFileSymbols(
+          '/test/ws',
+          '/test/ws/src/a.ts',
+          entries,
+        );
+
+        const stored = service.db
+          .prepare(
+            'SELECT symbol_name AS name, subject, text, kind, token_count AS tokens FROM code_symbols ORDER BY rowid',
+          )
+          .all() as Array<{
+          name: string;
+          subject: string;
+          text: string;
+          kind: string;
+          tokens: number;
+        }>;
+        expect(stored).toEqual(
+          entries.map((e) => ({
+            name: e.symbolName,
+            subject: e.subject,
+            text: e.text,
+            kind: e.kind,
+            tokens: e.tokenCount,
+          })),
+        );
+        const countOf = (table: string): number =>
+          (
+            service.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+              n: number;
+            }
+          ).n;
+        expect(countOf('code_symbols_fts')).toBe(count);
+        expect(countOf('code_symbols_vec')).toBe(count);
       } finally {
         service.close();
       }

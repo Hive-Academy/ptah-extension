@@ -341,13 +341,51 @@ describe('PatternMatcherService', () => {
     });
 
     it('should limit cache size with LRU eviction', () => {
-      // Create 150 different patterns (cache max is 100)
-      for (let i = 0; i < 150; i++) {
+      // Create 1500 different patterns (cache max is 1000)
+      for (let i = 0; i < 1500; i++) {
         service.isMatch(`file${i}.ts`, `**/${i}.ts`);
       }
 
       const stats = service.getCacheStats();
-      expect(stats.patternCacheSize).toBeLessThanOrEqual(100);
+      expect(stats.patternCacheSize).toBeLessThanOrEqual(1000);
+    });
+
+    /**
+     * fix-10 regression: `isIgnored` scans the whole ignore set per path in a
+     * fixed order. With 138 patterns and a 100-entry LRU every lookup missed,
+     * so every file recompiled every pattern on the startup index.
+     */
+    it('compiles each pattern once under a cyclic scan of 138 patterns', () => {
+      const patterns = Array.from({ length: 138 }, (_, i) => `dir${i}/**`);
+      for (let file = 0; file < 5; file++) {
+        for (const pattern of patterns) {
+          service.isMatch(`src/file${file}.ts`, pattern);
+        }
+      }
+      // Every pattern still resident: the next path's scan hits all 138.
+      expect(service.getCacheStats().patternCacheSize).toBe(138);
+    });
+  });
+
+  describe('compilePatternSet', () => {
+    const paths = [
+      'src/app.ts',
+      'src/app.spec.ts',
+      'node_modules/pkg/index.js',
+      'src\\win\\path.ts',
+      'README.md',
+    ];
+    it.each([
+      [['**/*.ts', '!**/*.spec.ts', '!node_modules/**']],
+      [['!**/*.md']],
+      [[]],
+      [['**/*.js']],
+    ])('agrees with matchFiles for %j', (patterns) => {
+      const predicate = service.compilePatternSet(patterns);
+      const reference = service.matchFiles(paths, patterns);
+      expect(paths.map((p) => predicate(p))).toEqual(
+        reference.map((r) => r.matched),
+      );
     });
   });
 

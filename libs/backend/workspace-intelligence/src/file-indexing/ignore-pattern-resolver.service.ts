@@ -291,7 +291,8 @@ export class IgnorePatternResolverService {
    *    evicts before it can ever hit.
    *
    * This exists for the BULK path (`WorkspaceIndexerService.discoverWorkspacePaths`
-   * filtering 15k paths on the Electron main loop, TASK_2026_344). `isIgnored`
+   * filtering 15k paths on the Electron main loop, TASK_2026_344; since fix-10
+   * also `indexWorkspace`/`indexWorkspaceStream` and `ContextService`). `isIgnored`
    * stays the API for one-off checks — a single watcher event pays none of the
    * costs above — and remains the reference semantics this must reproduce; the
    * table test in `ignore-pattern-resolver.service.spec.ts` compares the two

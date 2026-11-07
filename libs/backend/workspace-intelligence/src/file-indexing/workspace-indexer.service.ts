@@ -21,6 +21,7 @@ import {
   type ParsedIgnoreFile,
 } from './ignore-pattern-resolver.service';
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
+import { WalkSlice, yieldToEventLoop } from './cooperative-yield';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
 
@@ -130,18 +131,6 @@ function isUnreadableEntryError(error: unknown): boolean {
 export const DISCOVERY_BATCH_SIZE = 500;
 
 /**
- * Hand the event loop a turn.
- *
- * `setImmediate` rather than `Promise.resolve()`: a resolved promise is a
- * MICROtask, so awaiting it drains back into the same loop turn and starves
- * timers, I/O callbacks and IPC exactly as the uninterrupted loop did. Same
- * reasoning, same idiom as `CodeSymbolIndexer`.
- */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-/**
  * Workspace indexing options
  */
 export interface WorkspaceIndexOptions {
@@ -222,6 +211,34 @@ export class WorkspaceIndexerService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
   ) {}
+
+  /**
+   * One walk's "skip this path?" predicate, compiled ONCE before the walk.
+   *
+   * Same decision the walks used to make per file with
+   * `ignoreResolver.isIgnored(relativePath, ignoreFiles)` (no workspace root,
+   * so paths are matched as given) and
+   * `patternMatcher.matchFiles([relativePath], excludePatterns)[0].matched`.
+   * Calling those per file rebuilt a cache key per (path, pattern) pair and, on
+   * an ignore set larger than the matcher LRU, recompiled every pattern for
+   * every file: the top frame of both fix-9 max-lag profiles.
+   */
+  private compilePathFilter(
+    ignoreFiles: ParsedIgnoreFile[],
+    excludePatterns: readonly string[] | undefined,
+  ): (relativePath: string) => boolean {
+    const isIgnored =
+      ignoreFiles.length > 0
+        ? this.ignoreResolver.compileMatcher(ignoreFiles)
+        : null;
+    const isExcluded =
+      excludePatterns && excludePatterns.length > 0
+        ? this.patternMatcher.compilePatternSet(excludePatterns)
+        : null;
+    return (relativePath: string): boolean =>
+      (isIgnored !== null && isIgnored(relativePath)) ||
+      (isExcluded !== null && isExcluded(relativePath));
+  }
 
   /**
    * `stat` one discovered entry, yielding `null` instead of throwing when that
@@ -312,29 +329,17 @@ export class WorkspaceIndexerService {
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
     let skippedEntries = 0;
+    const isSkipped = this.compilePathFilter(
+      respectIgnoreFiles ? parsedIgnoreFiles : [],
+      options.excludePatterns,
+    );
+    const slice = new WalkSlice();
 
     for (const filePath of allFiles) {
+      if (slice.expired()) await slice.yield();
       const relativePath = path.relative(workspaceFolder, filePath);
-      if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
-        const ignoreResult = await this.ignoreResolver.isIgnored(
-          relativePath,
-          parsedIgnoreFiles,
-        );
-        if (ignoreResult.ignored) {
-          continue; // Skip ignored files
-        }
-      }
-      if (options.excludePatterns && options.excludePatterns.length > 0) {
-        const excluded = this.patternMatcher.matchFiles(
-          [relativePath],
-          options.excludePatterns,
-        );
-        // `matchFiles` returns one result per INPUT path, so its length is 1
-        // for this single-path call whether or not the path matched. Read the
-        // per-file `matched` flag; the length says only that we asked.
-        if (excluded && excluded[0]?.matched) {
-          continue; // Skip excluded files
-        }
+      if (isSkipped(relativePath)) {
+        continue;
       }
       const stat = await this.statOrNull(filePath);
       if (!stat) {
@@ -429,27 +434,17 @@ export class WorkspaceIndexerService {
     // the workspace root changes mid-stream, which closes the generator without
     // running the loop to completion. The summary must still be emitted for the
     // work that did happen.
+    const isSkipped = this.compilePathFilter(
+      respectIgnoreFiles ? parsedIgnoreFiles : [],
+      options.excludePatterns,
+    );
+    const slice = new WalkSlice();
     try {
       for (const filePath of allFiles) {
+        if (slice.expired()) await slice.yield();
         const relativePath = path.relative(workspaceFolder, filePath);
-        if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
-          const ignoreResult = await this.ignoreResolver.isIgnored(
-            relativePath,
-            parsedIgnoreFiles,
-          );
-          if (ignoreResult.ignored) {
-            continue;
-          }
-        }
-        if (options.excludePatterns && options.excludePatterns.length > 0) {
-          const excluded = this.patternMatcher.matchFiles(
-            [relativePath],
-            options.excludePatterns,
-          );
-          // One result per INPUT path — see `indexWorkspace` above.
-          if (excluded && excluded[0]?.matched) {
-            continue;
-          }
+        if (isSkipped(relativePath)) {
+          continue;
         }
         const stat = await this.statOrNull(filePath);
         if (!stat) {
@@ -509,8 +504,9 @@ export class WorkspaceIndexerService {
    *    monopolise the loop the way one uninterrupted `for` over 15k paths does.
    *    Same idiom as `CodeSymbolIndexer`'s `yieldToEventLoop`.
    *
-   * {@link indexWorkspaceStream} is deliberately left alone: its other consumers
-   * want the stat + classification it pays for.
+   * {@link indexWorkspaceStream} keeps the stat + classification its other
+   * consumers want; since fix-10 it shares the compiled predicate
+   * (`compilePathFilter`) and yields by time budget (`WalkSlice`).
    *
    * Pass `ignoreFiles` when the caller has already parsed them (the file index
    * has — it keeps them for its watcher re-checks) to avoid a second read of
@@ -680,7 +676,9 @@ export class WorkspaceIndexerService {
     // once. Walking up stops at the first directory already seen, so a file
     // costs one lookup beyond its first new ancestor.
     const directories = new Set<string>();
+    const slice = new WalkSlice();
     for (const file of files) {
+      if (slice.expired()) await slice.yield();
       const relative = path.relative(workspaceFolder, file);
       if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
       const segments = relative.split(/[\\/]/).filter((s) => s.length > 0);

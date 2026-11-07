@@ -20,10 +20,20 @@ import {
 import { buildFtsQueryPlan, executeFtsQueryPlan } from './fts-query.util';
 import { SearchFlight } from './search-flight';
 import { scopedVectorCandidates } from './scoped-vector-search';
-import { BudgetExceededError, remainingMs, withinBudget } from './search-deadline';
+import {
+  BudgetExceededError,
+  remainingMs,
+  withinBudget,
+} from './search-deadline';
 import { HostBridgeEmbedder } from './search-worker-host-embedder';
 import { MEMORY_TOKENS } from './di/tokens';
 import type { ISqliteSearchWorker } from './search-worker.port';
+import {
+  FileSymbolWriter,
+  MAX_SYMBOL_ROWS_PER_TRANSACTION,
+  symbolWriteChunks,
+} from './code-symbol-file-writer';
+import { KeyedSerialQueue } from './keyed-serial-queue';
 
 export interface CodeSymbolInsert {
   readonly workspaceRoot: string;
@@ -148,6 +158,11 @@ const PURGE_MISSING_BATCH = 200;
  */
 const VEC_STALE_FINGERPRINT = 'code-symbols-vec-stale';
 
+/** One macrotask turn: lets IPC, timers and I/O run between transactions. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 function normalizeStoredPath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
@@ -162,9 +177,13 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   private readOnlySearch = false;
 
   /** Worker searches must never run the main connection's vector repair writes. */
-  enableReadOnlySearch(): void { this.readOnlySearch = true; }
+  enableReadOnlySearch(): void {
+    this.readOnlySearch = true;
+  }
   private readonly searchFlight = new SearchFlight<CodeSymbolHitPage>();
   private revision = 0;
+  /** Serialises `replaceFileSymbols` per file; see that method. */
+  private readonly fileWrites = new KeyedSerialQueue();
   private embedderWarnedOnce = false;
   /**
    * Set after orphan `code_symbols_vec` rows have been removed for the
@@ -211,9 +230,11 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       return false;
     }
     if (this.readOnlySearch) {
-      const stale = this.connection.db.prepare(
-        `SELECT 1 AS present FROM indexing_state WHERE workspace_fingerprint = ?`,
-      ).get(VEC_STALE_FINGERPRINT);
+      const stale = this.connection.db
+        .prepare(
+          `SELECT 1 AS present FROM indexing_state WHERE workspace_fingerprint = ?`,
+        )
+        .get(VEC_STALE_FINGERPRINT);
       return !stale;
     }
     if (this.vecOrphansReconciled) return true;
@@ -308,12 +329,31 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   }
 
   /**
-   * Delete every symbol row for `filePath` and insert `rows` in one
-   * transaction. A failed insert leaves the previous rows (and their FTS
-   * and vector rows) in place. FTS follows the `code_symbols` triggers;
-   * vector rows are deleted by rowid before the symbol rows.
+   * Delete every symbol row for `filePath` and insert `rows`. FTS follows the
+   * `code_symbols` triggers; vector rows are deleted by rowid before the
+   * symbol rows.
+   *
+   * Up to {@link MAX_SYMBOL_ROWS_PER_TRANSACTION} rows this is ONE
+   * transaction, and a failed insert leaves the previous rows (and their FTS
+   * and vector rows) in place. A larger file is written in bounded
+   * transactions with an event-loop turn between them, so one huge file does
+   * not block the host's main loop for the whole write. The stored result of
+   * a successful write is the same. If a LATER chunk fails, the file's
+   * partial rows are removed before the error is rethrown: the file then has
+   * no rows (the next index run rewrites it) rather than a mix of old and new.
+   * Writes of the same file are serialised, so chunks never interleave.
    */
   async replaceFileSymbols(
+    workspaceRoot: string,
+    filePath: string,
+    rows: readonly CodeSymbolInsert[],
+  ): Promise<void> {
+    await this.fileWrites.run(`${workspaceRoot}\u0000${filePath}`, () =>
+      this.writeFileSymbols(workspaceRoot, filePath, rows),
+    );
+  }
+
+  private async writeFileSymbols(
     workspaceRoot: string,
     filePath: string,
     rows: readonly CodeSymbolInsert[],
@@ -326,93 +366,59 @@ export class CodeSymbolStore implements ICodeSymbolReader {
         : [];
 
     const db = this.connection.db;
-    const selectRowidsStmt = vecAvailable
-      ? db.prepare(
-          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
-        )
-      : null;
-    const deleteVecStmt = vecAvailable
-      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
-      : null;
-    const deleteSymbolsStmt = db.prepare(
-      `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
-    );
-    const upsertStmt = db.prepare(
-      `INSERT INTO code_symbols (id, workspace_root, file_path, kind, symbol_name, subject, text, token_count, created_at, updated_at)
-       VALUES (@id, @workspace_root, @file_path, @kind, @symbol_name, @subject, @text, @token_count, @created_at, @updated_at)
-       ON CONFLICT(workspace_root, subject) DO UPDATE SET
-         file_path = excluded.file_path,
-         kind = excluded.kind,
-         symbol_name = excluded.symbol_name,
-         text = excluded.text,
-         token_count = excluded.token_count,
-         updated_at = excluded.updated_at`,
-    );
-    const fetchRowidStmt = db.prepare(
-      `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND subject = ?`,
-    );
-    const insertVecStmt = vecAvailable
-      ? db.prepare(
-          `INSERT INTO code_symbols_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
-        )
-      : null;
+    const writer = new FileSymbolWriter(db, {
+      workspaceRoot,
+      filePath,
+      now,
+      vecAvailable,
+      embeddings,
+      embedderDim: this.embedder.dim,
+      markVecStale: () => this.markVecStale(),
+    });
+    const chunks = symbolWriteChunks(rows.length);
+    for (let index = 0; index < chunks.length; index++) {
+      if (index > 0) await yieldToEventLoop();
+      const { start, end } = chunks[index];
+      try {
+        db.transaction(() =>
+          writer.writeChunk(rows, start, end, index === 0),
+        )();
+        this.revision++;
+      } catch (err: unknown) {
+        this.connection.handleFatalWriteError(err);
+        if (index > 0) this.discardPartialFile(db, writer, filePath, err);
+        throw err;
+      }
+    }
+  }
 
-    type Payload = { readonly entries: readonly CodeSymbolInsert[] };
-    const txnFn = ((payload: Payload): void => {
-      if (selectRowidsStmt && deleteVecStmt) {
-        const oldRows = selectRowidsStmt.all(workspaceRoot, filePath) as Array<{
-          rowid: number;
-        }>;
-        for (const old of oldRows) {
-          deleteVecStmt.run(old.rowid);
-        }
-      }
-      const removed = deleteSymbolsStmt.run(workspaceRoot, filePath);
-      if (
-        !vecAvailable &&
-        (removed.changes > 0 || payload.entries.length > 0)
-      ) {
-        this.markVecStale();
-      }
-      for (let i = 0; i < payload.entries.length; i++) {
-        const e = payload.entries[i];
-        upsertStmt.run({
-          id: ulid(),
-          workspace_root: e.workspaceRoot,
-          file_path: e.filePath,
-          kind: e.kind,
-          symbol_name: e.symbolName,
-          subject: e.subject,
-          text: e.text,
-          token_count: e.tokenCount,
-          created_at: now,
-          updated_at: now,
-        });
-        if (insertVecStmt && deleteVecStmt) {
-          const vec = embeddings[i];
-          if (vec && vec.length === this.embedder.dim) {
-            const row = fetchRowidStmt.get(e.workspaceRoot, e.subject) as
-              { rowid: number } | undefined;
-            if (row) {
-              // Drop a stale embedding if this rowid was reused while vec
-              // was down (implicit rowid, no AUTOINCREMENT).
-              deleteVecStmt.run(row.rowid);
-              insertVecStmt.run(
-                row.rowid,
-                Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
-              );
-            }
-          }
-        }
-      }
-    }) as unknown as (...args: unknown[]) => unknown;
-    const txn = db.transaction(txnFn) as unknown as (p: Payload) => void;
+  /**
+   * After a later chunk of a multi-transaction replace failed: remove the
+   * rows the earlier chunks committed. A failure here is logged with both
+   * errors; the caller still rethrows the original one.
+   */
+  private discardPartialFile(
+    db: SqliteDatabase,
+    writer: FileSymbolWriter,
+    filePath: string,
+    cause: unknown,
+  ): void {
     try {
-      txn({ entries: rows });
+      db.transaction(() => {
+        writer.clearFile();
+      })();
       this.revision++;
-    } catch (err: unknown) {
-      this.connection.handleFatalWriteError(err);
-      throw err;
+    } catch (cleanupErr: unknown) {
+      this.connection.handleFatalWriteError(cleanupErr);
+      this.logger.error(
+        cleanupErr instanceof Error ? cleanupErr : String(cleanupErr),
+        {
+          context:
+            '[code-symbol-store] could not remove a partial symbol write; the file keeps some new rows until it is indexed again',
+          filePath,
+          cause: cause instanceof Error ? cause.message : String(cause),
+        },
+      );
     }
   }
 
@@ -692,10 +698,14 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const countRow = db.prepare(countSql).get(...values) as
       { n: number } | undefined;
     const countMs = performance.now() - countStarted;
-    if (countMs > 250) this.logger.warn('[code-symbols] slow search statement', {
-      statement: 'count', durationMs: countMs, scoped: Boolean(wsClause.sql),
-      substring: trimmedQuery.length > 0, kindCount: params.kinds?.length ?? 0,
-    });
+    if (countMs > 250)
+      this.logger.warn('[code-symbols] slow search statement', {
+        statement: 'count',
+        durationMs: countMs,
+        scoped: Boolean(wsClause.sql),
+        substring: trimmedQuery.length > 0,
+        kindCount: params.kinds?.length ?? 0,
+      });
     const total = countRow?.n ?? 0;
 
     const rowsSql = `SELECT id, workspace_root, file_path, kind, symbol_name, subject, token_count, updated_at
@@ -708,11 +718,16 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       .prepare(rowsSql)
       .all(...values, limit, offset) as CodeSymbolRow[];
     const pageMs = performance.now() - pageStarted;
-    if (pageMs > 250) this.logger.warn('[code-symbols] slow search statement', {
-      statement: 'page', durationMs: pageMs, scoped: Boolean(wsClause.sql),
-      substring: trimmedQuery.length > 0, kindCount: params.kinds?.length ?? 0,
-      limit, offset,
-    });
+    if (pageMs > 250)
+      this.logger.warn('[code-symbols] slow search statement', {
+        statement: 'page',
+        durationMs: pageMs,
+        scoped: Boolean(wsClause.sql),
+        substring: trimmedQuery.length > 0,
+        kindCount: params.kinds?.length ?? 0,
+        limit,
+        offset,
+      });
 
     const items: CodeSymbolListEntry[] = rows.map((r) => ({
       id: r.id,
@@ -728,12 +743,20 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     return { items, total };
   }
 
-  searchAsync(params: CodeSymbolSearchParams, deadlineMs?: number): Promise<CodeSymbolSearchResult> {
-    if (this.searchWorker) return this.searchWorker.searchSymbolPage(params, deadlineMs);
+  searchAsync(
+    params: CodeSymbolSearchParams,
+    deadlineMs?: number,
+  ): Promise<CodeSymbolSearchResult> {
+    if (this.searchWorker)
+      return this.searchWorker.searchSymbolPage(params, deadlineMs);
     // Synchronous in-process SQL cannot be pre-empted by a JS timer.
     return new Promise((resolve, reject) => {
       setImmediate(() => {
-        try { resolve(this.search(params)); } catch (error: unknown) { reject(error); }
+        try {
+          resolve(this.search(params));
+        } catch (error: unknown) {
+          reject(error);
+        }
       });
     });
   }
@@ -753,13 +776,21 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     workspaceRoot?: string,
     deadlineMs?: number,
   ): Promise<CodeSymbolHitPage> {
-    if (this.searchWorker) return this.searchWorker.searchSymbols(query, topK, workspaceRoot);
-    const changes = this.connection.db.prepare('SELECT total_changes() AS n').get() as { n: number };
+    if (this.searchWorker)
+      return this.searchWorker.searchSymbols(query, topK, workspaceRoot);
+    const changes = this.connection.db
+      .prepare('SELECT total_changes() AS n')
+      .get() as { n: number };
     const key = JSON.stringify([query.trim(), topK, workspaceRoot, changes.n]);
-    const search = () => this.searchSymbolsInner(query, topK, workspaceRoot, deadlineMs);
+    const search = () =>
+      this.searchSymbolsInner(query, topK, workspaceRoot, deadlineMs);
     if (deadlineMs === undefined) return this.searchFlight.run(key, search);
     // Deadline-bound (the search worker): see MemorySearchService.searchRich.
-    return this.searchFlight.run(`${key}|${Math.floor(deadlineMs / 1_000)}`, search, { serialize: false });
+    return this.searchFlight.run(
+      `${key}|${Math.floor(deadlineMs / 1_000)}`,
+      search,
+      { serialize: false },
+    );
   }
 
   getRevision(): number {
@@ -954,7 +985,11 @@ export class CodeSymbolStore implements ICodeSymbolReader {
         .prepare(sql)
         .all(...params) as CodeSymbolHitRow[];
       const elapsedMs = Math.round(performance.now() - startedAt);
-      if (elapsedMs > 200) this.logger.warn('[code-symbol-store] slow query', { statement: 'code_symbols_fts.bm25', elapsedMs });
+      if (elapsedMs > 200)
+        this.logger.warn('[code-symbol-store] slow query', {
+          statement: 'code_symbols_fts.bm25',
+          elapsedMs,
+        });
       return rows;
     };
     try {
@@ -978,23 +1013,34 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       : this.embedder.embed([query]));
     if (!vec || vec.length !== this.embedder.dim) return [];
     // The caller stopped waiting: skip the synchronous KNN it no longer needs.
-    if (remainingMs(deadlineMs) <= 0) throw new BudgetExceededError('symbol vector search', 0);
+    if (remainingMs(deadlineMs) <= 0)
+      throw new BudgetExceededError('symbol vector search', 0);
     const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
     const startedAt = performance.now();
     const distRows = workspaceRoot
       ? scopedVectorCandidates(
-          this.connection, 'code_symbols_vec', buf, limit,
+          this.connection,
+          'code_symbols_vec',
+          buf,
+          limit,
           'JOIN code_symbols cs ON cs.rowid = candidates.rowid',
-          'cs.workspace_root = ?', [workspaceRoot], this.logger,
+          'cs.workspace_root = ?',
+          [workspaceRoot],
+          this.logger,
         )
-      : this.connection.db.prepare(`
+      : (this.connection.db
+          .prepare(
+            `
           SELECT rowid AS rowid, distance AS distance FROM code_symbols_vec
           WHERE embedding MATCH ? ORDER BY distance ASC LIMIT ?
-        `).all(buf, Math.min(limit, 100)) as CodeVecRow[];
+        `,
+          )
+          .all(buf, Math.min(limit, 100)) as CodeVecRow[]);
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (elapsedMs > 200) {
       this.logger.warn('[code-symbol-store] slow query', {
-        statement: 'code_symbols_vec.knn', elapsedMs,
+        statement: 'code_symbols_vec.knn',
+        elapsedMs,
       });
     }
     if (distRows.length === 0) return [];

@@ -821,18 +821,13 @@ export class ContextService {
   ): Promise<string[]> {
     const ignoreFiles = await this.getCachedIgnoreFiles(workspaceRoot);
     if (ignoreFiles.length === 0) return paths;
-    const relativePaths = paths.map((p) => path.relative(workspaceRoot, p));
-    const survivors: string[] = [];
-    for (let i = 0; i < paths.length; i++) {
-      const result = await this.ignoreResolver.isIgnored(
-        relativePaths[i],
-        ignoreFiles,
-        workspaceRoot,
-      );
-      if (!result.ignored) {
-        survivors.push(paths[i]);
-      }
-    }
-    return survivors;
+    // Compiled once for the whole list: same decision as a per-path
+    // `isIgnored(relative, ignoreFiles, workspaceRoot)`, without its per-call
+    // cache-key building (fix-10).
+    const isIgnored = this.ignoreResolver.compileMatcher(
+      ignoreFiles,
+      workspaceRoot,
+    );
+    return paths.filter((p) => !isIgnored(path.relative(workspaceRoot, p)));
   }
 }
