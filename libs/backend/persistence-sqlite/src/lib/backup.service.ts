@@ -356,6 +356,8 @@ export class SqliteBackupService implements IBackupService {
       await this.rotate('daily', KEEP_BY_KIND.daily);
       return dest;
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged at warn; a missed
+      // resume is retried by the next scheduled daily backup.
       this.logger.warn('[persistence-sqlite] daily backup resume failed (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -398,6 +400,8 @@ export class SqliteBackupService implements IBackupService {
       const stat = await fs.promises.stat(`${this.dbPath}-wal`);
       return Date.now() - stat.mtimeMs < DAILY_BACKUP_WRITE_QUIET_MS;
     } catch (error: unknown) {
+      // degradation-audit: reported - a missing WAL means no recent writes; any
+      // other stat failure is logged at warn and the backup proceeds.
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
       this.logger.warn('[persistence-sqlite] WAL write recency check failed; proceeding with daily backup', {
         error: error instanceof Error ? error.message : String(error),

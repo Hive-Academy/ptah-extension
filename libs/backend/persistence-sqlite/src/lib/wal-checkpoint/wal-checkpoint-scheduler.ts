@@ -297,6 +297,8 @@ export class WalCheckpointScheduler implements ISqliteExclusiveAccess {
       this.connection.noteWalBytes(wal.bytes);
       return wal;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug; an unmeasured WAL still
+      // gets the interval-based checkpoint, so nothing is skipped.
       this.logger.debug('[persistence-sqlite] WAL size read failed', {
         error: toError(error).message,
       });
@@ -357,6 +359,8 @@ export class WalCheckpointScheduler implements ISqliteExclusiveAccess {
     try {
       result = await client.checkpoint(dbPath);
     } catch (error: unknown) {
+      // degradation-audit: reported - onFailure logs it at warn, counts it and
+      // restores SQLite auto-checkpoint after repeated failures.
       this.onFailure(error);
       return;
     }

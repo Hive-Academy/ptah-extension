@@ -353,13 +353,15 @@ describe('CodexAppServerLaneAdapter', () => {
         }),
     );
     const pending = h.adapter.runSdk(options());
-    for (
-      let tick = 0;
-      tick < 100 && jest.mocked(h.runtime.open).mock.calls.length === 0;
-      tick += 1
+    // Bounded by time, not by a count of loop turns: the setup before the
+    // preflight and the runtime start takes more turns on a loaded CI host.
+    const giveUpAt = Date.now() + 5_000;
+    while (
+      (h.preflight.check.mock.calls.length === 0 ||
+        jest.mocked(h.runtime.open).mock.calls.length === 0) &&
+      Date.now() < giveUpAt
     )
-      await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 5));
     expect(h.preflight.check).toHaveBeenCalledWith(
       '/work',
       'danger-full-access',
