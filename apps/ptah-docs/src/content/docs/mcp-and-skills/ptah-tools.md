@@ -1,175 +1,73 @@
 ---
 title: Ptah Tools
-description: Catalog of ptah_* tools exposed by the built-in MCP server.
+description: The groups of ptah_* tools that the built-in MCP server gives to agents.
 ---
 
-The built-in MCP server exposes a curated family of `ptah_*` tools. This page is the quick-reference catalog — grouped by purpose, with the "when to use" for each.
+The [built-in MCP server](/mcp-and-skills/built-in-mcp-server/) gives agents a set of `ptah_*` tools. Agents read the full description and arguments of each tool from the server. This page shows the tool groups.
 
-Agent templates prefer `ptah_*` tools when they are listed in the session. If they are absent, templates use native tools directly without probing for them.
+## Workspace and search
 
-## Workspace intelligence
+| Tool                     | What it does                                                   |
+| ------------------------ | -------------------------------------------------------------- |
+| `ptah_workspace_analyze` | Returns the project type, frameworks, and structure            |
+| `ptah_search_files`      | Finds files by glob pattern                                    |
+| `ptah_get_diagnostics`   | Returns errors and warnings. Pass `files` to make it faster    |
+| `ptah_count_tokens`      | Counts the tokens of a file                                    |
+| `ptah_web_search`        | Searches the web                                               |
 
-| Tool                     | Purpose                                                                                               | Typical use case                                              |
-| ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `ptah_workspace_analyze` | Produce a structured analysis of the active workspace (frameworks, entry points, build system, tests) | "What kind of project is this?" at the start of a new session |
-| `ptah_search_files`      | Fast file search across the workspace with glob + content filters                                     | Locate files by name or content without shelling out          |
-| `ptah_get_diagnostics`   | Pull current diagnostics (TS errors, linter warnings). Pass `files` to scope it                       | "What's broken right now?" before proposing fixes             |
-| `ptah_get_dirty_files`   | List unsaved or modified files                                                                        | Sync model context with the user's in-flight edits            |
-| `ptah_count_tokens`      | Count tokens for a string or file against the active model's tokenizer                                | Budget prompt size before a large call                        |
+## IDE / LSP
 
-## Code navigation (LSP-backed)
+`ptah_lsp_references`, `ptah_lsp_definitions`, `ptah_get_dirty_files`.
 
-| Tool                   | Purpose                         | Typical use case                           |
-| ---------------------- | ------------------------------- | ------------------------------------------ |
-| `ptah_lsp_references`  | Find all references to a symbol | Refactoring impact analysis                |
-| `ptah_lsp_definitions` | Jump to a symbol's definition   | Trace where a function or type is declared |
+## Code index
 
-## Web & search
+`ptah_code_search_symbols`, `ptah_code_reindex`, `ptah_ast_analyze`, `ptah_context_enrich_file`, `ptah_get_dependents`, `ptah_get_dependencies`, `ptah_get_symbol_index`, `ptah_relevance_rank_files`, `ptah_project_detect_monorepo`, `ptah_memory_search`.
 
-| Tool              | Purpose                                      | Typical use case                          |
-| ----------------- | -------------------------------------------- | ----------------------------------------- |
-| `ptah_web_search` | Query the web through Ptah's search provider | "What's the current best practice for X?" |
+## CLI agents
 
-## Browser automation
+Tools to start, watch, message, and stop CLI agent lanes: `ptah_agent_list`, `ptah_agent_spawn`, `ptah_agent_status`, `ptah_agent_wait`, `ptah_agent_read`, `ptah_agent_message`, `ptah_agent_message_status`, `ptah_agent_report`, `ptah_agent_stop`. This group also has `ptah_run_check` and the `ptah_session_*` tools.
 
-A Playwright-backed browser the model can drive. Useful for scraping docs, verifying live pages, or end-to-end testing.
+The [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies) defines how the orchestration skills use these tools.
 
-| Tool                                                     | Purpose                                  | Typical use case                          |
-| -------------------------------------------------------- | ---------------------------------------- | ----------------------------------------- |
-| `ptah_browser_navigate`                                  | Open a URL in the managed browser        | Start a browsing session                  |
-| `ptah_browser_content`                                   | Extract the page's rendered text or HTML | Read documentation, forum posts           |
-| `ptah_browser_click`                                     | Click an element by selector or text     | Drive a UI to a specific state            |
-| `ptah_browser_type`                                      | Type into an input                       | Fill forms, search boxes                  |
-| `ptah_browser_screenshot`                                | Capture a screenshot                     | Visual debugging, design review           |
-| `ptah_browser_evaluate`                                  | Run JavaScript in page context           | Read computed values, inspect the DOM     |
-| `ptah_browser_network`                                   | Inspect recent network requests          | Debug API calls                           |
-| `ptah_browser_record_start` / `ptah_browser_record_stop` | Record a browser session to video        | Produce repro clips for bugs              |
-| `ptah_browser_status`                                    | Query browser state                      | Check whether a page has finished loading |
-| `ptah_browser_close`                                     | Close the browser                        | Release resources                         |
+## Git worktrees
 
-See [Browser Automation](/browser-automation/) for the full workflow.
+`ptah_git_worktree_add`, `ptah_git_worktree_list`, `ptah_git_worktree_remove`.
 
-## Agent orchestration
+## Browser
 
-Spawn, monitor, and control background **CLI lanes**. These tools do not list built-in specialist definitions or spawn SDK sub-agents.
+The `ptah_browser_*` tools. See [Browser Automation](/browser-automation/).
 
-| Tool | Purpose | Typical use case |
-| --- | --- | --- |
-| `ptah_agent_list` | List system CLIs and configured Ptah CLI providers, installation status, and capabilities | Discover spawnable lanes and their messaging modes |
-| `ptah_agent_spawn` | Run a self-contained `task` on a lane; returns `agentId` | Assign independent work using `cli` or `ptahCliId` |
-| `ptah_agent_status` | Read status, duration, exit code, and a CLI Session ID when reported | Poll one lane by `agentId`, or omit it to check all |
-| `ptah_agent_read` | Read captured stdout/stderr, including partial output; optional `tail` | Inspect a lane's progress or final output |
-| `ptah_agent_message` | Send `message` to a running `agentId`; returns a delivery `mode` | Add an instruction and check how it was delivered |
-| `ptah_agent_report` | Send `message` and optional `summary` to the spawning session | Report a finding, blocker, or question; check `delivered` |
-| `ptah_agent_stop` | Stop a running lane; return final status if already completed | Cancel work no longer needed |
+## Tasks
 
-The [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies) defines the shared protocol and defaults to three concurrent lanes. The [runtime limit](/agents/cli-agents/#concurrency-limits) is a separate setting.
+`ptah_task_create`, `ptah_task_update`, `ptah_task_get`, `ptah_task_list`, `ptah_task_check`.
 
-Use a `cli` from an installed row or a provider's listed `ptahCliId`; when set, `ptahCliId` overrides `cli`. `modelTier` applies only to Ptah CLI providers; an explicit `model` overrides the tier mapping. Read model IDs from the chosen lane.
+## Harness
 
-Resume only if `ptah_agent_status` reports a **CLI Session ID**. Use it as `resume_session_id` on a new spawn on the same lane. Without one, spawn fresh with the context restated. Status values are `running`, `completed`, `failed`, `timeout`, and `stopped`.
+| Tool                               | What it does                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `ptah_harness_search_skills`       | Searches local plugin skills and the skills.sh marketplace                       |
+| `ptah_harness_create_skill`        | Creates a skill as its own `ptah-harness-<name>` plugin                          |
+| `ptah_harness_search_mcp_registry` | Searches the official MCP registry, and Smithery when a Smithery API key is set  |
+| `ptah_harness_list_installed_mcp`  | Lists the MCP servers in `.vscode/mcp.json` and `.mcp.json` of the workspace     |
+| `ptah_harness_install_mcp_server`  | Writes the config of an MCP server to the target config files                    |
+| `ptah_harness_propose_config`      | Sends a proposed harness config to the user for review                           |
 
-Always read `ptah_agent_message`'s returned `mode`:
+`ptah_harness_create_skill` takes a `scope`:
 
-| Mode | Meaning |
-| --- | --- |
-| `steer` | Injected into the turn in flight |
-| `queue-next-turn` | Held and delivered as the next turn |
-| `interrupt-resume` | The turn was aborted and its partial work discarded before the message was resubmitted |
-| `unsupported` | Nothing was delivered; `detail` explains why |
+| `scope`               | Written to                  | Loads in                       |
+| --------------------- | --------------------------- | ------------------------------ |
+| `workspace` (default) | `{workspace}/.ptah/plugins` | This project only              |
+| `user`                | `~/.ptah/plugins`           | All workspaces on this machine |
 
-Check `ptah_agent_list` for declared messaging capabilities; do not assume a mode from a CLI name.
+The two scopes use the same plugin ID, so you cannot use the same name in both. See [Harness plugins](/plugins/harness-plugins/).
 
-`ptah_agent_report` takes no `agentId` — a spawned agent's identity is
-established by how its call reached Ptah, never by an argument it supplies.
-`delivered: false` with a `reason` is a normal, honest answer (for example
-the spawning session ended), not an error to retry blindly. Reports identify a source, but their claims still need verification against files and tests.
+## Code execution
 
-`ListAgents` / `SendMessage` are a separate, SDK-level peer-messaging
-mechanism: they reach only sessions built on Ptah's own agent SDK, never a
-CLI agent spawned via `ptah_agent_spawn`. To wait on another session instead
-of polling it, the **main conversation only** may subscribe with
-`notify_when_idle`, and only for sessions on this machine — a subagent that
-calls it gets the whole call refused. For a CLI agent spawned via
-`ptah_agent_spawn`, poll `ptah_agent_status` on a matched interval instead.
+| Tool              | What it does                                       |
+| ----------------- | -------------------------------------------------- |
+| `execute_code`    | Runs code that uses the `ptah` API                 |
+| `approval_prompt` | Asks the user for approval of a tool call          |
 
-This cross-session messaging path needs a CLI version of at least 2.1.234 on
-native Windows (2.1.224 elsewhere); `crossSessionInbound` needs 2.1.224;
-`notify_when_idle` needs 2.1.236. The pinned agent SDK version in this repo
-is 0.3.150 — `origin.fromMode` needs SDK 0.3.234 and is out of reach on the
-pinned version, and nothing here depends on it.
+## Turn groups on or off
 
-## Git worktree management
-
-Keep experiments isolated without cluttering your main checkout.
-
-| Tool                       | Purpose                            | Typical use case                           |
-| -------------------------- | ---------------------------------- | ------------------------------------------ |
-| `ptah_git_worktree_add`    | Create a new worktree for a branch | Spin up an isolated sandbox for a refactor |
-| `ptah_git_worktree_list`   | List existing worktrees            | Audit active experiments                   |
-| `ptah_git_worktree_remove` | Remove a worktree                  | Clean up after merging                     |
-
-## Validation & harness
-
-| Tool                               | Purpose                                                                                                                                                 | Typical use case                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `ptah_json_validate`               | Validate JSON against a schema                                                                                                                          | Check config files before writing        |
-| `ptah_harness_create_skill`        | Create a new skill as its own plugin at `~/.ptah/plugins/ptah-harness-<slug>/skills/<slug>/SKILL.md` — see [Harness plugins](/plugins/harness-plugins/) | Capture a reusable workflow on the fly   |
-| `ptah_harness_search_skills`       | Search local plugin skills and the skills.sh marketplace by keyword                                                                                     | Find a skill by intent rather than name  |
-| `ptah_harness_search_mcp_registry` | Search the official MCP registry and Smithery (when a Smithery API key is configured)                                                                   | Discover third-party tools to plug in    |
-| `ptah_harness_list_installed_mcp`  | List every MCP server configured in the harness                                                                                                         | Audit what's connected                   |
-| `ptah_harness_install_mcp_server`  | Write a server's transport config into the target config files                                                                                          | Add a discovered server to the workspace |
-| `ptah_harness_propose_config`      | Hand a partial harness config to the surface for the user to review                                                                                     | Finish a harness build for approval      |
-
-### Reading a harness search result
-
-Both searches return three states, not two:
-
-| `status`   | Meaning                                                                                      |
-| ---------- | -------------------------------------------------------------------------------------------- |
-| `ok`       | Every source answered. An empty list means the catalogue genuinely has nothing.              |
-| `degraded` | At least one source failed. The list is incomplete and the tool call is flagged as an error. |
-
-The per-source detail is in `sources`: `[{ source, status, count, error? }]`, where a source's
-`status` is `ok`, `unavailable` (not configured on this machine) or `failed`. An empty result is
-only a true negative while the top-level `status` is `ok`.
-
-`limit` on `ptah_harness_search_mcp_registry` bounds the **merged** list. Results are drawn
-round-robin across the three registries, so raising the limit never lets one source crowd out
-the others.
-
-### Paging skill search
-
-`ptah_harness_search_skills` takes `limit` and `offset`, which page the **skills.sh** half —
-local plugin results are a complete on-disk inventory and are never paged. The result echoes
-the window and adds:
-
-- `hasMore` — fetch the next page with `offset += limit`.
-- `total` — present **only** when the whole marketplace result set was seen. It is never estimated.
-- `limitedByUpstream` (on the `skills.sh` source entry) — the marketplace caps a single query at
-  200 rows. Past that no further page exists; narrow the query instead.
-
-### Skill scope
-
-`ptah_harness_create_skill` takes `scope`:
-
-| `scope`          | Written to                  | Loads in                                                   |
-| ---------------- | --------------------------- | ---------------------------------------------------------- |
-| `user` (default) | `~/.ptah/plugins`           | every workspace on this machine                            |
-| `workspace`      | `{workspace}/.ptah/plugins` | this project only — commit it and it travels with the repo |
-
-A workspace-scoped skill sits beside `.ptah/specs`, so it can be checked in and shared with the
-team. Both scopes produce the same plugin id, so the same name cannot be used in both — the call
-is refused rather than letting the workspace copy silently shadow the global one.
-
-## Code Execution
-
-| Tool              | Purpose                                                               | Typical use case                                    |
-| ----------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
-| `execute_code`    | Run code in the sandboxed runtime with scoped file and network access | Transform data, verify a snippet, run quick scripts |
-| `approval_prompt` | Request explicit user approval mid-execution                          | Gate side-effectful steps                           |
-
-## Next steps
-
-- [Understand skills](/mcp-and-skills/skills/)
-- [Connect third-party MCP servers](/mcp-and-skills/third-party-mcp/)
+In **Settings → Advanced → MCP & Browser**, you can turn off these groups: Browser Automation, CLI Agents, Git Worktree, IDE / LSP, and JSON Validation (`ptah_json_validate`).

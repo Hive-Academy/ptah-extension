@@ -1,53 +1,58 @@
 ---
 title: Messaging Gateway
-description: Drive Ptah from Telegram, Discord, or Slack — voice messages welcome.
+description: Drive PtahCode agents from Telegram, Discord, or Slack.
 ---
 
 # Messaging Gateway
 
-Send a message, get an AI reply with full workspace tools. The Messaging Gateway lets you run Ptah from your phone, your team chat, or anywhere else you can text.
+The messaging gateway lets you send a prompt from a chat app and get the agent reply in the same chat. The gateway runs the platform adapters locally in the PtahCode desktop app.
 
 ## Supported platforms
 
-| Platform | Adapter                   | Voice messages |
-| -------- | ------------------------- | -------------- |
-| Telegram | Bot API                   | Yes            |
-| Discord  | discord.js-compatible     | Yes            |
-| Slack    | `@slack/bolt` Socket Mode | Yes            |
+| Platform | Library                   | How the bot receives messages                        |
+| -------- | ------------------------- | ---------------------------------------------------- |
+| Telegram | grammY (Bot API)          | Messages to the bot                                  |
+| Discord  | discord.js                | `/ptah`, an @-mention, or a message in a Ptah thread |
+| Slack    | `@slack/bolt` Socket Mode | An @-mention of the app                              |
 
-## What works the same everywhere
+## Open the gateway
 
-- **Pairing** — first inbound message from a new sender produces a 6-digit code; you approve the binding in the Bindings UI before any agent work happens
-- **Voice** — audio attachments are decoded with ffmpeg and transcribed locally by Whisper through `@huggingface/transformers`
-- **One reply per turn** — the agent's output is accumulated while it works and delivered as a single message when the turn completes (see [Stream coalescing](/automation/messaging/stream-coalescing/))
-- **Auto-approved tools** — gateway turns run with tool use auto-approved; there is no per-tool prompt to answer from chat. This is why pairing and allowlists are strict, and why the gateway ships disabled by default
-- **Turn ceiling** — a turn that produces nothing for 10 minutes is stopped automatically and you get an error reply; the conversation stays usable and your next message runs normally
+1. Click **Thoth** in the chat header.
+2. Open the **Messaging** tab.
 
-## Sessions & workspaces from chat (Discord-only for now)
+The tab shows the gateway status, the running adapters, the pending approvals, and the approved senders. Each platform has a pane with the sections **Connection**, **Access**, and **Integration** (Discord only). Click **Setup guide** for short setup steps.
 
-On Discord, each thread is its own Ptah session, and five slash commands (`/sessions`, `/session use`, `/new`, `/workspace list`, `/workspace use`) let you re-point a thread at an existing session, start fresh, or switch which workspace the thread targets — validated against a closed allowlist of folders you've opened in the desktop app. See [Discord Setup](/automation/messaging/discord/) for the full command reference. Telegram and Slack keep today's plain-message behavior; command parity there is a planned follow-up.
+## How a message becomes a turn
+
+- **Allow list** — each platform has an allow list of IDs. When the allow list is empty, the platform accepts any sender that the bot can see.
+- **Pairing** — the first message from a new sender creates a pending binding with a 6-digit code. Approve the binding in PtahCode before any agent work starts. See [Pairing and approvals](/automation/messaging/pairing-and-approvals/).
+- **One reply per turn** — the gateway collects the agent output and sends it as one message when the turn ends.
+- **Tool approval** — gateway turns use `gateway.permissionLevel`, default `ask`. Only read-only tools run without approval. Other tools ask for approval in the desktop app, and the chat gets a notice.
+- **Turn limit** — when a turn does not complete in 10 minutes, PtahCode stops it and sends an error reply. The next message runs normally.
+- **Abuse limit** — each sender can send a maximum of 60 messages each minute.
+
+## Discord threads and commands
+
+On Discord, each thread is its own PtahCode session. Slash commands let you list sessions, attach a thread to a session, start a new session, and change the workspace of a thread. See [Discord setup](/automation/messaging/discord/). Telegram and Slack do not have these commands.
 
 ## Disabled by default
 
-The gateway ships with `gateway.enabled = false`. Each platform also has its own `gateway.<platform>.enabled` flag. **Both** must be `true` for that platform to connect.
-
-This is intentional. Bots-with-tools are a real attack surface — opt-in only.
+The gateway starts disabled (`gateway.enabled = false`). Each platform also has a `gateway.<platform>.enabled` flag. When you click **Save & start** and the adapter starts, PtahCode sets both flags to `true`.
 
 ## Setup at a glance
 
-1. Create a bot / app on the platform (instructions per-platform: [Telegram](/automation/messaging/telegram/) · [Discord](/automation/messaging/discord/) · [Slack](/automation/messaging/slack/))
-2. Paste tokens into Settings → Messaging → \[platform\]
-3. Whitelist the user / guild / team IDs you want to allow
-4. Enable the platform, then enable the gateway
-5. Send a message → approve the pairing code → start working
+1. Create a bot or app on the platform: [Telegram](/automation/messaging/telegram/), [Discord](/automation/messaging/discord/), or [Slack](/automation/messaging/slack/).
+2. In **Thoth → Messaging**, select the platform.
+3. Paste the token and click **Save & start**.
+4. Add the IDs to allow, and click **Save allow-list**.
+5. Send a message to the bot.
+6. Approve the pairing code under **Pending requests**.
 
 :::caution[Token storage]
-Tokens are encrypted at rest using the OS keyring via `electron-safe-storage-vault`. **Never paste raw tokens into `~/.ptah/settings.json`** — always use the Settings UI, which encrypts before persisting.
+PtahCode encrypts tokens with the OS keychain before it saves them. Do not paste raw tokens into `~/.ptah/settings.json`. Always use the token form.
 :::
 
 ## Read more
 
-- [Pairing & approvals](/automation/messaging/pairing-and-approvals/) — how new senders get authorised
-- [Voice messages](/automation/messaging/voice-messages/) — ffmpeg + whisper setup
-- [Stream coalescing](/automation/messaging/stream-coalescing/) — why your chat won't flap
-- [Settings](/automation/messaging/settings/) — every gateway tunable
+- [Pairing and approvals](/automation/messaging/pairing-and-approvals/)
+- [Settings](/automation/messaging/settings/)

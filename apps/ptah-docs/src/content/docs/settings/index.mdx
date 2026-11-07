@@ -3,48 +3,35 @@ title: Settings
 description: Configure Ptah at the global and workspace level.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+Ptah has global settings for your user account and workspace files for each project.
 
-Ptah has a two-layer settings model that keeps personal preferences portable while letting each project override the bits that matter for that project.
+| Layer         | Location                                        | Purpose                                                    |
+| ------------- | ----------------------------------------------- | ---------------------------------------------------------- |
+| **Global**    | `~/.ptah/settings.json` and the Electron user-data folder | Providers, models, autopilot, memory, MCP port, and other preferences |
+| **Workspace** | `<workspace>/.claude/` and `<workspace>/.ptah/` | Agents, skills, Claude settings, and task specifications for the project |
 
-## The two layers
+## Open Settings
 
-| Layer         | Location                                        | Purpose                                                                   |
-| ------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
-| **Global**    | `~/.ptah/settings.json`                         | User-wide preferences — provider API keys, default model, theme, MCP port |
-| **Workspace** | `<workspace>/.claude/` and `<workspace>/.ptah/` | Per-project agents, plugins, templates, and overrides                     |
-
-Workspace settings win when both layers define the same key. This matches how VS Code, Git, and most modern editors resolve configuration.
-
-## Where to edit
-
-- Open **Settings** from the left-hand rail (or press `Ctrl+,` / `Cmd+,`).
-- Most options can be edited through the UI.
-- Power users can edit `~/.ptah/settings.json` directly — changes are picked up on the next launch.
+- Click the **Settings** button on the right of the title bar.
+- Or press `Ctrl+,` (Windows and Linux, **File → Settings**) or `Cmd+,` (macOS, **Preferences...**).
 
 ![Settings panel](/screenshots/settings-overview.png)
 
 ## Settings tabs
 
-| Tab                    | What it holds                                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **Providers**          | The routing map and your connections, the **CLI Agents** matrix (installed CLIs and custom Ptah CLI instances), and the background model roles |
-| **Context Management** | Subagent prompt-cache TTL, session budget, lane guards, context budgets, Codex agents, and background queries                       |
-| **Advanced**           | Membership, agent behaviour, output styles, MCP port, VS Code language models, import & export, and the advanced setting groups      |
-| **Search & Voice**     | Web search providers and voice                                                                                                       |
+| Tab                    | What it holds                                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Providers**          | The main agent, your connections, the **CLI agents** matrix (installed CLIs and Ptah CLI instances), and the background model roles |
+| **Context Management** | Subagent prompt-cache TTL, session budget, lane guards, and related context settings                                  |
+| **Advanced**           | **Membership & data** (with settings import and export), agent behaviour, output styles, the MCP port, and the advanced setting groups |
+| **Search & Voice**     | Web search providers and voice                                                                                        |
 
-The result of a save, test or other action appears as a notification in the bottom-right corner of the Settings page. Where Ptah knows the previous value, the notification offers **Undo**.
+The result of a save, a test, or another action shows as a notification in the bottom-right corner of the Settings page. When Ptah knows the previous value, the notification has an **Undo** action.
 
-## What's in this section
+## In this section
 
-- **Global settings** — the full schema of `~/.ptah/settings.json`, including provider API keys
-- **Workspace settings** — how `.claude/` and `.ptah/` shape per-project behavior
-- **Theme** — light/dark and accent color
-- **API keys** — how to obtain credentials for each provider
-- **Autopilot** — autonomous execution toggles
-- **Import & export** — backup and restore your configuration
-- **Why not package.json?** — rationale for storing provider settings outside `package.json`
-
-<Aside type="tip">
-Need to reset to defaults? Delete `~/.ptah/settings.json` and relaunch Ptah — a fresh file is generated.
-</Aside>
+- [Global settings](/settings/global-settings/) — where global settings and secrets are stored
+- [Workspace settings](/settings/workspace-settings/) — the `.claude/` and `.ptah/` folders
+- [Theme](/settings/theme/) — the color theme
+- [Autopilot](/settings/autopilot/) — approval modes
+- [Import & export](/settings/import-export/) — back up and restore your settings

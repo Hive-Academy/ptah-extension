@@ -1,33 +1,27 @@
 ---
 title: Templates
-description: Reusable project scaffolds and prompt templates for accelerating new work.
+description: The agent templates that PtahCode uses to generate project agents.
 ---
 
-**Templates** are reusable artifacts that kick-start new work. Ptah ships two flavors in one unified catalog:
-
-- **Project scaffolds** — full folder layouts with files, configs, and starter code (e.g. a new Angular feature module).
-- **Prompt templates** — structured prompts and agent definitions that can be applied to an existing workspace (e.g. the `frontend-developer` or `security-auditor` agent).
+**Templates** in PtahCode are agent templates. Each template is a Markdown file that describes one specialist agent, for example `frontend-developer` or `software-architect`. The agent generation in the [setup wizard](/setup/setup-wizard/) uses the templates to write agents for your project.
 
 ## Where templates come from
 
-Like plugins, templates are **not bundled in the installer**. They are downloaded from the public GitHub repository via the same [`ContentDownloadService`](/plugins/plugin-storage/) and cached under:
+The installer does not include the templates. The [content download](/plugins/plugin-storage/) gets them from the public GitHub repository into `~/.ptah/templates/agents/`.
 
-```text
-~/.ptah/templates/
-```
+## Shipped templates
 
-This means the template catalog stays fresh without requiring a Ptah update.
+| Group        | Templates                                                                                                 |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| Planning     | `project-manager`, `software-architect`, `team-leader`, `researcher-expert`                               |
+| Building     | `backend-developer`, `frontend-developer`, `devops-engineer`                                              |
+| Quality      | `senior-tester`, `code-logic-reviewer`, `code-style-reviewer`, `visual-reviewer`, `modernization-detector` |
+| Design and content | `ui-ux-designer`, `technical-content-writer`                                                        |
 
-## What's in the template catalog
-
-| Category              | Examples                                                                         |
-| --------------------- | -------------------------------------------------------------------------------- |
-| **Agent definitions** | `frontend-developer`, `backend-developer`, `security-auditor`, `devops-engineer` |
-| **Project scaffolds** | Angular feature module, Nx library, Express service                              |
-| **Prompt recipes**    | Code review prompt, architecture review prompt, test generation                  |
+The folder `_shared/` holds blocks that many templates include, for example the clarification protocol and the tool rules.
 
 ## Next steps
 
-- [Apply a template to a workspace](/templates/using-templates/)
-- [Template storage internals](/templates/template-storage/)
-- [Create your own template](/templates/creating-templates/)
+- [How templates are used](/templates/using-templates/)
+- [Template storage](/templates/template-storage/)
+- [Creating templates](/templates/creating-templates/)

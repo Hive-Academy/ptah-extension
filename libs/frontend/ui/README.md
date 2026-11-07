@@ -1,7 +1,7 @@
-# ui
+# @ptah-extension/ui
 
-This library was generated with [Nx](https://nx.dev).
+Shared UI components for the renderer: overlays, selection, native (CDK-free, Floating UI based) components, motion and surfaces (see `src/index.ts`). Tagged `scope:webview`, `type:ui`.
 
-## Running unit tests
-
-Run `nx test ui` to execute the unit tests.
+```bash
+npm run verify -- -p ui
+```

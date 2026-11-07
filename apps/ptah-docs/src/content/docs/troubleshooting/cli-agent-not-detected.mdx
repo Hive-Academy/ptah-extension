@@ -1,66 +1,48 @@
 ---
 title: CLI Agent Not Detected
-description: Making Copilot and Codex CLIs visible to Ptah.
+description: Make installed agent CLIs visible to Ptah.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Ptah can drive several external CLI agents as providers. Each one has to be installed and on the `PATH` before Ptah will offer it in the provider picker.
+Ptah can run several agent CLIs as lanes: Codex, Copilot, Cursor, Antigravity, OpenCode, Pi, Grok, and Claude. A CLI must be installed and on the `PATH` before Ptah can use it.
 
 ## Quick check
 
-**Settings → Providers** shows a detection status next to each CLI provider. A green "Detected" badge means Ptah found the binary. A red "Not found" badge means it did not.
+Open **Settings → Providers** and find the **CLI agents** matrix. The **Status** column shows if Ptah found each CLI. For a CLI that is not found, the row has an install guide.
 
-## Installing the CLIs
-
-| Provider | Install command                              | Binary name |
-| -------- | -------------------------------------------- | ----------- |
-| Copilot  | Follow the official Copilot CLI instructions | `copilot`   |
-| Codex    | Follow the official Codex CLI instructions   | `codex`     |
-
-After installing, **fully quit and restart Ptah** so it picks up the new `PATH`.
+After you install a CLI, click the retry action in its row. If Ptah shows **Still not found. Check the step above, then try again.**, quit Ptah fully and start it again.
 
 ## Common problems
 
-**Symptom:** CLI works in a terminal but Ptah says "Not found."
-**Likely cause:** Ptah inherited the `PATH` from your desktop session, not from your shell's rc file.
-**Fix:** On macOS/Linux, add the install location to your login environment (e.g. `~/.zprofile` or `~/.profile`). On Windows, add it to **System Properties → Environment Variables → Path**. Then relaunch Ptah.
+**Symptom:** The CLI works in a terminal, but Ptah does not find it (macOS or Linux).
+**Likely cause:** An app that starts from the dock or the desktop gets a short `PATH`. Ptah runs your login shell to read the full `PATH`, and it adds common npm global folders.
+**Fix:** Put the install folder of the CLI on the `PATH` in your login shell profile, for example `~/.zprofile` or `~/.profile`. Then start Ptah again.
 
 ---
 
-**Symptom:** `ENOENT: spawn copilot` on Windows, even though `copilot --version` works in a terminal.
-**Likely cause:** npm-installed CLIs on Windows are `.cmd` wrapper scripts. Node's `spawn()` with `shell: false` cannot execute `.cmd` files directly.
-**Fix:** Ptah handles this automatically via a shell-execution fallback, but if you've customised the CLI install:
-
-- Make sure the `.cmd` wrapper is the one on `PATH` (not a stray `.ps1`).
-- Verify by running `where copilot` in PowerShell — the first match should end in `.cmd`.
+**Symptom:** The CLI works in a terminal, but Ptah does not find it (Windows).
+**Likely cause:** The install folder is not on the `PATH` of your user account.
+**Fix:** Add the folder in **System Properties → Environment Variables → Path**. Then start Ptah again. Run `where <cli>` in PowerShell to find the folder.
 
 <Aside type="tip">
-If you install Node via a version manager (nvm-windows, fnm), reinstall global CLIs after switching Node versions. Global packages are not shared between Node versions.
+If you use a Node version manager (nvm-windows, fnm), install global CLIs again after you change the Node version. Each Node version has its own global packages.
 </Aside>
 
 ---
 
-**Symptom:** CLI detected but the first message fails with "authentication required."
-**Likely cause:** The CLI has not completed its own login flow yet.
-**Fix:** Open a terminal and run the CLI's login command once (for example `codex login`). Return to Ptah; the next request will use the stored credentials.
+**Symptom:** Ptah finds the CLI, but the first request fails with "authentication required".
+**Likely cause:** The CLI has not done its own sign-in.
+**Fix:** Run the sign-in command of the CLI once in a terminal, for example `codex login`. Then try again in Ptah.
 
 ---
 
-**Symptom:** CLI detected but runs with the wrong account.
-**Likely cause:** The CLI uses a token file that another tool overwrote.
-**Fix:** Re-run the CLI's login command. Each CLI stores its credentials independently of Ptah.
+**Symptom:** Ptah finds the CLI, but it uses the wrong account.
+**Likely cause:** Another tool changed the credential file of the CLI.
+**Fix:** Run the sign-in command of the CLI again. Each CLI keeps its credentials apart from Ptah.
 
-## Forcing a specific binary
+---
 
-You can override auto-detection by setting an absolute path in `~/.ptah/settings.json`:
-
-```json
-{
-  "providers": {
-    "codex": { "executablePath": "/opt/homebrew/bin/codex" }
-  }
-}
-```
-
-This skips `PATH` lookup entirely and is useful when multiple versions are installed side-by-side.
+**Symptom:** Ptah finds the CLI, but never uses it.
+**Likely cause:** The CLI type is in `agentOrchestration.disabledClis`.
+**Fix:** Remove it from that list in `~/.ptah/settings.json`. See [Ptah CLI](/providers/ptah-cli/#turn-off-a-cli).

@@ -1,9 +1,8 @@
 # process-sampler
 
-Phase 0 measurement tool for remote workers (TASK_2026_858_f7b9, P0-1). It samples every process
-on a Linux host from `/proc`, groups processes into trees by command-line class, and reports CPU
-and resident memory per group. Phase reviews re-run it to compare a release against the Phase 0
-baseline.
+Measurement tool for remote workers. It samples every process on a Linux host from `/proc`,
+groups processes into trees by command-line class, and reports CPU and resident memory per group,
+so one run can be compared with another.
 
 ## Run
 
@@ -33,8 +32,7 @@ Exit codes: `0` success, `1` unexpected error, `2` not Linux (no `/proc`), `64` 
   and gives RSS only. A process that started after the previous sample counts its ticks from
   its start. A process that exits between two samples loses its last interval.
 - **RSS**: field 24 of `/proc/<pid>/stat` times the page size. This is the same counter that
-  `statm` reports as `resident`, so the tool does not read `statm`. Skipping that read cuts
-  sampler overhead by about a third.
+  `statm` reports as `resident`, so the tool does not read `statm`.
 - Processes are identified by `pid` plus start time, so a reused pid does not inherit an old
   baseline. A process that exits during a read is skipped.
 
@@ -44,7 +42,7 @@ Each process gets one class. The checks run in this order and the first match wi
 
 | Group           | Matches                                                                                                      |
 | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ptah-worker`   | a `ptah`/`ptah-cli` entry point with `worker` or `interact` in the arguments                                 |
+| `ptah-worker`   | a `ptah` or `ptah-cli` entry point with `worker` or `interact` in the arguments (the `ptah-cli` app no longer exists in this repo, so this matches only an external binary) |
 | `electron`      | `ptah-desktop` anywhere in the command line, or an `electron` binary                                         |
 | `cli-lane`      | `codex`, `kimi`, `grok`, `claude` or `gemini` as the binary or the script `node` runs, or their npm packages |
 | `nx-jest`       | `nx`, `jest` or `jest-worker` in the first three arguments                                                   |
@@ -67,7 +65,7 @@ process count and the largest number of separate trees seen in one sample.
 The sampler excludes itself from the groups. It reports its own CPU time divided by
 `samples x interval`, which is the steady-state share of one core it uses. The limit is 1%. The
 report says `within` or `EXCEEDED`, and the JSON has `overhead.withinLimit`. The cost grows with
-the number of processes; on a host with about 230 processes it measured about 0.6%.
+the number of processes.
 
 ## Verify
 

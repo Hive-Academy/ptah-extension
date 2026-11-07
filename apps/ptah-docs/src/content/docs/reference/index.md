@@ -1,16 +1,18 @@
 ---
 title: Reference
-description: Fast lookups for shortcuts, paths, tiers, and terminology.
+description: Quick lookups for shortcuts, paths, and terms.
 ---
 
-Short pages, dense content, easy to bookmark. If you already know what a thing is called and just need the table, this is the section for you.
+Short pages for quick lookups.
 
 ## In this section
 
-| Page               | What you'll find                           |
-| ------------------ | ------------------------------------------ |
-| Keyboard shortcuts | Every key combination, by area             |
-| File locations     | Where Ptah reads from and writes to        |
-| Tier comparison    | Community vs Builders feature matrix       |
-| Glossary           | Terms used throughout the docs             |
-| Changelog          | Link to release notes                      |
+| Page                                               | What you find                       |
+| -------------------------------------------------- | ----------------------------------- |
+| [Keyboard shortcuts](/reference/keyboard-shortcuts/) | Key combinations                  |
+| [File locations](/reference/file-locations/)       | Where Ptah reads and writes files   |
+| [Glossary](/reference/glossary/)                   | Terms used in the docs              |
+
+## Release notes
+
+Release notes for each version are on [GitHub releases](https://github.com/Hive-Academy/PtahCode/releases).

@@ -1,104 +1,70 @@
 ---
 title: Orchestra Canvas
-description: Run up to nine chat sessions side by side on one drag-and-resize grid.
+description: Run many chat sessions at once from the Sessions rail.
 ---
 
-The **Orchestra Canvas** is a grid of live chat tiles. Each tile is a full chat
-session with its own conversation, its own agent, and its own model. You can run
-up to **nine** at once, drag them into any arrangement, and watch them all work
-in parallel.
+The **Orchestra Canvas** is the main surface of the desktop app. It has a **Sessions** rail and a focus area. Each card in the rail is a full chat session with its own conversation, agent, and model. The focus area shows the conversation of the focused session.
 
-This is the surface Ptah opens on in the desktop app.
+## Why many sessions
 
-## Why a grid
+One conversation is a bottleneck. A long refactor blocks a quick question, and a background research task blocks both.
 
-One conversation is a bottleneck. A long refactor blocks the quick question you
-wanted to ask, and a background research task blocks both.
+Give each concern its own session:
 
-The canvas removes that queue. Give each concern its own tile:
+- One session drives the feature that you build.
+- One session reviews the diff.
+- One session researches a library.
 
-- One tile drives the feature you are building.
-- One tile runs a review pass over the diff.
-- One tile researches the library you are about to adopt.
-- One tile watches the test suite.
+Each session keeps its own context window.
 
-Each tile keeps its own context window. Work in one never pollutes another.
+## The Sessions rail
 
-## Layout modes
+The rail groups the session cards by state:
 
-The chat area has two layout modes.
+| Group                                    | Sessions in the group                        |
+| ---------------------------------------- | -------------------------------------------- |
+| **Running**                              | A turn is in progress.                       |
+| **Background work**                      | Background agents are still at work.         |
+| **Waiting / Needs input / Error / Idle** | The session waits, needs you, failed, or is idle. |
+| **Finished**                             | The work is done.                            |
 
-| Mode       | What you see                     |
-| ---------- | -------------------------------- |
-| **Single** | One conversation, full width.    |
-| **Grid**   | The canvas — up to twenty tiles. |
+When a session changes state, its card moves to the new group. The move is animated, unless your system is set to reduce motion.
 
-The desktop app starts in **grid** mode. Switch modes from the layout control in
-the chat header.
+You can sort the rail by recent activity or keep your own order. Select **Dense cards** to show more cards at once.
 
-## Adding a tile
+## Add a session
 
-On an empty board, click **New session** in the main canvas. Once a tile exists,
-click **New session** in the rail footer. You can give the session a name, or
-leave the field empty and let Ptah name it.
+1. Click **New session** in the rail.
+2. Type a name, or leave the field empty. An empty name lets PtahCode name the session from your first prompt.
+3. Save. The new session gets the focus.
 
-You can also promote an existing session onto the canvas. A session already open
-as a tab becomes a tile without losing its history.
+If the session is already on the canvas, PtahCode focuses the existing card and does not make a copy.
 
-:::note[Twenty is the cap]
-The **New session** buttons switch off at twenty tiles. The canvas keeps a maximum of
-three columns, so tiles past the third wrap into a new row and the grid grows
-downward. Each tile stays wide enough to host a usable chat surface, but a tall
-canvas means more scrolling.
+To bring back an earlier session, open **Previous sessions** from the rail footer.
+
+:::note[Limits]
+The canvas holds a maximum of 20 sessions. A maximum of 9 sessions can run at the same time. When 9 sessions run, PtahCode shows "9 sessions are running. Wait for one to finish to start another."
 :::
 
-If you add a session that is already on the canvas, Ptah focuses the existing
-tile instead of creating a duplicate.
+## Card actions
 
-## Arranging tiles
+Each card has these actions:
 
-Drag a tile by its header to move it. Drag an edge or a corner to resize it. The
-grid reflows around what you move.
-
-The layout is responsive. Ptah recomputes the grid at two breakpoints, so a
-narrow window stacks tiles rather than shrinking them past legibility.
-
-### Locking the layout
-
-Click the **lock** control in the toolbar to freeze every tile in place. Locked
-tiles cannot be dragged or resized. Use this once you have an arrangement you
-like and you want to stop moving it by accident while you work.
+- **Rename**: change the session name.
+- **Organize**: set the status, priority, pin, and task link. Refer to [Managing sessions](/sessions/managing-sessions/).
+- **Open beside**: show the session in a second pane next to the focused session. Click **Close split** to go back to one pane.
 
 ## Focus
 
-One tile is the **focused** tile at any moment. Keyboard input and the model
-selector apply to it. Click a tile to focus it.
+One session has the focus at a time. Keyboard input and the composer controls apply to it. Click a card to focus it.
 
-The focused tile stays in sync with the tab bar. Focusing a tile on the canvas
-selects the same session in the tab list, and the reverse is also true.
+## Per-workspace boards
 
-## Per-tile agent status
-
-Each tile carries an agent indicator in its header. It shows which agent is
-active in that tile and whether the tile is currently streaming a response.
-
-Click the indicator to open a mini panel with that tile's agent detail, without
-leaving the canvas or losing your place in the other eight.
-
-## Closing a tile
-
-Close a tile from its header. Closing a tile removes it from the grid. The
-session itself survives — it stays in your [session history](/sessions/session-history/)
-and you can bring it back onto the canvas later.
-
-## Per-workspace layouts
-
-Canvas layouts are scoped to the workspace. Switching workspaces gives you that
-workspace's own arrangement of tiles, not a shared one.
+Each workspace has its own board. When you switch workspaces, you see the sessions of that workspace.
 
 ## Next steps
 
-- [Send your first message](/chat/sending-messages/) in a tile
-- [Switch models](/chat/switching-models/) per tile
-- [Spawn CLI agents](/agents/cli-agents/) for work that does not need a tile
+- [Send your first message](/chat/sending-messages/)
+- [Switch models](/chat/switching-models/)
+- [Spawn CLI agents](/agents/cli-agents/) for work that does not need its own session
 - [Run a Tribunal](/tribunal/) when you want several vendors on one problem

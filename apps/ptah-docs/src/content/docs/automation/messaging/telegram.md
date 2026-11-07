@@ -1,43 +1,38 @@
 ---
 title: Telegram Setup
-description: Talk to Ptah from a Telegram chat.
+description: Talk to PtahCode from a Telegram chat.
 ---
 
 # Telegram Setup
 
 ## 1. Create a bot
 
-1. Open a chat with [@BotFather](https://t.me/BotFather)
-2. Send `/newbot`
-3. Pick a name and a username
-4. BotFather replies with a token (looks like `1234567890:ABC...`). Copy it
+1. Open a chat with [@BotFather](https://t.me/BotFather).
+2. Send `/newbot`.
+3. Select a name and a username.
+4. Copy the token that BotFather sends (for example `123456:ABC-...`).
 
 ## 2. Find your Telegram user ID
 
-You'll need this to whitelist yourself. Talk to a "userinfobot" or similar — the ID is a number, not a `@username`.
+You need your numeric user ID for the allow list. A user ID is a number, not a `@username`. A bot such as "userinfobot" can tell you your ID.
 
-## 3. Configure Ptah
+## 3. Configure PtahCode
 
-Open **Settings → Messaging → Telegram**:
+1. Open **Thoth → Messaging → Telegram**.
+2. In **Connection**, paste the bot token and click **Save & start**.
+3. In **Access**, add your user ID to the allow list, one ID on each line.
+4. Click **Save allow-list**.
 
-1. Paste the bot token. The UI encrypts it via the OS keyring before persisting — never edit it directly in `settings.json`
-2. Add your numeric user ID to **Allowed user IDs** (`gateway.telegram.allowedUserIds`)
-3. Enable **Telegram** (`gateway.telegram.enabled = true`)
-4. Enable the global **Messaging Gateway** (`gateway.enabled = true`)
+For a group chat, add the group chat ID to the allow list too. The bot ignores group chats that are not on the allow list.
 
 ## 4. Pair the binding
 
-1. Open Telegram and send any message to your bot
-2. The bot replies with a 6-digit pairing code
-3. Open **Settings → Messaging → Bindings** in Ptah
-4. Approve the pending binding using the code
+1. In Telegram, send a message to your bot.
+2. The bot replies with a 6-digit pairing code.
+3. In **Access → Pending requests**, type the code and click **Approve**.
 
-After approval, every subsequent message you send is forwarded to the agent. Replies stream back as edits to a single message (see [Stream coalescing](/automation/messaging/stream-coalescing/)).
-
-## Voice messages
-
-Send a voice note like normal — Ptah transcribes via Whisper and sends the text to the agent. Requires ffmpeg available on the host. See [Voice messages](/automation/messaging/voice-messages/).
+After approval, each message that you send starts an agent turn. The bot sends one reply when the turn ends.
 
 :::tip
-You can talk to the same bot from multiple Telegram accounts as long as each user ID is in the allow-list. Each account gets its own binding and its own pairing code.
+More than one Telegram account can use the same bot. Add each user ID to the allow list. Each account gets its own binding and its own pairing code.
 :::

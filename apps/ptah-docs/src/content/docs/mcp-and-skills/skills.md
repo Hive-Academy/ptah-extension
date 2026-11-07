@@ -54,13 +54,12 @@ Skill availability and tool availability are separate. If `ptah_agent_*` tools a
 
 ## Harness sync — sharing across AI clients
 
-Ptah goes beyond its own sessions. It keeps one editable copy of each skill in
+PtahCode keeps one editable copy of each skill in
 the user layer at `~/.ptah/user/skills/<skill-name>/`, then reconciles that
 layer out to every AI tool it detects on your machine.
 
-**The reconciler writes real files, not links.** Earlier versions used symbolic
-links and Windows junctions. They are gone. Each target directory now holds a
-manifest-owned copy, so a tool that cannot follow a link still reads the skill.
+The reconciler writes real files, not links. Each target directory holds a
+manifest-owned copy.
 
 | Target(s)             | Directory                         |
 | --------------------- | --------------------------------- |

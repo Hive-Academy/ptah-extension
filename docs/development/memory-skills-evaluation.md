@@ -47,21 +47,11 @@ backend refusal, which reports `provider-unsupported`.
 
 `curatorRunMessage` in
 `libs/backend/memory-curator/src/lib/curator-llm/curator-activity-log.ts`
-supplies these **exact** sentences (`KEPT` expands to the same final sentence):
-
-| Reason code                  | Sentence shown                                                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider-unsupported`       | The memory curator cannot run on OpenAI Codex. Choose another provider for Memory curator in Settings > Background model roles.       |
-| `auth-required`              | The memory curator's provider is not signed in or its sign-in expired. Check it in Settings > Background model roles, then run again. |
-| `curator-error`              | The curator run failed. See the logs for details.                                                                                     |
-| `provider-cooling-down`      | The curator's provider is rate-limited, so this pass did not run. Observations are kept for the next pass.                            |
-| `provider-unreachable`       | The curator's provider could not be reached. Observations are kept for the next pass.                                                 |
-| `no-output`                  | The curator finished without returning a result. Observations are kept for the next pass.                                             |
-| `concurrency-slot-timeout`   | The curator waited too long for a free model slot. Observations are kept for the next pass.                                           |
-| `curator-queue-wait-timeout` | The curator pass waited too long in the queue. Observations are kept for the next pass.                                               |
-| `caller-aborted`             | The curator pass was cancelled before it started. Observations are kept for the next pass.                                            |
-| `network-backoff`            | The curator is pausing after recent network failures. Observations are kept for the next pass.                                        |
-| `host-shutdown`              | The curator pass was cancelled because the app is shutting down. Observations are kept for the next pass.                             |
+maps each reason code (`provider-unsupported`, `auth-required`,
+`curator-error`, `provider-cooling-down`, `provider-unreachable`, `no-output`,
+`concurrency-slot-timeout`, `curator-queue-wait-timeout`, `caller-aborted`,
+`network-backoff`, `host-shutdown`) to the sentence the UI shows. Compare the
+Memory diagnostics text with that function rather than a copy of the wording.
 
 Inspect `memories.created_at`, `memory_chunks`, and `observation_queue` to see
 whether new content was stored and pending observations were consumed. The

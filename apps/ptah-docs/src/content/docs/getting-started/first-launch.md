@@ -1,77 +1,64 @@
 ---
 title: First launch
-description: Open your first workspace, run the setup wizard, and import existing sessions.
+description: Open your first workspace and see what Ptah does on the first run.
 ---
 
-The first time you open Ptah, you pick a workspace and the app opens straight into it. From there you can run a setup wizard that generates a tailored set of AI agents. This page walks through what to expect.
+Ptah is free and open source. The first launch asks for no account, no sign-up, and no license key.
 
-## Welcome screen
+## Get ready
 
-Ptah is free and fully open source. First launch goes straight into the app — there's no account to create, no sign-up, no license prompt, and no trial. Every feature is available immediately.
+On the first start, Ptah opens the **Get ready** step of Setup. It shows **Check Claude Code and Codex**. Ptah works with Claude Code or Codex as its main connection.
 
-The first screen is a workspace gate, not an onboarding flow. It shows the PtahCode logo, the heading **Open a workspace**, and a single **Open Folder** button. Nothing else is asked of you. The tab bar stays hidden until a folder is open, so this screen is the whole app until you pick one.
+1. Pick the one you use as your main connection.
+2. Make sure that it is installed and signed in. Ptah shows the status of each one, for example **Needs install** or **Needs sign-in**.
+3. Click **Continue**. To do this step later, click **Continue anyway**.
+
+You can open this step again from **Setup**. For other providers, see [Connect a provider](/getting-started/signing-in/).
 
 ## Open a workspace
 
-Ptah is workspace-centric: everything — agents, chat sessions, plugins, project analysis — is scoped to the folder you open.
+Ptah keeps agents, chat sessions, and project analysis for each folder that you open.
 
-1. Click **Open Folder**.
-2. Select the root of a project (a Git repository, a package root, or any folder you want to work in).
-3. Ptah opens the workspace, and the full tab bar — Canvas, Dashboard, Thoth, Tasks, Setup, Marketplace, Settings — appears.
+When no folder is open, Ptah shows the heading **Open a workspace** and an **Open Folder** button. Below it, Ptah shows your recent workspaces and an activity grid. The tab bar stays hidden until a folder is open.
 
-:::tip[You see this screen once]
-Ptah remembers the workspaces you open and restores them on the next launch, so the gate appears only until you open your first folder. Switch between open workspaces from the **Workspaces** sidebar on the left. It starts closed: click the **Workspaces** tab on the left edge to open it.
-:::
+1. Click **Open Folder**, or select **File → Open Folder...**.
+2. Select the root folder of a project.
+3. Ptah opens the workspace and shows the tab bar.
 
-## What you land on
+To open a recent workspace, click it in the recent workspaces list. To switch between open workspaces, click the **Workspaces** tab on the left edge of the window.
 
-After a folder opens, Ptah shows the **Orchestra Canvas** — the multi-session grid, empty on a new workspace. Click **New Session** to add your first tile.
+## The tab bar
 
-A session with no messages shows two tabs: **Ptah Skills** and **Project Setup**. The Project Setup tab is where the setup wizard is offered.
+| Tab       | What it opens                                    |
+| --------- | ------------------------------------------------ |
+| Chat      | The Orchestra Canvas with your chat sessions     |
+| Voice     | Voice control                                    |
+| Apps      | MCP apps                                         |
+| Tasks     | The tasks board                                  |
+| Reviews   | Review runs                                      |
+| Analytics | Usage and cost analytics                         |
+| Setup     | Project setup: analysis, new project, AI team    |
 
-## Setup wizard
+The buttons on the right of the title bar open **Thoth**, **Marketplace**, and **Settings**.
 
-Ptah does not launch the wizard for you. Start it yourself from either place:
+To start a chat, open the **Chat** tab and click **New Session**.
 
-- The **Configure** button on the **Project Setup** tab of an empty session.
-- The **Setup** tab in the top tab bar.
+## Set up your project
 
-The wizard runs seven steps. It scans your project, detects your stack, proposes
-an agent roster, tunes each agent's prompt to your conventions, and writes the
-result to `.claude/agents/`. Most users get the best results by running it once
-per project, but nothing depends on it — you can chat without ever opening it.
-
-The scan is local. No source code leaves your machine during analysis.
-
-![Project analysis progress](/screenshots/setup-analysis.png)
-
-See [Setup Wizard](/setup/setup-wizard/) for a walkthrough of all seven steps.
-
-:::note[Customize freely]
-The wizard's suggestions are a starting point, not a prescription. Nothing generated here is locked — rename, rewrite, or delete any agent at any time.
-:::
+Ptah does not start the project setup for you. Click **Setup** and pick a path. See [Project setup](/setup/). You can chat without it.
 
 ## CLI agent detection
 
-Separately from the wizard, Ptah scans your `PATH` for installed agent CLIs —
-Codex, Copilot, Cursor, Antigravity, OpenCode, and Pi — and registers the ones
-it finds. Detected CLIs appear in **Providers → CLI agents**. A missing CLI is
-not an error. See [CLI agents](/agents/cli-agents/).
+Ptah looks for installed agent CLIs and registers the ones that it finds. The CLI types are Codex, Copilot, Cursor, Antigravity, OpenCode, Pi, Grok, and Claude. Detected CLIs appear in **Settings → Providers → CLI agents**. A missing CLI is not an error. See [CLI agents](/agents/cli-agents/).
 
-## Import existing sessions
+## Import of existing sessions
 
-If Ptah finds a Claude CLI session history at `~/.claude/projects/`, it imports the conversations matching your workspace automatically, right after the window paints. There is no prompt and no dialog — the session list in the sidebar simply starts short and fills in over the first few seconds. Imported sessions remain fully editable; the import is a one-time copy, not a live link.
+When you open a workspace, Ptah reads your Claude Code session history in `~/.claude/projects/`. It imports up to 50 recent sessions for that workspace. There is no prompt. The session list is short at first and fills while the import runs. The import reads local files only and uploads nothing.
 
-:::caution[Privacy]
-Session imports read local files only. Nothing is uploaded during the import step.
-:::
+## Optional: Ptah Builders membership
 
-## Optional: Ptah Builders
-
-Ptah never asks you to sign in, and signing in unlocks no features — every local capability is free and open source whether you have an account or not.
-
-An optional **Ptah Builders** membership adds the SaaS-building course, weekly live sessions, member skill packs, the private community, and priority support. If you have one, attach it from the **Membership** card at the top of **Settings**. See [Signing in](/getting-started/signing-in/) for details.
+Ptah Builders is an optional paid membership. It does not unlock local features. If you have a membership key, attach it in **Settings → Advanced**. See [Connect a provider](/getting-started/signing-in/#membership-key).
 
 ## Next step
 
-Continue to [Signing in](/getting-started/signing-in/) to configure your AI providers.
+Continue to [Connect a provider](/getting-started/signing-in/).

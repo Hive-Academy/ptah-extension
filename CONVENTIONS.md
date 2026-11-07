@@ -7,9 +7,6 @@ Authoritative shape and naming rules for the PtahCode monorepo. One page, on pur
 Every library CLAUDE.md may link here instead of restating. If a rule here
 conflicts with a library-level CLAUDE.md, THIS file wins.
 
-Source of extraction: `.ptah/specs/TASK_2025_291/WAVE_C_SIMPLIFICATION_PLAN.md`,
-sections "Canonical Conventions" and "Appendix — Wave-C-Specific Conventions Cheatsheet".
-
 ---
 
 ## 2. Library folder shape
@@ -34,8 +31,8 @@ libs/<tier>/<lib-name>/
 Exceptions are allowed when documented in the library's own CLAUDE.md. Known
 intentional exceptions:
 
-- Platform libraries (`platform-core`, `platform-vscode`, `platform-electron`,
-  `platform-cli`) use `src/implementations/` instead of `src/lib/services/`.
+- Platform adapter libraries (`platform-electron`, `platform-cli`) use
+  `src/implementations/` instead of `src/lib/services/`.
 - Handler-only L4 libraries (`rpc-handlers`) have `src/lib/handlers/` instead
   of `src/lib/services/`.
 
@@ -84,7 +81,7 @@ container.register(Symbol('FooService'), ...);     // unique per call — never 
 | Suffix      | Semantics                                                            |
 | ----------- | -------------------------------------------------------------------- |
 | `*Service`  | Injectable, has a DI token, holds state or orchestrates              |
-| `*Manager`  | Wrapper over a stateful external resource (VS Code API, OS, process) |
+| `*Manager`  | Wrapper over a stateful external resource (OS, process, file)        |
 | `*Store`    | Pure storage (read / write / list) — no orchestration                |
 | `*Registry` | In-memory map with registration semantics                            |
 | `*Adapter`  | Implements a foreign contract behind a local one                     |
@@ -105,7 +102,7 @@ container.register(Symbol('FooService'), ...);     // unique per call — never 
 ```
 L0   shared                                   → (nothing)
 L0.5 platform-core                            → shared
-L0.5 platform-vscode / electron / cli         → shared, platform-core
+L0.5 platform-electron / cli                  → shared, platform-core
 L1   vscode-core                              → L0, L0.5
 L2   workspace-intelligence                   → L0, L0.5, L1
 L3   agent-sdk, agent-generation              → L0..L2
@@ -125,8 +122,6 @@ A library lives at exactly one layer — the deepest it imports from.
 
 ## 10. Config discovery
 
-- VS Code settings (package.json `contributes.configuration`) route through
-  `ConfigManager.getConfiguration(...)`.
 - File-based settings (`~/.ptah/settings.json`, keys listed in
   `FILE_BASED_SETTINGS_KEYS`) route through `PtahFileSettingsManager`
   automatically — `IWorkspaceProvider.getConfiguration()` dispatches.
@@ -137,12 +132,12 @@ A library lives at exactly one layer — the deepest it imports from.
 
 ```
 Library shape:       src/index.ts (≤150 lines) + src/di/ + src/lib/{services,types,interfaces,errors,utils}
-Service suffix:      *Service (DI'd), *Manager (OS/VSCode), *Store (pure IO), *Registry, *Adapter, *Provider, *Handler
+Service suffix:      *Service (DI'd), *Manager (OS/process), *Store (pure IO), *Registry, *Adapter, *Provider, *Handler
 DI token:            Symbol.for('UniqueName'), in src/di/tokens.ts
 Registration fn:     registerXxxServices(container, options?) — one per library
 Error root:          {Lib}Error extends Error
 Return shape:        Result<T, E> for expected-failure paths
-Layer rule:          shared → platform-core → platform-* → vscode-core → workspace-intelligence → (agent-sdk | agent-generation) → (rpc-handlers | vscode-lm-tools) → apps
+Layer rule:          shared → platform-core → platform-electron/cli → vscode-core → workspace-intelligence → (agent-sdk | agent-generation) → (rpc-handlers | vscode-lm-tools) → apps
 Dispose:             dispose() sync by default; asyncDispose() for async cleanup; always idempotent
 Barrel:              explicit named exports, grouped by concern, ≤150 lines total
 ```

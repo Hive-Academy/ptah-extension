@@ -1,95 +1,41 @@
 ---
-title: Cost Summary
-description: Aggregate cost, tokens, messages, and duration per session.
+title: Session Budget
+description: Limit the tokens or cost that one session can use.
 ---
 
-# Cost Summary
+# Session Budget
 
-Every session in Ptah has a live cost summary — tokens consumed, dollars spent, messages exchanged, and wall-clock duration. It's visible per session in the header, and aggregated across sessions in [Analytics](/sessions/analytics/).
+The session budget measures the spend of one session against a limit. The chat shows the budget state of the session.
 
-## What's tracked
+## Budget stages
 
-| Metric                 | Description                                               |
-| ---------------------- | --------------------------------------------------------- |
-| **Input tokens**       | Tokens sent to the model (prompts, tool results, history) |
-| **Output tokens**      | Tokens returned by the model                              |
-| **Cache read tokens**  | Tokens served from prompt cache (billed at a discount)    |
-| **Cache write tokens** | Tokens written to prompt cache                            |
-| **Total cost (USD)**   | Provider-priced sum of all token classes                  |
-| **Message count**      | User + assistant + tool turns                             |
-| **Duration**           | First-message to last-message wall-clock time             |
-| **Active duration**    | Time actually spent generating, excluding idle            |
+The budget moves through these stages:
 
-## Where to find it
+1. **normal**: the spend is below the tighten point.
+2. **tighten**: the spend is at `sessionBudget.tightenPercent` of the limit.
+3. **handoff**: the spend is at `sessionBudget.handoffPercent` of the limit, or the session compacted `sessionBudget.handoffAfterCompactions` times. A handoff to a new session is advised.
+4. **limit**: the spend is at the limit.
 
-### Session header
+## Settings
 
-A compact cost badge sits next to the session title. Hover for the full breakdown.
+PtahCode stores these keys in `~/.ptah/settings.json`. You can also change them on the settings card.
 
-### Session analytics tab
+| Key                                       | Default      | What it does                                             |
+| ----------------------------------------- | ------------ | -------------------------------------------------------- |
+| `sessionBudget.enabled`                   | `true`       | Turns the budget on or off.                              |
+| `sessionBudget.unit`                      | `tokens`     | Budget unit: `tokens` or `cost` (USD).                   |
+| `sessionBudget.tokens`                    | `50000000`   | Token limit (1,000,000 to 2,000,000,000).                |
+| `sessionBudget.usd`                       | `30`         | USD limit (0.5 to 10,000).                               |
+| `sessionBudget.fallbackWeightedTokens`    | `9000000`    | Weighted token limit when no price is available.         |
+| `sessionBudget.tightenPercent`            | `50`         | Percent of the limit that starts the tighten stage.      |
+| `sessionBudget.handoffPercent`            | `80`         | Percent of the limit that starts the handoff stage.      |
+| `sessionBudget.handoffAfterCompactions`   | `3`          | Number of compactions that starts the handoff stage.     |
+| `sessionBudget.tightenWindowTokens`       | not set      | Auto-compact window to apply at the tighten stage.       |
+| `sessionBudget.autoHandoffAtLimit`        | `false`      | Hands off to a new session automatically at the limit.   |
+| `sessionBudget.closeSourceAfterAutoHandoff` | `false`    | Closes the old session after an automatic handoff.       |
 
-Each session row in analytics shows totals. Click the row to see per-turn breakdown.
+The tighten percent must be lower than the handoff percent.
 
-### Status bar
+## Unpriced sessions
 
-The global status bar shows today's running cost across all sessions. Click it to open the analytics dashboard scoped to today.
-
-## Per-turn breakdown
-
-Expand any message to see the exact cost of that turn:
-
-```text
-Turn 14 — backend-developer
-  Input:   12,480 tokens  ($0.1872)
-  Cached:   8,100 tokens  ($0.0243)
-  Output:   1,240 tokens  ($0.1860)
-  Total:               $0.3975
-```
-
-This is especially useful for spotting expensive single turns (big tool outputs, long pasted files) so you can adjust context.
-
-## How pricing is computed
-
-Costs come from the provider's reported usage. When a provider doesn't return a per-call price, Ptah applies the public list price for that model at the time of the call. You can override pricing per model in:
-
-```json
-{
-  "ptah.pricing.overrides": {
-    "claude-opus-4-7": {
-      "inputPer1M": 15.0,
-      "outputPer1M": 75.0,
-      "cacheReadPer1M": 1.5,
-      "cacheWritePer1M": 18.75
-    }
-  }
-}
-```
-
-Overrides are applied going forward; historical records keep the price they were recorded with.
-
-## Budgets and alerts
-
-Set a **daily cost budget** in **Settings → Sessions → Budget**:
-
-```json
-{
-  "ptah.budget.dailyUsd": 25,
-  "ptah.budget.warnAtPercent": 80,
-  "ptah.budget.blockOverBudget": false
-}
-```
-
-- **Warn** — banner in the status bar at 80% of budget
-- **Block** — when enabled, new turns are paused at 100% until you raise the budget or wait for the next day
-
-:::tip
-Budgets are per-machine, not per-account. If you use Ptah on multiple devices, set per-device budgets that sum to your desired total.
-:::
-
-## Exporting
-
-The cost column is included in [Session history exports](/sessions/session-history/#exporting) (CSV and JSON). You can pipe CSV into your spreadsheet of choice for finance reporting.
-
-## Privacy
-
-Cost data is local to your machine. Ptah does not report usage or spend to any external service.
+When the unit is USD and a session has no price, PtahCode measures a weighted token estimate against `sessionBudget.fallbackWeightedTokens`. When only part of a session has a price, the cost shows as a lower bound, such as `≥ $x`.

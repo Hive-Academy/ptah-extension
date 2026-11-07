@@ -1,54 +1,58 @@
 ---
-title: Pairing & Approvals
-description: How new senders get authorised before any agent work happens.
+title: Pairing and Approvals
+description: How PtahCode authorizes a new sender before any agent work starts.
 ---
 
-# Pairing & Approvals
+# Pairing and Approvals
 
-A bot-with-tools that talks to anyone is a bad bot. The Messaging Gateway gates every new sender behind a one-time pairing handshake.
+The gateway puts each new sender through a pairing step. A sender cannot start an agent turn until you approve the binding.
 
-## The handshake
+## The pairing steps
 
 ```text
-1. Inbound message arrives from sender X
+1. A message arrives from sender X.
         ↓
-2. Sender X is in the platform allow-list (allowedUserIds / allowedGuildIds /
-   allowedTeamIds)? If no → ignored, no reply
+2. Is X on the platform allow list? If the list has IDs and X is not on it,
+   the message is ignored. An empty list accepts all senders.
         ↓
-3. Existing approved binding for X? If yes → forward to agent
+3. Does X have an approved binding? If yes, the message starts a turn.
         ↓
-4. Otherwise: create a "pending" binding, generate a 6-digit pairing code,
-   bot replies with the code
+4. If not, PtahCode creates a pending binding with a 6-digit code.
+   The bot sends the code one time.
         ↓
-5. User approves the binding in the Bindings UI (or via gateway:approveBinding
-   RPC) using the code
+5. In Thoth → Messaging → Access, type the code and click Approve.
         ↓
-6. Binding flips to "approved". Future messages from X go straight to the agent
+6. The binding is approved. Messages from X now start turns.
 ```
 
-## Statuses
+## Binding statuses
 
-| Status     | Meaning                                                  |
-| ---------- | -------------------------------------------------------- |
-| `pending`  | Pairing code issued, waiting for approval                |
-| `approved` | Active — messages forwarded to the agent                 |
-| `rejected` | Permanently blocked from progressing                     |
-| `revoked`  | Was approved, then revoked. Re-pairing requires new code |
+| Status     | Meaning                                      |
+| ---------- | -------------------------------------------- |
+| `pending`  | The code was sent. The binding waits for you |
+| `approved` | Messages from the sender start agent turns   |
+| `rejected` | You rejected the request                     |
+| `revoked`  | You revoked an approved binding              |
 
-## RPC surface
+## Manage bindings
 
-| Method                   | Purpose                                |
-| ------------------------ | -------------------------------------- |
-| `gateway:listBindings`   | List all bindings, any status          |
-| `gateway:approveBinding` | Move `pending` → `approved` with code  |
-| `gateway:rejectBinding`  | Move `pending` → `rejected`            |
-| `gateway:blockBinding`   | Block future messages from the binding |
-| `gateway:revokeBinding`  | Revoke an approved binding             |
+The **Access** section of each platform pane has two lists:
 
-## Approval gates inside conversations
+- **Pending requests** — type the code from the bot, then click **Approve**. Click **Reject** to refuse the request.
+- **Approved** — click **Revoke** to remove access from a sender.
 
-Pairing is the **outer** gate. Once a sender is paired, normal Ptah approval prompts still apply for destructive tools (writes, deletes, network calls). The chat platform just relays the approval prompt as a message — you reply yes/no there and the agent continues.
+An entry can also have a button that adds the sender to the allow list.
 
-:::caution[Allow-list isn't optional]
-If the platform allow-list is empty, **no inbound message is ever processed**, even from a previously-approved binding. The allow-list is the first line of defence; pairing is the second.
+## Tool approvals in a turn
+
+Pairing is the first gate. Tool approval is the second gate. At the default level `ask`, only read-only tools run without approval. For other tools, PtahCode shows the approval prompt in the desktop app, and the chat gets this notice:
+
+```text
+Ptah needs approval to run `<tool>`. Approve it in the Ptah desktop app ...
+```
+
+If no approval arrives in time, the agent skips the tool and continues. The level comes from `gateway.permissionLevel`: `ask`, `auto-edit`, or `yolo`. The Messaging tab has no control for it.
+
+:::caution[Lock down the allow list]
+An empty allow list accepts any sender that the bot can see. Add at least one ID for each platform that you enable.
 :::

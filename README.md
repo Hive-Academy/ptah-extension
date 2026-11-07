@@ -30,32 +30,19 @@ More clips from the landing catalog:
 | [Command Center](https://ptah.live/assets/live-demo/command-center.mp4) | [still](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-landing-page/public/assets/live-demo/command-center.jpg) | Work and activity across PtahCode in one place |
 | [Multi-agent orchestration](https://ptah.live/assets/live-demo/multi-agent.mp4) | [still](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-landing-page/public/assets/live-demo/multi-agent.jpg) | Multiple agents coordinated through a shared task |
 
-Short docs clips (files still in the docs site):
-
-| Clip | Topic |
-| --- | --- |
-| [Install](https://docs.ptah.live/assets/videos/install.mp4) | Install the desktop app on your platform |
-| [Sign in](https://docs.ptah.live/assets/videos/auth.mp4) | Accounts, keys, and credential storage |
-| [Workspace analysis](https://docs.ptah.live/assets/videos/setup-wizard-analysis.mp4) | Scan a repository and detect its stack |
-| [Agent generation](https://docs.ptah.live/assets/videos/setup-wizard-agent-generation.mp4) | Generate a project-specific agent team |
-| [Agent orchestration](https://docs.ptah.live/assets/videos/cli-agent-orchestration.mp4) | Spawn, monitor, and steer headless agents |
-| [Built-in MCP server](https://docs.ptah.live/assets/videos/ptah-mcp-server.mp4) | The `ptah_*` tool catalog and code execution |
-| [Model providers](https://docs.ptah.live/assets/videos/providers.mp4) | Add providers, keys, and models |
-| [Plugins](https://docs.ptah.live/assets/videos/plugins.mp4) | Install skills and workflow packs |
-
 ---
 
-## What's new in v2
+## Highlights
 
-The download is the Electron app. The title bar is a set of workplaces: chat, Voice, Apps, Tasks, Analytics, and Setup.
+The download is the Electron app. With a workspace open, the title bar holds these tabs: Chat, Voice, Apps, Tasks, Reviews, Analytics, and Setup.
 
-- **Session rail.** One board per workspace. Up to 20 session tiles. Nine may run at once. Density is comfortable or dense. Sort is recent or manual. A stored legacy grid layout renders as this rail.
+- **Session rail.** One board per workspace. Up to 20 session tiles. Nine may run at once. Density is comfortable or dense. Sort is recent or manual.
 - **Voice.** An Electron stage that listens, speaks, and can barge in. It stays on “Voice unavailable” until both speech-to-text and text-to-speech are configured. Local engines need model assets. ElevenLabs needs a key.
 - **Apps.** The agent publishes a form, chart, or table from a closed component catalog, beside a private transcript. A failed surface says it could not be shown.
 - **Attention bell.** Questions, permissions, failures, and warnings across sessions and workspaces. Permission rows can be allowed or denied without opening that session.
 - **Display panel.** A sandboxed HTML artifact opens beside the transcript and can detach into its own window. Links use an allowlist.
 - **Two main-chat runtimes.** Claude’s agent runtime, or Codex through the app-server protocol. Background work can run on installed CLIs.
-- **Plan windows.** Where Claude, Codex, Kimi, Antigravity, OpenCode, or Grok reports a 5-hour or 7-day window, a lane at its limit can be refused. A provider with no window does not get a fake meter.
+- **Plan windows.** Where Claude, Codex, Kimi, Antigravity, OpenCode, Grok, or Ollama Cloud reports a usage window, a lane at its limit can be refused. A provider with no window does not get a fake meter.
 
 ---
 
@@ -120,13 +107,13 @@ Read more: [Providers](https://docs.ptah.live/providers/)
 
 Voice is a title-bar tab on Electron (`/command-center` in the app). It is a stage: work nodes, captions, a work list, and a display rail. Controls start, mute, stop, and interrupt. The spoken persona keeps replies to one or two sentences and delegates the rest. This is separate from voice notes on Telegram, Discord, or Slack.
 
-Apps is Electron-only. The agent updates a surface through `ptah_surface_update` and reads it back. The catalog covers layout, inputs, charts, tables, lists, and alerts. It is not arbitrary HTML.
+Apps is a title-bar tab. The agent updates a surface through `ptah_surface_update` and reads it back. The catalog covers layout, inputs, charts, tables, lists, and alerts. It is not arbitrary HTML.
 
 The bell splits “Needs you” from “Recent notices.” A row names the session, provider, and workspace. Sound can be muted.
 
 - **Transcript cards.** A `ptah-ui` block can render a live card bound to agents and limits. Malformed atoms fail closed. The same renderer family draws Apps surfaces.
 - **Turn trailers.** A turn that changes files can end with added, modified, deleted, renamed, or conflicted paths, plus a chip for files, tests, tokens, cost, and duration. A turn that changes nothing has no change-set card.
-- **Git review dock.** Electron tabs for Changes, Commit, Task, and History. The spot editor is CodeMirror. A foreign worktree’s Changes tab is read-only. The skill-enhancement preview is a separate Monaco diff.
+- **Git review dock.** Tabs for Changes, Commit, Task, and History. The spot editor is CodeMirror. A foreign worktree’s Changes tab is read-only. The skill-enhancement preview is a separate Monaco diff.
 - **Questions.** Stepped question cards in the transcript. The bell can answer one.
 - **Setup hub.** Workspace analysis, an AI team builder, and new-project scaffolding (an Nx workspace, a roadmap, and an agent team).
 
@@ -138,13 +125,13 @@ The bell splits “Needs you” from “Recent notices.” A row names the sessi
 
 ![Thoth memory](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/v2-thoth-memory.png)
 
-Project memory stays on the machine. Search fuses BM25 and vectors with reciprocal rank fusion, and falls back to BM25 if vector search fails. Semantic recall degrades when `sqlite-vec` is unavailable. The Memory tab (Electron) is the curator. The first index can report coverage as unknown.
+Project memory stays on the machine. Search fuses BM25 and vectors with reciprocal rank fusion, and falls back to BM25 if vector search fails. Semantic recall degrades when `sqlite-vec` is unavailable. The Memory tab is the curator. The first index can report coverage as unknown.
 
 - **Named corpora.** Build a corpus from memory, prime an agent session with it, query it, and rebuild membership. This needs a workspace and an agent session.
 - **Compaction curation.** Notes that have not been processed are kept when a session compacts.
-- **Skills.** The Skills tab (Electron) can propose a unified diff for an existing `SKILL.md`. A judge scores before and after. The file is written only when you Apply. Enhance stays disabled under a use threshold or during a cooldown. Nothing is promoted on its own.
+- **Skills.** The Skills tab can propose a unified diff for an existing `SKILL.md`. A judge scores before and after. The file is written only when you Apply. Enhance stays disabled under a use threshold or during a cooldown. Nothing is promoted on its own.
 
-Tree-sitter indexing covers JavaScript, TypeScript, Python, and Go in the structural index the docs describe. Extensions the registry does not analyze stay unsupported, and the tool reports that count.
+Tree-sitter indexing covers TypeScript, TSX, JavaScript, Python, Go, C#, Java, Kotlin, Rust, PHP, Ruby, and C++ (C sources use the C++ grammar). The list lives in `libs/backend/workspace-intelligence/src/ast/languages`. Extensions the registry does not analyze stay unsupported, and the tool reports that count.
 
 Read more: [Memory](https://docs.ptah.live/memory/) · [Workspace analysis](https://docs.ptah.live/workspace/) · [Skill synthesis](https://docs.ptah.live/skill-synthesis/)
 
@@ -154,7 +141,7 @@ Read more: [Memory](https://docs.ptah.live/memory/) · [Workspace analysis](http
 
 Messaging gateways are Telegram, Discord, and Slack. Senders pair before agent work. A binding can attach to a Ptah session and a workspace.
 
-- **Hand-off.** On Electron, a rail card can hand the live desktop session to an approved binding. That desktop tab stays read-only until you take it back. With no binding, the control stays visible and disabled, with a reason.
+- **Hand-off.** A rail card can hand the live desktop session to an approved binding. That desktop tab stays read-only until you take it back. With no binding, the control stays visible and disabled, with a reason.
 - **Discord commands.** Discord can list or switch sessions and workspaces, or start fresh. Those commands are Discord’s. They are not the Telegram or Slack command set.
 - **Gateway voice notes.** Inbound audio on a paired chat. That is not the Voice tab.
 - **Approval from a gateway.** The docs describe reviewing tool calls before they run from a connected gateway.
@@ -171,7 +158,7 @@ Read more: [Automation](https://docs.ptah.live/automation/)
 - **Declaration summaries.** Eligible files can be summarized from declarations. An ineligible file returns full content with a reason.
 - **Output budgets.** Large tool output can be shrunk by format. The full text stays retrievable. A spool failure is reported.
 - **`execute_code`.** One JavaScript script can call local `ptah.*` tools inside the Node `vm`, with a timeout and cancellation. That VM is not a security boundary.
-- **Browser.** On Electron, an agent can navigate, click, type, read, capture the network, screenshot, and record, inside URL and root restrictions.
+- **Browser.** An agent can navigate, click, type, read, capture the network, screenshot, and record, inside URL and root restrictions.
 - **Tasks.** A six-column board over `.ptah/specs/`: backlog, in progress, in review, blocked, done, cancelled. A folder without `task.md` is not a card. A live session can link to a task id and a worktree. Task ids are allocated across local worktrees and `origin/main`.
 - **Plugins.** An install can be project or global. External installs take explicit consent bound to the resolved version and file hashes. A hashed consent token gates a GitHub plugin install.
 - **Harness sync.** One reconciler writes skills, agents, commands, and MCP servers into Claude and into Codex, Copilot, Cursor, Antigravity, OpenCode, and VS Code MCP. Retirement does not delete a git-tracked copy or a copy whose hash does not match the last manifest. A blocked path is moved to quarantine.
@@ -210,7 +197,7 @@ Read more: [Providers](https://docs.ptah.live/providers/)
 2. Install and open the app.
 3. Open a workspace folder.
 4. Run workspace analysis from **Setup** in the title bar.
-5. Start a session on the session rail. **Voice** and **Apps** are title-bar tabs. Memory, skills, schedules, and messaging are the Thoth tabs. On Electron, Memory and Skills render in the app. Other hosts see a download prompt for those two tabs.
+5. Start a session on the session rail. **Voice** and **Apps** are title-bar tabs. Memory, skills, schedules, and messaging are the Thoth tabs.
 
 Read more: [Getting started](https://docs.ptah.live/getting-started/)
 
@@ -226,17 +213,13 @@ PtahCode is free and open source under the MIT license. There is no trial and no
 
 PtahCode is an Nx monorepo. Apps are thin composition roots. Logic lives in libraries.
 
-Stack in this tree: Electron 44 (`electron` ^44.4.3), Angular 22 (`@angular/core` ~22.2.0), Nx 24.0.0, TypeScript 6.0.3, Node 24 (`engines.node` `24.x`).
+Requires Node 24 (`engines.node` is `24.x`).
 
-```
-apps/          # Electron desktop, Angular webview, VS Code extension host,
-               # landing page, docs site, e2e suites
-libs/backend/  # host-neutral services; ports in platform-core;
-               # Electron adapter in platform-electron
-libs/frontend/ # Angular 22 feature libraries (signals, OnPush)
-libs/shared/   # shared types between frontend and backend
-libs/web/      # Angular libraries for the marketing site
-```
+- `apps/`: the Electron desktop app (`ptah-electron`), its Angular renderer (`ptah-extension-webview`), the landing page, the docs site, and the e2e suites.
+- `libs/backend/`: host-neutral services; ports in `platform-core`, the Electron adapter in `platform-electron`.
+- `libs/frontend/`: Angular feature libraries.
+- `libs/shared/`, `libs/worker-protocol/`: types and contracts shared across processes.
+- `libs/web/`: Angular libraries for the marketing site.
 
 ```bash
 git clone https://github.com/Hive-Academy/PtahCode.git

@@ -1,86 +1,45 @@
 ---
 title: Managing Sessions
-description: Create, switch, rename, and delete sessions in Ptah.
+description: Create, rename, organize, and delete sessions in PtahCode.
 ---
 
 # Managing Sessions
 
-Sessions are the unit of work in Ptah. You'll typically have one per task and switch between them throughout the day, the same way you switch between editor tabs.
+A session is the unit of work in PtahCode. Use one session for each task.
 
 ![Session tabs](/screenshots/sessions-tabs.png)
 
-## Creating a session
+## Create a session
 
-- **New session button** — top of the Chat panel, creates an empty session in the current workspace.
-- **Keyboard** — `Ctrl/Cmd + N` inside the Chat panel.
-- **From a template** — right-click the new-session button and pick a starter template (e.g., "Bug triage", "Code review"). See [Templates](/templates/).
+Click **New Session**. The new session opens in the current workspace.
 
-New sessions inherit the workspace's default agent and model. You can change both from the header before your first message.
+## Open a session
 
-## Switching sessions
+Each session row has **Open in a tab**. Open sessions show as tabs. Click a tab to go to that session.
 
-Ptah uses a **tab bar** at the top of the Chat panel. Click any tab to switch.
+## Rename a session
 
-:::tip[Cached node trees]
-Switching is instant because Ptah caches the rendered message tree per session. You can jump between five long-running chats with no re-render lag.
-:::
+1. Click **Rename session** on the session row.
+2. Type the new name.
+3. Press **Enter**.
 
-### Keyboard navigation
+## Organize a session
 
-| Shortcut                 | Action                                           |
-| ------------------------ | ------------------------------------------------ |
-| `Ctrl/Cmd + Tab`         | Next session                                     |
-| `Ctrl/Cmd + Shift + Tab` | Previous session                                 |
-| `Ctrl/Cmd + 1..9`        | Jump to the Nth tab                              |
-| `Ctrl/Cmd + W`           | Close current tab (session is preserved on disk) |
+Click **Organize session** on the session row. You can set these values:
 
-Closing a tab doesn't delete the session — it just removes it from the active tab bar. You can reopen it from the [Session history](/sessions/session-history/) panel.
+| Value     | Options                                              |
+| --------- | ---------------------------------------------------- |
+| Status    | `active`, `waiting`, `in_review`, `done`, `archived` |
+| Priority  | `urgent`, `high`, `normal`, `low`                    |
+| Pin       | Pinned sessions show a pin chip.                     |
+| Task link | Links the session to a task (`primary` or `related`). |
 
-## Renaming sessions
+A session that an agent started shows the **Started by an agent** chip.
 
-By default Ptah auto-generates a session title from your first message. To rename:
+## Delete a session
 
-- Double-click the tab label, or
-- Right-click → **Rename**, or
-- Open the session header and edit the title field inline.
-
-Titles are free-form strings up to 100 characters.
-
-## Pinning
-
-Right-click a tab → **Pin**. Pinned tabs:
-
-- Stay at the left of the tab bar
-- Survive app restarts
-- Can be unpinned the same way
-
-Useful for a "scratchpad" chat you always want one click away.
-
-## Deleting a session
-
-Right-click → **Delete** or open **Session history** and use the bulk action menu.
+Click **Delete session** on the session row.
 
 :::caution[Permanent delete]
-Delete is permanent and removes the JSON transcript from disk. Ptah does **not** keep a trash bin. Export first if you want a backup — see [Session history](/sessions/session-history/#exporting).
+Delete removes the session. PtahCode also removes the organization data of the session.
 :::
-
-## Duplicating a session
-
-Right-click → **Duplicate** creates a copy with all messages up to the selected point. Great for exploring a "what if I try a different approach from here" branch without contaminating your main thread.
-
-## Archiving
-
-Right-click → **Archive** hides the session from the tab bar and default history view but keeps the file on disk. Toggle **Show archived** in the history filter to see it again. Archive is reversible; delete is not.
-
-## Session storage layout
-
-```
-<workspace-root>/.ptah/sessions/
-  active/
-    sess_01h8z...json      # current + recently-open sessions
-  archive/
-    sess_01h8k...json      # archived sessions
-  index.json               # lightweight title/date index for fast search
-```
-
-Ptah watches this folder. If you drop in a session file from another machine, it appears immediately in the history view.

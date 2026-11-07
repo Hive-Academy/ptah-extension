@@ -1,7 +1,7 @@
-# setup-wizard
+# @ptah-extension/setup-wizard
 
-This library was generated with [Nx](https://nx.dev).
+Angular setup wizard for the Electron renderer: wizard state, RPC and analysis services and the generation preview store that drive agent generation (see `src/index.ts`).
 
-## Running unit tests
-
-Run `nx test setup-wizard` to execute the unit tests.
+```bash
+npm run verify -- -p setup-wizard
+```

@@ -1,11 +1,11 @@
 ---
 title: Cron Expressions
-description: Quick reference for the expression grammar Ptah accepts.
+description: Quick reference for the cron expression grammar that PtahCode accepts.
 ---
 
 # Cron Expressions
 
-Ptah uses [croner](https://github.com/Hexagon/croner) for parsing and scheduling. It accepts standard 5- or 6-field expressions; the second-of-minute field is optional.
+PtahCode uses [croner](https://github.com/Hexagon/croner) to read and schedule expressions. Use a 5-field or 6-field expression. The seconds field is optional.
 
 ## Field order
 
@@ -35,10 +35,8 @@ Ptah uses [croner](https://github.com/Hexagon/croner) for parsing and scheduling
 
 ## Timezones
 
-Pair every expression with an IANA timezone. `0 9 * * MON-FRI` in `America/New_York` and the same expression in `Asia/Tokyo` fire at very different absolute times — be explicit.
-
-If you're unsure what zone string to use, the [IANA tzdb list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) is canonical.
+Set an IANA timezone for each job. The same expression fires at different times in `America/New_York` and `Asia/Tokyo`.
 
 :::tip
-For full grammar — ranges, lists, step values, named months, last-day-of-month, day-of-week shortcuts — see the [croner README](https://github.com/Hexagon/croner). Anything croner accepts, Ptah accepts.
+For the full grammar, see the [croner README](https://github.com/Hexagon/croner).
 :::

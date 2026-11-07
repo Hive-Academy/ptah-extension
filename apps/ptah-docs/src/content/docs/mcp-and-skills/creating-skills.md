@@ -1,9 +1,9 @@
 ---
 title: Creating Skills
-description: Author a skill from scratch — file layout, frontmatter, trigger descriptions, and registration.
+description: Write a skill — file layout, frontmatter, trigger descriptions, and how to make it available.
 ---
 
-A skill is one folder with a `SKILL.md` inside. That's it. Optional `references/` subfolders hold lazy-loaded long-form material so the skill itself stays lean.
+A skill is one folder with a `SKILL.md` file. Optional `references/` files hold long material, so that the skill itself stays small.
 
 ## Minimal skill
 
@@ -15,43 +15,38 @@ my-skill/
 ```markdown title="SKILL.md"
 ---
 name: my-skill
-description: One sentence describing when to use this skill.
+description: One sentence that tells when to use this skill.
 ---
 
 # My Skill
 
-Write the instructions the model should follow when this skill is invoked.
+Write the instructions that the model must follow when it uses this skill.
 ```
 
 ## Recommended layout
 
 ```text
 my-skill/
-├── SKILL.md              # Definition + trigger + top-level guidance
-├── references/           # Optional — loaded lazily when SKILL.md links to them
-│   ├── patterns.md
-│   ├── examples.md
-│   └── troubleshooting.md
-└── assets/               # Optional — code snippets, templates
-    └── starter.ts
+├── SKILL.md              # Definition, trigger, and top-level guidance
+└── references/           # Optional — read only when SKILL.md links to them
+    ├── patterns.md
+    └── examples.md
 ```
 
 ## Frontmatter
 
-| Field         | Required | Purpose                                    |
-| ------------- | -------- | ------------------------------------------ |
-| `name`        | Yes      | Unique identifier (kebab-case)             |
-| `description` | Yes      | Trigger text — matched against user intent |
-| `version`     | No       | Semantic version string                    |
-| `tags`        | No       | Search/categorization                      |
+| Field         | Required | Purpose                                       |
+| ------------- | -------- | --------------------------------------------- |
+| `name`        | Yes      | Unique identifier (kebab-case)                |
+| `description` | Yes      | Trigger text. The model compares it to intent |
 
-### Writing a great `description`
+### Write a good `description`
 
-The description is the **only** thing the orchestrator sees during trigger selection. A strong description:
+The model selects a skill from its description. A good description:
 
-- **Leads with "Use when..."** to frame it as a trigger, not a summary.
-- **Names concrete verbs and nouns** the user might say.
-- **States the skill's boundaries** so it isn't invoked for adjacent but wrong cases.
+- Starts with "Use when..." so that it reads as a trigger.
+- Names concrete verbs and nouns that the user can say.
+- States the limits of the skill, so that the model does not use it for a near but wrong case.
 
 :::tip
 **Good:** _"Use when the user asks for a security review, mentions vulnerabilities, OWASP, auth hardening, or XSS/SQLi."_
@@ -59,9 +54,7 @@ The description is the **only** thing the orchestrator sees during trigger selec
 **Poor:** _"This skill helps with security stuff."_
 :::
 
-## Structuring `SKILL.md`
-
-A reliable pattern:
+## Structure `SKILL.md`
 
 ```markdown
 ---
@@ -74,7 +67,7 @@ description: ...
 ## When to use
 
 - The user asks for a security review
-- A PR touches auth, crypto, or user input
+- A pull request touches auth, crypto, or user input
 
 ## Process
 
@@ -85,56 +78,37 @@ description: ...
 ## References
 
 - OWASP patterns: see [references/owasp-top-10.md](references/owasp-top-10.md)
-- Threat modeling: see [references/threat-model.md](references/threat-model.md)
 ```
 
-Linking to `references/` keeps the top-level skill small — those files are only loaded if the model decides it needs them.
+Links to `references/` keep the top-level skill small. The model reads those files only when it needs them.
 
-## Registering a skill
+## Make a skill available
 
-There are three ways to make a skill available:
+### 1. Put it in a plugin
 
-### 1. Ship it in a plugin (recommended for reuse)
+Put the skill folder in `<plugin>/skills/<skill-name>/`. When the plugin is enabled, PtahCode copies the skill into the skill folder of each detected AI tool, for example `.claude/skills/`. See [Creating plugins](/plugins/creating-plugins/) and [Skills](/mcp-and-skills/skills/#harness-sync--sharing-across-ai-clients).
 
-Place the skill folder under `<plugin>/skills/<skill-name>/`. When the plugin is enabled, Ptah auto-junctions the skill into `<workspace>/.claude/skills/`. See [Creating plugins](/plugins/creating-plugins/).
+### 2. Create it with `ptah_harness_create_skill`
 
-### 2. Create it on the fly with `ptah_harness_create_skill`
+Ask an agent to call `ptah_harness_create_skill` with a name, a description, and a body. PtahCode writes the skill as its own harness plugin:
 
-From any chat session:
+- `scope: "workspace"` (default): `{workspace}/.ptah/plugins/ptah-harness-<name>/skills/<name>/SKILL.md`
+- `scope: "user"`: `~/.ptah/plugins/ptah-harness-<name>/skills/<name>/SKILL.md`
 
-```text
-Call ptah_harness_create_skill with:
-{
-  "name": "my-skill",
-  "description": "Use when ...",
-  "body": "# My Skill\n\n..."
-}
-```
+Harness plugins are active when PtahCode finds them. They show in the plugin catalog under **Your Skills**. See [Harness plugins](/plugins/harness-plugins/).
 
-Ptah writes the skill under `~/.ptah/plugins/ptah-harness-my-skill/skills/my-skill/SKILL.md` — a harness plugin, not a workspace skill — and registers it immediately. It is available in every workspace rather than just this one, and appears in the plugin list under **Your Skills**. See [Harness plugins](/plugins/harness-plugins/) for how those are activated. Ideal for capturing a reusable workflow you just discovered.
+## Test your skill
 
-### 3. Drop a folder into `.claude/skills/`
-
-Manually create `<workspace>/.claude/skills/<skill-name>/SKILL.md` with valid frontmatter. Ptah picks it up on the next session start.
-
-## Testing your skill
-
-1. Ensure `SKILL.md` frontmatter parses (valid YAML).
-2. Open a new chat session — Ptah re-indexes skills on each session.
-3. Ask a question that should trigger your skill. Watch the chat's **Active skills** chip to confirm it was invoked.
-4. If it doesn't fire, tighten the `description`.
+1. Make sure that the `SKILL.md` frontmatter is valid YAML.
+2. Start a new chat session.
+3. Ask a question that must trigger the skill.
+4. If the skill does not trigger, make the `description` more specific.
 
 :::tip
-Use `ptah_harness_search_skills` to verify the skill is discoverable by keyword before relying on automatic trigger selection.
+Use `ptah_harness_search_skills` to make sure that the skill is found by keyword.
 :::
-
-## Versioning and evolution
-
-- Bump `version` in frontmatter for breaking changes.
-- Keep the skill's `name` stable — changing it invalidates any workflow that references it.
-- Link to `references/` rather than inlining — long skills hurt trigger precision.
 
 ## Next steps
 
-- [Skill junctions & sharing with other AI clients](/mcp-and-skills/skills/)
-- [Browse popular skills](/mcp-and-skills/popular-skills/)
+- [Skills and harness sync](/mcp-and-skills/skills/)
+- [Shipped skills](/mcp-and-skills/popular-skills/)

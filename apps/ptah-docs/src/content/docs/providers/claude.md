@@ -1,63 +1,50 @@
 ---
 title: Claude
-description: Configure Anthropic Claude in Ptah.
+description: Use Anthropic Claude in Ptah through your Claude Code sign-in or an API key.
 sidebar:
   order: 2
 ---
 
 # Claude (Anthropic)
 
-Claude is Ptah's default reasoning provider. It supports the full feature set: thinking, prompt caching, vision, and sub-agent spawning.
+You can use Claude in two ways:
 
-## What you need
+| Connection                  | What you need                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| **Claude (Subscription)**   | Claude Code installed and signed in. No API key.                              |
+| **Claude API**              | An Anthropic API key from the [Anthropic Console](https://console.anthropic.com/settings/keys). |
 
-- An Anthropic API key from the [Anthropic Console](https://console.anthropic.com/settings/keys).
-- Claude model access enabled on your account.
+## Use your Claude Code sign-in
 
-## Available models
+1. Install Claude Code and sign in to it in a terminal.
+2. In Ptah, open **Settings → Providers**.
+3. Click **Connect provider**, then **Connect** next to **Claude (Subscription)**.
 
-| Model                 | Good for                                                | Context | Thinking |
-| --------------------- | ------------------------------------------------------- | ------- | -------- |
-| **Claude Opus 4.8**   | The hardest reasoning tasks, long multi-file refactors. | 1M      | Yes      |
-| **Claude Sonnet 4.6** | Daily development work — best speed/quality balance.    | 1M      | Yes      |
-| **Claude Haiku 4.5**  | Quick edits, autocompletion, low-latency chat.          | 200k    | Limited  |
+If Ptah shows **Sign in with the Claude CLI in a terminal.**, Claude Code is not signed in. Sign in, then examine the connection again. To check Claude Code at any time, open **Settings → Advanced** and click **Check Claude Code**.
 
-The model picker reads the live catalog from your account, so a newer model
-appears there before this table names it.
+### Named Claude accounts
 
-## Configuration
+A Claude (Subscription) connection has an **Accounts** tab. Use it to add more Claude accounts and pick one for each agent lane.
 
-Open **Settings → Providers → Claude** in the app and paste your API key. The key is stored in encrypted `safeStorage`.
+## Use an API key
 
-Non-secret Claude settings live in `~/.ptah/settings.json`:
+1. Create an API key in the [Anthropic Console](https://console.anthropic.com/settings/keys).
+2. In Ptah, open **Settings → Providers**.
+3. Click **Connect provider**, then **Connect** next to **Claude API**.
+4. Paste the key.
 
-```json
-{
-  "anthropicProviderId": "anthropic",
-  "llm.defaultProvider": "claude"
-}
-```
+Ptah stores the key in encrypted storage.
 
-Set `anthropicProviderId` to:
+## Verify that it works
 
-- `"anthropic"` — direct Anthropic API (requires your API key).
-- `"openrouter"` — route Claude traffic through OpenRouter instead (requires an OpenRouter key — see [OpenRouter](/providers/openrouter/)).
-- `"openai-codex"` / `"github-copilot"` — use Codex or Copilot's upstream Claude access.
-
-## Verifying it works
-
-1. Open the chat.
-2. Select **Claude Sonnet 4.6** in the model selector.
-3. Send a simple prompt: `What is 2 + 2?`
-4. You should see a streaming response and the cost bar should show input/output tokens and a non-zero USD amount.
+1. Open a chat.
+2. Select a Claude model in the model selector.
+3. Send a short prompt.
+4. Make sure that the response streams and that the cost display shows token counts.
 
 ## Troubleshooting
 
-- **`invalid x-api-key`** — the key is wrong or revoked. Regenerate it in the Anthropic Console and re-paste it in Settings.
-- **`rate_limit_error`** — you've hit your tier's RPM or TPM cap. Wait or upgrade your Anthropic plan.
-- **`model_not_found`** — your account may not have access to the selected model. Check model permissions in the Anthropic Console.
-- **High cost but no output** — check the [Execution Tree](/chat/execution-tree/) for thinking-block token usage. Switch to a lower [effort level](/chat/effort-levels/) to cap thinking budget.
-
-:::tip
-Claude's prompt caching can drop costs by ~80% on long conversations. Ptah enables it automatically — watch the **cache read** number in the [cost bar](/chat/cost-and-tokens/) rise across turns.
-:::
+- **`invalid x-api-key`** — the key is wrong or revoked. Make a new key in the Anthropic Console and paste it again.
+- **`rate_limit_error`** — you are at the rate limit of your Anthropic plan. Wait, or change your plan.
+- **`model_not_found`** — your account cannot use the selected model. Select a different model.
+- **High cost with little output** — examine the [Execution Tree](/chat/execution-tree/) for thinking tokens. Select a lower [effort level](/chat/effort-levels/).

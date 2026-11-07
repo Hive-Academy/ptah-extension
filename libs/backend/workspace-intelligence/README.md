@@ -1,11 +1,13 @@
-# workspace-intelligence
+# @ptah-extension/workspace-intelligence
 
-This library was generated with [Nx](https://nx.dev).
+Workspace analysis for AI features: project and framework detection, monorepo detection, file
+system and context services, token counting, tree-sitter based code outlines and diagnostics
+(see `src/index.ts` and the folders under `src/`). Consumed by the Electron app, `rpc-handlers`,
+`agent-generation`, `vscode-lm-tools` and other backend libs.
 
-## Building
+The test target depends on `scripts/tree-sitter-grammars.json` and `assets/tree-sitter/**`
+(`project.json`).
 
-Run `nx build workspace-intelligence` to build the library.
-
-## Running unit tests
-
-Run `nx test workspace-intelligence` to execute the unit tests via [Jest](https://jestjs.io).
+```bash
+npm run verify -- -p workspace-intelligence
+```

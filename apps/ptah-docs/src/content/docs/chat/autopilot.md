@@ -1,47 +1,38 @@
 ---
 title: Autopilot
-description: Let Ptah spawn specialist sub-agents automatically based on conversation context.
+description: Set which agent actions run without an approval prompt.
 sidebar:
   order: 5
 ---
 
 # Autopilot
 
-Autopilot lets the main chat agent decide, in real time, whether a subtask should be handed to a specialist sub-agent instead of answered directly. It is the same mechanism the `/orchestrate` workflow uses — exposed as a toggle in the chat header so you get it on every turn.
+Autopilot sets the approval mode of the session. When Autopilot is off, the mode is **Manual** and the agent asks for approval before each action. When Autopilot is on, the agent approves actions automatically at the permission level that you select.
 
 ![Autopilot toggle in the chat header](/screenshots/chat-autopilot-toggle.png)
 
-## How it works
+## Turn on Autopilot
 
-When Autopilot is on:
+1. Click the approval chip in the composer. The chip shows the current mode.
+2. Select a permission level.
+3. Click **Enable Autopilot**.
 
-1. The main agent sees the full catalog of available agents — built-in specialists, `.claude/agents/` entries, and any detected CLI agents (ptah-cli, Codex, Copilot).
-2. As the conversation progresses, the agent can call `ptah_agent_spawn` to delegate a well-scoped subtask.
-3. Sub-agents run in parallel (up to three concurrent by default), stream their output into the [Execution Tree](/chat/execution-tree/), and report back.
-4. The main agent integrates the results and continues the conversation.
+To go back to Manual, open the chip and click **Disable Autopilot**.
 
-When Autopilot is off, the main agent answers everything itself. Tool calls still happen, but no sub-agents are spawned.
+## Permission levels
 
-## When Autopilot shines
+| Level         | What it does                                                         |
+| ------------- | -------------------------------------------------------------------- |
+| **Full Auto** | Approves all actions automatically. It skips all permission prompts. |
+| **Auto-edit** | Approves file edits automatically. Other actions still ask.          |
+| **Plan Mode** | Read-only analysis. It blocks file changes and code execution.       |
 
-- **Multi-file features** — a frontend agent, a backend agent, and a test agent can work in parallel.
-- **Cross-cutting refactors** — one agent per package or layer.
-- **Research tasks** — spawn two or three readers at once to explore different areas of the codebase concurrently.
+When the agent enters plan mode by itself, the chip shows **Plan Mode**.
 
-## When to turn it off
+## Scope of the setting
 
-- **Short, conversational turns** where the overhead of a sub-agent isn't worth it.
-- **Tight-budget work** — each sub-agent has its own context and adds to the session cost.
-- **Deterministic flows** where you want the main agent to stay in control end-to-end.
+The enabled state is the saved default for new and resumed sessions. A change applies to the live session at once.
 
-## Selection priority
-
-When Autopilot picks a CLI agent to run a subtask, it uses this priority:
-
-`ptah-cli > codex > copilot`
-
-You can disable specific CLIs from the **CLI Agents** matrix in **Settings → Providers** (`agentOrchestration.disabledClis` in `~/.ptah/settings.json`). This is a **hard disable**, not just an Autopilot filter: a disabled CLI is dropped from the candidate pool _and_ an explicit `ptah_agent_spawn { cli: "codex" }` for it is rejected with `CLI agent 'codex' is disabled`. Disabled CLIs still appear in `ptah_agent_list` with a `disabled` status so the restriction is visible before a spawn fails.
-
-:::tip
-The [Execution Tree](/chat/execution-tree/) is the single best way to understand what Autopilot actually did. Open it for any turn to see every spawn, the prompt it was given, and the tokens it consumed.
+:::caution
+Full Auto lets the agent run commands and change files without a prompt. Use it only for trusted tasks in a workspace that you trust.
 :::

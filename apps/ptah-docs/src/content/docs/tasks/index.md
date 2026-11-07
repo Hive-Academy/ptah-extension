@@ -7,7 +7,7 @@ The **Tasks** board reads the `.ptah/specs/` folder in your workspace and render
 it as a Kanban board. Every card is a real folder on disk. Every status change
 writes back to a file you can read, diff, and commit.
 
-Open it from **Tasks** in the navigation rail.
+Open it from **Tasks** in the tab bar.
 
 ## What a task is
 
@@ -52,7 +52,7 @@ with the folder name, the board shows a warning and uses the folder name.
 | `done`        | Finished.                              |
 | `cancelled`   | Dropped. Kept for the record.          |
 
-Drag a card between columns to change its status. Ptah patches the `status:` line
+To change the status of a task, open **Change status** on the card and select a status. PtahCode patches the `status:` line
 in `task.md` and re-reads the board. Nothing moves on the board until the write
 succeeds, so what you see is always what is on disk.
 
@@ -65,17 +65,17 @@ Each task carries a `type` and an optional `estimate`.
 [orchestration workflow](/agents/agent-orchestration/) recognizes.
 
 **Estimates:** `XS`, `S`, `M`, `L`, `XL`. These are relative t-shirt sizes and
-nothing more. Ptah deliberately assigns them no numeric value and never sums a
+nothing more. PtahCode deliberately assigns them no numeric value and never sums a
 column — a rough signal must not be read as a commitment.
 
 ## Board and list layouts
 
 Two layouts show the same data.
 
-- **Kanban** — six columns, drag between them.
+- **Kanban** — six columns.
 - **List** — one row per task, with the id, title, description, and metadata.
 
-Switch layouts from the view control. Your choice is remembered per machine, not
+Switch layouts with the task layout control. Your choice is remembered per machine, not
 per project, because it is a personal preference rather than a project setting.
 
 ## The detail panel
@@ -83,41 +83,31 @@ per project, because it is a personal preference rather than a project setting.
 Click a card to open its detail panel. The panel shows:
 
 - The frontmatter facts — status, type, estimate, title.
+- A metadata editor for labels, estimate, and parent.
 - `depends_on` — which tasks this one waits for.
 - Validation warnings, if the carrier has any.
-- The `task.md` body, rendered as markdown.
-- The **workflow documents** present in the folder.
+- The files in the task folder.
 
 ### Workflow documents
 
 A task folder can hold documents from each stage of work — the context, the task
 description, the implementation plan, the batch breakdown, review reports, and a
-research report. Each present document gets two controls:
+research report. Select a document to read it in the detail panel. Click
+**Open in editor** to change the file.
 
-| Control            | What it does                                  |
-| ------------------ | --------------------------------------------- |
-| **Read here**      | Renders the document inside the detail panel. |
-| **Open in editor** | Opens the file in the editor for editing.     |
-
-These are different intents. Use **Read here** to check what a stage produced.
-Use **Open in editor** when you want to change it.
+`task.md` is machine-owned. Change its status and metadata with the board controls.
 
 ## Starting a task
 
-Cards and rows carry a **Start** control. It hands the task to the orchestration
+Cards and rows carry a **Start** control. The detail panel has **Start in chat** and **Change status**. It hands the task to the orchestration
 workflow, which reads the carrier and the plan and begins work.
 
 You can start a task in an isolated **git worktree** so its edits do not touch
 your working tree. See [Worktrees](/git/worktrees/).
 
-:::note
-Start lives on the card and the row only. The detail panel does not launch work —
-it is for reading.
-:::
-
 ## Creating a task
 
-Click **New Task** in the board header. Ptah allocates the next id for the
+Click **New Task** in the board header. PtahCode allocates the next id for the
 current year, creates the folder, and writes a valid carrier.
 
 Ids are allocated by scanning the folders on disk, not by reading an index. A
@@ -125,10 +115,10 @@ stale index can never cause a collision.
 
 ## Excluded folders
 
-A folder under `.ptah/specs/` that Ptah cannot read as a task is **excluded**, and
+A folder under `.ptah/specs/` that PtahCode cannot read as a task is **excluded**, and
 the board lists it by name in the exclusions drawer with the reason.
 
-Ptah never reports a count alone. A count tells you that folders vanished without
+PtahCode never reports a count alone. A count tells you that folders vanished without
 telling you which or why, and that silent drop is exactly what the drawer exists
 to prevent. The most common cause is unparseable frontmatter.
 
@@ -146,9 +136,9 @@ description: >-
 
 ## Registry and reindex
 
-**Registry** generates a summary document of every task. **Reindex** rescans
-`.ptah/specs/` from scratch. Reindex is the fix when you have edited carriers
-outside Ptah and want the board to catch up immediately.
+Open **Manage** in the board header. **Generate registry** regenerates `registry.md`, a summary of every task. **Reindex** rescans
+`.ptah/specs/` from scratch. **Tidy finished…** previews which finished tasks would be deleted. Reindex is the fix when you have edited carriers
+outside PtahCode and want the board to catch up immediately.
 
 The board also refreshes on its own. An agent writing spec folders pushes a
 change notification, and the board re-reads when it is on screen.

@@ -1,123 +1,63 @@
 ---
 title: Global Settings
-description: The full schema of ~/.ptah/settings.json.
+description: Where Ptah stores its global settings, and how to edit them.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Global settings live in a single JSON file at `~/.ptah/settings.json`. This file is created automatically on first launch and is safe to edit by hand — Ptah watches it for changes.
+Ptah stores global settings in three places:
 
-## File location
+| Store                                  | What it holds                                                        |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `~/.ptah/settings.json`                | Provider, agent, memory, autopilot, scheduler, and gateway settings  |
+| `config.json` in the Electron user-data folder | Other app settings                                           |
+| `secrets.json` in the Electron user-data folder | API keys and tokens, each value encrypted                   |
 
-| OS      | Path                                 |
-| ------- | ------------------------------------ |
-| Windows | `C:\Users\<you>\.ptah\settings.json` |
-| macOS   | `/Users/<you>/.ptah/settings.json`   |
-| Linux   | `/home/<you>/.ptah/settings.json`    |
+See [File locations](/reference/file-locations/) for the paths on each OS.
 
-## Schema
+## `~/.ptah/settings.json`
 
-```jsonc
+Edit settings in the Settings page when you can. You can also edit the file by hand. Ptah watches the file and picks up changes.
+
+The docs name keys in dot notation, for example `autopilot.permissionLevel`. On disk, the file uses nested objects:
+
+```json
 {
-  // Appearance
-  "theme": "dark", // "light" | "dark" | "system"
-
-  // Default routing
-  "defaultProvider": "claude", // Used when a chat doesn't specify one
-  "defaultModel": "claude-sonnet-4-7",
-  "defaultEffort": "balanced", // "fast" | "balanced" | "deep"
-
-  // Provider credentials (encrypted at rest; see note below)
-  "providers": {
-    "claude": { "apiKey": "sk-ant-..." },
-    "copilot": { "apiKey": "..." },
-    "codex": { "apiKey": "..." },
-    "ollama": { "baseUrl": "http://localhost:11434" },
-    "openrouter": { "apiKey": "sk-or-..." },
-  },
-
-  // Web search providers
-  "webSearch": {
-    "tavily": { "apiKey": "tvly-..." },
-    "serper": { "apiKey": "..." },
-    "exa": { "apiKey": "..." },
-  },
-
-  // Built-in MCP server
-  "mcp": {
-    "port": 51820, // 0 to let the OS pick a free port
-    "host": "127.0.0.1",
-  },
-
-  // Browser automation (Pro)
-  "browser": {
-    "executablePath": null, // null = bundled Chromium
-    "headless": false,
-    "viewport": { "width": 1280, "height": 800 },
-    "persistProfile": false,
-  },
-
-  // Autopilot
   "autopilot": {
     "enabled": false,
-    "autoApproveReads": true,
-    "autoApproveWrites": false,
-    "autoApproveShell": false,
-  },
+    "permissionLevel": "ask"
+  }
 }
 ```
 
-## Key reference
+### Main key groups
 
-### Appearance
-
-| Key     | Type | Description                  |
-| ------- | ---- | ---------------------------- |
-| `theme` | enum | `light`, `dark`, or `system` |
-
-### Default routing
-
-| Key               | Type   | Description                                                               |
-| ----------------- | ------ | ------------------------------------------------------------------------- |
-| `defaultProvider` | string | Provider used when a new chat is opened                                   |
-| `defaultModel`    | string | Model id within that provider                                             |
-| `defaultEffort`   | enum   | `fast`, `balanced`, or `deep` — controls reasoning budget where supported |
-
-### Providers
-
-Each provider is an object under `providers`. Keys vary by provider — see the **API keys** page for the exact fields each one supports.
-
-### Web search
-
-The `webSearch` block stores keys for Tavily, Serper, and Exa. If more than one is configured, the agent picks the first available in that order.
-
-### MCP
-
-The built-in MCP server listens on `mcp.port` (default `51820`) bound to `mcp.host`. Set `port` to `0` to let the OS pick a free port on startup — useful when the default is already in use.
-
-### Browser
-
-Controls the browser automation suite. See **Browser Automation → Launching a Browser** for details.
-
-### Autopilot
-
-Gates autonomous execution. See the dedicated **Autopilot** page for the full rundown.
+| Prefix                 | What it controls                                              | See                                            |
+| ---------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| `provider.*`           | Provider endpoints and model tiers                            | [Providers](/providers/)                       |
+| `agentOrchestration.*` | CLI agent models, effort, auto-approve, and disabled CLIs     | [Ptah CLI](/providers/ptah-cli/)               |
+| `ptahCliAgents`        | Ptah CLI instances                                            | [Ptah CLI](/providers/ptah-cli/)               |
+| `autopilot.*`          | Approval mode                                                 | [Autopilot](/settings/autopilot/)              |
+| `memory.*`             | Memory, curator, and lifecycle                                | [Memory](/memory/)                             |
+| `skillSynthesis.*`     | Skill synthesis                                               | [Skill synthesis](/skill-synthesis/)           |
+| `cron.*`               | Scheduled jobs                                                | [Automation](/automation/)                     |
+| `gateway.*`            | Telegram, Discord, and Slack gateways                         | [Automation](/automation/)                     |
+| `browser.*`            | Browser automation                                            | [Browser automation](/browser-automation/)     |
+| `mcp.externalCallerAccess` | Access of external MCP callers (default `read-only`)      | [MCP](/mcp-and-skills/)                        |
 
 ## Encryption of secrets
 
 <Aside type="tip">
-Fields named `apiKey` are encrypted on disk using Electron's `safeStorage` API, which delegates to the OS keychain:
+Ptah encrypts each secret with Electron `safeStorage`, which uses the OS keychain:
 
-- **Windows** — DPAPI (per-user)
+- **Windows** — DPAPI (per user)
 - **macOS** — Keychain
-- **Linux** — libsecret / gnome-keyring
-
-Ciphertext is what lands in `settings.json`; the plaintext key never touches disk.
+- **Linux** — libsecret
 
 </Aside>
 
-If `safeStorage` is unavailable (e.g. on a headless Linux system with no keyring), Ptah refuses to save API keys and prompts you to enter them per-session instead.
+If `safeStorage` is not available, for example on Linux without a keyring, Ptah stores secrets as plain text and logs a warning.
 
-## Hot reload
+## Reset to defaults
 
-Ptah watches `settings.json` and reloads most keys without restarting. Changes to `mcp.port` and `browser.executablePath` take effect on the next launch.
+To reset the file-based settings, quit Ptah, move `~/.ptah/settings.json` to a backup location, and start Ptah again. Secrets are not in this file.

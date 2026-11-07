@@ -1,68 +1,32 @@
 ---
-title: Using Templates
-description: Apply a template to your current workspace.
+title: How Templates Are Used
+description: How agent generation selects templates and writes agents into your project.
 ---
 
-The **Templates** panel lets you browse the catalog, preview any template, and apply it to the active workspace in a single click.
+You do not apply templates one by one. The agent generation of the [setup wizard](/setup/setup-wizard/) selects the templates that fit your project and writes the agents for you.
 
-## Applying a template
+## How templates are selected
 
-1. Open the **Templates** panel from the primary sidebar.
-2. Browse or search for a template.
-3. Click **Preview** to inspect the files and prompts it will add.
-4. Click **Apply to workspace**.
-5. Fill in any template variables (name, target folder, options).
-6. Ptah writes the files and — if the template contains agent or skill definitions — registers them with the current session.
+Each template has `applicabilityRules` in its frontmatter:
 
-:::tip
-Templates never overwrite existing files silently. When a conflict is detected, Ptah opens a diff view and asks you to accept, skip, or merge each change.
-:::
+| Rule                    | Meaning                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| `projectTypes`          | Project types that the template fits                              |
+| `techStack`             | Technologies that the template fits                               |
+| `requiredPatterns`      | File patterns that show the template is relevant                  |
+| `excludePatterns`       | File patterns that lower the relevance                            |
+| `minimumRelevanceScore` | The minimum score for the template to be selected                 |
+| `alwaysInclude`         | When `true`, the template is always selected                      |
 
-## Template variables
+## What is written
 
-Most templates declare variables in their metadata, for example:
+PtahCode writes each generated agent to `<workspace>/.claude/agents/<name>.md`. When it writes a file, it expands the shared blocks from `_shared/` and removes the template markers. The harness sync then copies the agents to the agent folders of the other detected AI tools.
 
-```yaml
-variables:
-  - name: featureName
-    prompt: 'Feature name (kebab-case)'
-    required: true
-  - name: useSignals
-    prompt: 'Use Angular signals?'
-    type: boolean
-    default: true
-```
+## Using the agents
 
-You'll be prompted for each variable before the template is applied.
-
-## Agent templates
-
-Agent templates are a special case: applying one installs the agent into the workspace's `.claude/agents/` folder so it becomes spawnable via the orchestrator and visible to third-party AI clients that read that folder.
-
-```text
-<workspace>/.claude/agents/
-├── frontend-developer.md
-├── backend-developer.md
-└── security-auditor.md
-```
-
-## Specialist scope and tools
-
-Shipped templates distinguish coordinators from specialists. `project-manager` and `team-leader` receive the coordinator task-spec contract; other templates receive a specialist block with no task-ID allocation. Specialists read the assigned task folder and write their deliverables, but never edit `task.md` or `batches.md`. They report completion with evidence; the team-leader records batch state.
-
-`team-leader`, `visual-reviewer`, and `ui-ux-designer` do not delegate to CLI lanes. Other eligible specialists may use lanes for focused sub-tasks when the workflow permits and the tools are available. The team-leader spawns nothing; the orchestrator acts on its recommendations.
-
-Templates use `ptah_*` tools first only when those tools are listed in the session. Otherwise they use native tools directly. Lane recovery is conditional: resume only on a **CLI Session ID** reported by status; without one, spawn fresh with context restated.
-
-## Chaining templates with orchestration
-
-Templates pair well with the `orchestration` skill and `/orchestrate` command from `ptah-core`. A common pattern:
-
-1. Apply a **project scaffold** template.
-2. Apply one or more **agent templates** for the stack.
-3. Run `/orchestrate <task>` to let the orchestrator delegate to those agents.
+The generated agents work with the `orchestration` skill and the `/orchestrate` command from `ptah-core`. Run `/orchestrate <task>` to let the orchestrator give work to those agents.
 
 ## Next steps
 
-- [Template storage internals](/templates/template-storage/)
-- [Create your own template](/templates/creating-templates/)
+- [Template storage](/templates/template-storage/)
+- [Creating templates](/templates/creating-templates/)

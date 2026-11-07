@@ -1,58 +1,53 @@
 ---
 title: Messaging Settings
-description: Every gateway tunable, with defaults.
+description: Gateway settings and their defaults.
 ---
 
 # Messaging Settings
 
-Gateway settings live under the `gateway.*` prefix in `~/.ptah/settings.json`. Edit through **Settings → Messaging**.
+Gateway settings use the `gateway.*` prefix in `~/.ptah/settings.json`. The **Messaging** tab writes the tokens, the allow lists, and the enable flags for you. Edit the other keys in the file.
 
 ## Global
 
-| Key                     | Default | What it does                                                       |
-| ----------------------- | ------- | ------------------------------------------------------------------ |
-| `gateway.enabled`       | `false` | Master kill-switch. **Must** be `true` for any platform to connect |
-| `gateway.coalesceMs`    | `800`   | Stream coalesce window in milliseconds                             |
-| `gateway.voice.enabled` | `true`  | Whether voice attachments are transcribed and forwarded            |
+| Key                               | Default | What it does                                                         |
+| --------------------------------- | ------- | -------------------------------------------------------------------- |
+| `gateway.enabled`                 | `false` | Master switch. It must be `true` for any platform to connect         |
+| `gateway.rateLimit.minTimeMs`     | `500`   | Shown as a read-only value in the Messaging tab                      |
+| `gateway.rateLimit.maxConcurrent` | `2`     | Shown as a read-only value in the Messaging tab                      |
+| `gateway.voice.enabled`           | `true`  | Lets the gateway transcribe voice notes that an adapter supplies     |
 
-## Per-platform shape
+The tool approval level for gateway turns is `gateway.permissionLevel`: `ask` (default), `auto-edit`, or `yolo`. PtahCode does not read this key from `~/.ptah/settings.json`. It reads it from the `"ptah"` object in `config.json` in the Electron user-data folder. Refer to [File locations](/reference/file-locations/#electron-user-data). The Messaging tab has no control for it.
 
-Each platform exposes the same shape, with its own credential field:
-
-| Key                              | Default | What it does                                              |
-| -------------------------------- | ------- | --------------------------------------------------------- |
-| `gateway.<platform>.enabled`     | `false` | Per-platform kill-switch                                  |
-| `gateway.<platform>.tokenCipher` | (none)  | OS-keyring-encrypted token blob — **never** edit directly |
-| `gateway.<platform>.allowed*Ids` | `[]`    | Whitelist of user / guild / team IDs                      |
-
-### Telegram
-
-| Key                               | Default | What it does                              |
-| --------------------------------- | ------- | ----------------------------------------- |
-| `gateway.telegram.enabled`        | `false` | Per-platform kill-switch                  |
-| `gateway.telegram.tokenCipher`    | (none)  | Encrypted bot token                       |
-| `gateway.telegram.allowedUserIds` | `[]`    | Numeric Telegram user IDs allowed to pair |
-
-### Discord
-
-| Key                               | Default | What it does                     |
-| --------------------------------- | ------- | -------------------------------- |
-| `gateway.discord.enabled`         | `false` | Per-platform kill-switch         |
-| `gateway.discord.tokenCipher`     | (none)  | Encrypted bot token              |
-| `gateway.discord.allowedGuildIds` | `[]`    | Guild IDs the bot may operate in |
-
-### Slack
-
-| Key                            | Default | What it does                                |
-| ------------------------------ | ------- | ------------------------------------------- |
-| `gateway.slack.enabled`        | `false` | Per-platform kill-switch                    |
-| `gateway.slack.tokenCipher`    | (none)  | Encrypted bot + app token blob              |
-| `gateway.slack.allowedTeamIds` | `[]`    | Workspace (team) IDs the bot may operate in |
-
-:::caution[Token storage]
-Tokens are encrypted at rest using the OS keyring via `electron-safe-storage-vault`. **Always paste tokens through the Settings UI** — it encrypts before writing `tokenCipher`. Never put raw tokens into `~/.ptah/settings.json`.
+:::note
+The adapters do not download voice notes at this time. A voice note without text does not start a turn.
 :::
+
+## Telegram
+
+| Key                               | Default | What it does                                 |
+| --------------------------------- | ------- | -------------------------------------------- |
+| `gateway.telegram.enabled`        | `false` | Platform switch                              |
+| `gateway.telegram.tokenCipher`    | (empty) | Encrypted bot token. Do not edit it          |
+| `gateway.telegram.allowedUserIds` | `[]`    | Numeric Telegram user IDs and group chat IDs |
+
+## Discord
+
+| Key                               | Default | What it does                                    |
+| --------------------------------- | ------- | ----------------------------------------------- |
+| `gateway.discord.enabled`         | `false` | Platform switch                                 |
+| `gateway.discord.tokenCipher`     | (empty) | Encrypted bot token. Do not edit it             |
+| `gateway.discord.allowedGuildIds` | `[]`    | Server (guild) IDs where the bot can work       |
+| `gateway.discord.applicationId`   | (empty) | Application ID for the invite link and commands |
+
+## Slack
+
+| Key                            | Default | What it does                                      |
+| ------------------------------ | ------- | ------------------------------------------------- |
+| `gateway.slack.enabled`        | `false` | Platform switch                                   |
+| `gateway.slack.botTokenCipher` | (empty) | Encrypted bot token (`xoxb-...`). Do not edit it  |
+| `gateway.slack.appTokenCipher` | (empty) | Encrypted app-level token (`xapp-...`)            |
+| `gateway.slack.allowedTeamIds` | `[]`    | Slack workspace (team) IDs where the app can work |
 
 ## Storage
 
-Bindings, pairing codes, and message-tracking state live in `~/.ptah/ptah.db`. Backing up that file backs up your gateway state.
+Bindings, pairing codes, and message records are stored in `~/.ptah/state/ptah.sqlite`.

@@ -1,88 +1,41 @@
 ---
 title: Kimi Code
-description: Use a Kimi Code subscription as a ptah-cli provider.
+description: Use a Kimi Code subscription in Ptah.
 sidebar:
   order: 9
 ---
 
 # Kimi Code
 
-Kimi Code is available in Ptah as a **ptah-cli provider** — an Anthropic-compatible API provider that joins the CLI agent pool alongside Codex and Copilot. It runs on a **Kimi Code subscription**, not on pay-as-you-go API credit.
-
-:::caution[Moving from the Moonshot Platform?]
-Ptah no longer offers the Moonshot Platform (pay-as-you-go) provider. An old Moonshot Platform API key does **not** work with Kimi Code. Create a key in the Kimi Code console and enter it in Ptah instead.
-:::
-
-## Models
-
-Which models you can use depends on your Kimi Code plan.
-
-| Model                       | Context | Plan                    |
-| --------------------------- | ------- | ----------------------- |
-| `k3.1-pro`                  | 256K    | Plus / Moderato and up  |
-| `k3.1-pro[1m]`              | 1M      | Pro / Allegretto and up |
-| `k3.1-pro-highspeed`        | 1M      | Pro / Allegretto and up |
-| `k3`                        | 256K    | Plus and up             |
-| `k3-256k`                   | 256K    | Plus and up             |
-| `kimi-for-coding`           | 1M      | Andante and up          |
-| `kimi-for-coding-highspeed` | 256K    | Pro / Allegretto and up |
-
-Ptah maps its capability tiers to these defaults:
-
-| Tier       | Default model     |
-| ---------- | ----------------- |
-| **opus**   | `k3.1-pro`        |
-| **sonnet** | `k3`              |
-| **haiku**  | `kimi-for-coding` |
-
-The opus tier is what Ptah selects when a high-capability Kimi agent is requested (including when Kimi joins a [Tribunal](/tribunal/) panel). If your plan does not include a tier's default model, pick another model for that tier as described below.
+Kimi Code connects Ptah to the Kimi models of a **Kimi Code subscription**. Ptah connects to `https://api.kimi.ai/coding/` through an Anthropic-compatible API.
 
 ## What you need
 
-- A Kimi Code subscription and an API key from the Kimi Code console at [kimi.com/code](https://www.kimi.com/code).
-- The Ptah Electron desktop app.
+- A Kimi Code subscription. See [kimi.com/code](https://www.kimi.com/code).
+- Optional: a Kimi Code API key.
 
-:::note
-Kimi Code is available overseas only. Ptah connects to `https://api.kimi.ai/coding/`.
-:::
+Which models you can use depends on your Kimi Code plan.
 
-## Configuration
+## Connect
 
-Add Kimi Code from **Settings → Providers → Ptah CLI** in the app:
+1. Open **Settings → Providers**.
+2. Click **Connect provider**, then **Connect** next to **Kimi Code**.
+3. Click **Sign in with Kimi Code** and complete the sign-in. Or paste a Kimi Code API key.
 
-1. Add a new Ptah CLI provider and choose **Kimi Code** as the provider.
-2. Paste your Kimi Code API key. The key is stored in encrypted `safeStorage` — never in plaintext. Ptah sends it as `ANTHROPIC_API_KEY` (the `x-api-key` header), as the Kimi Code documentation specifies.
-3. Save. Kimi Code now appears in the model selector and the CLI agent pool.
+Ptah stores the key in encrypted storage.
 
-Ptah registers Kimi Code as an Anthropic-compatible provider with the base URL above and maps its capability tiers to concrete models automatically. Model tiers and effort are configurable like any other provider. Non-secret tier mappings live in `~/.ptah/settings.json`:
+To use Kimi Code as an extra CLI agent lane, add a [Ptah CLI instance](/providers/ptah-cli/) on this connection.
 
-```json
-{
-  "provider.kimi-code.mainAgent.modelTier.opus": "k3.1-pro",
-  "provider.kimi-code.mainAgent.modelTier.sonnet": "k3",
-  "provider.kimi-code.mainAgent.modelTier.haiku": "kimi-for-coding"
-}
-```
+## Model tiers
 
-Set any tier to `null` to fall back to Ptah's default for that tier.
+Ptah has a default tier map for Kimi Code. If your plan does not include a default model, open the connection, select **Models & Tiers**, and pick a different model for that tier.
 
-## Cost and usage
+## Cost
 
-Kimi Code bills against your plan quota, so Ptah shows **no per-token cost** for it. Cost is displayed as covered by your subscription, or as unavailable. Tokens are still counted. Check your remaining quota in the Kimi Code console. See [Cost and tokens](/chat/cost-and-tokens/).
-
-## Verifying it works
-
-1. Open the chat and select your **Kimi Code** agent from the model selector.
-2. Send a coding prompt: `Write a TypeScript function that validates an ISO 8601 date string.`
-3. You should see a streaming response, attributed to the Kimi Code ptah-cli provider in the [Execution Tree](/chat/execution-tree/).
-
-## Tribunal panel participation
-
-When [Tribunal](/tribunal/) assembles a panel, Kimi Code joins as the **Kimi vendor family** if its ptah-cli agent is enabled — contributing a Kimi answer and critique to each [Council](/tribunal/council/), a worktree implementation in [Forge](/tribunal/forge/), and an attempt in [Race](/tribunal/race/). To drop Kimi from the panel, disable or remove its agent in **Settings → Providers**.
+Kimi Code bills against your plan quota. Ptah shows no per-token cost for it, but it still counts tokens. Examine your quota in the Kimi Code console.
 
 ## Troubleshooting
 
-- **Agent not listed in the selector** — confirm the Kimi Code provider is enabled in Settings, then restart Ptah.
-- **Authentication error** — the key is wrong, expired, or is an old Moonshot Platform key. Create a Kimi Code key at [kimi.com/code](https://www.kimi.com/code) and re-enter it in **Settings → Providers → Ptah CLI**.
-- **Model unavailable** — your plan may not include that model (see the plan column above). Choose a different model for the tier, or upgrade your plan.
-- **Cannot connect** — Kimi Code is overseas only; confirm your network can reach `api.kimi.ai`.
+- **Authentication error** — the sign-in expired or the key is wrong. Sign in again, or paste a new key.
+- **Model unavailable** — your plan does not include that model. Pick a different model for the tier, or change your plan.
+- **Cannot connect** — make sure that your network can reach `api.kimi.ai`.
