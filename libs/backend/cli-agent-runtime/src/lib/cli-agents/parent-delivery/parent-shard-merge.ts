@@ -1,31 +1,26 @@
-import { z } from 'zod';
 import {
+  type ParentCompletionKey,
+  ParentCompletionKeySchema,
   ParentCompletionKeyShardSchema,
   ParentCompletionOutboxEntrySchema,
   ParentCompletionOutboxSchema,
 } from './parent-envelope.schema';
 
-/** Only the dedupe key is read here; each entry is still validated by its own reader. */
-const KeyedEntrySchema = z.object({ dedupeKey: z.string() }).passthrough();
-
 /**
- * Key-shard merge. Merges the entries of a tab's completion shard into the shard already stored under the
- * resolved session id (a resumed session can hold its own outbox entries and keys). An entry
- * already in the target wins on a shared `dedupeKey`. An entry without a readable key is kept,
- * never dropped: it may be the only remaining dedupe record, and its reader fails closed on it.
+ * Merges validated completion keys of a tab's shard into the shard already stored under the
+ * resolved session id (a resumed session can hold its own keys). A key already in the target
+ * wins on a shared `dedupeKey`.
  */
-function mergeByDedupeKey(target: readonly unknown[], moved: readonly unknown[]): unknown[] {
-  const seen = new Set<string>();
-  for (const value of target) {
-    const parsed = KeyedEntrySchema.safeParse(value);
-    if (parsed.success) seen.add(parsed.data.dedupeKey);
-  }
+function mergeByDedupeKey(
+  target: readonly ParentCompletionKey[],
+  moved: readonly ParentCompletionKey[],
+): ParentCompletionKey[] {
+  const seen = new Set(target.map((key) => key.dedupeKey));
   const merged = [...target];
-  for (const value of moved) {
-    const parsed = KeyedEntrySchema.safeParse(value);
-    if (parsed.success && seen.has(parsed.data.dedupeKey)) continue;
-    if (parsed.success) seen.add(parsed.data.dedupeKey);
-    merged.push(value);
+  for (const key of moved) {
+    if (seen.has(key.dedupeKey)) continue;
+    seen.add(key.dedupeKey);
+    merged.push(key);
   }
   return merged;
 }
@@ -66,12 +61,19 @@ export function mergeOutboxShards(
   return { version: 1, entries };
 }
 
-/** Throws when either shard container is malformed, so the caller keeps the tab shard. */
+/**
+ * Throws when either shard container OR any key in either shard is malformed, so the caller
+ * keeps the tab shard. Keys fail closed: a malformed destination key could otherwise
+ * suppress a valid tab key with the same `dedupeKey`, and the valid key would be lost when
+ * the tab shard is deleted.
+ */
 export function mergeCompletionKeyShards(
   target: unknown,
   moved: unknown,
 ): { readonly version: 1; readonly keys: unknown[] } {
   const into = ParentCompletionKeyShardSchema.parse(target ?? { version: 1, keys: [] });
   const from = ParentCompletionKeyShardSchema.parse(moved);
-  return { version: 1, keys: mergeByDedupeKey(into.keys, from.keys) };
+  const intoKeys = into.keys.map((key) => ParentCompletionKeySchema.parse(key));
+  const fromKeys = from.keys.map((key) => ParentCompletionKeySchema.parse(key));
+  return { version: 1, keys: mergeByDedupeKey(intoKeys, fromKeys) };
 }

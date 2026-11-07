@@ -820,9 +820,20 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     const newKey = `${prefix}${sessionId}`;
     // A resumed session may already hold its own shard: merge, never overwrite.
     const target = this.storage.get<unknown>(newKey);
-    const merged = prefix === PARENT_COMPLETION_OUTBOX_PREFIX
-      ? mergeOutboxShards(target, moved, sessionId)
-      : mergeCompletionKeyShards(target, moved);
+    let merged: unknown;
+    try {
+      merged = prefix === PARENT_COMPLETION_OUTBOX_PREFIX
+        ? mergeOutboxShards(target, moved, sessionId)
+        : mergeCompletionKeyShards(target, moved);
+    } catch (error: unknown) {
+      // degradation-audit: reported - a malformed shard is logged and both shards stay as
+      // they are, so no valid entry or dedupe key is lost; the readers fail closed on it.
+      this.logger.error(
+        `[ParentEnvelopeStore] Shard ${oldKey} not moved to ${newKey}: a shard is malformed`,
+        this.error(error),
+      );
+      return;
+    }
     await this.storage.update(newKey, merged);
     await this.storage.update(oldKey, undefined);
   }

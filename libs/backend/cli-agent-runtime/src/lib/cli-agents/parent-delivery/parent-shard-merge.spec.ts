@@ -55,13 +55,28 @@ describe('parent shard merge', () => {
     expect(mergeCompletionKeyShards(undefined, tab)).toEqual(tab);
   });
 
-  it('keeps a key entry without a readable key instead of dropping it', () => {
+  it('merges valid key shards with the session key winning on a shared dedupe key', () => {
     const session = { version: 1, keys: [{ dedupeKey: 'a', state: 'accepted', at: 1 }] };
-    const tab = { version: 1, keys: [{ broken: true }] };
+    const tab = { version: 1, keys: [
+      { dedupeKey: 'a', state: 'cancelled', at: 2 }, { dedupeKey: 'b', state: 'accepted', at: 3 },
+    ] };
 
     expect(mergeCompletionKeyShards(session, tab).keys).toEqual([
-      { dedupeKey: 'a', state: 'accepted', at: 1 }, { broken: true },
+      { dedupeKey: 'a', state: 'accepted', at: 1 }, { dedupeKey: 'b', state: 'accepted', at: 3 },
     ]);
+  });
+
+  it('refuses to merge when a malformed destination key shares a valid tab key', () => {
+    const session = { version: 1, keys: [{ dedupeKey: 'a' }] };
+    const tab = { version: 1, keys: [{ dedupeKey: 'a', state: 'accepted', at: 1 }] };
+
+    expect(() => mergeCompletionKeyShards(session, tab)).toThrow();
+  });
+
+  it('refuses to merge a malformed tab key', () => {
+    const tab = { version: 1, keys: [{ broken: true }] };
+
+    expect(() => mergeCompletionKeyShards(undefined, tab)).toThrow();
   });
 
   it('throws on a malformed shard container', () => {

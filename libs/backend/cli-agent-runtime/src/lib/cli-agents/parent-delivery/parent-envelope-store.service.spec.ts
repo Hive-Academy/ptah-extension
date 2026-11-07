@@ -282,6 +282,20 @@ describe('ParentEnvelopeStoreService completion outbox and key shard', () => {
     expect(storage.values.has(`${PARENT_COMPLETION_OUTBOX_PREFIX}tab-1`)).toBe(false);
   });
 
+  it('keeps both key shards when the session key shard holds a malformed key', async () => {
+    const storage = new FakeStateStorage();
+    const store = await open(storage);
+    const malformed = { version: 1, keys: [{ dedupeKey: 'shared:key' }] };
+    const tabKeys = { version: 1, keys: [{ dedupeKey: 'shared:key', state: 'accepted', at: now }] };
+    storage.values.set(`${PARENT_COMPLETION_KEYS_PREFIX}${PARENT}`, malformed);
+    storage.values.set(`${PARENT_COMPLETION_KEYS_PREFIX}tab-1`, tabKeys);
+
+    await store.resolveParentSessionId('tab-1', PARENT);
+
+    expect(storage.values.get(`${PARENT_COMPLETION_KEYS_PREFIX}${PARENT}`)).toEqual(malformed);
+    expect(storage.values.get(`${PARENT_COMPLETION_KEYS_PREFIX}tab-1`)).toEqual(tabKeys);
+  });
+
   it('writes the shard key on acceptance, then removes the outbox entry', async () => {
     const storage = new FakeStateStorage();
     const store = await open(storage);
