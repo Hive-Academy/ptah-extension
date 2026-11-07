@@ -104,7 +104,7 @@ function segmentsTail(segments: readonly CliOutputSegment[]): CliOutputSegment[]
   for (let index = segments.length - 1; index >= 0; index--) {
     if (kept.length >= AGENT_OUTPUT_CHECKPOINT_MAX_SEGMENTS) break;
     const bounded = boundSegment(segments[index]);
-    bytes += JSON.stringify(bounded).length + 1;
+    bytes += Buffer.byteLength(JSON.stringify(bounded), 'utf8') + 1;
     if (bytes > AGENT_OUTPUT_CHECKPOINT_MAX_SEGMENT_BYTES) break;
     kept.push(bounded);
   }

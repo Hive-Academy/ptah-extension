@@ -160,6 +160,15 @@ describe('AgentOutputJournal', () => {
       AGENT_OUTPUT_CHECKPOINT_MAX_SEGMENT_BYTES,
     );
     expect(bounded?.segmentsTail.every((segment) => segment.content.length <= 8 * 1024)).toBe(true);
+
+    // Multibyte text: the budget counts UTF-8 bytes, not UTF-16 code units.
+    const wide = Array.from({ length: 100 }, () => text('漢'.repeat(2_000)));
+    const cjk = setup({ stdout: '', segments: wide });
+    await cjk.journal.checkpointNow('a3');
+    const cjkTail = cjk.journal.read('a3')?.segmentsTail;
+    expect(Buffer.byteLength(JSON.stringify(cjkTail), 'utf8')).toBeLessThanOrEqual(
+      AGENT_OUTPUT_CHECKPOINT_MAX_SEGMENT_BYTES,
+    );
   });
 
   it('removes a checkpoint only up to the exit sequence', async () => {

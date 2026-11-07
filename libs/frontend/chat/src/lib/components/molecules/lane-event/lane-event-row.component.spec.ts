@@ -64,7 +64,7 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('file.txt');
   });
 
-  it('shows when output was lost in a restart only while outputLostAfter is set', () => {
+  it('shows when output may have been lost in a restart only while outputLostAfter is set', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
@@ -75,7 +75,7 @@ describe('LaneEventRowComponent', () => {
     fixture.componentRef.setInput('outputLostAfter', lostAt);
     fixture.detectChanges();
     const notice = element.querySelector('[data-testid="lane-event-output-lost"]')!;
-    expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^Output after .+ was lost in a restart$/);
+    expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^Output after .+ may have been lost in a restart$/);
     expect(notice.querySelector('time')?.getAttribute('datetime')).toBe(lostAt);
 
     fixture.componentRef.setInput('outputLostAfter', 'not-a-time');
