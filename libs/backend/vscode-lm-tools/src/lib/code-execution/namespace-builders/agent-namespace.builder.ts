@@ -585,6 +585,13 @@ export function buildAgentNamespace(
           ? coordinator.send(request, caller.sender, caller.lane)
           : coordinator.send(request, caller.sender);
       }
+      // Without a coordinator no lane policy can run, so a lane or unproven
+      // agent caller fails closed; only parent and user callers fall back.
+      const fallbackCaller = mcpMessageSender();
+      if (!fallbackCaller) return identityMissingOutcome(AgentId.from(agentId));
+      if (fallbackCaller.lane) {
+        return { mode: 'unsupported', reasonCode: 'delivery-refused', detail: 'delivery-refused', requestedAgentId: AgentId.from(agentId) };
+      }
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
       // discarded. A `void` return would have made both look like a success.
@@ -593,9 +600,13 @@ export function buildAgentNamespace(
     messageStatus: async (agentId, messageId) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
-      if (!coordinator) return agentProcessManager.getAgentMessageStatus(agentId, messageId);
       const viewer = mcpStatusViewer();
       if (viewer === null) throw new AgentMessageError('not_found', 'Message receipt not found.');
+      if (!coordinator) {
+        // No coordinator means no viewer scoping: a lane caller sees nothing.
+        if (viewer) throw new AgentMessageError('not_found', 'Message receipt not found.');
+        return agentProcessManager.getAgentMessageStatus(agentId, messageId);
+      }
       return viewer
         ? coordinator.getReceipt(AgentId.from(agentId), messageId, viewer)
         : coordinator.getReceipt(AgentId.from(agentId), messageId);

@@ -1866,6 +1866,24 @@ describe('buildAgentNamespace — messaging', () => {
     expect(coordinator.getReceipt).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed for lane callers when no coordinator is wired, and keeps the parent fallback', async () => {
+    const { deps, mocks } = makeDeps();
+    const ns = buildAgentNamespace({ ...deps, getMessageCoordinator: () => undefined });
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, workspaceRoot: '/repo', capability: 'privileged' } as const;
+
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.message(LANE, 'go'))).resolves.toMatchObject({ mode: 'unsupported', reasonCode: 'delivery-refused' });
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE }, () =>
+      ns.message(LANE, 'go'))).resolves.toMatchObject({ mode: 'unsupported', reasonCode: 'identity-missing' });
+    expect(mocks.processManager.sendToAgent).not.toHaveBeenCalled();
+
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.messageStatus(LANE, MESSAGE))).rejects.toMatchObject({ code: 'not_found' });
+
+    await runWithMcpRequestContext({ callerSessionId: 'tab-1' }, () => ns.message(LANE, 'go'));
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledTimes(1);
+  });
+
   it('sends as an anonymous parent without request identity, so a key is refused by the coordinator', async () => {
     const { ns, coordinator } = withCoordinator();
     coordinator.send.mockResolvedValueOnce({
