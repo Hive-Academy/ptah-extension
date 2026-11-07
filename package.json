@@ -131,6 +131,7 @@
     "rxjs": "7.8.2",
     "shiki": "4.4.3",
     "sqlite-vec": "0.1.9",
+    "starlight-links-validator": "^0.27.0",
     "temporal-polyfill": "^1.0.2",
     "tsyringe": "^4.10.0",
     "ulid": "3.0.2",

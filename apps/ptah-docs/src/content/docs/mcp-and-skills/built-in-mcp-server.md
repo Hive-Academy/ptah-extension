@@ -13,7 +13,7 @@ The PtahCode desktop app runs a local MCP server. The server gives the `ptah_*` 
 
 - Serves the `ptah_*` tool catalog. See [Ptah tools](/mcp-and-skills/ptah-tools/).
 - Runs `execute_code`, which gives an agent the `ptah` API in one call.
-- Adds itself to the `.mcp.json` file of each open workspace folder, so that agents in that folder can find it.
+- Adds itself, with a token, to the `.mcp.json` file of each open workspace folder, so that agents in that folder can find it. When PtahCode finds Cursor, Codex, or Antigravity on your computer, it also adds itself to their config files.
 
 ## Port
 
@@ -38,16 +38,17 @@ In **Settings → Advanced → MCP & Browser**, you can turn tool groups on or o
 
 ## External callers
 
-Each caller of the server must send a token. PtahCode gives tokens to the sessions and CLI lanes that it starts. Other local tools that read the token from a config file are external callers.
+A caller of the server can send a token. A request without a token gets read-only access. PtahCode gives tokens to the sessions and CLI lanes that it starts. Other local tools that read the token from a config file are external callers.
 
 Set **External MCP callers** (`mcp.externalCallerAccess`) to one of these values:
 
 | Value                      | Effect                                                                                       |
 | -------------------------- | -------------------------------------------------------------------------------------------- |
 | Read-only (recommended)    | Default. External tools can call only read-only tools                                        |
-| Full access                | External tools can also call privileged tools, including `execute_code`. They cannot cross workspaces |
+| Full access                | External tools with a token from a workspace config file can also call privileged tools, including `execute_code`. Tokens in config files in your home folder stay read-only. Callers cannot cross workspaces |
 
 ## Next steps
 
+- [External MCP callers](/mcp-and-skills/external-callers/)
 - [Ptah tools](/mcp-and-skills/ptah-tools/)
 - [Third-party MCP servers](/mcp-and-skills/third-party-mcp/)

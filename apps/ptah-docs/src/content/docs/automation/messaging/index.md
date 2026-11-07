@@ -56,3 +56,4 @@ PtahCode encrypts tokens with the OS keychain before it saves them. Do not paste
 
 - [Pairing and approvals](/automation/messaging/pairing-and-approvals/)
 - [Settings](/automation/messaging/settings/)
+- [Hand off a session](/automation/messaging/send-a-session/)

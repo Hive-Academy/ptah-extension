@@ -25,3 +25,4 @@ The `agent-lanes` skill defines the CLI lane rules that `orchestration` and `tri
 | The skills in the official plugin packs       | [Shipped skills](/mcp-and-skills/popular-skills/)           |
 | Write your own skills                         | [Creating skills](/mcp-and-skills/creating-skills/)         |
 | Add third-party MCP servers                   | [Third-party MCP](/mcp-and-skills/third-party-mcp/)         |
+| Build interactive apps on the Apps page       | [Apps](/mcp-and-skills/apps/)                               |

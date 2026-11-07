@@ -64,6 +64,7 @@ Each workspace has its own board. When you switch workspaces, you see the sessio
 
 ## Next steps
 
+- [Session details](/canvas/session-inspector/) for the stats, limits, and agents of the focused session
 - [Send your first message](/chat/sending-messages/)
 - [Switch models](/chat/switching-models/)
 - [Spawn CLI agents](/agents/cli-agents/) for work that does not need its own session

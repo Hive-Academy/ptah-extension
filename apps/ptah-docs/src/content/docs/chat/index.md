@@ -41,3 +41,4 @@ The chat view is where you talk to the agent. It streams responses, shows each t
 - [Cost and tokens](/chat/cost-and-tokens/)
 - [Execution Tree](/chat/execution-tree/)
 - [Switching models](/chat/switching-models/)
+- [Composer and turn summary](/chat/composer-and-turn-summary/) and the [Display panel](/chat/display-panel/)
