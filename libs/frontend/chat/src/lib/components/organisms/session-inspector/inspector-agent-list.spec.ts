@@ -1,6 +1,7 @@
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import {
   agentListRow,
+  agentListTotal,
   inOutText,
   normalizeAgentKey,
   orderAgentList,
@@ -21,6 +22,7 @@ function row(
   key: string,
   status: SessionAgent['status'],
   kind: SessionAgent['kind'] = 'cli',
+  usage: AgentUsageFigures = NO_USAGE,
 ) {
   return agentListRow({
     agent: {
@@ -37,7 +39,7 @@ function row(
     },
     secondary: '',
     secondaryTitle: null,
-    usage: NO_USAGE,
+    usage,
     durationMs: null,
     requests: [],
     tray: null,
@@ -46,6 +48,31 @@ function row(
 }
 
 describe('inspector agent list', () => {
+  it('sums known numeric usage from every row', () => {
+    const total = agentListTotal([
+      row('orchestrator', 'done', 'orchestrator', { ...NO_USAGE, tokens: 100, cost: 0.1, costEstimated: false }),
+      row('cli:one', 'done', 'cli', { ...NO_USAGE, tokens: 200, cost: 0.2, costEstimated: false }),
+    ]);
+    expect(total.tokens).toBe('300');
+    expect(total.cost).toBe('$0.30');
+    expect(total.title).toBe('Total of 2 agents · 0 without token data · 0 without cost data');
+  });
+
+  it('marks missing or partial values as lower bounds and estimated cost', () => {
+    const total = agentListTotal([
+      row('a', 'done', 'cli', { ...NO_USAGE, tokens: 100, tokensPartial: true, cost: 0.1 }),
+      row('b', 'done'),
+    ]);
+    expect(total.tokens).toBe('≥ 100');
+    expect(total.cost).toBe('≥ ~$0.10');
+    expect(total.title).toContain('1 without token data · 1 without cost data');
+  });
+
+  it('uses a dash when no agent reports a value', () => {
+    const total = agentListTotal([row('a', 'done')]);
+    expect(total.tokens).toBe('—');
+    expect(total.cost).toBe('—');
+  });
   it('uses the role in the visible name and accessible label', () => {
     const result = agentListRow({
       agent: row('a', 'running').agent, name: 'Codex · reviewer',

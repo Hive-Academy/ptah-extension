@@ -297,7 +297,6 @@ describe('SessionInspectorComponent presentation', () => {
       'session-stats',
       'agents-section',
       'task-section',
-      'todos-section',
       'git-section',
     ]) {
       expect(element.querySelector(`ptah-inspector-${section}`)).not.toBeNull();
@@ -517,7 +516,7 @@ describe('SessionInspectorComponent linked sessions (TASK_2026_876)', () => {
     root.querySelector('ptah-inspector-linked-sessions');
 
   it.each(['docked', 'sheet', 'embedded'] as const)(
-    'renders the chain in the %s body between stats and agents',
+    'renders the chain after git in the %s body',
     async (presentation) => {
       const { root } = await create(presentation);
       expect(rpcCall).toHaveBeenCalledWith('session:handoffChain', {
@@ -527,14 +526,15 @@ describe('SessionInspectorComponent linked sessions (TASK_2026_876)', () => {
       expect(host).not.toBeNull();
       const order = Array.from(
         root.querySelectorAll(
-          'ptah-inspector-session-stats[data-inspector-section], ptah-inspector-linked-sessions, ptah-inspector-agents-section',
+          'ptah-inspector-session-stats[data-inspector-section], ptah-inspector-agents-section, ptah-inspector-git-section, ptah-inspector-linked-sessions',
         ),
         (el) => el.tagName.toLowerCase(),
       );
       expect(order).toEqual([
         'ptah-inspector-session-stats',
-        'ptah-inspector-linked-sessions',
         'ptah-inspector-agents-section',
+        'ptah-inspector-git-section',
+        'ptah-inspector-linked-sessions',
       ]);
       const relations = Array.from(
         root.querySelectorAll(

@@ -18,9 +18,28 @@ import type {
   SessionTaskLinkSummary,
   TaskSpecDetail,
 } from '@ptah-extension/shared';
+import { BATCHES_FILE, LEGACY_BATCHES_FILE } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
-import { SessionTaskReader } from './session-task-reader';
+import { documentExcerpt, documentProgress, SessionTaskReader } from './session-task-reader';
+
+describe('task document helpers', () => {
+  it('strips immediately closed front matter and preserves its body', () => {
+    expect(documentExcerpt('---\n---\nFirst line\nSecond line')).toBe('First line\nSecond line');
+    expect(documentExcerpt('---\nnot closed\n\nBody\n---\nTail')).toContain('Body');
+    expect(documentExcerpt('---\nBody text\n---\nTail')).toContain('Body text');
+  });
+
+  it('counts only team-leader task headings in batches and keeps legacy checkboxes', () => {
+    const batches = '## Batch 1: Work — COMPLETE\n### Task 1.1: First — COMPLETE\n### Batch 1 verification\n- [x] Build\n- [ ] Lint\n### Task 1.2: Second — PENDING';
+    expect(documentProgress(batches, BATCHES_FILE)).toEqual({ done: 1, total: 2 });
+    expect(documentProgress('- [x] First\n- [ ] Second', LEGACY_BATCHES_FILE)).toEqual({ done: 1, total: 2 });
+  });
+
+  it('falls back to checkboxes for a batches file without task headings', () => {
+    expect(documentProgress('- [x] First\n- [x] Second\n- [ ] Third', BATCHES_FILE)).toEqual({ done: 2, total: 3 });
+  });
+});
 
 jest.mock('@ptah-extension/core', () => {
   const actual = jest.requireActual('@ptah-extension/core');
@@ -266,5 +285,166 @@ describe('SessionTaskReader organization cache', () => {
 
     expect(reader.link()).toBeNull();
     expect(reader.state()).toBeNull();
+  });
+});
+
+describe('SessionTaskReader async document and progress reads', () => {
+  const link = (taskId: string): SessionTaskLinkSummary => ({
+    taskId, role: 'primary', source: 'user', createdAt: 1, missing: false,
+  });
+  const task = (taskId: string): TaskSpecDetail => ({
+    id: taskId, folderName: taskId, artifacts: ['context.md', 'batches.md'],
+  } as TaskSpecDetail);
+  type Pending = {
+    method: string;
+    params: unknown;
+    resolve: (value: Awaited<ReturnType<typeof rpcCall>>) => void;
+    reject: (reason: Error) => void;
+  };
+  let pending: Pending[];
+  let reader: SessionTaskReader;
+  let tabId: WritableSignal<string>;
+  let changes: WritableSignal<{ seq: number; change: { workspaceRoot: string; folderNames: string[] } } | null>;
+  let logger: { error: jest.Mock };
+
+  const take = (method: string): Pending => {
+    const index = pending.findIndex(call => call.method === method);
+    expect(index).toBeGreaterThanOrEqual(0);
+    return pending.splice(index, 1)[0];
+  };
+  const ok = (data: object): Awaited<ReturnType<typeof rpcCall>> => ({ success: true, data });
+  const finishTask = async (taskId: string): Promise<void> => {
+    take('tasks:get').resolve(ok({ task: task(taskId) }));
+    await settle();
+  };
+  const markdown = (taskId: string, file: string, content: string): Awaited<ReturnType<typeof rpcCall>> =>
+    ok({ taskId, file, state: 'ready', content });
+
+  beforeEach(() => {
+    pending = [];
+    tabId = signal('tab-a');
+    changes = signal<{ seq: number; change: { workspaceRoot: string; folderNames: string[] } } | null>(null);
+    logger = { error: jest.fn() };
+    const sessions = signal([
+      { id: 'session-a', organization: { tasks: [link('TASK_A')] } },
+      { id: 'session-b', organization: { tasks: [link('TASK_B')] } },
+    ]);
+    jest.mocked(rpcCall).mockImplementation((_vscode, method, params) => new Promise((resolve, reject) => {
+      pending.push({ method, params, resolve, reject });
+    }));
+    TestBed.configureTestingModule({ providers: [
+      SessionTaskReader,
+      { provide: ChatStore, useValue: { organizationAvailable: () => true, sessions } },
+      { provide: LoggingService, useValue: logger },
+      { provide: TabManagerService, useValue: { findTabByIdAcrossWorkspaces: (id: string) => ({
+        tab: { claudeSessionId: id === 'tab-a' ? 'session-a' : 'session-b' }, workspacePath: 'C:/ws',
+      }) } },
+      { provide: AppStateManager, useValue: { workspaceInfo: () => null } },
+      { provide: VSCodeService, useValue: {} },
+      { provide: TasksChangedFeed, useValue: { changes } },
+      { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+    ] });
+    reader = TestBed.inject(SessionTaskReader);
+    reader.bind(tabId);
+    TestBed.tick();
+  });
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('drops a late preview rejection after a tab and lead switch', async () => {
+    await finishTask('TASK_A');
+    const oldPreview = reader.previewDocument('context.md');
+    const oldRead = take('tasks:getArtifact');
+    tabId.set('tab-b');
+    TestBed.tick();
+    expect(reader.preview()).toBeNull();
+    oldRead.reject(new Error('old task failed'));
+    await oldPreview;
+    expect(reader.preview()).toBeNull();
+    await finishTask('TASK_B');
+    const nextPreview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').resolve(ok({ file: 'context.md', content: 'New task' }));
+    await nextPreview;
+    expect(reader.preview()?.content).toBe('New task');
+    expect(logger.error).not.toHaveBeenCalledWith('SessionTaskReader', 'Could not preview task document', expect.anything());
+  });
+
+  it('keeps the newest progress when reads finish in reverse order', async () => {
+    await finishTask('TASK_A');
+    const older = take('tasks:readFolderMarkdown');
+    reader.retry();
+    await finishTask('TASK_A');
+    const newer = take('tasks:readFolderMarkdown');
+    newer.resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: New — COMPLETE\n### Task 1.2: Next — PENDING'));
+    await settle();
+    older.resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: Old — PENDING'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 2 });
+  });
+
+  it('prefers the exact supported batches filename over legacy and similar names', async () => {
+    take('tasks:get').resolve(ok({ task: { ...task('TASK_A'), artifacts: ['BATCHES.md', LEGACY_BATCHES_FILE, BATCHES_FILE] } }));
+    await settle();
+    const read = take('tasks:readFolderMarkdown');
+    expect(read.params).toEqual(expect.objectContaining({ file: BATCHES_FILE }));
+    read.resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: Work — COMPLETE'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+  });
+
+  it.each([
+    ['failed', { success: false, error: 'offline' }],
+    ['not ready', { success: true, data: { taskId: 'TASK_A', file: BATCHES_FILE, state: 'missing', content: null } }],
+    ['wrong task', { success: true, data: { taskId: 'OTHER', file: BATCHES_FILE, state: 'ready', content: '' } }],
+    ['wrong file', { success: true, data: { taskId: 'TASK_A', file: LEGACY_BATCHES_FILE, state: 'ready', content: '' } }],
+  ])('retries progress after a %s response', async (_reason, response) => {
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(response);
+    await settle();
+    reader.retry();
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: Retry — COMPLETE'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+  });
+
+  it('invalidates changed task content under the same filenames', async () => {
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: First — PENDING'));
+    await settle();
+    const firstPreview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').resolve(ok({ file: 'context.md', content: 'Before change' }));
+    await firstPreview;
+    changes.set({ seq: 1, change: { workspaceRoot: 'C:/ws', folderNames: ['TASK_A'] } });
+    TestBed.tick();
+    const nextPreview = take('tasks:getArtifact');
+    nextPreview.resolve(ok({ file: 'context.md', content: 'After change' }));
+    await settle();
+    expect(reader.preview()?.content).toBe('After change');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await settle();
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: Changed — COMPLETE'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+  });
+
+  it('logs progress and preview RPC rejections while retaining the previous progress', async () => {
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').resolve(markdown('TASK_A', BATCHES_FILE, '### Task 1.1: Done — COMPLETE'));
+    await settle();
+    changes.set({ seq: 1, change: { workspaceRoot: 'C:/ws', folderNames: ['TASK_A'] } });
+    TestBed.tick();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await settle();
+    await finishTask('TASK_A');
+    take('tasks:readFolderMarkdown').reject(new Error('progress offline'));
+    await settle();
+    expect(reader.progress()).toMatchObject({ done: 1, total: 1 });
+    expect(logger.error).toHaveBeenCalledWith('SessionTaskReader', 'Could not load task progress', expect.objectContaining({ message: 'progress offline' }));
+    const preview = reader.previewDocument('context.md');
+    take('tasks:getArtifact').reject(new Error('preview offline'));
+    await preview;
+    expect(reader.preview()?.status).toBe('error');
+    expect(logger.error).toHaveBeenCalledWith('SessionTaskReader', 'Could not preview task document', expect.objectContaining({ message: 'preview offline' }));
   });
 });

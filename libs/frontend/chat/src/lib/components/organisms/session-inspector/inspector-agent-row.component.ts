@@ -32,9 +32,10 @@ export const AGENT_ROW_COLUMNS =
       type="button"
       class="grid w-full {{
         columns
-      }} items-center py-1.5 pl-3 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
+      }} items-center py-1.5 pl-4 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
       [attr.data-agent-key]="r.key"
       [attr.aria-label]="r.ariaLabel"
+      [attr.title]="r.startedAtTitle"
       (click)="selected.emit()"
     >
       <span class="flex min-w-0 items-center gap-2">
@@ -81,19 +82,11 @@ export const AGENT_ROW_COLUMNS =
         >{{ r.statusText }}</span
       >
     </button>
-    @if (expandable()) {
-      <button type="button" class="ml-2 text-xs underline" [attr.aria-expanded]="expanded()"
-        [attr.aria-label]="(expanded() ? 'Collapse ' : 'Expand ') + r.name + ' details'"
-        (click)="expansionToggled.emit()">{{ expanded() ? 'Less' : 'Details' }}</button>
-    }
   `,
 })
 export class InspectorAgentRowComponent {
   readonly row = input.required<AgentListRow>();
   readonly selected = output<void>();
-  readonly expanded = input(false);
-  readonly expandable = input(false);
-  readonly expansionToggled = output<void>();
 
   protected readonly columns = AGENT_ROW_COLUMNS;
   protected readonly dash = NOT_REPORTED_VALUE;
