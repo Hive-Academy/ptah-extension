@@ -14,6 +14,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { ZodError } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -165,7 +166,11 @@ export function createLaneTerminalCheckpoint(
         const store = container.resolve(ParentEnvelopeStoreService);
         const write = retryWithBackoff(
           () => store.putCompletionOutbox(entry),
-          { retries: 3, initialDelay: 1000, shouldRetry: () => true },
+          {
+            retries: 3,
+            initialDelay: 1000,
+            shouldRetry: (error: unknown) => !(error instanceof ZodError),
+          },
         );
         const deadline = new Promise<never>((_resolve, reject) => {
           timer = setTimeout(
@@ -642,6 +647,11 @@ export function persistCliSessionReference(
       ...(info.lastActivityAt ? { lastActivityAt: info.lastActivityAt } : {}),
       status: info.status,
       ...(info.stopReason ? { stopReason: info.stopReason } : {}),
+      ...(typeof info.stopResetAt === 'number' &&
+      Number.isFinite(info.stopResetAt) &&
+      info.stopResetAt > 0
+        ? { stopResetAt: info.stopResetAt }
+        : {}),
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }
         : {}),

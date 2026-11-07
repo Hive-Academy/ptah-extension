@@ -267,15 +267,16 @@ export class LaneComposerComponent {
       const outcome = await this.store.sendMessage(agentId, text, delivery, allowPartialTurnLoss, this.submissionKey(agentId, text, delivery));
       this.submission = null;
       if (this.agentId() !== agentId) return;
-      if (outcome.mode === 'unsupported' || (outcome.receipt && !['accepted', 'started'].includes(outcome.receipt.state))) {
+      const limitHeld = outcome.receipt?.state === 'blocked-retryable' && outcome.receipt.reason === 'lane-at-limit';
+      if ((outcome.mode === 'unsupported' && !limitHeld) || (outcome.receipt && !['accepted', 'started'].includes(outcome.receipt.state) && !limitHeld)) {
         this.error.set(outcome.detail ?? 'Could not send your message. Try again.');
         this.refreshPreviews();
         return;
       }
       if (!outcome.receipt) { this.error.set('No message receipt was returned. Try again.'); return; }
-      if (outcome.receipt?.state === 'accepted' || outcome.receipt?.state === 'started') {
+      if (outcome.receipt?.state === 'accepted' || outcome.receipt?.state === 'started' || limitHeld) {
         if (this.draft().trim() === draftText) this.draft.set('');
-        if (outcome.receipt.state === 'accepted') {
+        if (outcome.receipt.state === 'accepted' || limitHeld) {
           const acceptedText = LaneComposerComponent.acceptedText;
           acceptedText.set(outcome.receipt.id, { agentId, text });
           let agentCount = [...acceptedText.values()].filter(item => item.agentId === agentId).length;

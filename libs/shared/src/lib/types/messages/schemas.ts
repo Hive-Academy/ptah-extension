@@ -56,7 +56,7 @@ const AgentIdStringSchema = z
 
 export const AgentDeliveryReceiptSchema = z.object({
   id: z.string().min(1),
-  agentId: z.string().min(1),
+  agentId: AgentIdStringSchema,
   actualAgentId: AgentIdStringSchema.optional(),
   state: z.enum([
     'accepted',
@@ -110,7 +110,7 @@ export const AgentMonitorMessageReceiptPayloadSchema = z.object({
 }).strict();
 
 export const AgentMonitorParentDeliveryPayloadSchema = z.object({
-  agentId: z.string().min(1),
+  agentId: AgentIdStringSchema,
   kind: z.enum(['completion', 'report']),
   state: z.enum([
     'pending',

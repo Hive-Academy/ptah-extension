@@ -622,6 +622,8 @@ export interface CliSessionReference {
   readonly status: AgentStatus;
   /** Why the host stopped this lane, when known. Persisted with an interrupted restore. */
   readonly stopReason?: LaneStopReason;
+  /** Epoch milliseconds when a usage-limit stop resets, when known. */
+  readonly stopResetAt?: number;
   /**
    * Host process run that wrote a `running` reference; internal restore
    * bookkeeping, never returned by the restore read. A running reference from

@@ -745,7 +745,7 @@ export class AgentToolDispatcher {
     try {
       const result = await this.ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
       const view = agentMessageStatusView(parsed.data.agentId, parsed.data.messageId, result);
-      return this.toolSuccess(request, 'agent_message_status', JSON.stringify(view), view);
+      return await this.toolSuccess(request, 'agent_message_status', JSON.stringify(view), view);
     } catch {
       return toolError(request, 'agent_message_status failed', 'mcp_tool_failed', { tool: 'agent_message_status' });
     }

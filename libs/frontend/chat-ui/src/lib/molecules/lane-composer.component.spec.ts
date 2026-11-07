@@ -196,6 +196,74 @@ describe('LaneComposerComponent', () => {
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('Lane is unavailable');
   });
 
+  it('treats a lane-at-limit hold receipt as accepted, clears the draft, cancels coalesced earlier queue, and uses a new idempotency key on a later send', async () => {
+    const limitHeldReceipt = {
+      ...receipt,
+      id: 'message-2',
+      state: 'blocked-retryable' as const,
+      mode: 'unsupported' as const,
+      reason: 'lane-at-limit',
+      updatedAt: 3,
+    };
+    sendMessage
+      .mockResolvedValueOnce({ mode: 'queue-next-turn', receipt })
+      .mockResolvedValueOnce({
+        mode: 'unsupported',
+        detail: 'lane-at-limit',
+        reasonCode: 'lane-at-limit',
+        receipt: limitHeldReceipt,
+      })
+      .mockResolvedValueOnce({
+        mode: 'queue-next-turn',
+        receipt: { ...receipt, id: 'message-3', updatedAt: 5 },
+      });
+    cancelMessage.mockResolvedValue({ ...receipt, state: 'failed', reason: 'cancelled-by-user', updatedAt: 4 });
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    const field = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    field.value = 'Earlier text';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    receipts.set(new Map([[agentId, [receipt]]]));
+    fixture.detectChanges();
+
+    field.value = 'New thought';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      2,
+      agentId,
+      'Earlier text\nNew thought',
+      'queue',
+      false,
+      expect.any(String),
+    );
+    expect(cancelMessage).toHaveBeenCalledWith(agentId, 'message-1');
+    expect(field.value).toBe('');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+
+    // If the user later types and sends the same combined text intentionally, it gets a fresh key.
+    receipts.set(new Map([[agentId, []]]));
+    fixture.detectChanges();
+    field.value = 'Earlier text\nNew thought';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('button.btn-primary').click();
+    await fixture.whenStable();
+
+    const secondKey = sendMessage.mock.calls[1][4];
+    const thirdKey = sendMessage.mock.calls[2][4];
+    expect(thirdKey).not.toBe(secondKey);
+  });
+
   it('uses one distinct Edit action for a queued user message', () => {
     receipts.set(new Map([[agentId, [receipt]]]));
     const fixture = TestBed.createComponent(LaneComposerComponent);
