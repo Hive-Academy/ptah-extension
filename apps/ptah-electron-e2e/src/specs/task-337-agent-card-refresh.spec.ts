@@ -28,18 +28,18 @@ import { test, expect } from '../support/fixtures';
  *   `parentToolUseId` plus its own `tool_start`.
  *
  * The card is the store-backed sub-agent lane (`subagent-lane.component.ts`,
- * TASK_2026_685). The summary shows on the transcript tile's activity line
- * (`latestSummary`); the flat lane renders no header peek, so it streams
- * nothing the transcript does not show. The tool-count observable is the
- * lane's disclosure row, which renders `"1 tool"` / `"<n> tools"`.
+ * TASK_2026_685). The transcript tile is a compact one-line row: it has no
+ * activity line, so the rolling summary (`latestSummary`) must NOT stream
+ * into the transcript. The flat lane renders no header peek either. The
+ * tool-count observable is the lane's disclosure row, which renders
+ * `"1 tool"` / `"<n> tools"`.
  *
  * ## Falsifiability
  *
- * Every assertion is paired with its negation: after the second summary delta
- * the card must show the NEW text AND no longer show only the old marker
- * alone; after the second nested tool the row must read `2 tools` and must
- * NOT still read `1 tool`. A card served from a stale cached node fails the
- * second half of each pair while passing the first.
+ * Every assertion is paired with its negation: summary deltas must leave the
+ * tile without their text; after the second nested tool the row must read
+ * `2 tools` and must NOT still read `1 tool`. A card served from a stale
+ * cached node fails the second half of each pair while passing the first.
  */
 
 const CHAT_CHUNK = 'chat:chunk';
@@ -219,12 +219,13 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
       agentStart(sessionId, rootMessageId, taskToolCallId, agentId, t0 + 2),
     );
 
-    // The transcript shows the agent as a tile. Its activity line carries the
-    // rolling summary until the agent has nested output of its own.
+    // The transcript shows the agent as a compact one-line tile with no
+    // activity line, so the rolling summary never streams into it.
     await expect(tile).toHaveCount(1);
     await expect(tile).toContainText(AGENT_TYPE);
-    const peek = tile.locator('[data-testid="subagent-activity"]');
-    await expect(peek).toContainText(AGENT_DESCRIPTION);
+    await expect(
+      tile.locator('[data-testid="subagent-activity"]'),
+    ).toHaveCount(0);
 
     // --- Summary: first delta ------------------------------------------
     await ui.pushEvent(
@@ -237,8 +238,8 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
         t0 + 3,
       ),
     );
-    await expect(peek).toContainText(SUMMARY_ONE);
-    await expect(peek).not.toContainText(SUMMARY_TWO);
+    await expect(tile).toContainText(AGENT_TYPE);
+    await expect(tile).not.toContainText(SUMMARY_ONE);
 
     // --- Summary: second delta. Cost, duration, model, tokenUsage and the
     // agent's status stay visually unchanged as the rolling summary updates.
@@ -252,10 +253,8 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
         t0 + 4,
       ),
     );
-    await expect(peek).toContainText(SUMMARY_TWO);
-    // Deltas append, so the first marker must still be there — a card that
-    // replaced rather than appended would be a different defect.
-    await expect(peek).toContainText(SUMMARY_ONE);
+    await expect(tile).toContainText(AGENT_TYPE);
+    await expect(tile).not.toContainText(SUMMARY_TWO);
 
     // Open the lane. The flat lane renders no header row, so no live peek.
     await tile.locator(AGENT_TILE_OPEN).click();

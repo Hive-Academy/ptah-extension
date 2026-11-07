@@ -30,7 +30,6 @@ import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 import { subagentToolCount } from '../../../utils/subagent-tool-count';
-import { subagentActivityText } from '../../../utils/subagent-activity-text';
 
 /** One transcript row for an agent. The full execution tree lives in the selected lane. */
 @Component({
@@ -40,12 +39,13 @@ import { subagentActivityText } from '../../../utils/subagent-activity-text';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="my-1 rounded-lg border border-base-content/10 bg-base-200/40 px-3 py-2 text-xs"
+      class="my-1 w-fit max-w-full rounded-lg border border-base-content/10 bg-base-200/40 px-3 py-2 text-xs"
+      data-glass-surface="tile"
       data-testid="subagent-tile"
     >
       <button
         type="button"
-        class="flex items-center gap-2 min-w-0 w-full text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        class="flex items-center gap-2 min-w-0 max-w-full text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         [disabled]="!canOpen()"
         [attr.aria-label]="'Open ' + name() + ' agent lane'"
         (click)="openLane()"
@@ -56,7 +56,7 @@ import { subagentActivityText } from '../../../utils/subagent-activity-text';
           class="w-4 h-4 shrink-0 text-primary"
           aria-hidden="true"
         />
-        <span class="font-medium truncate" data-testid="subagent-name">{{
+        <span class="font-medium truncate min-w-12" data-testid="subagent-name">{{
           name()
         }}</span>
         @switch (status()) {
@@ -99,7 +99,7 @@ import { subagentActivityText } from '../../../utils/subagent-activity-text';
           statusLabel()
         }}</span>
         <span
-          class="ml-auto whitespace-nowrap text-base-content-muted"
+          class="ml-2 whitespace-nowrap text-base-content-muted"
           title="Current known count"
           >{{ toolCount() }} tools</span
         >
@@ -114,15 +114,6 @@ import { subagentActivityText } from '../../../utils/subagent-activity-text';
           aria-hidden="true"
         />
       </button>
-      @if (activityText(); as line) {
-        <p
-          class="truncate text-base-content-muted mt-1"
-          [title]="activity()"
-          data-testid="subagent-activity"
-        >
-          {{ line }}
-        </p>
-      }
       @if (pendingPermission(); as permission) {
         <button
           type="button"
@@ -181,36 +172,6 @@ export class SubagentTileComponent {
     const key = this.node().toolCallId;
     if (key) this.executions.revisionFor(key);
     return key ? this.executions.treeFor(key) : [];
-  });
-  protected readonly activity = computed(() => {
-    const tree = this.tree();
-    if (tree.length > 0) {
-      const latest = (nodes: readonly ExecutionNode[]): string | undefined => {
-        for (let index = nodes.length - 1; index >= 0; index--) {
-          const node = nodes[index];
-          const child = latest(node.children);
-          if (child) return child;
-          if (node.type === 'tool' && node.toolName) return node.toolName;
-          if (node.type === 'text' && node.content) return node.content;
-        }
-        return undefined;
-      };
-      return latest(tree);
-    }
-    return (
-      this.record()?.latestSummary ||
-      this.record()?.lastToolName ||
-      this.node().agentDescription ||
-      this.node().content
-    );
-  });
-  /**
-   * The activity line cleaned for display and cut to 240 characters;
-   * `activity()` stays whole for the hover title.
-   */
-  protected readonly activityText = computed(() => {
-    const raw = this.activity();
-    return raw ? subagentActivityText(raw).slice(0, 240) : undefined;
   });
   protected readonly status = computed(() => {
     const recordStatus = this.record()?.status;
