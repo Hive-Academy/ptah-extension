@@ -99,7 +99,7 @@ describe('SubagentTileComponent', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="subagent-status"]').textContent).toBe('Completed');
   });
 
-  it('uses store tool count and latest activity, then falls back to the record', () => {
+  it('uses the store tool count and shows no activity line', () => {
     records.set(
       new Map([
         [
@@ -121,9 +121,8 @@ describe('SubagentTileComponent', () => {
       fixture.nativeElement.querySelector('[title="Current known count"]'),
     ).not.toBeNull();
     expect(
-      fixture.nativeElement.querySelector('[data-testid="subagent-activity"]')
-        .textContent,
-    ).toContain('Search');
+      fixture.nativeElement.querySelector('[data-testid="subagent-activity"]'),
+    ).toBeNull();
     tree.set([
       {
         ...makeNode({
@@ -146,12 +145,11 @@ describe('SubagentTileComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('4 tools');
     expect(
-      fixture.nativeElement.querySelector('[data-testid="subagent-activity"]')
-        .textContent,
-    ).toContain('Write');
+      fixture.nativeElement.querySelector('[data-testid="subagent-activity"]'),
+    ).toBeNull();
   });
 
-  it('shows status, activity, descendant tool count and duration, then opens the sub lane', () => {
+  it('shows status, descendant tool count and duration, then opens the sub lane', () => {
     const fixture = TestBed.createComponent(SubagentTileComponent);
     fixture.componentRef.setInput(
       'node',
@@ -170,7 +168,7 @@ describe('SubagentTileComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Explore');
     expect(fixture.nativeElement.textContent).toContain('Running');
-    expect(fixture.nativeElement.textContent).toContain('Find files');
+    expect(fixture.nativeElement.textContent).not.toContain('Find files');
     expect(fixture.nativeElement.textContent).toContain('2 tools');
     expect(fixture.nativeElement.textContent).toContain('1m 2s');
     fixture.nativeElement

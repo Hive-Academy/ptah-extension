@@ -3806,7 +3806,7 @@ END OF ANUBIS DESIGN SYSTEM
 /* Tool-call rows and agent tiles in the transcript are list rows, not raised
    cards: they drop the elev-1 drop shadow and rim, as they have no shadow
    with glass off. */
-:root[data-theme][data-glass='on'] :is(ptah-tool-call-item > [data-glass-surface='tile'], ptah-execution-node [data-glass-surface='tile']:has(> ptah-subagent-tile)) {
+:root[data-theme][data-glass='on'] :is(ptah-tool-call-item > [data-glass-surface='tile'], ptah-subagent-tile > [data-glass-surface='tile']) {
   box-shadow: none;
 }
 /* A tool-call row has no fill with glass off either: it sits clear on the

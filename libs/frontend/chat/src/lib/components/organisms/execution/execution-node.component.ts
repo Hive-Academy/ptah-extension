@@ -351,7 +351,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
       }
       @case ('agent') {
         @if (agentTileMode()) {
-          <div [class.exec-fade-in]="!isFinalizing()" data-glass-surface="tile">
+          <div [class.exec-fade-in]="!isFinalizing()">
             <ptah-subagent-tile
               [node]="node()"
               [getPermissionForTool]="getPermissionForTool()"
