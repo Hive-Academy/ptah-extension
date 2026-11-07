@@ -27,6 +27,7 @@ import type { AgentMessageDispatchJournal } from '../cli-agents/messaging/agent-
 import { AgentMessageEnvelopeStore } from '../cli-agents/messaging/envelope/agent-message-envelope.store';
 import type { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
 import { LaneDeliveryLimitGate } from '../cli-agents/messaging/lane-delivery-limit.gate';
+import { LaneMessagePolicy } from '../cli-agents/messaging/lane-message.policy';
 import { PtahCliLaneResumer } from '../cli-agents/messaging/lane-resumers/ptah-cli-lane-resumer';
 import {
   ParentSessionPurgeService,
@@ -57,7 +58,7 @@ export function registerAgentMessageJournal(container: DependencyContainer): voi
   });
 }
 
-/** Alias registry, scheduler, purge, resume, ack and the coordinator. */
+/** Alias registry, limit gate, lane policy, scheduler, purge, resume, ack and the coordinator. */
 export function registerAgentMessagingServices(container: DependencyContainer): void {
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_ID_ALIAS_REGISTRY, {
     useFactory: instanceCachingFactory((c) => new AgentIdAliasRegistry(
@@ -72,6 +73,16 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
         : null,
       c.resolve<Logger>(TOKENS.LOGGER),
     )),
+  });
+  container.register(CLI_AGENT_RUNTIME_TOKENS.LANE_MESSAGE_POLICY, {
+    useFactory: instanceCachingFactory((c) => {
+      const manager = c.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER);
+      return new LaneMessagePolicy({
+        findAgentInfo: (agentId) => manager.findAgentInfo(agentId),
+        events: manager.events,
+        logger: c.resolve<Logger>(TOKENS.LOGGER),
+      });
+    }),
   });
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_SCHEDULER, {
     useFactory: instanceCachingFactory((c) => new AgentMessageDeliveryScheduler(
@@ -134,6 +145,7 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
         limitGate: c.resolve<LaneDeliveryLimitGate>(CLI_AGENT_RUNTIME_TOKENS.LANE_DELIVERY_LIMIT_GATE),
         purge: c.resolve<ParentSessionPurgeService>(CLI_AGENT_RUNTIME_TOKENS.PARENT_SESSION_PURGE),
         isParentFrozen: isParentFrozen(c),
+        lanePolicy: c.resolve<LaneMessagePolicy>(CLI_AGENT_RUNTIME_TOKENS.LANE_MESSAGE_POLICY),
         logger,
       });
       // Purge recovery decides before the scheduler delivers anything (Component 10).

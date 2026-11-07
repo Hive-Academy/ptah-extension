@@ -7,9 +7,11 @@ import type {
   AgentMessagePreviewRequest,
   AgentMessageRequest,
   AgentMessageSender,
+  AgentProcessInfo,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentProcessManager } from '../agent-process-manager.service';
+import { AgentMessageError } from '../agent-message-router.service';
 import type { CliDetectionService } from '../cli-detection.service';
 import type { AgentLaneResumeService } from './agent-lane-resume.service';
 import type {
@@ -40,6 +42,7 @@ import {
   type LaneDeliveryLimitGate,
 } from './lane-delivery-limit.gate';
 import type { ParentSessionPurge } from './parent-session-purge.service';
+import type { LaneMessageDenyReason, LaneMessagePolicy, VerifiedLaneSender } from './lane-message.policy';
 
 export { CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-preview';
 
@@ -73,6 +76,8 @@ export interface AgentMessageCoordinatorDeps {
   readonly purge?: Pick<ParentSessionPurge, 'resumePendingPurges'>;
   /** True while the parent session's deletion is in progress. */
   readonly isParentFrozen?: (parentSessionId: string) => boolean;
+  /** Lane-to-lane authorization (Component 15). Absent: every lane send is refused. */
+  readonly lanePolicy?: Pick<LaneMessagePolicy, 'authorize'> | null;
   readonly clock?: () => number;
 }
 
@@ -128,16 +133,37 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     return previewAgentMessage(this.deps.manager, this.deps.detection, request);
   }
 
-  /** The sender comes from the transport (renderer, MCP request context), never from arguments. */
-  async send(request: AgentMessageRequest, sender: AgentMessageSender): Promise<AgentMessageOutcome> {
+  /**
+   * The sender comes from the transport (renderer, MCP request context), never
+   * from arguments. A lane sender also needs `laneSender`, the verified
+   * credential binding it came from; the lane policy decides whether it may
+   * reach the target, and the recorded sender is rebuilt from its lane record.
+   */
+  async send(
+    request: AgentMessageRequest,
+    callerSender: AgentMessageSender,
+    laneSender?: VerifiedLaneSender,
+  ): Promise<AgentMessageOutcome> {
     if (!request.message.trim()) throw new Error('Message must not be empty.');
-    const senderKey = agentMessageSenderKey(sender);
     const delivery = request.delivery === 'steer' ? 'now' : request.delivery ?? 'queue';
-    const base = { requested: request.agentId, delivery, sender, senderKey };
-    if (request.idempotencyKey && sender.kind === 'parent' && !sender.sessionId)
-      return this.refuse({ ...base, lineage: request.agentId }, 'idempotency-key-requires-identity');
+    if (callerSender.kind === 'parent' && request.idempotencyKey && !callerSender.sessionId) {
+      return this.refuse({
+        requested: request.agentId, lineage: request.agentId, delivery,
+        sender: callerSender, senderKey: agentMessageSenderKey(callerSender),
+      }, 'idempotency-key-requires-identity');
+    }
     const lineage = await this.deps.aliases.rootOf(request.agentId);
     return this.serial.run(lineage, async () => {
+      let sender = callerSender;
+      if (callerSender.kind === 'lane') {
+        // Authorize before any lookup keyed by the sender, so an unproven
+        // caller learns nothing, and persist nothing for a denial.
+        const verdict = await this.authorizeLane(request, callerSender, laneSender);
+        if (!verdict.allowed) return laneDenied(request.agentId, verdict.reason);
+        sender = verdict.sender;
+      }
+      const senderKey = agentMessageSenderKey(sender);
+      const base = { requested: request.agentId, delivery, sender, senderKey };
       if (request.idempotencyKey) {
         const existing = await this.findByKey(senderKey, lineage, request.idempotencyKey);
         if (existing) return this.duplicate(existing, request.agentId);
@@ -314,9 +340,51 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
    */
   async getReceipt(agentId: AgentId, messageId: string, viewer?: AgentMessageSender): Promise<AgentDeliveryReceipt> {
     const envelope = await this.find(agentId, messageId);
-    if (!envelope || (viewer !== undefined && !mayActOnEnvelope(viewer, envelope)))
-      throw new Error('Message receipt not found.');
+    if (!envelope || (viewer !== undefined && !(await this.mayView(viewer, envelope))))
+      throw new AgentMessageError('not_found', 'Message receipt not found.');
     return this.deps.store.toReceipt(envelope);
+  }
+
+  /**
+   * A verified lane viewer sees the envelopes it sent and the ones addressed
+   * to it (alias-aware); every other viewer keeps the ownership rule.
+   */
+  private async mayView(viewer: AgentMessageSender, envelope: AgentMessageEnvelope): Promise<boolean> {
+    if (mayActOnEnvelope(viewer, envelope)) return true;
+    if (viewer.kind !== 'lane' || viewer.verified !== true) return false;
+    if (envelope.targetAgentId === viewer.agentId || envelope.actualAgentId === viewer.agentId) return true;
+    return (await this.deps.aliases.rootOf(viewer.agentId)) === envelope.laneLineageId;
+  }
+
+  /**
+   * Lane-to-lane gate (Component 15). Identity comes only from the verified
+   * binding; the recorded sender carries the sender's own lane record.
+   */
+  private async authorizeLane(
+    request: AgentMessageRequest,
+    callerSender: Extract<AgentMessageSender, { kind: 'lane' }>,
+    laneSender: VerifiedLaneSender | undefined,
+  ): Promise<{ allowed: true; sender: AgentMessageSender } | { allowed: false; reason: LaneDenyCode }> {
+    const proven = callerSender.verified === true && laneSender?.agentId === callerSender.agentId
+      ? laneSender : undefined;
+    if (!proven) {
+      this.deps.logger.warn('[AgentMessageCoordinator] Lane message without a verified binding', {
+        targetAgentId: request.agentId,
+      });
+      return { allowed: false, reason: 'identity-missing' };
+    }
+    if (!this.deps.lanePolicy) {
+      this.deps.logger.warn('[AgentMessageCoordinator] Lane message refused: no lane policy wired', {
+        senderAgentId: proven.agentId,
+      });
+      return { allowed: false, reason: 'delivery-refused' };
+    }
+    const { agentId: laneId } = await this.deps.aliases.resolve(request.agentId);
+    const target = this.deps.manager.findAgentInfo(laneId);
+    if (!target) return { allowed: false, reason: 'not_found' };
+    const decision = this.deps.lanePolicy.authorize(proven, target, request.message.length);
+    if (!decision.allowed) return decision;
+    return { allowed: true, sender: verifiedLaneSender(decision.senderRecord) };
   }
 
   /**
@@ -498,6 +566,26 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     if (!envelope || !mayActOnEnvelope(actor, envelope)) throw new Error('Message receipt not found.');
     return envelope;
   }
+}
+
+type LaneDenyCode = LaneMessageDenyReason | 'not_found' | 'delivery-refused';
+
+/** The recorded sender of an authorized lane send, from its own lane record. */
+function verifiedLaneSender(record: AgentProcessInfo): AgentMessageSender {
+  const name = record.ptahCliName ?? record.displayName ?? record.cli;
+  return {
+    kind: 'lane', agentId: record.agentId, verified: true,
+    ...(name ? { name } : {}),
+    ...(record.parentSessionId ? { parentSessionId: record.parentSessionId } : {}),
+  };
+}
+
+/**
+ * A lane-policy denial is never an accepted message and persists nothing: a
+ * lane retrying a denied send must not grow the envelope store.
+ */
+function laneDenied(requested: AgentId, reason: LaneDenyCode): AgentMessageOutcome {
+  return { mode: 'unsupported', reasonCode: reason, detail: reason, requestedAgentId: requested };
 }
 
 /** Preview and explicit-intent refusals (unchanged rules, Preserve 1). */

@@ -131,6 +131,18 @@ export {
 } from './lib/cli-agents/messaging/lane-delivery-limit.gate';
 export type { AgentMessageDispatchJournal } from './lib/cli-agents/messaging/agent-message-dispatch-journal.port';
 export {
+  LaneMessagePolicy,
+  type LaneMessageDecision,
+  type LaneMessageDenyReason,
+  type LaneMessagePolicyDeps,
+  type VerifiedLaneSender,
+} from './lib/cli-agents/messaging/lane-message.policy';
+export {
+  LaneSenderRateLimiter,
+  LANE_SENDER_RATE_LIMIT,
+  LANE_SENDER_RATE_WINDOW_MS,
+} from './lib/cli-agents/messaging/lane-sender-rate.limiter';
+export {
   ParentSessionPurgeService,
   type ParentSessionPurge,
   type ParentSessionPurgeOutcome,

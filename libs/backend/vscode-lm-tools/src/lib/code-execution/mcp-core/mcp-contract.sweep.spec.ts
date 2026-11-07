@@ -2458,7 +2458,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_task_update: 635,
       // P1-E, measured 2026-11-07: 642 chars (+ the idempotencyKey sentence),
       // 284 (honest status semantics) and 340 (new control tool); ceil(n * 1.1) + 10.
-      ptah_agent_message: 717,
+      // P3-J, measured 2026-11-07: 792 chars (+ the lane-to-lane rules); ceil(792 * 1.1) + 10.
+      ptah_agent_message: 882,
       // P2-G, measured 2026-11-07: 441 (status names ackState) and 333 (new ack tool).
       ptah_agent_message_status: 496,
       ptah_agent_message_control: 385,
