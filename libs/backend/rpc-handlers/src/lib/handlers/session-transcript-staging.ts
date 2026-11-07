@@ -5,6 +5,32 @@ import * as path from 'path';
 /** Suffix of a transcript file that a `session:delete` has staged for removal. */
 export const STAGED_TRANSCRIPT_SUFFIX = '.ptah-deleting';
 
+/**
+ * Runs the transcript file work of one session one call at a time, so that a
+ * delete (stage, metadata, finalize or undo) and a lookup's recovery never
+ * interleave on the same files. Calls for different sessions run in parallel.
+ * Not re-entrant: never call `run` for a session from inside its own `run`.
+ */
+export class SessionFileLock {
+  private readonly tails = new Map<string, Promise<void>>();
+
+  async run<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.tails.set(sessionId, tail);
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.tails.get(sessionId) === tail) this.tails.delete(sessionId);
+    }
+  }
+}
+
 /** One transcript file moved aside by {@link stageTranscripts}. */
 export interface StagedTranscript {
   readonly original: string;

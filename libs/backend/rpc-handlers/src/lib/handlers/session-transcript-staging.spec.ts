@@ -5,6 +5,7 @@ import {
   finalizeTranscripts,
   recoverStagedTranscripts,
   restoreTranscripts,
+  SessionFileLock,
   STAGED_TRANSCRIPT_SUFFIX,
   stageTranscripts,
 } from './session-transcript-staging';
@@ -110,6 +111,41 @@ describe('session transcript staging', () => {
       transcript(`${ID}.jsonl`);
 
       expect(await recoverStagedTranscripts(root, ID, owns(ID))).toEqual([]);
+    });
+  });
+
+  describe('SessionFileLock', () => {
+    it('runs work for one session one call at a time, in order', async () => {
+      const lock = new SessionFileLock();
+      const events: string[] = [];
+      let releaseFirst!: () => void;
+      const first = lock.run('s', async () => {
+        events.push('first:start');
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        events.push('first:end');
+      });
+      const second = lock.run('s', async () => {
+        events.push('second');
+      });
+      const other = lock.run('t', async () => {
+        events.push('other');
+      });
+
+      await other;
+      expect(events).toEqual(['first:start', 'other']);
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(events).toEqual(['first:start', 'other', 'first:end', 'second']);
+    });
+
+    it('releases the session after a failed call', async () => {
+      const lock = new SessionFileLock();
+
+      await expect(lock.run('s', async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+
+      await expect(lock.run('s', async () => 'next')).resolves.toBe('next');
     });
   });
 

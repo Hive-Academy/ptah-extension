@@ -70,6 +70,7 @@ import {
   finalizeTranscripts,
   recoverStagedTranscripts,
   restoreTranscripts,
+  SessionFileLock,
   STAGED_TRANSCRIPT_SUFFIX,
   stageTranscripts,
   type StagedTranscript,
@@ -239,6 +240,8 @@ export class SessionRpcHandlers {
 
   private readonly reportedCorruptSessionIds = new Set<string>();
   private readonly pendingSessionList = new Map<string, Promise<SessionListResult>>();
+  /** Serializes one session's transcript file work (delete vs. recovery). */
+  private readonly sessionFileLock = new SessionFileLock();
   private static readonly MAX_PENDING_SESSION_LISTS = 64;
 
   /** `session:list` message counts, read from the page's transcripts. */
@@ -884,29 +887,14 @@ export class SessionRpcHandlers {
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
         await this.beginMessagingPurge(sessionId);
-        let staged: StagedSessionTranscripts | null = null;
-        if (workspacePath) {
-          staged = await this.stageSessionFiles(
-            sessionId,
-            workspacePath,
-            metadata?.workingDirectory,
-          );
-        } else {
-          this.logger.warn(
-            'RPC: session:delete - no workspace path in metadata, skipping file deletion',
-            { sessionId },
-          );
-        }
-        try {
-          await this.metadataStore.delete(sessionId);
-        } catch (error: unknown) {
-          await this.undoStagedSessionFiles(sessionId, staged);
-          await this.purge.abortDelete(sessionId);
-          throw error;
-        }
-        const transcriptCleanup = await this.finalizeSessionFiles(
+        const transcriptCleanup = await this.sessionFileLock.run(
           sessionId,
-          staged,
+          () =>
+            this.deleteMetadataAndTranscripts(
+              sessionId,
+              workspacePath,
+              metadata?.workingDirectory,
+            ),
         );
         const messagingCleanup = await this.finishMessagingPurge(sessionId);
         await this.removeTurnChangeSets(sessionId);
@@ -935,6 +923,35 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * Stage the transcripts, delete the metadata, then remove the staged files;
+   * put them back when the metadata delete fails. Runs under
+   * {@link sessionFileLock}, so a lookup's recovery cannot interleave.
+   */
+  private async deleteMetadataAndTranscripts(
+    sessionId: string,
+    workspacePath: string | undefined,
+    workingDirectory: string | undefined,
+  ): Promise<'incomplete' | undefined> {
+    let staged: StagedSessionTranscripts | null = null;
+    if (workspacePath) {
+      staged = await this.stageSessionFiles(sessionId, workspacePath, workingDirectory);
+    } else {
+      this.logger.warn(
+        'RPC: session:delete - no workspace path in metadata, skipping file deletion',
+        { sessionId },
+      );
+    }
+    try {
+      await this.metadataStore.delete(sessionId);
+    } catch (error: unknown) {
+      await this.undoStagedSessionFiles(sessionId, staged);
+      await this.purge.abortDelete(sessionId);
+      throw error;
+    }
+    return this.finalizeSessionFiles(sessionId, staged);
   }
 
   /**
@@ -1342,10 +1359,11 @@ export class SessionRpcHandlers {
             workspacePath,
             sessionId,
           );
-          const filePath = await this.findSessionFile(
-            sessionId,
-            resolvedWorkspacePath,
-            { recoverStaged: metadata !== null && metadata !== undefined },
+          // Under the session file lock: the lookup may restore staged files.
+          const filePath = await this.sessionFileLock.run(sessionId, () =>
+            this.findSessionFile(sessionId, resolvedWorkspacePath, {
+              recoverStaged: metadata !== null && metadata !== undefined,
+            }),
           );
 
           if (filePath) {
