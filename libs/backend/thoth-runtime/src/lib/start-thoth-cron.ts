@@ -338,6 +338,13 @@ export async function startThothCron(
           console.log(
             `${logPrefix} Daily backup cron job registered (@ptah/daily-backup)`,
           );
+          // A daily backup a previous run started but never finished (quit
+          // while deferred, crash mid-copy) already consumed its cron slot, so
+          // cron catch-up cannot replay it. The service resumes it here; it
+          // waits for a quiet host, logs its own outcome and never rejects.
+          void container
+            .resolve<IBackupService>(PERSISTENCE_TOKENS.BACKUP_SERVICE)
+            .resumeInterruptedDaily?.();
         } catch (registerErr: unknown) {
           console.warn(
             `${logPrefix} Daily backup cron registration failed (non-fatal):`,

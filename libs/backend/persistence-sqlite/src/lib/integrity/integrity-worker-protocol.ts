@@ -8,7 +8,8 @@
  * This module is the ONLY thing `integrity-worker.ts` imports from the
  * monorepo, which is what keeps the worker bundleable in isolation with
  * `better-sqlite3` as its single external. Nothing here may import a service,
- * a token, or `electron`. Node builtins are allowed and `node:path` is used
+ * a token, or `electron`; the one sibling it imports, `snapshot-backup-copy.ts`,
+ * imports nothing at all. Node builtins are allowed and `node:path` is used
  * below — the worker entry already imports `node:worker_threads`, so a builtin
  * costs the isolated bundle nothing.
  *
@@ -40,6 +41,19 @@
  */
 
 import * as path from 'node:path';
+import { z } from 'zod';
+import {
+  copyFromSnapshot,
+  type BackupPacing,
+  type SnapshotBackupSource,
+  type SnapshotCopyIo,
+} from './snapshot-backup-copy';
+
+export type {
+  BackupFlushHandle,
+  BackupPacing,
+  BackupStepProgress,
+} from './snapshot-backup-copy';
 
 /** Ask the worker to run `quick_check` + `foreign_key_check` on a database. */
 export interface IntegrityCheckRequest {
@@ -82,6 +96,13 @@ export interface BackupRequest {
    * atomic no-overwrite hard link.
    */
   readonly stagingPath: string;
+  /**
+   * Absent: copy at full speed (pre-migration and reset backups, which a user
+   * or a migration is waiting on). Present: pace the copy and flush staging
+   * periodically (the daily backup, which runs beside live chats). Either way
+   * the copy is taken from one read snapshot (`snapshot-backup-copy.ts`).
+   */
+  readonly pacing?: BackupPacing;
 }
 
 export type IntegrityWorkerInbound = IntegrityCheckRequest | BackupRequest;
@@ -203,19 +224,21 @@ export function isIntegrityCheckRequest(
  * rejected-but-well-formed request still has an `id` to answer on.
  */
 export function isBackupRequest(msg: unknown): msg is BackupRequest {
-  if (typeof msg !== 'object' || msg === null) return false;
-  const candidate = msg as Partial<BackupRequest>;
-  return (
-    candidate.type === 'backup' &&
-    typeof candidate.id === 'number' &&
-    typeof candidate.dbPath === 'string' &&
-    candidate.dbPath.length > 0 &&
-    typeof candidate.destPath === 'string' &&
-    candidate.destPath.length > 0 &&
-    typeof candidate.stagingPath === 'string' &&
-    candidate.stagingPath.length > 0
-  );
+  return backupRequestSchema.safeParse(msg).success;
 }
+
+const positiveFinite = z.number().finite().positive();
+const backupRequestSchema = z.object({
+  type: z.literal('backup'),
+  id: z.number(),
+  dbPath: z.string().min(1),
+  destPath: z.string().min(1),
+  stagingPath: z.string().min(1),
+  pacing: z.object({
+    maxBytesPerSecond: positiveFinite,
+    flushEveryBytes: positiveFinite,
+  }).optional(),
+});
 
 /**
  * Decide whether a worker path is contained within the database tree. PURE, and unit
@@ -458,8 +481,7 @@ export function removeBackupArtifact(
 }
 
 /** The slice of a source connection `performBackup` uses. */
-export interface BackupSourceDatabase {
-  backup?(destination: string): Promise<unknown>;
+export interface BackupSourceDatabase extends SnapshotBackupSource {
   close(): void;
 }
 
@@ -475,8 +497,10 @@ export interface BackupValidationDatabase {
  * `better-sqlite3` and the REAL `node:fs` for the integration spec that pins
  * assumption A-1, and with a targeted double for the failure paths a real
  * filesystem will not reproduce on demand.
+ *
+ * `now`, `sleep` and `openFlushHandle` are the paced copy's `SnapshotCopyIo`.
  */
-export interface BackupEnvironment {
+export interface BackupEnvironment extends SnapshotCopyIo {
   readonly fs: BackupArtifactFs;
   /** Open the SOURCE. Read-only: this connection must never write. */
   openSource(dbPath: string): BackupSourceDatabase;
@@ -487,7 +511,6 @@ export interface BackupEnvironment {
    * `integrity-worker.ts`'s `openForValidation`.
    */
   openCopy(destPath: string): BackupValidationDatabase;
-  now(): number;
   /**
    * Final destinations with a backup in flight. This avoids duplicate work
    * inside one worker; atomic hard-link publication is the cross-process guard.
@@ -672,7 +695,12 @@ export async function performBackup(
       return fail('db.backup() is unavailable on this database instance');
     }
 
-    await source.backup(request.stagingPath);
+    await copyFromSnapshot(
+      source,
+      request.stagingPath,
+      request.pacing ?? null,
+      env,
+    );
     const bytesWritten = restrictBackupFile(env.fs, request.stagingPath);
 
     const validation = validateCopy(env, request.stagingPath);

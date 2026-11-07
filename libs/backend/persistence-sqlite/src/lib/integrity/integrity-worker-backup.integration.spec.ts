@@ -32,6 +32,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { copyFromSnapshot, PACED_STEP_BYTES } from './snapshot-backup-copy';
 import {
   performBackup,
   type BackupEnvironment,
@@ -93,6 +94,14 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
         new ctor(source, { readonly: true, fileMustExist: true }),
       openCopy: (dest: string) => new ctor(dest, { fileMustExist: true }),
       now: () => Date.now(),
+      sleep: () => undefined,
+      openFlushHandle: (target: string) => {
+        const fd = fs.openSync(target, 'r+');
+        return {
+          flush: () => fs.fsyncSync(fd),
+          close: () => fs.closeSync(fd),
+        };
+      },
       inFlight: new Set<string>(),
       ...overrides,
     };
@@ -401,6 +410,108 @@ describe('integrity worker backup — real better-sqlite3 (A-1)', () => {
       );
       expect(fs.readdirSync(outside)).toEqual([]);
       fs.rmSync(outside, { recursive: true, force: true });
+    },
+  );
+
+  // ── fix-12: one snapshot, no restart ──────────────────────────────────────
+  //
+  // Without a held read transaction, a write from another connection between
+  // two slices restarts the copy from page 1 (measured with this binary: 19
+  // restarts in 1152 slices for a 6 MB file). These cases force a write
+  // between EVERY pair of slices — from the flush hook, which the paced copy
+  // calls between slices — and require that the copy never restarts and holds
+  // exactly the snapshot it started from.
+
+  /** Grow the source to ~16 MB so a paced copy needs several 4 MiB slices. */
+  function growSource(): void {
+    const db = writer as ProbeDatabase;
+    db.exec('CREATE TABLE big(id INTEGER PRIMARY KEY, v BLOB)');
+    db.exec('BEGIN');
+    const insert = db.prepare('INSERT INTO big(v) VALUES (randomblob(4000))');
+    for (let i = 0; i < 4000; i++) insert.run();
+    db.exec('COMMIT');
+  }
+
+  function countRows(file: string, table: string): number {
+    const ctor = Database as DatabaseCtor;
+    const db = new ctor(file, { readonly: true, fileMustExist: true });
+    try {
+      return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c;
+    } finally {
+      db.close();
+    }
+  }
+
+  maybe(
+    'fix-12: a paced copy under a writer that commits between every slice never restarts and copies one snapshot',
+    async () => {
+      growSource();
+      const db = writer as ProbeDatabase;
+      const insertBig = db.prepare('INSERT INTO big(v) VALUES (randomblob(4000))');
+      const rowsBefore = countRows(dbPath, 'big');
+      const staging = path.join(workDir, 'snapshot-copy.sqlite');
+      fs.writeFileSync(staging, '');
+      let forcedWrites = 0;
+      let realFlushes = 0;
+      const ctor = Database as DatabaseCtor;
+      const readOnly = new ctor(dbPath, { readonly: true, fileMustExist: true });
+      try {
+        const stats = await copyFromSnapshot(
+          readOnly,
+          staging,
+          { maxBytesPerSecond: 1024 * 1024 * 1024, flushEveryBytes: PACED_STEP_BYTES },
+          {
+            now: () => Date.now(),
+            sleep: () => undefined,
+            openFlushHandle: (target) => {
+              const fd = fs.openSync(target, 'r+');
+              return {
+                flush: () => {
+                  fs.fsyncSync(fd);
+                  realFlushes += 1;
+                  insertBig.run();
+                  forcedWrites += 1;
+                },
+                close: () => fs.closeSync(fd),
+              };
+            },
+          },
+        );
+
+        expect(forcedWrites).toBeGreaterThanOrEqual(3);
+        expect(realFlushes).toBe(stats.flushes);
+        expect(stats.restarts).toBe(0);
+        expect(stats.steps).toBeLessThan(10);
+      } finally {
+        readOnly.close();
+      }
+
+      expect(countRows(staging, 'big')).toBe(rowsBefore);
+      expect(countRows(dbPath, 'big')).toBe(rowsBefore + forcedWrites);
+      expect(readCopy(staging).quickCheck).toBe('ok');
+    },
+  );
+
+  maybe(
+    'fix-12: performBackup with daily pacing publishes a validated copy from a live writer',
+    async () => {
+      growSource();
+      const dest = path.join(workDir, 'backups', 'ptah-2026-09-07.sqlite');
+      const sleep = jest.fn();
+
+      const response = await performBackup(makeEnvironment({ sleep }), {
+        id: 10,
+        type: 'backup',
+        dbPath,
+        destPath: dest,
+        stagingPath: `${dest}.aaaaaaaa.tmp`,
+        pacing: { maxBytesPerSecond: 64 * 1024 * 1024, flushEveryBytes: 8 * 1024 * 1024 },
+      });
+
+      expect(response.detail).toBeNull();
+      expect(response.verdict).toBe('ok');
+      expect(fs.readdirSync(path.dirname(dest))).toEqual(['ptah-2026-09-07.sqlite']);
+      expect(readCopy(dest).quickCheck).toBe('ok');
     },
   );
 });

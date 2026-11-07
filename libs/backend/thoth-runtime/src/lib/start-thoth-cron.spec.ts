@@ -148,6 +148,7 @@ describe('startThothCron', () => {
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
       rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -172,6 +173,9 @@ describe('startThothCron', () => {
       prompt: 'handler:backup:daily',
       enabled: true,
     });
+    // fix-12: a daily backup interrupted in the previous run is resumed at
+    // start, once, independent of the cron slot it already consumed.
+    expect(backupService.resumeInterruptedDaily).toHaveBeenCalledTimes(1);
 
     const handler = handlers.get('backup:daily');
     expect(handler).toBeDefined();
@@ -199,6 +203,7 @@ describe('startThothCron', () => {
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
       rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
@@ -238,6 +243,7 @@ describe('startThothCron', () => {
     const backupService = {
       backup: jest.fn().mockResolvedValue(null),
       rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     };
     const refs = refsWithSqlite();
     const container = makeContainer([
@@ -823,6 +829,7 @@ describe('startThothCron', () => {
           {
             backup: jest.fn().mockResolvedValue('/backups/daily.db'),
             rotate: jest.fn().mockResolvedValue(undefined),
+            resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
           },
         ],
         [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
