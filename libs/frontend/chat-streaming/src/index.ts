@@ -68,6 +68,7 @@ export {
   type DeliveryAction,
   type DeliveryActionKind,
   type DeliveryStatus,
+  type LaneMessageDirection,
   type ParentDeliveryItem,
 } from './lib/agent-delivery.store';
 export { agentVisibleInSession, knownSessionId } from './lib/session-scope';

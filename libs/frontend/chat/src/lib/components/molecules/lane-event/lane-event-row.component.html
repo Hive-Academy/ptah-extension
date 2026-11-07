@@ -53,6 +53,12 @@
       title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
     <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
   </div>
+  @if (outputLost(); as lost) {
+    <p data-testid="lane-event-output-lost" class="mt-1 flex items-center gap-1.5 pl-[50px] text-xs leading-5 text-base-content">
+      <lucide-angular [img]="OutputLostIcon" class="h-3.5 w-3.5 shrink-0 text-state-need" aria-hidden="true" />
+      <span>Output after <time [attr.datetime]="iso(lost)" [title]="newDateLabel(lost)">{{ time(lost) }}</time> was lost in a restart</span>
+    </p>
+  }
   @if (receiptStatus(); as status) {
     <div data-testid="lane-event-receipt-status" class="mt-1 flex flex-wrap items-center gap-1.5 pl-[50px] text-xs leading-5 text-base-content-muted">
       @if (isLimitReceipt()) {

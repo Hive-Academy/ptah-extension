@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { CircleCheckBig, CircleX, Eye, MessageSquareText, UserRound, Bot, LucideAngularModule } from 'lucide-angular';
+import { CircleCheckBig, CircleX, Eye, MessageSquareText, UserRound, Bot, Waypoints, LucideAngularModule } from 'lucide-angular';
 import { DeliveryStatusComponent } from '../../molecules/delivery-status/delivery-status.component';
 import type { LaneThreadEntry } from './lane-thread';
 
@@ -7,16 +7,17 @@ import type { LaneThreadEntry } from './lane-thread';
   selector: 'ptah-lane-thread-row', standalone: true, imports: [LucideAngularModule, DeliveryStatusComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div role="listitem" class="border-l-2 px-3 py-2 text-sm"
-      [class.border-primary]="entry().sender === 'You'"
-      [class.border-info]="entry().sender.startsWith('Parent agent')"
-      [class.border-success]="entry().sender !== 'You' && !entry().sender.startsWith('Parent agent') && !isRejectedAck()"
-      [class.border-error]="(entry().kind === 'completion' && entry().verdict === 'Failed') || isRejectedAck()"
-      [class.text-error]="(entry().kind === 'completion' && entry().verdict === 'Failed') || isRejectedAck()"
+    <div role="listitem" class="border-l-2 px-3 py-2 text-sm" [attr.data-sender-kind]="entry().senderKind"
+      [class.border-primary]="entry().senderKind === 'user'"
+      [class.border-info]="entry().senderKind === 'parent'"
+      [class.border-secondary]="entry().senderKind === 'peer-lane'"
+      [class.border-success]="entry().senderKind === 'this-lane' && !isError()"
+      [class.border-error]="isError()"
+      [class.text-error]="isError()"
       [attr.aria-label]="entry().sender + ', ' + absoluteTime() + ', ' + kindLabel()">
       <div class="flex min-w-0 items-center gap-2">
         <lucide-angular [img]="icon()" class="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span class="min-w-0 truncate font-semibold">{{ entry().sender }}</span>
+        <span class="min-w-0 truncate font-semibold" [attr.title]="entry().senderAgentId ?? null">{{ entry().sender }}</span>
         <time class="shrink-0 text-xs text-base-content-muted" [attr.datetime]="iso()" [title]="absoluteTime()">{{ shortTime() }}</time>
       </div>
       @if (entry().body) { <p class="mt-1 whitespace-pre-wrap break-words text-base-content">{{ entry().body }}</p> }
@@ -35,6 +36,8 @@ export class LaneThreadRowComponent {
   readonly laneLabel = input('lane');
   protected readonly YouIcon = UserRound;
   protected readonly ParentIcon = Bot;
+  /** A message another lane sent to this one. */
+  protected readonly PeerLaneIcon = Waypoints;
   protected readonly ReportIcon = MessageSquareText;
   protected readonly DoneIcon = CircleCheckBig;
   protected readonly FailIcon = CircleX;
@@ -43,6 +46,9 @@ export class LaneThreadRowComponent {
   protected readonly subject = computed(() => `${this.entry().kind} from ${this.laneLabel()} to the parent`);
   protected isRejectedAck(): boolean {
     return this.entry().kind === 'ack' && this.entry().ackState === 'rejected';
+  }
+  protected isError(): boolean {
+    return (this.entry().kind === 'completion' && this.entry().verdict === 'Failed') || this.isRejectedAck();
   }
   protected kindLabel(): string {
     return this.entry().kind === 'ack' ? 'acknowledgment' : this.entry().kind;
@@ -54,7 +60,11 @@ export class LaneThreadRowComponent {
       return this.entry().ackState === 'read' ? this.ReadIcon : this.DoneIcon;
     }
     if (this.entry().kind === 'completion') return this.entry().verdict === 'Failed' ? this.FailIcon : this.DoneIcon;
-    return this.entry().sender === 'You' ? this.YouIcon : this.ParentIcon;
+    switch (this.entry().senderKind) {
+      case 'user': return this.YouIcon;
+      case 'peer-lane': return this.PeerLaneIcon;
+      default: return this.ParentIcon;
+    }
   }
   protected iso(): string { return new Date(this.entry().timestamp).toISOString(); }
   protected absoluteTime(): string { return new Date(this.entry().timestamp).toLocaleString(); }

@@ -187,6 +187,28 @@ function laneKeysOf(receipt: AgentDeliveryReceipt): readonly string[] {
   return actual && actual !== receipt.agentId ? [actual, receipt.agentId] : [receipt.agentId];
 }
 
+/** Lane-to-lane direction seen from one lane: messages it sent, or messages other lanes sent to it. */
+export type LaneMessageDirection = 'sent' | 'received';
+
+/**
+ * Lane-sent receipts for one lane, oldest first. `sent` matches the sender lane
+ * (`senderAgentId`); `received` matches the addressed or resolved target lane.
+ * Receipts from the user or the parent never match: this is the lane-to-lane view.
+ */
+export function laneMessageReceipts(
+  receipts: Iterable<AgentDeliveryReceipt>,
+  agentId: string,
+  direction: LaneMessageDirection,
+): AgentDeliveryReceipt[] {
+  const matches: AgentDeliveryReceipt[] = [];
+  for (const receipt of receipts) {
+    if (receipt.sender !== 'lane') continue;
+    const match = direction === 'sent' ? receipt.senderAgentId === agentId : laneKeysOf(receipt).includes(agentId);
+    if (match) matches.push(receipt);
+  }
+  return matches.sort((a, b) => a.createdAt - b.createdAt);
+}
+
 function isLaneDeliveryId(id: string): id is ParentDeliveryView['deliveryId'] {
   return id.startsWith('lane-delivery:');
 }
@@ -267,6 +289,11 @@ export class AgentDeliveryStore {
   receipt(agentId: string, messageId: string): AgentDeliveryReceipt | undefined {
     const receipt = this._receipts().get(messageId);
     return receipt && laneKeysOf(receipt).includes(agentId) ? receipt : undefined;
+  }
+
+  /** Lane-to-lane messages this lane sent, or received from other lanes. */
+  laneMessages(agentId: string, direction: LaneMessageDirection): readonly AgentDeliveryReceipt[] {
+    return laneMessageReceipts(this._receipts().values(), agentId, direction);
   }
 
   onMessageReceipt(receipt: AgentDeliveryReceipt): void {
