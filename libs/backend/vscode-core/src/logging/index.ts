@@ -14,4 +14,10 @@ export type {
   DegradationSnapshot,
 } from './degradation-reporter';
 export { sanitizeConsoleText } from './console-text';
+export {
+  RepeatedWarningLimiter,
+  DEFAULT_REPEATED_WARNING_INTERVAL_MS,
+  MAX_TRACKED_WARNING_KEYS,
+} from './repeated-warning-limiter';
+export type { RepeatedWarningLimiterOptions } from './repeated-warning-limiter';
 export type { LogLevel, LogContext, LogEntry } from './types';

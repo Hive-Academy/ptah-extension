@@ -102,6 +102,12 @@ function resolveRoots(sessions: number): { main: string; roots: string[] } {
     if (roots.length < sessions) {
       throw new Error(`PTAH_PERF_ROOTS lists ${roots.length} roots; need ${sessions}`);
     }
+    // A removed worktree turns every git probe of that session into a refusal and
+    // measures the refusal path instead of the workload (fix-12 run): fail fast.
+    const missing = roots.filter((r) => !fs.existsSync(r));
+    if (missing.length > 0) {
+      throw new Error(`PTAH_PERF_ROOTS names missing roots: ${missing.join('; ')}`);
+    }
     // The first root is the workspace the app opens; the rest must be worktrees of it.
     return { main: roots[0] ?? '', roots };
   }
