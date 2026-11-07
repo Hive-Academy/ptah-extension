@@ -105,6 +105,92 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
+  describe('repeated refusals (fix-13 log storm)', () => {
+    const notFound = (call: unknown[]): boolean =>
+      String(call[0]).startsWith('RpcHandler: Method not found');
+    const userError = (call: unknown[]): boolean =>
+      String(call[0]).includes('returned user error');
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(0);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('writes one method-not-found warning per method per minute, then the count', async () => {
+      for (let i = 0; i < 5; i++) {
+        const response = await handler.handleMessage({
+          method: 'e2e:rpc-ready-probe',
+          params: {},
+          correlationId: `probe-${i}`,
+        });
+        expect(response.success).toBe(false);
+        expect(response.error).toBe('Method not found: e2e:rpc-ready-probe');
+      }
+      await handler.handleMessage({
+        method: 'other:missing',
+        params: {},
+        correlationId: 'other',
+      });
+      expect(logger.warn.mock.calls.filter(notFound)).toEqual([
+        ['RpcHandler: Method not found: "e2e:rpc-ready-probe"'],
+        ['RpcHandler: Method not found: "other:missing"'],
+      ]);
+
+      jest.setSystemTime(60_000);
+      await handler.handleMessage({
+        method: 'e2e:rpc-ready-probe',
+        params: {},
+        correlationId: 'probe-late',
+      });
+      expect(logger.warn.mock.calls.filter(notFound)).toHaveLength(3);
+      expect(logger.warn).toHaveBeenLastCalledWith(
+        'RpcHandler: Method not found: "e2e:rpc-ready-probe"',
+        { suppressedRepeats: 4 },
+      );
+    });
+
+    it('rate-limits an identical user error but still writes a different one', async () => {
+      handler.registerMethod('git:info', async () => {
+        throw new RpcUserError(
+          'This worktree is no longer available.',
+          'GIT_ROOT_UNAVAILABLE',
+        );
+      });
+      handler.registerMethod('session:list', async () => {
+        throw new RpcUserError('Open a folder first.', 'WORKSPACE_NOT_OPEN');
+      });
+
+      for (let i = 0; i < 3; i++) {
+        const response = await handler.handleMessage({
+          method: 'git:info',
+          params: {},
+          correlationId: `git-${i}`,
+        });
+        expect(response.errorCode).toBe('GIT_ROOT_UNAVAILABLE');
+      }
+      await handler.handleMessage({
+        method: 'session:list',
+        params: {},
+        correlationId: 'session',
+      });
+
+      expect(logger.warn.mock.calls.filter(userError)).toEqual([
+        [
+          'RpcHandler: Method "git:info" returned user error (GIT_ROOT_UNAVAILABLE): This worktree is no longer available.',
+          { correlationId: 'git-0' },
+        ],
+        [
+          'RpcHandler: Method "session:list" returned user error (WORKSPACE_NOT_OPEN): Open a folder first.',
+          { correlationId: 'session' },
+        ],
+      ]);
+    });
+  });
+
   it("accepts 'db:' prefixed methods (TASK_2026_THOTH_PERSISTENCE_HARDENING)", () => {
     // registerMethod should not throw for db: prefixed names
     expect(() => {

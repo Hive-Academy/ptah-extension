@@ -36,7 +36,10 @@ import {
   GIT_ROOT_UNAVAILABLE_MESSAGE,
   GIT_ROOT_PROBE_FAILED_MESSAGE,
 } from '@ptah-extension/shared';
-import { RpcUserError } from '@ptah-extension/vscode-core';
+import {
+  RepeatedWarningLimiter,
+  RpcUserError,
+} from '@ptah-extension/vscode-core';
 import type { GitInfoService } from '@ptah-extension/vscode-core';
 import {
   findRegisteredWorkspaceFolder,
@@ -55,7 +58,11 @@ export type GitRootPolicy = 'folder' | 'folder-or-worktree';
 export interface GitRootResolverDeps {
   readonly workspace: IWorkspaceProvider;
   readonly probe: WorktreeRootProbe;
-  /** Called once per refused named root, with the method and the root. */
+  /**
+   * Called for a refused named root or a failed probe, at most once per root
+   * and kind per {@link GIT_ROOT_WARNING_INTERVAL_MS}; a repeat carries
+   * `suppressedRepeats`, the calls not written since the last warning.
+   */
   readonly warn: (message: string, context: Record<string, unknown>) => void;
   /** Bumped by every probe-cache invalidation; a cached answer from an older value is dropped. */
   readonly epoch: () => number;
@@ -70,6 +77,12 @@ export const READ_PROBE_TTL_MS = 60_000;
 export const READ_PROBE_NEGATIVE_TTL_MS = 2_000;
 /** Probe failures in a row after which a root reads as unavailable (review #6). */
 export const MAX_CONSECUTIVE_PROBE_FAILURES = 3;
+/**
+ * One warning per root and kind per minute. A caller that keeps asking for a
+ * removed worktree (a stale tab, a lane, the perf driver) otherwise writes a
+ * WARN line per `git:*` call (fix-13: 3,476 `[GitRoot]` lines in 15 minutes).
+ */
+export const GIT_ROOT_WARNING_INTERVAL_MS = 60_000;
 /** Roots whose failure streak is tracked at once; the oldest is dropped. */
 const MAX_TRACKED_FAILURE_ROOTS = 64;
 
@@ -114,8 +127,15 @@ export class GitRootResolver {
   private readonly readProbes = new Map<string, ReadProbeEntry>();
   /** Consecutive probe failures by requested root (see header). */
   private readonly failureStreaks = new Map<string, number>();
+  /** Per-root warning rate limit (see {@link GIT_ROOT_WARNING_INTERVAL_MS}). */
+  private readonly warnings: RepeatedWarningLimiter;
 
-  constructor(private readonly deps: GitRootResolverDeps) {}
+  constructor(private readonly deps: GitRootResolverDeps) {
+    this.warnings = new RepeatedWarningLimiter({
+      intervalMs: GIT_ROOT_WARNING_INTERVAL_MS,
+      now: () => this.now(),
+    });
+  }
 
   /**
    * The root `method` may run in: the registered spelling of the named root,
@@ -158,11 +178,16 @@ export class GitRootResolver {
         return outcome.path;
       }
       if (outcome.kind === 'probe-failed') {
-        this.deps.warn(`[GitRoot] ${method} probe failed`, {
-          method,
-          workspaceRoot: requested,
-          cause: outcome.cause,
-        });
+        this.warnLimited(
+          'probe-failed',
+          requested,
+          `[GitRoot] ${method} probe failed`,
+          {
+            method,
+            workspaceRoot: requested,
+            cause: outcome.cause,
+          },
+        );
         if (this.mayRetry(requested, signal)) {
           throw new RpcUserError(
             GIT_ROOT_PROBE_FAILED_MESSAGE,
@@ -174,11 +199,16 @@ export class GitRootResolver {
       }
     }
 
-    this.deps.warn(`[GitRoot] ${method} refused workspaceRoot`, {
-      method,
-      workspaceRoot: requested,
-      policy,
-    });
+    this.warnLimited(
+      'refused',
+      requested,
+      `[GitRoot] ${method} refused workspaceRoot`,
+      {
+        method,
+        workspaceRoot: requested,
+        policy,
+      },
+    );
     throw new RpcUserError(
       GIT_ROOT_UNAVAILABLE_MESSAGE,
       'GIT_ROOT_UNAVAILABLE',
@@ -248,6 +278,21 @@ export class GitRootResolver {
       });
     }
     return outcome;
+  }
+
+  /** {@link GitRootResolverDeps.warn}, at most once per root and kind per interval. */
+  private warnLimited(
+    kind: 'refused' | 'probe-failed',
+    requested: string,
+    message: string,
+    context: Record<string, unknown>,
+  ): void {
+    const suppressed = this.warnings.admit(`${kind}|${requested}`);
+    if (suppressed === null) return;
+    this.deps.warn(
+      message,
+      suppressed > 0 ? { ...context, suppressedRepeats: suppressed } : context,
+    );
   }
 
   private pruneExpired(now: number): void {

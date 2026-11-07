@@ -15,6 +15,7 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
 
 import {
   GIT_ROOT_UNAVAILABLE_MESSAGE,
+  GIT_ROOT_WARNING_INTERVAL_MS,
   GitRootResolver,
   MAX_CONSECUTIVE_PROBE_FAILURES,
   READ_PROBE_NEGATIVE_TTL_MS,
@@ -359,6 +360,58 @@ describe('GitRootResolver', () => {
     await expect(
       resolver.resolve(undefined, 'git:info', 'folder-or-worktree'),
     ).resolves.toBeUndefined();
+  });
+
+  it('warns once per removed root per interval, then with the suppressed count (fix-13)', async () => {
+    let now = 0;
+    const { resolver, probe, warn } = build([FOLDER], () => now);
+    const GONE = '/workspace/.claude-worktrees/gone';
+    const OTHER = '/workspace/.claude-worktrees/other-gone';
+    probe.directory.mockResolvedValue({ kind: 'absent' });
+
+    for (const method of ['git:info', 'git:branches', 'git:stashList']) {
+      await expect(
+        resolver.resolve(GONE, method, 'folder-or-worktree'),
+      ).rejects.toMatchObject(unavailable);
+    }
+    await expect(
+      resolver.resolve(OTHER, 'git:info', 'folder-or-worktree'),
+    ).rejects.toMatchObject(unavailable);
+
+    expect(warn.mock.calls).toEqual([
+      [
+        '[GitRoot] git:info refused workspaceRoot',
+        {
+          method: 'git:info',
+          workspaceRoot: GONE,
+          policy: 'folder-or-worktree',
+        },
+      ],
+      [
+        '[GitRoot] git:info refused workspaceRoot',
+        {
+          method: 'git:info',
+          workspaceRoot: OTHER,
+          policy: 'folder-or-worktree',
+        },
+      ],
+    ]);
+    // A missing directory is refused on a stat alone; git is never asked.
+    expect(probe.listWorktrees).not.toHaveBeenCalled();
+
+    now = GIT_ROOT_WARNING_INTERVAL_MS;
+    await expect(
+      resolver.resolve(GONE, 'git:lastCommit', 'folder-or-worktree'),
+    ).rejects.toMatchObject(unavailable);
+    expect(warn).toHaveBeenLastCalledWith(
+      '[GitRoot] git:lastCommit refused workspaceRoot',
+      {
+        method: 'git:lastCommit',
+        workspaceRoot: GONE,
+        policy: 'folder-or-worktree',
+        suppressedRepeats: 2,
+      },
+    );
   });
 });
 

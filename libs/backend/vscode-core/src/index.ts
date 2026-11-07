@@ -10,6 +10,11 @@ export type { ExtensionContextShimPaths } from './di/register-storage-shims';
 export { Logger } from './logging';
 export type { LogLevel, LogContext, LogEntry } from './logging';
 export { DegradationReporter, MAX_TRACKED_DEGRADATION_CODES } from './logging';
+export {
+  RepeatedWarningLimiter,
+  DEFAULT_REPEATED_WARNING_INTERVAL_MS,
+} from './logging';
+export type { RepeatedWarningLimiterOptions } from './logging';
 export type {
   DegradationReport,
   DegradationCount,
