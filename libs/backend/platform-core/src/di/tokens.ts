@@ -93,6 +93,12 @@ export const PLATFORM_TOKENS = {
    */
   SESSION_RECORD_REPOSITORY: Symbol.for('PlatformSessionRecordRepository'),
 
+  /**
+   * IHostRunLeaseRepository — host-run heartbeats beside the session records.
+   * Registered with SESSION_RECORD_REPOSITORY; inject it `{ isOptional: true }`.
+   */
+  HOST_RUN_LEASE_REPOSITORY: Symbol.for('PlatformHostRunLeaseRepository'),
+
   /** SessionUsageSink - accepted usage ledger writer. */
   SESSION_USAGE_SINK: Symbol.for('PlatformSessionUsageSink'),
 

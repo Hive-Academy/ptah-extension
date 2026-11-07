@@ -1307,33 +1307,26 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     }
 
     it('passes the explicit interruption marker and resumes after the idle window', async () => {
-      manager.restoreAgents(
-        [
-          {
-            cliSessionId: SESSION,
-            cli: 'codex',
-            agentId: 'interrupted-previous' as CliSessionReference['agentId'],
-            task: 'Implement the parser',
-            startedAt: '2026-10-04T08:00:00.000Z',
-            status: 'running',
-          },
-        ],
-        '/workspace/root',
-      );
-      const previous = manager.getStatus(
-        'interrupted-previous',
-      ) as AgentProcessInfo;
-      if (!previous.completedAt)
-        throw new Error('Expected interruption timestamp');
-      resumeGate.evaluate.mockImplementationOnce(
-        async (input: { interruptedByHostRestart?: boolean }) => ({
-          decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
-          reason: 'host restart interrupted the lane',
-          contextTokens: null,
-          source: 'estimate',
-          idleMs: 601_000,
-        }),
-      );
+      manager.restoreAgents([{
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'interrupted-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        completedAt: '2026-10-04T08:01:00.000Z',
+        lastActivityAt: '2026-10-04T08:01:00.000Z',
+        status: 'stopped',
+        stopReason: 'host-restart',
+      }], '/workspace/root');
+      const previous = manager.getStatus('interrupted-previous') as AgentProcessInfo;
+      if (!previous.completedAt) throw new Error('Expected interruption timestamp');
+      resumeGate.evaluate.mockImplementationOnce(async (input: { interruptedByHostRestart?: boolean }) => ({
+        decision: input.interruptedByHostRestart ? 'resume' : 'fresh',
+        reason: 'host restart interrupted the lane',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 601_000,
+      }));
 
       const result = await manager.spawn({
         task: 'Continue',
@@ -1356,7 +1349,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       ).toBe(SESSION);
     });
 
-    it('starts fresh when a running persisted lane started over 24 hours ago', async () => {
+    it('starts fresh for a host-restart lane that started over 24 hours ago', async () => {
       const startedAt = new Date(
         Date.now() - RESUME_GATE_MAX_HOST_RESTART_AGE_MS - 1,
       ).toISOString();
@@ -1368,7 +1361,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
             agentId: 'old-interruption' as CliSessionReference['agentId'],
             task: 'Implement the parser',
             startedAt,
-            status: 'running',
+            // The store normalizes an interrupted lane before restore.
+            status: 'stopped',
+            stopReason: 'host-restart',
+            completedAt: new Date().toISOString(),
           },
         ],
         '/workspace/root',
@@ -1407,7 +1403,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
     });
 
-    it('resumes when a running persisted lane started within 24 hours', async () => {
+    it('resumes a host-restart lane that started within 24 hours', async () => {
       const startedAt = new Date(Date.now() - 60_000).toISOString();
       manager.restoreAgents(
         [
@@ -1417,7 +1413,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
             agentId: 'recent-interruption' as CliSessionReference['agentId'],
             task: 'Implement the parser',
             startedAt,
-            status: 'running',
+            // The store normalizes an interrupted lane before restore.
+            status: 'stopped',
+            stopReason: 'host-restart',
+            completedAt: new Date().toISOString(),
           },
         ],
         '/workspace/root',

@@ -107,6 +107,7 @@ import {
   resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
+import { laneLastActivityAt, restoreLaneLifecycle } from './lane-restore';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { MCP_ATTACHMENT_TIMEOUT_MS } from './mcp-attachment-probe.port';
@@ -329,6 +330,8 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Lanes a restore skipped because another live host run owns them. */
+  private readonly foreignLiveAgentIds = new Set<string>();
   /** Recent tab resolutions cover lanes spawned after session open. */
   private readonly resolvedParentSessions = new Map<string, string>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
@@ -679,7 +682,7 @@ export class AgentProcessManager {
     const lane = this.laneRecordsForSession(resumeSessionId);
     const latest = lane[lane.length - 1];
     const lastActivityAt = latest
-      ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
+      ? laneLastActivityAt(latest.info)
       : Number.NaN;
     const interruptedByHostRestart =
       latest?.info.stopReason === 'host-restart' &&
@@ -1173,6 +1176,7 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
+        lastActivityAt: startedAt,
         turnSeq: 1,
         parentSessionId: this.resumedOwner(
           meta.parentSessionId,
@@ -1652,7 +1656,15 @@ export class AgentProcessManager {
    * The `Agent not found: <id>` PREFIX is load-bearing: callers and specs match
    * on it. Extend this message, never re-word its opening.
    */
-  private static noSuchAgentMessage(agentId: string): string {
+  private noSuchAgentMessage(agentId: string): string {
+    if (this.foreignLiveAgentIds.has(agentId)) {
+      return (
+        `Agent not found: ${agentId}. The lane is running under another live ` +
+        `Ptah host that shares this session, so this host cannot read, ` +
+        `message or stop it. Check it from that host; do not spawn or resume ` +
+        `a duplicate.`
+      );
+    }
     return (
       `Agent not found: ${agentId}. This host holds no record under that id — ` +
       `neither a live agent nor one restored from persisted session state. ` +
@@ -1708,35 +1720,36 @@ export class AgentProcessManager {
     workingDirectory: string,
   ): number {
     let restored = 0;
+    const restoredAt = new Date().toISOString();
 
     for (const ref of refs) {
       const agentId = String(ref.agentId);
       if (!agentId || this.agents.has(agentId)) continue;
+      if (ref.status === 'running') {
+        // The store returns `running` only for a live host run. This run's own
+        // lanes are already in memory; a foreign live lane belongs to its host.
+        this.foreignLiveAgentIds.add(agentId);
+        this.logger.debug(
+          '[AgentProcessManager] Skipped a live lane owned by another host run',
+          { agentId, cliSessionId: ref.cliSessionId, workingDirectory },
+        );
+        continue;
+      }
+      this.foreignLiveAgentIds.delete(agentId);
 
       const stdout = ref.stdout ?? '';
-      const interrupted = ref.status === 'running';
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
         ...laneAccountFields(ref),
+        // Status, completedAt, lastActivityAt and stopReason come from the
+        // store-normalized reference. Live foreign lanes were excluded above.
+        ...restoreLaneLifecycle(ref, restoredAt),
         agentId: ref.agentId,
         cli: ref.cli,
         task: ref.task,
         workingDirectory,
-        // A reference persisted as `running` describes a process that died with
-        // the run that wrote it. Carrying it through would show a spinner that
-        // never resolves and would count against the concurrency cap.
-        status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
-        ...(interrupted
-          ? {
-              completedAt: new Date().toISOString(),
-              stopReason: 'host-restart' as const,
-            }
-          : {
-              ...(ref.completedAt ? { completedAt: ref.completedAt } : {}),
-              ...(ref.stopReason ? { stopReason: ref.stopReason } : {}),
-            }),
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
@@ -1775,7 +1788,7 @@ export class AgentProcessManager {
         reportsDelivered: 0,
         restored: true,
       });
-      if (interrupted) {
+      if (info.stopReason === 'host-restart') {
         this.logger.info(
           '[AgentProcessManager] Lane interrupted by host restart',
           {
@@ -1826,7 +1839,7 @@ export class AgentProcessManager {
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
-        throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+        throw new Error(this.noSuchAgentMessage(agentId));
       }
       if (
         !this.spawnEnvironment.isWithinScope(
@@ -2092,7 +2105,7 @@ export class AgentProcessManager {
   readOutput(agentId: string, tail?: number, offset?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+      throw new Error(this.noSuchAgentMessage(agentId));
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
@@ -2343,7 +2356,7 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new AgentMessageError(
         'not_found',
-        AgentProcessManager.noSuchAgentMessage(agentId),
+        this.noSuchAgentMessage(agentId),
       );
     }
 
@@ -2520,11 +2533,13 @@ export class AgentProcessManager {
       clearTimeout(tracked.exitEmitHandle);
       tracked.exitEmitHandle = undefined;
     }
+    const continuedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       turnSeq: (tracked.info.turnSeq ?? 1) + 1,
       status: 'running',
       completedAt: undefined,
+      lastActivityAt: continuedAt,
       exitCode: undefined,
       stopReason: undefined,
       stopResetAt: undefined,
@@ -2637,10 +2652,12 @@ export class AgentProcessManager {
     // on the completion signal it pushes first. Stamping the terminal status
     // here makes `handleExit` take its no-op branch and keeps the ONE signal
     // for this ending honest (TASK_2026_515).
+    const stoppedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'stopped',
-      completedAt: new Date().toISOString(),
+      completedAt: stoppedAt,
+      lastActivityAt: stoppedAt,
     };
     const droppedIds = tracked.pendingMessages.map((entry) => entry.messageId);
     this.messageRouter.discardPending(agentId, tracked);
@@ -2843,6 +2860,10 @@ export class AgentProcessManager {
     // Throttled to OUTPUT_FLUSH_INTERVAL, so re-arming here costs one timer per
     // 200 ms rather than one per token.
     if (tracked.info.status === 'running') {
+      tracked.info = {
+        ...tracked.info,
+        lastActivityAt: new Date().toISOString(),
+      };
       this.armInactivityWatchdog(agentId, tracked);
     }
 
@@ -2895,10 +2916,12 @@ export class AgentProcessManager {
     );
     this.flushDelta(agentId);
     clearTimeout(tracked.timeoutHandle);
+    const timedOutAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
-      completedAt: new Date().toISOString(),
+      completedAt: timedOutAt,
+      lastActivityAt: timedOutAt,
     };
     this.releaseLaneGuard(agentId);
     // BEFORE the kill, not after: on the SDK path the kill is an abort whose
@@ -3165,6 +3188,7 @@ export class AgentProcessManager {
         status,
         exitCode: code ?? undefined,
         completedAt: new Date(observedAt).toISOString(),
+        lastActivityAt: new Date(observedAt).toISOString(),
         failureKind: limit ? limit.failureKind : undefined,
         stopReason,
         stopResetAt:
@@ -3199,9 +3223,11 @@ export class AgentProcessManager {
         observedAt,
       );
     } else if (!tracked.info.completedAt) {
+      const completedAt = new Date().toISOString();
       tracked.info = {
         ...tracked.info,
-        completedAt: new Date().toISOString(),
+        completedAt,
+        lastActivityAt: completedAt,
       };
     }
     this.events.emit('agent:turn-settled', {
