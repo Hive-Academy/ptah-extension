@@ -1,13 +1,12 @@
 ---
 status: backlog
 type: BUGFIX
-title: Spawned agents lie about their own lifecycle
+title: Make spawned-agent lifecycle reporting honest about not-found and stuck agents
+updated: 2026-11-07T00:00:00.000Z
 description: >-
-  ptah_agent_status is unreliable enough that an orchestrator has to stop using
-  it. Three distinct defects observed on 2026-09-12 across six spawns. A
-  completed agent vanishes from the registry and reports "Agent not found". A
-  completed agent never exits and blocks the caller. A completed run hangs
-  forever on a leaked handle with no diagnostic at all.
+  Completed agents are now retained and restored, and lane completion is pushed. Two items
+  remain: the "Agent not found" text still asserts a cause it does not know, and a silent,
+  idle agent is still reported as `running` until the inactivity timeout stops it.
 ---
 
 Observed on 2026-09-12 while orchestrating TASK_2026_402_a5c7 and a CI fix on
@@ -24,3 +23,29 @@ worktree instead.** A status tool nobody trusts is worse than no status tool,
 because it still gets called by anything that does not know better.
 
 Evidence and acceptance criteria are in `context.md`.
+
+## Description
+
+Remaining work:
+
+1. Not-found text: `noSuchAgentMessage`
+   (`libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts:1655-1662`)
+   still says the id "was never persisted, or ... older than the retention window" and advises
+   a re-spawn. State only what is known, and point to the worktree or report file before a
+   re-spawn. Keep the `Agent not found: <id>` prefix; callers match on it.
+2. Stuck signal: surface an agent that produces no output and uses no CPU for a bounded period
+   in `ptah_agent_status` (`formatAgentStatus`,
+   `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:1920`),
+   instead of plain `running`. Today only the inactivity watchdog acts, after
+   `DEFAULT_INACTIVITY_TIMEOUT` (60 min, `agent-process-manager-helpers.ts:51`).
+3. Defect 2 (a finished agent never reaching `completed`): re-check per CLI adapter. The Cursor
+   case is TASK_2026_424_b6bf. If an adapter cannot detect completion, say so in status.
+
+## Current state (2026-11-07)
+
+- Done: completed records stay for `COMPLETED_AGENT_TTL` (30 min,
+  `agent-process-manager-helpers.ts:54`), and restored agents survive a host restart.
+- Done: lane completion is pushed to the parent session (TASK_2026_515, PR #555), so callers no
+  longer need to poll.
+- Not done: items 1 and 2. The jest handle leak behind Defect 3 is TASK_2026_427_f669 and is out
+  of scope here.

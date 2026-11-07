@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Batches - TASK_2026_388
 
 Total tasks: 11 | Batches: 11 | Complete: 0/11

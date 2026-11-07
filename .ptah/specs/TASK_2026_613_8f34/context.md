@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Task Context - TASK_2026_613_8f34
 
 ## User Request

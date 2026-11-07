@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_604 — oversized settings files and spec codes in comments
 
 ## Why

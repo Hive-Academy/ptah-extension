@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context: TUI storage health and pinned diagnostics locale
 
 Merged on 2026-10-12 from two TASK_2026_440 review follow-ups (both now `cancelled`, `duplicates` this task).

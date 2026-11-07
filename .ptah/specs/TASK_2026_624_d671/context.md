@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_624 — Memory and skills bench: recordings and first scored run
 
 ## RESUME HERE (2026-10-10 — start brief for a new session)

@@ -2,20 +2,35 @@
 id: TASK_2026_241
 status: backlog
 type: FEATURE
-title: Unified installed-inventory surface for the Marketplace
+title: Group the unified Marketplace MCP inventory by target config file
+updated: 2026-11-07T00:00:00.000Z
 description: >-
-  Every Marketplace provider surface reads only its own installed list —
-  mcpDirectory:listInstalled for the MCP Registry, listSmitheryInstalled for
-  Smithery, listOAuthConnected for Connected Apps. Nothing aggregates them, so a
-  server installed via one provider is invisible from the others and there is no
-  single place to see what is actually wired into .mcp.json and the three other
-  target configs. Add an inventory surface grouped by target config file.
+  The installed-servers page already merges harness-config, Claude user, Smithery and OAuth
+  rows into one list with origin and target filters. The only open item is an optional view
+  that groups rows by target config file. Decide if that view is still wanted.
 ---
 
 # Unified installed-inventory surface for the Marketplace
 
-Users cannot answer "what MCP servers do I actually have installed, and where?"
-without opening each provider surface in turn and mentally merging four
-partial lists — none of which agree on shape.
-
 Prose lives in `context.md`.
+
+## Description
+
+The original gap (each provider surface reads only its own installed list) is closed. One
+inventory now carries every disk and manifest source. What is left:
+
+- Decide if users still need a view grouped by target config file (`.mcp.json` and the other
+  harness targets). Today the page offers a target filter facet, not grouping.
+- If yes, add the grouping to `libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts`.
+  Do not add a new RPC: `mcpDirectory:listInstalled` already returns every origin.
+
+## Current state (2026-11-07)
+
+- Done in `e4dc3c03c` ("show every connected MCP server and make Remove honest"):
+  `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts:381` `listInstalled`
+  emits `harness-config` (:489), `claude-user` (:514), `smithery` (:555) and `oauth` (:583) rows.
+- The origin union is `McpServerOrigin` in `libs/shared/src/lib/types/mcp-directory.types.ts:383-384`.
+  The frontend adds `claude-connector` rows in
+  `libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts:455-469`.
+- `installed-servers-page.component.ts:172` filters by origin, target and status.
+- Not done: grouping by target config file.

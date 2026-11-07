@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # SQLite off the main thread — implementation plan
 
 TASK_2026_481. Design only. No production code was written and no source file was

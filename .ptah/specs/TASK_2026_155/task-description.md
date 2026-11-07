@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Requirements Document - TASK_2026_155
 
 **Task**: Claude Code-style `/goal` workflow for Ptah

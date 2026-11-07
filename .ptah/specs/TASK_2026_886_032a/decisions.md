@@ -17,4 +17,10 @@
 | 14 | 14 REVIEW worktrees: 114 local-only files copied to main checkout `.ptah/specs/_worktree-archive/<worktree>/` (cmp identical), then removed with --force after junction unlink | worktree-audit.md | User (AskUserQuestion) |
 | 15 | Frontmatter added to TASK_2026_glass_scenes (had none, so it was invisible to the board; PR #884 merged) | Carrier parse check | Evidence (same class as #12) |
 | 16 | Leftover folder `.claude-worktrees/landing-revamp-p2` not deleted: PID 50564 `nx serve ptah-landing-page --port 4200` holds its `.nx` db; worktree is already deregistered | Process check | Evidence (killing a user dev server is outward) |
+| 17 | Phase 2 (backlog polish of 123 carriers) runs in this task, worktree and PR #966 | Same files, same sweep; follow-up user request | User (follow-up) + Evidence |
+| 18 | Polish scope: rewrite only `task.md` (title, description, body, `updated:`); keep `status:`; history files get a one-line out-of-date note only | Carriers are the source of truth; rewriting history docs is high cost and loses the record | Orchestrator |
+| 19 | Phase 2 also uses subagents only (4 parallel, file-disjoint lists) | User's subagents-only instruction for this sweep | User (earlier, same task) |
+| 20 | Accept polish of 123 backlog carriers: 0 status lines changed, 123/123 parse with `Current state` section, 46 history files got only the note line, 0 absolute paths | polish-report-part00..03.md, diff checks | Orchestrator verification |
+| 21 | No separate review subagent for the polish: docs/metadata only (lean rule 3); mechanical checks above stand in | Orchestration skill | Orchestrator |
+| 22 | Missing `id:`/`created:` fields in about 18 older carriers left as is (folder name is canonical ID) | task-tracking.md § Task ID | Evidence |
 | 6 | Status changes to `cancelled` for stale backlog items go to the user | Removals/cancellations are user-reserved | Orchestration skill |
