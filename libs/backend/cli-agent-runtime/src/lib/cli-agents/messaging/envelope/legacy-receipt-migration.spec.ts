@@ -88,6 +88,16 @@ describe('parseLegacyReceipts', () => {
     });
   });
 
+  it('marks an interrupted-undelivered receipt with its own reason whatever v1 stored', () => {
+    const [interrupted, bare] = parseLegacyReceipts([
+      receipt({ state: 'interrupted-undelivered', reason: 'turn-stopped' }),
+      receipt({ state: 'interrupted-undelivered' }),
+    ]);
+
+    expect(interrupted).toMatchObject({ state: 'failed', reason: 'interrupted-undelivered' });
+    expect(bare).toMatchObject({ state: 'failed', reason: 'interrupted-undelivered' });
+  });
+
   it('imports nonterminal receipts as failed/host-restarted', () => {
     const [accepted, started] = parseLegacyReceipts([
       receipt({ state: 'accepted' }),

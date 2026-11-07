@@ -29,26 +29,29 @@ export function parseLegacyReceipts(value: unknown): AgentMessageEnvelope[] {
     const parsed = LegacyReceiptSchema.safeParse(entry);
     if (!parsed.success) continue;
     const receipt = parsed.data;
-    const terminal = receipt.state === 'settled' || receipt.state === 'failed' ||
-      receipt.state === 'expired' || receipt.state === 'interrupted-undelivered';
+    // v1 never stored a body, so every import is a body-less terminal record: nonterminal
+    // receipts become `failed`/`host-restarted` (today's restore rule), and an interrupted
+    // turn keeps its distinct reason so the projection still shows it.
+    const state = receipt.state === 'settled' || receipt.state === 'expired' ||
+      receipt.state === 'failed' ? receipt.state : 'failed';
+    const reason = receipt.state === 'interrupted-undelivered' ? 'interrupted-undelivered'
+      : receipt.state === 'accepted' || receipt.state === 'started' ? 'host-restarted'
+        : receipt.reason;
     envelopes.push({
       id: receipt.id,
       targetAgentId: receipt.agentId,
       laneLineageId: receipt.agentId,
       sender: { kind: receipt.sender ?? 'parent' },
       senderKey: receipt.sender === 'user' ? 'user' : 'parent:legacy',
-      state: terminal
-        ? receipt.state === 'interrupted-undelivered' ? 'failed'
-          : receipt.state === 'accepted' ? 'failed' : receipt.state
-        : 'failed',
+      state,
       mode: receipt.mode,
       delivery: receipt.delivery,
       createdAt: receipt.createdAt,
       updatedAt: receipt.updatedAt,
-      ...(terminal || receipt.state !== 'settled' ? { terminalAt: receipt.updatedAt } : {}),
+      terminalAt: receipt.updatedAt,
       ...(receipt.turnSeq !== undefined ? { turnSeq: receipt.turnSeq } : {}),
       ...(receipt.cliSessionId ? { cliSessionId: receipt.cliSessionId } : {}),
-      reason: terminal ? receipt.reason : 'host-restarted',
+      ...(reason !== undefined ? { reason } : {}),
       ...(receipt.partialTurnLost !== undefined
         ? { partialTurnLost: receipt.partialTurnLost } : {}),
       ...(receipt.turnOutcome ? { turnOutcome: receipt.turnOutcome } : {}),

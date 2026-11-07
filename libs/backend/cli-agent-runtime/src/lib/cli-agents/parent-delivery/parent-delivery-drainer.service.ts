@@ -232,7 +232,7 @@ export class ParentDeliveryDrainerService {
           },
         });
       } catch (error: unknown) {
-        await this.recordSendFailure(sending, id, error);
+        await this.recordSendFailure(sending, error);
         break;
       }
       await this.recordDelivered(sending);
@@ -258,14 +258,9 @@ export class ParentDeliveryDrainerService {
 
   private async recordSendFailure(
     sending: ParentDeliveryEnvelope,
-    id: SessionId,
     error: unknown,
   ): Promise<void> {
-    const failure = classifyParentSendFailure(error, {
-      adapterAvailable: true,
-      parentActive: this.adapter?.isSessionActive(id) ?? false,
-      parentFrozen: this.store.isParentFrozen(sending.parentSessionId),
-    });
+    const failure = classifyParentSendFailure(error);
     this.logger.warn('[ParentDeliveryDrainer] Parent send failed', {
       parentSessionId: sending.parentSessionId, kind: sending.kind, failure,
     });

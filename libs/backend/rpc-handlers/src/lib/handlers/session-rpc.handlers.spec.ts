@@ -148,7 +148,10 @@ import type {
   StoredOrganization,
 } from '@ptah-extension/session-organization';
 import type { TaskIndexService } from '@ptah-extension/task-specs';
-import type { ParentSessionPurge } from '@ptah-extension/cli-agent-runtime';
+import type {
+  ParentSessionPurge,
+  ParentSessionPurgeOutcome,
+} from '@ptah-extension/cli-agent-runtime';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
@@ -350,11 +353,14 @@ interface Harness {
 }
 
 type MockPurge = {
-  [K in Exclude<keyof ParentSessionPurge, 'resumePendingPurges'>]: jest.Mock<
+  [K in Exclude<keyof ParentSessionPurge, 'resumePendingPurges' | 'completeDelete'>]: jest.Mock<
     Promise<void>,
     [string]
   >;
-} & { resumePendingPurges: jest.Mock<Promise<void>, []> };
+} & {
+  completeDelete: jest.Mock<Promise<ParentSessionPurgeOutcome>, [string]>;
+  resumePendingPurges: jest.Mock<Promise<void>, []>;
+};
 
 /** Parent-session purge (Component 10); every phase resolves by default. */
 function createMockPurge(): MockPurge {
@@ -362,7 +368,8 @@ function createMockPurge(): MockPurge {
   return {
     beginDelete: step(),
     markMetadataDeleted: step(),
-    completeDelete: step(),
+    completeDelete: jest.fn<Promise<ParentSessionPurgeOutcome>, [string]>()
+      .mockResolvedValue('purged'),
     abortDelete: step(),
     resumePendingPurges: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   };
@@ -2149,7 +2156,10 @@ describe('SessionRpcHandlers', () => {
         };
         h.purge.beginDelete.mockImplementation(record('beginDelete'));
         h.purge.markMetadataDeleted.mockImplementation(record('markMetadataDeleted'));
-        h.purge.completeDelete.mockImplementation(record('completeDelete'));
+        h.purge.completeDelete.mockImplementation(async () => {
+          order.push('completeDelete');
+          return 'purged';
+        });
         h.purge.abortDelete.mockImplementation(record('abortDelete'));
         h.metadataStore.delete.mockImplementation(record('metadataDelete'));
         h.turnChangeSets.remove.mockImplementation(record('removeTurnChangeSets'));
@@ -2277,6 +2287,17 @@ describe('SessionRpcHandlers', () => {
           'RPC: session:delete - messaging purge left for recovery',
           expect.any(Error),
         );
+      });
+
+      it('reports pending-retry when completeDelete resolves with an unfinished purge', async () => {
+        const { h } = purgeHarness();
+        h.purge.completeDelete.mockResolvedValue('pending-retry');
+
+        const result = await call<{ success: boolean; messagingCleanup?: string }>(h, 'session:delete', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: true, messagingCleanup: 'pending-retry' });
       });
 
       it('continues the delete when the metadata-deleted mark fails', async () => {

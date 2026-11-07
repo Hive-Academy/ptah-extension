@@ -390,6 +390,7 @@ export class AgentMessageRouter {
     // put it back; this attempt starts from a clean status.
     this.terminal.delete(`${agentId}:${next.messageId}`);
     let journal: JournalResult = 'refused';
+    let rejected = false;
     try {
       journal = await this.journalDispatch(agentId, tracked, next);
       if (journal === 'ok' && this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed') {
@@ -405,8 +406,10 @@ export class AgentMessageRouter {
     } catch (error: unknown) {
       const reason = classifyContinuationFailure(error);
       // Only this entry failed; the reconciler decides between a backoff retry
-      // and a permanent hold with the body kept. The others stay queued, and
-      // the next settle offers the next one.
+      // and a permanent hold with the body kept. A transient refusal (busy) is
+      // followed by a settle, which offers the next entry; a permanent one
+      // started no turn, so the next entry is offered below.
+      rejected = reason === 'continuation_rejected';
       this.setTerminal(agentId, next.messageId, { status: 'failed', reason });
       this.logger.error(
         '[AgentMessageRouter] Queued message could not be delivered',
@@ -422,8 +425,9 @@ export class AgentMessageRouter {
       this.inFlight.delete(agentId);
       this.flushing.delete(agentId);
     }
-    // A withdrawn entry ran nothing, so no settle will follow: offer the next one now.
-    if (journal === 'withdrawn') await this.flushPending(agentId, tracked, dispatcher);
+    // A withdrawn or permanently rejected entry ran nothing, so no settle will
+    // follow: offer the next one now.
+    if (journal === 'withdrawn' || rejected) await this.flushPending(agentId, tracked, dispatcher);
   }
 
   /**

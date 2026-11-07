@@ -85,6 +85,30 @@ function harness() {
 }
 
 describe('PtahCliLaneResumer', () => {
+  it('carries the saved permission and network policy and stores it on the new record', async () => {
+    const h = harness();
+    const policy = { permission: 'plan' as const, network: 'deny' as const };
+    jest.mocked(h.registry.spawnAgent).mockResolvedValueOnce({
+      handle: h.handle,
+      agentName: 'Researcher',
+      setAgentId: h.setAgentId,
+      potentialCapabilities: manifestFixture(),
+      effectivePolicy: policy,
+    });
+
+    await h.resumer.resume({ ...info, effectivePolicy: policy }, 'continue');
+
+    expect(h.registry.spawnAgent).toHaveBeenCalledWith(
+      'ptah-config',
+      'prepared task',
+      expect.objectContaining({ permission: 'plan', network: 'deny' }),
+    );
+    expect(h.manager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      h.handle,
+      expect.objectContaining({ effectivePolicy: policy }),
+    );
+  });
+
   it('runs the registry resume sequence with parent and previous agent identity', async () => {
     const h = harness();
 

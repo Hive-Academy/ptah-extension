@@ -121,7 +121,8 @@ function undeliveredRecord(index: number): AgentMessageEnvelope {
     createdAt: index,
     updatedAt: index,
     attemptCount: 0,
-    bodyBytes: 0,
+    // A failed record that still holds its body is undelivered work (Retry / Recover text).
+    bodyBytes: 1,
   };
 }
 
@@ -661,5 +662,75 @@ describe('AgentMessageEnvelopeStore', () => {
     await expect(envelopes.list({ targetAgentId: lineage })).resolves.toEqual([
       expect.objectContaining({ id: held.envelope.id, state: 'not-started' }),
     ]);
+  });
+  it('does not hold queue capacity with body-less failed and expired records', async () => {
+    const envelopes = store();
+    const lineage = AgentId.create();
+    const lane = { targetAgentId: lineage, laneLineageId: lineage, mode: 'steer' as const };
+    for (let index = 0; index < MAX_UNDELIVERED_PER_LINEAGE; index += 1) {
+      const { envelope } = await envelopes.put(input(lane), 'held');
+      // The coordinator's failWithoutBody / reconciler expiry leave no recoverable body.
+      await envelopes.transition(envelope.id, index % 2 === 0
+        ? { state: 'failed', reason: 'body-unavailable', bodyBytes: 0 }
+        : { state: 'expired', reason: 'agent_expired', bodyBytes: 0 });
+    }
+
+    await expect(envelopes.put(input(lane), 'fresh')).resolves.toMatchObject({
+      envelope: { state: 'not-started' },
+    });
+  });
+
+  it('keeps failed records with a body counted and expires body-less ones at seven days', async () => {
+    const envelopes = store();
+    const lineage = AgentId.create();
+    const lane = { targetAgentId: lineage, laneLineageId: lineage, mode: 'steer' as const };
+    const withBody = await envelopes.put(input({ ...lane, state: 'failed' }), 'retry me');
+    const { envelope } = await envelopes.put(input(lane), 'lost');
+    await envelopes.transition(envelope.id, { state: 'failed', reason: 'body-unavailable', bodyBytes: 0 });
+    now += 7 * DAY;
+
+    await expect(envelopes.list({ targetAgentId: lineage })).resolves.toEqual([
+      expect.objectContaining({ id: withBody.envelope.id, state: 'failed' }),
+    ]);
+    expect(storage.has(`${AGENT_MESSAGE_BODY_PREFIX}${envelope.id}`)).toBe(false);
+  });
+
+  it('prunes migrated v1 receipts instead of counting them toward capacity', async () => {
+    const lineage = AgentId.create();
+    storage.seed(LEGACY_RECEIPT_KEY, Array.from({ length: MAX_UNDELIVERED_PER_LINEAGE }, () => ({
+      id: randomUUID(), agentId: lineage, state: 'accepted', mode: 'steer', delivery: 'queue',
+      createdAt: now, updatedAt: now,
+    })));
+    const envelopes = store();
+
+    await expect(envelopes.put(input({ targetAgentId: lineage, laneLineageId: lineage }), 'new'))
+      .resolves.toMatchObject({ envelope: { state: 'not-started' } });
+    now += 7 * DAY;
+    await expect(envelopes.list({ targetAgentId: lineage })).resolves.toHaveLength(1);
+  });
+
+  it('keeps reads working while a cancelled body delete keeps failing', async () => {
+    const logger = createLogger();
+    const envelopes = store(logger);
+    const { envelope } = await envelopes.put(input(), 'cancel me');
+    const update = storage.update.bind(storage);
+    const bodyKey = `${AGENT_MESSAGE_BODY_PREFIX}${envelope.id}`;
+    let failDeletes = true;
+    jest.spyOn(storage, 'update').mockImplementation(async (key: string, value: unknown) => {
+      if (failDeletes && key === bodyKey && value === undefined) throw new Error('delete failed');
+      return update(key, value);
+    });
+    await envelopes.transition(envelope.id, { state: 'cancelled', reason: 'cancelled-by-user' });
+
+    await expect(envelopes.list({})).resolves.toEqual([
+      expect.objectContaining({ id: envelope.id, state: 'cancelled', bodyBytes: 'cancel me'.length }),
+    ]);
+    await expect(envelopes.put(input(), 'next')).resolves.toMatchObject({ deduplicated: false });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[AgentMessageEnvelopeStore] Retention body delete failed; will retry', expect.any(Error));
+
+    failDeletes = false;
+    await expect(envelopes.get(envelope.id)).resolves.toMatchObject({ bodyBytes: 0 });
+    expect(storage.has(bodyKey)).toBe(false);
   });
 });

@@ -153,6 +153,21 @@ describe('ParentDeliveryDrainerService', () => {
     expect(h.store.find('backoff')?.state).toBe('delivered');
   });
 
+  it('keeps a timeout uncertain when the parent ends after the send threw', async () => {
+    jest.useFakeTimers();
+    const h = await harness();
+    h.send.mockImplementationOnce(async () => {
+      h.state.active = false;
+      throw new Error('timed out');
+    });
+    await h.drainer.enqueue(report('ended'));
+    await h.drainer.drain(parent);
+    expect(h.store.find('ended')?.state).toBe('outcome-unknown');
+    h.state.active = true;
+    await jest.advanceTimersByTimeAsync(15 * 60_000);
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+
   it('marks an uncertain failure outcome-unknown and never retries it automatically', async () => {
     jest.useFakeTimers();
     const h = await harness();

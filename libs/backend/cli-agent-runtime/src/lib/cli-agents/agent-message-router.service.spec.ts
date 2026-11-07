@@ -622,4 +622,22 @@ describe('AgentMessageRouter durable flush (dispatch journal)', () => {
     expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
       .toEqual({ status: 'failed', reason: 'continuation_rejected' });
   });
+
+  it('offers the next queued entry at once after a permanent rejection', async () => {
+    const router = new AgentMessageRouter(logger, createDetection(), createJournal());
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    await queue(router, tracked, 'second', 'env-2');
+    const dispatcher = createDispatcher();
+    dispatcher.continueConversation
+      .mockImplementationOnce(() => Promise.reject(new Error('rejected')));
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(dispatcher.continueConversation).toHaveBeenCalledTimes(2);
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
+      .toEqual({ status: 'failed', reason: 'continuation_rejected' });
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-2')).toEqual({ status: 'delivered' });
+    expect(tracked.pendingMessages).toEqual([]);
+  });
 });

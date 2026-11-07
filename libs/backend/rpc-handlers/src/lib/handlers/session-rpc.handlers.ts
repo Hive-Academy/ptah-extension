@@ -1061,9 +1061,10 @@ export class SessionRpcHandlers {
       });
     }
     try {
-      await this.purge.completeDelete(sessionId);
-      return undefined;
+      const outcome = await this.purge.completeDelete(sessionId);
+      return outcome === 'pending-retry' ? 'pending-retry' : undefined;
     } catch (error: unknown) {
+      // The port never throws; a throwing implementation is reported the same way.
       this.logger.error(
         'RPC: session:delete - messaging purge left for recovery',
         error instanceof Error ? error : new Error(String(error)),

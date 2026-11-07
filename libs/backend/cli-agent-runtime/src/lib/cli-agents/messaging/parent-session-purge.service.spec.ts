@@ -173,8 +173,8 @@ describe('ParentSessionPurgeService (spy stores)', () => {
     await purge.markMetadataDeleted(PARENT);
     stores.failures.set('purgeUndeliveredForParent', new Error('read failed'));
 
-    await expect(purge.completeDelete(PARENT)).resolves.toBeUndefined();
-    await purge.completeDelete(PARENT);
+    await expect(purge.completeDelete(PARENT)).resolves.toBe('pending-retry');
+    await expect(purge.completeDelete(PARENT)).resolves.toBe('pending-retry');
     expect(stores.tombstones.get(PARENT)?.phase).toBe('metadata-deleted');
     expect(jest.getTimerCount()).toBe(1);
 
@@ -182,6 +182,16 @@ describe('ParentSessionPurgeService (spy stores)', () => {
     await jest.advanceTimersByTimeAsync(PARENT_PURGE_RETRY_MS);
     expect(stores.tombstones.get(PARENT)?.phase).toBe('purged');
     expect(jest.getTimerCount()).toBe(0);
+    purge.dispose();
+  });
+
+  it('reports purged when the purge finishes', async () => {
+    const stores = new SpyStores();
+    const purge = new ParentSessionPurgeService(stores, stores, existence(false), logger());
+    await purge.beginDelete(PARENT);
+    await purge.markMetadataDeleted(PARENT);
+
+    await expect(purge.completeDelete(PARENT)).resolves.toBe('purged');
     purge.dispose();
   });
 

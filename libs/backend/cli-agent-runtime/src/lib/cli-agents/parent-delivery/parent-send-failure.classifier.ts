@@ -6,11 +6,6 @@ import {
 
 /** `not-accepted`: nothing reached the session, so a retry cannot duplicate it. */
 export type ParentSendFailure = 'not-accepted' | 'uncertain';
-export interface ParentSendFailureContext {
-  readonly adapterAvailable: boolean;
-  readonly parentActive: boolean;
-  readonly parentFrozen: boolean;
-}
 
 /**
  * Only errors proved to be thrown before the adapter enqueues the message are
@@ -20,13 +15,12 @@ export interface ParentSendFailureContext {
  * - `CodexChatAdapterError` `unavailable`/`session` and `runtime-failed`/`messageOptions`;
  * - `SdkError` `Session not found: <id>` (session-stream-pump, before the turn is queued).
  * Everything else — timeouts, transport errors, unknown throws — is `uncertain`.
+ *
+ * The classification reads the error only. The parent's liveness after the throw proves
+ * nothing about acceptance (the turn may be queued before the session ended); an inactive or
+ * frozen parent is caught by the drainer's checks before the send.
  */
-export function classifyParentSendFailure(
-  error: unknown,
-  context?: ParentSendFailureContext,
-): ParentSendFailure {
-  if (context && (!context.adapterAvailable || !context.parentActive || context.parentFrozen))
-    return 'not-accepted';
+export function classifyParentSendFailure(error: unknown): ParentSendFailure {
   if (error instanceof SessionAdmissionRefusedError) return 'not-accepted';
   if (isChatRuntimeAdmissionError(error)) return 'not-accepted';
   if (error instanceof CodexChatAdapterError) return classifyCodexError(error);

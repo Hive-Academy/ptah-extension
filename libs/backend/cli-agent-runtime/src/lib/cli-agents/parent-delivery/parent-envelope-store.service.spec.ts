@@ -213,10 +213,71 @@ describe('ParentEnvelopeStoreService completion outbox and key shard', () => {
     await expect(store.putCompletionOutbox(outboxEntry())).rejects.toThrow('write failed');
     expect(await store.listCompletionOutbox(PARENT)).toEqual([]);
     storage.values.set(`${PARENT_COMPLETION_OUTBOX_PREFIX}${PARENT}`, {
-      version: 1, entries: [{ dedupeKey: 'bad' }],
+      version: 2, entries: [],
     });
     await expect(store.listCompletionOutbox(PARENT)).rejects.toThrow();
     await expect(store.listCompletionOutbox()).rejects.toThrow();
+  });
+
+  it('skips a malformed outbox entry, keeps it on rewrite, and still lists the valid ones', async () => {
+    const storage = new FakeStateStorage();
+    const store = await open(storage);
+    const outboxKey = `${PARENT_COMPLETION_OUTBOX_PREFIX}${PARENT}`;
+    storage.values.set(outboxKey, { version: 1, entries: [{ dedupeKey: 'bad' }, outboxEntry()] });
+    storage.values.set(`${PARENT_COMPLETION_OUTBOX_PREFIX}other-parent`, {
+      version: 1, entries: [{ ...outboxEntry('other:key'), parentSessionId: 'other-parent' }],
+    });
+
+    expect(await store.listCompletionOutbox(PARENT)).toEqual([outboxEntry()]);
+    expect(await store.listCompletionOutbox()).toHaveLength(2);
+    await store.putCompletionOutbox(outboxEntry('second:key'));
+    expect(storage.values.get(outboxKey)).toEqual({ version: 1, entries: [
+      { dedupeKey: 'bad' }, outboxEntry(), outboxEntry('second:key'),
+    ] });
+  });
+
+  it('keeps a cancelled completion indexed while its body delete fails, then prunes it', async () => {
+    const storage = new FakeStateStorage();
+    const store = await open(storage);
+    const entry = saved(await store.enqueue(completion()));
+    const bodyKey = `${PARENT_ENVELOPE_BODY_PREFIX}${entry.id}`;
+    storage.failWrites = (key, value) => key === bodyKey && value === undefined;
+    expect(await store.cancel(entry.id)).toMatchObject({ state: 'cancelled' });
+    expect(store.find(COMPLETION_KEY)).toMatchObject({ state: 'cancelled' });
+    expect(store.find(COMPLETION_KEY)?.bodyBytes).toBeGreaterThan(0);
+
+    const restarted = await open(storage);
+    expect(restarted.find(COMPLETION_KEY)).toMatchObject({ state: 'cancelled' });
+    expect(restarted.list(PARENT).some((item) => item.state === 'pending')).toBe(false);
+
+    storage.failWrites = () => false;
+    const recovered = await open(storage);
+    expect(recovered.find(COMPLETION_KEY)).toBeUndefined();
+    expect(storage.values.has(bodyKey)).toBe(false);
+    expect(await recovered.isCompletionSatisfied(PARENT, COMPLETION_KEY)).toBe(true);
+  });
+
+  it('merges a tab shard into the session shard that already exists', async () => {
+    const storage = new FakeStateStorage();
+    const store = await open(storage);
+    const sessionKey = { dedupeKey: 'session:key', state: 'accepted', at: now };
+    const tabKey = { dedupeKey: 'tab:key', state: 'accepted', at: now };
+    storage.values.set(`${PARENT_COMPLETION_KEYS_PREFIX}${PARENT}`, { version: 1, keys: [sessionKey] });
+    storage.values.set(`${PARENT_COMPLETION_KEYS_PREFIX}tab-1`, { version: 1, keys: [tabKey] });
+    storage.values.set(`${PARENT_COMPLETION_OUTBOX_PREFIX}${PARENT}`, {
+      version: 1, entries: [outboxEntry('session:entry')],
+    });
+    storage.values.set(`${PARENT_COMPLETION_OUTBOX_PREFIX}tab-1`, {
+      version: 1, entries: [{ ...outboxEntry('tab:entry'), parentSessionId: 'tab-1' }],
+    });
+
+    await store.resolveParentSessionId('tab-1', PARENT);
+
+    expect(shardKeys(storage)).toEqual({ version: 1, keys: [sessionKey, tabKey] });
+    expect((await store.listCompletionOutbox(PARENT)).map((item) => item.dedupeKey))
+      .toEqual(['session:entry', 'tab:entry']);
+    expect(storage.values.has(`${PARENT_COMPLETION_KEYS_PREFIX}tab-1`)).toBe(false);
+    expect(storage.values.has(`${PARENT_COMPLETION_OUTBOX_PREFIX}tab-1`)).toBe(false);
   });
 
   it('writes the shard key on acceptance, then removes the outbox entry', async () => {

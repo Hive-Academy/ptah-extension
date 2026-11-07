@@ -16,13 +16,19 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { ParentEnvelopeStoreService } from '../parent-delivery/parent-envelope-store.service';
 import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
 
+/**
+ * `purged`: nothing is left to do for the session. `pending-retry`: the purge did not finish;
+ * delivery stays frozen and the retry timer (or startup recovery) completes it.
+ */
+export type ParentSessionPurgeOutcome = 'purged' | 'pending-retry';
+
 export interface ParentSessionPurge {
   /** Durable `intent`; throws when it cannot be persisted, and the delete must be refused. */
   beginDelete(sessionId: string): Promise<void>;
   /** Durable `metadata-deleted`; logs and never throws. */
   markMetadataDeleted(sessionId: string): Promise<void>;
   /** Cancels undelivered lane and parent envelopes, then `purged`; logs and never throws. */
-  completeDelete(sessionId: string): Promise<void>;
+  completeDelete(sessionId: string): Promise<ParentSessionPurgeOutcome>;
   /** Removes the tombstone after a failed metadata delete; logs and never throws. */
   abortDelete(sessionId: string): Promise<void>;
   /** Startup recovery; runs before the scheduler and the drainer deliver anything. */
@@ -81,8 +87,10 @@ export class ParentSessionPurgeService implements ParentSessionPurge {
     await this.writeMetadataDeleted(sessionId);
   }
 
-  async completeDelete(sessionId: string): Promise<void> {
-    if (!(await this.purge(sessionId))) this.armRetry();
+  async completeDelete(sessionId: string): Promise<ParentSessionPurgeOutcome> {
+    if (await this.purge(sessionId)) return 'purged';
+    this.armRetry();
+    return 'pending-retry';
   }
 
   async abortDelete(sessionId: string): Promise<void> {

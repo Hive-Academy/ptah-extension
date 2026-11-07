@@ -51,6 +51,21 @@ export function isSendTimeRefusal(envelope: {
     (envelope.bodyBytes ?? 0) === 0 && envelope.everDispatched !== true;
 }
 
+/**
+ * A `failed` or `expired` record with no stored body: a send-time refusal, a held message
+ * whose body was unreadable (`body-unavailable`) or a migrated v1 receipt. Retry and Recover
+ * text need the body, so nothing is left to deliver. Like `cancelled`, it takes no queue slot,
+ * is count-pruned with the body-less records and expires 7 d after it became terminal.
+ * A `failed`/`expired` record that still has its body stays undelivered work (user decision 4).
+ */
+export function isBodylessTerminal(envelope: {
+  readonly state?: string;
+  readonly bodyBytes?: number;
+}): boolean {
+  return (envelope.state === 'failed' || envelope.state === 'expired') &&
+    (envelope.bodyBytes ?? 0) === 0;
+}
+
 export interface AgentMessagePersistence {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): Promise<void>;
@@ -347,10 +362,10 @@ export class AgentMessageEnvelopeStore {
   }
 
   private checkCapacity(input: NewEnvelope, hasBody: boolean): void {
-    const refusal = !hasBody && isSendTimeRefusal(input);
-    if (!refusal && UNDELIVERED.has(input.state ?? 'not-started')) {
+    const bodyless = !hasBody && isBodylessTerminal(input);
+    if (!bodyless && UNDELIVERED.has(input.state ?? 'not-started')) {
       const undelivered = [...this.envelopes.values()].filter((envelope) =>
-        UNDELIVERED.has(envelope.state) && !isSendTimeRefusal(envelope));
+        UNDELIVERED.has(envelope.state) && !isBodylessTerminal(envelope));
       const lineage = undelivered.filter((envelope) =>
         envelope.laneLineageId === input.laneLineageId);
       if (lineage.length >= MAX_UNDELIVERED_PER_LINEAGE || undelivered.length >= MAX_UNDELIVERED)
@@ -449,26 +464,27 @@ export class AgentMessageEnvelopeStore {
     const now = this.clock();
     let changed = false;
     for (const [id, envelope] of [...this.envelopes]) {
-      const refusal = isSendTimeRefusal(envelope);
-      // A refusal written before refusals carried terminalAt expires from its last update.
-      const terminalAt = envelope.terminalAt ?? (refusal ? envelope.updatedAt : undefined);
+      const bodyless = isBodylessTerminal(envelope);
+      // A body-less terminal record written without terminalAt expires from its last update.
+      const terminalAt = envelope.terminalAt ?? (bodyless ? envelope.updatedAt : undefined);
       const expiry = terminalAt === undefined ? undefined : terminalAt + RETENTION_MS;
       if (envelope.state === 'cancelled' && (envelope.bodyBytes ?? 0) > 0) {
-        await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${id}`, undefined);
+        if (!(await this.deleteBodyLocked(id))) continue;
         this.envelopes.set(id, { ...envelope, bodyBytes: 0 });
         changed = true;
       }
       if (expiry !== undefined && now >= expiry &&
-        (envelope.state === 'settled' || envelope.state === 'cancelled' || refusal)) {
-        if ((envelope.bodyBytes ?? 0) > 0)
-          await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${id}`, undefined);
+        (envelope.state === 'settled' || envelope.state === 'cancelled' || bodyless)) {
+        // A body-less failed record may still have an unreadable body key; drop it too.
+        if (((envelope.bodyBytes ?? 0) > 0 || (bodyless && !isSendTimeRefusal(envelope))) &&
+          !(await this.deleteBodyLocked(id))) continue;
         this.envelopes.delete(id);
         changed = true;
       }
     }
     const bodyless = [...this.envelopes.values()].filter((envelope) =>
       (envelope.bodyBytes ?? 0) === 0 &&
-      (envelope.state === 'cancelled' || isSendTimeRefusal(envelope)));
+      (envelope.state === 'cancelled' || isBodylessTerminal(envelope)));
     const remove = new Set<string>();
     const global = bodyless.sort((a, b) => b.updatedAt - a.updatedAt);
     for (const envelope of global.slice(MAX_BODYLESS)) remove.add(envelope.id);
@@ -483,6 +499,22 @@ export class AgentMessageEnvelopeStore {
       changed = true;
     }
     if (changed) await this.persistLocked();
+  }
+
+  /**
+   * Best-effort body delete for the retention pass. A failure keeps the record (and its
+   * `bodyBytes`) so the next pass retries it, and never fails the caller's operation.
+   */
+  private async deleteBodyLocked(id: string): Promise<boolean> {
+    try {
+      await this.storage.update(`${AGENT_MESSAGE_BODY_PREFIX}${id}`, undefined);
+      return true;
+    } catch (error: unknown) {
+      // Degradation: the record is kept and the next retention pass retries the delete.
+      this.logger?.error('[AgentMessageEnvelopeStore] Retention body delete failed; will retry',
+        this.error(error));
+      return false;
+    }
   }
 
   private async persistLocked(): Promise<void> {

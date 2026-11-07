@@ -115,6 +115,7 @@ export type { AgentMessageDispatchJournal } from './lib/cli-agents/messaging/age
 export {
   ParentSessionPurgeService,
   type ParentSessionPurge,
+  type ParentSessionPurgeOutcome,
   type ParentSessionExistence,
 } from './lib/cli-agents/messaging/parent-session-purge.service';
 export type { AgentDeliveryReceiptEventSink } from './lib/cli-agents/messaging/agent-delivery-receipt-event-sink';

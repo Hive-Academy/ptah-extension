@@ -1,6 +1,8 @@
 import type {
   AgentProcessInfo,
   CliType,
+  LaneNetworkMode,
+  LanePermissionMode,
   SpawnAgentResult,
 } from '@ptah-extension/shared';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
@@ -21,6 +23,9 @@ export interface PtahCliResumeParams {
   readonly parentSessionId?: string;
   readonly ptahCliId: string;
   readonly previousAgentId?: string;
+  /** The lane's saved policy; a resume keeps the permission and network it ran under. */
+  readonly permission?: LanePermissionMode;
+  readonly network?: LaneNetworkMode;
 }
 
 export type PtahCliLaneResumerManager = Pick<
@@ -61,6 +66,8 @@ export class PtahCliLaneResumer implements LaneResumer {
         parentSessionId: info.parentSessionId,
         ptahCliId: info.ptahCliId,
         previousAgentId: info.agentId,
+        permission: info.effectivePolicy?.permission,
+        network: info.effectivePolicy?.network,
       },
       info.workingDirectory,
     );
@@ -86,6 +93,8 @@ export class PtahCliLaneResumer implements LaneResumer {
           resumeSessionId: prepared.resumeSessionId,
           parentSessionId,
           agentId,
+          ...(params.permission ? { permission: params.permission } : {}),
+          ...(params.network ? { network: params.network } : {}),
         },
       );
       if ('status' in spawnResult) {
@@ -123,6 +132,8 @@ export class PtahCliLaneResumer implements LaneResumer {
         agentId,
         mcpPort: this.registry.getMcpPort(),
         expectsMcp: true,
+        // Stored on the new record, so the next resume keeps the same policy.
+        effectivePolicy: spawnResult.effectivePolicy,
       });
       spawnResult.setAgentId(result.agentId);
       return result;

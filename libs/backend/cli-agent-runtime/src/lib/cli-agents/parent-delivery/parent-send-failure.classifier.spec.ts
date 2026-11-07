@@ -5,8 +5,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { classifyParentSendFailure } from './parent-send-failure.classifier';
 
-const healthy = { adapterAvailable: true, parentActive: true, parentFrozen: false };
-
 class ChatRuntimeAdmissionError extends Error {
   readonly code = 'runtime-admission-mismatch';
   constructor() {
@@ -17,21 +15,13 @@ class ChatRuntimeAdmissionError extends Error {
 
 describe('classifyParentSendFailure', () => {
   it.each([
-    ['no adapter', { ...healthy, adapterAvailable: false }],
-    ['inactive parent', { ...healthy, parentActive: false }],
-    ['frozen parent', { ...healthy, parentFrozen: true }],
-  ])('treats a failed pre-call check (%s) as not-accepted', (_label, context) => {
-    expect(classifyParentSendFailure(new Error('timeout'), context)).toBe('not-accepted');
-  });
-
-  it.each([
     ['admission refusal', new SessionAdmissionRefusedError('busy', 'session-1')],
     ['routing admission mismatch', new ChatRuntimeAdmissionError()],
     ['codex unknown session', new CodexChatAdapterError('unavailable', 'session')],
     ['codex invalid options', new CodexChatAdapterError('runtime-failed', 'messageOptions')],
     ['sdk unknown session', new SdkError('Session not found: session-1')],
   ])('treats a named pre-enqueue error (%s) as not-accepted', (_label, error) => {
-    expect(classifyParentSendFailure(error, healthy)).toBe('not-accepted');
+    expect(classifyParentSendFailure(error)).toBe('not-accepted');
   });
 
   it.each([
@@ -40,10 +30,6 @@ describe('classifyParentSendFailure', () => {
     ['generic sdk error', new SdkError('stream closed')],
     ['non-error throw', 'boom'],
   ])('treats everything else (%s) as uncertain', (_label, error) => {
-    expect(classifyParentSendFailure(error, healthy)).toBe('uncertain');
-  });
-
-  it('classifies without context by error type alone', () => {
-    expect(classifyParentSendFailure(new Error('x'))).toBe('uncertain');
+    expect(classifyParentSendFailure(error)).toBe('uncertain');
   });
 });

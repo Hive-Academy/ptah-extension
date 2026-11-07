@@ -31,6 +31,7 @@ import {
   type ParentTombstonePhase,
   type ParentTombstoneRecord,
 } from './parent-envelope.schema';
+import { mergeCompletionKeyShards, mergeOutboxShards } from './parent-shard-merge';
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PURGED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -330,10 +331,10 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     await this.restore();
     return this.serialize(async () => {
       const validated = ParentCompletionOutboxEntrySchema.parse(entry);
-      const entries = await this.readOutboxLocked(validated.parentSessionId);
+      const { entries, malformed } = this.readOutboxShardLocked(validated.parentSessionId);
       const next = [...entries.filter((item) => item.dedupeKey !== validated.dedupeKey), validated];
       await this.storage.update(this.outboxKey(validated.parentSessionId), {
-        version: 1, entries: next,
+        version: 1, entries: [...malformed, ...next],
       });
     });
   }
@@ -683,21 +684,44 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
   private async readOutboxLocked(
     parentSessionId: string,
   ): Promise<ParentCompletionOutboxEntry[]> {
+    return this.readOutboxShardLocked(parentSessionId).entries;
+  }
+
+  /**
+   * A malformed outbox entry cannot be replayed, so it is skipped (warn) instead of blocking
+   * every valid entry. It is never removed: each rewrite keeps it, and only the parent purge
+   * deletes it. A malformed shard container still throws and blocks replay (never empty).
+   */
+  private readOutboxShardLocked(parentSessionId: string): {
+    entries: ParentCompletionOutboxEntry[];
+    malformed: unknown[];
+  } {
     const outbox = ParentCompletionOutboxSchema.parse(
       this.storage.get<unknown>(this.outboxKey(parentSessionId)) ?? { version: 1, entries: [] },
     );
-    return outbox.entries.map((value) => ParentCompletionOutboxEntrySchema.parse(value));
+    const entries: ParentCompletionOutboxEntry[] = [];
+    const malformed: unknown[] = [];
+    for (const value of outbox.entries) {
+      const parsed = ParentCompletionOutboxEntrySchema.safeParse(value);
+      if (parsed.success) entries.push(parsed.data);
+      else malformed.push(value);
+    }
+    if (malformed.length > 0)
+      this.logger.warn('[ParentEnvelopeStore] Skipped malformed completion outbox entries', {
+        parentSessionId, count: malformed.length,
+      });
+    return { entries, malformed };
   }
 
   private async removeCompletionOutboxLocked(
     parentSessionId: string,
     dedupeKey: string,
   ): Promise<void> {
-    const entries = await this.readOutboxLocked(parentSessionId);
+    const { entries, malformed } = this.readOutboxShardLocked(parentSessionId);
     if (!entries.some((entry) => entry.dedupeKey === dedupeKey)) return;
     await this.storage.update(this.outboxKey(parentSessionId), {
       version: 1,
-      entries: entries.filter((entry) => entry.dedupeKey !== dedupeKey),
+      entries: [...malformed, ...entries.filter((entry) => entry.dedupeKey !== dedupeKey)],
     });
   }
 
@@ -733,12 +757,10 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
       if (entry.kind === 'report' && expired) {
         this.entries.delete(entry.dedupeKey);
         await this.persistIndexLocked();
-      } else if (entry.kind === 'completion' && completionExpired) {
-        const keys = await this.readCompletionKeysLocked(entry.parentSessionId);
-        if (keys.some((key) => key.dedupeKey === entry.dedupeKey)) {
-          this.entries.delete(entry.dedupeKey);
-          await this.persistIndexLocked();
-        }
+      } else if (entry.kind === 'completion' && completionExpired &&
+        await this.hasDurableCompletionKeyLocked(entry)) {
+        this.entries.delete(entry.dedupeKey);
+        await this.persistIndexLocked();
       }
     }
   }
@@ -748,11 +770,29 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     if (!current || current.kind !== 'completion') return;
     const expired = current.state === 'cancelled' ||
       (current.deliveredAt !== undefined && Date.now() - current.deliveredAt >= RETENTION_MS);
-    if (!expired) return;
+    // A body whose delete failed keeps its index entry, so retention retries the delete
+    // first; pruning it here would let the orphan scan re-index a cancelled completion.
+    if (!expired || current.bodyBytes > 0) return;
     const keys = await this.readCompletionKeysLocked(current.parentSessionId);
     if (!keys.some((key) => key.dedupeKey === current.dedupeKey)) return;
     this.entries.delete(current.dedupeKey);
     await this.persistIndexLocked();
+  }
+
+  /**
+   * An unreadable key shard blocks pruning of that parent's completions only (fail closed:
+   * the index keeps the dedupe key); the retention pass continues with the other parents.
+   */
+  private async hasDurableCompletionKeyLocked(entry: ParentDeliveryEnvelope): Promise<boolean> {
+    try {
+      const keys = await this.readCompletionKeysLocked(entry.parentSessionId);
+      return keys.some((key) => key.dedupeKey === entry.dedupeKey);
+    } catch (error: unknown) {
+      // Degradation: the index entry is kept as the dedupe record until the shard reads again.
+      this.logger.error('[ParentEnvelopeStore] Completion key shard unreadable; pruning held',
+        this.error(error));
+      return false;
+    }
   }
 
   private async backfillRestoredCompletionsLocked(): Promise<void> {
@@ -775,9 +815,15 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     sessionId: string,
   ): Promise<void> {
     const oldKey = `${prefix}${tabId}`;
-    const value = this.storage.get<unknown>(oldKey);
-    if (value === undefined) return;
-    await this.storage.update(`${prefix}${sessionId}`, value);
+    const moved = this.storage.get<unknown>(oldKey);
+    if (moved === undefined) return;
+    const newKey = `${prefix}${sessionId}`;
+    // A resumed session may already hold its own shard: merge, never overwrite.
+    const target = this.storage.get<unknown>(newKey);
+    const merged = prefix === PARENT_COMPLETION_OUTBOX_PREFIX
+      ? mergeOutboxShards(target, moved)
+      : mergeCompletionKeyShards(target, moved);
+    await this.storage.update(newKey, merged);
     await this.storage.update(oldKey, undefined);
   }
 
