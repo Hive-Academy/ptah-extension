@@ -3,15 +3,36 @@ id: TASK_2026_289
 status: backlog
 type: feature
 title: >-
-  Smithery is a skills marketplace too, and we only integrate its MCP half — decide whether the Skills side is worth a second provider
+  Decide whether to add Smithery skills as a second Marketplace skills provider
 description: >-
-  The Marketplace surfaces Smithery as one of four providers, and every Smithery file in this repo lives under `libs/backend/cli-agent-runtime/src/lib/mcp-directory/` — registry source, connection resolver, installed manifest, override resolver. That is the MCP half only. Smithery also publishes skills, and nothing here fetches, lists or installs them, so a user who knows the platform sees a provider tile that silently covers less than the platform does. This is a scope decision before it is an implementation: the skills.sh integration (TASK_2026_288) already establishes the shape a second skills provider would take — land content in a Ptah-owned source root under `~/.ptah/plugins/`, let the overlay and the reconciler carry it to every detected CLI — so the cost is mostly the provider-specific fetch, auth and listing, not the propagation. Deferred deliberately on 2026-08-18 as too much work for the session that found it; filed so the gap is recorded rather than rediscovered.
+  Ptah integrates only the MCP half of Smithery. Decide whether Smithery skills are worth a
+  provider. If yes, follow the skills.sh shape: land content in a Ptah-owned source root and
+  let the overlay and the harness reconciler carry it to every detected CLI.
 parent: TASK_2026_640_11a5
 labels:
   - P4
-updated: '2026-10-12T19:41:51.738Z'
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 # Smithery skills as a marketplace provider
 
 Machine-owned metadata carrier. Prose lives in `./context.md`.
+
+## Description
+
+This is a scope decision first. Smithery also publishes skills, but Ptah does not fetch, list
+or install them. Remaining work:
+
+1. Decide if the Smithery skills side is worth a provider (cost: provider-specific fetch, auth
+   and listing; propagation already exists).
+2. If yes, add a skills provider modelled on the skills.sh integration (TASK_2026_288,
+   `skillsSh:` RPCs) and a Marketplace tile or tab in `libs/frontend/marketplace`.
+3. If no, close this task and state in the Smithery surface that it covers MCP servers only.
+
+## Current state (2026-11-07)
+
+- Not started. Every Smithery file is still MCP-only, under
+  `libs/backend/cli-agent-runtime/src/lib/mcp-directory/` (`smithery-registry.source.ts`,
+  `smithery-connection-resolver.ts`, `smithery-installed-manifest.ts`, and others).
+- No Smithery skills code exists anywhere in `libs/backend`.
+- Deferred on 2026-08-18; the decision is still open.

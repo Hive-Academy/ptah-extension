@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_279 — Harness provenance marker
 
 Follow-up to TASK_2026_278 (harness reconciler). Filed from that task's own smoke test.

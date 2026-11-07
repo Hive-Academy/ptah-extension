@@ -3,17 +3,43 @@ id: TASK_2026_313
 status: backlog
 type: BUGFIX
 title: >-
-  Neither harness disclosure surface has any e2e coverage, and the Dashboard card's blocked list is uncapped in page flow
+  Add Electron e2e coverage for the Marketplace harness health badge
 description: >-
-  Two gaps in the blocked-path disclosure shipped by TASK_2026_306. (1) **No e2e references either surface.** Greps for `harness-blocked`, `ptah-harness-card`, `harness-health`, `repairBlocked` and the card heading across `apps/ptah-electron-e2e/src` and `apps/ptah-extension-vscode-e2e/src` return nothing. Both surfaces have thorough unit specs, but a green e2e run currently proves nothing moved AND would equally not catch either card silently disappearing from the app — which for a disclosure surface whose entire job is to be seen by a user without a terminal is the failure that matters most. (2) **The Dashboard card's list is unbounded.** The Marketplace popover caps itself with `w-80 max-h-[26rem] overflow-y-auto` (`libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts:95`) because a popover has to fit; the Dashboard `ptah-harness-card` sits in normal page flow with no equivalent bound. At the 13 blocked paths that motivated the feature this is fine. At 500 — a workspace where someone checked in a full `.claude/skills` tree — the card pushes every other card off the first screen of the home, so the disclosure surface damages the surface it lives on. Cap it the way the popover does, or show the first N with a "+M more" that routes into the popover, matching the doctor's existing 20-per-group convention. Recorded as follow-ups by TASK_2026_306.
+  The Marketplace harness health badge and its blocked-path list have unit specs but no e2e
+  assertion. Add an Electron e2e that proves the badge renders and lists blocked paths. The
+  Dashboard card half of the old task no longer applies.
 parent: TASK_2026_640_11a5
 labels:
   - P3
 relates_to:
   - TASK_2026_280
-updated: '2026-10-12T19:41:51.738Z'
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 # Harness disclosure: no e2e, and an uncapped list on the home
 
 Machine-owned metadata carrier. Prose lives in `./context.md`.
+
+## Description
+
+Remaining work:
+
+- Add an assertion in `apps/ptah-electron-e2e/src/specs/marketplace/marketplace.spec.ts` that
+  `ptah-harness-health-badge`
+  (`libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts:59`) renders,
+  and that its popover lists blocked paths from `ptah-harness-blocked-paths`.
+- Extend the `harness:health` fixture
+  (`libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/marketplace.fixtures.ts:980`)
+  with blocked paths if it has none.
+
+## Current state (2026-11-07)
+
+- The Dashboard `ptah-harness-card` no longer exists.
+  `libs/frontend/dashboard/src/lib/components/dashboard-grid/dashboard-grid.layout.spec.ts:17`
+  asserts it is absent. The "uncapped list on the home" half is obsolete.
+- The popover cap still holds: `harness-health-badge.component.ts:101`
+  (`w-80 max-h-[26rem] overflow-y-auto`).
+- The e2e spec only stubs `harness:health` (`marketplace.spec.ts:81`). No e2e locates the
+  badge or the blocked-path list.
+- `apps/ptah-extension-vscode-e2e` named in the old description was removed with the VS Code
+  host (`1cee6fafe`).

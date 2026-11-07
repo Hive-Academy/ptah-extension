@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_863
-status: in_progress
+status: done
 type: BUGFIX
 title: Session tiles compact by default, no streamed text, live status
 description: >-
@@ -9,5 +9,5 @@ description: >-
   Finished group until the user opens (activates) it. Electron first.
 depends_on: []
 created: 2026-11-03T00:00:00.000Z
-updated: 2026-11-03T00:00:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---

@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_855_5dda
-status: backlog
+status: done
 type: FEATURE
 title: Per-session git view in the git dock
 depends_on: []
 created: "2026-10-30T03:21:09.642Z"
-updated: "2026-10-30T03:21:09.642Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Git dock scope follows the active chat session's worktree, with a session→root resolver, pin scope, per-root watcher isolation and stats-card entry."
 estimate: L
 labels:

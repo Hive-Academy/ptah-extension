@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context
 
 Reported by the user on 2026-09-30 after a manual test of the Apps page in the Electron app.

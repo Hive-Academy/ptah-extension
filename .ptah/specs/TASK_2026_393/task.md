@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: devops
 title: Add a dependency guard to ptah-license-server
 description: >-

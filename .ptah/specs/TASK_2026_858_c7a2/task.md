@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_858_c7a2
-status: in_progress
+status: done
 type: FEATURE
 title: Stagger enter and leave animations for chat messages
 description: >-
   Motion plan item 4. Staggered enter and class-based leave animations for transcript messages, Electron first.
 depends_on: []
 created: 2026-11-01T19:10:00.000Z
-updated: 2026-11-01T19:10:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

@@ -1,31 +1,44 @@
 ---
 status: backlog
 type: bugfix
-title: Two paths understate cost instead of reporting it unknown
+title: Stop the session-stats path from billing cached tokens at zero
 description: >-
-  Cached input tokens bill at zero when the catalog entry publishes no cache
-  rate, and the rival-CLI Codex lane computes no cost at all while discarding
-  its cached-token field. Both understate silently. Neither degrades to "cost
-  unavailable", which is the behaviour the rest of the pricing path now has.
+  calculateMessageCost still bills cache reads and writes at zero when the catalog entry
+  publishes no cache rate. The session-stats path uses it without a cache-rate guard, so
+  long sessions understate cost instead of showing "cost unavailable".
+updated: 2026-11-07T00:00:00.000Z
 labels:
   - pricing
   - agent-sdk
   - cli-agent-runtime
 ---
 
-# Two paths understate cost instead of reporting it unknown
+# Stop the session-stats path from billing cached tokens at zero
 
-TASK_2026_474_5c9f established the rule the pricing path now follows: when a
+## Description
+
+TASK_2026_474_5c9f established the rule the pricing path follows: when a
 price is unknown, report it unknown. Never present a fabricated or partial
-number as a complete one. Two paths still break that rule by understating.
+number as a complete one. One path still breaks that rule by understating.
 
-## 1. Cached tokens bill at zero when no cache rate is published
+### Cached tokens bill at zero when no cache rate is published
 
-`libs/shared/src/lib/utils/pricing.utils.ts:289-290` bills cache reads at
-`resolved.cacheReadCostPerToken ?? 0`.
+`calculateMessageCost` (`libs/shared/src/lib/utils/pricing.utils.ts:466-482`)
+bills cache reads at `resolved.cacheReadCostPerToken ?? 0` (`:476`) and cache
+writes at `resolved.cacheCreationCostPerToken ?? 0` (`:478`).
 
-When the OpenRouter entry carries no `input_cache_read` field
-(`openrouter-pricing.service.ts:249-288` parses it when present), every cached
+`calculateExactMessageCost` (`pricing.utils.ts:566` onward) already returns a
+null cost when a used cache rate is missing, but the session-stats path does not
+use it. `LiveSessionStatsPublisher.price()`
+(`libs/backend/agent-sdk/src/lib/helpers/live-session-stats-publisher.ts:540-556`)
+returns null only when the model row is missing, then calls
+`calculateMessageCost`. Other `calculateMessageCost` callers include
+`session-stats-owner.service.ts:271`, `session-usage-aggregator.ts:268` and
+`session-replay.service.ts:399,889` under `libs/backend/agent-sdk/src/lib`.
+
+When a catalog entry carries no `input_cache_read` field (parsed in
+`libs/backend/auth-providers/src/lib/providers/openrouter/openrouter-pricing.service.ts`
+and `libs/backend/auth-providers/src/lib/provider-models.service.ts:1289`), every cached
 token costs nothing. On a long session cache reads dominate the token count —
 measured at 2,761,872 cache-read tokens against 42 uncached input tokens in
 `Ptah Electron-2026-09-18.log:195` — so the understatement is not marginal.
@@ -36,35 +49,26 @@ what an unknown model price now does. That is a behaviour change for every
 provider whose catalog entry omits the field, so measure how many entries that
 is before choosing.
 
-## 2. The rival-CLI Codex lane computes no cost
-
-`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.ts:1104-1113`.
-
-The `turn.completed` event carries
-`usage: { input_tokens, cached_input_tokens, output_tokens }`. Note the field
-name differs from the chat-provider lane, which uses
-`input_tokens_details.cached_tokens`.
-
-`handleTurnCompleted` converts this to a text segment only:
-
-    Usage: ${input} input, ${output} output tokens
-
-`cached_input_tokens` is dropped. No cost is computed. `cli-agent-runtime`
-contains no reference to `calculateMessageCost` or `costUSD` at all.
-
-Nothing in the file records a decision to skip cost, so this reads as a gap
-rather than a choice. Before building cost plumbing into `cli-agent-runtime`,
-settle where a rival-CLI turn's cost would be displayed and whether any surface
-asks for it today. A lane with no consumer needs no cost.
-
 ## Acceptance criteria
 
-1. An absent cache rate produces either a documented "free" decision or a null
-   cost, with the choice recorded in a comment and pinned by a test.
-2. The rival-CLI Codex lane either reports cost, or carries a comment stating
-   why it does not and which surface would consume it.
-3. `cached_input_tokens` is no longer silently discarded.
-4. `test`, `typecheck` and `lint` pass for every touched project.
+1. On the session-stats path, an absent cache rate produces either a documented
+   "free" decision or a null cost, with the choice recorded in a comment and
+   pinned by a test.
+2. `npm run verify -- -p <touched projects>` passes (lint, test, typecheck).
+
+## Current state (2026-11-07)
+
+- Done: the Codex lane no longer drops cached tokens. `laneUsage` maps
+  `cachedInputTokens` to `cacheReadTokens` and passes `costUsd` through
+  (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-events.ts:240-249`,
+  `ac43b0818`, PR #669). The old `codex-cli.adapter.ts` file is gone.
+- Done: lane cost in the renderer returns null when a used cache rate is missing
+  (`libs/frontend/chat/src/lib/utils/lane-stats.adapters.ts:146-149`).
+- Done: usage-analytics and agent-monitor treat a missing cache price as unknown
+  (`e8114e024`).
+- Open: `calculateMessageCost` still uses `?? 0` for cache rates
+  (`pricing.utils.ts:476,478`), and `live-session-stats-publisher.ts:551` calls it
+  without a cache-rate guard. The free-versus-unknown decision is not recorded.
 
 ## Origin
 

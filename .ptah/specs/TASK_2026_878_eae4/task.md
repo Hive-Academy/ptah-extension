@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_878_eae4
-status: backlog
+status: done
 type: CREATIVE
 title: Revamp landing page sections below the hero
 depends_on: []
 created: "2026-11-04T16:52:40.297Z"
-updated: "2026-11-04T16:52:40.297Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Keep the hero; redesign content and style of every other landing section around real Ptah v2 features instead of generic SaaS copy."
 estimate: XL
 labels:

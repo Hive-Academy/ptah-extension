@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: BUGFIX
 title: The ptah-cli test chain is unrunnable in a worktree and hangs on exit
 description: >-

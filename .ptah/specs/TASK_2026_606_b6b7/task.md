@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_606_b6b7
-status: backlog
+status: done
 type: BUGFIX
 title: Show a normalised CLI version in the tasks UI
 depends_on: []
 created: "2026-10-03T12:10:10.450Z"
-updated: "2026-10-03T12:10:10.450Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "task-agent-discovery.service.ts builds \"Run through {cli} {version}.\" from the raw --version line (\"Run through codex codex-cli 0.155.1.\"); reuse the cliVersionLabel normaliser from Settings."
 executor: frontend-developer
 estimate: XS

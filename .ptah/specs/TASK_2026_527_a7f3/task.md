@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_527_a7f3
-status: backlog
+status: cancelled
 type: BUGFIX
 title: >-
   The VS Code webview ships with no Content-Security-Policy because the

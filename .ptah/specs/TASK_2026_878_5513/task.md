@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_878_5513
-status: backlog
+status: done
 type: BUGFIX
 title: Fix dead curator and re-index actions in Memory and Skills tab
 depends_on: []
 created: "2026-11-04T20:37:35.848Z"
-updated: "2026-11-04T20:37:35.848Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Spec curator, code re-index and memory curation buttons do nothing in Electron; add run feedback so learning flows are observable and testable."
 estimate: L
 labels:

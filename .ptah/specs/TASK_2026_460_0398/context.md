@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_460 — `createChild` resets cost, tokens and createdAt
 
 Found by the independent logic review of TASK_2026_452 (PR #517), round 2.

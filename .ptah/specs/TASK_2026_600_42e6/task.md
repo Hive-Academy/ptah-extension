@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_600_42e6
-status: backlog
+status: cancelled
 type: BUGFIX
 title: Exit non-zero when ptah auth test fails
 depends_on: []
 created: "2026-10-03T12:09:57.893Z"
-updated: "2026-10-03T12:09:57.893Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "`ptah auth test` always returns ExitCode.Success, also when auth:testConnection reports success: false (now including a thrown failure), so scripts cannot gate on it."
 executor: backend-developer
 estimate: XS

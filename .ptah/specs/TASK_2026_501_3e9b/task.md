@@ -4,16 +4,28 @@ type: devops
 title: >-
   Prove the docs and landing deployments after the dependency migration
 description: >-
-  TASK_2026_498_5513 changed the build of `ptah-docs` and `ptah-landing-page`,
-  including the Starlight sidebar configuration and the rollup native-binary pin
-  in `scripts/do-docs-build.sh`. The build outputs match the DigitalOcean spec,
-  but no real deploy has run. Only a run against `release/docs` and
-  `release/landing` settles it.
+  TASK_2026_498_5513 changed the ptah-docs and ptah-landing-page builds. Neither release
+  branch has been synced since, so no real deploy has proved them. Sync and check both.
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 # Prove the docs and landing deployments
 
-Recorded during TASK_2026_498_5513 as an open risk, not a defect.
+## Description
+
+Recorded during TASK_2026_498_5513 as an open risk, not a defect. That task changed the build of
+`apps/ptah-docs` and `apps/ptah-landing-page`, including the Starlight sidebar configuration and the
+rollup native-binary pin in `scripts/do-docs-build.sh` (`5dddec2ee`). Only a real deploy from
+`release/docs` and `release/landing` proves them.
+
+## Current state (2026-11-07)
+
+- Not done. On the remote, `release/docs` is at `cac691266` (2026-09-08, PR #473) and
+  `release/landing` is at `5733e00cb` (2026-09-17, PR #529). Neither contains `5dddec2ee`.
+- The sync workflow is `.github/workflows/sync-release-branch.yml` (targets `landing` and `docs`,
+  `:33-34`). It fast-forwards the branch and then runs `deploy-landing.yml` or `deploy-docs.yml`
+  (`:140-141`).
+- The DigitalOcean specs are `.do/app.yaml` and `.do/docs-app.yaml`.
 
 ## What is verified today
 
@@ -37,4 +49,4 @@ Both are fixed. Neither was caught by a passing build, which is the point.
 3. Repeat for `landing`.
 
 Never merge into a release branch and never open a pull request against one.
-The sync workflow fast-forwards it. See the root `CLAUDE.md`.
+The sync workflow fast-forwards it.

@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_362 — Batches (Phase 1: native conductor on pi-ai)
 
 Author: team-leader (decomposition mode). Date: 2026-08-31.

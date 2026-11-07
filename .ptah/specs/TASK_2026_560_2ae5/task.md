@@ -2,18 +2,48 @@
 id: TASK_2026_560_2ae5
 status: backlog
 type: FEATURE
-title: Per-workspace and global on/off controls for MCP servers and skills, enforced for every provider
+title: Enforce MCP on/off toggles for Codex, OpenCode and Antigravity lanes
 description: >-
-  Users cannot turn MCP servers or skills off per workspace from Ptah, cannot see whether a server comes from global or workspace scope, and Ptah does not enforce an effective set when it builds Claude SDK, proxied or CLI-lane sessions. Proxied sessions carry every schema on every request (about 49k unused tokens per request measured). Add the settings contract, the Marketplace UI and the enforcement.
+  PR #599 shipped the toggle contract, store, resolver, Marketplace switches and Claude/Ptah CLI
+  enforcement. Left: MCP enforcement for the rival CLI lanes and real schema-size figures.
 depends_on: []
 created: 2026-09-25T00:00:00.000Z
-updated: '2026-10-12T19:41:51.738Z'
+updated: 2026-11-07T00:00:00.000Z
 parent: TASK_2026_640_11a5
 labels:
   - P3
 ---
 
 ## Description
+
+PR 1 (#599) is done. The remaining work (PR 2):
+
+1. Give the Codex, OpenCode and Antigravity lanes the effective MCP set from the capability
+   resolver (`libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.ts`).
+   Then flip their rows to `enforced` in `CAPABILITY_ENFORCEMENT`
+   (`libs/shared/src/lib/types/capability-toggle.types.ts:692-701`); the UI follows from that table.
+2. Measure the schema size of each enabled server, so the Marketplace shows a real figure instead of
+   `size unknown` (`SCHEMA_SIZE_UNKNOWN`,
+   `libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts:72,101-109`).
+3. Remove the `ptah-cli-proxy` row (`capability-toggle.types.ts:699-701`). The headless CLI and its
+   proxy are removed (PR #892).
+4. Check the remaining PR 2 items from `context.md` against current code before you build them:
+   the skills/plugins Marketplace page toggles, the duplicate-scope display and Codex quoted keys.
+
+## Current state (2026-11-07)
+
+- Done (PR #599 and its batches, for example `e303b8514`): the capability contract, toggle store,
+  scope labels and the size label; Claude SDK sessions (including proxied ones) and Ptah CLI agent
+  lanes apply the resolver.
+- Open: `codex`, `opencode` and `antigravity` still use `MCP_NOT_ENFORCED`
+  (`capability-toggle.types.ts:660-661,696-698`). Skills and plugins reach those lanes through the
+  harness sync, which already honours the toggles.
+- Obsolete with the CLI app removal (PR #892): the CLI proxy enforcement, the CLI warning print, and
+  the Ptah CLI "unverified" notice from the old PR 2 list.
+- The evidence folders `TASK_2026_557_tokaudit` and `TASK_2026_559_8ca9` are not on this branch. Read
+  them from git history if needed.
+
+## Original requirements (2026-09-25)
 
 Evidence: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (RC6, Wave 0 item 0.5, Wave 1
 item 7, Wave 2 item 2.1).
