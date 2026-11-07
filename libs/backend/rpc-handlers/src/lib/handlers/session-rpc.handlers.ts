@@ -66,6 +66,13 @@ import {
   type SessionMetadataChangedNotification,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
+import {
+  finalizeTranscripts,
+  restoreTranscripts,
+  STAGED_TRANSCRIPT_SUFFIX,
+  stageTranscripts,
+  type StagedTranscript,
+} from './session-transcript-staging';
 import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -147,16 +154,25 @@ interface SessionDeleteResult {
   success: boolean;
   error?: string;
   messagingCleanup?: 'pending-retry';
+  /**
+   * `'incomplete'`: the session is deleted, but some transcript files could
+   * not be removed after staging; they remain on disk with the
+   * `.ptah-deleting` suffix and the error log lists them.
+   */
+  transcriptCleanup?: 'incomplete';
 }
 
-/** Remove a transcript file; one that is already gone counts as removed. */
-async function unlinkIfPresent(filePath: string): Promise<void> {
-  try {
-    await fs.unlink(filePath);
-  } catch (error: unknown) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
-    throw error;
-  }
+/** Transcript files of one session, found but not yet changed. */
+interface SessionTranscripts {
+  readonly sessionsDir: string;
+  /** Sub-agent transcripts first, the main JSONL last. */
+  readonly files: readonly string[];
+}
+
+/** Transcript files moved aside while the metadata is deleted. */
+interface StagedSessionTranscripts {
+  readonly sessionsDir: string;
+  readonly files: readonly StagedTranscript[];
 }
 
 /** Surviving transcripts of one sessions directory. */
@@ -848,11 +864,11 @@ export class SessionRpcHandlers {
    * session:delete - Delete session metadata AND JSONL files from disk
    * Removes both Ptah's metadata and the SDK's session files from ~/.claude/projects/
    *
-   * Order: freeze delivery with a durable intent, delete the transcript
-   * files, then the metadata (undoing the intent if either fails), record it,
-   * purge undelivered messages and remove change sets. Files go before the
-   * metadata so a failed file delete leaves the session listed and the user
-   * can retry; success is never reported while a transcript remains.
+   * Order: freeze delivery with a durable intent, stage (rename) the
+   * transcript files, delete the metadata, then remove the staged files,
+   * purge undelivered messages and remove change sets. A staging failure or a
+   * metadata failure undoes the intent and puts the transcripts back, so the
+   * session stays listed and usable and the user can retry.
    */
   private registerSessionDelete(): void {
     this.rpcHandler.registerMethod<
@@ -867,8 +883,9 @@ export class SessionRpcHandlers {
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
         await this.beginMessagingPurge(sessionId);
+        let staged: StagedSessionTranscripts | null = null;
         if (workspacePath) {
-          await this.removeSessionFiles(
+          staged = await this.stageSessionFiles(
             sessionId,
             workspacePath,
             metadata?.workingDirectory,
@@ -882,17 +899,24 @@ export class SessionRpcHandlers {
         try {
           await this.metadataStore.delete(sessionId);
         } catch (error: unknown) {
+          await this.undoStagedSessionFiles(sessionId, staged);
           await this.purge.abortDelete(sessionId);
           throw error;
         }
+        const transcriptCleanup = await this.finalizeSessionFiles(
+          sessionId,
+          staged,
+        );
         const messagingCleanup = await this.finishMessagingPurge(sessionId);
         await this.removeTurnChangeSets(sessionId);
 
         this.logger.info('RPC: session:delete succeeded', { sessionId });
 
-        return messagingCleanup
-          ? { success: true, messagingCleanup }
-          : { success: true };
+        return {
+          success: true,
+          ...(messagingCleanup ? { messagingCleanup } : {}),
+          ...(transcriptCleanup ? { transcriptCleanup } : {}),
+        };
       } catch (error) {
         // A refused delete intent is a typed failure of the RPC itself.
         if (error instanceof RpcUserError) throw error;
@@ -913,20 +937,28 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * The transcript files go before the metadata. They hold user and agent
-   * content, so a failure refuses the delete: the messaging freeze is undone,
-   * the session stays listed, and the user can delete it again.
+   * Move the transcript files aside before the metadata goes, so that a failed
+   * metadata delete can put them back. They hold user and agent content, so a
+   * staging failure refuses the delete: the messaging freeze is undone, the
+   * session stays listed with its transcript, and the user can try again.
    */
-  private async removeSessionFiles(
+  private async stageSessionFiles(
     sessionId: string,
     workspacePath: string,
     workingDirectory?: string,
-  ): Promise<void> {
+  ): Promise<StagedSessionTranscripts | null> {
     try {
-      await this.deleteSessionFiles(sessionId, workspacePath, workingDirectory);
+      const found = await this.collectSessionTranscripts(
+        sessionId,
+        workspacePath,
+        workingDirectory,
+      );
+      if (!found) return null;
+      const files = await stageTranscripts(found.files);
+      return { sessionsDir: found.sessionsDir, files };
     } catch (error: unknown) {
       this.logger.error(
-        'RPC: session:delete - session files not removed',
+        'RPC: session:delete - session files not staged',
         error instanceof Error ? error : new Error(String(error)),
       );
       await this.purge.abortDelete(sessionId);
@@ -935,6 +967,46 @@ export class SessionRpcHandlers {
         'PERSISTENCE_UNAVAILABLE',
       );
     }
+  }
+
+  /** The metadata delete failed: put the transcripts back under their names. */
+  private async undoStagedSessionFiles(
+    sessionId: string,
+    staged: StagedSessionTranscripts | null,
+  ): Promise<void> {
+    if (!staged) return;
+    try {
+      await restoreTranscripts(staged.files);
+    } catch (error: unknown) {
+      // The original metadata error is the one the caller sees; this one is
+      // logged with the staged paths so the content can be found on disk.
+      this.logger.error(
+        `RPC: session:delete - staged transcripts not restored (session ${sessionId}; files end in ${STAGED_TRANSCRIPT_SUFFIX})`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
+  /** The metadata is gone: remove the staged transcripts for good. */
+  private async finalizeSessionFiles(
+    sessionId: string,
+    staged: StagedSessionTranscripts | null,
+  ): Promise<'incomplete' | undefined> {
+    if (!staged) return undefined;
+    const leftovers = await finalizeTranscripts(staged.files);
+    await this.removeEmptySessionDirs(staged.sessionsDir, sessionId);
+    if (leftovers.length === 0) {
+      this.logger.info('RPC: session:delete - deleted transcript files', {
+        sessionId,
+        count: staged.files.length,
+      });
+      return undefined;
+    }
+    this.logger.error(
+      'RPC: session:delete - staged transcript files not removed',
+      new Error(`${leftovers.length} file(s) left: ${leftovers.join(', ')}`),
+    );
+    return 'incomplete';
   }
 
   /** Durable delete intent; a failure refuses the delete before anything is removed. */
@@ -1058,9 +1130,8 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * Delete session JSONL files from disk.
-   * Removes the main session file and any agent sub-session files.
-   * A file that is already gone is skipped; any other unlink failure throws.
+   * Find the session's transcript files without changing them. Sub-agent
+   * transcripts come first and the main JSONL last.
    *
    * Agent sub-sessions are stored in two possible layouts (SDK version dependent):
    * - Current (nested): {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
@@ -1070,11 +1141,11 @@ export class SessionRpcHandlers {
    * directory remains the transcript location even after a child worktree is
    * removed.
    */
-  private async deleteSessionFiles(
+  private async collectSessionTranscripts(
     sessionId: string,
     workspacePath: string,
     workingDirectory?: string,
-  ): Promise<void> {
+  ): Promise<SessionTranscripts | null> {
     const sessionFilePath = await this.findSessionFile(
       sessionId,
       workingDirectory ?? workspacePath,
@@ -1085,7 +1156,7 @@ export class SessionRpcHandlers {
         'RPC: session:delete - session file not found on disk (already deleted or never created)',
         { sessionId },
       );
-      return;
+      return null;
     }
 
     const sessionsDir = path.dirname(sessionFilePath);
@@ -1096,100 +1167,90 @@ export class SessionRpcHandlers {
       resolvedSessionFile !== resolvedSessionsDir
     ) {
       throw new Error(
-        `unauthorized-path-rewrite: deleteSessionFiles refused to operate on ${sessionFilePath} (outside ${sessionsDir})`,
+        `unauthorized-path-rewrite: collectSessionTranscripts refused to operate on ${sessionFilePath} (outside ${sessionsDir})`,
       );
     }
-    // Sub-agent transcripts first: the main JSONL is what locates them, so it
-    // goes last and a retry after a partial failure still finds the rest.
-    let deletedSubagents = await this.deleteNestedSubagentFiles(sessionsDir, sessionId);
-    if (deletedSubagents === 0) {
-      const allFiles = await fs.readdir(sessionsDir);
-      const agentFiles = allFiles.filter(
-        (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
-      );
-      for (const file of agentFiles) {
-        const filePath = path.join(sessionsDir, file);
-
-        const content = await fs.readFile(filePath, 'utf-8');
-        const firstLine = content.split('\n')[0];
-        if (firstLine) {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(firstLine);
-          } catch {
-            this.logger.debug(
-              'session:delete — skipping unreadable JSONL (malformed JSON)',
-              { filePath },
-            );
-            continue;
-          }
-          const result = AgentJsonlFirstLineSchema.safeParse(parsed);
-          if (!result.success) {
-            this.logger.debug(
-              'session:delete — skipping JSONL with unexpected first-line shape',
-              { filePath, issues: result.error.issues },
-            );
-            continue;
-          }
-          if (result.data.sessionId === sessionId) {
-            await unlinkIfPresent(filePath);
-            deletedSubagents++;
-          }
-        }
-      }
-    }
-
-    if (deletedSubagents > 0) {
-      this.logger.info('RPC: session:delete - deleted subagent files', {
-        sessionId,
-        deletedSubagents,
-      });
-    }
-
-    await unlinkIfPresent(sessionFilePath);
-    this.logger.info('RPC: session:delete - deleted JSONL file', {
-      sessionId,
-      filePath: sessionFilePath,
-    });
+    const nested = await this.listNestedSubagentFiles(sessionsDir, sessionId);
+    const subagents =
+      nested.length > 0
+        ? nested
+        : await this.listFlatSubagentFiles(sessionsDir, sessionId);
+    return { sessionsDir, files: [...subagents, sessionFilePath] };
   }
 
-  /**
-   * Delete `{sessionsDir}/{sessionId}/subagents/agent-*.jsonl`. A missing
-   * directory is not an error; a file that cannot be unlinked is thrown.
-   * Removing the then-empty directories is cleanup only: they hold no content.
-   */
-  private async deleteNestedSubagentFiles(
+  /** `{sessionsDir}/{sessionId}/subagents/agent-*.jsonl`; a missing directory is empty. */
+  private async listNestedSubagentFiles(
     sessionsDir: string,
     sessionId: string,
-  ): Promise<number> {
+  ): Promise<string[]> {
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-    let subagentFiles: string[];
+    let entries: string[];
     try {
-      subagentFiles = await fs.readdir(subagentsDir);
+      entries = await fs.readdir(subagentsDir);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === 'ENOENT' || code === 'ENOTDIR') return 0;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return [];
       throw err;
     }
-    let deleted = 0;
-    for (const file of subagentFiles) {
-      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-        await unlinkIfPresent(path.join(subagentsDir, file));
-        deleted++;
+    return entries
+      .filter((f) => f.startsWith('agent-') && f.endsWith('.jsonl'))
+      .map((f) => path.join(subagentsDir, f));
+  }
+
+  /** Legacy flat `agent-*.jsonl` files whose first line names this session. */
+  private async listFlatSubagentFiles(
+    sessionsDir: string,
+    sessionId: string,
+  ): Promise<string[]> {
+    const allFiles = await fs.readdir(sessionsDir);
+    const owned: string[] = [];
+    for (const file of allFiles) {
+      if (!file.startsWith('agent-') || !file.endsWith('.jsonl')) continue;
+      const filePath = path.join(sessionsDir, file);
+      const firstLine = (await fs.readFile(filePath, 'utf-8')).split('\n')[0];
+      if (!firstLine) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(firstLine);
+      } catch {
+        this.logger.debug(
+          'session:delete — skipping unreadable JSONL (malformed JSON)',
+          { filePath },
+        );
+        continue;
       }
+      const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+      if (!result.success) {
+        this.logger.debug(
+          'session:delete — skipping JSONL with unexpected first-line shape',
+          { filePath, issues: result.error.issues },
+        );
+        continue;
+      }
+      if (result.data.sessionId === sessionId) owned.push(filePath);
     }
+    return owned;
+  }
+
+  /** Remove the then-empty nested session directories; they hold no content. */
+  private async removeEmptySessionDirs(
+    sessionsDir: string,
+    sessionId: string,
+  ): Promise<void> {
+    const sessionDir = path.join(sessionsDir, sessionId);
     try {
-      await fs.rmdir(subagentsDir);
-      await fs.rmdir(path.join(sessionsDir, sessionId));
+      await fs.rmdir(path.join(sessionDir, 'subagents'));
+      await fs.rmdir(sessionDir);
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return;
       // Empty directories only; a non-empty session dir keeps non-transcript content.
       this.logger.warn('RPC: session:delete - session directory not removed', {
         sessionId,
-        subagentsDir,
+        sessionDir,
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    return deleted;
   }
 
   /**

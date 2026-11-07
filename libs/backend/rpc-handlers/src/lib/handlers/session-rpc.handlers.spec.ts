@@ -67,6 +67,7 @@ jest.mock('fs/promises', () => ({
   stat: jest.fn(),
   unlink: jest.fn(),
   rmdir: jest.fn(),
+  rename: jest.fn(),
 }));
 
 // The handler injects one runtime token. The runtime barrel is not loaded:
@@ -84,6 +85,7 @@ const mockReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
 const mockStat = fs.stat as jest.MockedFunction<typeof fs.stat>;
 const mockUnlink = fs.unlink as jest.MockedFunction<typeof fs.unlink>;
 const mockRmdir = fs.rmdir as jest.MockedFunction<typeof fs.rmdir>;
+const mockRename = fs.rename as jest.MockedFunction<typeof fs.rename>;
 
 beforeEach(() => {
   mockAccess.mockReset().mockRejectedValue(new Error('ENOENT'));
@@ -91,6 +93,7 @@ beforeEach(() => {
   mockStat.mockReset().mockRejectedValue(new Error('ENOENT'));
   mockUnlink.mockReset().mockResolvedValue(undefined);
   mockRmdir.mockReset().mockResolvedValue(undefined);
+  mockRename.mockReset().mockResolvedValue(undefined);
 });
 
 import type {
@@ -2033,7 +2036,11 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(mockUnlink).toHaveBeenCalledWith(expectedFilePath);
+      expect(mockRename).toHaveBeenCalledWith(
+        expectedFilePath,
+        `${expectedFilePath}.ptah-deleting`,
+      );
+      expect(mockUnlink).toHaveBeenCalledWith(`${expectedFilePath}.ptah-deleting`);
     });
 
     it('still succeeds and warns when removing the turn change sets fails', async () => {
@@ -2131,7 +2138,7 @@ describe('SessionRpcHandlers', () => {
 
     describe('messaging purge order (Component 10)', () => {
       /** A harness whose session is authorized and whose steps record their order. */
-      function purgeHarness(): { h: Harness; order: string[] } {
+      function purgeHarness(): { h: Harness; order: string[]; file: string } {
         const h = makeHarness();
         const order: string[] = [];
         h.metadataStore.get.mockResolvedValue(
@@ -2162,13 +2169,14 @@ describe('SessionRpcHandlers', () => {
         }) as unknown as typeof fs.readdir);
         mockUnlink.mockResolvedValue(undefined);
         h.handlers.register();
-        return { h, order };
+        return { h, order, file };
       }
 
       afterEach(() => {
         mockAccess.mockReset();
         mockReaddir.mockReset();
         mockUnlink.mockReset();
+        mockRename.mockReset().mockResolvedValue(undefined);
       });
 
       it('freezes, deletes files, then metadata, records it and purges before change sets', async () => {
@@ -2201,8 +2209,8 @@ describe('SessionRpcHandlers', () => {
         expect(mockUnlink).not.toHaveBeenCalled();
       });
 
-      it('aborts the purge when the metadata delete fails', async () => {
-        const { h, order } = purgeHarness();
+      it('restores the staged transcript and aborts the purge when the metadata delete fails', async () => {
+        const { h, order, file } = purgeHarness();
         h.metadataStore.delete.mockRejectedValue(new Error('locked'));
 
         const result = await call<{ success: boolean; error?: string }>(h, 'session:delete', {
@@ -2211,8 +2219,48 @@ describe('SessionRpcHandlers', () => {
 
         expect(result).toEqual({ success: false, error: 'locked' });
         expect(order).toEqual(['beginDelete', 'deleteFiles', 'abortDelete']);
+        expect(mockRename.mock.calls).toEqual([
+          [file, `${file}.ptah-deleting`],
+          [`${file}.ptah-deleting`, file],
+        ]);
+        expect(mockUnlink).not.toHaveBeenCalled();
         expect(h.purge.completeDelete).not.toHaveBeenCalled();
         expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
+      });
+
+      it('logs and still reports the metadata error when the transcript cannot be restored', async () => {
+        const { h } = purgeHarness();
+        h.metadataStore.delete.mockRejectedValue(new Error('locked'));
+        mockRename
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+
+        const result = await call<{ success: boolean; error?: string }>(h, 'session:delete', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: false, error: 'locked' });
+        expect(h.purge.abortDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(h.logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('staged transcripts not restored'),
+          expect.any(Error),
+        );
+      });
+
+      it('reports incomplete transcript cleanup when a staged file cannot be removed after the metadata is gone', async () => {
+        const { h, file } = purgeHarness();
+        mockUnlink.mockRejectedValueOnce(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+
+        const result = await call<{ success: boolean; transcriptCleanup?: string }>(h, 'session:delete', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: true, transcriptCleanup: 'incomplete' });
+        expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(h.logger.error).toHaveBeenCalledWith(
+          'RPC: session:delete - staged transcript files not removed',
+          expect.objectContaining({ message: expect.stringContaining(`${file}.ptah-deleting`) }),
+        );
       });
 
       it('reports pending-retry when the purge does not complete, and still deletes', async () => {
@@ -2253,19 +2301,20 @@ describe('SessionRpcHandlers', () => {
         expect(h.purge.completeDelete).not.toHaveBeenCalled();
         expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
         expect(h.logger.error).toHaveBeenCalledWith(
-          'RPC: session:delete - session files not removed',
+          'RPC: session:delete - session files not staged',
           expect.any(Error),
         );
       });
 
       it('never reports success while the transcript remains, and a retry completes the delete', async () => {
         const { h, order } = purgeHarness();
-        mockUnlink.mockRejectedValueOnce(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+        mockRename.mockRejectedValueOnce(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
 
         const first = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
 
         expect(first).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
         expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(mockUnlink).not.toHaveBeenCalled();
         expect(h.purge.abortDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
 
         order.length = 0;
@@ -2284,12 +2333,13 @@ describe('SessionRpcHandlers', () => {
 
       it('treats a transcript that is already gone as removed', async () => {
         const { h } = purgeHarness();
-        mockUnlink.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+        mockRename.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
         const result = await call<{ success: boolean }>(h, 'session:delete', { sessionId: VALID_SESSION_ID });
 
         expect(result).toEqual({ success: true });
         expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(mockUnlink).not.toHaveBeenCalled();
       });
     });
   });
