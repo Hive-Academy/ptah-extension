@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_860
-status: in_progress
+status: done
 type: FEATURE
 title: Session sidebar grouping, agent dock cap, header actions, pulse loaders
 description: >-
@@ -10,7 +10,7 @@ description: >-
   header next to the session title. Electron first.
 depends_on: []
 created: 2026-11-02T00:00:00.000Z
-updated: 2026-11-02T00:00:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

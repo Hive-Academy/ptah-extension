@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_155
-status: blocked
+status: backlog
 type: FEATURE
 title: 'Goal workflow (/goal): session-scoped completion condition + evaluator loop'
 depends_on: []
 created: '2026-08-09T15:26:27.168Z'
-updated: '2026-08-09T15:26:27.193Z'
+updated: 2026-11-07T00:00:00.000Z
 description: >-
   Claude-Code-style /goal: a session-scoped completion condition driving a
   Stop-hook evaluator loop, a goal-workflow backend lib with SQLite persistence,

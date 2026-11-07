@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_682_f705
-status: backlog
+status: cancelled
 type: BUGFIX
 title: Fix open builder review items after TASK_2026_649
 depends_on: []
 created: "2026-10-16T14:40:08.089Z"
-updated: "2026-10-16T14:40:08.089Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Fix N5, N6 and the open Moderate items M1-M9 (and minor m-items) from the TASK_2026_649 code-logic review."
 parent: TASK_2026_647_1b0f
 estimate: M

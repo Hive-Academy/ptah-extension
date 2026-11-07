@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_714_c8a2
-status: in_progress
+status: done
 type: FEATURE
 title: Integrate Codex App Server across chat and lanes
 description: >-
   Plan shared native Codex execution with configuration parity and unchanged Claude behavior.
 depends_on: []
 created: 2026-10-22
-updated: "2026-10-30T03:38:08.921Z"
+updated: 2026-11-07T00:00:00.000Z
 ---

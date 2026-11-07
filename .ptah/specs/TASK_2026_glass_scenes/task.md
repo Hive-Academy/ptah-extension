@@ -1,6 +1,16 @@
+---
+id: TASK_2026_glass_scenes
+status: done
+type: FEATURE
+title: Glass theme scenes
+description: >-
+  Merged as PR #884. Frontmatter added by TASK_2026_886_032a status sweep.
+updated: 2026-11-07T00:00:00.000Z
+---
+
 # TASK_2026_glass_scenes
 
-status: in-progress
+status: done
 type: FEATURE
 depth: Minimal
 branch: feat/glass-theme-scenes

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_863_cfae
-status: in_progress
+status: done
 type: BUGFIX
 title: Fix auto hand-off and idle compaction for background sessions
 description: >-
@@ -10,7 +10,7 @@ description: >-
   dev-only overrides to test both live with short thresholds.
 depends_on: []
 created: 2026-11-03T14:40:00.000Z
-updated: 2026-11-03T14:40:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

@@ -1,5 +1,5 @@
 ---
-status: blocked
+status: backlog
 type: bugfix
 title: Orphaned stdio MCP server process trees leak on every failed connect
 description: >-

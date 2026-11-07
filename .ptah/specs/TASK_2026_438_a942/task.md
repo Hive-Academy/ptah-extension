@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: done
 type: FEATURE
 title: 'Lane completion contract: a finished lane must reach its orchestrator'
 description: >-

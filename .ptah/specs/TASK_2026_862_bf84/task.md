@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_862_bf84
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Use the user's installed Codex on every OS (unpin the Codex binary)
@@ -10,7 +10,7 @@ description: >-
   models, unknown-model pricing shows not priced. Plan automatic bundled-codex bumps.
 depends_on: []
 created: 2026-11-03T02:35:00.000Z
-updated: 2026-11-03T02:35:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

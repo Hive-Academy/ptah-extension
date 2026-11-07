@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_857_f660
-status: in_progress
+status: done
 type: FEATURE
 title: Lane learning integrity and host-side pre-flight routing
 description: >-
@@ -9,7 +9,7 @@ description: >-
   route_decide pre-flight on the host when scope is agreed, injecting a Routing reminder.
 depends_on: []
 created: 2026-10-30T16:00:00.000Z
-updated: 2026-10-30T16:00:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

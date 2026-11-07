@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_305
-status: backlog
+status: cancelled
 type: DEVOPS
 title: >-
   Enable the Resend webhook in production so bounces and spam complaints

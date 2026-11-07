@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_879_9809
-status: backlog
+status: done
 type: BUGFIX
 title: Feed lane outcomes to the decision model and make routing observable
 depends_on: []
 created: "2026-11-04T20:42:15.236Z"
-updated: "2026-11-04T20:42:15.236Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Send pastOutcomes to System One, log decisions, fix depth confidence, give subagent outcomes a verdict."
 estimate: M
 labels:
