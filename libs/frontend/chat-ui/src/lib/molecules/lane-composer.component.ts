@@ -332,14 +332,22 @@ export class LaneComposerComponent {
     try {
       // After a reload the text lives only in the backend: read it before the cancel drops it.
       const local = LaneComposerComponent.acceptedText.get(messageId);
-      // degradation-audit: optional-capability - reading the queued text back
-      // only lets the composer restore it; when the read fails the cancel still
-      // runs and the composer stays empty.
-      const text = local?.agentId === agentId ? local.text
-        : await this.store.recoverQueuedText(agentId, messageId).catch(() => null);
+      let text: string;
+      if (local?.agentId === agentId) text = local.text;
+      else {
+        try {
+          text = await this.store.recoverQueuedText(agentId, messageId);
+        } catch {
+          // degradation-audit: reported - the cancel would drop the only copy of
+          // the text, so Edit stops, shows the error below, and the queued
+          // message stays for a retry.
+          this.error.set('Could not load the queued message to edit. Try again.');
+          return;
+        }
+      }
       const receipt = await this.store.cancelMessage(agentId, messageId);
       if (receipt.reason === 'cancelled-by-user') {
-        if (text !== null) this.restore(text);
+        this.restore(text);
         LaneComposerComponent.acceptedText.delete(messageId);
       } else this.error.set('Message already started and could not be cancelled.');
     } catch {

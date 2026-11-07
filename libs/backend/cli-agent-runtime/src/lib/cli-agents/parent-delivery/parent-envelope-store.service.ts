@@ -201,12 +201,18 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     });
   }
 
-  async markSending(id: string): Promise<ParentDeliveryEnvelope> {
+  /**
+   * Starts a send attempt. Returns `undefined` when the entry is no longer
+   * `pending` or `blocked-retryable` (for example, a cancel won the race
+   * after the drainer took its snapshot), so the caller must skip it.
+   */
+  async markSending(id: string): Promise<ParentDeliveryEnvelope | undefined> {
     await this.restore();
     return this.serialize(async () => {
       const existing = this.requireById(id);
       if (this.isParentFrozen(existing.parentSessionId))
         throw new Error('parent-session-deleted');
+      if (existing.state !== 'pending' && existing.state !== 'blocked-retryable') return undefined;
       return this.replaceLocked(existing, {
         state: 'sending',
         attempts: existing.attempts + 1,
@@ -247,7 +253,8 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     await this.restore();
     return this.serialize(async () => {
       const existing = this.entries.get(idOrKey) ?? this.findById(idOrKey);
-      if (!existing) return undefined;
+      // A send result applies only to an in-flight attempt; a concurrent cancel stays cancelled.
+      if (!existing || existing.state !== 'sending') return undefined;
       return this.replaceLocked(existing, {
         state: 'blocked-retryable', lastError: reason,
         nextRetryAt: Date.now() + delayMs, waitingReason: undefined,
@@ -259,7 +266,8 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
     await this.restore();
     return this.serialize(async () => {
       const existing = this.entries.get(idOrKey) ?? this.findById(idOrKey);
-      if (!existing) return undefined;
+      // A send result applies only to an in-flight attempt; a concurrent cancel stays cancelled.
+      if (!existing || existing.state !== 'sending') return undefined;
       return this.replaceLocked(existing, {
         state: 'outcome-unknown', lastError: reason,
         nextRetryAt: undefined, waitingReason: undefined,
@@ -270,10 +278,14 @@ export class ParentEnvelopeStoreService implements ParentEnvelopeStore {
   async markWaiting(parentSessionId: string): Promise<void> {
     await this.restore();
     return this.serialize(async () => {
+      // No timer while offline: session activity, Retry or Cancel resumes the entry.
       for (const entry of this.list(parentSessionId)) {
-        const waiting = entry.state === 'pending' && entry.waitingReason === 'parent-offline';
+        const waiting = entry.state === 'pending' && entry.waitingReason === 'parent-offline' &&
+          entry.nextRetryAt === undefined;
         if (!waiting && (entry.state === 'blocked-retryable' || entry.state === 'pending'))
-          await this.replaceLocked(entry, { state: 'pending', waitingReason: 'parent-offline' });
+          await this.replaceLocked(entry, {
+            state: 'pending', waitingReason: 'parent-offline', nextRetryAt: undefined,
+          });
       }
     });
   }

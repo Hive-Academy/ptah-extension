@@ -212,7 +212,7 @@ export class ParentDeliveryDrainerService {
         await this.store.markWaiting(parentSessionId);
         return;
       }
-      let sending: ParentDeliveryEnvelope;
+      let sending: ParentDeliveryEnvelope | undefined;
       try {
         sending = await this.store.markSending(pending.id);
       } catch (error: unknown) {
@@ -220,6 +220,8 @@ export class ParentDeliveryDrainerService {
         this.schedule(this.backoff(pending.attempts));
         break;
       }
+      // The entry changed state after the snapshot (for example, it was cancelled).
+      if (!sending) continue;
       this.emitSafely(sending);
       const body = await this.store.getBody(sending.id);
       if (body === undefined) {
@@ -279,7 +281,7 @@ export class ParentDeliveryDrainerService {
   private scheduleNext(): void {
     const next = Math.min(...this.store.list()
       .filter((entry) => (entry.state === 'pending' || entry.state === 'blocked-retryable') &&
-        entry.nextRetryAt !== undefined)
+        entry.nextRetryAt !== undefined && entry.waitingReason !== 'parent-offline')
       .map((entry) => entry.nextRetryAt ?? Number.POSITIVE_INFINITY));
     if (Number.isFinite(next)) this.schedule(Math.max(0, next - Date.now()));
   }
