@@ -13,6 +13,7 @@ import {
   LANE_LIMIT_RESET_RETRY_DELAY_MS,
   LaneDeliveryLimitGate,
   planLimitRetry,
+  UNKNOWN_RESET_BLOCK_MS,
   type LaneDeliveryLimitLookup,
 } from './lane-delivery-limit.gate';
 
@@ -166,6 +167,102 @@ describe('LaneDeliveryLimitGate', () => {
         limitKnown: true,
       });
       expect('resetAt' in decision).toBe(false);
+    });
+
+    it('bounds an unknown-reset usage-limit stop by completedAt + UNKNOWN_RESET_BLOCK_MS and then consults lookup', async () => {
+      let currentNow = NOW;
+      const lookup: jest.Mocked<LaneDeliveryLimitLookup> = {
+        lookup: jest
+          .fn()
+          .mockResolvedValueOnce([lookupResult('confirmed-room')])
+          .mockResolvedValueOnce([
+            lookupResult('at-limit', [windowLimitReason('five_hour', NOW + UNKNOWN_RESET_BLOCK_MS + 300_000)]),
+          ]),
+      };
+      const gate = new LaneDeliveryLimitGate(
+        lookup,
+        makeLogger(),
+        LANE_LIMIT_GATE_DEADLINE_MS,
+        () => currentNow,
+      );
+      const info = makeInfo({
+        stopReason: 'usage-limit',
+        completedAt: new Date(NOW).toISOString(),
+        stopResetAt: Number.NaN,
+      });
+
+      currentNow = NOW + UNKNOWN_RESET_BLOCK_MS - 1;
+      await expect(gate.check(info)).resolves.toEqual({
+        kind: 'blocked',
+        limitKnown: true,
+      });
+      expect(lookup.lookup).not.toHaveBeenCalled();
+
+      currentNow = NOW + UNKNOWN_RESET_BLOCK_MS;
+      await expect(gate.check(info)).resolves.toEqual({ kind: 'proceed' });
+      expect(lookup.lookup).toHaveBeenCalledTimes(1);
+
+      await expect(gate.check(info)).resolves.toEqual({
+        kind: 'blocked',
+        limitKnown: true,
+        resetAt: NOW + UNKNOWN_RESET_BLOCK_MS + 300_000,
+      });
+      expect(lookup.lookup).toHaveBeenCalledTimes(2);
+    });
+
+    it('consults lookup at once when completedAt is missing or invalid, so the stop never blocks permanently', async () => {
+      const lookup: jest.Mocked<LaneDeliveryLimitLookup> = {
+        lookup: jest.fn().mockResolvedValue([lookupResult('confirmed-room')]),
+      };
+      const gate = new LaneDeliveryLimitGate(lookup, makeLogger(), LANE_LIMIT_GATE_DEADLINE_MS, () => NOW);
+
+      const missingCompletedAt = makeInfo({ stopReason: 'usage-limit', completedAt: undefined });
+      await expect(gate.check(missingCompletedAt)).resolves.toEqual({ kind: 'proceed' });
+      expect(lookup.lookup).toHaveBeenCalledTimes(1);
+
+      const invalidCompletedAt = makeInfo({ stopReason: 'usage-limit', completedAt: 'not-a-timestamp' });
+      await expect(gate.check(invalidCompletedAt)).resolves.toEqual({ kind: 'proceed' });
+      expect(lookup.lookup).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a fresh unknown-reset stop of a long-running lane without completedAt blocked unless lookup returns confirmed-room', async () => {
+      // startedAt and lastActivityAt are hours old: they must not start or end the window.
+      const info = makeInfo({
+        stopReason: 'usage-limit',
+        startedAt: new Date(NOW - 3 * UNKNOWN_RESET_BLOCK_MS).toISOString(),
+        lastActivityAt: new Date(NOW - 2 * UNKNOWN_RESET_BLOCK_MS).toISOString(),
+        completedAt: undefined,
+      });
+      const blocked = { kind: 'blocked', limitKnown: true };
+
+      await expect(
+        new LaneDeliveryLimitGate(null, makeLogger(), LANE_LIMIT_GATE_DEADLINE_MS, () => NOW).check(info),
+      ).resolves.toEqual(blocked);
+
+      const outcomes: Array<LaneLimitResult<AgentProcessInfo>[] | Error> = [
+        [],
+        [lookupResult('unknown', [], 'timeout')],
+        [lookupResult('unknown', [], 'failed')],
+        [lookupResult('unknown', [], 'no-owner')],
+        [lookupResult('unknown')],
+        [lookupResult('near-limit')],
+        new Error('lookup exploded'),
+      ];
+      for (const outcome of outcomes) {
+        const lookup: jest.Mocked<LaneDeliveryLimitLookup> = {
+          lookup: outcome instanceof Error
+            ? jest.fn().mockRejectedValue(outcome)
+            : jest.fn().mockResolvedValue(outcome),
+        };
+        const gate = new LaneDeliveryLimitGate(lookup, makeLogger(), LANE_LIMIT_GATE_DEADLINE_MS, () => NOW);
+        await expect(gate.check(info)).resolves.toEqual(blocked);
+      }
+
+      const roomLookup: jest.Mocked<LaneDeliveryLimitLookup> = {
+        lookup: jest.fn().mockResolvedValue([lookupResult('confirmed-room')]),
+      };
+      const roomGate = new LaneDeliveryLimitGate(roomLookup, makeLogger(), LANE_LIMIT_GATE_DEADLINE_MS, () => NOW);
+      await expect(roomGate.check(info)).resolves.toEqual({ kind: 'proceed' });
     });
   });
 

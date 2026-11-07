@@ -12,6 +12,9 @@ export const LANE_LIMIT_GATE_DEADLINE_MS = 1_500;
 /** Buffer added to a known `resetAt` timestamp before scheduling one retry. */
 export const LANE_LIMIT_RESET_RETRY_DELAY_MS = 60_000;
 
+/** How long a usage-limit stop with no known reset blocks delivery. */
+export const UNKNOWN_RESET_BLOCK_MS = 60 * 60_000;
+
 export type LimitGateDecision =
   | { readonly kind: 'proceed' }
   | { readonly kind: 'blocked'; readonly limitKnown: true; readonly resetAt?: number };
@@ -85,6 +88,10 @@ export function requiresLimitGate(
  *    from `window-limit` reasons.
  * 3. Anything else (`unknown`, `no-owner`, `timeout`, `failed`, or non-at-limit
  *    states) proceeds so unowned or slow-lookup lanes are never blocked.
+ *
+ * Exception: a `usage-limit` stop with no known reset and no valid
+ * `completedAt` proceeds only when the lookup returns `confirmed-room`.
+ * Every other lookup outcome, `near-limit` included, keeps it blocked.
  */
 export class LaneDeliveryLimitGate {
   constructor(
@@ -95,15 +102,25 @@ export class LaneDeliveryLimitGate {
   ) {}
 
   async check(info: AgentProcessInfo): Promise<LimitGateDecision> {
+    // A usage-limit stop with no known reset and no trustworthy stop time
+    // is fresh limit evidence: deliver only when a lookup confirms room.
+    let requireConfirmedRoom = false;
     if (info.stopReason === 'usage-limit') {
       const resetAt = isValidResetAt(info.stopResetAt) ? info.stopResetAt : undefined;
       if (resetAt === undefined) {
-        return {
-          kind: 'blocked',
-          limitKnown: true,
-        };
-      }
-      if (resetAt > this.clock()) {
+        // Only completedAt marks the stop; startedAt or lastActivityAt can be
+        // far older than the stop and would erase the window at once.
+        const stoppedAt = info.completedAt ? Date.parse(info.completedAt) : Number.NaN;
+        if (!Number.isFinite(stoppedAt)) {
+          requireConfirmedRoom = true;
+        } else if (this.clock() < stoppedAt + UNKNOWN_RESET_BLOCK_MS) {
+          // Unknown reset: block only for a bounded window, then consult the lookup.
+          return {
+            kind: 'blocked',
+            limitKnown: true,
+          };
+        }
+      } else if (resetAt > this.clock()) {
         return {
           kind: 'blocked',
           limitKnown: true,
@@ -112,29 +129,33 @@ export class LaneDeliveryLimitGate {
       }
     }
 
+    const unconfirmed = (): LimitGateDecision =>
+      requireConfirmedRoom ? { kind: 'blocked', limitKnown: true } : { kind: 'proceed' };
+
     if (!this.lookup) {
-      return { kind: 'proceed' };
+      return unconfirmed();
     }
 
     try {
       const results = await this.lookup.lookup([info], { deadlineMs: this.deadlineMs });
       const result = results[0];
       if (!result) {
-        return { kind: 'proceed' };
+        return unconfirmed();
       }
 
       if (result.lookup !== 'ok') {
         if (result.lookup === 'timeout' || result.lookup === 'failed') {
           this.logger?.debug(
-            '[LaneDeliveryLimitGate] Limit lookup did not resolve; proceeding with delivery',
+            '[LaneDeliveryLimitGate] Limit lookup did not resolve',
             { agentId: info.agentId, lookup: result.lookup },
           );
         }
-        return { kind: 'proceed' };
+        return unconfirmed();
       }
 
       if (result.state.state !== 'at-limit') {
-        return { kind: 'proceed' };
+        // Only confirmed-room proves room; a partial near-limit snapshot does not.
+        return result.state.state === 'confirmed-room' ? { kind: 'proceed' } : unconfirmed();
       }
 
       const resetAt = earliestResetAt(result.state.reasons);
@@ -145,13 +166,13 @@ export class LaneDeliveryLimitGate {
       };
     } catch (error: unknown) {
       this.logger?.debug(
-        '[LaneDeliveryLimitGate] Limit lookup threw; proceeding with delivery',
+        '[LaneDeliveryLimitGate] Limit lookup threw',
         {
           agentId: info.agentId,
           error: error instanceof Error ? error.name : typeof error,
         },
       );
-      return { kind: 'proceed' };
+      return unconfirmed();
     }
   }
 }

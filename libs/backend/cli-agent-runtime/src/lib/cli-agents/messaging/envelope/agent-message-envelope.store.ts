@@ -116,8 +116,9 @@ export class AgentMessageEnvelopeStore {
   ) {
     this.ready = this.restore().catch((error: unknown) => {
       // Degradation: unavailable receipt storage must not disable new live messaging.
+      // Keep the records already restored: clearing them would make the next
+      // persist overwrite the durable index with only new envelopes.
       this.logger?.error('[AgentMessageEnvelopeStore] Restore failed', this.error(error));
-      this.envelopes.clear();
     });
   }
 

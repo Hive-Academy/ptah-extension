@@ -540,6 +540,35 @@ describe('AgentMessageEnvelopeStore', () => {
     );
   });
 
+  it('retains envelopes loaded before a restore write failure and persists them on the next write', async () => {
+    const first = store();
+    const { envelope: existing } = await first.put(
+      input({ state: 'blocked-retryable', reason: 'lane-at-limit' }),
+      'held across transient outage',
+    );
+
+    const logger = createLogger();
+    storage.failIndexWrites = 1;
+    const restored = store(logger);
+
+    await expect(restored.get(existing.id)).resolves.toMatchObject({
+      id: existing.id,
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+    });
+    await expect(restored.getBody(existing.id)).resolves.toBe('held across transient outage');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[AgentMessageEnvelopeStore] Restore failed',
+      expect.any(Error),
+    );
+
+    const { envelope: added } = await restored.put(input(), 'new live message');
+    const persisted = storage.get<PersistedIndex>(AGENT_MESSAGE_ENVELOPE_INDEX_KEY);
+    expect(persisted?.records.map((record) => record.id)).toEqual(
+      expect.arrayContaining([existing.id, added.id]),
+    );
+  });
+
   it('imports and clears the v1 receipts once', async () => {
     const settledId = randomUUID();
     const startedId = randomUUID();
