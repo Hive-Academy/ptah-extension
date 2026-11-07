@@ -21,7 +21,14 @@ import {
   type ParsedIgnoreFile,
 } from './ignore-pattern-resolver.service';
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
-import { WalkSlice, yieldToEventLoop } from './cooperative-yield';
+import { WalkSlice } from './cooperative-yield';
+import {
+  collectDirectories,
+  groupByDepth,
+  isUnderNestedRoot,
+  relativeSegments,
+  unprobedCandidates,
+} from './nested-repo-scan';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
 
@@ -549,7 +556,11 @@ export class WorkspaceIndexerService {
     options.onNestedRepoRoots?.(nestedRepoRoots);
 
     let batch: string[] = [];
+    // Per item, not per batch: a long run of ignored paths fills no batch, so
+    // the batch yield below alone never fires for it (review-10 finding 3).
+    const walk = new WalkSlice();
     for (const filePath of allFiles) {
+      if (walk.expired()) await walk.yield();
       const relativePath = path.relative(workspaceFolder, filePath);
       if (isIgnored(relativePath)) {
         continue;
@@ -560,8 +571,8 @@ export class WorkspaceIndexerService {
         batch = [];
         // AFTER the yield, so the consumer has already absorbed the batch: the
         // pause is what keeps the walk off the critical path, not a delay in
-        // delivering it.
-        await yieldToEventLoop();
+        // delivering it. Also starts a fresh slice.
+        await walk.yield();
       }
     }
     if (batch.length > 0) {
@@ -646,18 +657,23 @@ export class WorkspaceIndexerService {
       workspaceFolder,
     );
 
-    const nestedRoots = await this.findNestedRepoRoots(workspaceFolder, files);
+    const walk = new WalkSlice();
+    const nestedRoots = await this.findNestedRepoRoots(
+      workspaceFolder,
+      files,
+      walk,
+    );
     if (nestedRoots.size === 0) {
       return { files, nestedRepoRoots: [] };
     }
+    const outside: string[] = [];
+    for (const file of files) {
+      if (walk.expired()) await walk.yield();
+      const segments = relativeSegments(workspaceFolder, file).slice(0, -1);
+      if (!isUnderNestedRoot(segments, nestedRoots)) outside.push(file);
+    }
     return {
-      files: files.filter(
-        (file) =>
-          !isUnderNestedRoot(
-            relativeSegments(workspaceFolder, file).slice(0, -1),
-            nestedRoots,
-          ),
-      ),
+      files: outside,
       nestedRepoRoots: [...nestedRoots].map((root) =>
         path.join(workspaceFolder, root),
       ),
@@ -667,57 +683,39 @@ export class WorkspaceIndexerService {
   /**
    * Root-relative (`/`-joined) directories below `workspaceFolder` that hold a
    * `.git` entry, outermost only.
+   *
+   * Every synchronous pass here (directory collection, depth grouping, the
+   * per-level candidate filter) checks `walk` per item, so a large flat tree
+   * cannot hold the main loop beyond one slice budget.
    */
   private async findNestedRepoRoots(
     workspaceFolder: string,
     files: readonly string[],
+    walk: WalkSlice,
   ): Promise<Set<string>> {
-    // Every directory holding a discovered file, and each of its ancestors,
-    // once. Walking up stops at the first directory already seen, so a file
-    // costs one lookup beyond its first new ancestor.
-    const directories = new Set<string>();
-    const slice = new WalkSlice();
-    for (const file of files) {
-      if (slice.expired()) await slice.yield();
-      const relative = path.relative(workspaceFolder, file);
-      if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
-      const segments = relative.split(/[\\/]/).filter((s) => s.length > 0);
-      let key = segments.slice(0, -1).join('/');
-      while (key.length > 0 && !directories.has(key)) {
-        directories.add(key);
-        const slash = key.lastIndexOf('/');
-        key = slash < 0 ? '' : key.slice(0, slash);
-      }
-    }
-
+    const directories = await collectDirectories(workspaceFolder, files, walk);
     // One depth level at a time, so a level's probes all run after every root
     // above it is known and nothing below a root is ever probed.
-    const levels: string[][] = [];
-    for (const dir of directories) {
-      const depth = dir.split('/').length - 1;
-      (levels[depth] ??= []).push(dir);
-    }
+    const levels = await groupByDepth(directories, walk);
     const roots = new Set<string>();
     for (const level of levels) {
       if (!level) continue;
-      const candidates = level.filter(
-        (dir) => !isUnderNestedRoot(dir.split('/'), roots),
-      );
+      const candidates = await unprobedCandidates(level, roots, walk);
       for (
         let start = 0;
         start < candidates.length;
         start += NESTED_REPO_CHECK_CONCURRENCY
       ) {
-        const slice = candidates.slice(
+        const probes = candidates.slice(
           start,
           start + NESTED_REPO_CHECK_CONCURRENCY,
         );
         const holdsGit = await Promise.all(
-          slice.map((dir) =>
+          probes.map((dir) =>
             this.holdsGitEntry(path.join(workspaceFolder, dir)),
           ),
         );
-        slice.forEach((dir, index) => {
+        probes.forEach((dir, index) => {
           if (holdsGit[index]) roots.add(dir);
         });
       }
@@ -756,25 +754,3 @@ export class WorkspaceIndexerService {
  * large tree does not queue thousands of probes on the thread pool at once.
  */
 const NESTED_REPO_CHECK_CONCURRENCY = 64;
-
-/** `file` relative to `root`, split on either separator, empty segments dropped. */
-function relativeSegments(root: string, file: string): string[] {
-  return path
-    .relative(root, file)
-    .split(/[\\/]/)
-    .filter((segment) => segment.length > 0);
-}
-
-/** True when some prefix of `segments` (including all of it) is a root in `roots`. */
-function isUnderNestedRoot(
-  segments: readonly string[],
-  roots: ReadonlySet<string>,
-): boolean {
-  if (roots.size === 0) return false;
-  let prefix = '';
-  for (const segment of segments) {
-    prefix = prefix.length === 0 ? segment : `${prefix}/${segment}`;
-    if (roots.has(prefix)) return true;
-  }
-  return false;
-}

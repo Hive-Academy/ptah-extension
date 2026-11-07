@@ -9,7 +9,6 @@ import {
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { CodeSymbolStore, type CodeSymbolInsert } from './code-symbol.store';
-import { MAX_SYMBOL_ROWS_PER_TRANSACTION } from './code-symbol-file-writer';
 
 function makeTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-code-symbol-test-'));
@@ -1583,11 +1582,11 @@ describe('CodeSymbolStore (native-gated)', () => {
   );
 
   maybe(
-    'replaceFileSymbols: a file larger than one transaction stores every symbol, FTS and vector row (fix-10)',
+    'replaceFileSymbols: one atomic replace of a large file stores every symbol, FTS and vector row (fix-10)',
     async () => {
       const { service, store } = await bootstrap();
       try {
-        const count = MAX_SYMBOL_ROWS_PER_TRANSACTION * 2 + 7;
+        const count = 407;
         const entries = Array.from({ length: count }, (_, i) =>
           makeEntry({
             symbolName: `fn${i}`,
@@ -1602,11 +1601,16 @@ describe('CodeSymbolStore (native-gated)', () => {
             subject: 'code:/test/ws/src/a.ts#old',
           }),
         ]);
+        // ONE transaction for the whole file: a failed insert keeps the
+        // previous rows, and no reader sees a half-written file.
+        const transactionSpy = jest.spyOn(service.db, 'transaction');
         await store.replaceFileSymbols(
           '/test/ws',
           '/test/ws/src/a.ts',
           entries,
         );
+        expect(transactionSpy).toHaveBeenCalledTimes(1);
+        transactionSpy.mockRestore();
 
         const stored = service.db
           .prepare(

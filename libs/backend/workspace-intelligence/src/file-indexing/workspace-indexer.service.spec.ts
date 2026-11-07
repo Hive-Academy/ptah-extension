@@ -1336,6 +1336,40 @@ describe('WorkspaceIndexerService', () => {
       expect(compile).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * review-10 finding 3: the batch yield only fires once a batch FILLS, so
+     * an all-ignored discovery set used to be one uninterrupted loop.
+     */
+    it('yields to the event loop across an all-ignored discovery set', async () => {
+      mockFsProvider.findFiles.mockResolvedValue(
+        Array.from({ length: 5000 }, (_, i) => `/workspace/dist/f${i}.js`),
+      );
+      // A clock only the ignore predicate advances (1 ms per path), so the
+      // 16 ms budget can only expire inside the filtered walk.
+      let clock = 0;
+      const nowSpy = jest
+        .spyOn(performance, 'now')
+        .mockImplementation(() => clock);
+      ignoreResolver.compileMatcher.mockReturnValue(() => {
+        clock += 1;
+        return true;
+      });
+      let immediateFired = false;
+      setImmediate(() => {
+        immediateFired = true;
+      });
+      try {
+        const batches = await collect({ workspaceFolder: WORKSPACE_ROOT });
+
+        expect(batches).toEqual([]);
+        // Every mock settles as a microtask, so only a yield inside the walk
+        // lets our macrotask run before the walk finishes.
+        expect(immediateFired).toBe(true);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
     it('reuses ignore files the caller already parsed', async () => {
       mockFsProvider.findFiles.mockResolvedValue(['/workspace/src/app.ts']);
       const compile = ignoreResolver.compileMatcher as unknown as jest.Mock;

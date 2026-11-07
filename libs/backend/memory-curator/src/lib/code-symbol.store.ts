@@ -28,12 +28,6 @@ import {
 import { HostBridgeEmbedder } from './search-worker-host-embedder';
 import { MEMORY_TOKENS } from './di/tokens';
 import type { ISqliteSearchWorker } from './search-worker.port';
-import {
-  FileSymbolWriter,
-  MAX_SYMBOL_ROWS_PER_TRANSACTION,
-  symbolWriteChunks,
-} from './code-symbol-file-writer';
-import { KeyedSerialQueue } from './keyed-serial-queue';
 
 export interface CodeSymbolInsert {
   readonly workspaceRoot: string;
@@ -158,11 +152,6 @@ const PURGE_MISSING_BATCH = 200;
  */
 const VEC_STALE_FINGERPRINT = 'code-symbols-vec-stale';
 
-/** One macrotask turn: lets IPC, timers and I/O run between transactions. */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>((resolve) => setImmediate(resolve));
-}
-
 function normalizeStoredPath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
@@ -182,8 +171,6 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   }
   private readonly searchFlight = new SearchFlight<CodeSymbolHitPage>();
   private revision = 0;
-  /** Serialises `replaceFileSymbols` per file; see that method. */
-  private readonly fileWrites = new KeyedSerialQueue();
   private embedderWarnedOnce = false;
   /**
    * Set after orphan `code_symbols_vec` rows have been removed for the
@@ -329,31 +316,12 @@ export class CodeSymbolStore implements ICodeSymbolReader {
   }
 
   /**
-   * Delete every symbol row for `filePath` and insert `rows`. FTS follows the
-   * `code_symbols` triggers; vector rows are deleted by rowid before the
-   * symbol rows.
-   *
-   * Up to {@link MAX_SYMBOL_ROWS_PER_TRANSACTION} rows this is ONE
-   * transaction, and a failed insert leaves the previous rows (and their FTS
-   * and vector rows) in place. A larger file is written in bounded
-   * transactions with an event-loop turn between them, so one huge file does
-   * not block the host's main loop for the whole write. The stored result of
-   * a successful write is the same. If a LATER chunk fails, the file's
-   * partial rows are removed before the error is rethrown: the file then has
-   * no rows (the next index run rewrites it) rather than a mix of old and new.
-   * Writes of the same file are serialised, so chunks never interleave.
+   * Delete every symbol row for `filePath` and insert `rows` in one
+   * transaction. A failed insert leaves the previous rows (and their FTS
+   * and vector rows) in place. FTS follows the `code_symbols` triggers;
+   * vector rows are deleted by rowid before the symbol rows.
    */
   async replaceFileSymbols(
-    workspaceRoot: string,
-    filePath: string,
-    rows: readonly CodeSymbolInsert[],
-  ): Promise<void> {
-    await this.fileWrites.run(`${workspaceRoot}\u0000${filePath}`, () =>
-      this.writeFileSymbols(workspaceRoot, filePath, rows),
-    );
-  }
-
-  private async writeFileSymbols(
     workspaceRoot: string,
     filePath: string,
     rows: readonly CodeSymbolInsert[],
@@ -366,59 +334,93 @@ export class CodeSymbolStore implements ICodeSymbolReader {
         : [];
 
     const db = this.connection.db;
-    const writer = new FileSymbolWriter(db, {
-      workspaceRoot,
-      filePath,
-      now,
-      vecAvailable,
-      embeddings,
-      embedderDim: this.embedder.dim,
-      markVecStale: () => this.markVecStale(),
-    });
-    const chunks = symbolWriteChunks(rows.length);
-    for (let index = 0; index < chunks.length; index++) {
-      if (index > 0) await yieldToEventLoop();
-      const { start, end } = chunks[index];
-      try {
-        db.transaction(() =>
-          writer.writeChunk(rows, start, end, index === 0),
-        )();
-        this.revision++;
-      } catch (err: unknown) {
-        this.connection.handleFatalWriteError(err);
-        if (index > 0) this.discardPartialFile(db, writer, filePath, err);
-        throw err;
-      }
-    }
-  }
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(
+          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+        )
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+    );
+    const upsertStmt = db.prepare(
+      `INSERT INTO code_symbols (id, workspace_root, file_path, kind, symbol_name, subject, text, token_count, created_at, updated_at)
+       VALUES (@id, @workspace_root, @file_path, @kind, @symbol_name, @subject, @text, @token_count, @created_at, @updated_at)
+       ON CONFLICT(workspace_root, subject) DO UPDATE SET
+         file_path = excluded.file_path,
+         kind = excluded.kind,
+         symbol_name = excluded.symbol_name,
+         text = excluded.text,
+         token_count = excluded.token_count,
+         updated_at = excluded.updated_at`,
+    );
+    const fetchRowidStmt = db.prepare(
+      `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND subject = ?`,
+    );
+    const insertVecStmt = vecAvailable
+      ? db.prepare(
+          `INSERT INTO code_symbols_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
+        )
+      : null;
 
-  /**
-   * After a later chunk of a multi-transaction replace failed: remove the
-   * rows the earlier chunks committed. A failure here is logged with both
-   * errors; the caller still rethrows the original one.
-   */
-  private discardPartialFile(
-    db: SqliteDatabase,
-    writer: FileSymbolWriter,
-    filePath: string,
-    cause: unknown,
-  ): void {
+    type Payload = { readonly entries: readonly CodeSymbolInsert[] };
+    const txnFn = ((payload: Payload): void => {
+      if (selectRowidsStmt && deleteVecStmt) {
+        const oldRows = selectRowidsStmt.all(workspaceRoot, filePath) as Array<{
+          rowid: number;
+        }>;
+        for (const old of oldRows) {
+          deleteVecStmt.run(old.rowid);
+        }
+      }
+      const removed = deleteSymbolsStmt.run(workspaceRoot, filePath);
+      if (
+        !vecAvailable &&
+        (removed.changes > 0 || payload.entries.length > 0)
+      ) {
+        this.markVecStale();
+      }
+      for (let i = 0; i < payload.entries.length; i++) {
+        const e = payload.entries[i];
+        upsertStmt.run({
+          id: ulid(),
+          workspace_root: e.workspaceRoot,
+          file_path: e.filePath,
+          kind: e.kind,
+          symbol_name: e.symbolName,
+          subject: e.subject,
+          text: e.text,
+          token_count: e.tokenCount,
+          created_at: now,
+          updated_at: now,
+        });
+        if (insertVecStmt && deleteVecStmt) {
+          const vec = embeddings[i];
+          if (vec && vec.length === this.embedder.dim) {
+            const row = fetchRowidStmt.get(e.workspaceRoot, e.subject) as
+              { rowid: number } | undefined;
+            if (row) {
+              // Drop a stale embedding if this rowid was reused while vec
+              // was down (implicit rowid, no AUTOINCREMENT).
+              deleteVecStmt.run(row.rowid);
+              insertVecStmt.run(
+                row.rowid,
+                Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
+              );
+            }
+          }
+        }
+      }
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => void;
     try {
-      db.transaction(() => {
-        writer.clearFile();
-      })();
+      txn({ entries: rows });
       this.revision++;
-    } catch (cleanupErr: unknown) {
-      this.connection.handleFatalWriteError(cleanupErr);
-      this.logger.error(
-        cleanupErr instanceof Error ? cleanupErr : String(cleanupErr),
-        {
-          context:
-            '[code-symbol-store] could not remove a partial symbol write; the file keeps some new rows until it is indexed again',
-          filePath,
-          cause: cause instanceof Error ? cause.message : String(cause),
-        },
-      );
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
     }
   }
 
