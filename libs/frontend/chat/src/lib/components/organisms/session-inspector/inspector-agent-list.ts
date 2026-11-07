@@ -33,12 +33,14 @@ export interface AgentListRow {
   /** Second line: the model, or the kind (`CLI lane`) when no model is known. */
   readonly secondary: string;
   readonly secondaryTitle: string | null;
+  readonly startedAtTitle: string | null;
   readonly statusText: string;
   readonly statusInk: string;
   readonly tokens: string;
   /** Tokens tooltip: `In 1.1M · Out 48.0k`; `not reported` when unknown. */
   readonly tokensTitle: string;
   readonly cost: string;
+  readonly usage: AgentUsageFigures;
   readonly time: string;
   readonly usageLabel: string;
   readonly ariaLabel: string;
@@ -71,6 +73,13 @@ export interface AgentRowInput {
   readonly hasActions: boolean;
 }
 
+export interface AgentListTotal {
+  readonly tokens: string;
+  readonly cost: string;
+  readonly title: string;
+  readonly ariaLabel: string;
+}
+
 function finite(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
@@ -84,6 +93,41 @@ function tokensText(value: number | null, partial: boolean): string | null {
 function costText(usage: AgentUsageFigures): string | null {
   if (!finite(usage.cost)) return null;
   return `${usage.costPartial ? '≥ ' : ''}${usage.costEstimated ? '~' : ''}${formatCost(usage.cost)}`;
+}
+
+/** Sum the complete list, including rows hidden by the section's display limit. */
+export function agentListTotal(rows: readonly AgentListRow[]): AgentListTotal {
+  let tokens = 0;
+  let cost = 0;
+  let tokenCount = 0;
+  let costCount = 0;
+  let tokensPartial = false;
+  let costPartial = false;
+  let costEstimated = false;
+  for (const row of rows) {
+    const usage = row.usage;
+    if (finite(usage.tokens)) {
+      tokens += usage.tokens;
+      tokenCount++;
+      tokensPartial ||= usage.tokensPartial;
+    } else {
+      tokensPartial = true;
+    }
+    if (finite(usage.cost)) {
+      cost += usage.cost;
+      costCount++;
+      costPartial ||= usage.costPartial;
+      costEstimated ||= usage.costEstimated;
+    } else {
+      costPartial = true;
+    }
+  }
+  const tokensValue = tokenCount ? tokensText(tokens, tokensPartial) ?? NOT_REPORTED_VALUE : NOT_REPORTED_VALUE;
+  const costValue = costCount
+    ? costText({ tokens: null, tokensPartial: false, cost, costPartial, costEstimated, input: null, output: null }) ?? NOT_REPORTED_VALUE
+    : NOT_REPORTED_VALUE;
+  const title = `Total of ${rows.length} agents · ${rows.length - tokenCount} without token data · ${rows.length - costCount} without cost data`;
+  return { tokens: tokensValue, cost: costValue, title, ariaLabel: `Total for all agents: ${tokensValue} tokens, ${costValue} cost` };
 }
 
 /** `In 1.1M · Out 48.0k`; one unknown side shows `—`, both unknown is `null`. */
@@ -119,12 +163,14 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
     status: agent.status,
     durationMs: input.durationMs,
   });
+  const startedAtTitle = formatStartedAt(agent.startedAt);
   return {
     key: agent.key,
     agent,
     name,
     secondary: input.secondary,
     secondaryTitle: input.secondaryTitle,
+    startedAtTitle,
     statusText: agent.status ?? NOT_REPORTED_VALUE,
     statusInk: agent.status
       ? STATUS_INK[agent.status]
@@ -132,13 +178,20 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
     tokens: tokens ?? NOT_REPORTED_VALUE,
     tokensTitle: inOut ?? NOT_REPORTED_TITLE,
     cost: cost ?? NOT_REPORTED_VALUE,
+    usage,
     time: input.durationMs === null ? NOT_REPORTED_VALUE : formatDuration(input.durationMs),
     usageLabel,
-    ariaLabel: `${label}. ${model}${usageLabel}`,
+    ariaLabel: `${label}. ${model}${usageLabel}${startedAtTitle ? `. ${startedAtTitle}` : ''}`,
     requests: input.requests,
     tray: input.tray,
     hasActions: input.hasActions,
   };
+}
+
+function formatStartedAt(timestamp: number | null): string | null {
+  if (timestamp === null || !Number.isFinite(timestamp)) return null;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? null : `Started: ${date.toLocaleString()}`;
 }
 
 function formatDuration(ms: number): string {

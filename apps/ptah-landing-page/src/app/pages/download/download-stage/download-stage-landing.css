@@ -1,0 +1,75 @@
+/*
+ * Where the light lands: the Lightfall layer rises from the top edge of the
+ * platform cards to the top of the stage, centred, so the beam falls straight
+ * through the copy and its flare spreads along the cards.
+ */
+/* No z-index here: a stacking context would stop the light screening onto the temple scene. */
+.dl-landing {
+  position: relative;
+  width: 100%;
+  margin-top: auto;
+  --lf-h: 100svh;
+  --lf-origin: 0.035;
+}
+
+.dl-light {
+  position: absolute;
+  z-index: 0;
+  bottom: calc(100% - var(--lf-origin) * var(--lf-h));
+  left: -15%;
+  right: -15%;
+  height: var(--lf-h);
+}
+
+.dl-cards {
+  position: relative;
+  z-index: 1;
+}
+
+.dl-meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0 0.6rem;
+  margin: clamp(0.25rem, 1.2vh, 0.75rem) 0 0;
+  color: #c5cad3;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: 0.8125rem;
+  letter-spacing: 0.06em;
+}
+
+.dl-version { color: #ffbb4d; }
+
+.dl-notes {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.6rem;
+  padding: 0 0.25rem;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.dl-notes span { color: #ffbb4d; }
+.dl-notes:hover { color: #ffbb4d; }
+.dl-notes:focus-visible { outline: 3px solid #ffbb4d; outline-offset: 2px; }
+
+@media (max-width: 767px) {
+  /* Stacked cards: the beam lands centred; a wider layer lengthens its fall (the fade scales with width). */
+  .dl-light {
+    left: -55%;
+    right: -55%;
+  }
+}
+
+/* Very short screens scroll instead of squeezing the stage. */
+@media (max-height: 639px) {
+  .dl-copy {
+    margin-bottom: 3rem;
+  }
+}

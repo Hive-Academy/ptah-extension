@@ -1,4 +1,4 @@
-/* Final CTA "closing slab": stacked sentences left, a bolt beneath, the close low on the right. */
+/* Final CTA "closing slab": stacked sentences left, the close low on the right. */
 .cta-frame {
   padding-bottom: clamp(6rem, 12vw, 10rem);
 }
@@ -44,10 +44,6 @@
 .cta-sentence.is-in {
   opacity: 1;
   transform: none;
-}
-
-.cta-bolt {
-  display: none;
 }
 
 .cta-close {
@@ -151,17 +147,6 @@
   .cta-title {
     grid-column: 1 / span 2;
     grid-row: 1;
-  }
-
-  /* Under the sentences, running toward the close; touches neither. */
-  .cta-bolt {
-    display: block;
-    grid-column: 1;
-    grid-row: 2;
-    align-self: center;
-    width: 100%;
-    height: 3rem;
-    margin-top: 2rem;
   }
 
   .cta-close {

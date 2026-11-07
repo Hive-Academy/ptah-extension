@@ -4,7 +4,7 @@
   height: 100%;
 }
 
-/* Same window as the hero .story-window and the pilot .loop-window. */
+/* The framed window every live-demo clip on the page shares. */
 .clip-window {
   position: relative;
   isolation: isolate;
@@ -13,6 +13,7 @@
   border: 1px solid #262a33;
   /* A host section may square one side, e.g. a clip that runs off the page edge. */
   border-right-width: var(--clip-border-right, 1px);
+  border-left-width: var(--clip-border-left, 1px);
   border-radius: var(--clip-radius, 0.5rem);
   background: #0e1015;
   box-shadow:

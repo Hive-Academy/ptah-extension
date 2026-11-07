@@ -145,6 +145,10 @@ export type {
   SessionRecordListOptions,
 } from './interfaces/session-record-repository.interface';
 export type {
+  HostRunLeaseRecord,
+  IHostRunLeaseRepository,
+} from './interfaces/host-run-lease-repository.interface';
+export type {
   IHttpServerProvider,
   IHttpServerHandle,
   HttpServerRequestHandler,

@@ -29,7 +29,7 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import type { LaneStopReason } from '@ptah-extension/shared';
 import { ProviderAccountsStateService } from '@ptah-extension/core';
 
-/** Readable host stop reason for a lane the repeat-call guard stopped. */
+/** Readable host stop or interruption reason for a lane. */
 export function laneGuardStopText(
   reason: LaneStopReason | undefined,
 ): string | null {

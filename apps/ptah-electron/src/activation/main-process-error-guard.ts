@@ -1,4 +1,8 @@
-import { TOKENS, type Logger, type SentryService } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  type SentryService,
+} from '@ptah-extension/vscode-core';
 import { reportBootFailure, type BootProcessEvents } from './boot-trace';
 
 /** The slice of the tsyringe container the guard needs. */
@@ -17,20 +21,18 @@ export function installMainProcessErrorGuardFrom(
   events: BootProcessEvents = process,
 ): (() => void) | null {
   try {
-    if (
-      container === null ||
-      !container.isRegistered(TOKENS.LOGGER) ||
-      !container.isRegistered(TOKENS.SENTRY_SERVICE)
-    ) {
+    if (container === null || !container.isRegistered(TOKENS.LOGGER)) {
       reportBootFailure(
         'Post-boot error guard not installed',
-        new Error('Logger or SentryService is not registered'),
+        new Error('Logger is not registered'),
       );
       return null;
     }
     return installMainProcessErrorGuard(
       container.resolve<Logger>(TOKENS.LOGGER),
-      container.resolve<SentryService>(TOKENS.SENTRY_SERVICE),
+      container.isRegistered(TOKENS.SENTRY_SERVICE)
+        ? container.resolve<SentryService>(TOKENS.SENTRY_SERVICE)
+        : null,
       events,
     );
   } catch (error: unknown) {
@@ -43,7 +45,7 @@ export function installMainProcessErrorGuardFrom(
 /** Keep recoverable errors visible without Electron's blocking native dialog. */
 export function installMainProcessErrorGuard(
   logger: Pick<Logger, 'error'>,
-  sentry: Pick<SentryService, 'captureException'>,
+  sentry: Pick<SentryService, 'captureException'> | null,
   events: BootProcessEvents = process,
 ): () => void {
   const report = (kind: string, value: unknown): void => {
@@ -54,14 +56,22 @@ export function installMainProcessErrorGuard(
       reportBootFailure('Post-boot error logging failed', logError);
       reportBootFailure(kind, error);
     }
-    try {
-      sentry.captureException(error, { errorSource: `electron-main-${kind}` });
-    } catch (captureError: unknown) {
-      reportBootFailure('Post-boot Sentry capture failed', captureError);
+    if (kind === 'uncaughtException') {
+      try {
+        sentry?.captureException(error, {
+          errorSource: 'electron-main-uncaughtException',
+        });
+      } catch (captureError: unknown) {
+        // degradation-audit: reported - the guard must not trigger another uncaught exception.
+        reportBootFailure('Post-boot Sentry capture failed', captureError);
+      }
     }
   };
-  const onException = (error: unknown): void => report('uncaughtException', error);
-  const onRejection = (reason: unknown): void => report('unhandledRejection', reason);
+  const onException = (error: unknown): void =>
+    report('uncaughtException', error);
+  // Sentry's unhandled-rejection integration captures every rejection; a second capture can duplicate it.
+  const onRejection = (reason: unknown): void =>
+    report('unhandledRejection', reason);
   events.on('uncaughtException', onException);
   events.on('unhandledRejection', onRejection);
   return () => {

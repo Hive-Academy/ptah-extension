@@ -54,20 +54,6 @@
       @if (model().needsYouCount > 0) {
         <span role="img" class="text-center text-xs text-state-need" [attr.aria-label]="runLabel()">{{ model().needsYouCount }}!</span>
       }
-      @if (railTodos(); as todos) {
-        <button
-          type="button"
-          class="m-1 flex min-h-10 flex-col items-center justify-center rounded-md p-1 text-xs tabular-nums hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
-          [attr.aria-label]="
-            'Todos: ' + todos.done + ' of ' + todos.total + ' completed'
-          "
-          [title]="'Todos: ' + todos.done + ' of ' + todos.total + ' completed'"
-          (click)="expandRequested.emit('todos')"
-        >
-          <span class="text-[10px] text-base-content-muted">Todo</span>
-          <span>{{ todos.done }}/{{ todos.total }}</span>
-        </button>
-      }
     }
   </aside>
 } @else if (presentation() === 'sheet') {
@@ -182,15 +168,6 @@
       </div>
     }
 
-    @if (linkedSessions().length > 0) {
-      <ptah-inspector-linked-sessions
-        class="block"
-        [entries]="linkedSessions()"
-        [currentSessionId]="m.sessionId"
-        (openSession)="openLinkedSession($event)"
-      />
-    }
-
     <ptah-inspector-agents-section
       data-inspector-section="agents"
       tabindex="-1"
@@ -199,7 +176,6 @@
       [sessionId]="m.sessionId"
       [agents]="m.agents"
       [laneRuns]="s?.limits?.inspectorRuns ?? []"
-      [laneSubtotal]="s?.limits?.subtotal ?? null"
       [orchestrator]="m.orchestrator"
       [sessionTokens]="sessionTokens()"
       [selectedAgentKey]="selectedAgentKey()"
@@ -226,19 +202,19 @@
       [tabId]="tabId()"
     />
 
-    <ptah-inspector-todos-section
-      data-inspector-section="todos"
-      tabindex="-1"
+    <ptah-inspector-git-section
       class="st-r block"
       [style.--i]="afterAgentsIndex() + 2"
       [tabId]="tabId()"
     />
-
-    <ptah-inspector-git-section
-      class="st-r block"
-      [style.--i]="afterAgentsIndex() + 3"
-      [tabId]="tabId()"
-    />
+    @if (linkedSessions().length > 0) {
+      <ptah-inspector-linked-sessions
+        class="block"
+        [entries]="linkedSessions()"
+        [currentSessionId]="m.sessionId"
+        (openSession)="openLinkedSession($event)"
+      />
+    }
   </div>
 
   <p role="status" aria-live="polite" class="sr-only">{{ announcement() }}</p>

@@ -118,8 +118,12 @@ export interface BootRefs extends ThothRuntimeRefs {
   chatBridge: GatewayChatBridge | null;
   /** GitHub-releases update checker. Created after the window. */
   updateManager: UpdateManager | null;
+  remoteMachines: { dispose: () => void } | null;
   /** Detached review queue worker and its drain interval. */
-  reviewWorker: { dispose: () => void; awaitStopped: () => Promise<void> } | null;
+  reviewWorker: {
+    dispose: () => void;
+    awaitStopped: () => Promise<void>;
+  } | null;
   /**
    * Ptah CLI registry, resolved eagerly while the container is healthy so
    * `will-quit` disposes a captured instance instead of forcing a first-time
@@ -138,9 +142,15 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   laneOutcomesDisposer: LaneOutcomesDisposer | null;
   /** Captured usage write drain, awaited before the session database closes. */
-  sessionUsageSink: { flush: () => Promise<void>; requestFinalization?: (id: string) => Promise<void> | void } | null;
+  sessionUsageSink: {
+    flush: () => Promise<void>;
+    requestFinalization?: (id: string) => Promise<void> | void;
+  } | null;
   /** SDK teardown must settle before the usage sink is drained. */
-  sdkAdapter: { dispose: () => Promise<void>; getLiveSessionUsageIds?: () => string[] } | null;
+  sdkAdapter: {
+    dispose: () => Promise<void>;
+    getLiveSessionUsageIds?: () => string[];
+  } | null;
   /**
    * Child chat session spawner (TASK_2026_584). `dispose()` is synchronous and
    * idempotent: it ends every live child (`host-shutdown`), clears its timers
@@ -208,6 +218,7 @@ export function createEmptyBootRefs(): BootRefs {
     messagingGateway: null,
     chatBridge: null,
     updateManager: null,
+    remoteMachines: null,
     reviewWorker: null,
     cliRegistry: null,
     agentProcessManager: null,

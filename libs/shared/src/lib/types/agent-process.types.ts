@@ -213,6 +213,8 @@ export interface AgentProcessInfo {
   completedAt?: string;
   /** ISO timestamp after which output was lost during a host restart. */
   outputLostAfter?: string;
+  /** ISO timestamp of the latest lane output or terminal event. */
+  lastActivityAt?: string;
   exitCode?: number;
   readonly pid?: number;
   /** CLI-native session ID from the init event. Enables session resume. */
@@ -306,13 +308,14 @@ export interface AgentProcessInfo {
 }
 
 /**
- * Why the host's lane guard stopped a lane (TASK_2026_597, R9.4):
- * `repeat-call` — it repeated one identical tool call up to the repeat
- * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
- * tool-call budget; a repeat loop is the only host stop. `usage-limit`,
+ * Why the host ended a lane (TASK_2026_597, R9.4):
+ * `repeat-call` — the lane guard saw one identical tool call repeated up to
+ * the repeat threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have
+ * no tool-call budget; a repeat loop is the only guard stop. `usage-limit`,
  * `auth` and `session-mismatch` classify a provider exit. `host-restart` —
- * the lane was running when the host exited; restore stamps it so a resume
- * can continue the CLI session.
+ * a persisted `running` lane that an earlier host run left behind; restore
+ * (or the durable normalization of the session metadata) stamps it so a
+ * resume can continue the CLI session.
  */
 export type LaneStopReason =
   | 'repeat-call'
@@ -613,10 +616,18 @@ export interface CliSessionReference {
   readonly startedAt: string;
   /** ISO timestamp when the CLI run finished. Absent in older sessions. */
   readonly completedAt?: string;
-  /** Why the host stopped this lane, when known. */
-  readonly stopReason?: LaneStopReason;
+  /** ISO timestamp of the last observed output or event. Absent in older sessions. */
+  readonly lastActivityAt?: string;
   /** Final agent status */
   readonly status: AgentStatus;
+  /** Why the host stopped this lane, when known. Persisted with an interrupted restore. */
+  readonly stopReason?: LaneStopReason;
+  /**
+   * Host process run that wrote a `running` reference; internal restore
+   * bookkeeping, never returned by the restore read. A running reference from
+   * another run (or with none) is durably normalized as `host-restart`.
+   */
+  readonly hostRunId?: string;
   /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */
   readonly stdout?: string;
   /** Persisted structured output segments. Absent in older sessions. */

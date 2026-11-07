@@ -310,6 +310,8 @@ describe('Owner lifecycle (F55 backend legs, G2 per-turn account, G3 restart)', 
   afterEach(async () => {
     await world.manager.disposeAll();
     world.ledger.dispose();
+    // Stops the host-run heartbeat a running reference armed.
+    await world.store.flushForShutdown();
   });
 
   it(
@@ -409,6 +411,37 @@ describe('Owner lifecycle (F55 backend legs, G2 per-turn account, G3 restart)', 
       } finally {
         await restartedManager.disposeAll();
       }
+    },
+    EXIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'a session read while the lane is live in this host keeps it running',
+    async () => {
+      startTurn(world);
+      await settle();
+      const run = await runLane(world, 'cli-live', ACCOUNT_A);
+      try {
+        // Both UI read paths call the store, then hand the refs to the manager.
+        const [read] = await world.store.getCliSessionsForRestore(SESSION_ID);
+        expect(read).toMatchObject({ cliSessionId: 'cli-live', status: 'running' });
+        expect(read.stopReason).toBeUndefined();
+        world.manager.restoreAgents([read], ROOT);
+        expect(world.manager.findAgentInfo(run.agentId)?.status).toBe('running');
+
+        await world.store.flush();
+        const reloaded = new SessionMetadataStore(world.storage, world.logger);
+        const stored = await reloaded.get(SESSION_ID);
+        expect(stored?.cliSessions?.[0]).toMatchObject({
+          cliSessionId: 'cli-live',
+          status: 'running',
+        });
+        expect(stored?.cliSessions?.[0]?.stopReason).toBeUndefined();
+      } finally {
+        await run.finish();
+      }
+      const [final] = await world.store.getCliSessionsForRestore(SESSION_ID);
+      expect(final.status).toBe('completed');
     },
     EXIT_TEST_TIMEOUT_MS,
   );

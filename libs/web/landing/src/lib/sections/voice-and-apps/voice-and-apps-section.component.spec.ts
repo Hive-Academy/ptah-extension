@@ -49,19 +49,17 @@ describe('VoiceAndAppsSectionComponent', () => {
     fixture.destroy();
   });
 
-  it('lays out text-led: clip, bolt gutter, then the copy column, with no seam bolt', () => {
+  it('lays out text-led: clip, then the copy column, with no lightning', () => {
     const { root, fixture } = mount();
     const stage = root.querySelector('[data-stage]');
     expect(stage?.getAttribute('data-layout')).toBe('text-led');
     expect(Array.from(stage?.children ?? []).map((el) => el.className.split(' ')[0])).toEqual([
       'va-clip',
-      'va-bolt',
       'va-text',
     ]);
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
     expect(root.querySelector('[data-voice-strip]')?.getAttribute('aria-hidden')).toBe('true');
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     fixture.destroy();
   });
 

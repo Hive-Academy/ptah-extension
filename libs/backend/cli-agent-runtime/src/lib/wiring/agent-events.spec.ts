@@ -833,6 +833,258 @@ describe('quota owner persistence (TASK_2026_596 G3)', () => {
   });
 });
 
+/**
+ * Records each `addCliSession` attempt and lets a test await an exact attempt
+ * count instead of guessing how many microtask turns the lane queue needs.
+ */
+function createWriteLog(
+  fails: (ref: CliSessionReference, attempt: number) => boolean = () => false,
+) {
+  const durable: CliSessionReference[] = [];
+  const waiters = new Set<{ count: number; resolve: () => void }>();
+  let attempts = 0;
+  const addCliSession = jest.fn(
+    (_parent: string, ref: CliSessionReference): Promise<void> => {
+      attempts += 1;
+      const failed = fails(ref, attempts);
+      if (!failed) durable.push(ref);
+      for (const waiter of [...waiters]) {
+        if (attempts >= waiter.count) {
+          waiters.delete(waiter);
+          waiter.resolve();
+        }
+      }
+      return failed
+        ? Promise.reject(new Error('transient checkpoint failure'))
+        : Promise.resolve();
+    },
+  );
+  const attemptsReached = (count: number): Promise<void> =>
+    attempts >= count
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => waiters.add({ count, resolve }));
+  return { addCliSession, durable, attemptsReached };
+}
+
+/** Every remaining queue stage is a microtask, so one macrotask drains it. */
+const drainMicrotasks = (): Promise<void> =>
+  new Promise<void>((resolve) => setImmediate(resolve));
+
+function wireCheckpointLane(
+  addCliSession: ReturnType<typeof createWriteLog>['addCliSession'],
+  currentInfo: () => AgentProcessInfo,
+): EventEmitter {
+  const events = new EventEmitter();
+  const container = buildContainer([
+    [
+      TOKENS.AGENT_PROCESS_MANAGER,
+      {
+        events,
+        findAgentInfo: currentInfo,
+        readOutputForPersistence: jest.fn().mockReturnValue(undefined),
+      },
+    ],
+    [
+      TOKENS.WEBVIEW_MANAGER,
+      { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+    ],
+    [
+      SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+      { addCliSession, markChildSession: jest.fn() },
+    ],
+  ]);
+  wireAgentEventListeners(container, {
+    logger: createMockLogger() as unknown as Logger,
+    platform: 'electron',
+    options: { persistCliSession: true },
+  });
+  return events;
+}
+
+describe('wireAgentEventListeners — running activity checkpoints', () => {
+  it('persists throttled activity without output and resets on exit', async () => {
+    const { addCliSession, durable, attemptsReached } = createWriteLog();
+    let current = buildInfo({
+      cli: 'codex',
+      status: 'running',
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      lastActivityAt: '2026-10-17T12:00:00.000Z',
+    });
+    const events = wireCheckpointLane(addCliSession, () => current);
+
+    events.emit('agent:output', { agentId: current.agentId });
+    current = {
+      ...current,
+      lastActivityAt: '2026-10-17T12:00:01.000Z',
+    };
+    events.emit('agent:output', { agentId: current.agentId });
+    await attemptsReached(1);
+    await drainMicrotasks();
+
+    expect(addCliSession).toHaveBeenCalledTimes(1);
+    expect(durable[0]).toMatchObject({
+      lastActivityAt: '2026-10-17T12:00:00.000Z',
+      status: 'running',
+    });
+    expect(durable[0]).not.toHaveProperty('stdout');
+
+    current = {
+      ...current,
+      lastActivityAt: '2026-10-17T12:00:30.000Z',
+    };
+    events.emit('agent:output', { agentId: current.agentId });
+    await attemptsReached(2);
+
+    expect(durable[1]).toMatchObject({
+      lastActivityAt: '2026-10-17T12:00:30.000Z',
+      status: 'running',
+    });
+
+    current = {
+      ...current,
+      status: 'completed',
+      completedAt: '2026-10-17T12:00:31.000Z',
+    };
+    events.emit('agent:exited', current);
+    await attemptsReached(3);
+    events.emit('agent:output', { agentId: current.agentId });
+    await drainMicrotasks();
+
+    expect(addCliSession).toHaveBeenCalledTimes(3);
+    expect(durable.map((ref) => ref.status)).toEqual([
+      'running',
+      'running',
+      'completed',
+    ]);
+    expect(durable.at(-1)).toMatchObject({
+      status: 'completed',
+      completedAt: '2026-10-17T12:00:31.000Z',
+    });
+  });
+
+  it('serializes a failed checkpoint retry before the terminal write', async () => {
+    jest.useFakeTimers();
+    try {
+      const { addCliSession, durable, attemptsReached } = createWriteLog(
+        (ref, attempt) => ref.status === 'running' && attempt === 1,
+      );
+      let current = buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        lastActivityAt: '2026-10-17T12:00:00.000Z',
+      });
+      const events = wireCheckpointLane(addCliSession, () => current);
+
+      events.emit('agent:output', { agentId: current.agentId });
+      await attemptsReached(1);
+
+      current = {
+        ...current,
+        status: 'completed',
+        completedAt: '2026-10-17T12:00:01.000Z',
+      };
+      events.emit('agent:exited', current);
+      // The exit write waits behind the checkpoint's retry backoff.
+      await jest.advanceTimersByTimeAsync(0);
+      expect(addCliSession).toHaveBeenCalledTimes(1);
+
+      // retryWithBackoff waits initialDelay * [0.8, 1.2); 1 200 ms covers it.
+      await jest.advanceTimersByTimeAsync(1_200);
+      await attemptsReached(3);
+      // Any further retry would need another backoff timer.
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      expect(addCliSession).toHaveBeenCalledTimes(3);
+      expect(addCliSession.mock.calls.map(([, ref]) => ref.status)).toEqual([
+        'running',
+        'running',
+        'completed',
+      ]);
+      expect(durable.map((ref) => ref.status)).toEqual([
+        'running',
+        'completed',
+      ]);
+      expect(durable.at(-1)).toMatchObject({
+        status: 'completed',
+        completedAt: '2026-10-17T12:00:01.000Z',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('releases the throttle when a checkpoint is skipped for a missing parent', async () => {
+    const { addCliSession, durable, attemptsReached } = createWriteLog();
+    let current = buildInfo({
+      cli: 'codex',
+      status: 'running',
+      parentSessionId: undefined,
+      cliSessionId: 'cli-sess-1',
+      lastActivityAt: '2026-10-17T12:00:00.000Z',
+    });
+    const events = wireCheckpointLane(addCliSession, () => current);
+
+    events.emit('agent:output', { agentId: current.agentId });
+    await drainMicrotasks();
+    expect(addCliSession).not.toHaveBeenCalled();
+
+    // The parent resolves one second later, inside the throttle window.
+    current = {
+      ...current,
+      parentSessionId: PARENT_SESSION,
+      lastActivityAt: '2026-10-17T12:00:01.000Z',
+    };
+    events.emit('agent:output', { agentId: current.agentId });
+    await attemptsReached(1);
+
+    expect(durable[0]).toMatchObject({
+      status: 'running',
+      lastActivityAt: '2026-10-17T12:00:01.000Z',
+    });
+  });
+
+  it('lets later output retry a checkpoint that failed after its retries', async () => {
+    jest.useFakeTimers();
+    try {
+      const firstActivity = '2026-10-17T12:00:00.000Z';
+      const { addCliSession, durable, attemptsReached } = createWriteLog(
+        (ref) => ref.lastActivityAt === firstActivity,
+      );
+      let current = buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        lastActivityAt: firstActivity,
+      });
+      const events = wireCheckpointLane(addCliSession, () => current);
+
+      events.emit('agent:output', { agentId: current.agentId });
+      // One attempt plus three retries, every backoff elapsed.
+      await jest.advanceTimersByTimeAsync(20_000);
+      await attemptsReached(4);
+      expect(addCliSession).toHaveBeenCalledTimes(4);
+      expect(durable).toEqual([]);
+
+      // One second later: inside the throttle window of the failed stamp.
+      current = { ...current, lastActivityAt: '2026-10-17T12:00:01.000Z' };
+      events.emit('agent:output', { agentId: current.agentId });
+      await attemptsReached(5);
+
+      expect(durable).toHaveLength(1);
+      expect(durable[0]).toMatchObject({
+        status: 'running',
+        lastActivityAt: '2026-10-17T12:00:01.000Z',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('wireAgentEventListeners — the drop reaches the log', () => {
   it('does not broadcast a stale turn exit', () => {
     const events = new EventEmitter();

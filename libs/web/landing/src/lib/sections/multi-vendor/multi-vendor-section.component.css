@@ -126,24 +126,18 @@
   background: #ffbb4d;
 }
 
-.mv-bolt {
-  position: absolute;
-  z-index: 0;
-  display: none;
-}
-
 @media (min-width: 1024px) {
   /*
-   * Uneven grid: a wide clip anchored to the left page edge, the copy column
-   * pulled 8rem back over its top-right corner on an ink scrim, so the
-   * headline stays on screen while the stage is pinned.
+   * The command-center layout mirrored: the shared clip width anchored to the
+   * left page edge, the shared header column over its right part on an ink
+   * scrim, so the headline stays on screen while the stage is pinned. Both
+   * share one grid cell, so the stage is as tall as the taller of the two.
    */
   .mv-stage {
     display: grid;
-    grid-template-columns: minmax(0, min(60vw, calc(72vh * 1.6))) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 0;
-    padding-right: clamp(3rem, 5vw, 5rem);
   }
 
   /*
@@ -155,7 +149,8 @@
     --clip-radius: 0 0.5rem 0.5rem 0;
     grid-column: 1;
     grid-row: 1;
-    margin-top: clamp(2.5rem, 6vh, 4.5rem);
+    justify-self: start;
+    width: var(--sec-media-w);
     margin-left: calc(-1.5rem - 1px);
   }
 
@@ -163,10 +158,12 @@
     position: relative;
     z-index: 4;
     display: block;
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
+    justify-self: end;
+    width: var(--sec-head-w);
     min-width: 0;
-    margin-left: -8rem;
+    margin: clamp(1.5rem, 4vh, 3rem) clamp(0rem, 3vw, 3rem) 0 0;
     isolation: isolate;
   }
 
@@ -174,7 +171,7 @@
   .mv-text::before {
     position: absolute;
     z-index: -1;
-    inset: -1.5rem -1rem -1.5rem -3rem;
+    inset: -1.5rem -2rem -1.75rem -4rem;
     content: '';
     border-radius: 0.75rem;
     background: linear-gradient(90deg, rgb(8 9 12 / 0%), rgb(8 9 12 / 94%) 7rem);
@@ -190,24 +187,6 @@
   .mv-lane {
     width: calc(100% - 5rem);
     margin-left: calc(var(--lane, 0) * 2.5rem);
-  }
-
-  /* Ceiling bolt: above the clip's left half, clear of the copy column. */
-  .mv-bolt-ceiling {
-    display: block;
-    top: -3.15rem;
-    left: 0;
-    width: 52%;
-    height: 2.75rem;
-  }
-
-  /* Margin bolt: in the right page margin, beside the lanes. */
-  .mv-bolt-margin {
-    display: block;
-    top: 34%;
-    left: calc(100% + 0.5rem);
-    width: clamp(2.25rem, 3.5vw, 4rem);
-    height: 70%;
   }
 }
 
