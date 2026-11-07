@@ -1814,6 +1814,11 @@ export class AgentProcessManager {
       restored++;
     }
 
+    // Durable completions survive any ref replacement: replay by outbox, never by ref.
+    if (parentSessionId) this.laneCompletion.replayOutbox(parentSessionId).catch((error: unknown) =>
+      this.logger.error('[AgentProcessManager] Completion outbox replay failed',
+        error instanceof Error ? error : new Error(String(error))));
+
     if (restored > 0) {
       this.logger.info(
         '[AgentProcessManager] Restored agents from persisted session state',

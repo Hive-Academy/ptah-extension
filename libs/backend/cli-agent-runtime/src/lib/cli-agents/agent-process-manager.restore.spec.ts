@@ -13,6 +13,7 @@
 import 'reflect-metadata';
 import type {
   ICallerWorkspaceResolver,
+  IFileSystemProvider,
   IOutputChannel,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -20,6 +21,7 @@ import type {
   AgentId,
   AgentProcessInfo,
   CliSessionReference,
+  IAgentAdapter,
 } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
 import { SessionMetadataStore } from '@ptah-extension/agent-sdk';
@@ -32,6 +34,16 @@ import {
   LaneResumeGate,
   type LaneResumeGateInput,
 } from './lane-resume-gate';
+import type { Logger } from '@ptah-extension/vscode-core';
+import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import { FakeStateStorage } from './parent-delivery/__fixtures__/fake-state-storage';
+import { ParentEnvelopeStoreService } from './parent-delivery/parent-envelope-store.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
+import {
+  PARENT_COMPLETION_KEYS_PREFIX,
+  PARENT_COMPLETION_OUTBOX_PREFIX,
+  type ParentCompletionOutboxEntry,
+} from './parent-delivery/parent-envelope.schema';
 
 // `readOutput` runs the id through `AgentId.from`, which validates the UUID
 // shape — spec ids have to be real v4-shaped strings, not readable labels.
@@ -49,6 +61,7 @@ function makeManager(options: {
   rememberLaneOwner?: jest.Mock;
   evaluateResume?: jest.Mock;
   info?: jest.Mock;
+  laneCompletion?: LaneCompletionNotifier;
 }): AgentProcessManager {
   const logger = {
     info: options.info ?? jest.fn(),
@@ -95,12 +108,14 @@ function makeManager(options: {
     // No completion signal in these tests: the notifier's own spec covers the
     // signal, and a stub keeps a lane teardown here from reaching for a chat
     // session (TASK_2026_515).
-    {
-      signal: jest.fn(async () => ({
-        delivered: false,
-        reason: 'chat-runtime-unavailable',
-      })),
-    } as unknown as Args[7],
+    options.laneCompletion ??
+      ({
+        signal: jest.fn(async () => ({
+          delivered: false,
+          reason: 'chat-runtime-unavailable',
+        })),
+        replayOutbox: jest.fn(async () => undefined),
+      } as unknown as Args[7]),
     // The default is never consulted: these tests make no resume spawn.
     { evaluate: options.evaluateResume ?? jest.fn() } as unknown as Args[8],
     // No quota owner and no ledger: plan limits are pinned by the manager spec.
@@ -804,5 +819,156 @@ describe('AgentProcessManager.restoreAgents', () => {
       expect(read).toThrow(/nor one restored from persisted session state/);
       expect(read).toThrow(/spawn a new agent/);
     }
+  });
+});
+
+describe('AgentProcessManager.restoreAgents completion outbox replay', () => {
+  const PARENT = '11111111-2222-4333-8444-555555555555';
+  const LANE_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-0000000000aa';
+  const COMPLETED_AT = '2026-11-01T00:00:00.000Z';
+  const KEY = `${LANE_ID}:${COMPLETED_AT}`;
+  const OUTBOX_KEY = `${PARENT_COMPLETION_OUTBOX_PREFIX}${PARENT}`;
+  const SHARD_KEY = `${PARENT_COMPLETION_KEYS_PREFIX}${PARENT}`;
+  const DAY = 24 * 60 * 60 * 1000;
+  const disposers: Array<() => void> = [];
+
+  afterEach(() => {
+    for (const dispose of disposers.splice(0)) dispose();
+  });
+
+  function quietLogger(): Logger {
+    const log: Pick<Logger, 'info' | 'warn' | 'error' | 'debug'> = {
+      info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+    };
+    return log as Logger;
+  }
+
+  function outboxEntry(createdAt: number): ParentCompletionOutboxEntry {
+    return {
+      dedupeKey: KEY, agentId: LANE_ID as AgentId, parentSessionId: PARENT,
+      completedAt: COMPLETED_AT, body: 'lane finished', verdict: 'delivered',
+      originName: 'codex · lane', createdAt,
+    };
+  }
+
+  function outboxSize(storage: FakeStateStorage): number {
+    const value = storage.values.get(OUTBOX_KEY);
+    if (!value || typeof value !== 'object' || !('entries' in value)) return 0;
+    return Array.isArray(value.entries) ? value.entries.length : 0;
+  }
+
+  /** One host run: the real notifier, store and drainer behind a manager. */
+  async function world(storage: FakeStateStorage) {
+    const log = quietLogger();
+    const store = new ParentEnvelopeStoreService(log, storage);
+    await store.ready;
+    const send = jest.fn<Promise<void>, Parameters<IAgentAdapter['sendMessageToSession']>>(
+      async () => undefined);
+    const adapter: Pick<IAgentAdapter, 'isSessionActive' | 'sendMessageToSession'> = {
+      isSessionActive: () => true, sendMessageToSession: send,
+    };
+    const drainer = new ParentDeliveryDrainerService(log, store, adapter as IAgentAdapter, null, null);
+    disposers.push(() => drainer.dispose());
+    const fileSystem: Pick<IFileSystemProvider, 'exists' | 'stat'> = {
+      exists: jest.fn(async () => false), stat: jest.fn(async () => { throw new Error('none'); }),
+    };
+    const notifier = new LaneCompletionNotifier(log, fileSystem as IFileSystemProvider,
+      adapter as IAgentAdapter, () => null, drainer, () => null);
+    const manager = makeManager({ providerRoot: ROOT_A, laneCompletion: notifier });
+    const replayOutbox = jest.spyOn(notifier, 'replayOutbox');
+    const enqueue = jest.spyOn(drainer, 'enqueue');
+    const listOutbox = jest.spyOn(drainer, 'listCompletionOutbox');
+    /** Restores the parent and awaits the fire-and-forget replay it starts. */
+    const restore = async (refs: readonly CliSessionReference[]): Promise<void> => {
+      const calls = replayOutbox.mock.results.length;
+      manager.restoreAgents(refs, ROOT_A, PARENT);
+      expect(replayOutbox).toHaveBeenCalledTimes(calls + 1);
+      await replayOutbox.mock.results[calls].value;
+    };
+    return { store, drainer, notifier, send, manager, replayOutbox, enqueue, listOutbox, restore };
+  }
+
+  it.each([
+    ['fresh', 0],
+    ['8 days old', 8 * DAY],
+  ])('replays an outbox entry with no parent record once (%s)', async (_label, age) => {
+    const storage = new FakeStateStorage();
+    storage.values.set(OUTBOX_KEY, { version: 1, entries: [outboxEntry(Date.now() - age)] });
+    const w = await world(storage);
+
+    await w.restore([makeRef()]);
+    await w.restore([makeRef()]);
+
+    expect(w.replayOutbox).toHaveBeenNthCalledWith(1, PARENT);
+    expect(w.enqueue).toHaveBeenCalledTimes(1);
+    expect(w.enqueue.mock.calls[0][0]).toMatchObject({
+      id: `lane-delivery:${KEY}`, kind: 'completion', agentId: LANE_ID,
+    });
+    expect(w.send).toHaveBeenCalledTimes(1);
+    expect(w.store.list(PARENT)).toEqual([
+      expect.objectContaining({ dedupeKey: KEY, state: 'delivered' }),
+    ]);
+    expect(outboxSize(storage)).toBe(0);
+  });
+
+  it('enqueues nothing for an index-satisfied entry and removes it only after the shard key is durable', async () => {
+    const storage = new FakeStateStorage();
+    storage.failWrites = (key) => key === SHARD_KEY;
+    const first = await world(storage);
+    await first.store.putCompletionOutbox(outboxEntry(Date.now()));
+    expect(await first.notifier.replay(outboxEntry(Date.now()))).toMatchObject({ recorded: true });
+    expect(outboxSize(storage)).toBe(1);
+    first.drainer.dispose();
+
+    const restarted = await world(storage);
+    await restarted.restore([makeRef()]);
+    expect(restarted.enqueue).not.toHaveBeenCalled();
+    expect(outboxSize(storage)).toBe(1);
+
+    storage.failWrites = () => false;
+    storage.writes.length = 0;
+    await restarted.restore([makeRef()]);
+    expect(restarted.enqueue).not.toHaveBeenCalled();
+    expect(outboxSize(storage)).toBe(0);
+    const shardWrite = storage.writes.indexOf(SHARD_KEY);
+    expect(shardWrite).toBeGreaterThanOrEqual(0);
+    expect(storage.writes.indexOf(OUTBOX_KEY)).toBeGreaterThan(shardWrite);
+  });
+
+  it('enqueues nothing for a key-only satisfied entry and removes it', async () => {
+    const storage = new FakeStateStorage();
+    storage.values.set(SHARD_KEY, {
+      version: 1, keys: [{ dedupeKey: KEY, state: 'accepted', at: Date.now() - 9 * DAY }],
+    });
+    storage.values.set(OUTBOX_KEY, { version: 1, entries: [outboxEntry(Date.now() - 9 * DAY)] });
+    const w = await world(storage);
+
+    await w.restore([makeRef()]);
+
+    expect(w.enqueue).not.toHaveBeenCalled();
+    expect(w.send).not.toHaveBeenCalled();
+    expect(w.store.list(PARENT)).toEqual([]);
+    expect(outboxSize(storage)).toBe(0);
+  });
+
+  it('never selects session refs as replay candidates', async () => {
+    const storage = new FakeStateStorage();
+    const w = await world(storage);
+
+    await w.restore([
+      makeRef({ status: 'completed', completedAt: COMPLETED_AT }),
+      makeRef({
+        agentId: LANE_ID as AgentId, cliSessionId: 'cli-session-2', status: 'failed',
+        completedAt: COMPLETED_AT,
+      }),
+    ]);
+
+    expect(w.listOutbox).toHaveBeenCalledWith(PARENT);
+    expect(w.enqueue).not.toHaveBeenCalled();
+    expect(w.send).not.toHaveBeenCalled();
+    expect(w.store.list()).toEqual([]);
+
+    w.manager.restoreAgents([makeRef({ agentId: IN_SCOPE_ID as AgentId })], ROOT_A);
+    expect(w.replayOutbox).toHaveBeenCalledTimes(1);
   });
 });
