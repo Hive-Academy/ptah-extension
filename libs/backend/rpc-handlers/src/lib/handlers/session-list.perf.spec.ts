@@ -32,6 +32,11 @@ jest.mock('fs/promises', () => ({
   stat: jest.fn(),
 }));
 
+// The handler injects one runtime token; the runtime barrel is not loaded.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: { PARENT_SESSION_PURGE: Symbol.for('ParentSessionPurge') },
+}));
+
 import {
   MIGRATIONS,
   type SqliteConnectionService,
@@ -313,6 +318,7 @@ describe('session:list AC1 performance (real SQLite store)', () => {
       {} as never,
       // A cold 50 MB transcript read that never finishes.
       jsonlReader as never,
+      {} as never,
       null,
       organization,
       taskIndex as never,

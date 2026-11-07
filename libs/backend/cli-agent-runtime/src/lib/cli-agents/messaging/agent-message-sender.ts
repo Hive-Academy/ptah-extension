@@ -1,19 +1,6 @@
 import type { AgentMessageSender } from '@ptah-extension/shared';
 import type { AgentMessageEnvelope } from './envelope/agent-message-envelope.schema';
 
-/**
- * The coarse `'user' | 'parent'` form is what the renderer RPC and the MCP
- * namespace pass today. It is accepted until P1-E moves those surfaces to the
- * sender object; `'parent'` without a session id is an anonymous parent.
- */
-export type AgentMessageSenderInput = AgentMessageSender | 'user' | 'parent';
-
-export function normalizeAgentMessageSender(input: AgentMessageSenderInput): AgentMessageSender {
-  if (input === 'user') return { kind: 'user' };
-  if (input === 'parent') return { kind: 'parent' };
-  return input;
-}
-
 /** Stable dedupe and ownership key: `user`, `parent:<sessionId>` or `lane:<agentId>`. */
 export function agentMessageSenderKey(sender: AgentMessageSender): string {
   switch (sender.kind) {

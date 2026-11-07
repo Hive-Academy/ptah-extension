@@ -69,7 +69,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import type { AgentProcessManager } from '@ptah-extension/cli-agent-runtime';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  type AgentProcessManager,
+  type ParentSessionPurge,
+} from '@ptah-extension/cli-agent-runtime';
 import { SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
@@ -133,6 +137,17 @@ const CodexThreadResumeSchema = z.object({
   profileFingerprint: z.string().min(1),
   state: z.enum(['active', 'inactive']),
 }).strict();
+
+/**
+ * `session:delete` reply. `messagingCleanup: 'pending-retry'` means the
+ * session is deleted but its undelivered messages are still frozen; startup
+ * recovery finishes the purge.
+ */
+interface SessionDeleteResult {
+  success: boolean;
+  error?: string;
+  messagingCleanup?: 'pending-retry';
+}
 
 /** Surviving transcripts of one sessions directory. */
 interface TranscriptIndex {
@@ -246,6 +261,13 @@ export class SessionRpcHandlers {
     /** Streams the paginated rows' transcripts for `session:list` counts. */
     @inject(SDK_TOKENS.SDK_JSONL_READER)
     jsonlReader: JsonlReaderService,
+    /**
+     * Freezes and purges the session's lane messages and parent deliveries
+     * around `session:delete`. Required: a delete without it would leave
+     * undelivered messages addressed to a parent that no longer exists.
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.PARENT_SESSION_PURGE)
+    private readonly purge: ParentSessionPurge,
     /**
      * Optional so a host that never registers the manager serves this method
      * exactly as before. See `session:cli-sessions` for the one use.
@@ -815,11 +837,15 @@ export class SessionRpcHandlers {
   /**
    * session:delete - Delete session metadata AND JSONL files from disk
    * Removes both Ptah's metadata and the SDK's session files from ~/.claude/projects/
+   *
+   * Messaging order (Component 10): freeze delivery with a durable intent,
+   * delete the metadata (undoing the intent if that fails), record it, purge
+   * undelivered messages, then remove change sets and files as before.
    */
   private registerSessionDelete(): void {
     this.rpcHandler.registerMethod<
       { sessionId: SessionId },
-      { success: boolean; error?: string }
+      SessionDeleteResult
     >('session:delete', async (params: { sessionId: SessionId }) => {
       try {
         const sessionId = this.validateSessionId(params.sessionId);
@@ -828,10 +854,17 @@ export class SessionRpcHandlers {
         this.logger.info('RPC: session:delete called', { sessionId });
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
-        await this.metadataStore.delete(sessionId);
+        await this.beginMessagingPurge(sessionId);
+        try {
+          await this.metadataStore.delete(sessionId);
+        } catch (error: unknown) {
+          await this.purge.abortDelete(sessionId);
+          throw error;
+        }
+        const messagingCleanup = await this.finishMessagingPurge(sessionId);
         await this.removeTurnChangeSets(sessionId);
         if (workspacePath) {
-          await this.deleteSessionFiles(
+          await this.removeSessionFiles(
             sessionId,
             workspacePath,
             metadata?.workingDirectory,
@@ -845,8 +878,12 @@ export class SessionRpcHandlers {
 
         this.logger.info('RPC: session:delete succeeded', { sessionId });
 
-        return { success: true };
+        return messagingCleanup
+          ? { success: true, messagingCleanup }
+          : { success: true };
       } catch (error) {
+        // A refused delete intent is a typed failure of the RPC itself.
+        if (error instanceof RpcUserError) throw error;
         this.logger.error(
           'RPC: session:delete failed',
           error instanceof Error ? error : new Error(String(error)),
@@ -861,6 +898,72 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * The transcript files go last. Metadata and messaging are already gone, so a
+   * failure here is logged and the delete still succeeds; the files are
+   * unreachable from the UI and a retry would find no session to delete.
+   */
+  private async removeSessionFiles(
+    sessionId: string,
+    workspacePath: string,
+    workingDirectory?: string,
+  ): Promise<void> {
+    try {
+      await this.deleteSessionFiles(sessionId, workspacePath, workingDirectory);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - orphaned transcript files are harmless after the metadata delete; the warn records them
+      this.logger.warn('RPC: session:delete - session files not removed', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Durable delete intent; a failure refuses the delete before anything is removed. */
+  private async beginMessagingPurge(sessionId: string): Promise<void> {
+    try {
+      await this.purge.beginDelete(sessionId);
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: session:delete - messaging delete intent could not be saved',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      throw new RpcUserError(
+        'The session could not be deleted: its agent messages could not be frozen. Try again.',
+        'PERSISTENCE_UNAVAILABLE',
+      );
+    }
+  }
+
+  /**
+   * Record the metadata delete, then purge undelivered messages. Neither step
+   * fails the delete: delivery stays frozen, and startup recovery finishes a
+   * purge that did not complete.
+   */
+  private async finishMessagingPurge(
+    sessionId: string,
+  ): Promise<SessionDeleteResult['messagingCleanup']> {
+    try {
+      await this.purge.markMetadataDeleted(sessionId);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the tombstone stays at intent; recovery re-checks the metadata and finishes the purge
+      this.logger.warn('RPC: session:delete - messaging tombstone not advanced', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      await this.purge.completeDelete(sessionId);
+      return undefined;
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: session:delete - messaging purge left for recovery',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return 'pending-retry';
+    }
   }
 
   /**
@@ -1269,7 +1372,7 @@ export class SessionRpcHandlers {
         platformInfo: this.platformInfo,
         logger: this.logger,
       });
-      this.agentProcessManager.restoreAgents(refs, folder);
+      this.agentProcessManager.restoreAgents(refs, folder, sessionId);
     } catch (error: unknown) {
       this.logger.warn('[RPC] Could not restore agent records', {
         error: error instanceof Error ? error.message : String(error),

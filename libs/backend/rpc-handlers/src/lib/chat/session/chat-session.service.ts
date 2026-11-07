@@ -2140,6 +2140,7 @@ export class ChatSessionService {
           this.agentProcessManager?.restoreAgents(
             restored,
             resolvedWorkspacePath,
+            sessionId,
           );
         }
       } catch (error) {

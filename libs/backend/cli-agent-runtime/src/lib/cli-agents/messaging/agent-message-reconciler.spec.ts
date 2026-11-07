@@ -2,8 +2,11 @@ import { AgentId } from '@ptah-extension/shared';
 import { SCHEDULER_BACKOFF_MS } from './agent-message-delivery.scheduler';
 import { harness, idOf, settleEvents } from './__fixtures__/agent-message-harness';
 
+const user = { kind: 'user' } as const;
+const anonymousParent = { kind: 'parent' } as const;
+
 async function parked(h: ReturnType<typeof harness>, message = 'later'): Promise<string> {
-  return idOf(await h.coordinator.send({ agentId: h.agentId, message }));
+  return idOf(await h.coordinator.send({ agentId: h.agentId, message }, anonymousParent));
 }
 
 /** What the router's flush does before `continueConversation`. */
@@ -38,7 +41,7 @@ describe('AgentMessageReconciler', () => {
       h.addLane(spawned);
       return { agentId: spawned };
     });
-    await h.coordinator.cancel(h.agentId, cancelled);
+    await h.coordinator.cancel(h.agentId, cancelled, user);
     await h.coordinator.deliver(cancelled);
     await h.coordinator.deliver(delivered);
     expect(h.resume.resume).toHaveBeenCalledTimes(1);
@@ -49,7 +52,7 @@ describe('AgentMessageReconciler', () => {
   it('keeps a started message started after an exit, then settles it normally', async () => {
     const h = harness();
     h.sendToAgent.mockResolvedValueOnce({ mode: 'steer' });
-    const id = idOf(await h.coordinator.send({ agentId: h.agentId, message: 'now', delivery: 'now' }));
+    const id = idOf(await h.coordinator.send({ agentId: h.agentId, message: 'now', delivery: 'now' }, anonymousParent));
     h.events.emit('agent:queue-updated', { agentId: h.agentId, failures: [{ messageId: id, reason: 'agent_stopped' }] });
     await settleEvents();
     expect(await h.store.get(id)).toMatchObject({ state: 'started' });
@@ -66,7 +69,7 @@ describe('AgentMessageReconciler', () => {
     await settleEvents();
     expect(await h.store.get(id)).toMatchObject({ state: 'outcome-unknown', reason: 'dispatch-interrupted', everDispatched: true });
     expect(h.scheduler.enqueueCold).not.toHaveBeenCalled();
-    expect((await h.coordinator.retry(h.agentId, id)).reasonCode).toBe('confirmation-required');
+    expect((await h.coordinator.retry(h.agentId, id, user)).reasonCode).toBe('confirmation-required');
   });
 
   it('moves a flushed message to started on turn-started and to settled on its settle', async () => {
@@ -89,9 +92,9 @@ describe('AgentMessageReconciler', () => {
     await settleEvents();
     expect(await h.coordinator.getReceipt(h.agentId, id))
       .toMatchObject({ state: 'failed', reason: 'continuation_rejected', everDispatched: true, hasRecoverableBody: true });
-    expect(await h.coordinator.getBody(h.agentId, id)).toBe('keep me');
-    expect((await h.coordinator.retry(h.agentId, id)).reasonCode).toBe('confirmation-required');
-    expect(await h.coordinator.cancel(h.agentId, id)).toMatchObject({ state: 'cancelled' });
+    expect(await h.coordinator.getBody(h.agentId, id, user)).toBe('keep me');
+    expect((await h.coordinator.retry(h.agentId, id, user)).reasonCode).toBe('confirmation-required');
+    expect(await h.coordinator.cancel(h.agentId, id, user)).toMatchObject({ state: 'cancelled' });
   });
 
   it('backs a transient continuation rejection off on the scheduler', async () => {
@@ -124,8 +127,8 @@ describe('AgentMessageReconciler', () => {
     h.events.emit('agent:expired', { agentId: h.agentId });
     await settleEvents();
     expect(await h.coordinator.getReceipt(h.agentId, id)).toMatchObject({ state: 'expired', reason: 'agent_expired', hasRecoverableBody: true });
-    expect(await h.coordinator.getBody(h.agentId, id)).toBe('expired text');
-    expect((await h.coordinator.retry(h.agentId, id)).reasonCode).toBe('not_found');
+    expect(await h.coordinator.getBody(h.agentId, id, user)).toBe('expired text');
+    expect((await h.coordinator.retry(h.agentId, id, user)).reasonCode).toBe('not_found');
   });
 
   it('holds a resumable lane message in the cold inbox when its record expires', async () => {

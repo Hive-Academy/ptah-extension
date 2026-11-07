@@ -537,7 +537,7 @@ describe('AgentToolDispatcher — agent_message', () => {
   it('forwards explicit steer and serves a status receipt', async () => {
     const { dispatcher, message, messageStatus } = createMessagingHarness();
     await dispatcher.dispatch('agent_message', request, { agentId: 'a1', message: 'go', delivery: 'steer' });
-    expect(message).toHaveBeenCalledWith('a1', 'go', 'steer', undefined);
+    expect(message).toHaveBeenCalledWith('a1', 'go', 'steer', undefined, undefined);
     const id = '11111111-1111-4111-8111-111111111111';
     const response = await dispatcher.dispatch('agent_message_status', request, { agentId: 'a1', messageId: id });
     expect(messageStatus).toHaveBeenCalledWith('a1', id);
@@ -555,7 +555,7 @@ describe('AgentToolDispatcher — agent_message', () => {
       agentId: 'a1',
       message: 'switch to the other branch',
     });
-    expect(message).toHaveBeenCalledWith('a1', 'switch to the other branch', undefined, undefined);
+    expect(message).toHaveBeenCalledWith('a1', 'switch to the other branch', undefined, undefined, undefined);
     expect(toolResult(response).isError).toBeUndefined();
     expect(toolResult(response).structuredContent).toMatchObject({
       agentId: 'a1',

@@ -470,7 +470,7 @@ describe("ChatSessionService — the session's own folder (MP-3)", () => {
   });
 
   describe('chat:resume', () => {
-    it("reads history and restores agents in the session's own project", async () => {
+    it("reads history and restores agents in the session's own project, under that parent", async () => {
       const h = makeHarness();
 
       const result = await h.service.resumeSession({
@@ -486,6 +486,7 @@ describe("ChatSessionService — the session's own folder (MP-3)", () => {
       expect(h.restoreAgents).toHaveBeenCalledWith(
         [{ agentId: 'agent-1' }],
         PROJECT_B,
+        SESSION_ID,
       );
     });
 

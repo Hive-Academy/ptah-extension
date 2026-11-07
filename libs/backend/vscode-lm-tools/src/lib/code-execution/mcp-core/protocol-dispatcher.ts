@@ -46,6 +46,12 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import {
+  AgentMessageArgsSchema,
+  AgentMessageControlArgsSchema,
+  AgentMessageStatusArgsSchema,
+} from './agent-message-args.schema';
+import { agentMessageStatusView } from './agent-message-status.view';
+import {
   AgentWaitArgsSchema,
   HTTP_MAX_AGENT_WAIT_SEC,
   WAIT_SUMMARY_MAX_CHARS,
@@ -97,8 +103,8 @@ import {
   buildAgentReadTool,
   buildAgentMessageTool,
   buildAgentMessageStatusTool,
+  buildAgentMessageControlTool,
   buildAgentReportTool,
-  MAX_AGENT_MESSAGE_LENGTH,
   buildAgentListTool,
   buildAgentStopTool,
   buildWebSearchTool,
@@ -602,6 +608,7 @@ function buildToolDefinitions(
           buildAgentReadTool(),
           buildAgentMessageTool(),
           buildAgentMessageStatusTool(),
+          buildAgentMessageControlTool(),
           buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
@@ -748,28 +755,6 @@ const WebSearchArgsSchema = z
     maxResults: z.number().int().positive().optional(),
     timeout: z.number().int().positive().optional(),
   })
-  .strict();
-
-/**
- * `ptah_agent_message` arguments (TASK_2026_402).
- *
- * `strict()` for the same reason `WebSearchArgsSchema` is: the retired
- * `ptah_agent_steer` took an `instruction` key, so a model working from stale
- * guidance will send one. Reported as an error, that is a one-line correction;
- * dropped silently, it is a tool call that reports a mode for a message with
- * no body.
- */
-const AgentMessageArgsSchema = z
-  .object({
-    agentId: z.string().min(1),
-    message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
-    delivery: z.enum(['queue', 'now', 'steer']).optional(),
-    allowPartialTurnLoss: z.boolean().optional(),
-  })
-  .strict();
-
-const AgentMessageStatusArgsSchema = z
-  .object({ agentId: z.string().min(1), messageId: z.string().uuid() })
   .strict();
 
 /**
@@ -1459,6 +1444,7 @@ async function handleIndividualTool(
             parsed.data.message,
             parsed.data.delivery,
             parsed.data.allowPartialTurnLoss,
+            parsed.data.idempotencyKey,
           );
           return await createToolSuccessResponse(
             request,
@@ -1495,13 +1481,49 @@ async function handleIndividualTool(
         );
         return await createToolSuccessResponse(
           request,
-          JSON.stringify({
-            agentId: parsed.data.agentId,
-            messageId: parsed.data.messageId,
-            ...status,
-          }),
+          JSON.stringify(
+            agentMessageStatusView(
+              parsed.data.agentId,
+              parsed.data.messageId,
+              status,
+            ),
+          ),
           deps,
         );
+      }
+
+      case 'ptah_agent_message_control': {
+        const parsed = AgentMessageControlArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success)
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_message_control arguments — ${describeZodIssues(parsed.error)}. Required: "agentId", "messageId" and "action" ("retry" or "cancel").`,
+          );
+        const { agentId, messageId, action, confirmDuplicateRisk } =
+          parsed.data;
+        try {
+          const result = await ptahAPI.agent.control(
+            agentId,
+            messageId,
+            action,
+            confirmDuplicateRisk,
+          );
+          return await createToolSuccessResponse(
+            request,
+            JSON.stringify({ agentId, messageId, action, ...result }),
+            deps,
+          );
+        } catch (error: unknown) {
+          if (error instanceof AgentMessageError) {
+            return toolErrorResponse(
+              request,
+              `Error: ptah_agent_message_control could not ${action} message ${messageId} — ${error.code}: ${error.message}`,
+            );
+          }
+          throw error;
+        }
       }
 
       case 'ptah_agent_report': {

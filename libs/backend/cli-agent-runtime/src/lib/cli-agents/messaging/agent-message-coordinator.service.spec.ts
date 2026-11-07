@@ -15,6 +15,8 @@ import {
 } from './__fixtures__/agent-message-harness';
 
 const parentA = { kind: 'parent', sessionId: 'parent-1' } as const;
+const user = { kind: 'user' } as const;
+const anonymousParent = { kind: 'parent' } as const;
 
 /** Lane `h.agentId` stops; a cold send resumes it into the returned id. */
 function stopLane(h: ReturnType<typeof harness>): AgentId {
@@ -54,7 +56,7 @@ describe('AgentMessageCoordinator', () => {
 
     it('keeps a parked queued message not-started with the parking attempt undone', async () => {
       const h = harness();
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       expect(outcome.receipt).toMatchObject({ state: 'accepted', mode: 'queue-next-turn', everDispatched: false, attemptCount: 0 });
       expect(h.tracked.pendingMessages.map((entry) => entry.messageId)).toEqual([idOf(outcome)]);
     });
@@ -67,7 +69,7 @@ describe('AgentMessageCoordinator', () => {
         h.addLane(spawned, { turnSeq: 1 });
         return { agentId: spawned, cliSessionId: 'session-2' };
       });
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
       expect(outcome).toMatchObject({ mode: 'start-turn', requestedAgentId: h.agentId, agentId: spawned });
       expect(outcome.receipt).toMatchObject({ state: 'started', agentId: h.agentId, actualAgentId: spawned, cliSessionId: 'session-2' });
       expect(h.resume.resume).toHaveBeenCalledWith(expect.objectContaining({ agentId: h.agentId }),
@@ -78,8 +80,8 @@ describe('AgentMessageCoordinator', () => {
     it('sends a repeated message to the old id to the resumed lane', async () => {
       const h = harness();
       const spawned = stopLane(h);
-      await h.coordinator.send({ agentId: h.agentId, message: 'resume' });
-      const second = await h.coordinator.send({ agentId: h.agentId, message: 'again' });
+      await h.coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
+      const second = await h.coordinator.send({ agentId: h.agentId, message: 'again' }, anonymousParent);
       expect(h.resume.resume).toHaveBeenCalledTimes(1);
       expect(h.sendToAgent).toHaveBeenCalledWith(spawned, expect.any(String), 'queue', idOf(second), false);
       expect(second).toMatchObject({ requestedAgentId: h.agentId, agentId: spawned });
@@ -88,7 +90,7 @@ describe('AgentMessageCoordinator', () => {
     it('refuses with storage-unavailable and routes nothing when the initial put fails', async () => {
       const h = harness();
       h.storage.failWhen = (key) => key.startsWith(AGENT_MESSAGE_BODY_PREFIX);
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'hello' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'hello' }, anonymousParent);
       expect(outcome).toMatchObject({ mode: 'unsupported', reasonCode: 'storage-unavailable' });
       expect(outcome.messageId).toBeUndefined();
       expect(h.sendToAgent).not.toHaveBeenCalled();
@@ -99,21 +101,21 @@ describe('AgentMessageCoordinator', () => {
     it('makes no live send, holds the body and restarts as awaiting-resume', async () => {
       const h = harness();
       outageOnDispatch(h);
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' }, anonymousParent);
       expect(h.sendToAgent).not.toHaveBeenCalled();
       expect(outcome).toMatchObject({ mode: 'unsupported', reasonCode: 'storage-unavailable' });
       expect(outcome.receipt).toMatchObject({ state: 'blocked-retryable', reason: 'storage-unavailable' });
       h.storage.failWhen = undefined;
       const next = h.restart();
       expect(await next.store.get(idOf(outcome))).toMatchObject({ state: 'blocked-retryable', reason: 'awaiting-resume' });
-      expect(await next.coordinator.getBody(h.agentId, idOf(outcome))).toBe('change');
+      expect(await next.coordinator.getBody(h.agentId, idOf(outcome), user)).toBe('change');
     });
 
     it('makes no cold spawn and restarts as awaiting-resume', async () => {
       const h = harness();
       stopLane(h);
       outageOnDispatch(h);
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
       expect(h.resume.resume).not.toHaveBeenCalled();
       expect(outcome.reasonCode).toBe('storage-unavailable');
       h.storage.failWhen = undefined;
@@ -124,7 +126,7 @@ describe('AgentMessageCoordinator', () => {
 
     it('makes no continueConversation for a router flush and restarts as awaiting-resume', async () => {
       const h = harness();
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       outageOnDispatch(h);
       const journal = { markDispatching: async (id: string) => { await h.store.markDispatching(id); } };
       const router = new AgentMessageRouter(createLogger(), createDetection(), journal);
@@ -144,12 +146,12 @@ describe('AgentMessageCoordinator', () => {
     it('reclassifies a crash after dispatching and before started (live and cold) as outcome-unknown', async () => {
       const live = harness();
       live.sendToAgent.mockImplementationOnce(() => new Promise<AgentMessageOutcome>(() => undefined));
-      void live.coordinator.send({ agentId: live.agentId, message: 'change', delivery: 'now' });
+      void live.coordinator.send({ agentId: live.agentId, message: 'change', delivery: 'now' }, anonymousParent);
       const cold = harness();
       stopLane(cold);
       cold.resume.resume.mockReset();
       cold.resume.resume.mockImplementationOnce(() => new Promise(() => undefined));
-      void cold.coordinator.send({ agentId: cold.agentId, message: 'resume' });
+      void cold.coordinator.send({ agentId: cold.agentId, message: 'resume' }, anonymousParent);
       await settleEvents();
       for (const h of [live, cold]) {
         const [envelope] = await h.restart().store.list({});
@@ -160,21 +162,21 @@ describe('AgentMessageCoordinator', () => {
     it('reclassifies a started turn as outcome-unknown and refuses a retry without confirmation', async () => {
       const h = harness();
       h.sendToAgent.mockResolvedValueOnce({ mode: 'steer' });
-      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' });
+      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' }, anonymousParent);
       const next = h.restart();
       expect(await next.coordinator.getReceipt(h.agentId, idOf(sent))).toMatchObject({ state: 'outcome-unknown', reason: 'host-restarted' });
-      const refused = await next.coordinator.retry(h.agentId, idOf(sent));
+      const refused = await next.coordinator.retry(h.agentId, idOf(sent), user);
       expect(refused).toMatchObject({ mode: 'unsupported', reasonCode: 'confirmation-required' });
       expect(h.sendToAgent).toHaveBeenCalledTimes(1);
       h.sendToAgent.mockResolvedValueOnce({ mode: 'steer' });
-      const retried = await next.coordinator.retry(h.agentId, idOf(sent), 'user', { confirmDuplicateRisk: true });
+      const retried = await next.coordinator.retry(h.agentId, idOf(sent), user, { confirmDuplicateRisk: true });
       expect(retried.receipt).toMatchObject({ state: 'started', id: idOf(sent) });
       expect(h.sendToAgent).toHaveBeenCalledTimes(2);
     });
 
     it('reconciles an in-flight envelope from a previous run on start, before the scheduler', async () => {
       const h = harness();
-      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       const order: string[] = [];
       const purge = { resumePendingPurges: jest.fn(async () => { order.push('purge'); }) };
       h.scheduler.start.mockImplementation(async () => { order.push('scheduler'); });
@@ -217,9 +219,9 @@ describe('AgentMessageCoordinator', () => {
     it('keeps keys per sender and refuses a key from an anonymous parent', async () => {
       const h = harness();
       await h.coordinator.send({ agentId: h.agentId, message: 'x', idempotencyKey: 'k' }, parentA);
-      const other = await h.coordinator.send({ agentId: h.agentId, message: 'x', idempotencyKey: 'k' }, 'user');
+      const other = await h.coordinator.send({ agentId: h.agentId, message: 'x', idempotencyKey: 'k' }, user);
       expect(other.deduplicated).toBeUndefined();
-      const anonymous = await h.coordinator.send({ agentId: h.agentId, message: 'x', idempotencyKey: 'k' }, 'parent');
+      const anonymous = await h.coordinator.send({ agentId: h.agentId, message: 'x', idempotencyKey: 'k' }, anonymousParent);
       expect(anonymous).toMatchObject({ mode: 'unsupported', reasonCode: 'idempotency-key-requires-identity' });
       expect(anonymous.receipt).toMatchObject({ state: 'failed', hasRecoverableBody: false });
       expect(h.sendToAgent).toHaveBeenCalledTimes(2);
@@ -229,18 +231,18 @@ describe('AgentMessageCoordinator', () => {
   describe('retry and cancel', () => {
     it('cancels a parked message, removes it from the live queue and deletes its body', async () => {
       const h = harness();
-      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
-      const cancelled = await h.coordinator.cancel(h.agentId, idOf(queued));
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      const cancelled = await h.coordinator.cancel(h.agentId, idOf(queued), user);
       expect(cancelled).toMatchObject({ state: 'cancelled', reason: 'cancelled-by-user', hasRecoverableBody: false });
       expect(h.tracked.pendingMessages).toHaveLength(0);
-      await expect(h.coordinator.cancel(h.agentId, idOf(queued))).rejects.toThrow('no longer cancellable');
+      await expect(h.coordinator.cancel(h.agentId, idOf(queued), user)).rejects.toThrow('no longer cancellable');
     });
 
     it('refuses to cancel a dispatching or started message', async () => {
       const h = harness();
-      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       await h.store.markDispatching(idOf(queued));
-      await expect(h.coordinator.cancel(h.agentId, idOf(queued))).rejects.toThrow('no longer cancellable');
+      await expect(h.coordinator.cancel(h.agentId, idOf(queued), user)).rejects.toThrow('no longer cancellable');
     });
 
     it('lets a parent act only on messages it sent', async () => {
@@ -254,9 +256,9 @@ describe('AgentMessageCoordinator', () => {
     it('retries a never-dispatched hold without confirmation', async () => {
       const h = harness();
       h.sendToAgent.mockResolvedValueOnce({ mode: 'unsupported', reasonCode: 'start-turn-failed' });
-      const failed = await h.coordinator.send({ agentId: h.agentId, message: 'x' });
+      const failed = await h.coordinator.send({ agentId: h.agentId, message: 'x' }, anonymousParent);
       expect(failed.receipt).toMatchObject({ state: 'failed', everDispatched: false });
-      const retried = await h.coordinator.retry(h.agentId, idOf(failed));
+      const retried = await h.coordinator.retry(h.agentId, idOf(failed), user);
       expect(retried).toMatchObject({ mode: 'queue-next-turn', messageId: idOf(failed) });
       expect(retried.receipt).toMatchObject({ state: 'accepted', attemptCount: 1 });
     });
@@ -266,7 +268,7 @@ describe('AgentMessageCoordinator', () => {
     it('refuses explicit steer without a steerable turn and never interrupts', async () => {
       const h = harness();
       h.tracked.sdkHandle = { ...h.tracked.sdkHandle, steer: undefined } as SdkHandle;
-      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'steer' });
+      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'steer' }, anonymousParent);
       expect(refused).toMatchObject({ mode: 'unsupported', reasonCode: 'steer-unavailable' });
       expect(refused.receipt).toMatchObject({ state: 'failed', hasRecoverableBody: false });
       expect(h.sendToAgent).not.toHaveBeenCalled();
@@ -275,7 +277,7 @@ describe('AgentMessageCoordinator', () => {
     it('requires partial-turn-loss confirmation before interrupt-resume', async () => {
       const h = harness();
       h.tracked.sdkHandle = { ...h.tracked.sdkHandle, steer: undefined } as SdkHandle;
-      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' });
+      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now' }, anonymousParent);
       expect(refused.reasonCode).toBe('confirmation-required');
       expect(h.sendToAgent).not.toHaveBeenCalled();
     });
@@ -284,7 +286,7 @@ describe('AgentMessageCoordinator', () => {
       const h = harness();
       h.tracked.sdkHandle = { ...h.tracked.sdkHandle, steer: undefined } as SdkHandle;
       h.sendToAgent.mockRejectedValueOnce(new AgentInterruptedDeliveryError('continuation failed'));
-      const result = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now', allowPartialTurnLoss: true });
+      const result = await h.coordinator.send({ agentId: h.agentId, message: 'change', delivery: 'now', allowPartialTurnLoss: true }, anonymousParent);
       expect(result.receipt).toMatchObject({ state: 'interrupted-undelivered', partialTurnLost: true, hasRecoverableBody: true });
     });
 
@@ -293,7 +295,7 @@ describe('AgentMessageCoordinator', () => {
       stopLane(h);
       h.resume.resume.mockReset();
       h.resume.resume.mockRejectedValueOnce(new LaneAccountResumeError('identity-unproved'));
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'follow up' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'follow up' }, anonymousParent);
       expect(outcome.receipt).toMatchObject({ state: 'failed', reason: 'account_refused', everDispatched: false });
       expect(outcome.detail).toBe('account_refused');
     });
@@ -301,7 +303,7 @@ describe('AgentMessageCoordinator', () => {
     it('marks an unclassified adapter throw outcome-unknown without leaking its text', async () => {
       const h = harness();
       h.sendToAgent.mockRejectedValueOnce(new Error('token secret-123 at C:/private/path'));
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'hello' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'hello' }, anonymousParent);
       expect(outcome.receipt).toMatchObject({ state: 'outcome-unknown', reason: 'delivery-failed' });
       expect(JSON.stringify(outcome)).not.toContain('secret-123');
       expect(JSON.stringify(outcome)).not.toContain('private/path');
@@ -317,14 +319,14 @@ describe('AgentMessageCoordinator', () => {
     it('records the executed mode after the router changes the preview plan', async () => {
       const h = harness();
       h.sendToAgent.mockResolvedValueOnce({ mode: 'start-turn' });
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'next' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'next' }, anonymousParent);
       expect(outcome.receipt).toMatchObject({ state: 'started', mode: 'start-turn' });
     });
 
     it('holds a router queue-full refusal for a re-offer instead of evicting', async () => {
       const h = harness();
       h.sendToAgent.mockResolvedValueOnce({ mode: 'unsupported', reasonCode: 'queue-full' });
-      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       expect(outcome.receipt).toMatchObject({ state: 'blocked-retryable', reason: 'queue-full', hasRecoverableBody: true });
       h.events.emit('agent:turn-settled', { ...h.tracked.info, turnSeq: 1, status: 'completed' });
       await settleEvents();
@@ -334,8 +336,8 @@ describe('AgentMessageCoordinator', () => {
     it('refuses the 33rd undelivered message of a lane with queue-full and evicts nothing', async () => {
       const h = harness();
       for (let index = 0; index < 32; index++)
-        await h.coordinator.send({ agentId: h.agentId, message: `m${index}` });
-      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'one more' });
+        await h.coordinator.send({ agentId: h.agentId, message: `m${index}` }, anonymousParent);
+      const refused = await h.coordinator.send({ agentId: h.agentId, message: 'one more' }, anonymousParent);
       expect(refused).toMatchObject({ mode: 'unsupported', reasonCode: 'queue-full' });
       expect((await h.store.list({ states: ['not-started'] })).length).toBe(32);
     });
@@ -348,8 +350,8 @@ describe('AgentMessageCoordinator', () => {
       h.sendToAgent.mockImplementationOnce(() => new Promise((resolve) => {
         release = () => resolve({ mode: 'steer' });
       }));
-      const first = h.coordinator.send({ agentId: h.agentId, message: 'a', delivery: 'now' });
-      const second = h.coordinator.send({ agentId: h.agentId, message: 'b' });
+      const first = h.coordinator.send({ agentId: h.agentId, message: 'a', delivery: 'now' }, anonymousParent);
+      const second = h.coordinator.send({ agentId: h.agentId, message: 'b' }, anonymousParent);
       await settleEvents();
       expect(h.sendToAgent).toHaveBeenCalledTimes(1);
       release?.();
@@ -359,7 +361,7 @@ describe('AgentMessageCoordinator', () => {
 
     it('keeps no memory-only id map: a second instance reconciles envelopes the first created', async () => {
       const h = harness();
-      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'later' });
+      const sent = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
       h.coordinator.dispose();
       const fresh = new AgentMessageCoordinator({
         manager: h.manager, detection: h.detection, store: h.store, aliases: h.aliases,
@@ -381,7 +383,7 @@ describe('AgentMessageCoordinator', () => {
       h.events.emit('agent:turn-settled', { ...h.tracked.info, agentId: spawned, status: 'failed', turnSeq: 1 });
       return { agentId: spawned };
     });
-    const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' });
+    const outcome = await h.coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
     expect(outcome.receipt).toMatchObject({ state: 'settled', turnOutcome: 'failed' });
   });
 
@@ -402,7 +404,7 @@ describe('AgentMessageCoordinator', () => {
       manager: h.manager, detection: h.detection, store: h.store, aliases: h.aliases, resume,
       scheduler: h.scheduler, logger: h.logger,
     });
-    const result = await coordinator.send({ agentId: h.agentId, message: 'resume' });
+    const result = await coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'session', resumedFromAgentId: h.agentId }));
     expect(result).toMatchObject({ agentId: spawnedId, receipt: { state: 'started', actualAgentId: spawnedId } });
   });

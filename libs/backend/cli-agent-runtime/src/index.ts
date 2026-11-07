@@ -97,8 +97,8 @@ export {
   CAPABILITY_METADATA_UNAVAILABLE,
   type AgentMessageCoordinatorDeps,
 } from './lib/cli-agents/messaging/agent-message-coordinator.service';
-export type { AgentMessageSenderInput } from './lib/cli-agents/messaging/agent-message-sender';
 export { AgentLaneResumeService } from './lib/cli-agents/messaging/agent-lane-resume.service';
+export { ParentDeliveryDrainerService } from './lib/cli-agents/parent-delivery/parent-delivery-drainer.service';
 export {
   AgentMessageEnvelopeStore,
   AgentMessageStorageError,

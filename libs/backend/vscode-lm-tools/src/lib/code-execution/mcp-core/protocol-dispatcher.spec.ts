@@ -3427,7 +3427,7 @@ describe('protocol-handlers › ptah_agent_message', () => {
       }),
     );
 
-    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch', undefined, undefined);
+    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch', undefined, undefined, undefined);
     const { text, isError } = agentToolResult(res);
     expect(isError).toBeUndefined();
     expect(text).toMatch(/Mode:\*\* interrupt-resume/);
@@ -3439,7 +3439,7 @@ describe('protocol-handlers › ptah_agent_message', () => {
     const messageStatus = jest.fn().mockResolvedValue({ status: 'delivered' });
     const agent = { message, messageStatus };
     await handleMCPRequest(makeRequest({ id: 'am-steer', method: 'tools/call', params: { name: 'ptah_agent_message', arguments: { agentId: 'a-1', message: 'go', delivery: 'steer' } } }), buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }));
-    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer', undefined);
+    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer', undefined, undefined);
     const id = '11111111-1111-4111-8111-111111111111';
     const res = await handleMCPRequest(
       makeRequest({
@@ -3479,6 +3479,86 @@ describe('protocol-handlers › ptah_agent_message', () => {
     expect(isError).toBe(true);
     expect(text).toMatch(/invalid ptah_agent_message arguments/);
     expect(text).toMatch(/instruction/);
+  });
+
+  // TASK_2026_AGENT_MESSAGING P1-E.
+  const callTool = (name: string, args: Record<string, unknown>, agent: object) =>
+    handleMCPRequest(
+      makeRequest({ id: `am-${name}`, method: 'tools/call', params: { name, arguments: args } }),
+      buildDeps({ ptahAPI: buildPtahAPIStub({ agent: agent as PtahAPI['agent'] }) }),
+    );
+  const MESSAGE_ID = '11111111-1111-4111-8111-111111111111';
+
+  it('passes the idempotency key and rejects a malformed one', async () => {
+    const message = jest.fn().mockResolvedValue({ mode: 'queue-next-turn', deduplicated: true });
+    await callTool('ptah_agent_message', { agentId: 'a-1', message: 'go', idempotencyKey: 'run-7:step.2' }, { message });
+    expect(message).toHaveBeenCalledWith('a-1', 'go', undefined, undefined, 'run-7:step.2');
+    const bad = await callTool('ptah_agent_message', { agentId: 'a-1', message: 'go', idempotencyKey: 'no spaces' }, { message });
+    expect(agentToolResult(bad).isError).toBe(true);
+    expect(message).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a sender argument: the sender comes from the transport', async () => {
+    const message = jest.fn();
+    const res = await callTool('ptah_agent_message', { agentId: 'a-1', message: 'go', sender: { kind: 'user' } }, { message });
+    expect(message).not.toHaveBeenCalled();
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(agentToolResult(res).text).toMatch(/sender/);
+  });
+
+  it('accepts 102,400 characters and rejects 102,401 (AGENT_MESSAGE_MAX_CHARS)', async () => {
+    const message = jest.fn().mockResolvedValue({ mode: 'queue-next-turn' });
+    const atLimit = await callTool('ptah_agent_message', { agentId: 'a-1', message: 'x'.repeat(102_400) }, { message });
+    expect(agentToolResult(atLimit).isError).toBeUndefined();
+    const over = await callTool('ptah_agent_message', { agentId: 'a-1', message: 'x'.repeat(102_401) }, { message });
+    expect(agentToolResult(over).isError).toBe(true);
+    expect(message).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows requestedAgentId, the owning agentId and the new receipt fields in the status', async () => {
+    const messageStatus = jest.fn().mockResolvedValue({
+      id: MESSAGE_ID, agentId: 'a-1', actualAgentId: 'b-2', state: 'outcome-unknown',
+      mode: 'steer', delivery: 'now', sender: 'parent', senderSessionId: 's-1',
+      createdAt: 1, updatedAt: 2, attemptCount: 2, lastError: 'timeout', nextRetryAt: 9,
+    });
+    const res = await callTool('ptah_agent_message_status', { agentId: 'a-1', messageId: MESSAGE_ID }, { messageStatus });
+    expect(JSON.parse(agentToolResult(res).text)).toMatchObject({
+      messageId: MESSAGE_ID, requestedAgentId: 'a-1', agentId: 'b-2', actualAgentId: 'b-2',
+      state: 'outcome-unknown', ackState: 'unavailable', attemptCount: 2, lastError: 'timeout',
+      nextRetryAt: 9, sender: 'parent', senderSessionId: 's-1',
+    });
+  });
+
+  it('retries and cancels through ptah_agent_message_control', async () => {
+    const control = jest.fn()
+      .mockResolvedValueOnce({ mode: 'queue-next-turn', messageId: MESSAGE_ID })
+      .mockResolvedValueOnce({ id: MESSAGE_ID, state: 'cancelled' });
+    const retried = await callTool('ptah_agent_message_control',
+      { agentId: 'a-1', messageId: MESSAGE_ID, action: 'retry', confirmDuplicateRisk: true }, { control });
+    const cancelled = await callTool('ptah_agent_message_control',
+      { agentId: 'a-1', messageId: MESSAGE_ID, action: 'cancel' }, { control });
+    expect(control).toHaveBeenNthCalledWith(1, 'a-1', MESSAGE_ID, 'retry', true);
+    expect(control).toHaveBeenNthCalledWith(2, 'a-1', MESSAGE_ID, 'cancel', undefined);
+    expect(JSON.parse(agentToolResult(retried).text)).toMatchObject({ action: 'retry', mode: 'queue-next-turn' });
+    expect(JSON.parse(agentToolResult(cancelled).text)).toMatchObject({ action: 'cancel', state: 'cancelled' });
+  });
+
+  it('rejects an unknown control action and a non-uuid message id', async () => {
+    const control = jest.fn();
+    const results = await Promise.all([
+      callTool('ptah_agent_message_control', { agentId: 'a-1', messageId: MESSAGE_ID, action: 'ack' }, { control }),
+      callTool('ptah_agent_message_control', { agentId: 'a-1', messageId: 'm-1', action: 'cancel' }, { control }),
+      callTool('ptah_agent_message_control', { agentId: 'a-1', messageId: MESSAGE_ID, action: 'cancel', sender: 'user' }, { control }),
+    ]);
+    for (const res of results) expect(agentToolResult(res).isError).toBe(true);
+    expect(control).not.toHaveBeenCalled();
+  });
+
+  it('is advertised next to ptah_agent_message_status', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(makeRequest({ id: 'am-list-control', method: 'tools/list' }), buildDeps()),
+    );
+    expect(names).toContain('ptah_agent_message_control');
   });
 });
 
@@ -8185,8 +8265,9 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(await list('coding')).toEqual(coding);
       expect(await list('admin')).toEqual(coding);
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
-      // ptah_session_handoff, always-on (TASK_2026_655).
-      expect(coding).toHaveLength(hasIDECapabilities ? 67 : 64);
+      // ptah_session_handoff, always-on (TASK_2026_655). +1:
+      // ptah_agent_message_control (P1-E).
+      expect(coding).toHaveLength(hasIDECapabilities ? 68 : 65);
       expect(coding.map((tool) => tool.name)).toContain(
         'ptah_artifact_publish',
       );

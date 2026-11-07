@@ -1597,7 +1597,7 @@ export class AgentRpcHandlers {
         }).strict().parse(params);
         const outcome = await this.runtimeContainer.resolve<AgentMessageCoordinator>(
           CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR,
-        ).send({ ...input, delivery: 'queue' }, 'user');
+        ).send({ ...input, delivery: 'queue' }, { kind: 'user' });
         if (outcome.mode === 'unsupported') {
           if (outcome.receipt?.reason === 'account_refused')
             return { success: false, code: 'account_refused', error: LANE_ACCOUNT_REFUSED_ERROR };
@@ -1729,10 +1729,9 @@ export class AgentRpcHandlers {
         }
 
         if (params.cli === 'ptah-cli' && ptahCliId) {
-          result = await this.resumePtahCliSession(
-            { ...params, ptahCliId },
-            workspaceRoot,
-          );
+          result = await this.runtimeContainer.resolve<AgentLaneResumeService>(
+            CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
+          ).resumePtahCli({ ...params, ptahCliId }, workspaceRoot);
         } else if (params.cli === 'ptah-cli') {
           throw new Error(
             'No Ptah CLI agents configured. Add one in Settings > Providers > CLI Agents.',
@@ -1906,103 +1905,6 @@ export class AgentRpcHandlers {
     } catch {
       return cliResults;
     }
-  }
-
-  private async resumePtahCliSession(
-    params: {
-      cliSessionId: string;
-      cli: CliType;
-      task: string;
-      parentSessionId?: string;
-      ptahCliId: string;
-      previousAgentId?: string;
-    },
-    workspaceRoot: string,
-  ): Promise<SpawnAgentResult> {
-    // The parent session must reach BOTH halves of the resume. spawnAgent used
-    // to be called without it while spawnFromSdkHandle below received it, so
-    // the SDK-side agent ran with no parent: its nested subagents registered
-    // against nothing and its CLI session reference was dropped on persist.
-    // An empty id is not a parent — normalize it to absent rather than
-    // threading a value that identifies no session.
-    const parentSessionId = params.parentSessionId
-      ? params.parentSessionId
-      : undefined;
-
-    // The registry builds AND starts the handle, so the resume gate (R9.1) and
-    // the blocked-model check (R9.5) run here, before it does (TASK_2026_614,
-    // E.4 and B-m2). On `fresh` the lane gets the handoff task and no resume
-    // id; the record keeps the caller's task.
-    const prepared = await this.runtimeContainer.resolve<AgentLaneResumeService>(
-      CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
-    ).prepareSdkResume({
-      cli: 'ptah-cli',
-      task: params.task,
-      resumeSessionId: params.cliSessionId,
-    });
-
-    // ONE id, minted before the handle exists (TASK_2026_402). The handle
-    // carries the MCP URL the resumed agent calls back on, and
-    // `spawnFromSdkHandle` would otherwise mint the record's id AFTER that URL
-    // was baked in — so the URL would name no agent, and every
-    // `ptah_agent_report` from a RESUMED agent would be refused as an
-    // `unattributed-caller`. Same reservation `agent-namespace.builder.ts`
-    // makes on the fresh-spawn path.
-    const agentId = this.agentProcessManager.reserveAgentId();
-
-    const spawnResult = await this.ptahCliRegistry.spawnAgent(
-      params.ptahCliId,
-      prepared.task,
-      {
-        workingDirectory: workspaceRoot,
-        resumeSessionId: prepared.resumeSessionId,
-        parentSessionId,
-        agentId,
-      },
-    );
-
-    if ('status' in spawnResult) {
-      throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
-    }
-
-    if (spawnResult.handle.onSessionResolved) {
-      spawnResult.handle.onSessionResolved((sessionId: string) => {
-        this.sessionMetadataStore
-          .createChild(sessionId, workspaceRoot, spawnResult.agentName)
-          .catch((err: unknown) =>
-            this.logger.warn(
-              '[AgentRpc] Failed to save child session metadata',
-              { error: err instanceof Error ? err.message : String(err) },
-            ),
-          );
-      });
-    }
-
-    const result = await this.agentProcessManager.spawnFromSdkHandle(
-      spawnResult.handle,
-      {
-        task: params.task,
-        cli: 'ptah-cli',
-        workingDirectory: workspaceRoot,
-        parentSessionId,
-        ptahCliName: spawnResult.agentName,
-        ptahCliId: params.ptahCliId,
-        resumedFromAgentId: params.previousAgentId,
-        resumeSessionId: prepared.resumeSessionId,
-        ...(prepared.resumeDecision
-          ? { resumeDecision: prepared.resumeDecision }
-          : {}),
-        ...(prepared.originalTask !== undefined
-          ? { originalTask: prepared.originalTask }
-          : {}),
-        agentId,
-        mcpPort: this.ptahCliRegistry.getMcpPort(),
-        expectsMcp: true,
-      },
-    );
-    spawnResult.setAgentId(result.agentId);
-
-    return result;
   }
 
   private async resolveDefaultPtahCliId(): Promise<string | undefined> {

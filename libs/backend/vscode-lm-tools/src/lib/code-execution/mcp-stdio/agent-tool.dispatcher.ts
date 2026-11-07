@@ -67,7 +67,11 @@ import {
   getToolResultBudget,
   spoolToolText,
 } from '../mcp-core/tool-result-budget';
-import { MAX_AGENT_MESSAGE_LENGTH } from '../mcp-core/tool-description.builder';
+import {
+  AgentMessageArgsSchema,
+  AgentMessageStatusArgsSchema,
+} from '../mcp-core/agent-message-args.schema';
+import { agentMessageStatusView } from '../mcp-core/agent-message-status.view';
 import {
   boundStructuredContent,
   structuredContentFits,
@@ -101,23 +105,6 @@ const AgentReadSchema = z
     agentId: z.string().min(1),
     tail: z.number().int().positive().optional(),
     offset: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-
-/**
- * `agent_message` arguments. The SAME shape the HTTP surface validates — a
- * body accepted on one surface must be accepted on the other.
- *
- * `strict()` because the retired `agent_steer` took an `instruction` key: a
- * model working from stale guidance is told what changed instead of having its
- * message silently dropped.
- */
-const AgentMessageSchema = z
-  .object({
-    agentId: z.string().min(1),
-    message: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
-    delivery: z.enum(['queue', 'now', 'steer']).optional(),
-    allowPartialTurnLoss: z.boolean().optional(),
   })
   .strict();
 
@@ -702,7 +689,8 @@ export class AgentToolDispatcher {
     request: MCPRequest,
     args: unknown,
   ): Promise<MCPResponse> {
-    const parsed = parseArgs(AgentMessageSchema, args);
+    // The SAME schema the HTTP surface validates.
+    const parsed = parseArgs(AgentMessageArgsSchema, args);
     if (!parsed.ok) {
       return toolError(
         request,
@@ -717,6 +705,7 @@ export class AgentToolDispatcher {
         parsed.data.message,
         parsed.data.delivery,
         parsed.data.allowPartialTurnLoss,
+        parsed.data.idempotencyKey,
       );
       return await this.toolSuccess(
         request,
@@ -751,11 +740,12 @@ export class AgentToolDispatcher {
   }
 
   private async handleMessageStatus(request: MCPRequest, args: unknown): Promise<MCPResponse> {
-    const parsed = parseArgs(z.object({ agentId: z.string().min(1), messageId: z.string().uuid() }).strict(), args);
+    const parsed = parseArgs(AgentMessageStatusArgsSchema, args);
     if (!parsed.ok) return toolError(request, `Invalid arguments for agent_message_status: ${describeIssues(parsed.issues)}`, 'mcp_invalid_tool_args', { tool: 'agent_message_status', issues: parsed.issues });
     try {
       const result = await this.ptahAPI.agent.messageStatus(parsed.data.agentId, parsed.data.messageId);
-      return this.toolSuccess(request, 'agent_message_status', JSON.stringify({ agentId: parsed.data.agentId, messageId: parsed.data.messageId, ...result }), { ...result });
+      const view = agentMessageStatusView(parsed.data.agentId, parsed.data.messageId, result);
+      return this.toolSuccess(request, 'agent_message_status', JSON.stringify(view), view);
     } catch {
       return toolError(request, 'agent_message_status failed', 'mcp_tool_failed', { tool: 'agent_message_status' });
     }

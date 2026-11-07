@@ -69,6 +69,12 @@ jest.mock('fs/promises', () => ({
   rmdir: jest.fn(),
 }));
 
+// The handler injects one runtime token. The runtime barrel is not loaded:
+// nothing else in this handler's import chain needs it.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: { PARENT_SESSION_PURGE: Symbol.for('ParentSessionPurge') },
+}));
+
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
 afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
 mkdirSync(join(TEST_ROOT, 'workspace'), { recursive: true });
@@ -139,6 +145,7 @@ import type {
   StoredOrganization,
 } from '@ptah-extension/session-organization';
 import type { TaskIndexService } from '@ptah-extension/task-specs';
+import type { ParentSessionPurge } from '@ptah-extension/cli-agent-runtime';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
@@ -336,6 +343,26 @@ interface Harness {
   sessionTitle: { retitle: jest.Mock };
   turnChangeSets: { remove: jest.Mock<Promise<void>, [string]> };
   jsonlReader: MockJsonlReader;
+  purge: MockPurge;
+}
+
+type MockPurge = {
+  [K in Exclude<keyof ParentSessionPurge, 'resumePendingPurges'>]: jest.Mock<
+    Promise<void>,
+    [string]
+  >;
+} & { resumePendingPurges: jest.Mock<Promise<void>, []> };
+
+/** Parent-session purge (Component 10); every phase resolves by default. */
+function createMockPurge(): MockPurge {
+  const step = () => jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
+  return {
+    beginDelete: step(),
+    markMetadataDeleted: step(),
+    completeDelete: step(),
+    abortDelete: step(),
+    resumePendingPurges: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+  };
 }
 
 type MockJsonlReader = jest.Mocked<
@@ -398,6 +425,7 @@ function makeHarness(
     remove: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
   };
   const jsonlReader = createMockJsonlReader(opts.transcriptLines);
+  const purge = createMockPurge();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -415,6 +443,7 @@ function makeHarness(
     sessionTitle as never,
     turnChangeSets as never,
     jsonlReader as never,
+    purge,
     (opts.agentProcessManager ?? null) as never,
     (opts.organization ?? null) as SessionOrganizationService | null,
     (opts.taskIndex ?? null) as TaskIndexService | null,
@@ -437,6 +466,7 @@ function makeHarness(
     sessionTitle,
     turnChangeSets,
     jsonlReader,
+    purge,
   };
 }
 
@@ -2098,6 +2128,134 @@ describe('SessionRpcHandlers', () => {
       expect(result.error).toBe('disk gone');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
+
+    describe('messaging purge order (Component 10)', () => {
+      /** A harness whose session is authorized and whose steps record their order. */
+      function purgeHarness(): { h: Harness; order: string[] } {
+        const h = makeHarness();
+        const order: string[] = [];
+        h.metadataStore.get.mockResolvedValue(
+          makeMetadata({ sessionId: VALID_SESSION_ID, workspaceId: WORKSPACE }) as never,
+        );
+        const record = (name: string) => async () => {
+          order.push(name);
+        };
+        h.purge.beginDelete.mockImplementation(record('beginDelete'));
+        h.purge.markMetadataDeleted.mockImplementation(record('markMetadataDeleted'));
+        h.purge.completeDelete.mockImplementation(record('completeDelete'));
+        h.purge.abortDelete.mockImplementation(record('abortDelete'));
+        h.metadataStore.delete.mockImplementation(record('metadataDelete'));
+        h.turnChangeSets.remove.mockImplementation(record('removeTurnChangeSets'));
+        // The projects dir exists and holds the session file, so the file step runs.
+        const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+        const dirName = WORKSPACE.replace(/[:\\/]/g, '-');
+        const file = path.join(projectsDir, dirName, `${VALID_SESSION_ID}.jsonl`);
+        mockAccess.mockImplementation(async (target: PathLike) => {
+          if (String(target) === projectsDir || String(target) === file) return;
+          throw new Error('ENOENT');
+        });
+        // The file step starts by listing the projects directory.
+        mockReaddir.mockImplementation((async (target: unknown) => {
+          if (String(target) !== projectsDir) return [];
+          order.push('deleteFiles');
+          return [dirName];
+        }) as unknown as typeof fs.readdir);
+        mockUnlink.mockResolvedValue(undefined);
+        h.handlers.register();
+        return { h, order };
+      }
+
+      afterEach(() => {
+        mockAccess.mockReset();
+        mockReaddir.mockReset();
+        mockUnlink.mockReset();
+      });
+
+      it('freezes, deletes metadata, records it and purges before change sets and files', async () => {
+        const { h, order } = purgeHarness();
+
+        const result = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toMatchObject({ success: true, data: { success: true } });
+        expect(result.data).not.toHaveProperty('messagingCleanup');
+        expect(order).toEqual([
+          'beginDelete',
+          'metadataDelete',
+          'markMetadataDeleted',
+          'completeDelete',
+          'removeTurnChangeSets',
+          'deleteFiles',
+        ]);
+        expect(h.purge.abortDelete).not.toHaveBeenCalled();
+      });
+
+      it('fails the RPC and keeps the metadata when the delete intent cannot be saved', async () => {
+        const { h } = purgeHarness();
+        h.purge.beginDelete.mockRejectedValue(new Error('disk full'));
+
+        const result = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
+        expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
+        expect(mockUnlink).not.toHaveBeenCalled();
+      });
+
+      it('aborts the purge when the metadata delete fails', async () => {
+        const { h, order } = purgeHarness();
+        h.metadataStore.delete.mockRejectedValue(new Error('locked'));
+
+        const result = await call<{ success: boolean; error?: string }>(h, 'session:delete', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: false, error: 'locked' });
+        expect(order).toEqual(['beginDelete', 'abortDelete']);
+        expect(h.purge.completeDelete).not.toHaveBeenCalled();
+        expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
+      });
+
+      it('reports pending-retry when the purge does not complete, and still deletes', async () => {
+        const { h, order } = purgeHarness();
+        h.purge.completeDelete.mockRejectedValue(new Error('index unreadable'));
+
+        const result = await call<{ success: boolean; messagingCleanup?: string }>(h, 'session:delete', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: true, messagingCleanup: 'pending-retry' });
+        expect(order).toEqual(['beginDelete', 'metadataDelete', 'markMetadataDeleted', 'removeTurnChangeSets', 'deleteFiles']);
+        expect(h.logger.error).toHaveBeenCalledWith(
+          'RPC: session:delete - messaging purge left for recovery',
+          expect.any(Error),
+        );
+      });
+
+      it('continues the delete when the metadata-deleted mark fails', async () => {
+        const { h } = purgeHarness();
+        h.purge.markMetadataDeleted.mockRejectedValue(new Error('flaky'));
+
+        const result = await call<{ success: boolean }>(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toEqual({ success: true });
+        expect(h.purge.completeDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
+      });
+
+      it('keeps messaging purged and the result unchanged when the file deletion fails', async () => {
+        const { h } = purgeHarness();
+        mockReaddir.mockRejectedValue(new Error('EPERM'));
+
+        const result = await call<{ success: boolean }>(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toEqual({ success: true });
+        expect(h.purge.completeDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(h.purge.abortDelete).not.toHaveBeenCalled();
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          'RPC: session:delete - session files not removed',
+          expect.objectContaining({ sessionId: VALID_SESSION_ID, error: 'EPERM' }),
+        );
+      });
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -2442,7 +2600,7 @@ describe('SessionRpcHandlers', () => {
         );
 
         expect(result.cliSessions).toEqual(refs);
-        expect(restoreAgents).toHaveBeenCalledWith(refs, OTHER_PROJECT);
+        expect(restoreAgents).toHaveBeenCalledWith(refs, OTHER_PROJECT, VALID_SESSION_ID);
       });
 
       it('keeps the cards but skips the registry when the folder is gone', async () => {

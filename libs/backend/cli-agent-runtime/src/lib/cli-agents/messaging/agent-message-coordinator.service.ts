@@ -20,12 +20,7 @@ import type {
 import { AgentMessageDispatcher } from './agent-message-dispatcher';
 import { CAPABILITY_METADATA_UNAVAILABLE, previewAgentMessage } from './agent-message-preview';
 import { AgentMessageReconciler, removeParkedEntry } from './agent-message-reconciler';
-import {
-  agentMessageSenderKey,
-  mayActOnEnvelope,
-  normalizeAgentMessageSender,
-  type AgentMessageSenderInput,
-} from './agent-message-sender';
+import { agentMessageSenderKey, mayActOnEnvelope } from './agent-message-sender';
 import type { AgentMessageEnvelope, NewEnvelope } from './envelope/agent-message-envelope.schema';
 import {
   AgentMessageStorageError,
@@ -117,9 +112,9 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     return previewAgentMessage(this.deps.manager, this.deps.detection, request);
   }
 
-  async send(request: AgentMessageRequest, senderInput: AgentMessageSenderInput = 'parent'): Promise<AgentMessageOutcome> {
+  /** The sender comes from the transport (renderer, MCP request context), never from arguments. */
+  async send(request: AgentMessageRequest, sender: AgentMessageSender): Promise<AgentMessageOutcome> {
     if (!request.message.trim()) throw new Error('Message must not be empty.');
-    const sender = normalizeAgentMessageSender(senderInput);
     const senderKey = agentMessageSenderKey(sender);
     const delivery = request.delivery === 'steer' ? 'now' : request.delivery ?? 'queue';
     const base = { requested: request.agentId, delivery, sender, senderKey };
@@ -182,10 +177,9 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
   async retry(
     agentId: AgentId,
     messageId: string,
-    actorInput: AgentMessageSenderInput = 'user',
+    actor: AgentMessageSender,
     opts: { confirmDuplicateRisk?: boolean } = {},
   ): Promise<AgentMessageOutcome> {
-    const actor = normalizeAgentMessageSender(actorInput);
     const envelope = await this.owned(agentId, messageId, actor);
     return this.serial.run(envelope.laneLineageId, async () => {
       const current = (await this.deps.store.get(messageId)) ?? envelope;
@@ -205,8 +199,7 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     });
   }
 
-  async cancel(agentId: AgentId, messageId: string, actorInput: AgentMessageSenderInput = 'user'): Promise<AgentDeliveryReceipt> {
-    const actor = normalizeAgentMessageSender(actorInput);
+  async cancel(agentId: AgentId, messageId: string, actor: AgentMessageSender): Promise<AgentDeliveryReceipt> {
     const envelope = await this.owned(agentId, messageId, actor);
     return this.serial.run(envelope.laneLineageId, async () => {
       const current = (await this.deps.store.get(messageId)) ?? envelope;
@@ -221,9 +214,14 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     });
   }
 
-  async getReceipt(agentId: AgentId, messageId: string, viewer?: AgentMessageSenderInput): Promise<AgentDeliveryReceipt> {
+  /**
+   * Alias-aware receipt lookup. Without a viewer there is no ownership filter:
+   * Phase 1 MCP status reads any receipt by id (URL attribution, no permission
+   * change). A viewer limits the lookup to envelopes it may act on.
+   */
+  async getReceipt(agentId: AgentId, messageId: string, viewer?: AgentMessageSender): Promise<AgentDeliveryReceipt> {
     const envelope = await this.find(agentId, messageId);
-    if (!envelope || (viewer !== undefined && !mayActOnEnvelope(normalizeAgentMessageSender(viewer), envelope)))
+    if (!envelope || (viewer !== undefined && !mayActOnEnvelope(viewer, envelope)))
       throw new Error('Message receipt not found.');
     return this.deps.store.toReceipt(envelope);
   }
@@ -237,8 +235,8 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
   }
 
   /** The stored body of an undelivered message, for Recover text. */
-  async getBody(agentId: AgentId, messageId: string, actorInput: AgentMessageSenderInput = 'user'): Promise<string> {
-    const envelope = await this.owned(agentId, messageId, normalizeAgentMessageSender(actorInput));
+  async getBody(agentId: AgentId, messageId: string, actor: AgentMessageSender): Promise<string> {
+    const envelope = await this.owned(agentId, messageId, actor);
     if (!CANCELLABLE.has(envelope.state) && envelope.state !== 'dispatching')
       throw new Error('Message text is only recoverable before delivery.');
     const body = await this.deps.store.getBody(messageId);
