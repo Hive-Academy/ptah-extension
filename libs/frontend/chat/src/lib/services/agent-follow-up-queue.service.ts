@@ -1,8 +1,10 @@
 ﻿import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
+  AgentDeliveryStore,
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
+import type { AgentDeliveryReceipt } from '@ptah-extension/shared';
 
 const GENERIC_FAILURE = 'Could not send the follow-up. Try again.';
 
@@ -40,10 +42,17 @@ function withoutMissing<T>(
   return next ?? map;
 }
 
+/** A user's queued message whose text this renderer no longer holds (after a reload). */
+function restorableQueued(receipts: readonly AgentDeliveryReceipt[]): AgentDeliveryReceipt | undefined {
+  return receipts.find((receipt) => receipt.state === 'accepted' && receipt.sender === 'user' &&
+    receipt.delivery === 'queue' && receipt.hasRecoverableBody !== false);
+}
+
 /** Draft and receipt projection for the backend-owned message queue. */
 @Injectable({ providedIn: 'root' })
 export class AgentFollowUpQueueService {
-  private readonly store = inject(AgentMonitorStore);
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly store = inject(AgentDeliveryStore);
   private readonly _queued = signal<AgentTextMap>(new Map());
   private readonly _undelivered = signal<AgentTextMap>(new Map());
   private readonly _errors = signal<AgentTextMap>(new Map());
@@ -53,12 +62,17 @@ export class AgentFollowUpQueueService {
   private readonly revisions = new Map<string, number>();
   private readonly observed = new Map<string, string>();
   private readonly cancelled = new Set<string>();
+  /** Bumped when `accepted` changes outside a signal write, so `queued()` re-reads. */
+  private readonly _acceptedRevision = signal(0);
+  /** Receipt ids whose text is being, or could not be, read back from the backend. */
+  private readonly restoring = new Set<string>();
 
   constructor() {
     effect(() => {
-      const agents = this.store.agents();
+      const agents = this.monitor.agents();
       const receipts = this.store.receipts();
       untracked(() => {
+        for (const agent of agents) this.restoreQueuedText(agent.agentId, receipts.get(agent.agentId) ?? []);
         const present = new Set(agents.map((agent) => agent.agentId));
         this._queued.update((map) => withoutMissing(map, present));
         this._undelivered.update((map) => withoutMissing(map, present));
@@ -82,6 +96,7 @@ export class AgentFollowUpQueueService {
   }
 
   queued(agentId: string): string | null {
+    this._acceptedRevision();
     return this._queued().get(agentId) ?? this.accepted.get(agentId)?.text ?? null;
   }
 
@@ -105,6 +120,8 @@ export class AgentFollowUpQueueService {
     this._errors.update((map) => withoutEntry(map, agentId));
     const revision = (this.revisions.get(agentId) ?? 0) + 1;
     this.revisions.set(agentId, revision);
+    // One key per submission: the backend dedupes a repeated send of the same text.
+    const idempotencyKey = this.store.newIdempotencyKey();
     this.schedule(agentId, async () => {
       const accepted = this.accepted.get(agentId);
       if (accepted) {
@@ -125,7 +142,7 @@ export class AgentFollowUpQueueService {
         }
       }
       if (this.revisions.get(agentId) !== revision) return;
-      const outcome = await this.store.sendMessage(agentId, text, 'queue');
+      const outcome = await this.store.sendMessage(agentId, text, 'queue', undefined, idempotencyKey);
       if (outcome.mode === 'unsupported' || !outcome.receipt) {
         this.fail(agentId, text, outcome.detail ?? GENERIC_FAILURE);
         this._queued.update((map) => withoutEntry(map, agentId));
@@ -173,7 +190,7 @@ export class AgentFollowUpQueueService {
     this._sending.update((set) => new Set(set).add(agent.agentId));
     this._errors.update((map) => withoutEntry(map, agent.agentId));
     try {
-      const outcome = await this.store.sendMessage(agent.agentId, message, 'queue');
+      const outcome = await this.store.sendMessage(agent.agentId, message, 'queue', undefined, this.store.newIdempotencyKey());
       if (outcome.mode === 'unsupported' || !outcome.receipt) this.fail(agent.agentId, message, outcome.detail ?? GENERIC_FAILURE);
       else this.accepted.set(agent.agentId, { id: outcome.receipt.id, text: message });
     } catch (error: unknown) {
@@ -181,6 +198,23 @@ export class AgentFollowUpQueueService {
     } finally {
       this._sending.update((set) => { const next = new Set(set); next.delete(agent.agentId); return next; });
     }
+  }
+
+  /**
+   * After a reload the renderer holds no queued text. Read it back from the
+   * backend body store so the queued message stays editable.
+   */
+  private restoreQueuedText(agentId: string, receipts: readonly AgentDeliveryReceipt[]): void {
+    if (this.accepted.has(agentId) || this._queued().has(agentId) || this.operations.has(agentId)) return;
+    const queued = restorableQueued(receipts);
+    if (!queued || this.restoring.has(queued.id)) return;
+    this.restoring.add(queued.id);
+    this.store.recoverQueuedText(agentId, queued.id).then((text) => {
+      if (this.accepted.has(agentId) || this.store.receipt(agentId, queued.id)?.state !== 'accepted') return;
+      this.accepted.set(agentId, { id: queued.id, text });
+      this.restoring.delete(queued.id);
+      this._acceptedRevision.update((value) => value + 1);
+    }, () => undefined);
   }
 
   /** `text` is read on failure, so an operation that narrowed it records only what it still owns. */

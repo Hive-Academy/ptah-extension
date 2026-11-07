@@ -1,17 +1,19 @@
 /**
  * AgentMonitorMessageHandler specs — routes AGENT_MONITOR_* messages to
- * AgentMonitorStore. This is a pure routing layer; tests assert each supported
+ * AgentMonitorStore and AgentDeliveryStore. This is a routing layer plus the delivery hydration trigger; tests assert each supported
  * message type dispatches to the correct store method and unknown types are
  * silently ignored.
  */
 
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AgentMonitorMessageHandler,
   parseAgentMonitorReparented,
 } from './agent-monitor-message-handler.service';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 type StoreSlice = Pick<
   AgentMonitorStore,
@@ -22,15 +24,22 @@ type StoreSlice = Pick<
   | 'onAgentExpired'
   | 'onPermissionRequest'
   | 'reparentAgents'
-  | 'onMessageReceipt'
-  | 'onParentDelivery'
 >;
+type DeliverySlice = Pick<AgentDeliveryStore, 'onMessageReceipt' | 'onParentDelivery' | 'hydrate'>;
 
 describe('AgentMonitorMessageHandler', () => {
   let handler: AgentMonitorMessageHandler;
   let store: jest.Mocked<StoreSlice>;
+  let delivery: jest.Mocked<DeliverySlice>;
+  const activeSession = signal<string | null>(null);
 
   beforeEach(() => {
+    activeSession.set(null);
+    delivery = {
+      onMessageReceipt: jest.fn(),
+      onParentDelivery: jest.fn(),
+      hydrate: jest.fn().mockResolvedValue(undefined),
+    };
     store = {
       onAgentSpawned: jest.fn(),
       onAgentOutput: jest.fn(),
@@ -39,14 +48,14 @@ describe('AgentMonitorMessageHandler', () => {
       onAgentExpired: jest.fn(),
       onPermissionRequest: jest.fn(),
       reparentAgents: jest.fn(),
-      onMessageReceipt: jest.fn(),
-      onParentDelivery: jest.fn(),
     } as jest.Mocked<StoreSlice>;
 
     TestBed.configureTestingModule({
       providers: [
         AgentMonitorMessageHandler,
         { provide: AgentMonitorStore, useValue: store },
+        { provide: AgentDeliveryStore, useValue: delivery },
+        { provide: TabManagerService, useValue: { activeTabSessionId: activeSession } },
       ],
     });
     handler = TestBed.inject(AgentMonitorMessageHandler);
@@ -73,17 +82,32 @@ describe('AgentMonitorMessageHandler', () => {
   it('routes valid parent delivery and rejects malformed payloads', () => {
     const payload = { agentId: '11111111-1111-4111-8111-111111111111', kind: 'report', state: 'pending' };
     handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY, payload });
-    expect(store.onParentDelivery).toHaveBeenCalledWith(payload);
+    expect(delivery.onParentDelivery).toHaveBeenCalledWith(payload);
     handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY, payload: { ...payload, state: 'unknown' } });
-    expect(store.onParentDelivery).toHaveBeenCalledTimes(1);
+    expect(delivery.onParentDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the removed parent expired state', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_PARENT_DELIVERY,
+      payload: { agentId: '11111111-1111-4111-8111-111111111111', kind: 'completion', state: 'expired' } });
+    expect(delivery.onParentDelivery).not.toHaveBeenCalled();
+  });
+
+  it('hydrates delivery state on renderer start and on each session selection', () => {
+    TestBed.tick();
+    expect(delivery.hydrate).toHaveBeenCalledWith(undefined);
+    activeSession.set('session-b');
+    TestBed.tick();
+    expect(delivery.hydrate).toHaveBeenLastCalledWith('session-b');
+    expect(delivery.hydrate).toHaveBeenCalledTimes(2);
   });
 
   it('routes validated receipt updates without exposing message text', () => {
     const receipt = { id: 'message-1', agentId: '11111111-1111-4111-8111-111111111111', state: 'accepted', mode: 'queue-next-turn', delivery: 'queue', createdAt: 1, updatedAt: 1 };
     handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, payload: { receipt } });
-    expect(store.onMessageReceipt).toHaveBeenCalledWith(receipt);
+    expect(delivery.onMessageReceipt).toHaveBeenCalledWith(receipt);
     handler.handleMessage({ type: MESSAGE_TYPES.AGENT_MONITOR_MESSAGE_RECEIPT, payload: { receipt: { ...receipt, message: 'private' } } });
-    expect(store.onMessageReceipt).toHaveBeenCalledTimes(1);
+    expect(delivery.onMessageReceipt).toHaveBeenCalledTimes(1);
   });
 
   describe('agent-monitor:reparented (TASK_2026_876)', () => {

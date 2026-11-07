@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ModelStateService, WallClockService } from '@ptah-extension/core';
 import {
   SessionInspectorStore,
@@ -69,6 +69,9 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     TestBed.configureTestingModule({
       imports: [InspectorAgentsSectionComponent],
       providers: [
+        { provide: AgentDeliveryStore, useValue: { receipts: signal(new Map()), recovered: signal(new Map()), takeRecovered: () => null,
+          composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined),
+          receiptLabel: () => 'Queued', receiptStatus: () => ({ label: 'Queued' }), newIdempotencyKey: () => 'key' } },
         {
           provide: AgentMonitorStore,
           useValue: { subagents: signal(new Map()), agents: signal([]) },

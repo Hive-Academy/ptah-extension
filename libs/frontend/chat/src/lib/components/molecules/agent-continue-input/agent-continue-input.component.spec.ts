@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { AgentContinueInputComponent } from './agent-continue-input.component';
 
 const agentId = '11111111-1111-4111-8111-111111111111';
@@ -41,9 +41,11 @@ describe('AgentContinueInputComponent', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [AgentContinueInputComponent],
-      providers: [{ provide: AgentMonitorStore, useValue: {
-        receipts, agentsById: signal(new Map([[agentId, agent]])), composerState: () => state, previewMessage: jest.fn().mockResolvedValue(undefined),
-        sendMessage, cancelMessage, receiptLabel: () => 'Received', receipt: () => undefined,
+      providers: [{ provide: AgentMonitorStore, useValue: { agentsById: signal(new Map([[agentId, agent]])) } }, { provide: AgentDeliveryStore, useValue: {
+        receipts, composerState: () => state, previewMessage: jest.fn().mockResolvedValue(undefined),
+        sendMessage, cancelMessage, receiptLabel: () => 'Received', receiptStatus: () => ({ label: 'Received' }), receipt: () => undefined,
+        recovered: signal(new Map()), takeRecovered: () => null, newIdempotencyKey: () => 'key',
+        recoverQueuedText: jest.fn().mockRejectedValue(new Error('no body')),
       } }],
     });
     fixture = TestBed.createComponent(AgentContinueInputComponent);
@@ -116,7 +118,7 @@ describe('AgentContinueInputComponent', () => {
     (Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
       .find(button => button.textContent?.trim() === 'Send') as HTMLButtonElement).click();
     await fixture.whenStable(); fixture.detectChanges();
-    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'follow up', 'queue', false);
+    expect(sendMessage).toHaveBeenLastCalledWith(agentId, 'follow up', 'queue', false, 'key');
     expect(field.value).toBe('');
   });
 
@@ -134,7 +136,7 @@ describe('AgentContinueInputComponent', () => {
     expect(sendMessage).not.toHaveBeenCalled();
     (fixture.nativeElement.querySelector('[role="alertdialog"] button') as HTMLButtonElement).click();
     await fixture.whenStable();
-    expect(sendMessage).toHaveBeenCalledWith(agentId, 'urgent', 'now', true);
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'urgent', 'now', true, 'key');
   });
 
   it('uses Enter for queue', async () => {
@@ -142,7 +144,7 @@ describe('AgentContinueInputComponent', () => {
     const field = draft('first');
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await fixture.whenStable(); fixture.detectChanges();
-    expect(sendMessage).toHaveBeenCalledWith(agentId, 'first', 'queue', false);
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'first', 'queue', false, 'key');
   });
 
   it('uses Ctrl+Enter for Send now', async () => {
@@ -150,7 +152,7 @@ describe('AgentContinueInputComponent', () => {
     const secondField = draft('second');
     secondField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
     await fixture.whenStable();
-    expect(sendMessage).toHaveBeenCalledWith(agentId, 'second', 'now', false);
+    expect(sendMessage).toHaveBeenCalledWith(agentId, 'second', 'now', false, 'key');
   });
 
   it('closes the Send now menu with Escape', () => {

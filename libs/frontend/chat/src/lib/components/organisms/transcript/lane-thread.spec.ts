@@ -9,7 +9,7 @@ describe('laneThreadEntries', () => {
       [{ agentId: 'lane', kind: 'completion', state: 'pending' }], { status: 'failed', timestamp: 20 });
     expect(entries.map(entry => entry.body || entry.verdict)).toEqual(['Check the files', 'Failed']);
     expect(entries[0].sender).toBe('Parent agent · Claude');
-    expect(entries[1]).toMatchObject({ verdict: 'Failed', parentSignal: 'Waiting for parent' });
+    expect(entries[1]).toMatchObject({ verdict: 'Failed', parentDelivery: { kind: 'completion', state: 'pending' } });
   });
   it('orders text messages and only attributes a receipt on exact id', () => {
     const messages = [
@@ -59,10 +59,10 @@ describe('laneThreadEntries', () => {
     expect(entries[0].body).toBe('');
   });
 
-  it('shows no parent signal when no parent-delivery push exists', () => {
+  it('shows no parent delivery when no parent-delivery push exists', () => {
     const entries = laneThreadEntries([], [], 'Claude', 'Docs', 'Codex', [],
       { status: 'completed', timestamp: 20 });
-    expect(entries[0].parentSignal).toBeUndefined();
+    expect(entries[0].parentDelivery).toBeUndefined();
   });
 
   it('names the CLI once when the lane label equals the CLI', () => {

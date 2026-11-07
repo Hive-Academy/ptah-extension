@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import {
+  AgentDeliveryStore,
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
@@ -90,6 +91,9 @@ describe('raw stdout fallback', () => {
             error: jest.fn(),
           } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
         },
+        { provide: AgentDeliveryStore, useValue: { receipts: signal(new Map()), recovered: signal(new Map()), takeRecovered: () => null,
+          composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined),
+          receiptLabel: () => 'Queued', receiptStatus: () => ({ label: 'Queued' }), newIdempotencyKey: () => 'key' } },
         {
           provide: AgentMonitorStore,
           useValue: { agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },

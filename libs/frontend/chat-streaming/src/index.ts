@@ -62,6 +62,14 @@ export {
   type SubagentRecord,
   type SubagentUsageTotals,
 } from './lib/agent-monitor.store';
+export {
+  AgentDeliveryStore,
+  formatDeliveryAge,
+  type DeliveryAction,
+  type DeliveryActionKind,
+  type DeliveryStatus,
+  type ParentDeliveryItem,
+} from './lib/agent-delivery.store';
 export { agentVisibleInSession, knownSessionId } from './lib/session-scope';
 /**
  * Retention markers. Exported so the agent card's stdout/segment renderers can

@@ -1,7 +1,9 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { ClaudeRpcService, SURFACE_ACTIVE } from '@ptah-extension/core';
+import { createMockRpcService, rpcSuccess } from '@ptah-extension/core/testing';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentId } from '@ptah-extension/shared';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 import { LaneEventRowComponent } from './lane-event-row.component';
 import { provideMarkdown } from 'ngx-markdown';
@@ -19,10 +21,13 @@ const row: LaneEventRow = {
 
 describe('LaneEventRowComponent', () => {
   const openLane = jest.fn();
+  let rpc: ReturnType<typeof createMockRpcService>;
   beforeEach(() => {
     openLane.mockClear();
+    rpc = createMockRpcService();
     TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [
-      { provide: AgentMonitorStore, useValue: { parentDelivery: signal(new Map()), parentDeliveryState: () => ({ report: 'Sent to parent', completion: 'Waiting for parent' }) } },
+      { provide: AgentMonitorStore, useValue: { agentsById: signal(new Map()) } },
+      { provide: ClaudeRpcService, useValue: rpc },
       provideMarkdown(),
       { provide: SURFACE_ACTIVE, useValue: signal(false) },
       { provide: SESSION_CARD_ACTIONS, useValue: { openLane } },
@@ -194,5 +199,92 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('Open lane');
     expect(element.querySelector('[data-testid="lane-event-branch"]')).not.toBeNull();
     expect(openLane).not.toHaveBeenCalled();
+  });
+  describe('parent delivery status', () => {
+    const laneId = AgentId.from('11111111-1111-4111-8111-111111111111');
+    const laneRow: LaneEventRow = { ...row, agentId: laneId };
+    const deliveryId = `lane-delivery:${laneId}:2026-11-07T12:00:00.000Z` as const;
+    const notSaved = { agentId: laneId, kind: 'completion' as const, state: 'not-saved' as const, deliveryId,
+      createdAt: Date.now() - 5 * 60_000, updatedAt: Date.now() - 5 * 60_000 };
+
+    function render() {
+      const fixture = TestBed.createComponent(LaneEventRowComponent);
+      fixture.componentRef.setInput('row', laneRow);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('shows no parent signal and no overclaiming label without a delivery push', () => {
+      const element = render().nativeElement as HTMLElement;
+      expect(element.querySelector('[data-testid="delivery-status"]')).toBeNull();
+      expect(element.textContent).not.toContain('Sent to parent');
+      expect(element.textContent).not.toContain('Done');
+    });
+
+    it('shows a not-saved completion with its age and retries it through agent:retryParentDelivery', async () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onParentDelivery(notSaved);
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      const status = element.querySelector('[data-testid="delivery-status"]')!;
+      expect(status.textContent).toContain('Completion not delivered — not saved');
+      expect(status.querySelector('time')?.textContent).toBe('5m');
+      const retry = element.querySelector<HTMLButtonElement>('button[aria-label="Retry completion from Glm to the parent"]');
+      expect(retry).not.toBeNull();
+      rpc.call.mockResolvedValueOnce(rpcSuccess({ ...notSaved, parentSessionId: 'parent', attempts: 1, state: 'pending' }));
+      retry!.click();
+      await fixture.whenStable();
+      expect(rpc.call).toHaveBeenCalledWith('agent:retryParentDelivery', { deliveryId });
+    });
+
+    it('removes the not-saved notice when a removed push follows', () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onParentDelivery(notSaved);
+      const fixture = render();
+      store.onParentDelivery({ ...notSaved, removed: true });
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="delivery-status"]')).toBeNull();
+    });
+
+    it('asks for duplicate-risk confirmation before retrying an uncertain parent delivery', async () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onParentDelivery({ ...notSaved, state: 'outcome-unknown', everDispatched: true });
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      element.querySelector<HTMLButtonElement>('button[aria-label="Retry completion from Glm to the parent"]')!.click();
+      fixture.detectChanges();
+      expect(rpc.call).not.toHaveBeenCalledWith('agent:retryParentDelivery', expect.anything());
+      const dialog = element.querySelector('[role="alertdialog"]')!;
+      expect(dialog.textContent).toContain('Retrying can run it twice');
+      rpc.call.mockResolvedValueOnce(rpcSuccess({ ...notSaved, parentSessionId: 'parent', attempts: 2, state: 'sending' }));
+      dialog.querySelector<HTMLButtonElement>('button.btn-warning')!.click();
+      await fixture.whenStable();
+      expect(rpc.call).toHaveBeenCalledWith('agent:retryParentDelivery', { deliveryId, confirmDuplicateRisk: true });
+    });
+
+    it('keeps an accepted delivery off the collapsed card and shows it once when expanded', () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onParentDelivery({ ...notSaved, state: 'delivered' });
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector('[data-testid="lane-event-parent-delivery"]')).toBeNull();
+      element.querySelector<HTMLButtonElement>('[data-testid="lane-event-toggle"]')!.click();
+      fixture.detectChanges();
+      const statuses = element.querySelectorAll('[data-testid="delivery-status"]');
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].textContent).toContain('Accepted by parent session');
+    });
+
+    it('cancels a pending parent delivery through agent:cancelParentDelivery', async () => {
+      const store = TestBed.inject(AgentDeliveryStore);
+      store.onParentDelivery({ ...notSaved, kind: 'report', state: 'pending' });
+      const fixture = render();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.textContent).toContain('Waiting for parent');
+      rpc.call.mockResolvedValueOnce(rpcSuccess({ ...notSaved, kind: 'report', parentSessionId: 'parent', attempts: 0, state: 'cancelled' }));
+      element.querySelector<HTMLButtonElement>('button[aria-label="Cancel report from Glm to the parent"]')!.click();
+      await fixture.whenStable();
+      expect(rpc.call).toHaveBeenCalledWith('agent:cancelParentDelivery', { deliveryId });
+    });
   });
 });

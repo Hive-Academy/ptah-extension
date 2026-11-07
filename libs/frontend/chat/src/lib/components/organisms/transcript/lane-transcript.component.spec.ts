@@ -51,7 +51,7 @@ import {
   provideSurfaceActiveTesting,
 } from '@ptah-extension/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { createExecutionNode, type ExecutionNode } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
@@ -99,6 +99,8 @@ function cliLaneNodes(): ExecutionNode[] {
   ];
 }
 
+const deliveryStatus = () => ({ label: 'Queued', text: 'Queued', attention: false, actions: [] });
+
 describe('LaneTranscriptComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -108,7 +110,9 @@ describe('LaneTranscriptComponent', () => {
       // fix ToolCallItemComponent required both, so every tool row in a lane
       // failed to create (NG0201) and left an empty node.
       providers: [
-        { provide: AgentMonitorStore, useValue: { agentsById: signal(new Map()), receipts: signal(new Map()), receiptLabel: () => 'Queued' } },
+        { provide: AgentMonitorStore, useValue: { agentsById: signal(new Map()) } },
+        { provide: AgentDeliveryStore, useValue: { receipts: signal(new Map()), parentDelivery: signal(new Map()),
+          receiptStatus: deliveryStatus, parentStatus: deliveryStatus } },
         provideSurfaceActiveTesting(),
         {
           provide: VSCodeService,
@@ -145,7 +149,11 @@ describe('LaneTranscriptComponent', () => {
     const agentId = 'cli-display';
     TestBed.overrideProvider(AgentMonitorStore, { useValue: {
       agentsById: signal(new Map([[agentId, { cli: 'codex', displayName: 'Research lane', status: 'running' }]])),
-      receipts: signal(new Map()), parentDelivery: signal(new Map([[agentId, [{ agentId, kind: 'report', state: 'pending', preview: 'Report' }]]])), receiptLabel: () => 'Queued',
+    } });
+    TestBed.overrideProvider(AgentDeliveryStore, { useValue: {
+      receipts: signal(new Map()), parentDelivery: signal(new Map([[agentId, [{ agentId, kind: 'report', state: 'pending', preview: 'Report' }]]])),
+      receiptStatus: deliveryStatus, parentStatus: () => ({ label: 'Waiting for parent', text: 'Waiting for parent', attention: true,
+        actions: [{ kind: 'cancel', label: 'Cancel', confirmDuplicateRisk: false }] }),
     } });
     const fixture = TestBed.createComponent(LaneTranscriptComponent);
     fixture.componentRef.setInput('laneId', agentId);
@@ -159,6 +167,8 @@ describe('LaneTranscriptComponent', () => {
     expect(root.querySelectorAll('ptah-message-bubble')).toHaveLength(1);
     expect(root.querySelector('[aria-label="Parent and lane communication"]')?.textContent).toContain('Parent agent');
     expect(root.querySelector('[aria-label="Parent and lane communication"]')?.textContent).toContain('Research lane');
+    expect(root.querySelector('[aria-label="Parent and lane communication"]')?.textContent).toContain('Waiting for parent');
+    expect(root.querySelector('button[aria-label="Cancel report from Research lane to the parent"]')).not.toBeNull();
     expect(root.querySelector('[data-ptah-transcript-message-id]')?.textContent).toContain('Inspect files');
   });
 

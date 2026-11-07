@@ -170,9 +170,9 @@ describe('agent messaging schemas', () => {
     expect(AgentMonitorParentDeliveryPayloadSchema.parse(payload)).toEqual(payload);
   });
 
-  it('keeps expired and accepts the view-only not-saved removal payload', () => {
+  it('rejects the removed parent expired state and accepts the not-saved removal payload', () => {
     const expired = { ...parentDelivery('pending'), state: 'expired' };
-    expect(AgentMonitorParentDeliveryPayloadSchema.parse(expired)).toEqual(expired);
+    expect(AgentMonitorParentDeliveryPayloadSchema.safeParse(expired).success).toBe(false);
 
     const payload = {
       ...parentDelivery('not-saved'),

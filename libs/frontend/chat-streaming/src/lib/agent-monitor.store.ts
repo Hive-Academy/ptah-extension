@@ -21,7 +21,6 @@ import {
   inject,
   untracked,
   OnDestroy,
-  type Signal,
 } from '@angular/core';
 import type {
   AgentProcessInfo,
@@ -47,12 +46,6 @@ import type {
   ModelPricing,
   QuotaOwnerRef,
   TokenBreakdown,
-  AgentMessageDelivery,
-  AgentMessagePreview,
-  AgentMessageOutcome,
-  AgentDeliveryReceipt,
-  ParentDeliveryState,
-  AgentMonitorParentDeliveryPayload,
   EffectiveLaneCapabilities,
   EffectiveLanePolicy,
   CliAdapterManifest,
@@ -63,7 +56,6 @@ import {
   findModelPricing,
   pricesCacheTokens,
   isProviderAccountOpaqueId,
-  AgentId,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -780,10 +772,6 @@ export interface SubagentRpcError {
   readonly timestamp: number;
 }
 
-type ParentDeliveryPayload = Omit<AgentMonitorParentDeliveryPayload, 'state'> & {
-  readonly state: ParentDeliveryState | 'expired';
-};
-
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
@@ -807,53 +795,6 @@ export class AgentMonitorStore implements OnDestroy {
       }
     });
   }
-  private readonly _receipts = signal<ReadonlyMap<string, readonly AgentDeliveryReceipt[]>>(new Map());
-  readonly receipts = this._receipts.asReadonly();
-  private readonly _parentDelivery = signal<ReadonlyMap<string, readonly ParentDeliveryPayload[]>>(new Map());
-  /** Legacy public view retained until P1-F extracts the delivery store. */
-  readonly parentDelivery = this._parentDelivery.asReadonly() as Signal<ReadonlyMap<string, readonly AgentMonitorParentDeliveryPayload[]>>;
-  private readonly _previews = signal<ReadonlyMap<string, Readonly<Partial<Record<AgentMessageDelivery, AgentMessagePreview>>>>>(new Map());
-
-  receipt(agentId: string, messageId: string): AgentDeliveryReceipt | undefined {
-    return this._receipts().get(agentId)?.find((receipt) => receipt.id === messageId);
-  }
-
-  onMessageReceipt(receipt: AgentDeliveryReceipt): void {
-    this._receipts.update((current) => {
-      const next = new Map(current);
-      const prior = next.get(receipt.agentId) ?? [];
-      const existing = prior.find((item) => item.id === receipt.id);
-      const rank = (state: AgentDeliveryReceipt['state']) =>
-        ({ accepted: 0, 'blocked-retryable': 1, dispatching: 1, started: 1, settled: 2, failed: 2, expired: 2, 'interrupted-undelivered': 2, 'outcome-unknown': 3, cancelled: 4 })[state];
-      if (existing && (receipt.updatedAt < existing.updatedAt || rank(receipt.state) < rank(existing.state) ||
-        (rank(existing.state) === 2 && receipt.state !== existing.state))) return current;
-      next.delete(receipt.agentId);
-      next.set(receipt.agentId, [...prior.filter((item) => item.id !== receipt.id), receipt].slice(-32));
-      while (next.size > 64) {
-        const oldest = next.keys().next().value;
-        if (oldest === undefined) break;
-        next.delete(oldest);
-        this._previews.update(previews => { const copy = new Map(previews); copy.delete(oldest); return copy; });
-      }
-      return next;
-    });
-  }
-
-  onParentDelivery(payload: ParentDeliveryPayload): void {
-    this._parentDelivery.update((current) => {
-      const next = new Map(current);
-      const prior = next.get(payload.agentId) ?? [];
-      next.delete(payload.agentId);
-      next.set(payload.agentId, [...prior.filter((item) => item.kind !== payload.kind || item.deliveryId !== payload.deliveryId), payload].slice(-16));
-      while (next.size > 64) {
-        const oldest = next.keys().next().value;
-        if (oldest === undefined) break;
-        next.delete(oldest);
-      }
-      return next;
-    });
-  }
-
   laneCapabilities(agentId: string): {
     readonly potential?: CliAdapterManifest;
     readonly effective?: EffectiveLaneCapabilities;
@@ -861,90 +802,6 @@ export class AgentMonitorStore implements OnDestroy {
   } {
     const agent = this._byId().get(agentId);
     return { potential: agent?.potentialCapabilities, effective: agent?.effectiveCapabilities, policy: agent?.effectivePolicy };
-  }
-
-  parentDeliveryState(agentId: string): { readonly completion: string; readonly report: string } {
-    const events = this._parentDelivery().get(agentId) ?? [];
-    const findState = (kind: 'completion' | 'report'): ParentDeliveryState | 'expired' | undefined =>
-      [...events].reverse().find((event) => event.kind === kind)?.state;
-    const label = (kind: 'completion' | 'report') => {
-      const state = findState(kind);
-      return state === 'delivered' ? 'Sent to parent' : state === 'expired' ? 'Expired — not sent to parent'
-        : state === 'sending' ? 'Sending to parent'
-        : state === 'blocked-retryable' ? 'Parent did not accept'
-        : state === 'outcome-unknown' ? 'Parent delivery uncertain — may already be in the parent chat'
-        : state === 'cancelled' ? 'Cancelled'
-        : state === 'not-saved' ? 'Completion not delivered — not saved'
-        : state === 'pending' ? 'Waiting for parent' : '';
-    };
-    return { completion: label('completion'), report: label('report') };
-  }
-
-  receiptLabel(receipt: AgentDeliveryReceipt): string {
-    switch (receipt.state) {
-      case 'accepted': return 'Queued';
-      case 'blocked-retryable':
-        if (receipt.reason === 'awaiting-resume') return 'Held after restart';
-        if (receipt.reason === 'lane-at-limit') {
-          return receipt.limit?.resetAt === undefined ? 'Lane at limit' : 'Waiting for limit reset';
-        }
-        return 'Retrying';
-      case 'dispatching': return 'Sending to lane';
-      case 'started': return 'Sending';
-      case 'settled': return receipt.turnOutcome ? 'Done' : 'Received';
-      case 'outcome-unknown': return 'Outcome unknown — may already have run; check the lane';
-      case 'failed': return 'Failed';
-      case 'expired': return 'Expired';
-      case 'interrupted-undelivered': return 'Interrupted — not sent';
-      case 'cancelled': return 'Cancelled';
-    }
-  }
-
-  composerState(agentId: string): {
-    readonly queue?: AgentMessagePreview;
-    readonly now?: AgentMessagePreview;
-    readonly queueDisabledReason?: string;
-    readonly nowDisabledReason?: string;
-    readonly queueHint: string;
-    readonly nowHint: string;
-  } {
-    const previews = this._previews().get(agentId);
-    const queue = previews?.queue;
-    const now = previews?.now;
-    return {
-      queue,
-      now,
-      queueDisabledReason: queue?.supported === false ? queue.reason ?? 'Unavailable' : undefined,
-      nowDisabledReason: now?.supported === false ? now.reason ?? 'Unavailable' : undefined,
-      queueHint: queue?.mode === 'start-turn' ? 'Start turn' : queue?.usesResume ? 'Resume session' : 'Queue next turn',
-      nowHint: now?.lossDisclosure ? now.lossDisclosure.text : now?.usesResume ? 'Resume session now' : 'Send now',
-    };
-  }
-
-  async previewMessage(agentId: string, delivery: AgentMessageDelivery): Promise<AgentMessagePreview> {
-    const result = await this.rpc.call('agent:previewMessage', { agentId: AgentId.from(agentId), delivery });
-    if (!result.isSuccess()) throw new Error(result.error ?? 'Message preview failed');
-    const preview = result.data;
-    this._previews.update((current) => {
-      const next = new Map(current);
-      next.set(agentId, { ...next.get(agentId), [delivery]: preview });
-      return next;
-    });
-    return preview;
-  }
-
-  async sendMessage(agentId: string, text: string, delivery: AgentMessageDelivery = 'queue', allowPartialTurnLoss?: boolean): Promise<AgentMessageOutcome> {
-    const result = await this.rpc.call('agent:sendMessage', { agentId: AgentId.from(agentId), message: text, delivery, allowPartialTurnLoss });
-    if (!result.isSuccess()) throw new Error(result.error ?? 'Message send failed');
-    if (result.data.receipt) this.onMessageReceipt(result.data.receipt);
-    return result.data;
-  }
-
-  async cancelMessage(agentId: string, messageId: string): Promise<AgentDeliveryReceipt> {
-    const result = await this.rpc.call('agent:cancelMessage', { agentId: AgentId.from(agentId), messageId });
-    if (!result.isSuccess()) throw new Error(result.error ?? 'Message cancellation failed');
-    this.onMessageReceipt(result.data);
-    return result.data;
   }
 
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
@@ -1899,14 +1756,6 @@ export class AgentMonitorStore implements OnDestroy {
   ): void {
     this.flushPendingOutput();
     this._agents.update(fn);
-    const activeIds = new Set(this._agents().map(agent => agent.agentId));
-    this._previews.update(current => {
-      const staleIds = [...current.keys()].filter(id => !activeIds.has(id));
-      if (!staleIds.length) return current;
-      const next = new Map(current);
-      for (const id of staleIds) next.delete(id);
-      return next;
-    });
   }
 
   onAgentExited(info: AgentProcessInfo): void {

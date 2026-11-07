@@ -120,7 +120,6 @@ export const AgentMonitorParentDeliveryPayloadSchema = z.object({
     'outcome-unknown',
     'cancelled',
     'not-saved',
-    'expired',
   ]),
   deliveryId: z.string().regex(/^lane-delivery:\S{1,480}$/).optional(),
   parentSessionId: z.string().min(1).max(200).optional(),

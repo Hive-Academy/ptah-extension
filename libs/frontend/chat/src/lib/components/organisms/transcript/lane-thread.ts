@@ -1,4 +1,5 @@
-import type { AgentDeliveryReceipt, AgentMonitorParentDeliveryPayload, ExecutionChatMessage } from '@ptah-extension/shared';
+import type { AgentDeliveryReceipt, ExecutionChatMessage } from '@ptah-extension/shared';
+import type { ParentDeliveryItem } from '@ptah-extension/chat-streaming';
 
 export interface LaneThreadEntry {
   readonly id: string;
@@ -8,7 +9,8 @@ export interface LaneThreadEntry {
   readonly body: string;
   readonly receipt?: AgentDeliveryReceipt;
   readonly verdict?: string;
-  readonly parentSignal?: string;
+  /** Delivery of this report or completion to the parent; its label comes from AgentDeliveryStore. */
+  readonly parentDelivery?: ParentDeliveryItem;
 }
 
 /** Receipt ids are independent of transcript ids; match user text before adding preview rows. */
@@ -18,14 +20,12 @@ export function laneThreadEntries(
   parentFamily: string,
   laneLabel: string,
   cli: string,
-  parentDelivery: readonly AgentMonitorParentDeliveryPayload[] = [],
+  parentDelivery: readonly ParentDeliveryItem[] = [],
   completion?: { readonly status: string; readonly timestamp: number },
 ): LaneThreadEntry[] {
   const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
   // "kimi · kimi" reads as a stutter: name the CLI once when the label is the CLI.
   const laneSender = laneLabel && laneLabel.trim().toLowerCase() !== cli.trim().toLowerCase() ? `${laneLabel} · ${cli}` : cli;
-  const signalFor = (state: string | undefined): string | undefined =>
-    state === 'delivered' ? 'Sent to parent' : state === 'expired' ? 'Expired — not sent to parent' : state === 'pending' ? 'Waiting for parent' : undefined;
   const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
   const matched = new Set<string>();
   const entries: LaneThreadEntry[] = messages.filter(message => message.role === 'user' && message.rawContent && message.timestamp > 0).map(message => {
@@ -46,7 +46,7 @@ export function laneThreadEntries(
   for (const event of parentDelivery.filter(event => event.kind === 'report')) {
     entries.push({ id: `report:${event.deliveryId ?? event.agentId}`, sender: laneSender,
       kind: 'report', timestamp: event.createdAt ?? completion?.timestamp ?? 0, body: event.preview ?? 'Report to parent',
-      parentSignal: signalFor(event.state) });
+      parentDelivery: event });
   }
   if (completion) {
     const delivery = [...parentDelivery].reverse().find(event => event.kind === 'completion');
@@ -58,7 +58,7 @@ export function laneThreadEntries(
     // No parent-delivery push means the state is unknown (for example a lane from an earlier
     // app run), so no parent signal is shown instead of a false "Waiting for parent".
     entries.push({ id: 'completion', sender: laneSender, kind: 'completion', timestamp: completion.timestamp,
-      body: '', verdict, parentSignal: signalFor(delivery?.state) });
+      body: '', verdict, parentDelivery: delivery });
   }
   return entries.sort((a, b) => a.timestamp - b.timestamp);
 }

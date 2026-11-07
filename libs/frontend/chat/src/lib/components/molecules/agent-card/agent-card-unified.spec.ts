@@ -6,6 +6,7 @@ import type {
 } from '@ptah-extension/shared';
 import { provideMarkdown } from 'ngx-markdown';
 import {
+  AgentDeliveryStore,
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
@@ -66,6 +67,9 @@ describe('agent card unified output regressions', () => {
             error: jest.fn(),
           } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
         },
+        { provide: AgentDeliveryStore, useValue: { receipts: signal(new Map()), recovered: signal(new Map()), takeRecovered: () => null,
+          composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined),
+          receiptLabel: () => 'Queued', receiptStatus: () => ({ label: 'Queued' }), newIdempotencyKey: () => 'key' } },
         {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()), receipts: signal(new Map()), composerState: () => ({ queue: { mode: 'queue-next-turn' }, now: { mode: 'steer' } }), previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: jest.fn() },

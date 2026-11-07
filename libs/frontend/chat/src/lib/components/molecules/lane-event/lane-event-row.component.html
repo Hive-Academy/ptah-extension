@@ -53,6 +53,9 @@
       title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
     <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
   </div>
+  @for (entry of attentionDeliveries(); track entry.kind) {
+    <ptah-delivery-status data-testid="lane-event-parent-delivery" class="mt-1 pl-[50px]" [parentDelivery]="entry.item" [subject]="deliverySubject(entry.kind)" />
+  }
   <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[50px]" role="list" aria-label="Parent and lane communication">
     @if (expanded()) {
       @for (event of row().events; track event.messageId; let first = $first) {
@@ -86,8 +89,10 @@
             </dl>
             @for (line of detail.extra; track $index) { <p class="mt-1 break-words text-[11px]">{{ line }}</p> }
           }
-          <p class="mt-1 text-xs" [class.text-warning]="parentSignal(event.kind === 'report' ? 'report' : 'completion') === 'Waiting for parent'">{{ parentSignal(event.kind === 'report' ? 'report' : 'completion') }}</p>
         </section>
+      }
+      @for (entry of quietDeliveries(); track entry.kind) {
+        <ptah-delivery-status class="mt-2" [parentDelivery]="entry.item" [subject]="deliverySubject(entry.kind)" />
       }
       @if (attachments().files.length || attachments().images) {
         <div class="mt-1 flex flex-wrap gap-1 text-base-content-muted">

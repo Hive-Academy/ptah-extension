@@ -7,7 +7,7 @@ import {
   output,
 } from '@angular/core';
 import { injectWallClock } from '@ptah-extension/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentDeliveryStore, AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -43,7 +43,7 @@ import { LaneThreadRowComponent } from './lane-thread-row.component';
           <h3 class="mb-2 text-xs font-semibold text-base-content-muted">Parent ↔ lane communication</h3>
           <div role="list" class="space-y-1">
             @for (entry of thread(); track entry.id) {
-              <ptah-lane-thread-row [entry]="entry" [receiptLabel]="entry.receipt ? monitor?.receiptLabel(entry.receipt) ?? '' : ''" />
+              <ptah-lane-thread-row [entry]="entry" [laneLabel]="laneLabel()" />
             }
           </div>
         </section>
@@ -88,19 +88,22 @@ export class LaneTranscriptComponent {
   >();
   readonly permissionResponded = output<PermissionResponse>();
   protected readonly monitor = inject(AgentMonitorStore, { optional: true });
+  private readonly delivery = inject(AgentDeliveryStore, { optional: true });
   private readonly turnContexts = new TranscriptTurnContexts();
   /** Kept outside the component so a tab switch keeps the user's choice. */
   private readonly logChoices = inject(LaneLogChoicesStore);
   protected readonly messages = computed(() =>
     laneTranscriptMessages(this.laneId(), this.nodes(), this.events()),
   );
+  private readonly agent = computed(() => this.monitor?.agentsById?.().get(this.laneId()));
+  protected readonly laneLabel = computed(() => this.agent()?.displayName ?? this.agent()?.cli ?? 'Lane');
   protected readonly thread = computed(() => {
-    const agent = this.monitor?.agentsById?.().get(this.laneId());
+    const agent = this.agent();
     if (!agent) return [];
-    const receipts = this.monitor?.receipts?.().get(this.laneId()) ?? [];
-    const parentDelivery = this.monitor?.parentDelivery?.().get(this.laneId()) ?? [];
+    const receipts = this.delivery?.receipts().get(this.laneId()) ?? [];
+    const parentDelivery = this.delivery?.parentDelivery().get(this.laneId()) ?? [];
     const completion = agent.completedAt ? { status: agent.status, timestamp: agent.completedAt } : undefined;
-    return laneThreadEntries(this.messages(), receipts, '', agent.displayName ?? agent.cli ?? 'Lane', agent.cli ?? 'CLI', parentDelivery, completion);
+    return laneThreadEntries(this.messages(), receipts, '', this.laneLabel(), agent.cli ?? 'CLI', parentDelivery, completion);
   });
   protected readonly contexts = computed(() =>
     this.turnContexts.compute(this.messages()),
