@@ -25,6 +25,8 @@ import { AgentMessageCoordinator } from '../cli-agents/messaging/agent-message-c
 import { AgentMessageDeliveryScheduler } from '../cli-agents/messaging/agent-message-delivery.scheduler';
 import type { AgentMessageDispatchJournal } from '../cli-agents/messaging/agent-message-dispatch-journal.port';
 import { AgentMessageEnvelopeStore } from '../cli-agents/messaging/envelope/agent-message-envelope.store';
+import type { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
+import { LaneDeliveryLimitGate } from '../cli-agents/messaging/lane-delivery-limit.gate';
 import { PtahCliLaneResumer } from '../cli-agents/messaging/lane-resumers/ptah-cli-lane-resumer';
 import {
   ParentSessionPurgeService,
@@ -63,9 +65,23 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
       c.resolve<Logger>(TOKENS.LOGGER),
     )),
   });
+  container.register(CLI_AGENT_RUNTIME_TOKENS.LANE_DELIVERY_LIMIT_GATE, {
+    useFactory: instanceCachingFactory((c) => new LaneDeliveryLimitGate(
+      c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP, true)
+        ? c.resolve<LaneLimitLookupService>(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP)
+        : null,
+      c.resolve<Logger>(TOKENS.LOGGER),
+    )),
+  });
   container.register(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_SCHEDULER, {
     useFactory: instanceCachingFactory((c) => new AgentMessageDeliveryScheduler(
-      envelopeStore(c), c.resolve<Logger>(TOKENS.LOGGER), { isParentFrozen: isParentFrozen(c) },
+      envelopeStore(c),
+      c.resolve<Logger>(TOKENS.LOGGER),
+      {
+        isParentFrozen: isParentFrozen(c),
+        limitGate: c.resolve<LaneDeliveryLimitGate>(CLI_AGENT_RUNTIME_TOKENS.LANE_DELIVERY_LIMIT_GATE),
+        findAgentInfo: (agentId) => c.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER).findAgentInfo(agentId),
+      },
     )),
   });
   container.register(CLI_AGENT_RUNTIME_TOKENS.PARENT_SESSION_PURGE, {
@@ -115,6 +131,7 @@ export function registerAgentMessagingServices(container: DependencyContainer): 
         resume: c.resolve<AgentLaneResumeService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME),
         scheduler: c.resolve<AgentMessageDeliveryScheduler>(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_SCHEDULER),
         ack: c.resolve<AgentMessageAckService>(CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_ACK),
+        limitGate: c.resolve<LaneDeliveryLimitGate>(CLI_AGENT_RUNTIME_TOKENS.LANE_DELIVERY_LIMIT_GATE),
         purge: c.resolve<ParentSessionPurgeService>(CLI_AGENT_RUNTIME_TOKENS.PARENT_SESSION_PURGE),
         isParentFrozen: isParentFrozen(c),
         logger,

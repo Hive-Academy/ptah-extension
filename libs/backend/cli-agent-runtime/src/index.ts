@@ -119,6 +119,16 @@ export {
   AgentMessageDeliveryScheduler,
   type AgentMessageDeliveryScheduling,
 } from './lib/cli-agents/messaging/agent-message-delivery.scheduler';
+export {
+  LaneDeliveryLimitGate,
+  LANE_LIMIT_GATE_DEADLINE_MS,
+  LANE_LIMIT_RESET_RETRY_DELAY_MS,
+  planLimitRetry,
+  requiresLimitGate,
+  type LaneDeliveryLimitLookup,
+  type LimitGateDecision,
+  type LimitRetryPlan,
+} from './lib/cli-agents/messaging/lane-delivery-limit.gate';
 export type { AgentMessageDispatchJournal } from './lib/cli-agents/messaging/agent-message-dispatch-journal.port';
 export {
   ParentSessionPurgeService,

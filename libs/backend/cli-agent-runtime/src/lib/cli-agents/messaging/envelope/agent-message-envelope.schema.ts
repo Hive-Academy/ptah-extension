@@ -97,6 +97,7 @@ export type NewEnvelope = Omit<AgentMessageEnvelope,
   readonly updatedAt?: number;
   readonly attemptCount?: number;
   readonly terminalAt?: number;
+  readonly nextRetryAt?: number;
 };
 /** The semantic ack fields, written apart from transport transitions. */
 export type EnvelopeAckPatch = Pick<AgentMessageEnvelope, 'ackState' | 'ackAt' | 'ackNote'>;

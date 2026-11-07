@@ -5,12 +5,20 @@ import type { SdkHandle } from '../cli-adapters/cli-adapter.interface';
 import { LaneAccountResumeError } from '../lane-resume-gate';
 import { AgentLaneResumeService } from './agent-lane-resume.service';
 import { AgentMessageCoordinator, CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-coordinator.service';
+import { AgentMessageDeliveryScheduler } from './agent-message-delivery.scheduler';
 import { agentMessageAckLine } from './agent-message-delivery-text';
 import { AGENT_MESSAGE_BODY_PREFIX } from './envelope/agent-message-envelope.schema';
 import {
   AgentMessageBodyUnavailableError,
+  AgentMessageEnvelopeStore,
   AgentMessageStorageError,
 } from './envelope/agent-message-envelope.store';
+import {
+  LANE_LIMIT_GATE_DEADLINE_MS,
+  LANE_LIMIT_RESET_RETRY_DELAY_MS,
+  LaneDeliveryLimitGate,
+  type LimitGateDecision,
+} from './lane-delivery-limit.gate';
 import {
   createDetection,
   createLogger,
@@ -296,6 +304,73 @@ describe('AgentMessageCoordinator', () => {
       expect(h.sendToAgent).toHaveBeenCalledTimes(1);
     });
 
+    describe('a failed write re-arms the reset retry it unscheduled', () => {
+      const nextRetryAt = Date.now() + 60 * 60_000;
+      const heldAtLimit = async (h: ReturnType<typeof harness>) => {
+        const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+        await h.store.transition(idOf(queued), { state: 'blocked-retryable', reason: 'lane-at-limit', nextRetryAt });
+        const unschedule = jest.fn();
+        h.scheduler.unschedule = unschedule;
+        h.scheduler.schedule.mockClear();
+        return { id: idOf(queued), unschedule };
+      };
+
+      it('after a failed Retry', async () => {
+        const h = harness();
+        const { id, unschedule } = await heldAtLimit(h);
+        h.storage.failWhen = (key, value) => indexHasState(key, value, 'not-started');
+        const retried = await h.coordinator.retry(h.agentId, id, user);
+        expect(retried).toMatchObject({ mode: 'unsupported', reasonCode: 'storage-unavailable' });
+        expect(unschedule).toHaveBeenCalledWith(id);
+        expect(h.scheduler.schedule).toHaveBeenCalledWith(id, nextRetryAt);
+        expect(await h.store.get(id)).toMatchObject({ state: 'blocked-retryable', nextRetryAt });
+      });
+
+      it('after a failed Cancel', async () => {
+        const h = harness();
+        const { id, unschedule } = await heldAtLimit(h);
+        h.storage.failWhen = (key, value) => indexHasState(key, value, 'cancelled');
+        await expect(h.coordinator.cancel(h.agentId, id, user)).rejects.toBeInstanceOf(AgentMessageStorageError);
+        expect(unschedule).toHaveBeenCalledWith(id);
+        expect(h.scheduler.schedule).toHaveBeenCalledWith(id, nextRetryAt);
+      });
+
+      it('re-arms the latest stored deadline, not the stale snapshot one', async () => {
+        const h = harness();
+        const { id } = await heldAtLimit(h);
+        const later = nextRetryAt + 30 * 60_000;
+        const real = h.store.transition.bind(h.store);
+        jest.spyOn(h.store, 'transition').mockImplementationOnce(async (envelopeId) => {
+          // A concurrent writer moved the deadline; this write itself does not commit.
+          await real(envelopeId, { state: 'blocked-retryable', reason: 'lane-at-limit', nextRetryAt: later });
+          return h.store.get(envelopeId);
+        });
+        const retried = await h.coordinator.retry(h.agentId, id, user);
+        expect(retried).toMatchObject({ mode: 'unsupported', reasonCode: 'storage-unavailable' });
+        expect(h.scheduler.schedule).toHaveBeenCalledTimes(1);
+        expect(h.scheduler.schedule).toHaveBeenCalledWith(id, later);
+      });
+
+      it('does not re-arm when the envelope left blocked-retryable concurrently', async () => {
+        const h = harness();
+        const { id } = await heldAtLimit(h);
+        const real = h.store.transition.bind(h.store);
+        jest.spyOn(h.store, 'transition').mockImplementationOnce(async (envelopeId) => {
+          await real(envelopeId, { state: 'cancelled', reason: 'cancelled-by-user', nextRetryAt: undefined });
+          return h.store.get(envelopeId);
+        });
+        await expect(h.coordinator.retry(h.agentId, id, user)).rejects.toThrow('not retryable');
+        expect(h.scheduler.schedule).not.toHaveBeenCalled();
+      });
+
+      it('not after a Cancel that persisted', async () => {
+        const h = harness();
+        const { id } = await heldAtLimit(h);
+        await expect(h.coordinator.cancel(h.agentId, id, user)).resolves.toMatchObject({ state: 'cancelled' });
+        expect(h.scheduler.schedule).not.toHaveBeenCalled();
+      });
+    });
+
     it('drops an entry a concurrent flush took after the cancel persisted, and flushes the next', async () => {
       const h = harness();
       const first = await h.coordinator.send({ agentId: h.agentId, message: 'first' }, anonymousParent);
@@ -513,5 +588,411 @@ describe('AgentMessageCoordinator', () => {
     const result = await coordinator.send({ agentId: h.agentId, message: 'resume' }, anonymousParent);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'session', resumedFromAgentId: h.agentId }));
     expect(result).toMatchObject({ agentId: spawnedId, receipt: { state: 'started', actualAgentId: spawnedId } });
+  });
+
+  describe('cold path limit gate', () => {
+    it('blocks a cold resume before spawning when the limit gate reports at-limit, keeps the body, and schedules one retry at resetAt + 60s', async () => {
+      const h = harness();
+      stopLane(h);
+      h.resume.resume.mockClear();
+      const resetAt = Date.now() + 120_000;
+      const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+        check: jest.fn().mockResolvedValue({ kind: 'blocked', limitKnown: true, resetAt }),
+      };
+      h.coordinator.dispose();
+      const coordinator = new AgentMessageCoordinator({
+        manager: h.manager,
+        detection: h.detection,
+        store: h.store,
+        aliases: h.aliases,
+        resume: h.resume,
+        scheduler: h.scheduler,
+        ack: h.ack,
+        limitGate,
+        logger: h.logger,
+      });
+
+      const outcome = await coordinator.send({ agentId: h.agentId, message: 'cold limited' }, user);
+
+      expect(h.resume.resume).not.toHaveBeenCalled();
+      expect(outcome).toMatchObject({
+        mode: 'unsupported',
+        reasonCode: 'lane-at-limit',
+        detail: 'lane-at-limit',
+      });
+      expect(outcome.receipt).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        hasRecoverableBody: true,
+        limit: { known: true, resetAt },
+        nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      });
+      expect(await coordinator.getBody(h.agentId, idOf(outcome), user)).toBe('cold limited');
+      expect(h.scheduler.schedule).toHaveBeenCalledWith(
+        idOf(outcome),
+        resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      );
+
+      // A second limit hit with the same resetAt makes the retry manual without re-arming.
+      h.scheduler.schedule.mockClear();
+      await coordinator.deliver(idOf(outcome));
+      const afterSecond = await h.store.get(idOf(outcome));
+      expect(afterSecond).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt },
+      });
+      expect(afterSecond?.nextRetryAt).toBeUndefined();
+      expect(h.scheduler.schedule).not.toHaveBeenCalled();
+      coordinator.dispose();
+    });
+
+    it('never invents resetAt or schedules a timer when the limit gate blocks without reset evidence', async () => {
+      const h = harness();
+      stopLane(h);
+      h.resume.resume.mockClear();
+      const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+        check: jest.fn().mockResolvedValue({ kind: 'blocked', limitKnown: true }),
+      };
+      h.coordinator.dispose();
+      const coordinator = new AgentMessageCoordinator({
+        manager: h.manager,
+        detection: h.detection,
+        store: h.store,
+        aliases: h.aliases,
+        resume: h.resume,
+        scheduler: h.scheduler,
+        ack: h.ack,
+        limitGate,
+        logger: h.logger,
+      });
+
+      const outcome = await coordinator.send({ agentId: h.agentId, message: 'manual wait' }, user);
+
+      expect(h.resume.resume).not.toHaveBeenCalled();
+      expect(outcome.receipt).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true },
+      });
+      expect(outcome.receipt?.limit?.resetAt).toBeUndefined();
+      expect(outcome.receipt?.nextRetryAt).toBeUndefined();
+      expect(h.scheduler.schedule).not.toHaveBeenCalled();
+      coordinator.dispose();
+    });
+
+    it('blocks a direct live queued send when the lookup reports the lane is at-limit and persists the body as blocked-retryable', async () => {
+      const h = harness();
+      const now = Date.now();
+      const resetAt = now + 180_000;
+      const lookup = {
+        lookup: jest.fn().mockResolvedValue([
+          {
+            row: h.tracked.info,
+            lookup: 'ok' as const,
+            state: {
+              state: 'at-limit' as const,
+              reasons: [
+                {
+                  kind: 'window-limit' as const,
+                  window: {
+                    key: 'five_hour' as const,
+                    kind: 'five_hour' as const,
+                    label: '5-hour',
+                    observedAt: now,
+                    resetsAt: resetAt,
+                  },
+                  evidence: {
+                    source: 'provider-api' as const,
+                    observedAt: now,
+                    resetsAt: resetAt,
+                  },
+                },
+              ],
+              windows: [],
+            },
+          },
+        ]),
+      };
+      const limitGate = new LaneDeliveryLimitGate(
+        lookup,
+        h.logger,
+        LANE_LIMIT_GATE_DEADLINE_MS,
+        () => now,
+      );
+      h.coordinator.dispose();
+      const coordinator = new AgentMessageCoordinator({
+        manager: h.manager,
+        detection: h.detection,
+        store: h.store,
+        aliases: h.aliases,
+        resume: h.resume,
+        scheduler: h.scheduler,
+        ack: h.ack,
+        limitGate,
+        logger: h.logger,
+      });
+
+      const outcome = await coordinator.send(
+        { agentId: h.agentId, message: 'live queued at limit', delivery: 'queue' },
+        user,
+      );
+
+      expect(lookup.lookup).toHaveBeenCalledTimes(1);
+      expect(h.sendToAgent).not.toHaveBeenCalled();
+      expect(h.tracked.pendingMessages).toHaveLength(0);
+      expect(outcome).toMatchObject({
+        mode: 'unsupported',
+        reasonCode: 'lane-at-limit',
+        detail: 'lane-at-limit',
+      });
+      expect(outcome.receipt).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        hasRecoverableBody: true,
+        limit: { known: true, resetAt },
+        nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      });
+      expect(await coordinator.getBody(h.agentId, idOf(outcome), user)).toBe(
+        'live queued at limit',
+      );
+      expect(h.scheduler.schedule).toHaveBeenCalledWith(
+        idOf(outcome),
+        resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      );
+      coordinator.dispose();
+    });
+
+    it('cold-resumes at resetAt + 60s when the old stop record retained stopReason === usage-limit, including across a host restart', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      try {
+        let currentNow = Date.UTC(2026, 10, 7, 12, 0, 0);
+        const clock = (): number => currentNow;
+        const resetAt = currentNow + 120_000;
+        const h = harness();
+        const spawned = stopLane(h);
+        h.setInfo({
+          status: 'failed',
+          stopReason: 'usage-limit',
+          stopResetAt: resetAt,
+        });
+        h.resume.resume.mockClear();
+
+        const lookup = {
+          lookup: jest.fn().mockResolvedValue([
+            {
+              row: h.tracked.info,
+              lookup: 'no-owner' as const,
+              state: { state: 'unknown' as const, reasons: [], windows: [] },
+            },
+          ]),
+        };
+        const realGate = new LaneDeliveryLimitGate(
+          lookup,
+          h.logger,
+          LANE_LIMIT_GATE_DEADLINE_MS,
+          clock,
+        );
+        h.coordinator.dispose();
+
+        const initialStore = new AgentMessageEnvelopeStore(h.storage, undefined, clock, h.logger);
+        await initialStore.ready;
+        const firstScheduler = new AgentMessageDeliveryScheduler(initialStore, h.logger, {
+          clock,
+          limitGate: realGate,
+          findAgentInfo: (id) => h.manager.findAgentInfo(id),
+        });
+        const firstCoordinator = new AgentMessageCoordinator({
+          manager: h.manager,
+          detection: h.detection,
+          store: initialStore,
+          aliases: h.aliases,
+          resume: h.resume,
+          scheduler: firstScheduler,
+          ack: h.ack,
+          limitGate: realGate,
+          clock,
+          logger: h.logger,
+        });
+        await firstCoordinator.start();
+
+        // Initial cold send before reset is blocked by stopResetAt without calling lookup.
+        const blocked = await firstCoordinator.send(
+          { agentId: h.agentId, message: 'resume after reset' },
+          user,
+        );
+        const msgId = idOf(blocked);
+        expect(blocked).toMatchObject({ mode: 'unsupported', reasonCode: 'lane-at-limit' });
+        expect(h.resume.resume).not.toHaveBeenCalled();
+        expect(lookup.lookup).not.toHaveBeenCalled();
+
+        firstCoordinator.dispose();
+        firstScheduler.dispose();
+
+        // Simulate host restart with the retained stopped record still having stopReason: 'usage-limit'.
+        const restartedStore = new AgentMessageEnvelopeStore(
+          h.storage,
+          undefined,
+          clock,
+          h.logger,
+        );
+        await restartedStore.ready;
+        const restartedScheduler = new AgentMessageDeliveryScheduler(restartedStore, h.logger, {
+          clock,
+          limitGate: realGate,
+          findAgentInfo: (id) => h.manager.findAgentInfo(id),
+        });
+        const restartedCoordinator = new AgentMessageCoordinator({
+          manager: h.manager,
+          detection: h.detection,
+          store: restartedStore,
+          aliases: h.aliases,
+          resume: h.resume,
+          scheduler: restartedScheduler,
+          ack: h.ack,
+          limitGate: realGate,
+          clock,
+          logger: h.logger,
+        });
+        await restartedCoordinator.start();
+
+        const dueAt = resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS;
+        currentNow = dueAt;
+        await jest.advanceTimersByTimeAsync(dueAt - Date.UTC(2026, 10, 7, 12, 0, 0));
+        for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+
+        expect(lookup.lookup).toHaveBeenCalledTimes(1);
+        expect(h.resume.resume).toHaveBeenCalledTimes(1);
+        expect(await restartedStore.get(msgId)).toMatchObject({
+          state: 'started',
+          actualAgentId: spawned,
+        });
+        restartedCoordinator.dispose();
+        restartedScheduler.dispose();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('lets user Retry and Cancel win when racing an in-flight timer gate check, and never dispatches a limit-blocked envelope', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      const flushImmediate = async (): Promise<void> => {
+        for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+      };
+      try {
+        let currentNow = Date.UTC(2026, 10, 7, 12, 0, 0);
+        const clock = (): number => currentNow;
+        const h = harness();
+        h.coordinator.dispose();
+
+        let resolveTimerGate!: (decision: LimitGateDecision) => void;
+        let gateCallCount = 0;
+        const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+          check: jest.fn(() => {
+            gateCallCount += 1;
+            if (gateCallCount === 1) {
+              // First call: initial send blocks at limit.
+              return Promise.resolve({
+                kind: 'blocked',
+                limitKnown: true,
+                resetAt: currentNow + 60_000,
+              });
+            }
+            if (gateCallCount === 2) {
+              // Second call: timer check is deferred while user Retry/Cancel runs.
+              return new Promise<LimitGateDecision>((resolve) => {
+                resolveTimerGate = resolve;
+              });
+            }
+            // Third call: user Retry sees proceed.
+            return Promise.resolve({ kind: 'proceed' });
+          }),
+        };
+
+        const store = new AgentMessageEnvelopeStore(h.storage, undefined, clock, h.logger);
+        await store.ready;
+        const scheduler = new AgentMessageDeliveryScheduler(store, h.logger, {
+          clock,
+          limitGate,
+          findAgentInfo: (id) => h.manager.findAgentInfo(id),
+        });
+        const coordinator = new AgentMessageCoordinator({
+          manager: h.manager,
+          detection: h.detection,
+          store,
+          aliases: h.aliases,
+          resume: h.resume,
+          scheduler,
+          ack: h.ack,
+          limitGate,
+          clock,
+          logger: h.logger,
+        });
+        await coordinator.start();
+
+        // 1. Direct live queued send blocks at limit and arms timer for resetAt + 60s.
+        const blocked = await coordinator.send(
+          { agentId: h.agentId, message: 'retry wins over timer' },
+          user,
+        );
+        const retryMsgId = idOf(blocked);
+        expect(blocked.receipt).toMatchObject({
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+        });
+
+        // 2. Timer fires at resetAt + 60s and pauses inside its deferred gate check.
+        const waitMs = 60_000 + LANE_LIMIT_RESET_RETRY_DELAY_MS;
+        currentNow += waitMs;
+        const timerPromise = jest.advanceTimersByTimeAsync(waitMs);
+        await flushImmediate();
+        expect(gateCallCount).toBe(2);
+
+        // 3. While the timer gate check is suspended, the user clicks Retry.
+        h.sendToAgent.mockResolvedValueOnce({ mode: 'start-turn' });
+        const retryPromise = coordinator.retry(h.agentId, retryMsgId, user);
+        // Resolve the stale timer gate as blocked while Retry is running.
+        resolveTimerGate({ kind: 'blocked', limitKnown: true, resetAt: currentNow + 300_000 });
+        const [retried] = await Promise.all([retryPromise, timerPromise]);
+        await flushImmediate();
+
+        expect(retried).toMatchObject({ mode: 'start-turn', messageId: retryMsgId });
+        expect(await store.get(retryMsgId)).toMatchObject({
+          state: 'started',
+        });
+        expect(h.sendToAgent).toHaveBeenCalledTimes(1);
+        expect(jest.getTimerCount()).toBe(0);
+
+        // 4. Now verify Cancel winning against a deferred timer gate check.
+        gateCallCount = 0;
+        const cancelBlocked = await coordinator.send(
+          { agentId: h.agentId, message: 'cancel wins over timer' },
+          user,
+        );
+        const cancelMsgId = idOf(cancelBlocked);
+        currentNow += waitMs;
+        const cancelTimerPromise = jest.advanceTimersByTimeAsync(waitMs);
+        await flushImmediate();
+        expect(gateCallCount).toBe(2);
+
+        const cancelledReceipt = await coordinator.cancel(h.agentId, cancelMsgId, user);
+        expect(cancelledReceipt).toMatchObject({ state: 'cancelled', reason: 'cancelled-by-user' });
+        resolveTimerGate({ kind: 'proceed' });
+        await cancelTimerPromise;
+        await flushImmediate();
+
+        expect(await store.get(cancelMsgId)).toMatchObject({
+          state: 'cancelled',
+          reason: 'cancelled-by-user',
+        });
+        expect(h.sendToAgent).toHaveBeenCalledTimes(1);
+        expect(jest.getTimerCount()).toBe(0);
+
+        coordinator.dispose();
+        scheduler.dispose();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 });

@@ -487,6 +487,28 @@ describe('AgentMessageEnvelopeStore', () => {
     await expect(envelopes.get(envelope.id)).resolves.toMatchObject({ state: 'cancelled', attemptCount: 0 });
   });
 
+  it('rejects markDispatching under the store lock when an envelope was moved to blocked-retryable (lane-at-limit)', async () => {
+    const envelopes = store();
+    const { envelope } = await envelopes.put(input(), 'body');
+    await envelopes.transition(envelope.id, {
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: { known: true },
+    });
+
+    await expect(envelopes.markDispatching(envelope.id)).rejects.toBeInstanceOf(
+      AgentMessageDispatchWithdrawnError,
+    );
+    await expect(envelopes.markDispatching(envelope.id, ['not-started'])).rejects.toBeInstanceOf(
+      AgentMessageDispatchWithdrawnError,
+    );
+    await expect(envelopes.get(envelope.id)).resolves.toMatchObject({
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      attemptCount: 0,
+    });
+  });
+
   it('returns no body when the body record names another envelope or target', async () => {
     const envelopes = store();
     const { envelope } = await envelopes.put(input(), 'body');

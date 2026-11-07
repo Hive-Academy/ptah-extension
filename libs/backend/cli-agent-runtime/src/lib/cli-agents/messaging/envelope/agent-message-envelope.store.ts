@@ -253,20 +253,29 @@ export class AgentMessageEnvelopeStore {
     });
   }
 
-  async markDispatching(id: string): Promise<AgentMessageEnvelope> {
+  async markDispatching(
+    id: string,
+    fromStates: readonly AgentMessageEnvelopeState[] = DISPATCHABLE,
+  ): Promise<AgentMessageEnvelope> {
     await this.ready;
     return this.serialize(async () => {
       const existing = this.envelopes.get(id);
       if (!existing) throw new AgentMessageStorageError('storage-unavailable');
-      if (!DISPATCHABLE.includes(existing.state))
+      const limitBlocked =
+        existing.state === 'blocked-retryable' &&
+        existing.reason === 'lane-at-limit' &&
+        fromStates === DISPATCHABLE;
+      if (!fromStates.includes(existing.state) || limitBlocked) {
         throw new AgentMessageDispatchWithdrawnError(id, existing.state);
+      }
       const next = await this.transitionLocked(id, {
         state: 'dispatching',
+        reason: undefined,
         attemptId: randomUUID(),
         everDispatched: true,
         attemptCount: existing.attemptCount + 1,
         nextRetryAt: undefined,
-      }, DISPATCHABLE, true);
+      }, fromStates, true);
       if (!next || next.state !== 'dispatching')
         throw new AgentMessageStorageError('storage-unavailable');
       return next;

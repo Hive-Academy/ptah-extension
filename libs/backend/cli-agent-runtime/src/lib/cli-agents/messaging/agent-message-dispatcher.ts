@@ -62,7 +62,7 @@ export class AgentMessageDispatcher {
     const { envelope } = attempt;
     let dispatching: AgentMessageEnvelope;
     try {
-      dispatching = await this.deps.store.markDispatching(envelope.id);
+      dispatching = await this.deps.store.markDispatching(envelope.id, [envelope.state]);
     } catch (error: unknown) {
       return this.journalFailed(attempt, error);
     }

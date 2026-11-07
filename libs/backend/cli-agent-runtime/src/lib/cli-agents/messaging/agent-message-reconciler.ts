@@ -21,12 +21,14 @@ import {
 } from './agent-message-delivery.scheduler';
 import type { AgentMessageEnvelope, EnvelopePatch } from './envelope/agent-message-envelope.schema';
 import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
+import { planLimitRetry } from './lane-delivery-limit.gate';
 import type { LaneSerialQueue } from './lane-serial-queue';
 
 export type ReconcilerManager = Pick<
   AgentProcessManager,
   'events' | 'getMessageRoutableAgent' | 'getAgentMessageStatus'
->;
+> &
+  Partial<Pick<AgentProcessManager, 'findAgentInfo'>>;
 export type ReconcilerEnvelopeStore = Pick<AgentMessageEnvelopeStore, 'get' | 'list' | 'transition'>;
 
 export interface AgentMessageReconcilerDeps {
@@ -96,9 +98,12 @@ export class AgentMessageReconciler {
       this.onLane(info.agentId, () => this.onTurnStarted(info)));
     this.listen('agent:turn-settled', (info: AgentProcessInfo) =>
       this.onLane(info.agentId, () => this.settleTurn(info)).then(() => {
+        if (info.stopReason === 'usage-limit') return;
         const laneId = AgentId.safeParse(info.agentId);
         if (laneId) this.deps.scheduler.onLaneSettled(laneId);
       }));
+    this.listen('agent:exited', (info: AgentProcessInfo) =>
+      this.onLane(info.agentId, () => this.onExited(info)));
     this.listen('agent:queue-updated', (update: QueueUpdate) =>
       this.onLane(update.agentId, () => this.onQueueUpdated(update)));
     this.listen('agent:expired', ({ agentId }: { agentId: string }) =>
@@ -131,13 +136,17 @@ export class AgentMessageReconciler {
 
   /** Settle every started envelope of the lane's finished turn. */
   async settleTurn(info: AgentProcessInfo): Promise<void> {
-    if (!info.turnSeq) return;
-    const started = (await this.deps.store.list({ states: ['started'] }))
-      .filter((envelope) => envelopeLane(envelope) === info.agentId && envelope.turnSeq === info.turnSeq);
-    const turnOutcome = info.status === 'completed' ? 'completed'
-      : info.status === 'stopped' ? 'stopped' : 'failed';
-    for (const envelope of started)
-      await this.deps.store.transition(envelope.id, { state: 'settled', turnSeq: info.turnSeq, turnOutcome }, ['started']);
+    if (info.turnSeq) {
+      const started = (await this.deps.store.list({ states: ['started'] }))
+        .filter((envelope) => envelopeLane(envelope) === info.agentId && envelope.turnSeq === info.turnSeq);
+      const turnOutcome = info.status === 'completed' ? 'completed'
+        : info.status === 'stopped' ? 'stopped' : 'failed';
+      for (const envelope of started)
+        await this.deps.store.transition(envelope.id, { state: 'settled', turnSeq: info.turnSeq, turnOutcome }, ['started']);
+    }
+    if (info.stopReason === 'usage-limit') {
+      await this.blockRemainingForUsageLimit(info.agentId, info.stopResetAt);
+    }
   }
 
   private listen<T>(event: string, handler: (payload: T) => Promise<void>): void {
@@ -197,6 +206,11 @@ export class AgentMessageReconciler {
     if (envelope.state !== 'not-started' && envelope.state !== 'dispatching') return;
     if (EXIT_RACE.has(reason)) {
       if (envelope.state === 'not-started') {
+        const info = this.deps.manager.findAgentInfo?.(agentId);
+        if (info?.stopReason === 'usage-limit') {
+          await this.blockEnvelopeForUsageLimit(agentId, envelope, info.stopResetAt);
+          return;
+        }
         // Never dispatched: hand it to the cold inbox instead of failing it (gap 10).
         const cold = await this.deps.store.transition(messageId, { route: 'cold' }, ['not-started']);
         if (cold?.state === 'not-started') this.deps.scheduler.enqueueCold(messageId);
@@ -252,6 +266,40 @@ export class AgentMessageReconciler {
       await this.deps.store.transition(envelope.id, {
         state: 'expired', reason: 'agent_expired', nextRetryAt: undefined,
       }, ['not-started', 'blocked-retryable']);
+    }
+  }
+
+  private async onExited(info: AgentProcessInfo): Promise<void> {
+    if (info.stopReason === 'usage-limit') {
+      await this.blockRemainingForUsageLimit(info.agentId, info.stopResetAt);
+    }
+  }
+
+  private async blockRemainingForUsageLimit(agentId: string, resetAt: number | undefined): Promise<void> {
+    const remaining = (await this.deps.store.list({ states: ['not-started', 'blocked-retryable'] }))
+      .filter((envelope) =>
+        envelopeLane(envelope) === agentId &&
+        (envelope.state === 'not-started' || envelope.reason === 'queue-full'));
+    for (const envelope of remaining) {
+      await this.blockEnvelopeForUsageLimit(agentId, envelope, resetAt);
+    }
+  }
+
+  private async blockEnvelopeForUsageLimit(
+    agentId: string,
+    envelope: AgentMessageEnvelope,
+    resetAt: number | undefined,
+  ): Promise<void> {
+    removeParkedEntry(this.deps.manager, agentId, envelope.id);
+    const retryPlan = planLimitRetry(envelope.limit, resetAt);
+    const held = await this.deps.store.transition(envelope.id, {
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: retryPlan.limit,
+      nextRetryAt: retryPlan.nextRetryAt,
+    }, [envelope.state]);
+    if (retryPlan.nextRetryAt !== undefined && held?.nextRetryAt === retryPlan.nextRetryAt) {
+      this.deps.scheduler.schedule(envelope.id, retryPlan.nextRetryAt);
     }
   }
 }
