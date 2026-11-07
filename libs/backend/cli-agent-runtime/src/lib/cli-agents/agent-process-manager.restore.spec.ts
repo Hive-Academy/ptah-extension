@@ -47,9 +47,10 @@ function makeManager(options: {
   resolver?: ICallerWorkspaceResolver | null;
   rememberLaneOwner?: jest.Mock;
   evaluateResume?: jest.Mock;
+  info?: jest.Mock;
 }): AgentProcessManager {
   const logger = {
-    info: jest.fn(),
+    info: options.info ?? jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
@@ -158,7 +159,9 @@ describe('AgentProcessManager.restoreAgents', () => {
   it('preserves a persisted turn sequence', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
     manager.restoreAgents([makeRef({ turnSeq: 3 })], ROOT_A);
-    expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).turnSeq).toBe(3);
+    expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).turnSeq).toBe(
+      3,
+    );
   });
   it('readOutput returns an empty stdout buffer for a lean restored reference', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
@@ -195,6 +198,43 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(
       manager.readOutputForPersistence(RESTORED_ID)?.segments,
     ).toHaveLength(1);
+  });
+
+  it('logs one redacted restart line per host-restart ref and none for other terminal refs', () => {
+    const info = jest.fn();
+    const manager = makeManager({ providerRoot: ROOT_A, info });
+    // The store normalizes an interrupted lane to stopped / host-restart
+    // before restore; a `running` ref is a live lane of another host.
+    manager.restoreAgents(
+      [
+        makeRef({ status: 'stopped', stopReason: 'host-restart' }),
+        makeRef({
+          agentId: IN_SCOPE_ID as AgentId,
+          status: 'stopped',
+          stopReason: 'host-restart',
+          cliSessionId: '',
+        }),
+        makeRef({ agentId: OUT_OF_SCOPE_ID as AgentId, status: 'completed' }),
+      ],
+      ROOT_A,
+    );
+    const lines = info.mock.calls.filter(
+      ([message]) =>
+        message === '[AgentProcessManager] Lane interrupted by host restart',
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[0][1]).toEqual({
+      agentId: RESTORED_ID,
+      cli: 'codex',
+      startedAt: '2026-09-01T10:00:00.000Z',
+      cliSessionIdPresent: true,
+    });
+    expect(lines[1][1]).toEqual({
+      agentId: IN_SCOPE_ID,
+      cli: 'codex',
+      startedAt: '2026-09-01T10:00:00.000Z',
+      cliSessionIdPresent: false,
+    });
   });
 
   it('does NOT overwrite a live tracked agent with the same id', () => {

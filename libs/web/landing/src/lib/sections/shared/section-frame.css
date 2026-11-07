@@ -5,7 +5,7 @@
  */
 :host {
   display: block;
-  /* Clip sideways only: the seam bolt reaches up into the section above. */
+  /* Clip sideways only: the bleeding clips run off the page edges. */
   overflow-x: clip;
   overflow-y: visible;
   color: #e9ebef;

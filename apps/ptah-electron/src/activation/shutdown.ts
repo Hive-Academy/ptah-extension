@@ -250,6 +250,7 @@ function disposeBeforePersistence(deps: DisposalDeps): {
   });
   nonFatal('Interval teardown', deps.clearTimers);
   nonFatal('UpdateManager dispose', () => refs.updateManager?.dispose());
+  nonFatal('MachinesService dispose', () => refs.remoteMachines?.dispose());
   nonFatal('Review worker dispose', () => refs.reviewWorker?.dispose());
   // LIFO puts it here: it is captured at the very END of the heavy boot, right
   // after the cron start that arms its boot dispatch, so it is disposed early.
@@ -321,11 +322,18 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   // Queue the snapshot before an interrupt can exhaust the chat-dispose budget.
   // The sink serializes these requests behind already accepted usage writes.
   if (endingUsageIds.length > 0) {
-    await withBudget('Session finalization requests',
+    await withBudget(
+      'Session finalization requests',
       async () => {
-        await Promise.allSettled(endingUsageIds.map((id) =>
-          Promise.resolve(refs.sessionUsageSink?.requestFinalization?.(id))));
-      }, 2000, 'usage finalization remains pending.');
+        await Promise.allSettled(
+          endingUsageIds.map((id) =>
+            Promise.resolve(refs.sessionUsageSink?.requestFinalization?.(id)),
+          ),
+        );
+      },
+      2000,
+      'usage finalization remains pending.',
+    );
   }
   if (chatSessions !== null) {
     await disposeChatSessions(
@@ -354,8 +362,12 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
 
   const reviewWorker = refs.reviewWorker;
   if (reviewWorker !== null) {
-    await withBudget('Review worker lease release', () => reviewWorker.awaitStopped(),
-      5_000, 'the lease will expire and reconcile on next start.');
+    await withBudget(
+      'Review worker lease release',
+      () => reviewWorker.awaitStopped(),
+      5_000,
+      'the lease will expire and reconcile on next start.',
+    );
   }
 
   if (refs.sdkAdapter !== null) {

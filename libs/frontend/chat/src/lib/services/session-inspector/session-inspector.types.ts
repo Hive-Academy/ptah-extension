@@ -1,7 +1,6 @@
 import type {
   TaskSpecDetail,
   TaskStatus,
-  TodoItem,
 } from '@ptah-extension/shared';
 import type { TaskStage } from '@ptah-extension/tasks-ui/presentation';
 import type { SessionAgent } from '../session-agents/session-agent-roster';
@@ -88,13 +87,6 @@ export interface TaskSectionData {
     readonly title: string | null;
     readonly status: TaskStatus | null;
   }[];
-}
-
-export interface TodosSectionData {
-  readonly items: readonly TodoItem[] | null;
-  readonly done: number;
-  readonly total: number;
-  readonly activeTitle: string | null;
 }
 
 export interface GitSectionData {

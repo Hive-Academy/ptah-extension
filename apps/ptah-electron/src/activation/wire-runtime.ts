@@ -42,6 +42,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 
 import type { BootCoordinator } from './boot-coordinator';
+import { MachinesService } from '@ptah-extension/remote-machines';
 import { createHeavyServicesBooter } from './boot-heavy-services';
 import { bootStep } from './boot-trace';
 
@@ -338,6 +339,35 @@ export async function wireRuntimePreWindow(
     container,
     createElectronRpcHostProfile(container, rpcLogger),
   );
+  try {
+    const machines = container.resolve(MachinesService);
+    refs.remoteMachines = machines;
+    void machines
+      .list()
+      .then(({ machines: registered }) =>
+        Promise.all(
+          registered.map((machine) =>
+            machines.retry(machine.machineId).catch((error: unknown) => {
+              rpcLogger.warn(
+                '[Ptah Electron] Remote machine connection failed',
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }),
+          ),
+        ),
+      )
+      .catch((error: unknown) => {
+        rpcLogger.warn(
+          '[Ptah Electron] Remote machines startup failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
+  } catch (error: unknown) {
+    rpcLogger.warn(
+      '[Ptah Electron] Remote machines initialization failed',
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
   bootStep('RPC surface registered');
 
   console.log(
@@ -555,8 +585,13 @@ export function captureShutdownHandles(
   logger: Pick<Logger, 'warn'>,
 ): void {
   try {
-    coordinator.refs.sdkAdapter = container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)
-      ? container.resolve<{ dispose: () => Promise<void>; getLiveSessionUsageIds?: () => string[] }>(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    coordinator.refs.sdkAdapter = container.isRegistered(
+      SDK_TOKENS.SDK_AGENT_ADAPTER,
+    )
+      ? container.resolve<{
+          dispose: () => Promise<void>;
+          getLiveSessionUsageIds?: () => string[];
+        }>(SDK_TOKENS.SDK_AGENT_ADAPTER)
       : null;
   } catch (error: unknown) {
     // degradation-audit: reported - shutdown can continue without an adapter.
@@ -567,9 +602,10 @@ export function captureShutdownHandles(
     coordinator.refs.sdkAdapter = null;
   }
   if (container.isRegistered(PLATFORM_TOKENS.SESSION_USAGE_SINK)) {
-    coordinator.refs.sessionUsageSink = container.resolve<{ flush: () => Promise<void>; requestFinalization?: (id: string) => Promise<void> | void }>(
-      PLATFORM_TOKENS.SESSION_USAGE_SINK,
-    );
+    coordinator.refs.sessionUsageSink = container.resolve<{
+      flush: () => Promise<void>;
+      requestFinalization?: (id: string) => Promise<void> | void;
+    }>(PLATFORM_TOKENS.SESSION_USAGE_SINK);
   }
   // Capture the registered drain while the container is healthy. Quit uses
   // this ref after the agent reap, without resolving DI during teardown.

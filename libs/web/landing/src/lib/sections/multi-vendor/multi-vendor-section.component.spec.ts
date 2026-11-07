@@ -29,9 +29,8 @@ function installMatchMedia(reducedMotion: boolean): void {
   });
 }
 
-/** Browser mounts: no canvas or media in jsdom, so the bolts and the clip stay idle. */
+/** Browser mounts: no media playback in jsdom, so the clip stays idle. */
 function stubBrowserMedia(): void {
-  jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
 }
 
@@ -75,14 +74,13 @@ describe('MultiVendorSectionComponent', () => {
     expect(video?.getAttribute('poster')).toBe('/assets/live-demo/orchestration.jpg');
     expect(video?.getAttribute('aria-label')).toBeTruthy();
 
-    // Settled: every line and lane in, the meter reset to a fresh brief, two flank bolts.
+    // Settled: every line and lane in, the meter reset to a fresh brief, no lightning.
     expect(root.querySelectorAll('.rise:not(.is-in)')).toHaveLength(0);
     expect(root.querySelectorAll('.mv-lane.is-in')).toHaveLength(3);
     const meter = root.querySelector<HTMLElement>('[data-meter]');
     expect(meter?.classList.contains('is-fresh')).toBe(true);
     expect(meter?.style.getPropertyValue('--fill')).toBe(String(FRESH_BRIEF_FILL));
-    expect(root.querySelectorAll('ptah-flank-bolt[aria-hidden="true"]')).toHaveLength(2);
-    expect(root.querySelector('ptah-seam-bolt')).toBeNull();
+    expect(root.querySelector('ptah-flank-bolt, ptah-seam-bolt, ptah-lightning, canvas')).toBeNull();
     fixture.destroy();
   });
 
@@ -96,10 +94,7 @@ describe('MultiVendorSectionComponent', () => {
     ]);
     expect(stage?.querySelector('.mv-text[data-overlap] h2#multi-vendor-title')).not.toBeNull();
     expect(root.querySelector('.section-header')?.getAttribute('data-align')).toBe('start');
-    // One bolt with the clip, one beside the lanes; only the last lane has a meter.
-    expect(root.querySelectorAll('.mv-clip > ptah-flank-bolt')).toHaveLength(1);
-    expect(root.querySelector('.mv-bolt-ceiling')?.getAttribute('data-axis')).toBe('horizontal');
-    expect(root.querySelector('.mv-bolt-margin')?.getAttribute('data-axis')).toBe('vertical');
+    // Only the last lane has a meter.
     expect(root.querySelectorAll('[data-meter]')).toHaveLength(1);
     expect(root.querySelector('.mv-lane:last-child [data-meter]')).not.toBeNull();
     // Nothing decorative is focusable; the only control is the clip's own toggle.
@@ -115,14 +110,12 @@ describe('MultiVendorSectionComponent', () => {
     component.scroll.reveal.set(0.5);
     component.scroll.steps.set(0);
     fixture.detectChanges();
-    expect(component.strike()).toBe(2);
     expect(root.querySelectorAll('.mv-lane.is-in')).toHaveLength(0);
     expect(meter()?.style.getPropertyValue('--fill')).toBe('0');
 
     component.scroll.reveal.set(1);
     component.scroll.steps.set(0.45);
     fixture.detectChanges();
-    expect(component.strike()).toBe(5);
     expect(root.querySelectorAll('.mv-lane.is-in')).toHaveLength(2);
     expect(component.fresh()).toBe(false);
     expect(component.meterFill()).toBeGreaterThan(0.6);

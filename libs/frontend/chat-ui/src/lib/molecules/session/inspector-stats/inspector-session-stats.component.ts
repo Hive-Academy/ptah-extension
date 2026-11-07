@@ -43,12 +43,12 @@ let nextSessionId = 0;
   template: `
     @let s = stats();
     <section
-      class="px-3 py-3"
+      class="px-4 py-3"
       data-testid="inspector-session-stats"
       aria-label="Session statistics"
     >
       @if (s.snapshot?.provisional) {
-        <div class="mb-2 flex items-center justify-between gap-2" data-glass-surface="plate">
+        <div class="mb-2 text-right">
           <span class="text-[10.5px] text-base-content-muted"
             >~ = estimate</span
           >
@@ -57,7 +57,7 @@ let nextSessionId = 0;
       <!-- One row of totals split by vertical rules (rev 3 "B+"). Every cell has
            the same height and its bar sits on the cell's bottom edge. -->
       <div class="grid grid-cols-3" data-testid="inspector-stats-grid">
-        <div class="flex min-h-[3.75rem] min-w-0 flex-col pr-2">
+        <div class="flex min-h-[4rem] min-w-0 flex-col pr-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -80,6 +80,8 @@ let nextSessionId = 0;
               {{ s.compactionCount }}
               {{ s.compactionCount === 1 ? 'compaction' : 'compactions' }}
             </p>
+          } @else {
+            <p class="mt-0.5 min-h-4 text-[10.5px] text-base-content-muted">&nbsp;</p>
           }
           @if (s.context.known && s.context.percent !== null) {
             <div
@@ -105,7 +107,7 @@ let nextSessionId = 0;
             </div>
           }
         </div>
-        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border px-2">
+        <div class="flex min-h-[4rem] min-w-0 flex-col border-l border-surface-border px-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -162,7 +164,7 @@ let nextSessionId = 0;
             </div>
           }
         </div>
-        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border pl-2">
+        <div class="flex min-h-[4rem] min-w-0 flex-col border-l border-surface-border pl-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -262,7 +264,7 @@ let nextSessionId = 0;
           @if (modelNames().length >= 2) {
             <button
               type="button"
-              class="cursor-pointer text-[10.5px] text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+              class="block w-fit self-start cursor-pointer text-left text-[10.5px] leading-4 text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
               [attr.aria-expanded]="isOpen('sd-models')"
               [attr.aria-controls]="modelsPanelId"
               [title]="
@@ -369,7 +371,7 @@ let nextSessionId = 0;
         <button
           type="button"
           [attr.id]="id ?? null"
-          class="cursor-help text-[10.5px] text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+          class="block w-fit self-start text-left text-[10.5px] leading-4 text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
           [title]="text"
           [attr.aria-label]="name + ' details'"
           [attr.aria-expanded]="isOpen(key)"
@@ -382,7 +384,7 @@ let nextSessionId = 0;
       } @else {
         <div
           [attr.id]="id ?? null"
-          class="text-[10.5px] text-base-content-muted"
+          class="text-[10.5px] leading-4 text-base-content-muted"
         >
           {{ name }}
         </div>

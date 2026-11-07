@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { ConsoleClipComponent } from '../shared/console-clip.component';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { STEP_THRESHOLDS, stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -24,13 +23,13 @@ export const FRESH_BRIEF_FILL = 0.14;
  * lane. Signature: the third lane carries a context meter that fills with the
  * steps, then drops to a short fresh brief when its point lands. Scroll: the
  * header lines, the clip rises into place, then the pinned steps
- * branch the lanes top-down. Two canvas bolts flank the clip: one above its
- * top edge (clear of the copy), one in the right page margin beside the lanes.
+ * branch the lanes top-down. The command-center layout mirrored: same clip
+ * width, header column and type, from the shared tokens (`section-media.css`).
  */
 @Component({
   selector: 'ptah-multi-vendor-section',
   standalone: true,
-  imports: [ConsoleClipComponent, FlankBoltComponent, SectionHeaderComponent],
+  imports: [ConsoleClipComponent, SectionHeaderComponent],
   template: `
     <section
       id="multi-vendor-orchestration"
@@ -42,12 +41,6 @@ export const FRESH_BRIEF_FILL = 0.14;
 
       <div class="mv-stage" data-stage data-layout="front-lanes" [style.--enter]="scroll.enter()">
         <div class="mv-clip">
-          <ptah-flank-bolt
-            class="mv-bolt mv-bolt-ceiling"
-            axis="horizontal"
-            [seed]="109"
-            [strike]="strike()"
-          />
           <ptah-console-clip
             class="mv-video"
             video="/assets/live-demo/orchestration.mp4"
@@ -83,17 +76,15 @@ export const FRESH_BRIEF_FILL = 0.14;
               </li>
             }
           </ul>
-          <ptah-flank-bolt
-            class="mv-bolt mv-bolt-margin"
-            axis="vertical"
-            [seed]="127"
-            [strike]="strike()"
-          />
         </div>
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './multi-vendor-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './multi-vendor-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MultiVendorSectionComponent {
@@ -120,6 +111,4 @@ export class MultiVendorSectionComponent {
       ? FRESH_BRIEF_FILL
       : Math.min(1, this.scroll.steps() / STEP_THRESHOLDS[STEP_THRESHOLDS.length - 1]),
   );
-  /** The flanking bolts flash once per header line and once per lane. */
-  public readonly strike = computed(() => revealedLines(this.headerProgress()) + this.reached());
 }

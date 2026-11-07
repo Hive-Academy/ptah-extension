@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { REVEAL, bindSectionScroll, revealedLines } from './section-scroll';
+import { bindSectionScroll } from './section-scroll';
 
 function installMatchMedia(matches: (query: string) => boolean): void {
   Object.defineProperty(window, 'matchMedia', {
@@ -62,13 +62,5 @@ describe('bindSectionScroll', () => {
 
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0]).not.toHaveProperty('pin');
-  });
-});
-
-describe('revealedLines', () => {
-  it('counts the header lines the progress has reached', () => {
-    expect(revealedLines(0)).toBe(0);
-    expect(revealedLines(REVEAL.headline)).toBe(2);
-    expect(revealedLines(1)).toBe(3);
   });
 });

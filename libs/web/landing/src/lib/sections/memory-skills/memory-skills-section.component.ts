@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { FlankBoltComponent } from '../shared/flank-bolt.component';
-import { REVEAL, revealedLines } from '../shared/section-scroll';
+import { REVEAL } from '../shared/section-scroll';
 import { SectionHeaderComponent } from '../shared/section-header.component';
 import { stageScrollProgress, stepsReached } from '../shared/stage-scroll';
 
@@ -41,13 +40,12 @@ const CONTEXT_WIDTHS = [0.62, 0.44, 0.7] as const;
  * their two panes. Scroll: the header lines, the window rises while the
  * index rows light, then the pinned steps add the lines top-down, and the
  * diff is applied last (dashed pending lines turn solid). Settled state:
- * applied. Two canvas bolts flank the window: one in the right page margin,
- * one under the memory pane.
+ * applied. The window takes the shared clip width (`section-media.css`).
  */
 @Component({
   selector: 'ptah-memory-skills-section',
   standalone: true,
-  imports: [FlankBoltComponent, SectionHeaderComponent],
+  imports: [SectionHeaderComponent],
   template: `
     <section id="memory-intelligence" class="section-frame" aria-labelledby="memory-skills-title">
       <span id="the-onboarding-problem" class="ms-anchor" aria-hidden="true"></span>
@@ -68,18 +66,6 @@ const CONTEXT_WIDTHS = [0.62, 0.44, 0.7] as const;
         </div>
 
         <div class="ms-sheet-wrap">
-          <ptah-flank-bolt
-            class="ms-bolt ms-bolt-margin"
-            axis="vertical"
-            [seed]="139"
-            [strike]="strike()"
-          />
-          <ptah-flank-bolt
-            class="ms-bolt ms-bolt-floor"
-            axis="horizontal"
-            [seed]="151"
-            [strike]="strike()"
-          />
           <div class="ms-sheet" data-sheet [class.is-applied]="applied()">
             <div class="ms-memory" data-memory aria-hidden="true">
               <span class="pane-bar"><i></i><i></i><i></i></span>
@@ -121,7 +107,11 @@ const CONTEXT_WIDTHS = [0.62, 0.44, 0.7] as const;
       </div>
     </section>
   `,
-  styleUrls: ['../shared/section-frame.css', './memory-skills-section.component.css'],
+  styleUrls: [
+    '../shared/section-frame.css',
+    '../shared/section-media.css',
+    './memory-skills-section.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MemorySkillsSectionComponent {
@@ -147,8 +137,4 @@ export class MemorySkillsSectionComponent {
   public readonly reached = computed(() => stepsReached(this.scroll.steps()));
   /** The diff is applied last, after every line is in. */
   public readonly applied = computed(() => this.scroll.steps() >= APPLY_AT);
-  /** The flanking bolts flash once per header line, once per line and once on apply. */
-  public readonly strike = computed(
-    () => revealedLines(this.headerProgress()) + this.reached() + (this.applied() ? 1 : 0),
-  );
 }

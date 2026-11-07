@@ -1,0 +1,82 @@
+:host {
+  display: block;
+  padding: 1.25rem 1.25rem 1.5rem;
+}
+
+.rp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.rp-head .dl-glyph {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.rp-head .dl-glyph svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.download-link {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 -0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  color: #e9ebef;
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+}
+
+.download-link:hover {
+  color: #ffbb4d;
+  background: rgb(245 165 36 / 8%);
+}
+
+.rp-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: #f5a524;
+}
+
+.rp-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.rp-label {
+  font-size: 0.9rem;
+}
+
+.rp-size {
+  color: #8d929b;
+  font-size: 0.75rem;
+}
+
+.rp-empty {
+  margin: 0;
+  padding: 0.6rem 0.25rem;
+  color: #8d929b;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-link {
+    transition: none;
+  }
+}

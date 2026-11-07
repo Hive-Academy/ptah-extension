@@ -1,20 +1,25 @@
 /** @jest-environment jsdom */
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import {
+  DECISION_LOOP_CLIP,
   DECISION_LOOP_STAGES,
   DecisionLoopSectionComponent,
 } from './decision-loop-section.component';
 
-function installMatchMedia(reducedMotion: boolean): void {
+/** One environment per test: reduced motion, or a desktop with motion (never compact too). */
+function installMatchMedia(mode: 'reduced' | 'desktop'): void {
+  const matches = (query: string): boolean =>
+    mode === 'reduced'
+      ? query.includes('prefers-reduced-motion: reduce')
+      : query.includes('min-width: 1024px') && query.includes('prefers-reduced-motion: no-preference');
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: jest.fn(
       (query: string): MediaQueryList => ({
-        matches: reducedMotion
-          ? query.includes('prefers-reduced-motion: reduce')
-          : query.includes('prefers-reduced-motion: no-preference'),
+        matches: matches(query),
         media: query,
         onchange: null,
         addListener: jest.fn(),
@@ -27,12 +32,28 @@ function installMatchMedia(reducedMotion: boolean): void {
   });
 }
 
+/** gsap.matchMedia with add/revert stubbed: no real ScrollTrigger runs in jsdom. */
+function stubGsapMatchMedia() {
+  const media = gsap.matchMedia();
+  const add = jest.spyOn(media, 'add').mockImplementation(() => media);
+  const revert = jest.spyOn(media, 'revert').mockImplementation(() => undefined);
+  jest.spyOn(gsap, 'matchMedia').mockReturnValue(media);
+  return { add, revert };
+}
+
+/** A ScrollTrigger with the members bindSectionScroll uses: `end` (read by the scrub) and `kill`. */
+function fakeTrigger(kill: jest.Mock): ScrollTrigger {
+  return Object.assign(Object.create(ScrollTrigger.prototype) as ScrollTrigger, { kill, end: 2000 });
+}
+
 function mount(platform: 'server' | 'browser'): {
   component: DecisionLoopSectionComponent;
   root: HTMLElement;
   detectChanges: () => void;
   destroy: () => void;
 } {
+  // jsdom does not implement media playback; the clip pauses on destroy.
+  jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
   TestBed.configureTestingModule({
     imports: [DecisionLoopSectionComponent],
     providers: [{ provide: PLATFORM_ID, useValue: platform }],
@@ -53,16 +74,14 @@ describe('DecisionLoopSectionComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('renders exact decision-model-loop copy and an accessible ordered list on the server', () => {
+  it('renders exact decision-model-loop copy and the six steps as an ordered list on the server', () => {
     const { root, destroy } = mount('server');
 
     const section = root.querySelector('section#decision-model-loop');
     expect(section).not.toBeNull();
     expect(section?.getAttribute('aria-labelledby')).toBe('decision-loop-title');
 
-    expect(root.querySelector('.loop-eyebrow')?.textContent?.trim()).toBe(
-      'Who runs it',
-    );
+    expect(root.querySelector('.loop-eyebrow')?.textContent?.trim()).toBe('Who runs it');
     expect(root.querySelector('h2#decision-loop-title')?.textContent?.trim()).toBe(
       'How Ptah decides the work.',
     );
@@ -70,79 +89,111 @@ describe('DecisionLoopSectionComponent', () => {
       'A fast model proposes the job. Ninety days of local results, plus hard rules, shape who runs it.',
     );
 
-    const orderedList = root.querySelector('ol.loop-stages');
-    expect(orderedList).not.toBeNull();
+    const items = Array.from(root.querySelectorAll('ol.loop-stages > li.loop-stage'));
+    expect(items.map((item) => item.querySelector('.stage-label')?.textContent?.trim())).toEqual([
+      'Classify type and depth',
+      'Fast model, 3-second abort',
+      'Blend 90-day evidence',
+      'Drop same-family review',
+      'Routing reminder in chat',
+      'Check files, feed back',
+    ]);
+    expect(items.map((item) => item.querySelector('.stage-number')?.textContent?.trim())).toEqual(
+      DECISION_LOOP_STAGES.map((stage) => stage.number),
+    );
 
-    const items = Array.from(orderedList?.querySelectorAll('li.loop-stage') ?? []);
-    expect(items).toHaveLength(6);
-    expect(
-      items.map((item) =>
-        item.querySelector('.stage-label')?.textContent?.trim(),
-      ),
-    ).toEqual(DECISION_LOOP_STAGES.map((stage) => stage.label));
-
-    // Nothing non-interactive is focusable.
-    expect(root.querySelectorAll('[tabindex], button, a, input')).toHaveLength(0);
-    destroy();
-  });
-
-  it('keeps the loop settled when prefers-reduced-motion is enabled', () => {
-    installMatchMedia(true);
-    const createSpy = jest.spyOn(ScrollTrigger, 'create');
-    const { component, root, destroy } = mount('browser');
-    component['initialize']();
-
-    expect(component.loopProgress()).toBe(1);
-    expect(component.feedbackLit()).toBe(true);
-    expect(createSpy).not.toHaveBeenCalled();
+    // Settled on the server: header and every step in.
+    expect(root.querySelectorAll('.rise:not(.is-in)')).toHaveLength(0);
     expect(root.querySelectorAll('li.loop-stage.is-reached')).toHaveLength(6);
     destroy();
   });
 
-  it('advances stages along the closed loop and returns from stage 06 to stage 03', () => {
-    installMatchMedia(false);
+  it('plays the decision-loop clip in place of the app mockup', () => {
+    const { root, destroy } = mount('server');
+
+    const clip = root.querySelector('[data-loop-clip] ptah-console-clip');
+    expect(clip).not.toBeNull();
+    const video = clip?.querySelector('video');
+    const sources = Array.from(video?.querySelectorAll('source') ?? []).map((source) =>
+      source.getAttribute('src'),
+    );
+    expect(sources).toEqual([DECISION_LOOP_CLIP.video, DECISION_LOOP_CLIP.videoWebm]);
+    expect(sources).toEqual([
+      '/assets/live-demo/decision-loop.mp4',
+      '/assets/live-demo/decision-loop.webm',
+    ]);
+    expect(video?.getAttribute('poster')).toBe('/assets/live-demo/decision-loop.jpg');
+    expect(video?.getAttribute('aria-label')).toBe(DECISION_LOOP_CLIP.label);
+    // No autoplay on the server: native controls, the toggle hidden.
+    expect(video?.hasAttribute('controls')).toBe(true);
+    expect(clip?.querySelector('button.clip-toggle')?.hasAttribute('hidden')).toBe(true);
+
+    // The drawn app mockup is gone.
+    expect(root.querySelector('.loop-window, .app-frame, .app-card, svg')).toBeNull();
+    destroy();
+  });
+
+  it('keeps every step in when prefers-reduced-motion is enabled', () => {
+    installMatchMedia('reduced');
+    const create = jest.spyOn(ScrollTrigger, 'create');
+    const matchMedia = jest.spyOn(gsap, 'matchMedia');
     const { component, root, detectChanges, destroy } = mount('browser');
+    detectChanges();
+
+    expect(component.loopProgress()).toBe(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(matchMedia).not.toHaveBeenCalled();
+    expect(root.querySelectorAll('li.loop-stage.is-reached')).toHaveLength(6);
+    destroy();
+  });
+
+  it('brings the steps in, in order, as the loop progresses', () => {
+    installMatchMedia('desktop');
+    stubGsapMatchMedia();
+    const { component, root, detectChanges, destroy } = mount('browser');
+    const reached = (): number => root.querySelectorAll('li.loop-stage.is-reached').length;
 
     component.setProgress(0.1);
     detectChanges();
-    expect(component.activeStage()).toBe(0);
-    expect(component.feedbackLit()).toBe(false);
+    expect(reached()).toBe(1);
 
     component.setProgress(0.42);
     detectChanges();
-    expect(component.activeStage()).toBe(2);
-    expect(root.querySelectorAll('li.loop-stage.is-reached')).toHaveLength(3);
+    expect(reached()).toBe(3);
+    expect(root.querySelectorAll('li.loop-stage')[2]?.classList.contains('is-reached')).toBe(true);
+    expect(root.querySelectorAll('li.loop-stage')[3]?.classList.contains('is-reached')).toBe(false);
 
     component.setProgress(0.84);
     detectChanges();
-    expect(component.activeStage()).toBe(5);
-    expect(root.querySelectorAll('li.loop-stage.is-reached')).toHaveLength(6);
+    expect(reached()).toBe(6);
 
-    // Closed-loop completion returns focus to stage 03 (Blend 90-day evidence).
-    component.setProgress(0.96);
-    detectChanges();
-    expect(component.activeStage()).toBe(2);
-    expect(component.feedbackLit()).toBe(true);
-    expect(
-      root
-        .querySelectorAll('li.loop-stage')[2]
-        ?.classList.contains('is-feedback-lit'),
-    ).toBe(true);
-
+    component.setProgress(-1);
+    expect(component.loopProgress()).toBe(0);
     destroy();
   });
 
-  it('cleans up ScrollTrigger and matchMedia on destroy', () => {
-    installMatchMedia(false);
-    const kill = jest.fn();
-    jest.spyOn(ScrollTrigger, 'create').mockReturnValue({
-      kill,
-    } as unknown as ScrollTrigger);
+  it('releases its scroll bindings on destroy', () => {
+    installMatchMedia('desktop');
+    const { add, revert } = stubGsapMatchMedia();
+    const { destroy } = mount('browser');
 
-    const { component, destroy } = mount('browser');
-    component['initialize']();
+    // Bound once, by the component's own afterNextRender.
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(revert).not.toHaveBeenCalled();
     destroy();
+    expect(revert).toHaveBeenCalledTimes(1);
+  });
 
-    expect(kill).toHaveBeenCalled();
+  it('pins and scrubs on desktop only, then kills both triggers on destroy', () => {
+    installMatchMedia('desktop');
+    const kill = jest.fn();
+    const create = jest.spyOn(ScrollTrigger, 'create').mockReturnValue(fakeTrigger(kill));
+    const { destroy } = mount('browser');
+
+    // Desktop only: the pin and its scrub, not the compact scrub as well.
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ pin: true });
+    destroy();
+    expect(kill).toHaveBeenCalledTimes(2);
   });
 });

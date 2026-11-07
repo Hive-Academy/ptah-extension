@@ -974,7 +974,7 @@ ownerToken })` from the `'rebound'` branch (`session-registry.service.ts:380-394
 
 - Security suite passes; verify passes
 
-## Batch 19: C7 headless worker host — `worker-host` lib and desktop packaging (revised Round 6) — PENDING
+## Batch 19: C7 headless worker host — `worker-host` lib and desktop packaging (revised Round 6) — COMPLETE (PR #928, merged e9ca7046c)
 
 Replaces the Round 5 batch (`apps/ptah-cli` command group, removed on main). Plan: Round 6 R6.2,
 R6.3 components 1-2, AD-26 … AD-29.
@@ -1084,7 +1084,12 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 ---
 
-## Batch 20: C8a SSH transport, registry, token store (revised Round 6) — PENDING
+> Numbering note (2026-11-06): the Phase D review fix batches were also numbered 20 and 21
+> (`phase-d-fix-plan.md`). Their reports are renamed `phase-d-fix-20-report.md` and
+> `phase-d-fix-21-report.md`. The names `batch-20-report.md` … `batch-22-report.md` now belong to
+> the Phase E batches below.
+
+## Batch 20: C8a SSH transport, registry, token store (revised Round 6) — COMPLETE (Codex; review at Batch 22)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1096,7 +1101,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E | Phase review: at Batch 22
 - Verify (Round 6): `npm run verify -- -p @ptah-extension/worker-protocol,@ptah-extension/worker-runtime,@ptah-extension/remote-machines,@ptah-extension/machines-ui,@ptah-extension/worker-host`
 
-### Task 20.1: Alias, ssh commands, stdio transport, registry, token store — PENDING
+### Task 20.1: Alias, ssh commands, stdio transport, registry, token store — COMPLETE
 
 - Files: W/`libs/backend/remote-machines/src/lib/{ssh-alias,ssh-worker-commands,ssh-stdio-transport,machine-registry,machine-token-store}.ts`
   (+ specs), W/`libs/backend/remote-machines/src/index.ts`,
@@ -1118,7 +1123,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 - Alias and argument-array specs pass; verify passes
 
-## Batch 21: C8b connection, service, RPC handlers — PENDING
+## Batch 21: C8b connection, service, RPC handlers — COMPLETE (Codex; review at Batch 22)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1130,7 +1135,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E | Phase review: at Batch 22
 - Verify: `npm run verify -- -p @ptah-extension/remote-machines`
 
-### Task 21.1: Machine connection, service, handlers — PENDING
+### Task 21.1: Machine connection, service, handlers — COMPLETE
 
 - Files: W/`libs/backend/remote-machines/src/lib/{machine-connection,machines-service,machines-rpc.handlers}.ts`
   (+ specs), W/`libs/backend/remote-machines/src/index.ts`
@@ -1143,7 +1148,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Validation notes: edge case offline removal
 - Implementation details: `register()` pattern `register-rpc-surface.ts:183-190`
 
-### Task 21.2: A1 Duplex integration spec — PENDING
+### Task 21.2: A1 Duplex integration spec — COMPLETE
 
 - Depends on: Task 21.1
 - File: W/`libs/backend/remote-machines/src/lib/machine-connection.integration.spec.ts` (create)
@@ -1156,7 +1161,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 
 - A1 Duplex spec and removal specs pass; verify passes
 
-## Batch 22: C9 Electron host wiring — PENDING
+## Batch 22: C9 Electron host wiring — COMPLETE (Codex; Phase E reviewed: logic + security REVISE → 2 revise rounds → APPROVED 8/10, `phase-e-fix-round-2-review.md`)
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -1168,7 +1173,7 @@ pushAdapter: new CliWebviewManagerAdapter({ tap, logger }) }, …)` running `cre
 - Phase: E (last) | Phase review: **code-logic + review-security for Phase E (Batches 20-22)**
 - Verify: `npm run verify -- -p ptah-electron`
 
-### Task 22.1: Register singletons, capability, dispose; restore surface spec — PENDING
+### Task 22.1: Register singletons, capability, dispose; restore surface spec — COMPLETE
 
 - Files: W/`apps/ptah-electron/src/rpc-host-profile.ts`, W/`apps/ptah-electron/src/di/phase-4-handlers.ts`,
   W/`apps/ptah-electron/src/di/rpc-surface.spec.ts`, W/`apps/ptah-electron/src/activation/wire-runtime.ts`
@@ -1179,7 +1184,7 @@ MachinesRpcHandlers`; `MachinesService` disposed on quit; "excludes nothing" res
 - Validation notes: registration failure only warns (`register-rpc-surface.ts:183-196`)
 - Implementation details: none
 
-### Task 22.2: Confirm Electron `ws` declaration — PENDING
+### Task 22.2: Confirm Electron `ws` declaration — COMPLETE (declared, no change)
 
 - Depends on: Task 22.1
 - File: none to change unless Batch 1 got it wrong; report only

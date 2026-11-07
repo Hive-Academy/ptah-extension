@@ -9,7 +9,6 @@ export type {
   SectionStatus,
   SessionInspectorModel,
   TaskSectionData,
-  TodosSectionData,
 } from './session-inspector.types';
 export {
   ORCHESTRATOR_OWNER_KEY,

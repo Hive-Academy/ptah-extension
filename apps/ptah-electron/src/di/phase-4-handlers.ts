@@ -13,11 +13,13 @@
  *                had no caller left once `libs/frontend/editor` was deleted.
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
+import { app } from 'electron';
 
 import {
   PLATFORM_TOKENS,
   type IProcessSpawner,
+  type ISecretStorage,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
@@ -75,6 +77,13 @@ import {
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 import { GitRootWatcherPool } from '../services/git-root-watcher-pool';
+import {
+  MachineRegistry,
+  MachineTokenStore,
+  MachinesRpcHandlers,
+  MachinesService,
+  type MachinesBroadcaster,
+} from '@ptah-extension/remote-machines';
 
 /**
  * Phase 4: Register all RPC handler classes with the container.
@@ -210,6 +219,22 @@ export function registerPhase4Handlers(
     useValue: new GitRootWatcherPool(logger),
   });
   container.registerSingleton(GitWatchRpcHandlers);
+  container.register(MachinesService, {
+    useFactory: instanceCachingFactory(
+      (provider) =>
+        new MachinesService({
+          registry: new MachineRegistry(),
+          tokens: new MachineTokenStore(
+            provider.resolve<ISecretStorage>(PLATFORM_TOKENS.SECRET_STORAGE),
+          ),
+          webviewManager: provider.resolve<MachinesBroadcaster>(
+            TOKENS.WEBVIEW_MANAGER,
+          ),
+          ptahVersion: app.getVersion(),
+        }),
+    ),
+  });
+  container.registerSingleton(MachinesRpcHandlers);
 
   logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
     // These live in @ptah-extension/rpc-handlers and are registered here
@@ -222,6 +247,7 @@ export function registerPhase4Handlers(
       'SkillsShRpcHandlers',
       'UpdateRpcHandlers',
       'GitWatchRpcHandlers',
+      'MachinesRpcHandlers',
     ],
   });
 }

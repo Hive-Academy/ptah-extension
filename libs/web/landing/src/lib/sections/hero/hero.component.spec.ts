@@ -3,6 +3,7 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import gsap from 'gsap';
+import { LightningRenderer } from '../../shared/lightning/lightning-renderer';
 import { HeroComponent } from './hero.component';
 import { HeroLightning } from './hero-lightning';
 
@@ -78,7 +79,7 @@ describe('HeroComponent', () => {
     ObserverStub.instances = [];
   });
 
-  it('renders the headline, CTAs and both lightning layers on the server', () => {
+  it('renders the headline, CTAs and the symbol lightning canvas on the server', () => {
     const start = jest.spyOn(HeroLightning.prototype, 'start');
     const { root, destroy } = mount('server');
     expect(root.querySelector('.title-index')?.textContent?.trim()).toBe('PTAHCODE / YOUR AI DEV TEAM');
@@ -89,7 +90,9 @@ describe('HeroComponent', () => {
     expect(root.querySelector<HTMLAnchorElement>('.watch-link')?.getAttribute('href')).toBe('#command-center');
     expect(root.querySelectorAll('.artifacts[aria-hidden] img[alt=""]')).toHaveLength(4);
     expect(root.querySelector('.artifacts canvas[data-lightning][aria-hidden="true"]')).not.toBeNull();
-    expect(root.querySelector('[data-story-stage] > ptah-lightning.hero-bolt')).not.toBeNull();
+    // The only lightning is the one canvas between the symbols: no page-wide bolt.
+    expect(root.querySelectorAll('canvas')).toHaveLength(1);
+    expect(root.querySelector('ptah-lightning, .hero-bolt')).toBeNull();
     expect(start).not.toHaveBeenCalled();
     destroy();
   });
@@ -117,7 +120,7 @@ describe('HeroComponent', () => {
     destroy();
   });
 
-  it('pins the title for its fade and runs the arcs only while the copy is visible', () => {
+  it('pins the layer fade, holds the copy until the hero ends and runs the arcs with the symbols', () => {
     jest.useFakeTimers();
     installBrowserMocks(false, true);
     const media = gsap.matchMedia();
@@ -136,23 +139,22 @@ describe('HeroComponent', () => {
       timelineVars.push(vars ?? {});
       return realTimeline({ paused: true });
     });
-    jest.spyOn(gsap, 'to').mockReturnValue(gsap.to({}, { paused: true }));
+    const to = jest.spyOn(gsap, 'to').mockReturnValue(gsap.to({}, { paused: true }));
     const start = jest.spyOn(HeroLightning.prototype, 'start');
     const stop = jest.spyOn(HeroLightning.prototype, 'stop');
     const destroyLightning = jest.spyOn(HeroLightning.prototype, 'destroy');
     const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
-    const getContextDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'getContext');
-    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
-      configurable: true,
-      value: jest.fn(() => Object.assign({} as CanvasRenderingContext2D, {
-        setTransform: jest.fn(), clearRect: jest.fn(),
-      })),
-    });
+    const renderer = { resize: jest.fn(), draw: jest.fn(), clear: jest.fn(), dispose: jest.fn() };
+    const create = jest.spyOn(LightningRenderer, 'create')
+      .mockReturnValue(renderer as unknown as LightningRenderer);
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     try {
       const { component, root, destroy } = mount('browser');
       expect(root.classList.contains('is-cinematic')).toBe(true);
       expect(component['lightning']).toBeInstanceOf(HeroLightning);
+      // One WebGL context for the page, made for the symbol canvas.
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(create.mock.calls[0][0]).toBe(root.querySelector('canvas[data-lightning]'));
       expect(start).not.toHaveBeenCalled();
 
       ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
@@ -162,17 +164,33 @@ describe('HeroComponent', () => {
       expect(scrollTrigger).toMatchObject({ start: 'top top', pin: true, scrub: 1 });
       expect(scrollTrigger.snap).toBeUndefined();
       const onUpdate = scrollTrigger.onUpdate as unknown as ScrollUpdate;
-      const content = root.querySelector('[data-title-content]')!;
+      const content = root.querySelector<HTMLElement>('[data-title-content]')!;
 
+      // The copy is tweened only by its own two triggers: held in place, then faded.
+      const copyTweens = to.mock.calls.filter(([target]) => target === content);
+      expect(copyTweens).toHaveLength(2);
+      const hold = copyTweens.find(([, vars]) => vars.y !== undefined)?.[1].scrollTrigger as ScrollTrigger.Vars;
+      expect(hold).toMatchObject({ end: 'bottom top', scrub: true });
+      const fade = copyTweens.find(([, vars]) => vars.opacity === 0)?.[1].scrollTrigger as ScrollTrigger.Vars;
+      expect(fade).toMatchObject({ scrub: true });
+      const onCopy = fade.onUpdate as unknown as ScrollUpdate;
+
+      // The pinned layers fade out: the arcs stop, the copy stays usable.
       const stopsBeforeFade = stop.mock.calls.length;
       onUpdate({ progress: 1 });
       expect(stop.mock.calls.length).toBeGreaterThan(stopsBeforeFade);
       expect(component['lightning']?.['timeout']).toBeUndefined();
-      expect(root.classList.contains('is-in-story')).toBe(true);
-      expect(content.hasAttribute('inert')).toBe(true);
+      expect(root.classList.contains('is-in-story')).toBe(false);
+      expect(content.hasAttribute('inert')).toBe(false);
 
       onUpdate({ progress: 0.1 });
       expect(start).toHaveBeenCalledTimes(2);
+
+      // The bottom of the hero passes the copy: it fades and leaves the tab order.
+      onCopy({ progress: 1 });
+      expect(root.classList.contains('is-in-story')).toBe(true);
+      expect(content.hasAttribute('inert')).toBe(true);
+      onCopy({ progress: 0.5 });
       expect(root.classList.contains('is-in-story')).toBe(false);
       expect(content.hasAttribute('inert')).toBe(false);
 
@@ -183,10 +201,10 @@ describe('HeroComponent', () => {
 
       destroy();
       expect(destroyLightning).toHaveBeenCalled();
+      expect(renderer.dispose).toHaveBeenCalled();
       expect(component['lightning']).toBeUndefined();
       expect(root.classList.contains('is-cinematic')).toBe(false);
     } finally {
-      if (getContextDescriptor) Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', getContextDescriptor);
       if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
       else Reflect.deleteProperty(document, 'hidden');
       jest.useRealTimers();
