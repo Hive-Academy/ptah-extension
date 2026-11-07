@@ -338,8 +338,9 @@ export class LaneComposerComponent {
         try {
           text = await this.store.recoverQueuedText(agentId, messageId);
         } catch {
-          // The cancel would drop the only copy of the text, so Edit stops and
-          // the queued message stays for a retry.
+          // degradation-audit: reported - the cancel would drop the only copy of
+          // the text, so Edit stops, shows the error below, and the queued
+          // message stays for a retry.
           this.error.set('Could not load the queued message to edit. Try again.');
           return;
         }
