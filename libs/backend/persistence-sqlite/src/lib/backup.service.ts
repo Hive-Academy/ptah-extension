@@ -97,6 +97,13 @@ const GOVERNOR_LANE = 'sqlite-daily-backup';
  * working session; past it the backup runs regardless, so it is never starved.
  */
 export const DAILY_BACKUP_MAX_DEFER_MS = 2 * 60 * 60 * 1000;
+/**
+ * The shortest wait an overdue daily backup still gets. A marker resumed at
+ * startup is usually past its two hours; without this floor it would copy
+ * during the busiest minutes of the run. Kept short so a backup owed across
+ * many short runs still lands.
+ */
+export const DAILY_BACKUP_MIN_DEFER_MS = 15 * 60 * 1000;
 /** Wait until the live WAL has seen no writes for this long. */
 export const DAILY_BACKUP_WRITE_QUIET_MS = 10_000;
 const DAILY_BACKUP_WRITE_POLL_MS = 2_000;
@@ -362,7 +369,13 @@ export class SqliteBackupService implements IBackupService {
    * KEEPS the marker.
    */
   private async runGovernedDaily(dueAt: number): Promise<string | null> {
-    const deadline = dueAt + DAILY_BACKUP_MAX_DEFER_MS;
+    // An overdue backup (a marker resumed at the next start, or re-used by a
+    // later cron tick) still waits DAILY_BACKUP_MIN_DEFER_MS for a quiet host
+    // instead of copying at once during startup.
+    const deadline = Math.max(
+      dueAt + DAILY_BACKUP_MAX_DEFER_MS,
+      Date.now() + DAILY_BACKUP_MIN_DEFER_MS,
+    );
     while (Date.now() < deadline) {
       const admission = await this.waitForBackgroundClear('daily', deadline - Date.now());
       if (admission === null) return null;
@@ -402,7 +415,9 @@ export class SqliteBackupService implements IBackupService {
 
   private async finishDueDaily(): Promise<string | null> {
     const dest = await this.enqueue('daily');
-    await this.pendingDaily.clear();
+    // A failed, corrupt or timed-out copy returns null: keep the marker so the
+    // owed backup is retried at the next start instead of lost for the day.
+    if (dest !== null) await this.pendingDaily.clear();
     return dest;
   }
 
