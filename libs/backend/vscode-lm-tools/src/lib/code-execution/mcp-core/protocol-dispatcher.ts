@@ -50,6 +50,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import {
+  AgentMessageAckArgsSchema,
   AgentMessageArgsSchema,
   AgentMessageControlArgsSchema,
   AgentMessageStatusArgsSchema,
@@ -109,6 +110,7 @@ import {
   buildAgentMessageTool,
   buildAgentMessageStatusTool,
   buildAgentMessageControlTool,
+  buildAgentMessageAckTool,
   buildAgentReportTool,
   buildAgentListTool,
   buildAgentStopTool,
@@ -621,6 +623,7 @@ function buildToolDefinitions(
           buildAgentMessageTool(),
           buildAgentMessageStatusTool(),
           buildAgentMessageControlTool(),
+          buildAgentMessageAckTool(),
           buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
@@ -1541,6 +1544,31 @@ async function handleIndividualTool(
           }
           throw error;
         }
+      }
+
+      case 'ptah_agent_message_ack': {
+        const parsed = AgentMessageAckArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success)
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_message_ack arguments — ${describeZodIssues(parsed.error)}. Required: "messageId" and "state" ("read", "acted" or "rejected"). There is no "agentId" argument — the acknowledging agent is identified by its connection.`,
+          );
+        // Identity comes from the credential binding inside `agent.ack`,
+        // never from the arguments (the strict schema refuses an agentId).
+        const { messageId, state, note } = parsed.data;
+        const result = await ptahAPI.agent.ack(messageId, state, note);
+        // The receipt stays out of the reply: the lane needs its ack state
+        // and the transport state, not the sender's session details.
+        const reply = result.ok
+          ? { ok: true, messageId, ackState: result.ackState, changed: result.changed, state: result.receipt.state }
+          : result;
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(reply),
+          deps,
+        );
       }
 
       case 'ptah_agent_report': {

@@ -869,6 +869,9 @@ export function buildAgentReadTool(): MCPToolDefinition {
  */
 export const MAX_AGENT_MESSAGE_LENGTH = AGENT_MESSAGE_MAX_CHARS;
 
+/** `ptah_agent_message_ack` note ceiling; the envelope's `ackNote` limit. */
+export const MAX_AGENT_ACK_NOTE_LENGTH = 500;
+
 /**
  * Build the ptah_agent_message tool definition
  *
@@ -931,9 +934,11 @@ export function buildAgentMessageStatusTool(): MCPToolDefinition {
     description:
       'Read the delivery status of an agent message: state, requestedAgentId ' +
       'and agentId (they differ after a resume), attemptCount, lastError, ' +
-      'nextRetryAt and sender. "settled" means the turn ended, not that the ' +
-      'agent acted on the message. An "outcome-unknown" message may already ' +
-      'have run.',
+      'nextRetryAt, sender and ackState. "settled" means the turn ended, not ' +
+      'that the agent acted on the message. An "outcome-unknown" message may ' +
+      'already have run. ackState is the agent\'s own acknowledgment: ' +
+      '"pending" (not yet), "read", "acted", "rejected", or "unavailable" ' +
+      '(the agent cannot call Ptah tools).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -967,6 +972,35 @@ export function buildAgentMessageControlTool(): MCPToolDefinition {
         },
       },
       required: ['agentId', 'messageId', 'action'],
+    },
+  };
+}
+
+/**
+ * Acknowledge a message delivered to the calling agent (Component 13).
+ * Deliberately takes NO agent id: the acknowledging agent is the one its MCP
+ * credential is bound to, so an agent cannot ack for another.
+ */
+export function buildAgentMessageAckTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_message_ack',
+    description:
+      'Acknowledge a message you received as "[Ptah message <id> from ...]". ' +
+      'state "read" says you saw it, "acted" that you did what it asked, ' +
+      '"rejected" that you will not. Go forward only (read, then acted); ' +
+      'rejected is final. Repeating the same state changes nothing. There is ' +
+      'no "agentId" argument: you are identified by your connection.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'Message ID from the message header' },
+        state: { type: 'string', enum: ['read', 'acted', 'rejected'], description: 'read, acted or rejected' },
+        note: {
+          type: 'string',
+          description: `Optional short note, at most ${MAX_AGENT_ACK_NOTE_LENGTH} characters.`,
+        },
+      },
+      required: ['messageId', 'state'],
     },
   };
 }

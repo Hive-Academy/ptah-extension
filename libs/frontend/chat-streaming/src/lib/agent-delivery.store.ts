@@ -49,10 +49,24 @@ export interface DeliveryAction {
 export interface DeliveryStatus {
   /** Label without the age suffix. */
   readonly label: string;
+  /** Transport-only label ("Delivered to lane" when settled). */
+  readonly transportLabel?: string;
+  /** Turn-outcome label when the turn has settled ("Turn ended · completed"). */
+  readonly turnOutcomeLabel?: string;
   /** Epoch ms the age counts from, when the label shows an age. */
   readonly since?: number;
   /** Rendered age ("4m"), paired with `since` for a `<time datetime>`. */
   readonly age?: string;
+  /** Epoch ms the limit resets at, when a known reset time is shown in `<time datetime>`. */
+  readonly resetAt?: number;
+  /** Rendered reset clock time, paired with `resetAt` for a `<time datetime>`. */
+  readonly resetTime?: string;
+  /** Semantic acknowledgment state, separate from transport and turn outcome. */
+  readonly ackState?: AgentMessageAckState;
+  /** Semantic acknowledgment label ("Awaiting lane ack", "Read by lane", etc.). */
+  readonly ackLabel?: string;
+  /** Epoch ms when the lane acknowledged the message. */
+  readonly ackAt?: number;
   /** Label and age as one plain-text string. */
   readonly text: string;
   /** The item needs the user's attention (status is text, the tone only adds to it). */
@@ -87,11 +101,11 @@ const PARENT_RANK: Readonly<Record<ParentDeliveryState, number>> = {
 };
 
 const ACK_RANK: Readonly<Record<AgentMessageAckState, number>> = {
+  unavailable: 0,
   pending: 0,
   read: 1,
   acted: 2,
   rejected: 2,
-  unavailable: 2,
 };
 
 /** Receipt states that show an age and so keep the shared clock running. */
@@ -346,7 +360,7 @@ export class AgentDeliveryStore {
           const resetAt = receipt.limit?.known ? receipt.limit.resetAt : undefined;
           return resetAt === undefined
             ? aged('Lane at limit', [retry(confirmRetry), ...cancel])
-            : this.status(`Waiting for limit reset · ${clockTime(resetAt)}`, undefined, cancel, true, receipt);
+            : this.status('Waiting for limit reset', undefined, cancel, true, receipt, resetAt);
         }
         return this.status(`Retrying · attempt ${receipt.attemptCount ?? 1}`, undefined,
           [retry(confirmRetry, 'Retry now'), ...cancel], true, receipt);
@@ -376,6 +390,29 @@ export class AgentDeliveryStore {
   /** Plain-text label for consumers that only show text. */
   receiptLabel(receipt: AgentDeliveryReceipt): string {
     return this.receiptStatus(receipt).text;
+  }
+
+  /** Exact user-facing label for a lane message acknowledgment state. */
+  static ackLabel(
+    input: Pick<AgentDeliveryReceipt, 'ackState' | 'ackNote'> | AgentMessageAckState | null | undefined,
+    ackNote?: string,
+  ): string | null {
+    const state = typeof input === 'string' ? input : input?.ackState;
+    const note = (typeof input === 'string' ? ackNote : input?.ackNote ?? ackNote)?.trim();
+    switch (state) {
+      case 'pending':
+        return 'Awaiting lane ack';
+      case 'read':
+        return 'Read by lane';
+      case 'acted':
+        return 'Lane reports acted';
+      case 'rejected':
+        return note ? `Lane rejected: ${note}` : 'Lane rejected';
+      case 'unavailable':
+        return 'Ack unavailable (no MCP)';
+      case undefined:
+        return null;
+    }
   }
 
   parentStatus(item: ParentDeliveryItem): DeliveryStatus {
@@ -575,7 +612,10 @@ export class AgentDeliveryStore {
   private newerAck(existing: AgentDeliveryReceipt, incoming: AgentDeliveryReceipt): AgentDeliveryReceipt {
     if (!incoming.ackState) return existing;
     if (!existing.ackState) return incoming;
-    return ACK_RANK[incoming.ackState] > ACK_RANK[existing.ackState] ? incoming : existing;
+    const incomingRank = ACK_RANK[incoming.ackState];
+    const existingRank = ACK_RANK[existing.ackState];
+    if (incomingRank !== existingRank) return incomingRank > existingRank ? incoming : existing;
+    return incomingRank === 0 && incoming.updatedAt > existing.updatedAt ? incoming : existing;
   }
 
   private status(
@@ -584,13 +624,26 @@ export class AgentDeliveryStore {
     actions: readonly DeliveryAction[],
     attention: boolean,
     receipt?: AgentDeliveryReceipt,
+    resetAt?: number,
   ): DeliveryStatus {
     const resolved = receipt?.actualAgentId && receipt.actualAgentId !== receipt.agentId
       ? ` · resumed as ${this.laneName(receipt.actualAgentId)}` : '';
     const fullLabel = `${label}${resolved}`;
-    if (since === undefined) return { label: fullLabel, text: fullLabel, attention, actions };
+    const ackLabel = AgentDeliveryStore.ackLabel(receipt) ?? undefined;
+    const ackFields = receipt?.ackState
+      ? { ackState: receipt.ackState, ackLabel, ackAt: receipt.ackAt }
+      : {};
+    const settledFields = receipt?.state === 'settled'
+      ? { transportLabel: `Delivered to lane${resolved}`, turnOutcomeLabel: fullLabel }
+      : { transportLabel: fullLabel };
+    const extra = receipt ? { ...settledFields, ...ackFields } : {};
+    if (resetAt !== undefined) {
+      const resetTime = clockTime(resetAt);
+      return { label: fullLabel, resetAt, resetTime, text: `${fullLabel} · ${resetTime}`, attention, actions, ...extra };
+    }
+    if (since === undefined) return { label: fullLabel, text: fullLabel, attention, actions, ...extra };
     const age = formatDeliveryAge(this.now() - since);
-    return { label: fullLabel, since, age, text: `${fullLabel} · ${age}`, attention, actions };
+    return { label: fullLabel, since, age, text: `${fullLabel} · ${age}`, attention, actions, ...extra };
   }
 
   private reasonText(receipt: AgentDeliveryReceipt): string {

@@ -377,6 +377,12 @@ export interface AgentNamespace {
    * already have run needs `confirmDuplicateRisk`.
    */
   control: (agentId: string, messageId: string, action: 'retry' | 'cancel', confirmDuplicateRisk?: boolean) => Promise<AgentMessageOutcome | import('@ptah-extension/shared').AgentDeliveryReceipt>;
+  /**
+   * Acknowledge a message delivered to the calling lane. The lane is the one
+   * the MCP credential is bound to; without such a binding the result is
+   * `unattributed-caller`.
+   */
+  ack: (messageId: string, state: import('@ptah-extension/cli-agent-runtime').AgentMessageAckRequestState, note?: string) => Promise<import('@ptah-extension/cli-agent-runtime').AgentMessageAckResult | { readonly ok: false; readonly messageId: string; readonly code: 'unattributed-caller' }>;
 
   /**
    * Deliver a report to the session that started the reporter.

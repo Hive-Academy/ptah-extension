@@ -12,6 +12,11 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentProcessManager } from '../agent-process-manager.service';
 import type { CliDetectionService } from '../cli-detection.service';
 import type { AgentLaneResumeService } from './agent-lane-resume.service';
+import type {
+  AgentMessageAckRequest,
+  AgentMessageAckResult,
+  AgentMessageAckService,
+} from './agent-message-ack.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
 import type {
   AgentMessageDeliveryScheduler,
@@ -29,6 +34,11 @@ import {
   type AgentMessageEnvelopeStore,
 } from './envelope/agent-message-envelope.store';
 import { LaneSerialQueue } from './lane-serial-queue';
+import {
+  planLimitRetry,
+  requiresLimitGate,
+  type LaneDeliveryLimitGate,
+} from './lane-delivery-limit.gate';
 import type { ParentSessionPurge } from './parent-session-purge.service';
 
 export { CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-preview';
@@ -44,7 +54,8 @@ export type CoordinatorEnvelopeStore = Pick<
 export type CoordinatorScheduler = Pick<
   AgentMessageDeliveryScheduler,
   'start' | 'enqueueCold' | 'schedule' | 'onLaneSettled'
->;
+> &
+  Partial<Pick<AgentMessageDeliveryScheduler, 'unschedule'>>;
 
 export interface AgentMessageCoordinatorDeps {
   readonly manager: CoordinatorManager;
@@ -53,7 +64,11 @@ export interface AgentMessageCoordinatorDeps {
   readonly aliases: Pick<AgentIdAliasRegistry, 'record' | 'resolve' | 'rootOf'>;
   readonly resume: Pick<AgentLaneResumeService, 'resume'>;
   readonly scheduler: CoordinatorScheduler;
+  /** Semantic acknowledgment (Component 13). */
+  readonly ack: Pick<AgentMessageAckService, 'acknowledge'>;
   readonly logger: Logger;
+  /** Limit gate checked before starting a cold resume (Component 14). */
+  readonly limitGate?: Pick<LaneDeliveryLimitGate, 'check'> | null;
   /** Startup purge recovery; awaited before the scheduler starts. */
   readonly purge?: Pick<ParentSessionPurge, 'resumePendingPurges'>;
   /** True while the parent session's deletion is in progress. */
@@ -134,6 +149,12 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
       if (refusal || !info) return this.refuse({ ...base, lineage }, refusal ?? 'not_found', plan.reason);
       if (info.parentSessionId && this.deps.isParentFrozen?.(info.parentSessionId))
         return this.refuse({ ...base, lineage }, 'parent-session-deleted');
+      const limitDecision = requiresLimitGate(plan) && this.deps.limitGate
+        ? await this.deps.limitGate.check(info)
+        : { kind: 'proceed' as const };
+      const retryPlan = limitDecision.kind === 'blocked'
+        ? planLimitRetry(undefined, limitDecision.resetAt)
+        : undefined;
       let put: { envelope: AgentMessageEnvelope; deduplicated: boolean };
       try {
         put = await this.deps.store.put({
@@ -146,11 +167,23 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
           ...(request.allowPartialTurnLoss === true ? { allowPartialTurnLoss: true } : {}),
           ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
           route: plan.usesResume ? 'cold' : 'live',
+          ...(retryPlan ? {
+            state: 'blocked-retryable' as const,
+            reason: 'lane-at-limit',
+            limit: retryPlan.limit,
+            ...(retryPlan.nextRetryAt !== undefined ? { nextRetryAt: retryPlan.nextRetryAt } : {}),
+          } : {}),
         }, request.message);
       } catch (error: unknown) {
         return this.storageRefusal(error, request.agentId);
       }
       if (put.deduplicated) return this.duplicate(put.envelope, request.agentId);
+      if (retryPlan) {
+        if (retryPlan.nextRetryAt !== undefined) {
+          this.deps.scheduler.schedule(put.envelope.id, retryPlan.nextRetryAt);
+        }
+        return this.unsupportedFor(put.envelope, 'lane-at-limit');
+      }
       return this.dispatcher.attempt({
         envelope: put.envelope, body: request.message, plan, info, laneId,
         requestedAgentId: request.agentId,
@@ -161,6 +194,15 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
 
   /** Scheduler entry point: cold inbox, due retries and queue-full re-offers. */
   async deliver(envelopeId: string): Promise<void> {
+    await this.deliverInternal(envelopeId, false);
+  }
+
+  /** Scheduler entry point when the scheduler already checked the limit gate. */
+  async deliverAfterLimitGate(envelopeId: string): Promise<void> {
+    await this.deliverInternal(envelopeId, true);
+  }
+
+  private async deliverInternal(envelopeId: string, limitChecked: boolean): Promise<void> {
     const envelope = await this.deps.store.get(envelopeId);
     if (!envelope || !DELIVERABLE.has(envelope.state)) return;
     await this.serial.run(envelope.laneLineageId, async () => {
@@ -172,7 +214,7 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
         // The scheduler logs this; the receipt already shows the failure.
         throw new AgentMessageBodyUnavailableError(envelopeId);
       }
-      await this.routeHeld(current, body, current.delivery);
+      await this.routeHeld(current, body, current.delivery, limitChecked);
     });
   }
 
@@ -192,19 +234,47 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
         return this.unsupportedFor(current, 'confirmation-required');
       const body = await this.deps.store.getBody(messageId);
       if (body === undefined) return this.unsupportedFor(await this.failWithoutBody(current), 'body-unavailable');
-      // Persist first: a failed write leaves the parked router entry untouched.
-      const reopened = await this.deps.store.transition(messageId, {
-        state: 'not-started', reason: undefined, nextRetryAt: undefined,
-      }, [current.state]);
-      if (!reopened) throw new Error('Message receipt not found.');
-      if (reopened.state !== 'not-started') {
-        if (reopened.state !== current.state) throw new Error('Message is not retryable in its current state.');
-        return this.unsupportedFor(reopened, 'storage-unavailable');
+      this.deps.scheduler.unschedule?.(messageId);
+      let committed = false;
+      let reopened: AgentMessageEnvelope | undefined;
+      try {
+        // Persist first: a failed write leaves the parked router entry untouched.
+        reopened = await this.deps.store.transition(messageId, {
+          state: 'not-started', reason: undefined, nextRetryAt: undefined,
+        }, [current.state]);
+        if (!reopened) throw new Error('Message receipt not found.');
+        if (reopened.state !== 'not-started') {
+          if (reopened.state !== current.state) throw new Error('Message is not retryable in its current state.');
+          return this.unsupportedFor(reopened, 'storage-unavailable');
+        }
+        committed = true;
+      } finally {
+        if (!committed) await this.rearmHeld(messageId);
       }
       // A flush that took the entry meanwhile is gated by `markDispatching`'s from-states.
       removeParkedEntry(this.deps.manager, envelopeLane(current), messageId);
-      return this.routeHeld(reopened, body, reopened.delivery);
+      return this.routeHeld(reopened, body, reopened.delivery, false);
     });
+  }
+
+  /**
+   * A Retry or Cancel unschedules before it persists. When the write does not
+   * commit, re-arm the deadline from the latest stored record (never from the
+   * caller's snapshot, which may be stale): a running host must not lose the
+   * automatic reset retry the envelope still promises.
+   */
+  private async rearmHeld(messageId: string): Promise<void> {
+    try {
+      const latest = await this.deps.store.get(messageId);
+      if (latest?.state === 'blocked-retryable' && latest.nextRetryAt !== undefined)
+        this.deps.scheduler.schedule(latest.id, latest.nextRetryAt);
+    } catch (error: unknown) {
+      // Not swallowed: logged; a host restart re-arms every stored hold.
+      this.deps.logger.error(
+        '[AgentMessageCoordinator] Could not re-arm a reset retry after a failed write',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   async cancel(agentId: AgentId, messageId: string, actor: AgentMessageSender): Promise<AgentDeliveryReceipt> {
@@ -212,16 +282,24 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     return this.serial.run(envelope.laneLineageId, async () => {
       const current = (await this.deps.store.get(messageId)) ?? envelope;
       if (!CANCELLABLE.has(current.state)) throw new Error('Message is no longer cancellable.');
-      // Persist first: a failed write leaves the parked router entry untouched.
-      const cancelled = await this.deps.store.transition(messageId, {
-        state: 'cancelled', reason: actor.kind === 'user' ? 'cancelled-by-user' : 'cancelled-by-sender',
-        nextRetryAt: undefined,
-      }, [current.state]);
-      if (!cancelled) throw new Error('Message receipt not found.');
-      if (cancelled.state !== 'cancelled') {
-        // A concurrent flush journalled it first; otherwise both index writes failed.
-        if (cancelled.state !== current.state) throw new Error('Message is no longer cancellable.');
-        throw new AgentMessageStorageError('storage-unavailable');
+      this.deps.scheduler.unschedule?.(messageId);
+      let committed = false;
+      let cancelled: AgentMessageEnvelope | undefined;
+      try {
+        // Persist first: a failed write leaves the parked router entry untouched.
+        cancelled = await this.deps.store.transition(messageId, {
+          state: 'cancelled', reason: actor.kind === 'user' ? 'cancelled-by-user' : 'cancelled-by-sender',
+          nextRetryAt: undefined,
+        }, [current.state]);
+        if (!cancelled) throw new Error('Message receipt not found.');
+        if (cancelled.state !== 'cancelled') {
+          // A concurrent flush journalled it first; otherwise both index writes failed.
+          if (cancelled.state !== current.state) throw new Error('Message is no longer cancellable.');
+          throw new AgentMessageStorageError('storage-unavailable');
+        }
+        committed = true;
+      } finally {
+        if (!committed) await this.rearmHeld(messageId);
       }
       // An entry a flush took meanwhile is dropped by the router as withdrawn.
       removeParkedEntry(this.deps.manager, envelopeLane(current), messageId);
@@ -239,6 +317,14 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     if (!envelope || (viewer !== undefined && !mayActOnEnvelope(viewer, envelope)))
       throw new Error('Message receipt not found.');
     return this.deps.store.toReceipt(envelope);
+  }
+
+  /**
+   * A lane acknowledges a message delivered to it. The caller is the lane the
+   * transport proved; the envelope's transport state is never changed.
+   */
+  acknowledge(request: AgentMessageAckRequest, caller: { readonly agentId: AgentId }): Promise<AgentMessageAckResult> {
+    return this.deps.ack.acknowledge(request, caller);
   }
 
   async listReceipts(filter: { agentId?: AgentId; parentSessionId?: string }): Promise<readonly AgentDeliveryReceipt[]> {
@@ -277,14 +363,19 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
   }
 
   /** Re-plan a held envelope against the lane's current record and route it. */
-  private async routeHeld(envelope: AgentMessageEnvelope, body: string, routerDelivery: RouterDelivery): Promise<AgentMessageOutcome> {
+  private async routeHeld(
+    envelope: AgentMessageEnvelope,
+    body: string,
+    routerDelivery: RouterDelivery,
+    limitChecked = false,
+  ): Promise<AgentMessageOutcome> {
     const { agentId: laneId } = await this.deps.aliases.resolve(envelope.targetAgentId);
     const info = this.deps.manager.findAgentInfo(laneId);
     if (!info) {
       // No record in this host run: a resumable lane waits for Retry; otherwise it expires.
       const held = await this.deps.store.transition(envelope.id, envelope.cliSessionId
         ? { state: 'blocked-retryable', reason: 'awaiting-resume', route: 'cold', nextRetryAt: undefined }
-        : { state: 'expired', reason: 'agent_expired', nextRetryAt: undefined }, ['not-started', 'blocked-retryable']);
+        : { state: 'expired', reason: 'agent_expired', nextRetryAt: undefined }, [envelope.state]);
       return this.unsupportedFor(held ?? envelope, envelope.cliSessionId ? 'awaiting-resume' : 'agent_expired');
     }
     if (info.parentSessionId && this.deps.isParentFrozen?.(info.parentSessionId))
@@ -294,11 +385,42 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     if (refusal) {
       const failed = await this.deps.store.transition(envelope.id, {
         state: 'failed', reason: plan.reason ?? refusal,
-      }, ['not-started', 'blocked-retryable']);
+      }, [envelope.state]);
       return this.unsupportedFor(failed ?? envelope, refusal);
     }
+    let dispatchable = envelope;
+    if (!limitChecked && requiresLimitGate(plan) && this.deps.limitGate) {
+      const limitDecision = await this.deps.limitGate.check(info);
+      const latest = await this.deps.store.get(envelope.id);
+      if (!latest || !sameHeldSnapshot(envelope, latest)) {
+        const current = latest ?? envelope;
+        return {
+          mode: current.mode,
+          detail: 'already-decided',
+          messageId: current.id,
+          receipt: this.deps.store.toReceipt(current),
+          requestedAgentId: current.targetAgentId,
+          agentId: current.actualAgentId ?? current.targetAgentId,
+        };
+      }
+      if (limitDecision.kind === 'blocked') {
+        const retryPlan = planLimitRetry(latest.limit, limitDecision.resetAt);
+        const held = await this.deps.store.transition(envelope.id, {
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          route: plan.usesResume ? 'cold' : 'live',
+          limit: retryPlan.limit,
+          nextRetryAt: retryPlan.nextRetryAt,
+        }, [latest.state]);
+        if (retryPlan.nextRetryAt !== undefined && held?.nextRetryAt === retryPlan.nextRetryAt) {
+          this.deps.scheduler.schedule(envelope.id, retryPlan.nextRetryAt);
+        }
+        return this.unsupportedFor(held ?? latest, 'lane-at-limit');
+      }
+      dispatchable = latest;
+    }
     return this.dispatcher.attempt({
-      envelope, body, plan, info, laneId, requestedAgentId: envelope.targetAgentId, routerDelivery,
+      envelope: dispatchable, body, plan, info, laneId, requestedAgentId: envelope.targetAgentId, routerDelivery,
     });
   }
 
@@ -389,4 +511,14 @@ function refusalFor(
       ? plan.reason : 'delivery-refused';
   if (plan.mode === 'interrupt-resume' && request.allowPartialTurnLoss !== true) return 'confirmation-required';
   return undefined;
+}
+
+function sameHeldSnapshot(before: AgentMessageEnvelope, current: AgentMessageEnvelope): boolean {
+  return (
+    current.state === before.state &&
+    current.reason === before.reason &&
+    current.attemptCount === before.attemptCount &&
+    current.updatedAt === before.updatedAt &&
+    current.nextRetryAt === before.nextRetryAt
+  );
 }

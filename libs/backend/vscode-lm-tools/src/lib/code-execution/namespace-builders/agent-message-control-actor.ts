@@ -25,6 +25,17 @@ export class AgentMessageControlIdentityError extends Error {
   }
 }
 
+/**
+ * The lane an ack comes from (Component 13): only a credential bound to an
+ * agent, and never the untokened read-only caller whose binding is its URL.
+ */
+export function mcpAckCallerAgentId(): AgentId | undefined {
+  const binding = getCallerBinding();
+  if (!binding || binding.capability === 'read-only' || binding.kind !== 'agent') return undefined;
+  return binding.agentId !== undefined && AgentId.validate(binding.agentId)
+    ? AgentId.from(binding.agentId) : undefined;
+}
+
 /** Derive the control actor from the verified binding, or throw. */
 export function mcpControlActor(): AgentMessageSender {
   const binding = getCallerBinding();

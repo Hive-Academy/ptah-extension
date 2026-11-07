@@ -1812,6 +1812,7 @@ describe('buildAgentNamespace — messaging', () => {
       getReceipt: jest.fn().mockResolvedValue({ id: MESSAGE, state: 'accepted' }),
       retry: jest.fn().mockResolvedValue({ mode: 'queue-next-turn', messageId: MESSAGE }),
       cancel: jest.fn().mockResolvedValue({ id: MESSAGE, state: 'cancelled' }),
+      acknowledge: jest.fn().mockResolvedValue({ ok: true, messageId: MESSAGE, ackState: 'read', changed: true }),
     };
     const { deps } = makeDeps();
     const ns = buildAgentNamespace({ ...deps, getMessageCoordinator: () => coordinator });
@@ -1893,6 +1894,30 @@ describe('buildAgentNamespace — messaging', () => {
       ns.control(LANE, MESSAGE, 'cancel'))).rejects.toMatchObject({ code: 'identity-missing' });
     expect(coordinator.retry).not.toHaveBeenCalled();
     expect(coordinator.cancel).not.toHaveBeenCalled();
+  });
+
+  it('acks as the lane its credential is bound to, ignoring the URL identity', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, capability: 'lane-report' } as const;
+    await runWithMcpRequestContext({ callerAgentId: LANE, callerBinding }, () =>
+      ns.ack(MESSAGE, 'acted', 'done'));
+    expect(coordinator.acknowledge).toHaveBeenCalledWith(
+      { messageId: MESSAGE, state: 'acted', note: 'done' }, { agentId: CALLER_LANE });
+  });
+
+  it('answers unattributed-caller without an agent-bound credential', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const unattributed = { ok: false, messageId: MESSAGE, code: 'unattributed-caller' };
+    expect(await runWithMcpRequestContext({ callerAgentId: CALLER_LANE }, () => ns.ack(MESSAGE, 'read')))
+      .toEqual(unattributed);
+    const legacy = { kind: 'agent', agentId: CALLER_LANE, capability: 'read-only' } as const;
+    expect(await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding: legacy }, () =>
+      ns.ack(MESSAGE, 'read'))).toEqual(unattributed);
+    const session = { kind: 'session', sessionId: 'tab-1', capability: 'privileged' } as const;
+    expect(await runWithMcpRequestContext({ callerBinding: session }, () => ns.ack(MESSAGE, 'read')))
+      .toEqual(unattributed);
+    expect(await ns.ack(MESSAGE, 'read')).toEqual(unattributed);
+    expect(coordinator.acknowledge).not.toHaveBeenCalled();
   });
 
   it('refuses control without a coordinator and for an invalid agent id', async () => {

@@ -6,7 +6,12 @@
  * the lineage root), so it never overlaps a route for the same lane. Handler
  * failures are logged and never reject into the manager's event emitter.
  */
-import { AgentId, type AgentProcessInfo } from '@ptah-extension/shared';
+import {
+  AgentId,
+  type AgentMessageAckState,
+  type AgentProcessInfo,
+  type LaneCapabilitySupport,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentProcessManager } from '../agent-process-manager.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
@@ -16,12 +21,14 @@ import {
 } from './agent-message-delivery.scheduler';
 import type { AgentMessageEnvelope, EnvelopePatch } from './envelope/agent-message-envelope.schema';
 import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
+import { planLimitRetry } from './lane-delivery-limit.gate';
 import type { LaneSerialQueue } from './lane-serial-queue';
 
 export type ReconcilerManager = Pick<
   AgentProcessManager,
   'events' | 'getMessageRoutableAgent' | 'getAgentMessageStatus'
->;
+> &
+  Partial<Pick<AgentProcessManager, 'findAgentInfo'>>;
 export type ReconcilerEnvelopeStore = Pick<AgentMessageEnvelopeStore, 'get' | 'list' | 'transition'>;
 
 export interface AgentMessageReconcilerDeps {
@@ -50,6 +57,24 @@ export function envelopeLane(envelope: AgentMessageEnvelope): AgentId {
   return envelope.actualAgentId ?? envelope.targetAgentId;
 }
 
+/**
+ * The ack expectation written at `started` (Component 13, A5): `pending`
+ * when the lane can call Ptah MCP tools, else `unavailable`. A lane's own
+ * ack is never reset by a later re-dispatch of the same envelope.
+ */
+export function ackStateAtStart(
+  current: AgentMessageAckState | undefined,
+  mcp: LaneCapabilitySupport | undefined,
+): AgentMessageAckState {
+  if (current === 'read' || current === 'acted' || current === 'rejected') return current;
+  return mcp?.state === 'supported' ? 'pending' : 'unavailable';
+}
+
+/** The MCP capability a lane record carries: effective first, then the adapter's potential. */
+export function laneMcpCapability(info: AgentProcessInfo | undefined): LaneCapabilitySupport | undefined {
+  return info?.effectiveCapabilities?.mcp ?? info?.potentialCapabilities?.mcp;
+}
+
 /** Remove a parked router entry, so a cancelled or re-routed envelope is never flushed. */
 export function removeParkedEntry(
   manager: Pick<AgentProcessManager, 'getMessageRoutableAgent'>,
@@ -73,9 +98,12 @@ export class AgentMessageReconciler {
       this.onLane(info.agentId, () => this.onTurnStarted(info)));
     this.listen('agent:turn-settled', (info: AgentProcessInfo) =>
       this.onLane(info.agentId, () => this.settleTurn(info)).then(() => {
+        if (info.stopReason === 'usage-limit') return;
         const laneId = AgentId.safeParse(info.agentId);
         if (laneId) this.deps.scheduler.onLaneSettled(laneId);
       }));
+    this.listen('agent:exited', (info: AgentProcessInfo) =>
+      this.onLane(info.agentId, () => this.onExited(info)));
     this.listen('agent:queue-updated', (update: QueueUpdate) =>
       this.onLane(update.agentId, () => this.onQueueUpdated(update)));
     this.listen('agent:expired', ({ agentId }: { agentId: string }) =>
@@ -108,13 +136,17 @@ export class AgentMessageReconciler {
 
   /** Settle every started envelope of the lane's finished turn. */
   async settleTurn(info: AgentProcessInfo): Promise<void> {
-    if (!info.turnSeq) return;
-    const started = (await this.deps.store.list({ states: ['started'] }))
-      .filter((envelope) => envelopeLane(envelope) === info.agentId && envelope.turnSeq === info.turnSeq);
-    const turnOutcome = info.status === 'completed' ? 'completed'
-      : info.status === 'stopped' ? 'stopped' : 'failed';
-    for (const envelope of started)
-      await this.deps.store.transition(envelope.id, { state: 'settled', turnSeq: info.turnSeq, turnOutcome }, ['started']);
+    if (info.turnSeq) {
+      const started = (await this.deps.store.list({ states: ['started'] }))
+        .filter((envelope) => envelopeLane(envelope) === info.agentId && envelope.turnSeq === info.turnSeq);
+      const turnOutcome = info.status === 'completed' ? 'completed'
+        : info.status === 'stopped' ? 'stopped' : 'failed';
+      for (const envelope of started)
+        await this.deps.store.transition(envelope.id, { state: 'settled', turnSeq: info.turnSeq, turnOutcome }, ['started']);
+    }
+    if (info.stopReason === 'usage-limit') {
+      await this.blockRemainingForUsageLimit(info.agentId, info.stopResetAt);
+    }
   }
 
   private listen<T>(event: string, handler: (payload: T) => Promise<void>): void {
@@ -145,7 +177,8 @@ export class AgentMessageReconciler {
     if (!envelope || (envelope.state !== 'dispatching' && envelope.state !== 'not-started')) return;
     const laneId = AgentId.safeParse(info.agentId);
     await this.deps.store.transition(envelope.id, {
-      state: 'started', turnSeq: info.turnSeq,
+      state: 'started', turnSeq: info.turnSeq, maybeDelivered: true,
+      ackState: ackStateAtStart(envelope.ackState, laneMcpCapability(info)),
       ...(laneId && laneId !== envelope.targetAgentId ? { actualAgentId: laneId } : {}),
     }, ['dispatching', 'not-started']);
   }
@@ -173,6 +206,11 @@ export class AgentMessageReconciler {
     if (envelope.state !== 'not-started' && envelope.state !== 'dispatching') return;
     if (EXIT_RACE.has(reason)) {
       if (envelope.state === 'not-started') {
+        const info = this.deps.manager.findAgentInfo?.(agentId);
+        if (info?.stopReason === 'usage-limit') {
+          await this.blockEnvelopeForUsageLimit(agentId, envelope, info.stopResetAt);
+          return;
+        }
         // Never dispatched: hand it to the cold inbox instead of failing it (gap 10).
         const cold = await this.deps.store.transition(messageId, { route: 'cold' }, ['not-started']);
         if (cold?.state === 'not-started') this.deps.scheduler.enqueueCold(messageId);
@@ -228,6 +266,40 @@ export class AgentMessageReconciler {
       await this.deps.store.transition(envelope.id, {
         state: 'expired', reason: 'agent_expired', nextRetryAt: undefined,
       }, ['not-started', 'blocked-retryable']);
+    }
+  }
+
+  private async onExited(info: AgentProcessInfo): Promise<void> {
+    if (info.stopReason === 'usage-limit') {
+      await this.blockRemainingForUsageLimit(info.agentId, info.stopResetAt);
+    }
+  }
+
+  private async blockRemainingForUsageLimit(agentId: string, resetAt: number | undefined): Promise<void> {
+    const remaining = (await this.deps.store.list({ states: ['not-started', 'blocked-retryable'] }))
+      .filter((envelope) =>
+        envelopeLane(envelope) === agentId &&
+        (envelope.state === 'not-started' || envelope.reason === 'queue-full'));
+    for (const envelope of remaining) {
+      await this.blockEnvelopeForUsageLimit(agentId, envelope, resetAt);
+    }
+  }
+
+  private async blockEnvelopeForUsageLimit(
+    agentId: string,
+    envelope: AgentMessageEnvelope,
+    resetAt: number | undefined,
+  ): Promise<void> {
+    removeParkedEntry(this.deps.manager, agentId, envelope.id);
+    const retryPlan = planLimitRetry(envelope.limit, resetAt);
+    const held = await this.deps.store.transition(envelope.id, {
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: retryPlan.limit,
+      nextRetryAt: retryPlan.nextRetryAt,
+    }, [envelope.state]);
+    if (retryPlan.nextRetryAt !== undefined && held?.nextRetryAt === retryPlan.nextRetryAt) {
+      this.deps.scheduler.schedule(envelope.id, retryPlan.nextRetryAt);
     }
   }
 }

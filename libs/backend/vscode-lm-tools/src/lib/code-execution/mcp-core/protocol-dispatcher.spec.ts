@@ -3563,6 +3563,38 @@ describe('protocol-handlers › ptah_agent_message', () => {
     expect(control).not.toHaveBeenCalled();
   });
 
+  it('acks through ptah_agent_message_ack and keeps the receipt out of the reply', async () => {
+    const ack = jest.fn().mockResolvedValue({
+      ok: true, messageId: MESSAGE_ID, ackState: 'acted', changed: true,
+      receipt: { id: MESSAGE_ID, state: 'settled', senderSessionId: 's-1' },
+    });
+    const res = await callTool('ptah_agent_message_ack', { messageId: MESSAGE_ID, state: 'acted', note: 'done' }, { ack });
+    expect(ack).toHaveBeenCalledWith(MESSAGE_ID, 'acted', 'done');
+    expect(JSON.parse(agentToolResult(res).text)).toEqual({
+      ok: true, messageId: MESSAGE_ID, ackState: 'acted', changed: true, state: 'settled',
+    });
+  });
+
+  it('rejects an agentId, an unknown state and a long note in ptah_agent_message_ack', async () => {
+    const ack = jest.fn();
+    const results = await Promise.all([
+      callTool('ptah_agent_message_ack', { agentId: 'a-1', messageId: MESSAGE_ID, state: 'read' }, { ack }),
+      callTool('ptah_agent_message_ack', { messageId: MESSAGE_ID, state: 'done' }, { ack }),
+      callTool('ptah_agent_message_ack', { messageId: MESSAGE_ID, state: 'read', note: 'x'.repeat(501) }, { ack }),
+      callTool('ptah_agent_message_ack', { messageId: 'm-1', state: 'read' }, { ack }),
+    ]);
+    for (const res of results) expect(agentToolResult(res).isError).toBe(true);
+    expect(agentToolResult(results[0]).text).toMatch(/agentId/);
+    expect(ack).not.toHaveBeenCalled();
+  });
+
+  it('returns a refusal from the ack as data', async () => {
+    const ack = jest.fn().mockResolvedValue({ ok: false, messageId: MESSAGE_ID, code: 'ack-forbidden' });
+    const res = await callTool('ptah_agent_message_ack', { messageId: MESSAGE_ID, state: 'read' }, { ack });
+    expect(agentToolResult(res).isError).toBeUndefined();
+    expect(JSON.parse(agentToolResult(res).text)).toEqual({ ok: false, messageId: MESSAGE_ID, code: 'ack-forbidden' });
+  });
+
   it('is advertised next to ptah_agent_message_status', async () => {
     const names = listedToolNames(
       await handleMCPRequest(makeRequest({ id: 'am-list-control', method: 'tools/list' }), buildDeps()),
@@ -8307,8 +8339,8 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(await list('admin')).toEqual(coding);
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
       // ptah_session_handoff, always-on (TASK_2026_655). +1:
-      // ptah_agent_message_control (P1-E).
-      expect(coding).toHaveLength(hasIDECapabilities ? 68 : 65);
+      // ptah_agent_message_control (P1-E). +1: ptah_agent_message_ack (P2-G).
+      expect(coding).toHaveLength(hasIDECapabilities ? 69 : 66);
       expect(coding.map((tool) => tool.name)).toContain(
         'ptah_artifact_publish',
       );
@@ -9211,10 +9243,37 @@ describe('protocol-handlers › caller capability', () => {
     });
   });
 
+  const agentWith = (agent: object): PtahAPI['agent'] => agent as PtahAPI['agent'];
+
+  it('lets a lane-report caller ack a message', async () => {
+    const ack = jest.fn().mockResolvedValue({
+      ok: false, messageId: '11111111-1111-4111-8111-111111111111', code: 'ack-before-delivery',
+    });
+    const response = await handleMCPRequest(
+      makeRequest({
+        id: 'lane-report-ack',
+        method: 'tools/call',
+        _callerCapability: 'lane-report',
+        _callerAgentId: 'lane-a',
+        params: {
+          name: 'ptah_agent_message_ack',
+          arguments: { messageId: '11111111-1111-4111-8111-111111111111', state: 'read' },
+        },
+      }),
+      buildDeps({ ptahAPI: buildPtahAPIStub({ agent: agentWith({ ack }) }) }),
+    );
+    expect(response.error).toBeUndefined();
+    expect(ack).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'read', undefined);
+  });
+
   it('denies lane-report calls that target another agent or write', async () => {
     for (const [name, args] of [
       ['ptah_agent_report', { agentId: 'lane-b', message: 'spoofed' }],
       ['ptah_agent_message_status', { agentId: 'lane-b', messageId: 'id' }],
+      ['ptah_agent_message', { agentId: 'lane-b', message: 'lane-to-lane' }],
+      ['ptah_agent_message_control', {
+        agentId: 'lane-b', messageId: '11111111-1111-4111-8111-111111111111', action: 'cancel',
+      }],
       ['ptah_task_create', { title: 'not allowed' }],
     ] as const) {
       const response = await handleMCPRequest(
@@ -9249,6 +9308,9 @@ describe('protocol-handlers › caller capability', () => {
     expect(names).toContain('ptah_workspace_analyze');
     expect(names).toContain('ptah_agent_report');
     expect(names).toContain('ptah_agent_message_status');
+    expect(names).toContain('ptah_agent_message_ack');
+    expect(names).not.toContain('ptah_agent_message');
+    expect(names).not.toContain('ptah_agent_message_control');
     expect(names).not.toContain('ptah_agent_spawn');
     expect(names).not.toContain('ptah_task_create');
     expect(names).not.toContain('execute_code');

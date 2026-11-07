@@ -17,7 +17,7 @@ import {
 } from '../mcp-core/agent-spawn-args.schema';
 import { readProviderAccountSelectionField } from '@ptah-extension/shared/schemas';
 import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
-import { mcpControlActor } from './agent-message-control-actor';
+import { mcpAckCallerAgentId, mcpControlActor } from './agent-message-control-actor';
 import {
   getCallerAgentId,
   getCallerSessionId,
@@ -140,7 +140,7 @@ interface PtahCliRegistryLike {
  * Dependencies for agent namespace
  */
 export interface AgentNamespaceDependencies {
-  getMessageCoordinator?: () => Pick<import('@ptah-extension/cli-agent-runtime').AgentMessageCoordinator, 'send' | 'getReceipt' | 'retry' | 'cancel'> | undefined;
+  getMessageCoordinator?: () => Pick<import('@ptah-extension/cli-agent-runtime').AgentMessageCoordinator, 'send' | 'getReceipt' | 'retry' | 'cancel' | 'acknowledge'> | undefined;
   agentProcessManager: AgentProcessManager;
   cliDetectionService: CliDetectionService;
   /** Lazy getter for workspace root path. Called at spawn time to get the current workspace root. */
@@ -570,6 +570,16 @@ export function buildAgentNamespace(
       return action === 'retry'
         ? coordinator.retry(AgentId.from(agentId), messageId, actor, { confirmDuplicateRisk })
         : coordinator.cancel(AgentId.from(agentId), messageId, actor);
+    },
+    ack: async (messageId, state, note) => {
+      // The acknowledging lane is the credential's agent, never an argument.
+      const callerAgentId = mcpAckCallerAgentId();
+      if (!callerAgentId) return { ok: false, messageId, code: 'unattributed-caller' };
+      const coordinator = deps.getMessageCoordinator?.();
+      if (!coordinator) {
+        throw new Error('Message acknowledgment is unavailable: no message coordinator is wired into this host.');
+      }
+      return coordinator.acknowledge({ messageId, state, ...(note ? { note } : {}) }, { agentId: callerAgentId });
     },
 
     report: async (input) => {

@@ -16,24 +16,31 @@
  * Envelopes whose parent session is being deleted are frozen: the purge
  * finishes them, and this scheduler never delivers them.
  */
-import type { AgentId } from '@ptah-extension/shared';
+import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentMessageEnvelope } from './envelope/agent-message-envelope.schema';
 import {
   AgentMessageBodyUnavailableError,
   type AgentMessageEnvelopeStore,
 } from './envelope/agent-message-envelope.store';
+import { planLimitRetry, type LaneDeliveryLimitGate } from './lane-delivery-limit.gate';
 import { LaneSerialQueue } from './lane-serial-queue';
 
 /** The coordinator's delivery entry point. It takes the shared lane queue itself. */
 export interface AgentMessageDeliveryTarget {
   deliver(envelopeId: string): Promise<void>;
+  /**
+   * Called when the scheduler has already checked the limit gate for this
+   * offer so the coordinator does not run a duplicate limit lookup.
+   */
+  deliverAfterLimitGate?(envelopeId: string): Promise<void>;
 }
 
 /** The narrow scheduler surface the coordinator and reconciler call. */
 export interface AgentMessageDeliveryScheduling {
   enqueueCold(envelopeId: string): void;
   schedule(envelopeId: string, at: number): void;
+  unschedule?(envelopeId: string): void;
   onLaneSettled(agentId: AgentId): void;
 }
 
@@ -46,6 +53,10 @@ export interface AgentMessageDeliverySchedulerOptions {
   readonly clock?: () => number;
   /** True while the parent session's deletion is in progress. */
   readonly isParentFrozen?: (parentSessionId: string) => boolean;
+  /** Limit gate checked before offering a live continuation or reset retry (Component 14). */
+  readonly limitGate?: Pick<LaneDeliveryLimitGate, 'check'> | null;
+  /** Resolves the lane's current process record for limit checks. */
+  readonly findAgentInfo?: (agentId: string) => AgentProcessInfo | undefined;
 }
 
 /** Re-arm floor, so a run can never tight-loop the timer. */
@@ -58,9 +69,12 @@ const FROZEN_RECHECK_MS = 60_000;
 export class AgentMessageDeliveryScheduler implements AgentMessageDeliveryScheduling {
   private readonly due = new Map<string, number>();
   private readonly cold = new Set<string>();
+  private readonly activeOffers = new Map<string, symbol>();
   private readonly lanes = new LaneSerialQueue();
   private readonly clock: () => number;
   private readonly isParentFrozen: (parentSessionId: string) => boolean;
+  private readonly limitGate?: Pick<LaneDeliveryLimitGate, 'check'> | null;
+  private readonly findAgentInfo?: (agentId: string) => AgentProcessInfo | undefined;
   private target?: AgentMessageDeliveryTarget;
   private timer?: ReturnType<typeof setTimeout>;
   private coldDrain?: Promise<void>;
@@ -73,6 +87,8 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
   ) {
     this.clock = options.clock ?? Date.now;
     this.isParentFrozen = options.isParentFrozen ?? (() => false);
+    this.limitGate = options.limitGate;
+    this.findAgentInfo = options.findAgentInfo;
   }
 
   /**
@@ -107,6 +123,13 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
     this.arm();
   }
 
+  unschedule(envelopeId: string): void {
+    const removedDue = this.due.delete(envelopeId);
+    this.cold.delete(envelopeId);
+    this.activeOffers.delete(envelopeId);
+    if (removedDue) this.arm();
+  }
+
   onLaneSettled(agentId: AgentId): void {
     if (this.disposed || !this.target) return;
     void this.reofferQueueFull(agentId).catch((error: unknown) => {
@@ -120,6 +143,7 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
     this.timer = undefined;
     this.due.clear();
     this.cold.clear();
+    this.activeOffers.clear();
   }
 
 
@@ -197,8 +221,17 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
   private async deliverSafely(envelope: AgentMessageEnvelope): Promise<void> {
     const target = this.target;
     if (!target || this.disposed) return;
+    const offerToken = Symbol(envelope.id);
+    this.activeOffers.set(envelope.id, offerToken);
     try {
-      await target.deliver(envelope.id);
+      const gateStatus = await this.checkLimitBeforeOffer(envelope, offerToken);
+      if (gateStatus === 'blocked') return;
+      if (this.activeOffers.get(envelope.id) !== offerToken) return;
+      if (gateStatus === 'checked' && typeof target.deliverAfterLimitGate === 'function') {
+        await target.deliverAfterLimitGate(envelope.id);
+      } else {
+        await target.deliver(envelope.id);
+      }
     } catch (error: unknown) {
       if (error instanceof AgentMessageBodyUnavailableError) {
         // The envelope is already `failed` with no retry time: nothing to back off.
@@ -209,7 +242,62 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
       this.logger.error('[AgentMessageDeliveryScheduler] Scheduled delivery failed',
         this.asError(error));
       await this.backOff(envelope.id);
+    } finally {
+      if (this.activeOffers.get(envelope.id) === offerToken) {
+        this.activeOffers.delete(envelope.id);
+      }
     }
+  }
+
+  /**
+   * Checks the limit gate before offering a live continuation or scheduled
+   * reset retry. Applies the one-retry-per-reset rule on the single timer.
+   */
+  private async checkLimitBeforeOffer(
+    envelope: AgentMessageEnvelope,
+    offerToken: symbol,
+  ): Promise<'skipped' | 'checked' | 'blocked'> {
+    if (!this.limitGate) return 'skipped';
+    const before = await this.store.get(envelope.id);
+    if (!before || (before.state !== 'not-started' && before.state !== 'blocked-retryable')) {
+      return 'blocked';
+    }
+    const laneId = before.actualAgentId ?? before.targetAgentId;
+    const info = this.findAgentInfo
+      ? this.findAgentInfo(laneId)
+      : ({ agentId: laneId } as AgentProcessInfo);
+    if (!info) return 'skipped';
+    const decision = await this.limitGate.check(info);
+    if (this.disposed || this.activeOffers.get(envelope.id) !== offerToken) {
+      return 'blocked';
+    }
+    const current = await this.store.get(envelope.id);
+    if (!current || !sameOfferSnapshot(before, current)) {
+      return 'blocked';
+    }
+    if (decision.kind !== 'blocked') {
+      return 'checked';
+    }
+    const retryPlan = planLimitRetry(current.limit, decision.resetAt);
+    const updated = await this.store.transition(
+      current.id,
+      {
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        attemptCount: current.attemptCount + 1,
+        limit: retryPlan.limit,
+        nextRetryAt: retryPlan.nextRetryAt,
+      },
+      [before.state],
+    );
+    if (
+      this.activeOffers.get(envelope.id) === offerToken &&
+      retryPlan.nextRetryAt !== undefined &&
+      updated?.nextRetryAt === retryPlan.nextRetryAt
+    ) {
+      this.schedule(current.id, retryPlan.nextRetryAt);
+    }
+    return 'blocked';
   }
 
   private async backOff(envelopeId: string): Promise<void> {
@@ -248,4 +336,14 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
   private asError(error: unknown): Error {
     return error instanceof Error ? error : new Error(String(error));
   }
+}
+
+function sameOfferSnapshot(before: AgentMessageEnvelope, current: AgentMessageEnvelope): boolean {
+  return (
+    current.state === before.state &&
+    current.reason === before.reason &&
+    current.attemptCount === before.attemptCount &&
+    current.updatedAt === before.updatedAt &&
+    current.nextRetryAt === before.nextRetryAt
+  );
 }

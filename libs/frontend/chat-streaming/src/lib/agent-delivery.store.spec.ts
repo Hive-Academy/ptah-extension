@@ -244,12 +244,114 @@ describe('AgentDeliveryStore', () => {
       expect(store.latestParentDelivery(lane, 'completion')).toBeUndefined();
     });
 
-    it('keeps the acknowledgment monotonic on its own rank', () => {
-      store.onMessageReceipt(receipt({ state: 'started', ackState: 'read', updatedAt: 2 }));
+    it('keeps the acknowledgment monotonic on its own rank and ignores regressive ack pushes', () => {
+      store.onMessageReceipt(receipt({ state: 'started', ackState: 'read', ackAt: 20, updatedAt: 2 }));
       store.onMessageReceipt(receipt({ state: 'settled', ackState: 'pending', updatedAt: 3 }));
-      expect(store.receipt(lane, 'message-1')).toMatchObject({ state: 'settled', ackState: 'read' });
-      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'acted', updatedAt: 3 }));
-      expect(store.receipt(lane, 'message-1')?.ackState).toBe('acted');
+      expect(store.receipt(lane, 'message-1')).toMatchObject({ state: 'settled', ackState: 'read', ackAt: 20 });
+
+      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'unavailable', updatedAt: 10 }));
+      expect(store.receipt(lane, 'message-1')?.ackState).toBe('read');
+
+      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'acted', ackAt: 30, updatedAt: 11 }));
+      expect(store.receipt(lane, 'message-1')).toMatchObject({ ackState: 'acted', ackAt: 30 });
+
+      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'read', ackAt: 40, updatedAt: 99 }));
+      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'pending', updatedAt: 100 }));
+      store.onMessageReceipt(receipt({ state: 'settled', ackState: 'rejected', ackNote: 'late', updatedAt: 101 }));
+      expect(store.receipt(lane, 'message-1')).toMatchObject({
+        state: 'settled',
+        ackState: 'acted',
+        ackAt: 30,
+        ackNote: undefined,
+        updatedAt: 101,
+      });
+    });
+
+    it('updates limit, lastError, hasRecoverableBody, and everDispatched on a newer receipt while preserving a higher-rank ack', () => {
+      const resetAt = NOW + 10 * 60_000;
+      store.onMessageReceipt(
+        receipt({
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: false },
+          ackState: 'read',
+          ackAt: 20,
+          updatedAt: 10,
+        }),
+      );
+      store.onMessageReceipt(
+        receipt({
+          state: 'blocked-retryable',
+          reason: 'lane-at-limit',
+          limit: { known: true, resetAt },
+          lastError: 'rate limited until reset',
+          hasRecoverableBody: false,
+          everDispatched: true,
+          ackState: 'pending',
+          updatedAt: 11,
+        }),
+      );
+      expect(store.receipt(lane, 'message-1')).toMatchObject({
+        limit: { known: true, resetAt },
+        lastError: 'rate limited until reset',
+        hasRecoverableBody: false,
+        everDispatched: true,
+        ackState: 'read',
+        ackAt: 20,
+        updatedAt: 11,
+      });
+    });
+
+    it('allows newer receipts to transition between pending and unavailable at rank 0 without regressing from read', () => {
+      store.onMessageReceipt(receipt({ state: 'started', ackState: 'pending', updatedAt: 10 }));
+      expect(store.receipt(lane, 'message-1')?.ackState).toBe('pending');
+
+      store.onMessageReceipt(receipt({ state: 'started', ackState: 'unavailable', updatedAt: 11 }));
+      expect(store.receipt(lane, 'message-1')?.ackState).toBe('unavailable');
+
+      store.onMessageReceipt(receipt({ state: 'started', ackState: 'pending', updatedAt: 12 }));
+      expect(store.receipt(lane, 'message-1')?.ackState).toBe('pending');
+    });
+
+    it.each([
+      ['pending', undefined, 'Awaiting lane ack'],
+      ['read', undefined, 'Read by lane'],
+      ['acted', undefined, 'Lane reports acted'],
+      ['rejected', 'Needs schema migration first', 'Lane rejected: Needs schema migration first'],
+      ['unavailable', undefined, 'Ack unavailable (no MCP)'],
+    ] as const)('maps ackState %s to exact label "%s"', (ackState, ackNote, expected) => {
+      const item = receipt({ state: 'settled', ackState, ackNote });
+      expect(AgentDeliveryStore.ackLabel(item)).toBe(expected);
+      expect(AgentDeliveryStore.ackLabel(ackState, ackNote)).toBe(expected);
+      expect(store.receiptStatus(item).ackLabel).toBe(expected);
+    });
+
+    it('distinguishes known vs unknown limit reset times and keeps transport, turn outcome, and ack separate', () => {
+      const resetAt = NOW + 15 * 60_000;
+      const knownLimit = store.receiptStatus(
+        receipt({ state: 'blocked-retryable', reason: 'lane-at-limit', limit: { known: true, resetAt } }),
+      );
+      expect(knownLimit.label).toBe('Waiting for limit reset');
+      expect(knownLimit.resetAt).toBe(resetAt);
+      expect(knownLimit.resetTime).toBeDefined();
+      expect(knownLimit.text).toBe(`Waiting for limit reset · ${knownLimit.resetTime}`);
+      expect(knownLimit.actions.map((action) => action.kind)).toEqual(['cancel']);
+
+      const unknownLimit = store.receiptStatus(
+        receipt({ state: 'blocked-retryable', reason: 'lane-at-limit', limit: { known: false } }),
+      );
+      expect(unknownLimit.label).toBe('Lane at limit');
+      expect(unknownLimit.resetAt).toBeUndefined();
+      expect(unknownLimit.resetTime).toBeUndefined();
+      expect(unknownLimit.text).toBe('Lane at limit · 5m');
+
+      const settledPending = store.receiptStatus(
+        receipt({ state: 'settled', turnOutcome: 'completed', ackState: 'pending' }),
+      );
+      expect(settledPending.transportLabel).toBe('Delivered to lane');
+      expect(settledPending.turnOutcomeLabel).toBe('Turn ended · completed');
+      expect(settledPending.ackLabel).toBe('Awaiting lane ack');
+      expect(settledPending.text).not.toContain('acted');
     });
   });
 

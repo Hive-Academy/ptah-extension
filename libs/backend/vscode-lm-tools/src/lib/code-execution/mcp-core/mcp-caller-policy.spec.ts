@@ -12,6 +12,8 @@ describe('mcp caller policy', () => {
     expect(toolClass('ptah_browser_status')).toBe('browser-control');
     expect(toolClass('ptah_browser_navigate')).toBe('browser-control');
     expect(toolClass('ptah_not_a_real_tool')).toBe('agent-control');
+    expect(toolClass('ptah_agent_message_control')).toBe('agent-control');
+    expect(toolClass('ptah_agent_message_ack')).toBe('agent-control');
   });
 
   it('permits only the read class for read-only callers', () => {
@@ -28,9 +30,13 @@ describe('mcp caller policy', () => {
     expect(isToolPermitted('ptah_agent_message_status', 'lane-report')).toBe(
       true,
     );
+    expect(isToolPermitted('ptah_agent_message_ack', 'lane-report')).toBe(
+      true,
+    );
     for (const name of [
       'ptah_agent_spawn',
       'ptah_agent_message',
+      'ptah_agent_message_control',
       'ptah_agent_stop',
       'ptah_task_create',
       'ptah_browser_status',
@@ -45,5 +51,12 @@ describe('mcp caller policy', () => {
     expect(isToolPermitted('execute_code', 'privileged')).toBe(true);
     expect(isToolPermitted('ptah_task_create', 'privileged')).toBe(true);
     expect(isToolPermitted('ptah_not_a_real_tool', 'privileged')).toBe(true);
+    expect(isToolPermitted('ptah_agent_message_ack', 'privileged')).toBe(true);
+    expect(isToolPermitted('ptah_agent_message_control', 'privileged')).toBe(true);
+  });
+
+  it('keeps the message write tools away from read-only callers', () => {
+    for (const name of ['ptah_agent_message', 'ptah_agent_message_control', 'ptah_agent_message_ack'])
+      expect(isToolPermitted(name, 'read-only')).toBe(false);
   });
 });

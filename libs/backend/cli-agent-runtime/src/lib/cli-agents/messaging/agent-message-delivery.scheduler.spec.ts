@@ -1,4 +1,4 @@
-import { AgentId } from '@ptah-extension/shared';
+import { AgentId, type AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { FakeStateStorage } from '../parent-delivery/__fixtures__/fake-state-storage';
 import type { NewEnvelope } from './envelope/agent-message-envelope.schema';
@@ -11,6 +11,12 @@ import {
   SCHEDULER_MIN_DELAY_MS,
   type AgentMessageDeliveryTarget,
 } from './agent-message-delivery.scheduler';
+import {
+  LANE_LIMIT_GATE_DEADLINE_MS,
+  LANE_LIMIT_RESET_RETRY_DELAY_MS,
+  LaneDeliveryLimitGate,
+  type LimitGateDecision,
+} from './lane-delivery-limit.gate';
 
 const LANE_A = AgentId.from('aaaaaaaa-bbbb-4ccc-8ddd-000000000001');
 const LANE_B = AgentId.from('aaaaaaaa-bbbb-4ccc-8ddd-000000000002');
@@ -328,6 +334,239 @@ describe('AgentMessageDeliveryScheduler', () => {
       await flush();
 
       expect(deliver.deliver.mock.calls).toEqual([[held]]);
+    });
+  });
+
+  describe('limit-aware delivery and reset retries', () => {
+    it('blocks a live continuation offer when the limit gate blocks, schedules one retry at resetAt + 60s, and delivers when the reset fires', async () => {
+      const store = await open(storage);
+      const held = await put(store);
+      await store.transition(held, { state: 'blocked-retryable', reason: 'queue-full', route: 'live' });
+      const resetAt = START + 120_000;
+      const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+        check: jest
+          .fn()
+          .mockResolvedValueOnce({ kind: 'blocked', limitKnown: true, resetAt })
+          .mockResolvedValueOnce({ kind: 'proceed' }),
+      };
+      const deliver = target();
+      scheduler = new AgentMessageDeliveryScheduler(store, logger(), {
+        clock,
+        limitGate,
+      });
+      await scheduler.start(deliver);
+
+      scheduler.onLaneSettled(LANE_A);
+      await flush();
+
+      expect(deliver.deliver).not.toHaveBeenCalled();
+      expect(await store.get(held)).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt },
+        nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      });
+      expect(jest.getTimerCount()).toBe(1);
+
+      now = resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS;
+      await jest.advanceTimersByTimeAsync(120_000 + LANE_LIMIT_RESET_RETRY_DELAY_MS);
+      expect(deliver.deliver).toHaveBeenCalledWith(held);
+    });
+
+    it('makes the retry manual on a second limit hit with the same or no new resetAt so no tight loop occurs', async () => {
+      const store = await open(storage);
+      const held = await put(store);
+      await store.transition(held, { state: 'blocked-retryable', reason: 'queue-full', route: 'live' });
+      const resetAt = START + 60_000;
+      const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+        check: jest.fn().mockResolvedValue({ kind: 'blocked', limitKnown: true, resetAt }),
+      };
+      const deliver = target();
+      scheduler = new AgentMessageDeliveryScheduler(store, logger(), {
+        clock,
+        limitGate,
+      });
+      await scheduler.start(deliver);
+
+      scheduler.onLaneSettled(LANE_A);
+      await flush();
+      expect(jest.getTimerCount()).toBe(1);
+
+      const retryDueAt = resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS;
+      now = retryDueAt;
+      await jest.advanceTimersByTimeAsync(retryDueAt - START);
+
+      expect(deliver.deliver).not.toHaveBeenCalled();
+      const afterSecondHit = await store.get(held);
+      expect(afterSecondHit).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        attemptCount: 2,
+        limit: { known: true, resetAt },
+      });
+      expect(afterSecondHit?.nextRetryAt).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('shares the same single timer between reset retries and regular scheduled retries', async () => {
+      const store = await open(storage);
+      const resetAt = START + 30_000;
+      const limitHeld = await put(store);
+      await store.transition(limitHeld, {
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt },
+        nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      });
+      const regularHeld = await put(store, { targetAgentId: LANE_B, laneLineageId: LANE_B });
+      await store.transition(regularHeld, {
+        state: 'blocked-retryable',
+        reason: 'continuation_transient',
+        nextRetryAt: START + 10_000,
+      });
+      const deliver = target();
+      scheduler = new AgentMessageDeliveryScheduler(store, logger(), { clock });
+      await scheduler.start(deliver);
+
+      expect(jest.getTimerCount()).toBe(1);
+    });
+
+    it('delivers at resetAt + 60s using a real LaneDeliveryLimitGate and a retained usage-limit stop record across a host restart', async () => {
+      const resetAt = START + 120_000;
+      const stoppedInfo: AgentProcessInfo = {
+        agentId: LANE_A,
+        cli: 'claude',
+        role: 'backend-developer',
+        task: 'stopped at limit',
+        workingDirectory: '/workspace',
+        status: 'failed',
+        startedAt: new Date(START - 10_000).toISOString(),
+        stopReason: 'usage-limit',
+        stopResetAt: resetAt,
+      };
+      const lookup = {
+        lookup: jest.fn().mockResolvedValue([
+          {
+            row: stoppedInfo,
+            lookup: 'ok' as const,
+            state: { state: 'confirmed-room' as const, reasons: [], windows: [] },
+          },
+        ]),
+      };
+      const realGate = new LaneDeliveryLimitGate(lookup, logger(), LANE_LIMIT_GATE_DEADLINE_MS, clock);
+
+      // First host run: cold offer before reset blocks on retained stopResetAt and schedules retry.
+      const beforeRestartStore = await open(storage);
+      const held = await put(beforeRestartStore, { route: 'cold' });
+      const firstDeliver = target();
+      const firstScheduler = new AgentMessageDeliveryScheduler(beforeRestartStore, logger(), {
+        clock,
+        limitGate: realGate,
+        findAgentInfo: () => stoppedInfo,
+      });
+      await firstScheduler.start(firstDeliver);
+      firstScheduler.enqueueCold(held);
+      await flush();
+
+      expect(firstDeliver.deliver).not.toHaveBeenCalled();
+      expect(lookup.lookup).not.toHaveBeenCalled();
+      expect(await beforeRestartStore.get(held)).toMatchObject({
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt },
+        nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+      });
+      firstScheduler.dispose();
+
+      // Host restart: restore store and re-arm scheduler against the same retained stopped record.
+      const afterRestartStore = await open(storage);
+      const secondDeliver = target();
+      scheduler = new AgentMessageDeliveryScheduler(afterRestartStore, logger(), {
+        clock,
+        limitGate: realGate,
+        findAgentInfo: () => stoppedInfo,
+      });
+      await scheduler.start(secondDeliver);
+      expect(jest.getTimerCount()).toBe(1);
+
+      const dueAt = resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS;
+      now = dueAt;
+      await jest.advanceTimersByTimeAsync(dueAt - START);
+
+      // At resetAt + 60s, stopResetAt is historical; real gate consults lookup and proceeds.
+      expect(lookup.lookup).toHaveBeenCalledTimes(1);
+      expect(secondDeliver.deliver).toHaveBeenCalledWith(held);
+    });
+
+    it('lets a concurrent user Cancel or Retry win when racing an in-flight timer gate check', async () => {
+      const store = await open(storage);
+      const resetAt = START + 60_000;
+      const cancelledId = await put(store, { targetAgentId: LANE_A, laneLineageId: LANE_A });
+      await store.transition(cancelledId, {
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt: START + 10_000 },
+        nextRetryAt: START + 70_000,
+      });
+      const retriedId = await put(store, { targetAgentId: LANE_B, laneLineageId: LANE_B });
+      await store.transition(retriedId, {
+        state: 'blocked-retryable',
+        reason: 'lane-at-limit',
+        limit: { known: true, resetAt: START + 10_000 },
+        nextRetryAt: START + 70_000,
+      });
+
+      const resolvers: Array<(decision: LimitGateDecision) => void> = [];
+      const limitGate: Pick<LaneDeliveryLimitGate, 'check'> = {
+        check: jest.fn(
+          () =>
+            new Promise<LimitGateDecision>((resolve) => {
+              resolvers.push(resolve);
+            }),
+        ),
+      };
+      const deliver = target();
+      scheduler = new AgentMessageDeliveryScheduler(store, logger(), {
+        clock,
+        limitGate,
+      });
+      await scheduler.start(deliver);
+
+      now = START + 70_000;
+      const timerAdvance = jest.advanceTimersByTimeAsync(70_000);
+      await flush();
+      expect(resolvers).toHaveLength(2);
+
+      // User cancels the first envelope and retries (reopens) the second while both timer gate checks are in flight.
+      scheduler.unschedule(cancelledId);
+      await store.transition(cancelledId, {
+        state: 'cancelled',
+        reason: 'cancelled-by-user',
+        nextRetryAt: undefined,
+      });
+
+      scheduler.unschedule(retriedId);
+      await store.transition(retriedId, {
+        state: 'not-started',
+        reason: undefined,
+        nextRetryAt: undefined,
+      });
+
+      // Timer gates finish after the user actions: neither may overwrite the user's state or dispatch.
+      resolvers[0]({ kind: 'proceed' });
+      resolvers[1]({ kind: 'blocked', limitKnown: true, resetAt: now + resetAt });
+      await timerAdvance;
+      await flush();
+
+      expect(deliver.deliver).not.toHaveBeenCalled();
+      expect(await store.get(cancelledId)).toMatchObject({
+        state: 'cancelled',
+        reason: 'cancelled-by-user',
+      });
+      expect(await store.get(retriedId)).toMatchObject({
+        state: 'not-started',
+      });
+      expect(jest.getTimerCount()).toBe(0);
     });
   });
 });

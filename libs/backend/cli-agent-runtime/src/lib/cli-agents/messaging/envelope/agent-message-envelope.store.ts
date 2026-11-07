@@ -18,6 +18,7 @@ import {
   AgentMessageEnvelopeIndexSchema,
   AgentMessageEnvelopeSchema,
   type AgentMessageEnvelope,
+  type EnvelopeAckPatch,
   type EnvelopePatch,
   type NewEnvelope,
 } from './agent-message-envelope.schema';
@@ -115,8 +116,9 @@ export class AgentMessageEnvelopeStore {
   ) {
     this.ready = this.restore().catch((error: unknown) => {
       // Degradation: unavailable receipt storage must not disable new live messaging.
+      // Keep the records already restored: clearing them would make the next
+      // persist overwrite the durable index with only new envelopes.
       this.logger?.error('[AgentMessageEnvelopeStore] Restore failed', this.error(error));
-      this.envelopes.clear();
     });
   }
 
@@ -222,20 +224,59 @@ export class AgentMessageEnvelopeStore {
     return this.serialize(() => this.transitionLocked(id, patch, expect, false));
   }
 
-  async markDispatching(id: string): Promise<AgentMessageEnvelope> {
+  /**
+   * Write only the semantic ack fields (Component 13). An ack is not a
+   * transport change, so unlike `transition` it also writes a settled
+   * envelope, and it never changes the state, turn or terminal time.
+   * `decide` runs under the store lock against the current record and
+   * returns the fields to write, or nothing. A failed write throws
+   * `AgentMessageStorageError`; memory keeps the previous record.
+   */
+  async writeAck(
+    id: string,
+    decide: (current: AgentMessageEnvelope) => EnvelopeAckPatch | undefined,
+  ): Promise<AgentMessageEnvelope | undefined> {
+    await this.ready;
+    return this.serialize(async () => {
+      await this.pruneExpiredLocked();
+      const current = this.envelopes.get(id);
+      if (!current) return undefined;
+      const patch = decide(current);
+      if (!patch) return current;
+      const next = AgentMessageEnvelopeSchema.parse({ ...current, ...patch, updatedAt: this.clock() });
+      try {
+        await this.persistReplacementLocked(next);
+      } catch (error: unknown) {
+        throw new AgentMessageStorageError('storage-unavailable', undefined, { cause: error });
+      }
+      this.emit(next);
+      return next;
+    });
+  }
+
+  async markDispatching(
+    id: string,
+    fromStates: readonly AgentMessageEnvelopeState[] = DISPATCHABLE,
+  ): Promise<AgentMessageEnvelope> {
     await this.ready;
     return this.serialize(async () => {
       const existing = this.envelopes.get(id);
       if (!existing) throw new AgentMessageStorageError('storage-unavailable');
-      if (!DISPATCHABLE.includes(existing.state))
+      const limitBlocked =
+        existing.state === 'blocked-retryable' &&
+        existing.reason === 'lane-at-limit' &&
+        fromStates === DISPATCHABLE;
+      if (!fromStates.includes(existing.state) || limitBlocked) {
         throw new AgentMessageDispatchWithdrawnError(id, existing.state);
+      }
       const next = await this.transitionLocked(id, {
         state: 'dispatching',
+        reason: undefined,
         attemptId: randomUUID(),
         everDispatched: true,
         attemptCount: existing.attemptCount + 1,
         nextRetryAt: undefined,
-      }, DISPATCHABLE, true);
+      }, fromStates, true);
       if (!next || next.state !== 'dispatching')
         throw new AgentMessageStorageError('storage-unavailable');
       return next;
@@ -312,8 +353,9 @@ export class AgentMessageEnvelopeStore {
     if (envelope.state === 'dispatching') return {
       ...envelope, state: 'outcome-unknown', reason: 'dispatch-interrupted', updatedAt: now,
     };
+    // A `started` record was accepted by its adapter, including one written before acks existed.
     if (envelope.state === 'started') return {
-      ...envelope, state: 'outcome-unknown', reason: 'host-restarted', updatedAt: now,
+      ...envelope, state: 'outcome-unknown', reason: 'host-restarted', maybeDelivered: true, updatedAt: now,
     };
     return envelope;
   }

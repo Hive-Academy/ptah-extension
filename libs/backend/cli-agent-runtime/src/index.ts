@@ -98,6 +98,14 @@ export {
   type AgentMessageCoordinatorDeps,
 } from './lib/cli-agents/messaging/agent-message-coordinator.service';
 export { AgentLaneResumeService } from './lib/cli-agents/messaging/agent-lane-resume.service';
+export {
+  AgentMessageAckService,
+  AGENT_MESSAGE_ACK_NOTE_MAX_CHARS,
+  type AgentMessageAckRefusal,
+  type AgentMessageAckRequest,
+  type AgentMessageAckRequestState,
+  type AgentMessageAckResult,
+} from './lib/cli-agents/messaging/agent-message-ack.service';
 export { ParentDeliveryDrainerService } from './lib/cli-agents/parent-delivery/parent-delivery-drainer.service';
 export {
   AgentMessageEnvelopeStore,
@@ -111,6 +119,16 @@ export {
   AgentMessageDeliveryScheduler,
   type AgentMessageDeliveryScheduling,
 } from './lib/cli-agents/messaging/agent-message-delivery.scheduler';
+export {
+  LaneDeliveryLimitGate,
+  LANE_LIMIT_GATE_DEADLINE_MS,
+  LANE_LIMIT_RESET_RETRY_DELAY_MS,
+  planLimitRetry,
+  requiresLimitGate,
+  type LaneDeliveryLimitLookup,
+  type LimitGateDecision,
+  type LimitRetryPlan,
+} from './lib/cli-agents/messaging/lane-delivery-limit.gate';
 export type { AgentMessageDispatchJournal } from './lib/cli-agents/messaging/agent-message-dispatch-journal.port';
 export {
   ParentSessionPurgeService,

@@ -6,6 +6,10 @@
  * never a session id, workspace path, account or any other host detail. Phase 3
  * names the sending lane once the sender is verified; until then a lane sender
  * gets a generic label, so an unverified name cannot impersonate anyone.
+ *
+ * When the lane can call Ptah MCP tools (Component 13), a closing line asks it
+ * to acknowledge the message with `ptah_agent_message_ack`. A lane without MCP
+ * gets no such line, because it has no way to answer it.
  */
 import type { AgentMessageSender } from '@ptah-extension/shared';
 
@@ -20,10 +24,16 @@ export function agentMessageSenderLabel(sender: AgentMessageSender): string {
   }
 }
 
+export function agentMessageAckLine(messageId: string): string {
+  return `[Reply with ptah_agent_message_ack { messageId: "${messageId}", state: "read" | "acted" | "rejected" }]`;
+}
+
 export function formatAgentMessageDeliveryText(
   messageId: string,
   sender: AgentMessageSender,
   body: string,
+  ackRequested: boolean,
 ): string {
-  return `[Ptah message ${messageId} from ${agentMessageSenderLabel(sender)}]\n\n${body}`;
+  const text = `[Ptah message ${messageId} from ${agentMessageSenderLabel(sender)}]\n\n${body}`;
+  return ackRequested ? `${text}\n\n${agentMessageAckLine(messageId)}` : text;
 }

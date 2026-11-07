@@ -487,6 +487,28 @@ describe('AgentMessageEnvelopeStore', () => {
     await expect(envelopes.get(envelope.id)).resolves.toMatchObject({ state: 'cancelled', attemptCount: 0 });
   });
 
+  it('rejects markDispatching under the store lock when an envelope was moved to blocked-retryable (lane-at-limit)', async () => {
+    const envelopes = store();
+    const { envelope } = await envelopes.put(input(), 'body');
+    await envelopes.transition(envelope.id, {
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: { known: true },
+    });
+
+    await expect(envelopes.markDispatching(envelope.id)).rejects.toBeInstanceOf(
+      AgentMessageDispatchWithdrawnError,
+    );
+    await expect(envelopes.markDispatching(envelope.id, ['not-started'])).rejects.toBeInstanceOf(
+      AgentMessageDispatchWithdrawnError,
+    );
+    await expect(envelopes.get(envelope.id)).resolves.toMatchObject({
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      attemptCount: 0,
+    });
+  });
+
   it('returns no body when the body record names another envelope or target', async () => {
     const envelopes = store();
     const { envelope } = await envelopes.put(input(), 'body');
@@ -515,6 +537,35 @@ describe('AgentMessageEnvelopeStore', () => {
     expect(logger.error).toHaveBeenCalledWith(
       '[AgentMessageEnvelopeStore] Restore failed',
       expect.any(Error),
+    );
+  });
+
+  it('retains envelopes loaded before a restore write failure and persists them on the next write', async () => {
+    const first = store();
+    const { envelope: existing } = await first.put(
+      input({ state: 'blocked-retryable', reason: 'lane-at-limit' }),
+      'held across transient outage',
+    );
+
+    const logger = createLogger();
+    storage.failIndexWrites = 1;
+    const restored = store(logger);
+
+    await expect(restored.get(existing.id)).resolves.toMatchObject({
+      id: existing.id,
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+    });
+    await expect(restored.getBody(existing.id)).resolves.toBe('held across transient outage');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[AgentMessageEnvelopeStore] Restore failed',
+      expect.any(Error),
+    );
+
+    const { envelope: added } = await restored.put(input(), 'new live message');
+    const persisted = storage.get<PersistedIndex>(AGENT_MESSAGE_ENVELOPE_INDEX_KEY);
+    expect(persisted?.records.map((record) => record.id)).toEqual(
+      expect.arrayContaining([existing.id, added.id]),
     );
   });
 

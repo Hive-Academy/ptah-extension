@@ -1,5 +1,6 @@
 import { AgentId } from '@ptah-extension/shared';
 import { SCHEDULER_BACKOFF_MS } from './agent-message-delivery.scheduler';
+import { LANE_LIMIT_RESET_RETRY_DELAY_MS } from './lane-delivery-limit.gate';
 import { harness, idOf, settleEvents } from './__fixtures__/agent-message-harness';
 
 const user = { kind: 'user' } as const;
@@ -156,5 +157,52 @@ describe('AgentMessageReconciler', () => {
     h.events.emit('agent:turn-started', { ...h.tracked.info, turnSeq: 2, messageId: id });
     await settleEvents();
     expect(h.logger.error).toHaveBeenCalledWith('[AgentMessageCoordinator] Receipt event failed', expect.any(Error));
+  });
+
+  it('moves remaining not-started envelopes to blocked-retryable (lane-at-limit) on a usage-limit exit and keeps their bodies', async () => {
+    const h = harness();
+    const id = await parked(h, 'queued behind limit');
+    const resetAt = Date.now() + 180_000;
+    h.setInfo({ status: 'failed', stopReason: 'usage-limit', stopResetAt: resetAt });
+    h.events.emit('agent:turn-settled', {
+      ...h.tracked.info,
+      status: 'failed',
+      turnSeq: 1,
+      stopReason: 'usage-limit',
+      stopResetAt: resetAt,
+    });
+    await settleEvents();
+
+    expect(h.tracked.pendingMessages).toHaveLength(0);
+    expect(await h.store.get(id)).toMatchObject({
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: { known: true, resetAt },
+      nextRetryAt: resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS,
+    });
+    expect(await h.coordinator.getBody(h.agentId, id, user)).toBe('queued behind limit');
+    expect(h.scheduler.schedule).toHaveBeenCalledWith(id, resetAt + LANE_LIMIT_RESET_RETRY_DELAY_MS);
+    expect(h.scheduler.onLaneSettled).not.toHaveBeenCalled();
+
+    // Reopen and hit the same usage-limit resetAt a second time: becomes manual, not rescheduled.
+    h.scheduler.schedule.mockClear();
+    await h.store.transition(id, { state: 'not-started', reason: undefined, nextRetryAt: undefined });
+    h.events.emit('agent:turn-settled', {
+      ...h.tracked.info,
+      status: 'failed',
+      turnSeq: 2,
+      stopReason: 'usage-limit',
+      stopResetAt: resetAt,
+    });
+    await settleEvents();
+
+    const afterSecond = await h.store.get(id);
+    expect(afterSecond).toMatchObject({
+      state: 'blocked-retryable',
+      reason: 'lane-at-limit',
+      limit: { known: true, resetAt },
+    });
+    expect(afterSecond?.nextRetryAt).toBeUndefined();
+    expect(h.scheduler.schedule).not.toHaveBeenCalled();
   });
 });
