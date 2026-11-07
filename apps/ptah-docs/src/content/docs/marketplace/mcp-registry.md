@@ -1,50 +1,37 @@
 ---
 title: MCP Registry
-description: Browse and install servers from the official Model Context Protocol registry.
+description: Find servers in the official Model Context Protocol registry and install them.
 ---
 
-The **MCP Registry** provider browses the **official Model Context Protocol server registry** from inside Ptah. It's the curated, vendor-neutral catalog of MCP servers — filesystems, databases, SaaS connectors, and developer tools — that you can search and add to your workspace.
+The **MCP Registry** source shows servers from the official MCP server registry (`registry.modelcontextprotocol.io`). Install a server into the MCP config of each CLI that you select.
 
-## Browsing and installing
+## Find and install a server
 
-1. Open **Marketplace → MCP Registry**.
-2. Search by capability (e.g. `postgres`, `github`, `filesystem`) or scroll the popular list.
-3. Open a server to see its details and install it into your workspace.
+1. Open **Marketplace → Sources → MCP Registry**.
+2. Search for a capability, for example `postgres` or `github`.
+3. Open a server to see its details.
+4. Select the targets and install the server.
 
-Once installed, the server's tools join your session alongside `ptah_*` tools and are governed by the same [permission model](/mcp-and-skills/third-party-mcp/#permissions).
+The install targets are Claude, VS Code, Cursor, Copilot, Codex, and Antigravity. The server is available in new agent sessions.
 
-## Discovering servers from chat
+## Find servers from chat
 
-The same registry is searchable directly from any chat via the harness tool:
+Agents can search the same registry with `ptah_harness_search_mcp_registry`. When a Smithery API key is set, the tool also searches Smithery. Agents install a server with `ptah_harness_install_mcp_server`. See [Third-party MCP servers](/mcp-and-skills/third-party-mcp/).
 
-```text
-ptah_harness_search_mcp_registry with:
-{ "query": "postgres" }
-```
+## See what is installed
 
-It returns candidate servers with installation snippets you can paste into your settings.
+Open **Marketplace → MCP Servers** to see the installed MCP servers.
 
-## Verifying what's connected
+## Registry compared with Smithery
 
-To confirm a server was picked up, list the connected servers and their tool catalogs:
-
-```text
-ptah_harness_list_installed_mcp
-```
-
-The **Settings → MCP** panel shows the same information with per-server logs and a **Reconnect** button.
-
-## Registry vs. Smithery
-
-|             | MCP Registry                         | [Smithery](/marketplace/smithery/) |
-| ----------- | ------------------------------------ | ---------------------------------- |
-| **Source**  | Official MCP registry                | Smithery's hosted catalog          |
-| **Hosting** | Mostly self-run (stdio / your infra) | Hosted servers                     |
-| **Auth**    | No extra account needed              | Requires a Smithery API key        |
-| **Setup**   | Install + configure transport        | Often one-click / schema form      |
+|             | MCP Registry                     | [Smithery](/marketplace/smithery/) |
+| ----------- | -------------------------------- | ---------------------------------- |
+| **Source**  | Official MCP registry            | Smithery hosted catalog            |
+| **Hosting** | Mostly local (stdio) or your own | Hosted servers                     |
+| **Account** | Not necessary                    | A Smithery API key                 |
 
 ## Next steps
 
-- [Smithery](/marketplace/smithery/) — hosted MCP servers
-- [Third-party MCP servers](/mcp-and-skills/third-party-mcp/) — manual config, transports, env expansion
+- [Smithery](/marketplace/smithery/)
+- [Third-party MCP servers](/mcp-and-skills/third-party-mcp/)
 - [Built-in MCP server](/mcp-and-skills/built-in-mcp-server/)

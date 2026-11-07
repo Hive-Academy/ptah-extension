@@ -1,11 +1,11 @@
 ---
 title: Built-in Agents
-description: The built-in agents that ship with Ptah — roles, triggers, and when to reach for each.
+description: The built-in agent templates in PtahCode, their roles, and when to use each.
 ---
 
 # Built-in Agents
 
-Ptah ships with 14 built-in agents covering planning, implementation, review, research, design, and visual QA. They are always available from the agent picker and never need to be installed.
+PtahCode has 14 built-in agent templates for planning, implementation, review, research, design, and visual QA. The [setup wizard](/setup/setup-wizard/) selects the templates that apply to your project and writes them to `<workspace-root>/.claude/agents/`.
 
 ![Built-in agents catalog](/screenshots/agents-catalog.png)
 
@@ -46,7 +46,7 @@ The hands-on-keyboard agents. They write, modify, and ship code. They also know 
 
 `senior-tester`, `code-style-reviewer`, `code-logic-reviewer`, `visual-reviewer`
 
-Ptah runs a three-phase review protocol: style (40%), logic (35%), security (25%). Pair these with your normal PR review flow for a belt-and-suspenders check. `visual-reviewer` adds a browser-based pass for UI work — responsive breakpoints, interaction states, and accessibility.
+`visual-reviewer` adds a browser-based pass for UI work — responsive breakpoints, interaction states, and accessibility.
 
 ### Research & Design
 
@@ -54,15 +54,11 @@ Ptah runs a three-phase review protocol: style (40%), logic (35%), security (25%
 
 Non-implementation specialists. They produce specs, briefs, reports, and content artifacts that the implementation agents then execute on.
 
-## How picking works
+## How agents are used
 
-When you start a chat, Ptah shows all 14 built-in agents in the picker (plus any opt-in specialists you've enabled). You can:
+The model selects its own sub-agents. To run a coordinated task, use orchestration.
 
-1. **Choose explicitly** — pick an agent from the dropdown before sending.
-2. **Let the orchestrator decide** — leave the default and the orchestrator delegates for you.
-3. **@-mention** — type `@agent-name` anywhere in your message to route that turn.
-
-:::tip
+
 For a coordinated task, use [orchestration](/agents/agent-orchestration/). The team-leader recommends executors and next actions; the orchestrator spawns the agents.
 :::
 
@@ -76,4 +72,4 @@ When `ptah_*` tools are listed in the session, templates use them first. If abse
 
 ## Customizing built-ins
 
-You can override any built-in by creating a file of the same name in `<workspace-root>/.claude/agents/`. Workspace files take precedence over bundled defaults. See [Custom agents](/agents/custom-agents/) for the full flow.
+Edit the agent file in `<workspace-root>/.claude/agents/`. The setup wizard overwrites a generated agent file in place when you run it again. See [Custom agents](/agents/custom-agents/) for the full flow.

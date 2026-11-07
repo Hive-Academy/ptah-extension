@@ -1,11 +1,10 @@
-# rpc-handlers
+# @ptah-extension/rpc-handlers
 
-This library was generated with [Nx](https://nx.dev).
+Shared RPC handler classes and their DI registration (`registerSharedRpcHandlers`,
+`registerHarnessServices`, `registerChatServices`; see `src/index.ts`). The handlers import no
+`vscode` module. The Electron app (`apps/ptah-electron`) wires them in; `cli-engine`,
+`worker-host` and other backend libs also import this library.
 
-## Building
-
-Run `nx build rpc-handlers` to build the library.
-
-## Running unit tests
-
-Run `nx test rpc-handlers` to execute the unit tests via [Jest](https://jestjs.io).
+```bash
+npm run verify -- -p rpc-handlers
+```

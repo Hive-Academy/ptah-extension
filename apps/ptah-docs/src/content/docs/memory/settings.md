@@ -5,7 +5,7 @@ description: Every memory tunable, with defaults.
 
 # Memory Settings
 
-Memory settings live in `~/.ptah/settings.json` under the `memory.*` prefix. Edit them through **Settings → Memory** in the desktop app.
+Memory settings live in `~/.ptah/settings.json` under the `memory.*` prefix. Edit them in the **Memory** tab or in the advanced settings of the desktop app.
 
 ## Reference
 
@@ -58,7 +58,7 @@ Memory does not run only at compaction. Each trigger below can fire a curate pas
 
 ## Storage
 
-Memory state lives in `~/.ptah/ptah.db` (shared SQLite database) across these tables:
+Memory state lives in `~/.ptah/state/ptah.sqlite` (shared SQLite database) across these tables:
 
 - `memories` — primary row per memory
 - `memory_chunks` — retrieval shards
@@ -66,5 +66,5 @@ Memory state lives in `~/.ptah/ptah.db` (shared SQLite database) across these ta
 - `memory_chunks_vec` — sqlite-vec embedding index
 
 :::caution
-Don't hand-edit `~/.ptah/ptah.db`. Use the Memory panel — it round-trips through the curator's invariants and keeps the FTS / vec indexes consistent.
+Don't hand-edit `~/.ptah/state/ptah.sqlite`. Use the **Memory** tab — it round-trips through the curator's invariants and keeps the FTS / vec indexes consistent.
 :::

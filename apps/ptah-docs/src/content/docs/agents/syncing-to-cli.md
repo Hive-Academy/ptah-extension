@@ -1,86 +1,39 @@
 ---
 title: Syncing Agents to CLIs
-description: Distribute your Ptah agent roster to Copilot, Codex, and Cursor.
+description: How PtahCode copies your agents, skills, commands, and MCP servers into other CLIs.
 ---
 
 # Syncing Agents to CLIs
 
-Once you've tuned a roster of agents in Ptah, you can push them to the external CLIs and editors you already use. The same prompts, tools, and personalities become available in Copilot CLI, Codex CLI, and Cursor — so your team gets consistent behavior everywhere.
+PtahCode copies your agents, skills, commands, and MCP servers into the folders that each CLI reads. The same agents are then available when PtahCode runs that CLI as a lane, and when you run the CLI yourself.
 
-Agent sync is a standard Ptah feature — use built-in and custom agents inside Ptah and sync them to external CLIs, all included at no cost.
+## When sync runs
 
-## Supported targets
+PtahCode reconciles the harness folders when it activates a workspace. Each copy is owned by a manifest. PtahCode updates or removes only the files that it wrote.
 
-| Target             | Installed to                  |
-| ------------------ | ----------------------------- |
-| **GitHub Copilot** | `~/.copilot/agents/`          |
-| **Codex CLI**      | `~/.codex/agents/`            |
-| **Cursor**         | `<workspace>/.cursor/agents/` |
+## Targets
 
-Ptah writes into the conventional locations each tool expects, so no manual configuration is needed on the target side.
+| Target      | Skills                  | Commands                | Agents                           | MCP servers                        |
+| ----------- | ----------------------- | ----------------------- | -------------------------------- | ---------------------------------- |
+| Codex       | `{ws}/.agents/skills`   | not supported           | `{ws}/.codex/agents/*.toml`      | `~/.codex/config.toml`             |
+| Copilot     | `{ws}/.github/skills`   | not supported           | `{ws}/.github/agents/*.agent.md` | `~/.copilot/mcp-config.json`       |
+| Cursor      | `{ws}/.cursor/skills`   | `{ws}/.cursor/commands` | `{ws}/.cursor/agents/*.md`       | `{ws}/.cursor/mcp.json`            |
+| Antigravity | `{ws}/.agents/skills`   | not supported           | not supported                    | `~/.gemini/config/mcp_config.json` |
+| OpenCode    | not supported           | not supported           | `{ws}/.opencode/agent/*.md`      | `{ws}/opencode.json`               |
 
-## What gets synced
+`{ws}` is the workspace root. A "not supported" cell is a facet that the CLI does not read from the workspace.
 
-- All agents in `<workspace-root>/.claude/agents/`
-- Selected built-in overrides (opt-in)
-- Tool permission metadata, translated to the target's format
+## Agent format
 
-What is **not** synced:
+Each CLI expects a different agent format. PtahCode converts each agent file for the target, for example to TOML for Codex.
 
-- MCP server credentials (these stay local to Ptah)
-- Session history
-- Your Ptah-specific settings
+## Git ignore
 
-## Running a sync
-
-1. Open the **Agents** panel.
-2. Click **Sync to CLIs** in the top-right.
-3. Pick which targets to include.
-4. Review the diff — Ptah shows added, changed, and removed agents per target.
-5. Click **Apply**.
-
-### Sync modes
-
-- **Additive** (default) — only writes new/changed agents. Existing target files are left untouched unless they conflict.
-- **Mirror** — makes the target match Ptah exactly, including deletions. Use when you want Ptah to be the single source of truth.
-- **Dry run** — shows the diff without writing anything.
-
-## Automating sync
-
-Turn on **Settings → Agents → Auto-sync on save** to re-run sync every time you edit an agent in Ptah. Combine with a git pre-commit hook to keep your team's CLIs in lockstep.
-
-```json
-{
-  "ptah.agents.autoSync": {
-    "enabled": true,
-    "targets": ["copilot", "codex", "cursor"],
-    "mode": "additive"
-  }
-}
-```
-
-## Translation notes
-
-Different CLIs expect slightly different frontmatter. Ptah handles the translation for you:
-
-| Ptah field    | Copilot         | Codex         | Cursor         |
-| ------------- | --------------- | ------------- | -------------- |
-| `name`        | `name`          | `name`        | `name`         |
-| `description` | `description`   | `description` | `description`  |
-| `tools`       | `allowed_tools` | `tools`       | `capabilities` |
-| `model`       | `model`         | `model`       | (inferred)     |
-
-Where a target doesn't support a field, Ptah drops it with a warning in the sync log.
-
-## Revoking a sync
-
-Click **Sync to CLIs → Unsync target** to remove all Ptah-authored agents from a target. Ptah tags each synced file with `x-ptah-managed: true` so it can clean up cleanly without touching agents you wrote by hand in the target tool.
+When `harness.manageGitignore` is `true` (the default), PtahCode adds the copied harness files to `.gitignore`. PtahCode does not ignore MCP config files.
 
 ## Troubleshooting
 
-| Symptom                        | Fix                                                           |
-| ------------------------------ | ------------------------------------------------------------- |
-| Target not detected            | Install the CLI and restart Ptah                              |
-| Permission denied writing      | Close the target tool, then re-run sync                       |
-| Agent missing fields in target | Check the sync log — unsupported fields are listed per target |
-| Sync loop / flapping           | Disable auto-sync in one tool; pick a single source of truth  |
+| Symptom                        | Fix                                                             |
+| ------------------------------ | --------------------------------------------------------------- |
+| An agent is absent in a CLI    | Make sure that the CLI supports agents. Refer to the table above. |
+| A copied file is out of date   | Open the workspace again so that PtahCode reconciles the folders. |

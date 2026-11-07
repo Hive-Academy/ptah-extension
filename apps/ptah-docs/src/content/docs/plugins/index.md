@@ -1,62 +1,45 @@
 ---
 title: Plugins
-description: Extend Ptah with curated plugins — skill packs and slash commands bundled together, enabled per workspace.
+description: Add skill packs and slash commands to PtahCode, enabled for each project.
 ---
 
-Plugins are the primary extension mechanism for Ptah. Each plugin bundles a coordinated set of **skills** and **slash commands** that target a specific stack, workflow, or domain — core orchestration, Nx SaaS backends, Angular patterns, React composition, marketing video.
+A plugin is a set of **skills** and **slash commands** for a stack, a workflow, or a domain. You enable plugins for each project.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/plugins.mp4" type="video/mp4" />
 </video>
 
-## Why plugins?
+## Kinds of plugin
 
-Out of the box Ptah ships with a lean set of defaults. Plugins let you opt into richer, opinionated capabilities without inflating the base install:
+| Kind      | Where it comes from                                                         | Active by default |
+| --------- | --------------------------------------------------------------------------- | ----------------- |
+| Official  | The Ptah plugin packs, downloaded from GitHub                               | No (opt-in)       |
+| Harness   | Skills that you write with the harness (`ptah-harness-*`)                   | Yes (opt-out)     |
+| skills.sh | Skills that you install from **Marketplace → Community**                    | Yes (opt-out)     |
+| External  | Plugins from a GitHub plugin marketplace, after you approve the install     | No (opt-in)       |
 
-- **Curated quality** — every official plugin carries a version in its `.claude-plugin/plugin.json` and is maintained by the Ptah team.
-- **Per-workspace activation** — enable only what a given project needs.
-- **Live updates** — plugin content is fetched from GitHub, so fixes reach you without a Ptah release.
-- **Granular** — you can enable a whole plugin and still switch off individual skills inside it.
+## How official plugins reach your computer
 
-## How plugins reach your machine
-
-Plugins are **not bundled in the Ptah installer**. On first launch (and on demand thereafter), Ptah's `ContentDownloadService` reads the public [`content-manifest.json`](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json) and downloads the plugin tree into `~/.ptah/plugins/`.
-
-```text
-~/.ptah/
-├── plugins/
-│   ├── ptah-core/
-│   ├── ptah-nx-saas/
-│   ├── ptah-angular/
-│   ├── ptah-react/
-└── templates/
-    └── agents/
-```
-
-:::tip
-This design keeps the desktop installer small and lets the team ship plugin fixes without cutting a new Ptah build.
-:::
+The installer does not include the plugins. PtahCode reads [`content-manifest.json`](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json) and downloads the plugin files into `~/.ptah/plugins/`. See [Plugin storage](/plugins/plugin-storage/).
 
 ## Official plugins
 
-Four plugins ship with Ptah. Each one lands in the browser modal under the category shown here.
+| Plugin         | Category       | Contents                                                                                     |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------- |
+| `ptah-core`    | Core Tools     | Orchestration, agent lanes, tribunal, design, content, and review skills, plus 5 commands    |
+| `ptah-nx-saas` | Backend Tools  | Nx, NestJS, webhook, resilience, SaaS, and deployment skills, plus `/init-saas` and `/initialize-workspace` |
+| `ptah-dotnet`  | Backend Tools  | .NET solution architecture, solution setup, and Nx .NET workspace skills                     |
+| `ptah-angular` | Frontend Tools | Angular patterns, GSAP scroll animation, and 3D scene skills                                 |
+| `ptah-react`   | Frontend Tools | React best practices, composition patterns, and React in Nx                                  |
 
-| Plugin         | Category       | What's inside                                                                                                                                                                |
-| -------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ptah-core`    | Core Tools     | 9 skills — agent-lanes, orchestration, DDD architecture, humanize-library, skill-creator, technical-content-writer, tribunal, UI/UX design, Ptah CLI usage — plus 5 commands |
-| `ptah-nx-saas` | Backend Tools  | 7 skills — Nx workspace, NestJS patterns, webhooks, resilience, SaaS platform, deployment, SaaS init — plus `/init-saas` and `/initialize-workspace`                         |
-| `ptah-angular` | Frontend Tools | 3 skills — Angular patterns, GSAP scroll animation, 3D scene crafting                                                                                                        |
-| `ptah-react`   | Frontend Tools | 3 skills — React best practices, composition patterns, React + Nx                                                                                                            |
-
-A sixth category, **Your Skills**, appears once you author your own skill — see [Harness plugins](/plugins/harness-plugins/).
+For the full skill list, see [Shipped skills](/mcp-and-skills/popular-skills/).
 
 ## Next steps
 
 - [Browse the catalog](/plugins/marketplace/)
 - [Enable and disable plugins](/plugins/installing/)
-- [Change your selection later](/plugins/managing/)
 - [Turn off individual skills](/plugins/skill-toggles/)
 - [Choose which skills a project gets](/plugins/skill-selection/)
-- [Skills you authored yourself](/plugins/harness-plugins/)
-- [Understand plugin storage](/plugins/plugin-storage/)
+- [Skills that you wrote](/plugins/harness-plugins/)
+- [Plugin storage](/plugins/plugin-storage/)
 - [Create your own plugin](/plugins/creating-plugins/)

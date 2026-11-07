@@ -1,51 +1,43 @@
 ---
 title: Chat
-description: The Ptah chat interface — your command center for working with AI coding agents.
+description: The PtahCode chat view, where you work with AI coding agents.
 sidebar:
   order: 1
 ---
 
 # Chat
 
-The Chat view is where you talk to Ptah. It combines a streaming conversation UI with first-class support for multi-file context, agent orchestration, and cost tracking — so you can stay in one place while Ptah coordinates work across providers and sub-agents.
+The chat view is where you talk to the agent. It streams responses, shows each tool call and sub-agent inline, and keeps the session cost and token counts in view.
 
 ![Chat overview](/screenshots/chat-overview.png)
 
 ## What the chat gives you
 
-- **Streaming responses** from whichever provider you have selected (Claude, Copilot, Codex, Ollama, OpenRouter, or a custom CLI agent).
-- **`@` autocomplete** to attach files, folders, agents, and skills from your workspace as context.
-- **Effort levels** (Quick, Balanced, Thorough) that tune latency, cost, and depth in a single click.
-- **Autopilot** that watches the conversation and spawns specialist sub-agents when the work calls for it.
-- **Live cost and token counters** per message and per session, with accurate pricing pulled from OpenRouter for third-party models.
-- **Execution Tree** — a recursive visualization of every sub-agent spawn, tool call, and thinking block in the turn.
-- **In-chat model switcher** so you can change providers mid-conversation without losing your thread.
+- **Streaming responses** from the provider and model that you select.
+- **`@` autocomplete** to attach workspace files and folders, and **`/`** to run slash commands.
+- **Image attachments** by paste or drag and drop.
+- **Effort selector** to set the reasoning effort of the model.
+- **Autopilot** (approval mode) to control which actions the agent can do without a prompt.
+- **Token and cost counts** for the session.
+- **Execution Tree** that shows the sub-agents, tool calls, and thinking blocks of each turn.
 
-:::tip
-You can open the chat from the sidebar, the activity bar icon, or with the command palette entry **Ptah: Focus Chat**.
-:::
+## Composer controls
 
-## Anatomy of a chat session
-
-| Area            | What it does                                                                                    |
-| --------------- | ----------------------------------------------------------------------------------------------- |
-| Composer        | Where you type. Supports `@` mentions, multi-line input, and drag-and-drop file attachments.    |
-| Messages        | Streaming assistant output, your messages, and inline tool-call cards.                          |
-| Execution Tree  | A collapsible tree showing every sub-agent, tool call, and thinking block for the current turn. |
-| Cost bar        | Running totals for the session — tokens in / out, cache hits, and USD cost.                     |
-| Model selector  | Switch provider and model without starting a new conversation.                                  |
-| Effort selector | Pick Quick, Balanced, or Thorough for the next message.                                         |
+| Control         | What it does                                                      |
+| --------------- | ----------------------------------------------------------------- |
+| Message input   | Type the prompt. Supports `@` file mentions and `/` commands.     |
+| Model selector  | Selects the model for the session.                                |
+| Effort selector | Selects the reasoning effort.                                     |
+| Approval chip   | Opens the Autopilot settings. It shows the current approval mode. |
+| MCP chip        | Shows the MCP servers that the session can reach.                 |
+| Send / Stop     | Sends the message, or stops the current response.                 |
 
 ## Where to go next
 
-<div class="sl-cards">
-
-- [Sending messages](/chat/sending-messages/) — composing, streaming, and aborting responses.
-- [File attachments](/chat/file-attachments/) — the `@` autocomplete and unified suggestions dropdown.
-- [Effort levels](/chat/effort-levels/) — when to use Quick, Balanced, or Thorough.
-- [Autopilot](/chat/autopilot/) — let Ptah spawn sub-agents automatically.
-- [Cost and tokens](/chat/cost-and-tokens/) — understand what each turn costs.
-- [Execution Tree](/chat/execution-tree/) — inspect how a response was produced.
-- [Switching models](/chat/switching-models/) — change provider mid-conversation.
-
-</div>
+- [Sending messages](/chat/sending-messages/)
+- [File attachments](/chat/file-attachments/)
+- [Effort levels](/chat/effort-levels/)
+- [Autopilot](/chat/autopilot/)
+- [Cost and tokens](/chat/cost-and-tokens/)
+- [Execution Tree](/chat/execution-tree/)
+- [Switching models](/chat/switching-models/)

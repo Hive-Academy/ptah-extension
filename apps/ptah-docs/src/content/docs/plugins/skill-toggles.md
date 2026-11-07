@@ -1,89 +1,46 @@
 ---
 title: Skill Toggles
-description: Enable a plugin without enabling all of it — switch individual skills off and understand how that interacts with plugin enablement.
+description: Enable a plugin but turn off some of its skills, and how this works with the other gates.
 ---
 
-A plugin is a bundle, but you don't have to take all of it. Inside the **Configure Ptah Skills** modal, an enabled plugin can be expanded to reveal its individual skills, each with its own checkbox.
+You do not have to use all of a plugin. In the **Configure Ptah Skills** panel, you can expand an enabled plugin and turn off its skills one by one.
 
-## Turning a skill off
+## Turn off a skill
 
-1. Open **Marketplace → Plugins → Configure**.
-2. Make sure the plugin is **checked**. The skill list only appears for enabled plugins.
-3. Click the **chevron** next to the skill-count badge to expand the list.
-4. Untick the skills you don't want.
+1. Open **Marketplace → Sources → Ptah Plugins**.
+2. Make sure that the plugin is selected. The skill list shows only for enabled plugins.
+3. Click the chevron to expand the skill list.
+4. Clear the skills that you do not want.
 5. Click **Save Configuration**.
 
-Each skill row shows its display name and description, both read from the `SKILL.md` frontmatter, so you can tell `review-logic` from `review-security` without opening either file.
+Each skill row shows the display name and the description from the `SKILL.md` frontmatter.
 
-:::note
-The chevron only renders when the plugin is enabled **and** its skills were successfully listed. A plugin whose files have not been downloaded yet shows its count badge but nothing to expand.
-:::
+## What a disabled skill does
 
-## Skill copies reach every detected AI tool, not only Claude's
+PtahCode records disabled skills in `disabledSkillIds` as skill folder names, for example `orchestration`. On the next sync, PtahCode removes the copy of the skill from each AI tool folder: `.claude/skills/`, `.agents/skills/`, `.github/skills/`, and `.cursor/skills/`. There is no switch for each tool.
 
-Ptah keeps one editable copy of each skill under `~/.ptah/user/skills`, then
-reconciles it out to a manifest-owned copy in every AI tool it detects on your
-machine — not a link, a real file. For skills, that means up to four target
-directories inside the workspace:
+The plugin stays enabled. Its other skills and its slash commands are not affected.
 
-| Target(s)             | Directory                         |
-| --------------------- | --------------------------------- |
-| Claude                | `.claude/skills/<slug>/`          |
-| Codex and Antigravity | `.agents/skills/<slug>/` (shared) |
-| Copilot               | `.github/skills/<slug>/`          |
-| Cursor                | `.cursor/skills/<slug>/`          |
-
-Only the tools you have installed get a copy — an undetected tool is not a gap.
-Turning a skill off or on affects all of them together; there's no per-tool
-switch.
-
-## What a disabled skill means
-
-Disabled skills are recorded per workspace as `disabledSkillIds`, a list of skill **directory names** — `orchestration`, `tribunal`, `ui-ux-designer`. On the next reconcile, a disabled skill drops out of the desired state: its copy is removed from every target directory listed above, and it is never recreated while it stays disabled.
-
-The effect is that the skill stops being visible to agents in that workspace. The plugin stays enabled, its other skills stay live, and its slash commands are unaffected — command files come from `commands/`, not `skills/`, and skill toggles do not touch them.
-
-Skill IDs are a **flat, global namespace**. `disabledSkillIds` holds a bare directory name with no plugin prefix, so disabling a name disables it wherever it comes from. In practice this doesn't bite, because two plugins can't both contribute the same skill name anyway — [the first one wins](/plugins/installing/#when-two-plugins-define-the-same-skill).
+Skill IDs are one flat namespace without a plugin prefix. A disabled name is disabled for all sources.
 
 ## Required skills
 
-Keep `agent-lanes` enabled when using `orchestration` or `tribunal` on CLI lanes. If you disable it, orchestration asks you to enable it and uses sub-agents only; Tribunal asks for it before running a move. Relay and Crucible also need `orchestration`.
-
-The dependent skills name the missing requirement in their instructions. The picker does not automatically re-enable dependencies or disable dependent skills. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
+Keep `agent-lanes` enabled when you use `orchestration` or `tribunal` on CLI lanes. The panel does not enable required skills for you. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies).
 
 ## How it interacts with the other two gates
 
-Plugin enablement and this per-skill toggle aren't the whole picture. A third, outer gate decides — per project — whether a skill can reach this workspace at all: see [Per-project skill selection](/plugins/skill-selection/). All three compose as a conjunction, evaluated outermost first, and every level has to say yes:
+A skill reaches a project only when all three gates allow it:
 
-1. **Per-project selection** — does this workspace's `state.json` allow the skill in at all?
-2. **Plugin enablement** — is the plugin the skill belongs to checked, here in this modal?
-3. **This per-skill toggle** — is the individual skill unticked?
+1. **Per-project selection** — does this project allow the skill? See [Per-project skill selection](/plugins/skill-selection/).
+2. **Plugin enablement** — is the plugin of the skill enabled?
+3. **Skill toggle** — is the skill turned on?
 
-| Selection    | Plugin state | Skill state | Result                                                                 |
-| ------------ | ------------ | ----------- | ---------------------------------------------------------------------- |
-| Allowed      | Enabled      | Enabled     | The skill is copied out and available                                  |
-| Allowed      | Enabled      | Disabled    | The skill is skipped; the rest of the plugin still works               |
-| Allowed      | Disabled     | Enabled     | Nothing is copied out — plugin enablement is the outer gate here       |
-| Allowed      | Disabled     | Disabled    | Nothing is copied out; the toggle is remembered for when you re-enable |
-| Not selected | (any)        | (any)       | Nothing is copied out — the selection gate never lets it through       |
+When you disable a plugin, PtahCode keeps the skill toggles that you set in it. They apply again when you enable the plugin again.
 
-Unchecking a whole plugin does **not** clear the per-skill toggles you set inside it. They stay in `disabledSkillIds` and take effect again the moment you re-enable the plugin. The same is true of the selection gate: narrowing your selection later doesn't touch your plugin or per-skill toggles, and widening it again brings back whatever those two still allow.
-
-There is one cleanup rule worth knowing: on save, Ptah validates your disabled-skill list against the skills it can actually find — those in the enabled plugins plus every harness-authored plugin. A name that matches nothing is dropped from the record. So if you disable a skill and then permanently remove the plugin that supplied it, the orphaned entry quietly disappears rather than lingering forever.
-
-## Reading the counter
-
-The modal footer shows both dimensions at once:
-
-```text
-4 of 6 selected · 2 skills disabled
-```
-
-The second half only appears when at least one skill is switched off — a quick way to notice a toggle you set months ago and forgot about.
+When you save, PtahCode removes names from the disabled list that match no skill in the enabled plugins or in your harness plugins.
 
 ## Next steps
 
 - [Per-project skill selection](/plugins/skill-selection/)
 - [Enable and disable plugins](/plugins/installing/)
-- [Change your selection later](/plugins/managing/)
-- [Skills you authored yourself](/plugins/harness-plugins/)
+- [Skills that you wrote](/plugins/harness-plugins/)

@@ -1,74 +1,54 @@
 ---
 title: Workspace Analysis Failures
-description: Permissions, symlinks, and large-repo edge cases.
+description: Permissions, symlinks, and very large repositories.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-When you open a workspace, Ptah runs an initial analysis pass to index files, detect the stack, and suggest agents. A few environments trip this up.
+When you open a workspace, Ptah indexes its files. [Analyze current project](/setup/setup-wizard/) also scans the workspace to detect the stack. Some environments cause problems.
 
 ## Permissions
 
 **Symptom:** "Permission denied" errors during analysis on macOS or Linux.
-**Likely cause:** The workspace contains files you can't read (e.g. `node_modules` owned by another user).
-**Fix:** Fix ownership (`chown -R $USER .`) or add the offending paths to your workspace ignore list via `.gitignore` or `.claudeignore`.
+**Likely cause:** The workspace contains files that you cannot read.
+**Fix:** Correct the ownership of the files, or add the paths to `.gitignore`.
 
 ---
 
-**Symptom:** Windows "Access is denied" for files under `System Volume Information` or recycle-bin folders.
-**Likely cause:** Workspace root is at a drive root (`D:\`) and includes system folders.
-**Fix:** Point the workspace at a real project folder, not a drive root.
+**Symptom:** "Access is denied" on Windows for `System Volume Information` or recycle bin folders.
+**Likely cause:** The workspace is a drive root (for example `D:\`).
+**Fix:** Open a project folder, not a drive root.
 
 ## Symlinks
 
-**Symptom:** Analysis hangs or loops on large projects.
-**Likely cause:** Circular symlinks inside the workspace.
-**Fix:** Ptah detects and skips cycles, but poorly-formed ones can slow things down. Add the linked path to `.claudeignore`:
-
-```
-# .claudeignore
-my-broken-symlink/
-```
-
----
-
-**Symptom:** Files inside a symlinked folder don't appear in search.
-**Likely cause:** The symlink target lives outside the workspace root.
-**Fix:** Open the target folder as its own workspace, or move it inside the workspace tree.
+**Symptom:** Files in a symlinked folder do not show in search.
+**Likely cause:** The symlink target is outside the workspace root.
+**Fix:** Open the target folder as its own workspace, or move it into the workspace.
 
 ## Large repositories
 
-**Symptom:** Analysis takes minutes on a monorepo.
-**Likely cause:** Hundreds of thousands of files under `node_modules`, `.git/objects`, `dist/`, etc.
-**Fix:** Ptah already ignores standard build artefacts. For additional pruning, add entries to `.claudeignore`:
-
-```
-packages/*/node_modules
-vendor/
-build/
-coverage/
-```
-
-Workspaces above roughly 250k files typically benefit from splitting into sub-workspaces.
+**Symptom:** Analysis takes a long time on a large monorepo.
+**Likely cause:** Many files in folders such as build output, dependencies, and generated data.
+**Fix:** Ptah reads ignore patterns from `.gitignore` and from other ignore files (`.prettierignore`, `.eslintignore`, `.npmignore`). Add the large folders that you do not need to `.gitignore`.
 
 ---
 
-**Symptom:** "Out of memory" during analysis on a laptop.
-**Likely cause:** File tree too deep or too many large binary files being scanned.
-**Fix:** Exclude binary folders (images, videos, data dumps) via `.claudeignore`. Binary files contribute nothing useful to semantic analysis.
+**Symptom:** "Out of memory" during analysis.
+**Likely cause:** Too many large binary files in the workspace.
+**Fix:** Ignore folders with images, videos, and data dumps.
 
 <Aside type="tip">
-`.claudeignore` uses the same syntax as `.gitignore`. Rules apply to both initial analysis and ongoing file-search tools.
+Ignore files use the `.gitignore` syntax, with negation (`!pattern`) and nested ignore files.
 </Aside>
 
 ## Network drives
 
-**Symptom:** Analysis is slow or inconsistent on a SMB / NFS mount.
-**Likely cause:** File-system events don't fire reliably over network mounts.
-**Fix:** Work on a local copy of the project. File watching is inherently flaky across network file systems on all three platforms.
+**Symptom:** Analysis is slow or inconsistent on an SMB or NFS mount.
+**Likely cause:** File system events are not reliable on network mounts.
+**Fix:** Work on a local copy of the project.
 
 ## Antivirus
 
-**Symptom:** Analysis pauses for seconds at a time on Windows.
-**Likely cause:** Real-time antivirus scanning every file read.
-**Fix:** Add the workspace folder and the Ptah executable to your antivirus exclusions.
+**Symptom:** Analysis stops for some seconds at a time on Windows.
+**Likely cause:** Real-time antivirus scans each file that Ptah reads.
+**Fix:** Add the workspace folder to your antivirus exclusions.

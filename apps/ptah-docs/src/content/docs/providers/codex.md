@@ -1,61 +1,41 @@
 ---
 title: OpenAI Codex
-description: Set up the OpenAI Codex SDK in Ptah.
+description: Use your ChatGPT plan through OpenAI Codex in Ptah.
 sidebar:
   order: 4
 ---
 
 # OpenAI Codex
 
-The OpenAI Codex integration gives Ptah access to the GPT-5 family and Codex CLI agents with reasoning-effort control.
+The OpenAI Codex connection gives Ptah access to GPT models through your OpenAI Codex (ChatGPT) plan. Codex can be the main agent, and it can run as a CLI agent lane.
 
 ## What you need
 
-- An OpenAI account with API access from the [OpenAI Platform](https://platform.openai.com/api-keys), **or** a ChatGPT subscription for the OAuth path.
+- A ChatGPT plan that includes Codex.
 
-## Configuration
+Ptah includes its own copy of the Codex CLI. You need an installed Codex only if you sign in with a plain `codex login` command in a terminal.
 
-You have two ways to authenticate:
+## Connect
 
-### API key (direct)
+1. Open **Settings → Providers**.
+2. Click **Connect provider**, then **Connect** next to **OpenAI Codex**.
+3. Click **Sign in with Codex**.
+4. Approve the sign-in in your browser.
 
-1. Create an API key at [platform.openai.com](https://platform.openai.com/api-keys).
-2. Open **Settings → Providers → OpenAI Codex**.
-3. Paste the key. It's stored in encrypted `safeStorage`.
+## Codex as a CLI agent
 
-### OAuth (ChatGPT subscription)
+When Codex runs as a sub-agent lane, its model and reasoning effort come from the **CLI agents** matrix on the Providers tab. Click the model or effort cell of the Codex row to change it. These settings are stored in `~/.ptah/settings.json` as `agentOrchestration.codexModel` and `agentOrchestration.codexReasoningEffort`. An empty value uses the default.
 
-1. Open **Settings → Providers → OpenAI Codex**.
-2. Click **Sign in with ChatGPT**.
-3. Approve the Ptah app in your browser.
+`agentOrchestration.codexAutoApprove` (default `true`) lets the Codex CLI approve its sandbox operations without a prompt. Set it to `false` to approve them yourself.
 
-Non-secret Codex settings live in `~/.ptah/settings.json`:
+## Verify that it works
 
-```json
-{
-  "provider.openai-codex.oauthApiEndpoint": "",
-  "provider.openai-codex.modelTier.opus": null,
-  "provider.openai-codex.modelTier.sonnet": null,
-  "provider.openai-codex.modelTier.haiku": null,
-  "agentOrchestration.codexModel": "",
-  "agentOrchestration.codexReasoningEffort": "",
-  "agentOrchestration.codexAutoApprove": true
-}
-```
-
-- `codexReasoningEffort` accepts `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"inherit"` (empty string uses the in-chat [effort level](/chat/effort-levels/)).
-- `codexAutoApprove: true` lets the Codex CLI auto-approve sandbox operations; set to `false` to require manual approval.
-
-## Verifying it works
-
-1. Open the chat.
-2. Select a **GPT-5** or **Codex** model.
-3. Send a prompt that requires reasoning: `Explain the time complexity of quicksort with and without the median-of-three optimization.`
-4. You should see a streaming response with thinking tokens visible in the [Execution Tree](/chat/execution-tree/).
+1. Open a chat.
+2. Select a Codex model.
+3. Send a prompt that needs some reasoning.
+4. Make sure that the response streams. The [Execution Tree](/chat/execution-tree/) shows the thinking steps.
 
 ## Troubleshooting
 
-- **`invalid_api_key`** — regenerate the key at platform.openai.com.
-- **`model_not_available`** — your org may not have GPT-5 access yet. Try `gpt-4o` or request access.
-- **Codex CLI not detected as a sub-agent** — make sure the Codex CLI is installed and on your `PATH`, then restart Ptah. Check that `codex` isn't in `agentOrchestration.disabledClis`.
-- **OAuth sign-in fails** — requires a ChatGPT Plus/Team/Enterprise plan. Free ChatGPT accounts can't use the OAuth path; use an API key instead.
+- **Sign-in fails** — your ChatGPT plan must include Codex.
+- **Codex is not available as a sub-agent** — make sure that `codex` is not in `agentOrchestration.disabledClis`.

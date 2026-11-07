@@ -58,7 +58,7 @@ them passes the opt-back-in variable through `launchPtah({ env: { ... } })`.
 | ----------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------- |
 | GitHub Releases update check                                            | `ptah-electron/src/services/update/update-manager.ts`     | `PTAH_E2E_ALLOW_UPDATE_CHECK=1` |
 | Embedder warmup barrier (30 s wait on a no-workspace boot)              | `ptah-electron/src/activation/boot-coordinator.ts`        | none — no spec needs it         |
-| Messaging gateway + chat bridge start (`gateway:*` RPC still answers)   | `ptah-electron/src/activation/start-messaging-gateway.ts` | none — no spec needs it         |
+| Messaging gateway + chat bridge start (`gateway:status` reads settings) | `ptah-electron/src/activation/start-messaging-gateway.ts` | none — no spec needs it         |
 | Membership/licence priming at boot (`license:getStatus` still verifies) | `ptah-electron/src/activation/bootstrap.ts`               | none — no spec needs it         |
 
 Add an opt-back-in variable, mirroring `PTAH_E2E_ALLOW_UPDATE_CHECK`, only

@@ -1,31 +1,17 @@
 ---
 title: Theme
-description: Switch between light and dark appearance.
+description: Change the color theme of Ptah.
 ---
 
-Ptah ships with a light and dark theme. The choice is stored globally in `~/.ptah/settings.json` and applies to every workspace.
+Ptah has many color themes, light and dark. They include **Ptah Glass**, **Ptah Glass Light**, **Anubis**, **Anubis Light**, **Light**, and the DaisyUI themes.
 
-## Changing the theme
+## Change the theme
 
-- **Settings → Appearance → Theme**, or
-- Edit `~/.ptah/settings.json`:
+1. Click the theme button (**Change theme**) on the right of the title bar.
+2. Select a theme.
 
-```json
-{ "theme": "dark" }
-```
-
-| Value    | Behavior                                                            |
-| -------- | ------------------------------------------------------------------- |
-| `light`  | Always use the light theme                                          |
-| `dark`   | Always use the dark theme                                           |
-| `system` | Follow the OS appearance preference and update live when it changes |
+The theme panel also has settings for **Primary accent**, **Backdrop**, and **Animation**.
 
 ![Theme toggle](/screenshots/theme-toggle.png)
 
-## High-contrast mode
-
-High-contrast variants of both themes are derived automatically when your OS reports a high-contrast preference. No additional setting is required.
-
-## Accent color
-
-The brand accent is fixed in the current release. Custom accent colors are on the roadmap.
+Ptah keeps your choice and uses it in every workspace.

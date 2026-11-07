@@ -44,7 +44,6 @@ Every line must justify its existence.
 - Strict layering: libs depend only on layers below, no circular deps
 - Standalone components with zoneless change detection (no NgModules)
 - tsyringe DI with tokens from vscode-core for backend services
-- Event-driven: state changes published via EventBus
 - No `any` types, no unsafe type assertions hiding nullability
 - No TODO/FIXME without linked issue, no stub implementations
 - No console.log in production paths
@@ -52,7 +51,7 @@ Every line must justify its existence.
 
 ## Phase 3: Security Review (25% weight)
 
-OWASP-aligned assessment adapted for VS Code extensions.
+OWASP-aligned assessment adapted for the Electron desktop app.
 
 **Always check:**
 
@@ -62,10 +61,10 @@ OWASP-aligned assessment adapted for VS Code extensions.
 - No authentication bypasses or privilege escalation paths
 - No PII/sensitive data in logs or error messages
 - No `eval()` or dynamic code execution
-- Content Security Policy enforced in all webviews
-- Webview ↔ extension messages validated on both sides
+- Renderer windows keep `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`
+- Renderer ↔ main process messages (preload bridge, RPC) validated on both sides
 - File system access uses proper path validation (no path traversal)
-- Extension permissions follow least-privilege principle
+- Least privilege for the preload bridge, IPC channels and spawned processes
 - Dependencies: flag known-vulnerable packages
 
 ## Scoring

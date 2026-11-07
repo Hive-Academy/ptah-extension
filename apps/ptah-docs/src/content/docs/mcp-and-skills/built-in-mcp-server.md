@@ -1,9 +1,9 @@
 ---
 title: Built-in MCP Server
-description: Ptah's local MCP server, Code Execution, and dynamic port management.
+description: The local MCP server of the PtahCode desktop app, its port, and its access rules.
 ---
 
-Ptah runs a **local MCP server** inside the desktop app. It is the bridge that exposes the `ptah_*` tool family to any connected model — and it's how **Code Execution** (the secure sandboxed runtime) is made available to providers that support MCP.
+The PtahCode desktop app runs a local MCP server. The server gives the `ptah_*` tools and `execute_code` to the agents that PtahCode starts.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/ptah-mcp-server.mp4" type="video/mp4" />
@@ -11,61 +11,43 @@ Ptah runs a **local MCP server** inside the desktop app. It is the bridge that e
 
 ## What it does
 
-- Serves the entire `ptah_*` tool catalog — workspace analysis, diagnostics, browser automation, git worktrees, agent spawning, etc.
-- Hosts the **Code Execution** sandbox for safe code execution with file and network access.
-- Advertises itself over HTTP/SSE on a local loopback port so models can discover it.
+- Serves the `ptah_*` tool catalog. See [Ptah tools](/mcp-and-skills/ptah-tools/).
+- Runs `execute_code`, which gives an agent the `ptah` API in one call.
+- Adds itself to the `.mcp.json` file of each open workspace folder, so that agents in that folder can find it.
 
-## Dynamic port assignment
+## Port
 
-The MCP server binds to `127.0.0.1` on a port selected at startup.
+The server listens on `localhost` over HTTP.
 
-| Behavior          | Details                                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------------------- |
-| **Default port**  | `51820`                                                                                        |
-| **Auto-fallback** | If `51820` is taken, Ptah probes the next free port above it                                   |
-| **Scope**         | Loopback only — the port is never exposed on your LAN                                          |
-| **Discovery**     | The chosen port is written to `~/.ptah/runtime.json` and shown in the **Settings → MCP** panel |
+| Behavior      | Details                                                                     |
+| ------------- | --------------------------------------------------------------------------- |
+| Default port  | `51820`                                                                     |
+| Fallback      | If the port is not available, PtahCode tries the next two ports             |
+| Change it     | **Settings → Advanced → MCP & Browser → MCP port** (range 1024–65535)       |
+| Apply         | A new port applies after the MCP server restarts                            |
 
-You can pin a specific port in settings if you want deterministic behavior:
+## Tool namespaces
 
-```json title="~/.ptah/settings.json"
-{
-  "mcp.builtIn.port": 51820,
-  "mcp.builtIn.portFallback": true
-}
-```
+In **Settings → Advanced → MCP & Browser**, you can turn tool groups on or off:
 
-## How providers consume it
+- **Browser Automation**
+- **CLI Agents**
+- **Git Worktree**
+- **IDE / LSP**
+- **JSON Validation**
 
-Providers that speak MCP natively (Claude Agent SDK, and the Ptah harness for other CLIs) receive the server URL automatically at session start. You don't need to wire anything up — just enable the tool in the chat panel's tool picker.
+## External callers
 
-For providers that don't yet speak MCP, Ptah proxies a curated subset of tools through their native tool-calling mechanism.
+Each caller of the server must send a token. PtahCode gives tokens to the sessions and CLI lanes that it starts. Other local tools that read the token from a config file are external callers.
 
-## Health and diagnostics
+Set **External MCP callers** (`mcp.externalCallerAccess`) to one of these values:
 
-The **Settings → MCP** panel shows:
-
-- Current listening port
-- Uptime and request count
-- Per-tool invocation metrics
-- Recent errors
-
-Command palette shortcuts:
-
-| Command                             | Effect                              |
-| ----------------------------------- | ----------------------------------- |
-| `Ptah: Restart Built-in MCP Server` | Full restart (rebinds port)         |
-| `Ptah: Show MCP Server Logs`        | Opens the live log panel            |
-| `Ptah: Copy MCP Server URL`         | Useful for external MCP-aware tools |
-
-## Security model
-
-- **Loopback only** — never accessible off-host.
-- **Per-tool approval** — every tool call respects the permission model configured in `~/.ptah/settings.json` (`allow`, `ask`, `deny`).
-- **Auditable** — all invocations are logged to `~/.ptah/logs/mcp/`.
-- **Sandboxed Code Execution** — code runs in an isolated process with scoped file access.
+| Value                      | Effect                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| Read-only (recommended)    | Default. External tools can call only read-only tools                                        |
+| Full access                | External tools can also call privileged tools, including `execute_code`. They cannot cross workspaces |
 
 ## Next steps
 
-- [Browse the Ptah tool catalog](/mcp-and-skills/ptah-tools/)
-- [Connect third-party MCP servers](/mcp-and-skills/third-party-mcp/)
+- [Ptah tools](/mcp-and-skills/ptah-tools/)
+- [Third-party MCP servers](/mcp-and-skills/third-party-mcp/)

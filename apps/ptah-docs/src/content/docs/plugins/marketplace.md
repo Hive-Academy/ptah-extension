@@ -1,90 +1,55 @@
 ---
 title: Plugin Catalog
-description: Browse the bundled Ptah plugins from the Configure Ptah Skills modal and see what each one contributes.
+description: Browse the Ptah plugins in the Configure Ptah Skills panel and see what each one contributes.
 ---
 
-The plugin catalog is not a separate storefront — it is a modal titled **Configure Ptah Skills**, reached from the Plugins provider in the Marketplace. Everything you can browse, search, enable, or disable happens in that one dialog.
+The plugin catalog is the **Configure Ptah Skills** panel. You browse, search, enable, and disable plugins in this panel.
 
-## Opening the catalog
+## Open the catalog
 
-1. Click **Marketplace** in the navigation rail.
-2. Select the **Plugins** provider. Its surface is titled **Ptah Skills**.
-3. Click **Configure** on the status widget.
+Use one of these paths:
 
-The modal fetches the available plugins and your saved configuration together. While that is in flight you see a spinner; if either call fails you get an error message and a **Try Again** button rather than a half-populated list.
+- Click **Marketplace** in the chat header, then **Sources → Ptah Plugins**.
+- On the Dashboard, open the skill selection card. It opens the same panel in a dialog.
+
+If the catalog cannot load, the panel shows an error and a **Try Again** button.
 
 ## Categories
 
-Plugins are grouped into five categories, always rendered in this order. A category with no matching plugins is hidden entirely, which is why you will not see **Your Skills** until you have authored one.
+Plugins are grouped in this order. A category without plugins is not shown.
 
-| Category           | Contains                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core Tools**     | `ptah-core` — orchestration, review, refactoring, docs, design                                                                              |
-| **Backend Tools**  | `ptah-nx-saas` — Nx, NestJS, webhooks, resilience, SaaS platform, deployment, and `ptah-dotnet` — .NET solution layout and domain modelling |
-| **Frontend Tools** | `ptah-angular` and `ptah-react`                                                                                                             |
-| **Your Skills**    | Every `ptah-harness-*` plugin you authored — see [Harness plugins](/plugins/harness-plugins/)                                               |
+| Category              | Contains                                                                  |
+| --------------------- | ------------------------------------------------------------------------- |
+| **Core Tools**        | `ptah-core`                                                               |
+| **Backend Tools**     | `ptah-nx-saas` and `ptah-dotnet`                                          |
+| **Frontend Tools**    | `ptah-angular` and `ptah-react`                                           |
+| **Creative Tools**    | Creative plugins, when the catalog has any                                |
+| **Your Skills**       | Your `ptah-harness-*` plugins. See [Harness plugins](/plugins/harness-plugins/) |
+| **From Marketplaces** | Plugins that you installed from external GitHub marketplaces              |
 
 ## Search
 
-The search box filters the list as you type. A plugin matches if your query appears, case-insensitively, in any of three fields:
+Type in **Search plugins...** to filter the list. If nothing matches, the panel shows "No plugins match your search."
 
-- the plugin **name**,
-- the plugin **description**, or
-- one of its **keywords** — so searching `prisma`, `gsap`, or `solid` finds the right pack even though none of those words is in a plugin's name.
+## What a plugin card shows
 
-Search does **not** look inside individual skill names or `SKILL.md` bodies. If nothing matches you get "No plugins match your search." The query resets each time the modal closes.
+- The plugin name and description.
+- **Recommended** — the plugin is a good default.
+- **Yours** — you wrote the plugin with the harness.
+- The number of skills and commands.
 
-## What a plugin row shows
+## What is inside a plugin
 
-Each row carries the plugin name and description plus a few badges:
+| Contribution | Location in the plugin   | Purpose                                     |
+| ------------ | ------------------------ | ------------------------------------------- |
+| **Skills**   | `skills/<name>/SKILL.md` | Knowledge packs that the model uses on demand |
+| **Commands** | `commands/*.md`          | Slash commands in chat, for example `/orchestrate` |
 
-- **Recommended** (star) — the plugin is flagged as a sensible default. Only `ptah-core` carries it.
-- **Yours** (wand) — the plugin was authored by you through the harness, not shipped by Ptah.
-- **_n_ skills** and **_n_ commands** — the contribution counts.
+The file `.claude-plugin/plugin.json` holds the name, description, version, author, and license.
 
-The skill count is read from disk once the plugin has been downloaded, so it stays honest as plugins gain skills. Before the first download it falls back to the catalog's built-in number.
+## Offline use
 
-There is no detail pane, no README view, and no hover preview of a skill body. To read what a skill actually contains, open its `SKILL.md` under `~/.ptah/plugins/<plugin>/skills/<skill>/`.
-
-## What's inside a plugin
-
-A plugin is a folder with a manifest and up to two contribution directories. Those are the two Ptah actually consumes.
-
-| Contribution | Location in plugin       | Purpose                                                                     |
-| ------------ | ------------------------ | --------------------------------------------------------------------------- |
-| **Skills**   | `skills/<name>/SKILL.md` | Scoped knowledge packs invoked on demand (e.g. `angular-frontend-patterns`) |
-| **Commands** | `commands/*.md`          | Slash commands registered in chat (e.g. `/orchestrate`)                     |
-
-The manifest at `.claude-plugin/plugin.json` carries the name, description, version, author, and license. It is metadata only — the modal does not display it.
-
-### Example: `ptah-core`
-
-```text
-ptah-core/
-├── .claude-plugin/
-│   └── plugin.json        # name, description, version, author, license
-├── commands/
-│   ├── orchestrate.md
-│   ├── orchestrate-help.md
-│   ├── review-code.md
-│   ├── review-logic.md
-│   └── review-security.md
-└── skills/
-    ├── agent-lanes/
-    ├── ddd-architecture/
-    ├── humanize-library/
-    ├── orchestration/
-    ├── skill-creator/
-    ├── technical-content-writer/
-    ├── tribunal/
-    └── ui-ux-designer/
-```
-
-The catalog lists the skills and slash commands available in each pack.
-
-## Offline behaviour
-
-The catalog itself is local: the plugin list is metadata Ptah already holds, so the modal opens and works with no network. What needs the network is the content download. If GitHub is unreachable, whatever is already in `~/.ptah/plugins/` keeps working and the download simply reports a failure. See [Plugin storage](/plugins/plugin-storage/).
+The catalog works without a network. The content download needs the network. When GitHub is not available, the plugins already in `~/.ptah/plugins/` continue to work.
 
 ## Next steps
 

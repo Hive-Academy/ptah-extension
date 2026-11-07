@@ -1,11 +1,11 @@
-# vscode-lm-tools
+# @ptah-extension/vscode-lm-tools
 
-This library was generated with [Nx](https://nx.dev).
+Shared infrastructure kept under its historical name; it is not a VS Code host. It provides the
+Ptah code-execution MCP server (`CodeExecutionMCP`, HTTP and stdio transports under
+`src/lib/code-execution/`), the `PtahAPIBuilder` that builds the `ptah.*` namespaces, and the
+diagnostics cache invalidator. DI registration is `registerVsCodeLmToolsServices`. Consumed by the
+Electron app, `rpc-handlers`, `cli-engine` and `gateway-chat-bridge`.
 
-## Building
-
-Run `nx build vscode-lm-tools` to build the library.
-
-## Running unit tests
-
-Run `nx test vscode-lm-tools` to execute the unit tests via [Jest](https://jestjs.io).
+```bash
+npm run verify -- -p vscode-lm-tools
+```

@@ -1,42 +1,34 @@
 ---
 title: Getting Started
-description: Get up and running with Ptah in minutes — install the desktop app, launch your first workspace, and connect a provider.
+description: Install the PtahCode desktop app, open your first workspace, and connect a provider.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Get up and running with Ptah in minutes. Ptah is an AI dev team that ships production SaaS — a desktop app whose staffed agents learn your architecture through persistent memory and deliver features around the clock.
-
-This section walks you through the three steps every new user takes: downloading and installing the app, launching it for the first time, and connecting an AI provider. There is no Ptah account to create — the app is free and open source, and nothing here asks you to register.
+PtahCode is a free, open-source desktop app that runs a team of AI agents on your own machine. This section shows the three steps that every new user does: install the app, open a workspace, and connect an AI provider. You do not need a Ptah account.
 
 <CardGrid>
   <LinkCard
     title="Installation"
-    description="Download PtahCode for Windows, macOS, or Linux and complete the first-run setup."
+    description="Install PtahCode on Windows, macOS, or Linux."
     href="/getting-started/installation/"
   />
   <LinkCard
-    title="Signing in"
-    description="Configure your providers and, optionally, sign in."
-    href="/getting-started/signing-in/"
-  />
-
-  <LinkCard
     title="First launch"
-    description="Open your first workspace, run the setup wizard, and auto-import existing sessions."
+    description="Open your first workspace and see what Ptah shows on the first run."
     href="/getting-started/first-launch/"
   />
-
+  <LinkCard
+    title="Connect a provider"
+    description="Connect Claude Code, Codex, or another provider, and optionally attach a membership key."
+    href="/getting-started/signing-in/"
+  />
 </CardGrid>
 
-:::tip[New to Ptah?]
-Work through these pages in order. Each one takes two to five minutes and assumes you've completed the previous step.
-:::
+## What you need
 
-## What you'll need
+- Windows (Microsoft Store), macOS on Apple Silicon, or Linux x64.
+- A project folder.
+- At least one AI provider: a Claude Code or Codex sign-in, an API key for a supported provider, or a local model server such as Ollama or LM Studio.
 
-- A supported operating system (Windows 10+, macOS 11+, or a recent Linux distribution)
-- A project folder you want to work on
-- At least one AI provider you can authenticate with — a Claude, Copilot, Codex, Ollama, or OpenRouter account, or a local model
-
-Ready? Head to the [installation guide](/getting-started/installation/) to download PtahCode.
+Start with the [installation guide](/getting-started/installation/).

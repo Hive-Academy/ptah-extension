@@ -1,54 +1,32 @@
-# agent-generation
+# @ptah-extension/agent-generation
 
-**Purpose**: Intelligent Project-Adaptive Agent Generation System for TASK_2025_058
+Generates project-adaptive agent files for a workspace. The
+`AgentGenerationOrchestratorService` (`src/lib/services/orchestrator.service.ts`) runs four
+phases: workspace analysis, template selection, rendering with LLM-driven content through
+`InternalQueryService` from `@ptah-extension/agent-sdk`, and guarded per-agent file writes.
 
-This library provides the core infrastructure for generating dynamic, project-adaptive agents using VS Code Language Model API. It contains utilities, patterns, and type definitions extracted from the roocode-generator project.
+## Entry points
 
-## Overview
+- `registerAgentGenerationServices` and `AGENT_GENERATION_TOKENS` (`src/lib/di/`): DI
+  registration and tokens. The host calls the register function after the services it depends on.
+- Services exported from `src/index.ts`: `ContentGenerationService`, `AgentSelectionService`,
+  `AgentRecommendationService`, `AgentFileWriterService`, `OutputValidationService`,
+  `TemplateStorageService`, `AnalysisStorageService`, `SetupStatusService`.
+- `src/lib/patterns/`: small generic helpers (`generateWithPartialSuccess`, `GenerationPipeline`,
+  `BasePromptBuilder`). See its README.
 
-The agent-generation library serves as the foundation for creating intelligent agents that:
+The bundled agent templates live in `templates/`.
 
-- Analyze project structure and context
-- Generate adaptive agent prompts based on project characteristics
-- Orchestrate multi-agent workflows
-- Process and transform content for agent consumption
+## Constraints
 
-## Architecture
+- Nx tags `scope:extension`, `type:feature` (`project.json`). Consumed by the Electron app
+  (`apps/ptah-electron`) and by backend libs such as `rpc-handlers`, `cli-engine` and
+  `skill-synthesis`.
+- Depends on `vscode-core` (logger, tokens), `workspace-intelligence`, `settings-core` and
+  `harness-sync`.
 
+## Tests
+
+```bash
+npm run verify -- -t test -p agent-generation
 ```
-agent-generation/
-├── utils/           # ContentProcessor utilities (Task -1.2)
-├── patterns/        # Orchestration patterns (Task -1.3)
-└── types/           # Type definitions and contracts
-```
-
-## Development Status
-
-**Status**: Scaffolding Complete (TASK_2025_058 Batch -1)
-
-**Extraction Tasks**:
-
-- ✅ Task -1.4: Library scaffolding (COMPLETE)
-- ⏸️ Task -1.1: VS Code LM API Provider (PENDING)
-- ⏸️ Task -1.2: ContentProcessor utilities (PENDING)
-- ⏸️ Task -1.3: Orchestration patterns (PENDING)
-
-## Building
-
-Run `nx build agent-generation` to build the library.
-
-## Running unit tests
-
-Run `nx test agent-generation` to execute the unit tests via [Jest](https://jestjs.io).
-
-## Import Path
-
-```typescript
-import { ... } from '@ptah-extension/agent-generation';
-```
-
-## Related Documentation
-
-- Task Tracking: `.ptah/specs/TASK_2025_058/`
-- Implementation Plan: `.ptah/specs/TASK_2025_058/implementation-plan.md`
-- Extraction Plan: `.ptah/specs/TASK_2025_058/extraction-plan.md`

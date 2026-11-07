@@ -1,66 +1,54 @@
 ---
 title: Web search
-description: Ground conversations with live web results via Tavily, Serper, or Exa.
+description: Ground conversations with live web results from Tavily, Serper, or Exa.
 sidebar:
   order: 9
 ---
 
 # Web search
 
-Ptah exposes the `ptah_web_search` tool to agents so they can ground answers in live web results. You can configure multiple search providers — Tavily, Serper, or Exa — and Ptah queries all selected providers at once in parallel, merging and de-duplicating their results.
+Ptah gives agents the `ptah_web_search` tool, so they can use live web results. You can configure Tavily, Serper, and Exa. Ptah queries all selected providers in parallel and merges their results.
 
 ## What you need
 
-API keys for the search providers you wish to use (you can configure one, two, or all three):
+An API key for each provider that you want to use:
 
-- **Tavily** — [tavily.com](https://tavily.com/) (recommended default, generous free tier).
-- **Serper** — [serper.dev](https://serper.dev/) (Google-backed results, fast).
-- **Exa** — [exa.ai](https://exa.ai/) (neural search, high-quality long-form results).
+- **Tavily** — [tavily.com](https://tavily.com/)
+- **Serper** — [serper.dev](https://serper.dev/) (Google Search API)
+- **Exa** — [exa.ai](https://exa.ai/)
 
-## Configuration
+## Configure
 
-Configure web search providers from the settings interface:
+1. Open **Settings → Search & Voice**.
+2. Select one or more providers. At least one provider must stay selected.
+3. Paste the API key of each selected provider.
+4. Test the providers.
 
-1. Open **Settings → Web Search**.
-2. Select one or more providers using the checkboxes. At least one provider must remain selected.
-3. Paste the API key for each enabled provider. Each key is stored in encrypted `safeStorage` under `ptah.webSearch.apiKey.<provider>`.
-4. Click **Test** to test all configured providers in parallel.
+Ptah stores each key in encrypted storage as `ptah.webSearch.apiKey.<provider>`.
 
-You can store keys for all three providers at once and enable any combination of them.
+### Settings keys
 
-### Settings keys & backwards compatibility
+- `ptah.webSearch.providers` (`string[]`) — the selected providers, for example `["tavily", "serper"]`. Ptah also reads the older single value `ptah.webSearch.provider`.
+- `ptah.webSearch.maxResults` (`number`, default `5`) — the maximum number of merged results.
 
-- `ptah.webSearch.providers` (`string[]`): The list of enabled provider names (e.g. `["tavily", "serper"]`). If not explicitly set or empty, Ptah falls back to reading the legacy single-string `ptah.webSearch.provider` setting from existing installs, or defaults to `["tavily"]`. No re-configuration is required for existing setups.
-- `ptah.webSearch.apiKey.<provider>`: Secret storage key for each provider's credential.
-- `ptah.webSearch.maxResults` (`number`): Maximum number of merged results returned to the agent.
+## How a search works
 
-## How multi-provider search works
+- **In parallel** — Ptah queries every selected provider at the same time.
+- **Isolated failures** — if one provider fails, the results of the others are still returned. The search fails only when every selected provider fails.
+- **Status for each provider** — each search reports the duration, the result count, and the failure reason of each provider: `missing-api-key`, `timeout`, or `provider-error`.
+- **Merged results** — results are merged and duplicate URLs are removed. A URL that more than one provider returned shows all of its sources.
+- **Override for one call** — the tool accepts an optional `providers` argument, for example `["serper"]`. An agent can use it to retry with only the providers that worked.
 
-When an agent triggers a web search:
+## Verify that it works
 
-- **Parallel querying**: Ptah queries every selected provider simultaneously in parallel.
-- **Failure isolation**: Providers fail independently. If one provider fails (for example, Tavily times out or hits quota limits) while Serper succeeds, the search **succeeds** with Serper's results. Total search failure occurs only if every selected provider fails.
-- **Per-provider status reporting**: Every search returns a status breakdown for each selected provider, including duration, result count, and for any failure, the exact failure reason (`missing-api-key`, `timeout`, or `provider-error`) alongside a human-readable message.
-- **URL de-duplication & source attribution**: Results from all providers are merged in selection order and de-duplicated by normalized URL (canonicalizing hostnames and stripping fragments and trailing slashes). If a URL is returned by more than one provider, it appears once in the merged list and names every provider that returned it under its sources.
-- **Agent re-assessment**: The `ptah_web_search` MCP tool accepts an optional `providers` argument (e.g. `["serper"]`) that temporarily overrides the configured set for a single call. If an agent sees a provider fail in the status breakdown, it can re-assess the search and retry using only the providers that succeeded.
-
-## Verifying it works
-
-1. Open the chat.
-2. Ask: `Search the web for the latest Claude Sonnet release notes and summarize the top change.`
-3. The agent calls the `ptah_web_search` tool. In the [Execution Tree](/chat/execution-tree/), you'll see a **tool call** node with the per-provider status breakdown, source attribution tags, and the merged result URLs.
+1. Open a chat.
+2. Ask the agent to search the web for a recent topic.
+3. In the [Execution Tree](/chat/execution-tree/), find the `ptah_web_search` tool call with its status for each provider.
 
 ## Troubleshooting
 
-- **Provider failure reported in status**:
-  - `missing-api-key` — check that the provider's API key is configured in **Settings → Web Search**.
-  - `timeout` — upstream provider did not respond within the timeout window. If another provider succeeded, its results are still returned.
-  - `provider-error` (`401 Unauthorized` or quota exhaustion) — wrong or revoked key, or exceeded quota. Regenerate the key in the provider's dashboard or check your quota balance.
-- **Total search failure** — a search fails completely only when every selected provider fails. Check that at least one provider has a valid key and available quota.
-- **Empty results or rate limits on one provider** — Tavily's free tier rate-limits aggressively. Enabling multiple providers (such as Tavily and Serper together) provides automatic redundancy.
-- **Tool not used** — models sometimes answer from memory. Tell the model explicitly to use web search, or raise the [effort level](/chat/effort-levels/).
-- **SSL / proxy errors** — if you're on a corporate network with SSL inspection, add your CA bundle to the system trust store. Ptah uses the OS trust store on all platforms.
-
-:::tip
-Tavily is the default because its tier is forgiving and its results are research-friendly. If you need SERP-style results (featured snippets, related questions), Serper is a better fit. Enabling multiple providers combines their strengths while providing automatic redundancy if one provider encounters rate limits or downtime.
-:::
+- **`missing-api-key`** — add the key in **Settings → Search & Voice**.
+- **`timeout`** — the provider did not answer in time. Results from other providers are still returned.
+- **`provider-error`** — the key is wrong or revoked, or the quota is used. Examine the provider dashboard.
+- **The tool is not used** — tell the agent to search the web.
+- **TLS or proxy errors** — on a network with TLS inspection, add your CA certificate to the system trust store.

@@ -1,21 +1,21 @@
 ---
 title: Automation
-description: Run Ptah on a schedule or drive it from chat apps.
+description: Run PtahCode on a schedule or drive it from chat apps.
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
 # Automation
 
-Ptah doesn't have to be in front of you to be useful. Two automation surfaces let it work while you don't:
+PtahCode can do work while you are away from the desktop app. Both automation features are in the **Thoth** panel.
 
 <CardGrid>
   <Card title="Cron Scheduler" icon="seti:clock">
-    Schedule recurring AI tasks with cron expressions. Persists across restarts; catches up after sleep. [Learn more →](/automation/cron/)
+    Run a prompt on a cron schedule as a headless session. Jobs stay after restarts, and missed slots catch up after sleep. [Learn more →](/automation/cron/)
   </Card>
   <Card title="Messaging Gateway" icon="comment-alt">
-    Drive Ptah from Telegram, Discord, or Slack. Voice messages welcome. [Learn more →](/automation/messaging/)
+    Drive PtahCode from Telegram, Discord, or Slack. [Learn more →](/automation/messaging/)
   </Card>
 </CardGrid>
 
-Both share storage at `~/.ptah/ptah.db` and configuration in `~/.ptah/settings.json`. Both are off-by-default until you opt in.
+Both features store their data in `~/.ptah/ptah.db` and their settings in `~/.ptah/settings.json`. The cron scheduler is enabled by default, but no job runs until you create one. The messaging gateway is disabled until you start a platform.

@@ -1,53 +1,30 @@
 # @ptah-extension/agent-sdk
 
-Official Claude Agent SDK wrapper for Ptah Extension.
+Wrapper around `@anthropic-ai/claude-agent-sdk` that runs Claude chat sessions in process and
+turns SDK messages into the execution-tree nodes the renderer shows.
 
-This library provides a production-ready integration with the `@anthropic-ai/claude-agent-sdk` package, implementing the `IAIProvider` interface with 10x performance improvements over CLI-based integration.
+## Entry points (`src/index.ts`)
 
-## Features
+- `SdkAgentAdapter` (`src/lib/sdk-agent-adapter.ts`): implements `IAgentAdapter` from
+  `@ptah-extension/shared`. `startChatSession` starts a session.
+- `SdkMessageTransformer` (`src/lib/sdk-message-transformer.ts`): SDK message to `ExecutionNode`.
+- `InternalQueryService`: one-shot internal queries for background features (memory curator,
+  skill synthesis, commit messages, agent generation) on governed query lanes.
+- `SessionMetadataStore`, session history reader and importer, and the DI registration under
+  `src/lib/di/`.
 
-- **SDK-based Agent Communication**: Direct in-process communication with Claude agents
-- **Explicit Parent-Child Relationships**: Eliminates correlation bugs from CLI integration
-- **Streaming Support**: Real-time message streaming via AsyncIterable
-- **ExecutionNode Transformation**: Converts SDK messages to UI-compatible format
-- **Event-Driven**: Integrates with EventBus for reactive UI updates
-- **Type-Safe**: Full TypeScript support with branded types (SessionId, MessageId)
+## Constraints
 
-## Usage
+- Nx tags `scope:extension`, `type:feature` (`project.json`).
+- Depends on `@ptah-extension/vscode-core` (Logger, ConfigManager, DI tokens), which is shared
+  infrastructure despite its name.
+- Consumed by the Electron app (`apps/ptah-electron`) and by backend libs such as
+  `rpc-handlers`, `cli-engine`, `memory-curator` and `skill-synthesis`.
+- The SDK persists transcripts itself; `SessionMetadataStore` keeps only UI metadata (see the
+  header comment in `src/index.ts`).
 
-```typescript
-import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
-
-// Adapter implements IAIProvider interface
-const adapter = container.resolve(SdkAgentAdapter);
-
-// Start chat session with streaming
-const stream = await adapter.startChatSession(sessionId, {
-  projectPath: '/path/to/workspace',
-  model: 'claude-sonnet-4.5-20250929',
-});
-
-// Consume ExecutionNode messages
-for await (const node of stream) {
-  console.log('Received node:', node);
-}
-```
-
-## Architecture
-
-- **SdkAgentAdapter**: Core adapter implementing IAIProvider
-- **SdkMessageTransformer**: Transforms SDK messages to ExecutionNode format
-- **Event Integration**: Publishes messages to EventBus for UI reactivity
-
-## Dependencies
-
-- `@anthropic-ai/claude-agent-sdk`: Official Claude SDK
-- `@ptah-extension/shared`: Type system (ExecutionNode, SessionId)
-- `@ptah-extension/vscode-core`: Infrastructure (EventBus, Logger, DI)
-- `tsyringe`: Dependency injection
-
-## Build
+## Tests
 
 ```bash
-nx build agent-sdk
+npm run verify -- -t test -p agent-sdk
 ```

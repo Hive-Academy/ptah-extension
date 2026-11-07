@@ -1,26 +1,27 @@
 ---
 title: Cron Settings
-description: Global tunables for the cron scheduler.
+description: Global settings for the cron scheduler.
 ---
 
 # Cron Settings
 
-Cron settings live under the `cron.*` prefix in `~/.ptah/settings.json`. Edit through **Settings → Cron**.
+Cron settings use the `cron.*` prefix in `~/.ptah/settings.json`. The scheduler reads them when it starts. Restart PtahCode after you change them.
+
+You can also change two of them in **Settings → Advanced → Fine-tuning → Scheduled jobs**.
 
 ## Reference
 
-| Key                      | Default               | What it does                                                              |
-| ------------------------ | --------------------- | ------------------------------------------------------------------------- |
-| `cron.enabled`           | `true`                | Master kill-switch. When `false`, no timers arm; existing jobs stay saved |
-| `cron.maxConcurrentJobs` | `3`                   | Hard cap on simultaneous in-flight runs across **all** jobs               |
-| `cron.catchupWindowMs`   | `86400000` (24 hours) | Maximum look-back window for catchup replays (hard-capped at 24h)         |
+| Key                      | UI label        | Default               | What it does                                                         |
+| ------------------------ | --------------- | --------------------- | -------------------------------------------------------------------- |
+| `cron.enabled`           | —               | `true`                | When `false`, no job fires. Saved jobs stay                           |
+| `cron.maxConcurrentJobs` | Parallel jobs   | `3`                   | The maximum number of jobs that run at the same time (1 to 16)       |
+| `cron.catchupWindowMs`   | Catch-up window | `86400000` (24 hours) | How far back catch-up replays missed slots. `0` turns catch-up off   |
 
 ## Notes
 
-- `cron.maxConcurrentJobs` is **global**, not per-job. If three jobs are already running and a fourth slot fires, the fourth is skipped (recorded as `skipped` in the runs table) until a slot frees up.
-- Lowering `cron.catchupWindowMs` is the safe way to limit replay surprise without disabling catchup entirely.
-- Per-job catchup policy (`none` / `last` / `all`) is a stronger control than the global window — see [Catchup & power](/automation/cron/catchup-and-power/).
+- `cron.maxConcurrentJobs` applies to all jobs together. When the limit is reached, a new run is recorded as `skipped`.
+- The maximum catch-up window is 24 hours. A larger value is reduced to 24 hours.
 
 ## Storage
 
-All cron state — jobs, runs, schedules — lives in `~/.ptah/ptah.db`. Backing up that file backs up your scheduler.
+All cron data — jobs and runs — is stored in `~/.ptah/ptah.db`.

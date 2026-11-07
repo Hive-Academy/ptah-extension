@@ -1,7 +1,7 @@
 # web-legal
 
-This library was generated with [Nx](https://nx.dev).
+Terms and privacy pages for the landing site, imported as `@ptah-web/legal` and lazy-loaded by `apps/ptah-landing-page/src/app/app.routes.ts`.
 
-## Running unit tests
-
-Run `nx test web-legal` to execute the unit tests.
+```bash
+npm run verify -- -p web-legal
+```

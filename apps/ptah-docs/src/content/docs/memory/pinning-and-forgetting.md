@@ -21,7 +21,7 @@ In the **Memory** panel, click the pin icon on any row.
 
 ## Forgetting
 
-"Forget" is a soft-delete. The row stays in `~/.ptah/ptah.db` for audit, but it's removed from search results and won't be surfaced to agents again.
+"Forget" is a soft-delete. The row stays in `~/.ptah/state/ptah.sqlite` for audit, but it's removed from search results and won't be surfaced to agents again.
 
 Use it for:
 
@@ -30,11 +30,11 @@ Use it for:
 - Anything sensitive you'd rather not have re-injected into a future session
 
 :::caution
-Forgetting is not the same as deleting the underlying conversation. Session transcripts live in `<workspace>/.ptah/sessions/` and are independent of the memory store.
+Forgetting is not the same as deleting the underlying conversation. Session transcripts are kept by the provider runtime (for Claude, `~/.claude/projects/`) and are independent of the memory store.
 :::
 
 ## Lifecycle
 
-Stored salience is an immutable base in `[0,1]`; recency and recorded use affect query-time ranking instead of rewriting that value. An unpinned recall memory that remains unused for 30 days moves to archival. If it remains archival for another 60 days, counted from its `archived_at` stamp, Ptah deletes it with its chunks, FTS rows, and vector rows.
+Stored salience is an immutable base in `[0,1]`; recency and recorded use affect query-time ranking instead of rewriting that value. An unpinned recall memory that remains unused for 30 days moves to archival. If it remains archival for another 60 days, counted from its `archived_at` stamp, PtahCode deletes it with its chunks, FTS rows, and vector rows.
 
 Recorded use restores an archival memory to recall. Use includes memories injected into a prompt, MCP memory-search hits, direct `memory:get` and `mem:getObservations` reads, and curator merges. The per-workspace cap is 25,000 evictable rows: archival rows are evicted first after a 7-day grace, then recall rows. Pinned, core, and corpus memories are exempt. Deletion pauses when sqlite-vec is unavailable and the `memory_chunks_vec_ad` cleanup trigger exists; without that trigger, deletion proceeds.

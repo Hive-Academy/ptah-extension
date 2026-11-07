@@ -1,28 +1,32 @@
 ---
 title: Glossary
-description: Terms used throughout the Ptah docs.
+description: Terms used in the Ptah docs.
 ---
 
-**Agent** — A configured conversational entity with a specific system prompt, toolset, and permission profile. Ptah ships with a catalog and you can add your own under `.claude/agents/`.
+**Agent** — A configured AI worker with a system prompt, tools, and permissions. Ptah has built-in agents, and you can add your own in `.claude/agents/`.
 
-**Autopilot** — A set of toggles that let an agent perform actions without pausing for approval. Off by default. See [Settings → Autopilot](/settings/autopilot).
+**Autopilot** — The approval mode of the agent: ask, Auto-edit, Plan Mode, or Full Auto. See [Autopilot](/settings/autopilot/).
 
-**Effort level** — A hint to the provider about how much reasoning to spend on a request. `fast`, `balanced`, or `deep`. Providers that don't support reasoning budgets ignore it.
+**CLI agent** — An agent CLI (for example Codex or Copilot) that Ptah runs as a lane for sub-tasks. See [CLI agents](/agents/cli-agents/).
 
-**MCP** — Model Context Protocol. The standard Ptah uses to expose tools to agents. Ptah ships a built-in MCP server and can connect to external ones.
+**Effort level** — How much reasoning the model uses for a request. See [Effort levels](/chat/effort-levels/).
 
-**Orchestration** — A workflow mode where a lead agent breaks work into tasks and delegates to specialist sub-agents.
+**MCP** — Model Context Protocol. The standard that Ptah uses to give tools to agents. Ptah has a built-in MCP server and can connect to external servers.
 
-**Plugin** — A bundle of agents, skills, and tools that extend Ptah for a specific domain. Plugins live under `~/.ptah/plugins/`. Which ones are enabled is remembered per workspace in Ptah's own workspace state — not in a file inside your repository.
+**Model tier** — One of the words `opus`, `sonnet`, and `haiku`. Each provider maps the tiers to real model ids.
 
-**Provider** — A source of language-model completions (Claude, Copilot, Codex, Ollama, OpenRouter). Configured in **Settings → Providers**.
+**Orchestration** — A mode where a lead agent divides work into tasks and gives them to specialist sub-agents.
 
-**Session** — A single chat conversation, saved to disk and resumable. Sessions belong to a workspace.
+**Plugin** — A bundle of agents, skills, and tools for a domain. Plugins are in `~/.ptah/plugins/`. Ptah remembers which plugins are enabled for each workspace in its own workspace state.
 
-**Skill** — A named, reusable procedure with its own instructions and optional allowed tools. Invoked from chat. Lives in `.claude/skills/` (workspace) or `~/.claude/skills/` (global).
+**Provider** — A source of model responses, for example Claude, Codex, Copilot, Ollama, or OpenRouter. Connect providers in **Settings → Providers**.
 
-**Template** — A scaffold for a new project, plugin, or skill. Agent templates live under `~/.ptah/templates/agents/`.
+**Ptah CLI instance** — An extra agent lane on a provider connection that you already have. See [Ptah CLI](/providers/ptah-cli/).
 
-**Worktree** — A secondary working copy of a Git repository. Ptah can create and manage worktrees so an agent can experiment without disturbing your main branch.
+**Session** — One chat conversation. Ptah saves it, and you can continue it later. Sessions belong to a workspace.
 
-**Workspace** — The root folder of a project, as Ptah sees it. Settings under `.claude/` and `.ptah/` in that folder apply.
+**Skill** — A named, reusable procedure with its own instructions. Skills are in `.claude/skills/` (workspace) or `~/.claude/skills/` (user-wide).
+
+**Worktree** — A second working copy of a Git repository. An agent can work in a worktree without changes to your main branch.
+
+**Workspace** — The root folder of a project in Ptah. The `.claude/` and `.ptah/` folders in it hold the project configuration.

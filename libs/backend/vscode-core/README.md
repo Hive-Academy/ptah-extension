@@ -1,11 +1,11 @@
-# vscode-core
+# @ptah-extension/vscode-core
 
-This library was generated with [Nx](https://nx.dev).
+Shared backend infrastructure, kept under its historical name. It is not a VS Code host: the
+VS Code extension was removed. It provides the DI `TOKENS`, `Logger`, `ConfigManager`,
+`ErrorHandler`, message validation and related services (see `src/index.ts`). Hosts call
+`registerVsCodeCorePlatformAgnostic` (the Electron app does so in `src/di/phase-1-infra.ts`).
+Most backend libs depend on it.
 
-## Building
-
-Run `nx build vscode-core` to build the library.
-
-## Running unit tests
-
-Run `nx test vscode-core` to execute the unit tests via [Jest](https://jestjs.io).
+```bash
+npm run verify -- -p vscode-core
+```

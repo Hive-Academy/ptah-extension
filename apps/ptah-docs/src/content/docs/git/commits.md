@@ -1,95 +1,41 @@
 ---
 title: Commits
-description: Agent-assisted commits with conventional-commits format enforced by commitlint.
+description: Write or generate a commit message and commit staged files.
 ---
 
 # Commits
 
-Ptah can draft commit messages, group related changes, and create the commit for you — but the final commit always happens on your explicit approval. No agent commits behind your back.
-
-## The `/commit` command
-
-In any chat, type `/commit` to start the commit flow. The agent will:
-
-1. Read `git status` and `git diff` for all staged changes.
-2. Summarize what changed and group related hunks.
-3. Draft a commit message following [Conventional Commits](https://www.conventionalcommits.org/).
-4. Present the message for you to accept, edit, or reject.
+The **Commit** tab of the review view commits the staged files.
 
 ![Commit composer](/screenshots/commit-composer.png)
 
-Example draft:
+## Make a commit
 
-```
-feat(workspace): add per-workspace plugin overrides
+1. Stage files in the **Changes** tab. Refer to [Diffs](/git/diffs/).
+2. Open the **Commit** tab.
+3. Type a message in **Commit message**, or click **Generate message**.
+4. Click **Commit**.
 
-Allow .ptah/plugins.json to enable/disable plugins per workspace,
-overriding global settings. Plugin resolution now checks the
-workspace config before falling back to the global list.
+**Commit** is disabled when no files are staged or the message is empty.
 
-Refs #412
-```
+## Generate a message
 
-## Conventional commits
+**Generate message** asks the provider for a message only when you click it. The generated message fills the field. If you type while the message is generated, PtahCode keeps your text.
 
-Ptah enforces conventional commit format via [commitlint](https://commitlint.js.org/). The expected shape:
+## The draft
 
-```
-<type>(<scope>): <subject>
+Each workspace keeps one draft message. A failed commit keeps the draft. Only a confirmed commit clears it.
 
-<body>
+## Hooks
 
-<footer>
-```
+PtahCode runs your git hooks. The hook output streams into the **Commit hook output** log while the commit runs.
 
-Valid types:
+- Click **Cancel** to stop a running commit.
+- If a hook blocks the commit, the log stays open so that you can read the error.
+- A successful commit shows the commit hash and subject.
 
-| Type       | Use for                              |
-| ---------- | ------------------------------------ |
-| `feat`     | New user-visible feature             |
-| `fix`      | Bug fix                              |
-| `docs`     | Documentation only                   |
-| `style`    | Formatting, no logic change          |
-| `refactor` | Code restructure, no behavior change |
-| `perf`     | Performance improvement              |
-| `test`     | Tests only                           |
-| `build`    | Build system or deps                 |
-| `ci`       | CI configuration                     |
-| `chore`    | Misc tasks that don't fit above      |
-
-If a draft fails commitlint, Ptah shows the validation errors and offers to regenerate the message. You can also edit the message directly before confirming.
-
-## Staging
-
-The `/commit` command operates on **whatever is currently staged**. Stage files yourself with `git add`, or ask the agent to stage specific files:
-
-```
-> stage only the files in libs/shared/git/ and commit
-```
-
-## Multi-commit workflows
-
-For larger changes, ask the agent to split the work into multiple commits:
-
-```
-> commit these changes as three separate commits:
-  one for the watcher refactor,
-  one for the new worktree API,
-  one for the docs update
-```
-
-The agent stages subsets, proposes each message, and waits for your approval per commit.
-
-## Hooks and signing
-
-Ptah respects your git hooks. If a `pre-commit` or `commit-msg` hook fails, the commit fails — Ptah surfaces the hook's stderr so you can fix the issue. The same applies to commit signing (`commit.gpgsign`, signed commits, etc.) — Ptah uses your local git config as-is.
+If the reply from git takes too long, PtahCode reads the status and `HEAD` again. The commit counts as done only when `HEAD` moved to a commit with your message.
 
 :::caution
-Ptah never passes `--no-verify` or disables signing automatically. If a hook blocks a commit, investigate and fix the underlying issue rather than skipping it.
+Fix the cause of a failed hook. Do not skip hooks with `--no-verify`.
 :::
-
-## What Ptah won't do
-
-- Force-push to `main`, `master`, or any protected branch without an extra confirmation.
-- Rewrite history (`rebase -i`, `commit --amend` on pushed commits) without explicit instruction.
-- Delete branches that aren't fully merged without a prompt.

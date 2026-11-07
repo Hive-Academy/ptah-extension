@@ -1,83 +1,62 @@
 ---
-title: Signing in
-description: Configure providers and optionally sign in for a Ptah Builders membership.
+title: Connect a provider
+description: Connect an AI provider in the PtahCode desktop app, and optionally attach a Ptah Builders membership key.
 ---
 
-Ptah has two layers of authentication:
+Ptah needs at least one AI provider. You do not need a Ptah account. Every local capability is free and open source.
 
-1. An optional **Ptah sign-in** that connects you to a Ptah Builders membership.
-2. **Provider credentials** (API keys or OAuth tokens) that let Ptah talk to the AI services you use.
+## Connect a provider
 
-<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
-  <source src="/assets/videos/auth.mp4" type="video/mp4" />
-</video>
-
-This page covers both. Neither is required to start using Ptah — every local capability is free and open source, and works out of the box with any provider you configure. Signing in is only for Builders membership perks.
-
-## Tiers
-
-| Tier          | Price              | Who it's for                  | What you get                                                                                                   |
-| ------------- | ------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Community     | Free (open source) | Everyone                      | Every local capability — browser automation, code execution, MCP, CLI agent sync, the Setup Hub, all providers |
-| Ptah Builders | $29/mo or $290/yr  | Members who want the training | SaaS course (PRD to production), weekly live sessions, member skill packs, private community, priority support |
-
-Community is fully free and open source, with **no gating** on any local feature. Ptah Builders is a paid membership that adds training and community on top. It does not unlock anything local.
-
-**Approved early adopters get their first year free.** The Early Adopter program is a grant, not a discount. There is no checkout step and no payment method to enter. See the [pricing page](https://builders.ptah.live/pricing) to apply, or read the full [tier comparison](/reference/tier-comparison/).
-
-## Entering a license key
-
-There is no license prompt anywhere in the first-run flow. If you're a Ptah Builders member (or hold a legacy key), attach it from Settings whenever you like:
-
-1. Open **Settings**. The **Membership** card sits at the top of the page — it reads **Community** until a key or sign-in is attached.
-2. Click **Enter Membership Key**.
-3. Paste the key you received by email, then click **Activate**.
-
-Ptah validates the key against the license server, then stores it in your operating system's secure credential store using Electron's `safeStorage` API. The key is never written to a plain-text settings file.
-
-:::note[The window reloads]
-Activating or clearing a key reloads the Ptah window a moment later, so the whole app picks up the new membership state. Any unsent chat input is lost, so finish your turn first.
-:::
-
-## Configuring providers
-
-Ptah ships with first-class support for several AI providers. You only need to configure the ones you plan to use.
-
-| Provider   | Auth method                      | Where to get credentials            |
-| ---------- | -------------------------------- | ----------------------------------- |
-| Claude     | API key                          | Your Anthropic Console              |
-| Copilot    | OAuth (device flow) or CLI login | Your GitHub account                 |
-| Codex      | API key or CLI login             | Your OpenAI dashboard               |
-| Ollama     | Local endpoint (no key)          | `http://localhost:11434` by default |
-| OpenRouter | API key                          | Your OpenRouter dashboard           |
-| Kimi Code  | API key                          | Your Kimi Code console              |
-| Z.AI (GLM) | API key                          | Your Z.AI console                   |
-
-Ptah also detects LM Studio and Ollama Cloud, and it accepts a custom
-Anthropic-compatible endpoint you define yourself. See [Providers](/providers/)
-for the full list and per-provider setup.
-
-### Add a provider
-
-1. Open **Settings → Providers**.
-2. Click the provider you want to configure.
-3. Paste your API key, or click **Sign in** to start an OAuth device flow.
-4. Click **Test connection** to verify the credential works.
+1. Open **Settings**. The **Providers** tab opens.
+2. Click **Connect provider**.
+3. In the **Connect a provider** list, click **Connect** next to the provider.
+4. Do the step that the provider needs: paste an API key, or click the sign-in button.
+5. Test the connection.
 
 ![Providers settings panel](/screenshots/providers-settings.png)
 
-### Where credentials are stored
+The **Main agent** section at the top of the Providers tab shows which provider and model drive the main chat agent.
 
-Provider settings live in `~/.ptah/settings.json` — a user-scoped config file outside your project folders. Secrets (API keys, OAuth tokens) are stored via the OS secure credential store, not in plain text in the settings file.
+## Supported providers
 
-:::caution[Don't commit secrets]
-`~/.ptah/settings.json` is a user-level file and is never part of your project's source tree. If you ever copy configuration into a workspace, strip secrets before committing.
+| Provider                                     | How you connect                         |
+| -------------------------------------------- | --------------------------------------- |
+| [Claude](/providers/claude/)                 | Claude Code sign-in, or an API key      |
+| [OpenAI Codex](/providers/codex/)            | **Sign in with Codex** (ChatGPT plan)   |
+| [GitHub Copilot](/providers/copilot/)        | GitHub sign-in (Copilot plan)           |
+| [Kimi Code](/providers/kimi-code/)           | **Sign in with Kimi Code**              |
+| [Z.AI (GLM)](/providers/z-ai/)               | API key                                 |
+| [OpenRouter](/providers/openrouter/)         | API key                                 |
+| [Requesty](/providers/requesty/)             | API key                                 |
+| [Sakana (Fugu)](/providers/sakana/)          | API key                                 |
+| [Ollama](/providers/ollama/)                 | Local server, no key                    |
+| [LM Studio](/providers/lm-studio/)           | Local server, no key                    |
+
+Ptah also has Ollama Cloud, OpenCode Zen, OpenCode Go, and a custom endpoint for any Anthropic- or OpenAI-compatible server. See [Providers](/providers/).
+
+## Where credentials are stored
+
+- Secrets (API keys and tokens) go into `secrets.json` in the Electron user-data folder. Each value is encrypted with Electron `safeStorage`, which uses the OS keychain.
+- Non-secret settings go into `~/.ptah/settings.json`.
+
+:::caution[Linux without a keyring]
+If your Linux system has no keyring, `safeStorage` cannot encrypt. Ptah then stores secrets as plain text and logs a warning. Install and unlock a keyring (for example, GNOME Keyring) to get encryption.
 :::
 
-### Local models with Ollama
+## Membership key
 
-If you run models locally with Ollama, Ptah auto-detects a running Ollama daemon on `http://localhost:11434`. No API key is needed. To point Ptah at a remote or non-default Ollama endpoint, edit the Ollama provider settings and update the base URL.
+Ptah Builders is an optional paid membership. It does not unlock local features. To see the offer, click **Explore Ptah Builders** in Settings, or go to [builders.ptah.live](https://builders.ptah.live/pricing).
+
+To attach a membership key:
+
+1. Open **Settings → Advanced**. The **Membership & data** card is at the top. It shows **Community** until you attach a key.
+2. Click **Enter Membership Key**.
+3. Paste the key and click **Activate**.
+
+Ptah verifies the key and stores it in encrypted storage. Then the window reloads. Send or copy any unsent chat input before you activate a key.
+
+If the card shows **Membership Key Not Active**, the key is not found or not active. Click **Re-enter Membership Key**. Your local features continue to work.
 
 ## Next step
 
-You're ready to start using Ptah. Head over to the [Chat guide](/chat/) to send your first message, or jump to [Agents](/agents/) to customize the agents created by the setup wizard.
+Go to the [Chat guide](/chat/) to send your first message, or to [Project setup](/setup/) to write an agent team for your project.

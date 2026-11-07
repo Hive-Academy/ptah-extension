@@ -1,56 +1,31 @@
 ---
 title: Execution Tree
-description: Visualize sub-agent spawning, tool calls, and thinking blocks for every turn.
+description: See the sub-agents, tool calls, and thinking blocks of each turn.
 sidebar:
   order: 7
 ---
 
 # Execution Tree
 
-The Execution Tree is a recursive visualization of everything that happened during a single turn — every sub-agent spawn, every tool call, every thinking block. It's the main debugging and observability surface in Ptah.
+The Execution Tree shows what happened during a turn. Each assistant message renders as a tree of nodes in the transcript.
 
 ![Execution Tree for a complex turn](/screenshots/chat-execution-tree.png)
 
-## Opening the tree
+## Node types
 
-The tree lives in the right-hand pane of the chat. If it's collapsed, click the tree icon in the chat header, or click any **tool call card** or **sub-agent chip** in the transcript — the tree opens with that node selected.
+| Node         | Meaning                                                                                |
+| ------------ | -------------------------------------------------------------------------------------- |
+| **Message**  | A user message or an assistant message.                                                |
+| **Text**     | Markdown text from the model.                                                          |
+| **Thinking** | A reasoning block, for providers that send one.                                        |
+| **Tool**     | One tool call, such as Read, Write, Bash, or an MCP tool, with its input and result.   |
+| **Agent**    | A sub-agent that the turn started. It contains its own tree.                           |
+| **System**   | A system message, such as the session start or the turn result.                        |
 
-## What a node represents
+## Nested agents
 
-Each node is one unit of work:
-
-| Node type     | Meaning                                                                                                           |
-| ------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Message**   | An assistant text message or a user message.                                                                      |
-| **Thinking**  | A reasoning block. Click to expand and read the model's internal chain of thought (for providers that expose it). |
-| **Tool call** | A single tool invocation — Read, Write, Bash, Grep, MCP tool, etc. Shows inputs, outputs, and timing.             |
-| **Sub-agent** | A spawned agent (via `ptah_agent_spawn` or the SDK agent tool). Expands to reveal that agent's own tree.          |
-| **Error**     | A failed tool call or aborted sub-agent.                                                                          |
-
-## What each node shows
-
-Hover or click to see:
-
-- Duration (ms).
-- Tokens in, tokens out, cached tokens.
-- USD cost for the node.
-- Model and provider used.
-- Full raw inputs and outputs (JSON view toggle).
-
-## Recursive by design
-
-Sub-agents can spawn their own sub-agents. The tree renders that hierarchy naturally — collapse any branch to focus on the parts you care about. Depth is unlimited, but Ptah warns you if a branch goes deeper than four levels (usually a sign of runaway delegation).
+A sub-agent can start its own sub-agents. The tree shows each one inside its parent. Collapse a branch to hide it.
 
 :::tip
-The tree is the fastest way to answer "why did this turn cost so much?" or "which file did the agent actually read?" — every decision is visible.
+Open the tree to see which files the agent read, or which sub-agent used the most tokens.
 :::
-
-## Exporting a tree
-
-From the tree header menu:
-
-- **Copy as JSON** — the full tree as structured data for scripting.
-- **Copy as Markdown** — a human-readable transcript with indentation.
-- **Save to file** — writes `.ptah/traces/<session>-<turn>.json` in your workspace.
-
-These exports are what the `/orchestrate` agents use to hand off work between specialists.

@@ -5,7 +5,7 @@ description: Hybrid BM25 + vector retrieval with Reciprocal Rank Fusion.
 
 # Searching Memory
 
-When the agent needs context — "what did we decide about auth?" — Ptah runs a **hybrid search** across all memories and injects the top hits.
+When the agent needs context — "what did we decide about auth?" — PtahCode runs a **hybrid search** across all memories and injects the top hits.
 
 ## Hybrid retrieval
 
@@ -32,7 +32,7 @@ For best results, write memories the way you'd want to find them. Concrete nouns
 
 ## Inspecting search
 
-Open the **Memory → Search** panel to test queries against your store. Each result shows the BM25 rank, vector rank, and final RRF score, so you can see why a memory surfaced (or didn't).
+Use **Search memory entries** in the **Memory** tab to test queries against your store.
 
 ## Browsing the indexed code
 
@@ -45,7 +45,7 @@ Expand **Indexed code** to see the symbol list. Each row shows the symbol name, 
 
 ### Searching symbols
 
-Type into the **Search indexed symbols** box to filter the list. The search is debounced and matches against indexed symbols for the current workspace. Results are paginated — use **Prev** / **Next** to move through pages, and the footer shows the current range (`X–Y of total`). **Re-load** refreshes the list on demand.
+Type into the **Search indexed code symbols** box to filter the list. The search is debounced and matches against indexed symbols for the current workspace. Results are paginated — use **Prev** / **Next** to move through pages, and the footer shows the current range (`X–Y of total`). **Re-load** refreshes the list on demand.
 
 :::note
 The **Code index** stat, the **Indexed code** panel, and symbol search are part of the Electron desktop app's **Memory** tab.
