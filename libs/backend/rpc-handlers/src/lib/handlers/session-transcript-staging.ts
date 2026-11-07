@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -105,11 +106,22 @@ async function listStaged(dir: string): Promise<string[]> {
   return names.filter((n) => n.endsWith(`.jsonl${STAGED_TRANSCRIPT_SUFFIX}`));
 }
 
-/** Rename `original + suffix` back when it exists and `original` does not. */
+/**
+ * Put `original + suffix` back when `original` does not exist. The copy uses
+ * an exclusive create, so an original written in the meantime (for example
+ * by a new SDK turn) makes it fail with EEXIST instead of being overwritten.
+ * A rename has no such guarantee: it replaces an existing target.
+ */
 async function restoreOne(original: string): Promise<boolean> {
   const staged = original + STAGED_TRANSCRIPT_SUFFIX;
-  if (!(await exists(staged)) || (await exists(original))) return false;
-  await fs.rename(staged, original);
+  if (!(await exists(staged))) return false;
+  try {
+    await fs.copyFile(staged, original, fsConstants.COPYFILE_EXCL);
+  } catch (error: unknown) {
+    if (hasCode(error, 'EEXIST') || isMissingFile(error)) return false;
+    throw error;
+  }
+  await fs.unlink(staged);
   return true;
 }
 
