@@ -64,6 +64,25 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('file.txt');
   });
 
+  it('shows when output may have been lost in a restart only while outputLostAfter is set', () => {
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', row);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="lane-event-output-lost"]')).toBeNull();
+
+    const lostAt = '2026-11-07T12:34:00.000Z';
+    fixture.componentRef.setInput('outputLostAfter', lostAt);
+    fixture.detectChanges();
+    const notice = element.querySelector('[data-testid="lane-event-output-lost"]')!;
+    expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^Output after .+ may have been lost in a restart$/);
+    expect(notice.querySelector('time')?.getAttribute('datetime')).toBe(lostAt);
+
+    fixture.componentRef.setInput('outputLostAfter', 'not-a-time');
+    fixture.detectChanges();
+    expect(element.querySelector('[data-testid="lane-event-output-lost"]')).toBeNull();
+  });
+
   it('right aligns an 80-percent lane card at chat text size with a narrow-pane minimum', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
@@ -469,6 +488,7 @@ describe('LaneEventRowComponent', () => {
       rowFixture.componentRef.setInput('entry', {
         id: 'ack:msg-1',
         sender: 'Glm · ptah-cli',
+        senderKind: 'this-lane',
         kind: 'ack',
         timestamp: now - 10_000,
         body: 'Lane rejected: Needs migration',

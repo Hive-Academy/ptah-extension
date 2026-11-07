@@ -80,6 +80,7 @@ import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
+  withRestoredOutputLoss,
   type AgentProcessManager,
   type ParentSessionPurge,
 } from '@ptah-extension/cli-agent-runtime';
@@ -1432,9 +1433,7 @@ export class SessionRpcHandlers {
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
-        await this.restoreAgentRecords(sessionId, cliSessions);
-
-        return { cliSessions };
+        return { cliSessions: await this.restoreAgentRecords(sessionId, cliSessions) };
       } catch (error) {
         this.logger.error(
           'RPC: session:cli-sessions failed',
@@ -1512,9 +1511,10 @@ export class SessionRpcHandlers {
    */
   private async restoreAgentRecords(
     sessionId: string,
-    refs: readonly CliSessionReference[],
-  ): Promise<void> {
-    if (!this.agentProcessManager || refs.length === 0) return;
+    refs: CliSessionReference[],
+  ): Promise<CliSessionReference[]> {
+    const manager = this.agentProcessManager;
+    if (!manager || refs.length === 0) return refs;
     try {
       // Filed under the session's own folder, as chat:resume does. The active
       // folder would put them in another project's agent list (PTAH-37).
@@ -1525,11 +1525,14 @@ export class SessionRpcHandlers {
         platformInfo: this.platformInfo,
         logger: this.logger,
       });
-      this.agentProcessManager.restoreAgents(refs, folder, sessionId);
+      manager.restoreAgents(refs, folder, sessionId);
+      // Each restored card learns when a host restart cut its output.
+      return withRestoredOutputLoss(refs, (id) => manager.findAgentInfo(id));
     } catch (error: unknown) {
       this.logger.warn('[RPC] Could not restore agent records', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return refs;
     }
   }
 

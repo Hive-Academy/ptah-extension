@@ -625,6 +625,11 @@ export interface CliSessionReference {
   /** Epoch milliseconds when a usage-limit stop resets, when known. */
   readonly stopResetAt?: number;
   /**
+   * ISO time of the running-output checkpoint a host-restart lane's output
+   * ends at; later output was lost. Absent when nothing was lost.
+   */
+  readonly outputLostAfter?: string;
+  /**
    * Host process run that wrote a `running` reference; internal restore
    * bookkeeping, never returned by the restore read. A running reference from
    * another run (or with none) is durably normalized as `host-restart`.

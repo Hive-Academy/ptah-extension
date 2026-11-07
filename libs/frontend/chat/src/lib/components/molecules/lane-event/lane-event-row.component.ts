@@ -6,7 +6,7 @@ import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentDeliveryStore, type DeliveryStatus, type ParentDeliveryItem } from '@ptah-extension/chat-streaming';
 import type { AgentDeliveryReceipt, AgentMessageAckState } from '@ptah-extension/shared';
 import { DeliveryStatusComponent } from '../delivery-status/delivery-status.component';
-import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2, MessageSquareText, CircleCheckBig, CircleX } from 'lucide-angular';
+import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2, MessageSquareText, CircleCheckBig, CircleX, TriangleAlert } from 'lucide-angular';
 import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.utils';
 import type { LaneEventRow } from './lane-event-row.types';
 import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type LaneEventMetrics, type LaneEventTone } from './lane-event-row.presentation';
@@ -54,6 +54,8 @@ export class LaneEventRowComponent {
   readonly monitorStatus = input<string | null>(null);
   readonly laterCompleted = input(false);
   readonly isSessionActive = input(false);
+  /** ISO time after which the lane's output was lost in a host restart (`AgentProcessInfo.outputLostAfter`). */
+  readonly outputLostAfter = input<string | null>(null);
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
@@ -66,6 +68,13 @@ export class LaneEventRowComponent {
   protected readonly ReportIcon = MessageSquareText;
   protected readonly CompletionIcon = CircleCheckBig;
   protected readonly FailedIcon = CircleX;
+  protected readonly OutputLostIcon = TriangleAlert;
+  /** Epoch ms of `outputLostAfter`; null when unset or not a valid time. */
+  protected readonly outputLost = computed<number | null>(() => {
+    const value = this.outputLostAfter();
+    const at = value ? Date.parse(value) : NaN;
+    return Number.isNaN(at) ? null : at;
+  });
   protected verdict(value: string | undefined): string {
     switch (value) {
       case 'delivered': return 'Deliverables written';

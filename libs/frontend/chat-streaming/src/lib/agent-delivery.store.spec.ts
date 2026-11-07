@@ -66,6 +66,32 @@ describe('AgentDeliveryStore', () => {
     return store.hydrate('parent-1');
   }
 
+  describe('lane-to-lane sender filter', () => {
+    const other = AgentId.from('00000000-0000-4000-8000-000000000003');
+
+    beforeEach(() => {
+      store.onMessageReceipt(receipt({ id: 'from-user' }));
+      store.onMessageReceipt(receipt({ id: 'from-parent', sender: 'parent' }));
+      store.onMessageReceipt(receipt({ id: 'lane-in-late', sender: 'lane', senderAgentId: other, createdAt: NOW - 1_000 }));
+      store.onMessageReceipt(receipt({ id: 'lane-in-early', sender: 'lane', senderAgentId: other, createdAt: NOW - 2_000 }));
+      store.onMessageReceipt(receipt({ id: 'lane-out', agentId: other, sender: 'lane', senderAgentId: lane }));
+    });
+
+    it('returns only lane-sent messages addressed to the lane, oldest first', () => {
+      expect(store.laneMessages(lane, 'received').map(item => item.id)).toEqual(['lane-in-early', 'lane-in-late']);
+    });
+
+    it('returns the messages the lane sent to other lanes', () => {
+      expect(store.laneMessages(lane, 'sent').map(item => item.id)).toEqual(['lane-out']);
+      expect(store.laneMessages(other, 'received').map(item => item.id)).toEqual(['lane-out']);
+    });
+
+    it('matches a received message on the resolved lane after a cold resume', () => {
+      store.onMessageReceipt(receipt({ id: 'resumed-in', sender: 'lane', senderAgentId: other, actualAgentId: resumed }));
+      expect(store.laneMessages(resumed, 'received').map(item => item.id)).toEqual(['resumed-in']);
+    });
+  });
+
   describe('hydration', () => {
     it('restores queued, failed and pending-parent items after a reload with age and actions', async () => {
       await hydrateWith(

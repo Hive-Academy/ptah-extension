@@ -103,8 +103,14 @@ export class LaneTranscriptComponent {
     const receipts = this.delivery?.receipts().get(this.laneId()) ?? [];
     const parentDelivery = this.delivery?.parentDelivery().get(this.laneId()) ?? [];
     const completion = agent.completedAt ? { status: agent.status, timestamp: agent.completedAt } : undefined;
-    return laneThreadEntries(this.messages(), receipts, '', this.laneLabel(), agent.cli ?? 'CLI', parentDelivery, completion);
+    return laneThreadEntries(this.messages(), receipts, '', this.laneLabel(), agent.cli ?? 'CLI', parentDelivery, completion,
+      (id) => this.laneNameOf(id));
   });
+  /** A sender lane's name from the monitor's agent list; `undefined` when the lane is unknown. */
+  private laneNameOf(agentId: string): string | undefined {
+    const sender = this.monitor?.agentsById?.().get(agentId);
+    return sender ? (sender.displayName ?? sender.cli) : undefined;
+  }
   protected readonly contexts = computed(() =>
     this.turnContexts.compute(this.messages()),
   );

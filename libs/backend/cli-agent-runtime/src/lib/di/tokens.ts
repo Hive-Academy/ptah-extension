@@ -13,6 +13,8 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
   AGENT_MESSAGE_ACK: Symbol.for('AgentMessageAck'),
   /** Limit-aware delivery gate (`LaneDeliveryLimitGate`, Component 14). */
   LANE_DELIVERY_LIMIT_GATE: Symbol.for('LaneDeliveryLimitGate'),
+  /** Lane-to-lane authorization and per-sender rate limit (`LaneMessagePolicy`, Component 15). */
+  LANE_MESSAGE_POLICY: Symbol.for('LaneMessagePolicy'),
   /**
    * `{ markDispatching }` over the envelope store. The same `Symbol.for` the
    * router injects optionally; register it before the router and manager.
@@ -77,6 +79,8 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
   LANE_TERMINAL_CHECKPOINT: Symbol.for('LaneTerminalCheckpoint'),
+  /** Running-output journal (Component 16): checkpoints over state storage. */
+  AGENT_OUTPUT_JOURNAL: Symbol.for('AgentOutputJournal'),
   LANE_INSTRUCTION_FILE_STORE: Symbol.for('LaneInstructionFileStore'),
 
   // Plan limits (TASK_2026_596). See `cli-agents/limits/`.

@@ -5,10 +5,14 @@ import {
   type CliSessionReference,
 } from '@ptah-extension/shared';
 import {
+  applyOutputCheckpoint,
+  checkpointFreshness,
   restoreLaneIdentity,
   restoreLaneLifecycle,
   stampWorkspaceKey,
+  withRestoredOutputLoss,
 } from './lane-restore';
+import type { AgentOutputCheckpoint } from './agent-output-journal.service';
 import { manifestFixture } from './testing/manifest.fixture';
 
 const AGENT_ID = AgentId.from('aaaaaaaa-bbbb-4ccc-8ddd-000000000301');
@@ -126,5 +130,109 @@ describe('stampWorkspaceKey', () => {
     );
 
     expect(resumed).not.toHaveProperty('workspaceKey');
+  });
+});
+
+describe('applyOutputCheckpoint', () => {
+  const checkpoint: AgentOutputCheckpoint = {
+    agentId: String(AGENT_ID),
+    seq: 2,
+    at: '2026-11-07T00:00:45.000Z',
+    stdoutTail: 'tail',
+    segmentsTail: [{ type: 'text', content: 'tail' }],
+    changedFiles: [],
+  };
+  const interrupted = (overrides: Partial<CliSessionReference> = {}) =>
+    ref({ status: 'stopped', stopReason: 'host-restart', ...overrides });
+
+  it('uses a checkpoint for a host-restart lane and returns output fields only', () => {
+    const reference = interrupted({ segments: [{ type: 'text', content: 'old' }] });
+    const output = applyOutputCheckpoint(reference, checkpoint);
+    expect(output).toEqual({
+      stdout: 'tail',
+      segments: checkpoint.segmentsTail,
+      outputLostAfter: checkpoint.at,
+      recovered: true,
+    });
+    expect(Object.keys(output)).not.toContain('stopReason');
+    // The lifecycle projection is untouched by the checkpoint.
+    expect(restoreLaneLifecycle(reference, '2026-11-07T01:00:00.000Z')).toMatchObject({
+      status: 'stopped',
+      stopReason: 'host-restart',
+    });
+  });
+
+  it('keeps the saved reference output when the checkpoint is not newer', () => {
+    const saved = [{ type: 'text' as const, content: 'saved' }];
+    for (const outputLostAfter of [checkpoint.at, '2026-11-07T00:01:00.000Z']) {
+      // Equal time: the recovered output was already saved. Later time: the
+      // reference saved newer output than this retained checkpoint.
+      expect(
+        applyOutputCheckpoint(
+          interrupted({ outputLostAfter, stdout: 'saved', segments: saved }),
+          checkpoint,
+        ),
+      ).toEqual({ stdout: 'saved', segments: saved, outputLostAfter });
+    }
+  });
+
+  it('replaces the saved reference output with a strictly newer checkpoint', () => {
+    expect(
+      applyOutputCheckpoint(
+        interrupted({ outputLostAfter: '2026-11-07T00:00:30.000Z', stdout: 'saved' }),
+        checkpoint,
+      ),
+    ).toEqual({
+      stdout: 'tail',
+      segments: checkpoint.segmentsTail,
+      outputLostAfter: checkpoint.at,
+      recovered: true,
+    });
+  });
+
+  it('ignores the checkpoint for a lane that exited normally or another agent', () => {
+    const done = ref({ stdout: 'final', segments: [{ type: 'text', content: 'final' }] });
+    expect(applyOutputCheckpoint(done, checkpoint)).toEqual({
+      stdout: 'final',
+      segments: done.segments,
+    });
+    expect(
+      applyOutputCheckpoint(interrupted(), { ...checkpoint, agentId: 'other' }),
+    ).toEqual({ stdout: '', segments: [] });
+  });
+
+  it('keeps a valid persisted outputLostAfter and drops a malformed one', () => {
+    expect(
+      applyOutputCheckpoint(interrupted({ outputLostAfter: checkpoint.at }), undefined),
+    ).toMatchObject({ outputLostAfter: checkpoint.at });
+    expect(
+      applyOutputCheckpoint(interrupted({ outputLostAfter: 'yesterday' }), undefined),
+    ).not.toHaveProperty('outputLostAfter');
+  });
+});
+
+describe('checkpointFreshness', () => {
+  const at = '2026-11-07T00:00:45.000Z';
+  it('compares the checkpoint time with the saved-output marker', () => {
+    expect(checkpointFreshness({ at }, undefined)).toBe('newer');
+    expect(checkpointFreshness({ at }, 'yesterday')).toBe('newer');
+    expect(checkpointFreshness({ at }, '2026-11-07T00:00:44.000Z')).toBe('newer');
+    expect(checkpointFreshness({ at }, at)).toBe('same');
+    expect(checkpointFreshness({ at }, '2026-11-07T00:00:46.000Z')).toBe('older');
+    expect(checkpointFreshness({ at: 'not a time' }, undefined)).toBe('older');
+  });
+});
+
+describe('withRestoredOutputLoss', () => {
+  it('copies outputLostAfter from the same restored run only', () => {
+    const reference = ref();
+    const lost = '2026-11-07T00:00:45.000Z';
+    expect(
+      withRestoredOutputLoss([reference], () => ({ startedAt: reference.startedAt, outputLostAfter: lost })),
+    ).toEqual([{ ...reference, outputLostAfter: lost }]);
+    expect(
+      withRestoredOutputLoss([reference], () => ({ startedAt: 'other', outputLostAfter: lost })),
+    ).toEqual([reference]);
+    expect(withRestoredOutputLoss([reference], () => undefined)).toEqual([reference]);
   });
 });

@@ -1829,11 +1829,59 @@ describe('buildAgentNamespace — messaging', () => {
     );
   });
 
-  it('sends as an unverified lane when the caller is an agent URL', async () => {
+  it('refuses an agent URL caller without a verified binding as identity-missing', async () => {
     const { ns, coordinator } = withCoordinator();
-    await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerSessionId: 'tab-1' }, () =>
+    const outcome = await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerSessionId: 'tab-1' }, () =>
       ns.message(LANE, 'go'));
-    expect(coordinator.send.mock.calls[0][1]).toEqual({ kind: 'lane', agentId: CALLER_LANE, verified: false });
+    expect(outcome).toMatchObject({ mode: 'unsupported', reasonCode: 'identity-missing' });
+    const legacy = { kind: 'agent', agentId: CALLER_LANE, capability: 'read-only' } as const;
+    await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding: legacy }, () =>
+      ns.message(LANE, 'go'));
+    expect(coordinator.send).not.toHaveBeenCalled();
+  });
+
+  it('sends as the verified lane its binding names, with the binding root, ignoring the URL', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const callerBinding = {
+      kind: 'agent', agentId: CALLER_LANE, workspaceRoot: '/repo/wt', capability: 'privileged',
+    } as const;
+    await runWithMcpRequestContext({ callerAgentId: LANE, callerSessionId: 'victim-tab', callerBinding }, () =>
+      ns.message(LANE, 'go'));
+    expect(coordinator.send).toHaveBeenCalledWith(
+      { agentId: LANE, message: 'go', delivery: undefined, allowPartialTurnLoss: undefined },
+      { kind: 'lane', agentId: CALLER_LANE, verified: true },
+      { agentId: CALLER_LANE, workspaceRoot: '/repo/wt' },
+    );
+  });
+
+  it('scopes status to the verified lane viewer, and refuses an unproven lane caller', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, capability: 'privileged' } as const;
+    await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.messageStatus(LANE, MESSAGE));
+    expect(coordinator.getReceipt).toHaveBeenCalledWith(LANE, MESSAGE,
+      { kind: 'lane', agentId: CALLER_LANE, verified: true });
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE }, () =>
+      ns.messageStatus(LANE, MESSAGE))).rejects.toMatchObject({ code: 'not_found' });
+    expect(coordinator.getReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed for lane callers when no coordinator is wired, and keeps the parent fallback', async () => {
+    const { deps, mocks } = makeDeps();
+    const ns = buildAgentNamespace({ ...deps, getMessageCoordinator: () => undefined });
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, workspaceRoot: '/repo', capability: 'privileged' } as const;
+
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.message(LANE, 'go'))).resolves.toMatchObject({ mode: 'unsupported', reasonCode: 'delivery-refused' });
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE }, () =>
+      ns.message(LANE, 'go'))).resolves.toMatchObject({ mode: 'unsupported', reasonCode: 'identity-missing' });
+    expect(mocks.processManager.sendToAgent).not.toHaveBeenCalled();
+
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.messageStatus(LANE, MESSAGE))).rejects.toMatchObject({ code: 'not_found' });
+
+    await runWithMcpRequestContext({ callerSessionId: 'tab-1' }, () => ns.message(LANE, 'go'));
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledTimes(1);
   });
 
   it('sends as an anonymous parent without request identity, so a key is refused by the coordinator', async () => {

@@ -29,6 +29,7 @@ import type {
   LaneAccountBindingPort,
   LaneAccountReference,
 } from './cli-adapters/cli-adapter.interface';
+import type { AgentOutputCheckpoint } from './agent-output-journal.service';
 import {
   readCodexRolloutUsage,
   type CodexRolloutUsage,
@@ -338,21 +339,37 @@ export interface LaneHandoffCarryOver {
   readonly changedFiles: readonly string[];
 }
 
-/** Collect the handoff fields from accumulated segments. No git process. */
+function textOf(segments: readonly CliOutputSegment[]): string {
+  let text = '';
+  for (const segment of segments) {
+    if (segment.type === 'text') text += segment.content;
+  }
+  return text.trim();
+}
+
+/**
+ * Collect the handoff fields from accumulated segments. No git process.
+ *
+ * A running-output checkpoint, when the lane has one, carries the files changed
+ * before its bounded segment tail, so they lead the list. Its text stands in
+ * when the segments hold none (a lane restored after a host crash keeps only
+ * the checkpoint's tail).
+ */
 export function collectHandoffCarryOver(
   segments: readonly CliOutputSegment[],
+  checkpoint?: Pick<AgentOutputCheckpoint, 'segmentsTail' | 'stdoutTail' | 'changedFiles'>,
 ): LaneHandoffCarryOver {
-  const changed = new Set<string>();
-  let text = '';
+  const changed = new Set<string>(checkpoint?.changedFiles ?? []);
   for (const segment of segments) {
     if (segment.type === 'file-change' && segment.content.trim() !== '') {
       changed.add(segment.content.trim());
-    } else if (segment.type === 'text') {
-      text += segment.content;
     }
   }
+  const text =
+    textOf(segments) ||
+    (checkpoint ? textOf(checkpoint.segmentsTail) || checkpoint.stdoutTail.trim() : '');
   return {
-    finalText: text.trim().slice(-HANDOFF_FINAL_TEXT_MAX_CHARS),
+    finalText: text.slice(-HANDOFF_FINAL_TEXT_MAX_CHARS),
     changedFiles: [...changed],
   };
 }

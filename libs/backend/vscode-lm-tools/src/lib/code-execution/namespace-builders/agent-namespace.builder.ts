@@ -20,6 +20,7 @@ import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
 import { mcpAckCallerAgentId, mcpControlActor } from './agent-message-control-actor';
 import {
   getCallerAgentId,
+  getCallerBinding,
   getCallerSessionId,
   isMcpRequestInFlight,
 } from '../mcp-core/mcp-request-context';
@@ -34,8 +35,10 @@ import {
   type CliDetectionService,
   type LaneLimitLookupService,
   type SdkHandle,
+  type VerifiedLaneSender,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
+  AgentMessageOutcome,
   AgentMessageSender,
   AgentRoleDefinition,
   CliAdapterManifest,
@@ -55,21 +58,51 @@ import {
 } from '@ptah-extension/shared';
 
 /**
- * The sender of an MCP message, from the request context (Phase 1, URL
- * attribution; no permission change):
- * - an `/agent/{id}` caller is an unverified lane;
- * - else a `/session/{id}` caller is that parent session;
- * - else an anonymous parent, which may not use an idempotency key.
- * Phase 3 replaces the lane case with the verified caller binding. Retry and
- * cancel already use it (`mcpControlActor`): ownership must not rest on a URL.
+ * The lane the in-flight call's credential binding proves (Component 15):
+ * an `agent` binding the HTTP gate accepted, never the untokened read-only
+ * caller whose binding is built from its URL, and never a URL field.
  */
-function mcpMessageSender(): AgentMessageSender {
-  const callerAgentId = getCallerAgentId();
-  if (callerAgentId && AgentId.validate(callerAgentId)) {
-    return { kind: 'lane', agentId: AgentId.from(callerAgentId), verified: false };
-  }
+function mcpVerifiedLaneSender(): VerifiedLaneSender | undefined {
+  const binding = getCallerBinding();
+  if (!binding || binding.kind !== 'agent' || binding.capability === 'read-only') return undefined;
+  if (binding.agentId === undefined || !AgentId.validate(binding.agentId)) return undefined;
+  return {
+    agentId: AgentId.from(binding.agentId),
+    ...(binding.workspaceRoot ? { workspaceRoot: binding.workspaceRoot } : {}),
+    ...(binding.sessionId ? { sessionId: binding.sessionId } : {}),
+  };
+}
+
+/**
+ * The sender of an MCP message, from the request context:
+ * - a verified lane binding is that lane; the coordinator runs the lane policy;
+ * - an `/agent/{id}` caller without one has no proven identity (`null`);
+ * - else a `/session/{id}` caller is that parent session (unchanged);
+ * - else an anonymous parent, which may not use an idempotency key.
+ */
+function mcpMessageSender():
+  | { readonly sender: AgentMessageSender; readonly lane?: VerifiedLaneSender }
+  | null {
+  const lane = mcpVerifiedLaneSender();
+  if (lane) return { sender: { kind: 'lane', agentId: lane.agentId, verified: true }, lane };
+  if (getCallerAgentId()) return null;
   const sessionId = getCallerSessionId();
-  return sessionId ? { kind: 'parent', sessionId } : { kind: 'parent' };
+  return { sender: sessionId ? { kind: 'parent', sessionId } : { kind: 'parent' } };
+}
+
+/**
+ * The viewer of an MCP status read: a verified lane sees only envelopes it
+ * sent or that target it; an unproven lane caller sees none (`null`); any
+ * other caller keeps the Phase 1 unfiltered read.
+ */
+function mcpStatusViewer(): AgentMessageSender | undefined | null {
+  const lane = mcpVerifiedLaneSender();
+  if (lane) return { kind: 'lane', agentId: lane.agentId, verified: true };
+  return getCallerAgentId() ? null : undefined;
+}
+
+function identityMissingOutcome(agentId: AgentId): AgentMessageOutcome {
+  return { mode: 'unsupported', reasonCode: 'identity-missing', detail: 'identity-missing', requestedAgentId: agentId };
 }
 
 /**
@@ -541,10 +574,23 @@ export function buildAgentNamespace(
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
       if (coordinator) {
-        return coordinator.send({
+        const caller = mcpMessageSender();
+        // An agent caller without a verified binding is never attributed by URL.
+        if (!caller) return identityMissingOutcome(AgentId.from(agentId));
+        const request = {
           agentId: AgentId.from(agentId), message, delivery, allowPartialTurnLoss,
           ...(idempotencyKey ? { idempotencyKey } : {}),
-        }, mcpMessageSender());
+        };
+        return caller.lane
+          ? coordinator.send(request, caller.sender, caller.lane)
+          : coordinator.send(request, caller.sender);
+      }
+      // Without a coordinator no lane policy can run, so a lane or unproven
+      // agent caller fails closed; only parent and user callers fall back.
+      const fallbackCaller = mcpMessageSender();
+      if (!fallbackCaller) return identityMissingOutcome(AgentId.from(agentId));
+      if (fallbackCaller.lane) {
+        return { mode: 'unsupported', reasonCode: 'delivery-refused', detail: 'delivery-refused', requestedAgentId: AgentId.from(agentId) };
       }
       // The outcome is RETURNED, not swallowed: `unsupported` means nothing
       // was delivered and `interrupt-resume` means a turn's partial work was
@@ -554,9 +600,16 @@ export function buildAgentNamespace(
     messageStatus: async (agentId, messageId) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');
       const coordinator = deps.getMessageCoordinator?.();
-      // No viewer: Phase 1 keeps today's read access (URL attribution only).
-      return coordinator ? coordinator.getReceipt(AgentId.from(agentId), messageId)
-        : agentProcessManager.getAgentMessageStatus(agentId, messageId);
+      const viewer = mcpStatusViewer();
+      if (viewer === null) throw new AgentMessageError('not_found', 'Message receipt not found.');
+      if (!coordinator) {
+        // No coordinator means no viewer scoping: a lane caller sees nothing.
+        if (viewer) throw new AgentMessageError('not_found', 'Message receipt not found.');
+        return agentProcessManager.getAgentMessageStatus(agentId, messageId);
+      }
+      return viewer
+        ? coordinator.getReceipt(AgentId.from(agentId), messageId, viewer)
+        : coordinator.getReceipt(AgentId.from(agentId), messageId);
     },
     control: async (agentId, messageId, action, confirmDuplicateRisk) => {
       if (!AgentId.validate(agentId)) throw new AgentMessageError('not_found', 'Agent not found.');

@@ -115,6 +115,7 @@ import {
   type FileSystemService,
 } from '@ptah-extension/workspace-intelligence';
 import {
+  AgentMessageError,
   AgentRoleError,
   CliCommandLineTooLongError,
   type AgentRoleErrorCode,
@@ -3505,6 +3506,22 @@ describe('protocol-handlers › ptah_agent_message', () => {
     expect(message).not.toHaveBeenCalled();
     expect(agentToolResult(res).isError).toBe(true);
     expect(agentToolResult(res).text).toMatch(/sender/);
+  });
+
+  it.each(['sender', 'from'])('rejects a spoofed `%s` key from a lane caller (strict schema)', async (key) => {
+    const message = jest.fn();
+    const res = await callTool('ptah_agent_message',
+      { agentId: 'a-1', message: 'go', [key]: '66666666-7777-4888-8999-aaaaaaaaaaaa' }, { message });
+    expect(message).not.toHaveBeenCalled();
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(agentToolResult(res).text).toMatch(new RegExp(key));
+  });
+
+  it('answers not_found when a scoped lane viewer may not see the message', async () => {
+    const messageStatus = jest.fn().mockRejectedValue(new AgentMessageError('not_found', 'Message receipt not found.'));
+    const res = await callTool('ptah_agent_message_status', { agentId: 'a-1', messageId: MESSAGE_ID }, { messageStatus });
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(agentToolResult(res).text).toMatch(/not_found: Message receipt not found\./);
   });
 
   it('accepts 102,400 characters and rejects 102,401 (AGENT_MESSAGE_MAX_CHARS)', async () => {

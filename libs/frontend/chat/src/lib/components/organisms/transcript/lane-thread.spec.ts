@@ -65,6 +65,36 @@ describe('laneThreadEntries', () => {
     expect(entries[0].parentDelivery).toBeUndefined();
   });
 
+  describe('lane-to-lane sender', () => {
+    const sender = AgentId.from('22222222-2222-4222-8222-222222222222');
+    const fromLane: AgentDeliveryReceipt = { id: 'peer-1', agentId: 'lane', sender: 'lane', senderAgentId: sender,
+      preview: 'Schema is ready', state: 'settled', mode: 'queue-next-turn', delivery: 'queue', createdAt: 5, updatedAt: 6 };
+
+    it('labels the entry with the sender lane name from the resolver', () => {
+      const entries = laneThreadEntries([], [fromLane], 'Claude', 'Docs', 'Codex', [], undefined,
+        id => (id === sender ? 'Schema lane' : undefined));
+      expect(entries[0]).toMatchObject({ sender: 'From lane Schema lane', senderKind: 'peer-lane', senderAgentId: sender });
+    });
+
+    it('falls back to the agent id when no name is known', () => {
+      const entries = laneThreadEntries([], [fromLane], 'Claude', 'Docs', 'Codex');
+      expect(entries[0]).toMatchObject({ sender: `From lane ${sender}`, senderKind: 'peer-lane' });
+    });
+
+    it('attributes a matched transcript message to the sender lane', () => {
+      const messages = [createExecutionChatMessage({ id: 'lane:user:peer-1', role: 'user', timestamp: 7, rawContent: 'Schema is ready' })];
+      const entries = laneThreadEntries(messages, [fromLane], 'Claude', 'Docs', 'Codex', [], undefined, () => 'Schema');
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ sender: 'From lane Schema', senderKind: 'peer-lane', receipt: fromLane });
+    });
+
+    it('keeps user, parent and own-lane entries on their own kinds', () => {
+      const entries = laneThreadEntries([], [{ ...fromLane, id: 'u', sender: 'user' }, { ...fromLane, id: 'p', sender: 'parent' }],
+        'Claude', 'Docs', 'Codex', [], { status: 'completed', timestamp: 20 });
+      expect(entries.map(entry => entry.senderKind)).toEqual(['user', 'parent', 'this-lane']);
+    });
+  });
+
   it('names the CLI once when the lane label equals the CLI', () => {
     const entries = laneThreadEntries([], [], 'Claude', 'opencode', 'opencode', [],
       { status: 'completed', timestamp: 20 });
@@ -91,6 +121,7 @@ describe('laneThreadEntries', () => {
       {
         id: 'ack:r1',
         sender: 'Docs · Codex',
+        senderKind: 'this-lane',
         kind: 'ack',
         timestamp: 42,
         body: 'Lane reports acted',

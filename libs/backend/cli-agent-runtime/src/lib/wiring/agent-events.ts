@@ -45,6 +45,7 @@ import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot
 import { ParentEnvelopeStoreService } from '../cli-agents/parent-delivery/parent-envelope-store.service';
 import type { ParentCompletionOutboxEntry } from '../cli-agents/parent-delivery/parent-envelope.schema';
 import type { LaneTerminalCheckpoint } from '../cli-agents/lane-terminal-checkpoint.port';
+import type { AgentOutputJournal } from '../cli-agents/agent-output-journal.service';
 
 /** Running lanes checkpoint activity without writing output bodies. */
 const ACTIVITY_CHECKPOINT_INTERVAL_MS = 30_000;
@@ -305,6 +306,10 @@ function wireAgentMonitorListeners(
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
 ): void {
   const activityCheckpoints = new Map<string, number>();
+  const journal = persistCliSession
+    ? resolveOutputJournal(container, logger, tag)
+    : undefined;
+  if (journal) void journal.pruneExpired();
 
   agentProcessManager.events.on('agent:spawned', (info: AgentProcessInfo) => {
     activityCheckpoints.delete(String(info.agentId));
@@ -351,6 +356,8 @@ function wireAgentMonitorListeners(
 
     if (persistCliSession) {
       const info = agentProcessManager.findAgentInfo(delta.agentId);
+      // Marks only; the journal's one interval writes it (no per-delta write).
+      if (info?.status === 'running') journal?.markDirty(String(delta.agentId));
       const activityAt = Date.parse(info?.lastActivityAt ?? '');
       const previousCheckpoint = activityCheckpoints.get(String(delta.agentId));
       if (
@@ -390,6 +397,21 @@ function wireAgentMonitorListeners(
         );
       });
 
+    if (persistCliSession) {
+      // The exit checkpoint starts before the completion persist; it is
+      // removed only once that reference is durable.
+      const agentKey = String(info.agentId);
+      const written = journal?.checkpointNow(agentKey);
+      persistCliSessionReference(container, logger, tag, info, getSdkSessionId, undefined, () => {
+        void written?.then((seq) => (seq === undefined ? undefined : journal?.remove(agentKey, seq)));
+      });
+    }
+  });
+
+  // A restored host-restart lane's checkpoint is newer than its persisted
+  // output: persist it as the lane's output, with `outputLostAfter`. The
+  // checkpoint itself stays for the fresh handoff until it expires.
+  agentProcessManager.events.on('agent:output-recovered', (info: AgentProcessInfo) => {
     if (persistCliSession) {
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
@@ -458,6 +480,24 @@ function wireAgentMonitorListeners(
         });
     },
   );
+}
+
+/** The running-output journal, when this host registers one. */
+function resolveOutputJournal(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+): AgentOutputJournal | undefined {
+  if (!container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL, true)) return undefined;
+  try {
+    return container.resolve<AgentOutputJournal>(CLI_AGENT_RUNTIME_TOKENS.AGENT_OUTPUT_JOURNAL);
+  } catch (error: unknown) {
+    logger.error(
+      `${tag} Failed to resolve the running-output journal`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return undefined;
+  }
 }
 
 function wireCopilotPermissionForwarding(
@@ -530,7 +570,9 @@ function wireCopilotPermissionForwarding(
  * Persist a CLI session reference to the parent session's metadata store.
  * Fire-and-forget with retry — errors are logged, never thrown. `onFailed`
  * runs once when the reference was not persisted: skipped for a missing
- * parent or store, or failed after its retries.
+ * parent or store, or failed after its retries. `onPersisted` runs only after
+ * `addCliSession` accepted the reference; a write skipped as stale (a newer
+ * run or turn of the lane) runs neither callback.
  *
  * Exported so `sdk-callbacks.ts` can re-persist exited agents once their
  * parent session IDs resolve from tab ID to real SDK UUID.
@@ -542,6 +584,7 @@ export function persistCliSessionReference(
   info: AgentProcessInfo,
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
   onFailed?: () => void,
+  onPersisted?: () => void,
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
@@ -652,6 +695,7 @@ export function persistCliSessionReference(
       info.stopResetAt > 0
         ? { stopResetAt: info.stopResetAt }
         : {}),
+      ...(info.outputLostAfter ? { outputLostAfter: info.outputLostAfter } : {}),
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }
         : {}),
@@ -681,14 +725,16 @@ export function persistCliSessionReference(
     // (TASK_2026_324 finding 2). Sequencing them makes the reference the
     // receipt for the bulk: it cannot become durable first, and a retry
     // re-runs the bulk, which is a whole-record overwrite and so idempotent.
-    const persistBulkThenReference = async (): Promise<void> => {
+    // Resolves `written` only once `addCliSession` accepted the reference; a
+    // stale skip resolves `skipped` so no caller treats it as durable.
+    const persistBulkThenReference = async (): Promise<'written' | 'skipped'> => {
       const isStale = (): boolean => {
         if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) return false;
         const current = container.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER).findAgentInfo(info.agentId);
         return current !== undefined && (current.startedAt !== info.startedAt ||
           (agentHasFinished && current.status === 'running'));
       };
-      if (isStale()) return;
+      if (isStale()) return 'skipped';
       if (
         agentHasFinished &&
         persistedOutput &&
@@ -710,8 +756,9 @@ export function persistCliSessionReference(
           parentSessionId,
         );
       }
-      if (isStale()) return;
+      if (isStale()) return 'skipped';
       await metadataStore.addCliSession(parentSessionId, ref);
+      return 'written';
     };
 
     const persist = (): Promise<void> =>
@@ -740,10 +787,21 @@ export function persistCliSessionReference(
           );
         },
       })
-        .then(() => {
+        .then((result) => {
+          if (result === 'skipped') {
+            // Superseded by a newer run or turn of this lane: nothing was
+            // written, so `onPersisted` must not acknowledge it (an exit
+            // checkpoint would be removed although its reference never landed).
+            logger.debug(
+              `${tag} CLI session reference write skipped as stale: ${effectiveCliSessionId}`,
+              { agentId: info.agentId, startedAt: info.startedAt },
+            );
+            return;
+          }
           logger.info(
             `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
           );
+          onPersisted?.();
           // Only after `addCliSession` accepted the reference: a parent that is
           // still a tab id is rejected there ("Parent session not found"), so a
           // success means `parentSessionId` is a real SDK session UUID — the

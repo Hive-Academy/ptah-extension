@@ -1492,10 +1492,23 @@ async function handleIndividualTool(
             request,
             `Error: invalid ptah_agent_message_status arguments — ${describeZodIssues(parsed.error)}`,
           );
-        const status = await ptahAPI.agent.messageStatus(
-          parsed.data.agentId,
-          parsed.data.messageId,
-        );
+        let status: Awaited<ReturnType<typeof ptahAPI.agent.messageStatus>>;
+        try {
+          // A bound lane caller is scoped to envelopes it sent or that target
+          // it (Component 15); any other envelope answers `not_found`.
+          status = await ptahAPI.agent.messageStatus(
+            parsed.data.agentId,
+            parsed.data.messageId,
+          );
+        } catch (error: unknown) {
+          if (error instanceof AgentMessageError) {
+            return toolErrorResponse(
+              request,
+              `Error: ptah_agent_message_status found no message ${parsed.data.messageId} for agent ${parsed.data.agentId} — ${error.code}: ${error.message}`,
+            );
+          }
+          throw error;
+        }
         return await createToolSuccessResponse(
           request,
           JSON.stringify(

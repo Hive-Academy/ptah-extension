@@ -1507,6 +1507,26 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     expect(requestPanelOpen).toHaveBeenCalledTimes(2);
   });
 
+  it('hands a restored lane its outputLostAfter for the lost-output notice', () => {
+    configure();
+    const lostAt = '2026-10-17T10:05:00.000Z';
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: {
+        agents: () => [
+          { agentId: 'agent-1', parentSessionId: 'session-1', status: 'stopped', model: null, usageTotals: null,
+            startedAt: 0, completedAt: 1, outputLostAfter: lostAt },
+          { agentId: 'agent-2', parentSessionId: 'session-1', status: 'completed', model: null, usageTotals: null,
+            startedAt: 0, completedAt: 1 },
+        ],
+        requestPanelOpen: jest.fn(),
+      },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const snapshots = transcriptOf(fixture).component['monitoredLaneAgents']();
+    expect(snapshots.get('agent-1')?.outputLostAfter).toBe(lostAt);
+    expect(snapshots.get('agent-2')).not.toHaveProperty('outputLostAfter');
+  });
+
   it('does not open a CLI agent from another session', () => {
     configure();
     const requestPanelOpen = jest.fn();

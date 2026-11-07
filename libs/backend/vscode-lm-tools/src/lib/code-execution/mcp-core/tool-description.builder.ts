@@ -21,7 +21,9 @@ import {
   TASK_LIST_DEFAULT_LIMIT,
   TASK_LIST_MAX_LIMIT,
 } from '../namespace-builders/tasks-namespace.builder';
+import { LANE_SENDER_RATE_LIMIT } from '@ptah-extension/cli-agent-runtime';
 import {
+  AGENT_LANE_MESSAGE_MAX_CHARS,
   AGENT_MESSAGE_MAX_CHARS,
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
@@ -892,7 +894,10 @@ export function buildAgentMessageTool(): MCPToolDefinition {
       'says why). Always read "mode": it is not a plain success. Call ' +
       'ptah_agent_list first to see which mechanism each agent offers. Pass ' +
       'an idempotencyKey to make a repeat of the same call safe: it returns ' +
-      'the first message, marked deduplicated.',
+      'the first message, marked deduplicated. A lane may message only ' +
+      'sibling lanes (same parent and workspace), at most ' +
+      `${LANE_SENDER_RATE_LIMIT}/min and ${AGENT_LANE_MESSAGE_MAX_CHARS} chars; ` +
+      'its identity is its credential, never an argument.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -938,7 +943,8 @@ export function buildAgentMessageStatusTool(): MCPToolDefinition {
       'that the agent acted on the message. An "outcome-unknown" message may ' +
       'already have run. ackState is the agent\'s own acknowledgment: ' +
       '"pending" (not yet), "read", "acted", "rejected", or "unavailable" ' +
-      '(the agent cannot call Ptah tools).',
+      '(the agent cannot call Ptah tools). A lane sees only messages it sent ' +
+      'or received.',
     inputSchema: {
       type: 'object',
       properties: {

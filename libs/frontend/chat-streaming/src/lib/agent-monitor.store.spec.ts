@@ -560,6 +560,29 @@ describe('AgentMonitorStore', () => {
     });
   });
 
+  it('carries a valid outputLostAfter onto a restored card and drops an invalid one', () => {
+    const lostId = AgentId.create();
+    const badId = AgentId.create();
+    const lostAt = '2026-10-17T10:05:00.000Z';
+    const ref = {
+      cliSessionId: 'cli-lost',
+      cli: 'codex' as const,
+      task: 'Review',
+      startedAt: '2026-10-17T09:05:30.000Z',
+      status: 'stopped' as const,
+      stopReason: 'host-restart' as const,
+    };
+    store.loadCliSessions(
+      [
+        { ...ref, agentId: lostId, outputLostAfter: lostAt },
+        { ...ref, cliSessionId: 'cli-bad', agentId: badId, outputLostAfter: 'later' },
+      ],
+      'session-1',
+    );
+    expect(store.agents().find((agent) => agent.agentId === lostId)?.outputLostAfter).toBe(lostAt);
+    expect(store.agents().find((agent) => agent.agentId === badId)).not.toHaveProperty('outputLostAfter');
+  });
+
   it('keeps a lane the backend reports running as live, not interrupted', () => {
     const liveId = AgentId.create();
     store.loadCliSessions(

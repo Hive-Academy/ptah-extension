@@ -31,6 +31,11 @@ import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import { manifestFixture } from './testing/manifest.fixture';
 import {
+  AGENT_OUTPUT_CHECKPOINT_KEY_PREFIX,
+  AgentOutputJournal,
+  type AgentOutputCheckpoint,
+} from './agent-output-journal.service';
+import {
   LaneResumeGate,
   type LaneResumeGateInput,
 } from './lane-resume-gate';
@@ -62,6 +67,7 @@ function makeManager(options: {
   evaluateResume?: jest.Mock;
   info?: jest.Mock;
   laneCompletion?: LaneCompletionNotifier;
+  outputJournal?: AgentOutputJournal;
 }): AgentProcessManager {
   const logger = {
     info: options.info ?? jest.fn(),
@@ -128,6 +134,14 @@ function makeManager(options: {
       recordOwnerEvidence: jest.fn(),
       recordSuccess: jest.fn(),
     } as unknown as Args[10],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    options.outputJournal,
   );
 }
 
@@ -806,6 +820,135 @@ describe('AgentProcessManager.restoreAgents', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('with a running-output checkpoint (P3-K)', () => {
+    const checkpointAt = '2026-09-01T10:05:00.000Z';
+    function journalWith(checkpoint: AgentOutputCheckpoint): AgentOutputJournal {
+      const storage = new FakeStateStorage();
+      void storage.update(`${AGENT_OUTPUT_CHECKPOINT_KEY_PREFIX}${checkpoint.agentId}`, checkpoint);
+      const silent = Object.assign(Object.create(null) as Logger, {
+        info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+      });
+      return new AgentOutputJournal(storage, silent, () => ({
+        readOutput: () => undefined,
+        hasRunningLanes: () => false,
+      }));
+    }
+    const checkpoint: AgentOutputCheckpoint = {
+      agentId: RESTORED_ID,
+      seq: 4,
+      at: checkpointAt,
+      stdoutTail: 'checkpoint stdout',
+      segmentsTail: [
+        { type: 'file-change', content: 'src/tail.ts' },
+        { type: 'text', content: 'checkpoint text' },
+      ],
+      changedFiles: ['src/early.ts', 'src/tail.ts'],
+    };
+    const interrupted = (overrides: Partial<CliSessionReference> = {}) =>
+      makeRef({
+        cli: 'copilot',
+        status: 'stopped',
+        stopReason: 'host-restart',
+        segments: [{ type: 'text', content: 'stale ref text' }],
+        ...overrides,
+      });
+
+    it('restores output up to the checkpoint, keeps host-restart and sets outputLostAfter', () => {
+      const manager = makeManager({ providerRoot: ROOT_A, outputJournal: journalWith(checkpoint) });
+      const recovered: AgentProcessInfo[] = [];
+      manager.events.on('agent:output-recovered', (info: AgentProcessInfo) => recovered.push(info));
+      manager.restoreAgents([interrupted()], ROOT_A, 'parent-1');
+
+      const info = manager.getStatus(RESTORED_ID) as AgentProcessInfo;
+      expect(info).toMatchObject({
+        status: 'stopped',
+        stopReason: 'host-restart',
+        outputLostAfter: checkpointAt,
+      });
+      // Replaced, not appended: the checkpoint is the only output (no replay).
+      expect(manager.readOutputForPersistence(RESTORED_ID)).toMatchObject({
+        stdout: 'checkpoint stdout',
+        segments: checkpoint.segmentsTail,
+      });
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0]).toMatchObject({ outputLostAfter: checkpointAt, stopReason: 'host-restart' });
+    });
+
+    it('does not recover again once the reference carries the checkpoint time', () => {
+      const manager = makeManager({ providerRoot: ROOT_A, outputJournal: journalWith(checkpoint) });
+      const recovered = jest.fn();
+      manager.events.on('agent:output-recovered', recovered);
+      manager.restoreAgents([interrupted({ outputLostAfter: checkpointAt })], ROOT_A);
+      expect(recovered).not.toHaveBeenCalled();
+      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).outputLostAfter).toBe(checkpointAt);
+    });
+
+    it('ignores a checkpoint older than the saved output on restore and in the handoff', async () => {
+      const savedAt = '2026-09-01T10:06:00.000Z';
+      const manager = makeManager({
+        providerRoot: ROOT_A,
+        outputJournal: journalWith(checkpoint),
+        evaluateResume: jest.fn(async () => ({
+          decision: 'fresh', reason: 'too large', contextTokens: null, source: 'estimate', idleMs: null,
+        })),
+      });
+      const recovered = jest.fn();
+      manager.events.on('agent:output-recovered', recovered);
+      manager.restoreAgents(
+        [interrupted({ outputLostAfter: savedAt, segments: [{ type: 'text', content: 'saved ref text' }] })],
+        ROOT_A,
+      );
+
+      expect(recovered).not.toHaveBeenCalled();
+      expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).outputLostAfter).toBe(savedAt);
+      expect(manager.readOutputForPersistence(RESTORED_ID)).toMatchObject({
+        segments: [{ type: 'text', content: 'saved ref text' }],
+      });
+      const gated = await manager['gateResume']('Continue the work', 'cli-session-1', 'copilot');
+      expect(gated.task).toContain('saved ref text');
+      expect(gated.task).not.toContain('checkpoint text');
+      expect(gated.task).not.toContain('src/early.ts');
+    });
+
+    it('still skips the idle rule on resume when restored from a checkpoint', async () => {
+      const now = Date.now();
+      const output: IOutputChannel = {
+        name: 'Ptah', appendLine: jest.fn(), append: jest.fn(), clear: jest.fn(), show: jest.fn(), dispose: jest.fn(),
+      };
+      const gate = new LaneResumeGate(output, jest.fn(async () => null), () => now);
+      const manager = makeManager({
+        providerRoot: ROOT_A,
+        outputJournal: journalWith(checkpoint),
+        evaluateResume: jest.fn((input: LaneResumeGateInput) => gate.evaluate(input)),
+      });
+      manager.restoreAgents(
+        [interrupted({
+          startedAt: new Date(now - 3_600_000).toISOString(),
+          lastActivityAt: new Date(now - 601_000).toISOString(),
+          completedAt: new Date(now - 601_000).toISOString(),
+        })],
+        ROOT_A,
+      );
+      const gated = await manager['gateResume']('Continue the work', 'cli-session-1', 'copilot');
+      expect(gated.resumeDecision).toMatchObject({ decision: 'resumed' });
+    });
+
+    it('builds the fresh handoff from the checkpoint text and changed files', async () => {
+      const manager = makeManager({
+        providerRoot: ROOT_A,
+        outputJournal: journalWith(checkpoint),
+        evaluateResume: jest.fn(async () => ({
+          decision: 'fresh', reason: 'too large', contextTokens: null, source: 'estimate', idleMs: null,
+        })),
+      });
+      manager.restoreAgents([interrupted()], ROOT_A);
+      const gated = await manager['gateResume']('Continue the work', 'cli-session-1', 'copilot');
+      expect(gated.task).toContain(['- src/early.ts', '- src/tail.ts'].join('\n'));
+      expect(gated.task).toContain('checkpoint text');
+      expect(gated.task).not.toContain('stale ref text');
+    });
   });
 
   it('an unknown id says no record exists in this host at all, keeping the "Agent not found" prefix', () => {
